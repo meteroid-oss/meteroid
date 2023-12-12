@@ -2,4 +2,4 @@
 
 Nothing here, yet 👀 
 
-We are working on completing and opensourcing our first alpha iteration, early november 23.
+We are working on opensourcing our product, launch is planned for january 🚀
