@@ -1841,14 +1841,16 @@ WHERE bm.id = ANY ($1)
         pub struct CreateCustomerParams<
             T1: cornucopia_async::StringSql,
             T2: cornucopia_async::StringSql,
-            T3: cornucopia_async::JsonSql,
+            T3: cornucopia_async::StringSql,
+            T4: cornucopia_async::JsonSql,
         > {
             pub id: uuid::Uuid,
             pub name: T1,
             pub alias: Option<T2>,
+            pub email: T3,
             pub tenant_id: uuid::Uuid,
             pub created_by: uuid::Uuid,
-            pub billing_config: T3,
+            pub billing_config: T4,
         }
         #[derive(Debug)]
         pub struct ListCustomersParams<
@@ -1880,49 +1882,55 @@ WHERE bm.id = ANY ($1)
             pub aliases: T2,
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct Customer {
+        pub struct CreateCustomer {
             pub id: uuid::Uuid,
             pub name: String,
-            pub alias: Option<String>,
-            pub billing_config: Option<serde_json::Value>,
+            pub email: String,
+            pub alias: String,
+            pub billing_config: serde_json::Value,
         }
-        pub struct CustomerBorrowed<'a> {
+        pub struct CreateCustomerBorrowed<'a> {
             pub id: uuid::Uuid,
             pub name: &'a str,
-            pub alias: Option<&'a str>,
-            pub billing_config: Option<postgres_types::Json<&'a serde_json::value::RawValue>>,
+            pub email: &'a str,
+            pub alias: &'a str,
+            pub billing_config: postgres_types::Json<&'a serde_json::value::RawValue>,
         }
-        impl<'a> From<CustomerBorrowed<'a>> for Customer {
+        impl<'a> From<CreateCustomerBorrowed<'a>> for CreateCustomer {
             fn from(
-                CustomerBorrowed {
+                CreateCustomerBorrowed {
                     id,
                     name,
+                    email,
                     alias,
                     billing_config,
-                }: CustomerBorrowed<'a>,
+                }: CreateCustomerBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
                     name: name.into(),
-                    alias: alias.map(|v| v.into()),
-                    billing_config: billing_config
-                        .map(|v| serde_json::from_str(v.0.get()).unwrap()),
+                    email: email.into(),
+                    alias: alias.into(),
+                    billing_config: serde_json::from_str(billing_config.0.get()).unwrap(),
                 }
             }
         }
-        pub struct CustomerQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct CreateCustomerQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> CustomerBorrowed,
-            mapper: fn(CustomerBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> CreateCustomerBorrowed,
+            mapper: fn(CreateCustomerBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> CustomerQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> CreateCustomerQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
-            pub fn map<R>(self, mapper: fn(CustomerBorrowed) -> R) -> CustomerQuery<'a, C, R, N> {
-                CustomerQuery {
+            pub fn map<R>(
+                self,
+                mapper: fn(CreateCustomerBorrowed) -> R,
+            ) -> CreateCustomerQuery<'a, C, R, N> {
+                CreateCustomerQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -1963,56 +1971,55 @@ WHERE bm.id = ANY ($1)
             }
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct ListCustomers {
+        pub struct CustomerList {
             pub id: uuid::Uuid,
             pub name: String,
+            pub email: Option<String>,
             pub alias: Option<String>,
-            pub billing_config: Option<serde_json::Value>,
             pub total_count: i64,
         }
-        pub struct ListCustomersBorrowed<'a> {
+        pub struct CustomerListBorrowed<'a> {
             pub id: uuid::Uuid,
             pub name: &'a str,
+            pub email: Option<&'a str>,
             pub alias: Option<&'a str>,
-            pub billing_config: Option<postgres_types::Json<&'a serde_json::value::RawValue>>,
             pub total_count: i64,
         }
-        impl<'a> From<ListCustomersBorrowed<'a>> for ListCustomers {
+        impl<'a> From<CustomerListBorrowed<'a>> for CustomerList {
             fn from(
-                ListCustomersBorrowed {
+                CustomerListBorrowed {
                     id,
                     name,
+                    email,
                     alias,
-                    billing_config,
                     total_count,
-                }: ListCustomersBorrowed<'a>,
+                }: CustomerListBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
                     name: name.into(),
+                    email: email.map(|v| v.into()),
                     alias: alias.map(|v| v.into()),
-                    billing_config: billing_config
-                        .map(|v| serde_json::from_str(v.0.get()).unwrap()),
                     total_count,
                 }
             }
         }
-        pub struct ListCustomersQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct CustomerListQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> ListCustomersBorrowed,
-            mapper: fn(ListCustomersBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> CustomerListBorrowed,
+            mapper: fn(CustomerListBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> ListCustomersQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> CustomerListQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(ListCustomersBorrowed) -> R,
-            ) -> ListCustomersQuery<'a, C, R, N> {
-                ListCustomersQuery {
+                mapper: fn(CustomerListBorrowed) -> R,
+            ) -> CustomerListQuery<'a, C, R, N> {
+                CustomerListQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -2065,6 +2072,169 @@ WHERE bm.id = ANY ($1)
         {
             pub fn map<R>(self, mapper: fn(i64) -> R) -> I64Query<'a, C, R, N> {
                 I64Query {
+                    client: self.client,
+                    params: self.params,
+                    stmt: self.stmt,
+                    extractor: self.extractor,
+                    mapper,
+                }
+            }
+            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let row = self.client.query_one(stmt, &self.params).await?;
+                Ok((self.mapper)((self.extractor)(&row)))
+            }
+            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+                self.iter().await?.try_collect().await
+            }
+            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                Ok(self
+                    .client
+                    .query_opt(stmt, &self.params)
+                    .await?
+                    .map(|row| (self.mapper)((self.extractor)(&row))))
+            }
+            pub async fn iter(
+                self,
+            ) -> Result<
+                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
+                tokio_postgres::Error,
+            > {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let it = self
+                    .client
+                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
+                    .await?
+                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
+                    .into_stream();
+                Ok(it)
+            }
+        }
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct Customer {
+            pub id: uuid::Uuid,
+            pub name: String,
+            pub alias: Option<String>,
+            pub billing_config: Option<serde_json::Value>,
+            pub email: String,
+            pub invoicing_email: String,
+            pub phone: String,
+            pub balance_value: String,
+            pub balance_currency: String,
+            pub archived_at: time::PrimitiveDateTime,
+            pub created_at: time::PrimitiveDateTime,
+            pub billing_address_line1: String,
+            pub billing_address_line2: String,
+            pub billing_address_city: String,
+            pub billing_address_country: String,
+            pub billing_address_state: String,
+            pub billing_address_zipcode: String,
+            pub shipping_address_same: bool,
+            pub shipping_address_line1: String,
+            pub shipping_address_line2: String,
+            pub shipping_address_city: String,
+            pub shipping_address_country: String,
+            pub shipping_address_state: String,
+            pub shipping_address_zipcode: String,
+        }
+        pub struct CustomerBorrowed<'a> {
+            pub id: uuid::Uuid,
+            pub name: &'a str,
+            pub alias: Option<&'a str>,
+            pub billing_config: Option<postgres_types::Json<&'a serde_json::value::RawValue>>,
+            pub email: &'a str,
+            pub invoicing_email: &'a str,
+            pub phone: &'a str,
+            pub balance_value: &'a str,
+            pub balance_currency: &'a str,
+            pub archived_at: time::PrimitiveDateTime,
+            pub created_at: time::PrimitiveDateTime,
+            pub billing_address_line1: &'a str,
+            pub billing_address_line2: &'a str,
+            pub billing_address_city: &'a str,
+            pub billing_address_country: &'a str,
+            pub billing_address_state: &'a str,
+            pub billing_address_zipcode: &'a str,
+            pub shipping_address_same: bool,
+            pub shipping_address_line1: &'a str,
+            pub shipping_address_line2: &'a str,
+            pub shipping_address_city: &'a str,
+            pub shipping_address_country: &'a str,
+            pub shipping_address_state: &'a str,
+            pub shipping_address_zipcode: &'a str,
+        }
+        impl<'a> From<CustomerBorrowed<'a>> for Customer {
+            fn from(
+                CustomerBorrowed {
+                    id,
+                    name,
+                    alias,
+                    billing_config,
+                    email,
+                    invoicing_email,
+                    phone,
+                    balance_value,
+                    balance_currency,
+                    archived_at,
+                    created_at,
+                    billing_address_line1,
+                    billing_address_line2,
+                    billing_address_city,
+                    billing_address_country,
+                    billing_address_state,
+                    billing_address_zipcode,
+                    shipping_address_same,
+                    shipping_address_line1,
+                    shipping_address_line2,
+                    shipping_address_city,
+                    shipping_address_country,
+                    shipping_address_state,
+                    shipping_address_zipcode,
+                }: CustomerBorrowed<'a>,
+            ) -> Self {
+                Self {
+                    id,
+                    name: name.into(),
+                    alias: alias.map(|v| v.into()),
+                    billing_config: billing_config
+                        .map(|v| serde_json::from_str(v.0.get()).unwrap()),
+                    email: email.into(),
+                    invoicing_email: invoicing_email.into(),
+                    phone: phone.into(),
+                    balance_value: balance_value.into(),
+                    balance_currency: balance_currency.into(),
+                    archived_at,
+                    created_at,
+                    billing_address_line1: billing_address_line1.into(),
+                    billing_address_line2: billing_address_line2.into(),
+                    billing_address_city: billing_address_city.into(),
+                    billing_address_country: billing_address_country.into(),
+                    billing_address_state: billing_address_state.into(),
+                    billing_address_zipcode: billing_address_zipcode.into(),
+                    shipping_address_same,
+                    shipping_address_line1: shipping_address_line1.into(),
+                    shipping_address_line2: shipping_address_line2.into(),
+                    shipping_address_city: shipping_address_city.into(),
+                    shipping_address_country: shipping_address_country.into(),
+                    shipping_address_state: shipping_address_state.into(),
+                    shipping_address_zipcode: shipping_address_zipcode.into(),
+                }
+            }
+        }
+        pub struct CustomerQuery<'a, C: GenericClient, T, const N: usize> {
+            client: &'a C,
+            params: [&'a (dyn postgres_types::ToSql + Sync); N],
+            stmt: &'a mut cornucopia_async::private::Stmt,
+            extractor: fn(&tokio_postgres::Row) -> CustomerBorrowed,
+            mapper: fn(CustomerBorrowed) -> T,
+        }
+        impl<'a, C, T: 'a, const N: usize> CustomerQuery<'a, C, T, N>
+        where
+            C: GenericClient,
+        {
+            pub fn map<R>(self, mapper: fn(CustomerBorrowed) -> R) -> CustomerQuery<'a, C, R, N> {
+                CustomerQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -2179,16 +2349,15 @@ WHERE bm.id = ANY ($1)
             }
         }
         pub fn create_customer() -> CreateCustomerStmt {
-            CreateCustomerStmt(cornucopia_async::private::Stmt::new(
-                "INSERT INTO customer (id, name, alias, tenant_id, created_by, billing_config)
+            CreateCustomerStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES ($1,
         $2,
         $3,
         $4,
         $5,
-        $6)
-RETURNING id, name, alias, billing_config",
-            ))
+        $6,
+        $7)
+RETURNING id, name, email, alias, billing_config"))
         }
         pub struct CreateCustomerStmt(cornucopia_async::private::Stmt);
         impl CreateCustomerStmt {
@@ -2197,28 +2366,39 @@ RETURNING id, name, alias, billing_config",
                 C: GenericClient,
                 T1: cornucopia_async::StringSql,
                 T2: cornucopia_async::StringSql,
-                T3: cornucopia_async::JsonSql,
+                T3: cornucopia_async::StringSql,
+                T4: cornucopia_async::JsonSql,
             >(
                 &'a mut self,
                 client: &'a C,
                 id: &'a uuid::Uuid,
                 name: &'a T1,
                 alias: &'a Option<T2>,
+                email: &'a T3,
                 tenant_id: &'a uuid::Uuid,
                 created_by: &'a uuid::Uuid,
-                billing_config: &'a T3,
-            ) -> CustomerQuery<'a, C, Customer, 6> {
-                CustomerQuery {
+                billing_config: &'a T4,
+            ) -> CreateCustomerQuery<'a, C, CreateCustomer, 7> {
+                CreateCustomerQuery {
                     client,
-                    params: [id, name, alias, tenant_id, created_by, billing_config],
+                    params: [
+                        id,
+                        name,
+                        alias,
+                        email,
+                        tenant_id,
+                        created_by,
+                        billing_config,
+                    ],
                     stmt: &mut self.0,
-                    extractor: |row| CustomerBorrowed {
+                    extractor: |row| CreateCustomerBorrowed {
                         id: row.get(0),
                         name: row.get(1),
-                        alias: row.get(2),
-                        billing_config: row.get(3),
+                        email: row.get(2),
+                        alias: row.get(3),
+                        billing_config: row.get(4),
                     },
-                    mapper: |it| <Customer>::from(it),
+                    mapper: |it| <CreateCustomer>::from(it),
                 }
             }
         }
@@ -2227,25 +2407,27 @@ RETURNING id, name, alias, billing_config",
                 C: GenericClient,
                 T1: cornucopia_async::StringSql,
                 T2: cornucopia_async::StringSql,
-                T3: cornucopia_async::JsonSql,
+                T3: cornucopia_async::StringSql,
+                T4: cornucopia_async::JsonSql,
             >
             cornucopia_async::Params<
                 'a,
-                CreateCustomerParams<T1, T2, T3>,
-                CustomerQuery<'a, C, Customer, 6>,
+                CreateCustomerParams<T1, T2, T3, T4>,
+                CreateCustomerQuery<'a, C, CreateCustomer, 7>,
                 C,
             > for CreateCustomerStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a CreateCustomerParams<T1, T2, T3>,
-            ) -> CustomerQuery<'a, C, Customer, 6> {
+                params: &'a CreateCustomerParams<T1, T2, T3, T4>,
+            ) -> CreateCustomerQuery<'a, C, CreateCustomer, 7> {
                 self.bind(
                     client,
                     &params.id,
                     &params.name,
                     &params.alias,
+                    &params.email,
                     &params.tenant_id,
                     &params.created_by,
                     &params.billing_config,
@@ -2256,8 +2438,8 @@ RETURNING id, name, alias, billing_config",
             ListCustomersStmt(cornucopia_async::private::Stmt::new(
                 "SELECT id,
        name,
+       email,
        alias,
-       billing_config,
        COUNT(*) OVER () AS total_count
 FROM customer
 WHERE tenant_id = $1
@@ -2296,19 +2478,19 @@ LIMIT $4 OFFSET $5",
                 order_by: &'a T2,
                 limit: &'a i64,
                 offset: &'a i64,
-            ) -> ListCustomersQuery<'a, C, ListCustomers, 5> {
-                ListCustomersQuery {
+            ) -> CustomerListQuery<'a, C, CustomerList, 5> {
+                CustomerListQuery {
                     client,
                     params: [tenant_id, search, order_by, limit, offset],
                     stmt: &mut self.0,
-                    extractor: |row| ListCustomersBorrowed {
+                    extractor: |row| CustomerListBorrowed {
                         id: row.get(0),
                         name: row.get(1),
-                        alias: row.get(2),
-                        billing_config: row.get(3),
+                        email: row.get(2),
+                        alias: row.get(3),
                         total_count: row.get(4),
                     },
-                    mapper: |it| <ListCustomers>::from(it),
+                    mapper: |it| <CustomerList>::from(it),
                 }
             }
         }
@@ -2321,7 +2503,7 @@ LIMIT $4 OFFSET $5",
             cornucopia_async::Params<
                 'a,
                 ListCustomersParams<T1, T2>,
-                ListCustomersQuery<'a, C, ListCustomers, 5>,
+                CustomerListQuery<'a, C, CustomerList, 5>,
                 C,
             > for ListCustomersStmt
         {
@@ -2329,7 +2511,7 @@ LIMIT $4 OFFSET $5",
                 &'a mut self,
                 client: &'a C,
                 params: &'a ListCustomersParams<T1, T2>,
-            ) -> ListCustomersQuery<'a, C, ListCustomers, 5> {
+            ) -> CustomerListQuery<'a, C, CustomerList, 5> {
                 self.bind(
                     client,
                     &params.tenant_id,
@@ -2385,7 +2567,27 @@ WHERE tenant_id = $1
                 "SELECT id,
        name,
        alias,
-       billing_config
+       billing_config,
+       email,
+       invoicing_email,
+       phone,
+       balance_value,
+       balance_currency,
+       archived_at,
+       created_at,
+       billing_address_line1,
+       billing_address_line2,
+       billing_address_city,
+       billing_address_country,
+       billing_address_state,
+       billing_address_zipcode,
+       shipping_address_same,
+       shipping_address_line1,
+       shipping_address_line2,
+       shipping_address_city,
+       shipping_address_country,
+       shipping_address_state,
+       shipping_address_zipcode
 FROM customer
 WHERE id = $1",
             ))
@@ -2406,6 +2608,26 @@ WHERE id = $1",
                         name: row.get(1),
                         alias: row.get(2),
                         billing_config: row.get(3),
+                        email: row.get(4),
+                        invoicing_email: row.get(5),
+                        phone: row.get(6),
+                        balance_value: row.get(7),
+                        balance_currency: row.get(8),
+                        archived_at: row.get(9),
+                        created_at: row.get(10),
+                        billing_address_line1: row.get(11),
+                        billing_address_line2: row.get(12),
+                        billing_address_city: row.get(13),
+                        billing_address_country: row.get(14),
+                        billing_address_state: row.get(15),
+                        billing_address_zipcode: row.get(16),
+                        shipping_address_same: row.get(17),
+                        shipping_address_line1: row.get(18),
+                        shipping_address_line2: row.get(19),
+                        shipping_address_city: row.get(20),
+                        shipping_address_country: row.get(21),
+                        shipping_address_state: row.get(22),
+                        shipping_address_zipcode: row.get(23),
                     },
                     mapper: |it| <Customer>::from(it),
                 }
@@ -2416,7 +2638,27 @@ WHERE id = $1",
                 "SELECT id,
        name,
        alias,
-       billing_config
+       billing_config,
+       email,
+       invoicing_email,
+       phone,
+       balance_value,
+       balance_currency,
+       archived_at,
+       created_at,
+       billing_address_line1,
+       billing_address_line2,
+       billing_address_city,
+       billing_address_country,
+       billing_address_state,
+       billing_address_zipcode,
+       shipping_address_same,
+       shipping_address_line1,
+       shipping_address_line2,
+       shipping_address_city,
+       shipping_address_country,
+       shipping_address_state,
+       shipping_address_zipcode
 FROM customer
 WHERE tenant_id = $1
   AND alias = $2",
@@ -2439,6 +2681,26 @@ WHERE tenant_id = $1
                         name: row.get(1),
                         alias: row.get(2),
                         billing_config: row.get(3),
+                        email: row.get(4),
+                        invoicing_email: row.get(5),
+                        phone: row.get(6),
+                        balance_value: row.get(7),
+                        balance_currency: row.get(8),
+                        archived_at: row.get(9),
+                        created_at: row.get(10),
+                        billing_address_line1: row.get(11),
+                        billing_address_line2: row.get(12),
+                        billing_address_city: row.get(13),
+                        billing_address_country: row.get(14),
+                        billing_address_state: row.get(15),
+                        billing_address_zipcode: row.get(16),
+                        shipping_address_same: row.get(17),
+                        shipping_address_line1: row.get(18),
+                        shipping_address_line2: row.get(19),
+                        shipping_address_city: row.get(20),
+                        shipping_address_country: row.get(21),
+                        shipping_address_state: row.get(22),
+                        shipping_address_zipcode: row.get(23),
                     },
                     mapper: |it| <Customer>::from(it),
                 }

@@ -21,22 +21,40 @@ pub mod customer {
 
         Ok(Customer {
             id: customer.id.to_string(),
+            billing_config: decode_billing_config(customer.billing_config.into()).ok(),
             name: customer.name,
             alias: customer.alias,
-            billing_config: Some(billing_config_decoded),
+            email: customer.email,
+            invoicing_email: customer.invoicing_email,
+            phone: customer.phone,
+            balance_value: customer.balance_value,
+            balance_currency: customer.balance_currency,
+            archived_at: customer.archived_at,
+            created_at: customer.created_at,
+            billing_address_line1: customer.billing_address_line1,
+            billing_address_line2: customer.billing_address_line2,
+            billing_address_city: customer.billing_address_city,
+            billing_address_country: customer.billing_address_country,
+            billing_address_state: customer.billing_address_state,
+            billing_address_zipcode: customer.billing_address_zipcode,
+            shipping_address_same: customer.shipping_address_same,
+            shipping_address_line1: customer.shipping_address_line1,
+            shipping_address_line2: customer.shipping_address_line2,
+            shipping_address_city: customer.shipping_address_city,
+            shipping_address_country: customer.shipping_address_country,
+            shipping_address_state: customer.shipping_address_state,
+            shipping_address_zipcode: customer.shipping_address_zipcode,
         })
     }
 
     pub fn list_db_to_server(
-        customer: db::ListCustomers,
-    ) -> Result<server::Customer, errors::DatabaseError> {
-        let billing_config_decoded = decode_billing_config(customer.billing_config.into())?;
-
-        Ok(Customer {
+        customer: db::CustomerList,
+    ) -> Result<server::CustomerList, errors::DatabaseError> {
+        Ok(CustomerList {
             id: customer.id.to_string(),
             name: customer.name,
             alias: customer.alias,
-            billing_config: Some(billing_config_decoded),
+            email: customer.email,
         })
     }
 }

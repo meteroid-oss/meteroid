@@ -28,7 +28,7 @@ message ListCustomerRequest {
   }
 }
 message ListCustomerResponse {
-  repeated Customer customers = 1;
+  repeated CustomerList customers = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 

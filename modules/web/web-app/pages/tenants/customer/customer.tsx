@@ -5,15 +5,13 @@ import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
+import { CustomerCard } from '@/features/customers/cards/CustomerCard'
 import { StatusPill } from '@/features/invoices/StatusPill'
-import { CustomerCard } from '@/features/invoices/cards/CustomerCard'
-import { InvoiceCard } from '@/features/invoices/cards/InvoiceCard'
-import { SubscriptionCard } from '@/features/invoices/cards/SubscriptionCard'
 import { useQuery } from '@/lib/connectrpc'
 import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
-export const Invoice = () => {
+export const Customer = () => {
   const navigate = useNavigate()
   const { invoiceId } = useTypedParams<{ invoiceId: string }>()
   const invoiceQuery = useQuery(
@@ -29,7 +27,7 @@ export const Invoice = () => {
 
   return (
     <Fragment>
-      <TenantPageLayout title="Invoice">
+      <TenantPageLayout title="Customer">
         <Flex direction="column" gap={spaces.space9} fullHeight>
           {isLoading || !data ? (
             <>
@@ -55,9 +53,7 @@ export const Invoice = () => {
                   <div className="text-4xl font-semibold">$ to be computed</div>
                 </div>
                 <div className="flex-1 flex flex-col gap-2">
-                  <InvoiceCard invoice={data} />
                   <CustomerCard invoice={data} />
-                  <SubscriptionCard invoice={data} />
                 </div>
               </div>
             </>

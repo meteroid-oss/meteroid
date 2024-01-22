@@ -1,19 +1,21 @@
 --: Customer(id, name, alias?, billing_config?)
---! create_customer (id, name, alias?, tenant_id, created_by) : Customer
-INSERT INTO customer (id, name, alias, tenant_id, created_by, billing_config)
+--: CustomerList(alias?, email?)
+--! create_customer (id, name, alias?, tenant_id, created_by)
+INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES (:id,
         :name,
         :alias,
+        :email,
         :tenant_id,
         :created_by,
         :billing_config)
-RETURNING id, name, alias, billing_config;
+RETURNING id, name, email, alias, billing_config;
 
---! list_customers (search?) : (alias?, billing_config?)
+--! list_customers (search?) : CustomerList
 SELECT id,
        name,
+       email,
        alias,
-       billing_config,
        COUNT(*) OVER () AS total_count
 FROM customer
 WHERE tenant_id = :tenant_id
@@ -49,7 +51,27 @@ WHERE tenant_id = :tenant_id
 SELECT id,
        name,
        alias,
-       billing_config
+       billing_config,
+       email,
+       invoicing_email,
+       phone,
+       balance_value,
+       balance_currency,
+       archived_at,
+       created_at,
+       billing_address_line1,
+       billing_address_line2,
+       billing_address_city,
+       billing_address_country,
+       billing_address_state,
+       billing_address_zipcode,
+       shipping_address_same,
+       shipping_address_line1,
+       shipping_address_line2,
+       shipping_address_city,
+       shipping_address_country,
+       shipping_address_state,
+       shipping_address_zipcode
 FROM customer
 WHERE id = :id;
 
@@ -58,7 +80,27 @@ WHERE id = :id;
 SELECT id,
        name,
        alias,
-       billing_config
+       billing_config,
+       email,
+       invoicing_email,
+       phone,
+       balance_value,
+       balance_currency,
+       archived_at,
+       created_at,
+       billing_address_line1,
+       billing_address_line2,
+       billing_address_city,
+       billing_address_country,
+       billing_address_state,
+       billing_address_zipcode,
+       shipping_address_same,
+       shipping_address_line1,
+       shipping_address_line2,
+       shipping_address_city,
+       shipping_address_country,
+       shipping_address_state,
+       shipping_address_zipcode
 FROM customer
 WHERE tenant_id = :tenant_id
   AND alias = :alias;
