@@ -1,6 +1,6 @@
 import { RouteObject } from 'react-router-dom'
 
-import { Customers } from '@/pages/tenants/customer'
+import { Customer, Customers } from '@/pages/tenants/customer'
 
 export const customersRoutes: RouteObject = {
   path: 'customers',
@@ -8,6 +8,10 @@ export const customersRoutes: RouteObject = {
     {
       index: true,
       element: <Customers />,
+    },
+    {
+      path: ':customerId',
+      element: <Customer />,
     },
   ],
 }

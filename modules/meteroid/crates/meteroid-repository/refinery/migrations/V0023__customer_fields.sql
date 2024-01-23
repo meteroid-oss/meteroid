@@ -1,0 +1,20 @@
+-- Modify "customer" table
+ALTER TABLE "customer"
+    ADD COLUMN "email" text,
+    ADD COLUMN "invoicing_email" text,
+    ADD COLUMN "phone" text,
+    ADD COLUMN "balance_value_cents" INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN "balance_currency" text NOT NULL DEFAULT 'USD',
+    ADD COLUMN "billing_address_line1" text NOT NULL DEFAULT '',
+    ADD COLUMN "billing_address_line2" text NOT NULL DEFAULT '',
+    ADD COLUMN "billing_address_city" text NOT NULL DEFAULT '',
+    ADD COLUMN "billing_address_country" text NOT NULL DEFAULT '',
+    ADD COLUMN "billing_address_state" text NOT NULL DEFAULT '',
+    ADD COLUMN "billing_address_zipcode" text NOT NULL DEFAULT '',
+    ADD COLUMN "shipping_address_same" boolean NOT NULL DEFAULT 'true',
+    ADD COLUMN "shipping_address_line1" text NOT NULL DEFAULT '',
+    ADD COLUMN "shipping_address_line2" text NOT NULL DEFAULT '',
+    ADD COLUMN "shipping_address_city" text NOT NULL DEFAULT '',
+    ADD COLUMN "shipping_address_country" text NOT NULL DEFAULT '',
+    ADD COLUMN "shipping_address_state" text NOT NULL DEFAULT '',
+    ADD COLUMN "shipping_address_zipcode" text NOT NULL DEFAULT '';

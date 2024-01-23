@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.api.customers.v1;
 
+import "google/protobuf/timestamp.proto";
+
 message CustomerBillingConfig {
   message Stripe {
     string customer_id = 1;
@@ -21,33 +23,33 @@ message CustomerBillingConfig {
 message CustomerList {
   string id = 1;
   string name = 2;
-  string email = 3;
+  optional string email = 3;
   optional string alias = 4;
 }
 
 message Customer {
   string id = 1;
   string name = 2;
-  string email = 3;
+  optional string email = 3;
   optional string alias = 4;
   CustomerBillingConfig billing_config = 5;
   optional string invoicing_email = 6;
   optional string phone = 7;
-  optional string balance_value = 8;
-  optional string balance_currency = 9;
-  optional string archived_at = 10;
-  optional string created_at = 11;
-  optional string billing_address_line1 = 12;
-  optional string billing_address_line2 = 13;
-  optional string billing_address_city = 14;
-  optional string billing_address_country = 15;
-  optional string billing_address_state = 16;
-  optional string billing_address_zipcode = 17;
-  optional string shipping_address_same = 18;
-  optional string shipping_address_line1 = 19;
-  optional string shipping_address_line2 = 20;
-  optional string shipping_address_city = 21;
-  optional string shipping_address_country = 22;
-  optional string shipping_address_state = 23;
-  optional string shipping_address_zipcode = 24;
+  int32 balance_value_cents = 8;
+  string balance_currency = 9;
+  optional google.protobuf.Timestamp archived_at = 10;
+  optional google.protobuf.Timestamp created_at = 11;
+  string billing_address_line1 = 12;
+  string billing_address_line2 = 13;
+  string billing_address_city = 14;
+  string billing_address_country = 15;
+  string billing_address_state = 16;
+  string billing_address_zipcode = 17;
+  bool shipping_address_same = 18;
+  string shipping_address_line1 = 19;
+  string shipping_address_line2 = 20;
+  string shipping_address_city = 21;
+  string shipping_address_country = 22;
+  string shipping_address_state = 23;
+  string shipping_address_zipcode = 24;
 }

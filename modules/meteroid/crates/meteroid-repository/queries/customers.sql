@@ -1,6 +1,6 @@
---: Customer(id, name, alias?, billing_config?)
+--: Customer(id, name, alias?, email?, billing_config?, invoicing_email?, phone?, archived_at?, created_at?)
 --: CustomerList(alias?, email?)
---! create_customer (id, name, alias?, tenant_id, created_by)
+--! create_customer (id, name, email?, alias?, tenant_id, created_by): (alias?, email?)
 INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES (:id,
         :name,
@@ -9,7 +9,7 @@ VALUES (:id,
         :tenant_id,
         :created_by,
         :billing_config)
-RETURNING id, name, email, alias, billing_config;
+RETURNING id, name, email, alias;
 
 --! list_customers (search?) : CustomerList
 SELECT id,
@@ -55,7 +55,7 @@ SELECT id,
        email,
        invoicing_email,
        phone,
-       balance_value,
+       balance_value_cents,
        balance_currency,
        archived_at,
        created_at,
@@ -84,7 +84,7 @@ SELECT id,
        email,
        invoicing_email,
        phone,
-       balance_value,
+       balance_value_cents,
        balance_currency,
        archived_at,
        created_at,

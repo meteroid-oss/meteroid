@@ -8,11 +8,12 @@ import "api/customers/v1/models.proto";
 message CreateCustomerRequest {
   string name = 1;
   optional string alias = 2;
+  optional string email = 3;
   CustomerBillingConfig billing_config = 4;
 }
 
 message CreateCustomerResponse {
-  Customer customer = 1;
+  CustomerList customer = 1;
 }
 
 message ListCustomerRequest {

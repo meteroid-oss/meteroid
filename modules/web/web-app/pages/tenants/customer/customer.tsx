@@ -1,29 +1,29 @@
 import { spaces } from '@md/foundation'
 import { Flex, Skeleton } from '@ui/components'
-import { ChevronLeftIcon } from 'lucide-react'
+import { ChevronLeftIcon, LockIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
+import { AddressCard } from '@/features/customers/cards/AddressCard'
 import { CustomerCard } from '@/features/customers/cards/CustomerCard'
-import { StatusPill } from '@/features/invoices/StatusPill'
 import { useQuery } from '@/lib/connectrpc'
-import { getInvoice } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
+import { getCustomer } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 export const Customer = () => {
   const navigate = useNavigate()
-  const { invoiceId } = useTypedParams<{ invoiceId: string }>()
-  const invoiceQuery = useQuery(
-    getInvoice,
+  const { customerId } = useTypedParams<{ customerId: string }>()
+  const customerQuery = useQuery(
+    getCustomer,
     {
-      id: invoiceId ?? '',
+      id: customerId ?? '',
     },
-    { enabled: Boolean(invoiceId) }
+    { enabled: Boolean(customerId) }
   )
 
-  const data = invoiceQuery.data?.invoice
-  const isLoading = invoiceQuery.isLoading
+  const data = customerQuery.data
+  const isLoading = customerQuery.isLoading
 
   return (
     <Fragment>
@@ -42,19 +42,20 @@ export const Customer = () => {
                     className="font-semibold cursor-pointer"
                     onClick={() => navigate('..')}
                   />
-                  <h2 className="font-semibold">{data.id}</h2>
+                  <h2 className="font-semibold">
+                    {data.alias || data.name}
+                    <div className="text-sm font-light text-slate-500">{data.email}</div>
+                  </h2>
                 </div>
-                <div className="text-sm">
-                  <StatusPill status={data.status} />
-                </div>
+                {data.archivedAt && (
+                  <div className="text-sm">
+                    <LockIcon />
+                  </div>
+                )}
               </div>
-              <div className="flex h-full gap-4">
-                <div className="flex flex-col gap-2 border-r-2 border-slate-600 pr-4">
-                  <div className="text-4xl font-semibold">$ to be computed</div>
-                </div>
-                <div className="flex-1 flex flex-col gap-2">
-                  <CustomerCard invoice={data} />
-                </div>
+              <div className="flex-1 flex flex-col gap-2">
+                <CustomerCard customer={data} />
+                <AddressCard customer={data} />
               </div>
             </>
           )}

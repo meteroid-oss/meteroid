@@ -44,6 +44,7 @@ impl CustomersService for DbService {
             id: uuid_gen::v7(),
             name: inner.name,
             alias: inner.alias,
+            email: inner.email,
             tenant_id,
             created_by: actor,
             billing_config: serialized_config,
@@ -59,7 +60,7 @@ impl CustomersService for DbService {
                     .clone()
             })?;
 
-        let rs = mapping::customer::db_to_server(customer).map_err(|e| {
+        let rs = mapping::customer::create_db_to_server(customer).map_err(|e| {
             Status::internal("Failed to map db customer to proto")
                 .set_source(Arc::new(e))
                 .clone()

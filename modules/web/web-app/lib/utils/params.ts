@@ -10,6 +10,7 @@ export const ParamsSlugs = {
   planVersion: ':planVersion',
   feeType: ':feeType',
   invoiceId: ':invoiceId',
+  customerId: ':customerId',
 }
 type AvailableParams = Record<keyof typeof ParamsSlugs, string>
 
