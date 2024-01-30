@@ -76,6 +76,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         ".meteroid.api.tenants.v1.TenantBillingConfiguration",
         ".meteroid.api.schedules.v1.PlanRamps",
         ".meteroid.api.customers.v1.CustomerBillingConfig",
+        ".meteroid.api.customers.v1.Address",
         ".meteroid.api.subscriptions.v1.SubscriptionParameters",
     ];
 

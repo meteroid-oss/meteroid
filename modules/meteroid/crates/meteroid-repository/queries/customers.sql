@@ -1,4 +1,4 @@
---: Customer(id, name, alias?, email?, billing_config?, invoicing_email?, phone?, archived_at?, created_at?)
+--: Customer(id, name, alias?, email?, billing_config?, invoicing_email?, phone?, archived_at?, created_at?, billing_address?, shipping_address?)
 --: CustomerList(alias?, email?)
 --! create_customer (id, name, email?, alias?, tenant_id, created_by): (alias?, email?)
 INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
@@ -59,19 +59,8 @@ SELECT id,
        balance_currency,
        archived_at,
        created_at,
-       billing_address_line1,
-       billing_address_line2,
-       billing_address_city,
-       billing_address_country,
-       billing_address_state,
-       billing_address_zipcode,
-       shipping_address_same,
-       shipping_address_line1,
-       shipping_address_line2,
-       shipping_address_city,
-       shipping_address_country,
-       shipping_address_state,
-       shipping_address_zipcode
+       billing_address,
+       shipping_address
 FROM customer
 WHERE id = :id;
 
@@ -88,19 +77,8 @@ SELECT id,
        balance_currency,
        archived_at,
        created_at,
-       billing_address_line1,
-       billing_address_line2,
-       billing_address_city,
-       billing_address_country,
-       billing_address_state,
-       billing_address_zipcode,
-       shipping_address_same,
-       shipping_address_line1,
-       shipping_address_line2,
-       shipping_address_city,
-       shipping_address_country,
-       shipping_address_state,
-       shipping_address_zipcode
+       billing_address,
+       shipping_address
 FROM customer
 WHERE tenant_id = :tenant_id
   AND alias = :alias;

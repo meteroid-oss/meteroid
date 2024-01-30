@@ -27,6 +27,15 @@ message CustomerList {
   optional string alias = 4;
 }
 
+message Address {
+  optional string line1 = 1;
+  optional string line2 = 2;
+  optional string city = 3;
+  optional string country = 4;
+  optional string state = 5;
+  optional string zipCode = 6;
+}
+
 message Customer {
   string id = 1;
   string name = 2;
@@ -39,17 +48,6 @@ message Customer {
   string balance_currency = 9;
   optional google.protobuf.Timestamp archived_at = 10;
   optional google.protobuf.Timestamp created_at = 11;
-  string billing_address_line1 = 12;
-  string billing_address_line2 = 13;
-  string billing_address_city = 14;
-  string billing_address_country = 15;
-  string billing_address_state = 16;
-  string billing_address_zipcode = 17;
-  bool shipping_address_same = 18;
-  string shipping_address_line1 = 19;
-  string shipping_address_line2 = 20;
-  string shipping_address_city = 21;
-  string shipping_address_country = 22;
-  string shipping_address_state = 23;
-  string shipping_address_zipcode = 24;
+  optional Address billing_address = 12;
+  optional Address shipping_address = 13;
 }
