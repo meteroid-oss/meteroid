@@ -8,7 +8,7 @@ FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM chef AS builder 
+FROM chef AS builder
 ARG MOLD_VERSION=1.11.0
 ARG PROTO_VERSION=21.8
 
@@ -38,10 +38,10 @@ COPY --from=planner /opt/src/recipe.json recipe.json
 ARG PROFILE
 ARG CI
 # Build dependencies & cache
-RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package billing-api
+RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package meteroid-scheduler
 # Build application
 COPY . .
-RUN cargo build -p billing-api --profile $PROFILE
+RUN cargo build -p meteroid-scheduler --profile $PROFILE
 
 
 FROM debian:stable-slim
@@ -50,12 +50,10 @@ ARG TARGET_DIR=$PROFILE
 RUN apt-get update && \
     apt-get install --no-install-recommends -y ca-certificates libssl3 libsasl2-2 && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=builder /opt/src/target/$TARGET_DIR/billing-api /usr/local/bin/billing-api
+COPY --from=builder /opt/src/target/$TARGET_DIR/meteroid-scheduler /usr/local/bin/meteroid-scheduler
 
 RUN groupadd --system md --gid 151 \
     && useradd --system --gid md --uid 151 md
 
-USER md 
-EXPOSE 8080
-CMD ["billing-api"]
-
+USER md
+CMD ["meteroid-scheduler"]

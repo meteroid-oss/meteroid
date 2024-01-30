@@ -51,5 +51,5 @@ prost-types.workspace = true
 quick_cache.workspace = true
 
 [[bin]]
-name = "metering"
+name = "metering-api"
 path = "src/bin/server.rs"

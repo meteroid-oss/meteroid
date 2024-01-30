@@ -38,10 +38,10 @@ COPY --from=planner /opt/src/recipe.json recipe.json
 ARG PROFILE
 ARG CI
 # Build dependencies & cache
-RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package metering-api
+RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package meteroid-api
 # Build application
 COPY . .
-RUN cargo build -p metering-api --profile $PROFILE
+RUN cargo build -p meteroid-api --profile $PROFILE
 
 
 FROM debian:stable-slim
@@ -50,11 +50,11 @@ ARG TARGET_DIR=$PROFILE
 RUN apt-get update && \
     apt-get install --no-install-recommends -y ca-certificates libssl3 libsasl2-2 && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=builder /opt/src/target/$TARGET_DIR/metering-api /usr/local/bin/metering-api
+COPY --from=builder /opt/src/target/$TARGET_DIR/meteroid-api /usr/local/bin/meteroid-api
 
 RUN groupadd --system md --gid 151 \
     && useradd --system --gid md --uid 151 md
 
 USER md
 EXPOSE 8080
-CMD ["metering-api"]
+CMD ["meteroid-api"]

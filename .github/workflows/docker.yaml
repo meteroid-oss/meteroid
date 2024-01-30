@@ -6,7 +6,7 @@ on:
       - main
       - '*docker*'
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*' 
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 concurrency:
     group: "${{ github.workflow }}-${{ github.ref }}"
@@ -26,19 +26,18 @@ jobs:
           - linux/amd64
           - linux/arm64
         image_type:
-          - web-api  
-          - billing-api
-          - metering
-          - ingester
-          - invoicer
-          - webhook-handler
-          - invoicing-job
+          - name: meteroid-api
+            dockerfile: modules/meteroid/api.Dockerfile
+          - name: meteroid-scheduler
+            dockerfile: modules/meteroid/scheduler.Dockerfile
+          - name: metering-api
+            dockerfile: modules/metering/Dockerfile
         include:
           - platform: linux/amd64
             mold_arch: x86_64
             proto_arch: x86_64
             prefix: amd64
-            runs_on: ubuntu-latest 
+            runs_on: ubuntu-latest
           - platform: linux/arm64
             mold_arch: aarch64
             proto_arch: aarch_64
@@ -68,7 +67,7 @@ jobs:
         uses: docker/metadata-action@v3
         with:
           images: |
-            ghcr.io/meteroid-oss/cloud-${{ matrix.image_type }}
+            ghcr.io/meteroid-oss/${{ matrix.image_type.name }}
           tags: |
             type=schedule
             type=ref,event=branch
@@ -85,7 +84,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: apps/${{ matrix.image_type }}/Dockerfile
+          file: ${{ matrix.image_type.dockerfile }}
           platforms: ${{ matrix.platform }}
           build-args: |
             MOLD_ARCH=${{ matrix.mold_arch }}
@@ -105,13 +104,9 @@ jobs:
     strategy:
       matrix:
         image_type:
-            - web-api  
-            - billing-api
-            - metering
-            - ingester
-            - invoicer
-            - webhook-handler
-            - invoicing-job
+          - meteroid-api
+          - meteroid-scheduler
+          - metering-api
     runs-on: ubuntu-latest
     steps:
       - name: Login to GHCR
@@ -125,7 +120,7 @@ jobs:
         uses: docker/metadata-action@v3
         with:
           images: |
-            ghcr.io/meteroid-oss/cloud-${{ matrix.image_type }}
+            ghcr.io/meteroid-oss/${{ matrix.image_type }}
           tags: |
             type=schedule
             type=ref,event=branch
@@ -137,7 +132,7 @@ jobs:
       - name: Create and push Docker manifest
         run: |
           TAG=${{ steps.meteroid-docker.outputs.version }}
-          IMAGE=ghcr.io/meteroid-oss/cloud-${{ matrix.image_type }}
+          IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
           docker manifest create   ${IMAGE}:${TAG} ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
           docker manifest annotate ${IMAGE}:${TAG} ${IMAGE}:arm64-${TAG} --arch arm64
           docker manifest annotate ${IMAGE}:${TAG} ${IMAGE}:amd64-${TAG} --arch amd64
@@ -146,7 +141,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           TAG=${{ steps.meteroid-docker.outputs.version }}
-          IMAGE=ghcr.io/meteroid-oss/cloud-${{ matrix.image_type }}
+          IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
           docker manifest create   ${IMAGE}:tip ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
           docker manifest annotate ${IMAGE}:tip ${IMAGE}:arm64-${TAG} --arch arm64
           docker manifest annotate ${IMAGE}:tip ${IMAGE}:amd64-${TAG} --arch amd64
