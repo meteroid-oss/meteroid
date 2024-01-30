@@ -38,10 +38,10 @@ COPY --from=planner /opt/src/recipe.json recipe.json
 ARG PROFILE
 ARG CI
 # Build dependencies & cache
-RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package meteroid-api
+RUN cargo chef cook --recipe-path recipe.json --profile $PROFILE --package meteroid
 # Build application
 COPY . .
-RUN cargo build -p meteroid-api --profile $PROFILE
+RUN cargo build -p meteroid --bin meteroid-api --profile $PROFILE
 
 
 FROM debian:stable-slim
