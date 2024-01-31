@@ -1,0 +1,42 @@
+export const fontFamilies = [
+  {
+    familyName: 'Inter var',
+    fontPath: '/Inter/Inter-roman.var',
+    fontWeight: '100 900',
+    fontStyle: 'normal',
+    woff: true,
+    preload: true,
+  },
+  {
+    familyName: 'JetBrains Mono',
+    fontPath: '/JetBrainsMono/JetBrainsMono-Regular',
+    fontWeight: 400,
+    fontStyle: 'normal',
+    woff: false,
+    preload: false,
+  },
+  {
+    familyName: 'JetBrains Mono',
+    fontPath: '/JetBrainsMono/JetBrainsMono-Medium',
+    fontWeight: 500,
+    fontStyle: 'normal',
+    woff: false,
+    preload: false,
+  },
+  {
+    familyName: 'JetBrains Mono',
+    fontPath: '/JetBrainsMono/JetBrainsMono-SemiBold',
+    fontWeight: 600,
+    fontStyle: 'normal',
+    woff: false,
+    preload: false,
+  },
+  {
+    familyName: 'JetBrains Mono',
+    fontPath: '/JetBrainsMono/JetBrainsMono-Bold',
+    fontWeight: 700,
+    fontStyle: 'normal',
+    woff: false,
+    preload: false,
+  },
+]

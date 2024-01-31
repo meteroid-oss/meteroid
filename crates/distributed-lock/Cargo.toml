@@ -1,0 +1,18 @@
+[package]
+name = "distributed-lock"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+uuid.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tokio-postgres = { workspace = true, optional = true }
+deadpool-postgres = { workspace = true, optional = true }
+
+
+[features]
+default = ["postgres-support"]
+postgres-support = ["dep:tokio-postgres", "dep:deadpool-postgres"]

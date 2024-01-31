@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package meteroid.api.users.v1;
+
+enum UserRole {
+  ADMIN = 0;
+  MEMBER = 1;
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  UserRole role = 3;
+}

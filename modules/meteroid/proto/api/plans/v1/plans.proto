@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package meteroid.api.plans.v1;
+
+import "api/plans/v1/models.proto";
+import "api/shared/v1/shared.proto";
+import "common/v1/pagination.proto";
+
+// Request and response messages for CreateDraftPlan RPC
+message CreateDraftPlanRequest {
+  string name = 1;
+  string external_id = 2;
+  optional string description = 3;
+  string product_family_external_id = 4;
+  PlanType plan_type = 5;
+}
+
+message CreateDraftPlanResponse {
+  PlanDetails plan = 1;
+}
+
+// Request and response messages for GetPlanByExternalId RPC
+message GetPlanByExternalIdRequest {
+  string external_id = 1;
+}
+
+message GetPlanByExternalIdResponse {
+  PlanDetails plan_details = 1;
+}
+
+// Request and response messages for ListPlans RPC
+message ListPlansRequest {
+  enum SortBy {
+    DATE_DESC = 0;
+    DATE_ASC = 1;
+    NAME_DESC = 2;
+    NAME_ASC = 3;
+  }
+  string product_family_external_id = 1;
+  SortBy order_by = 2;
+  optional string search = 3;
+  meteroid.common.v1.Pagination pagination = 4;
+}
+
+message ListPlansResponse {
+  repeated Plan plans = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+// Request and response messages for GetPlanVersionById RPC
+message GetPlanVersionByIdRequest {
+  string plan_version_id = 1;
+}
+
+message GetPlanVersionByIdResponse {
+  PlanVersion plan_version = 1;
+}
+
+// Request and response messages for ListPlanVersionById RPC
+message ListPlanVersionByIdRequest {
+  string plan_id = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+
+message ListPlanVersionByIdResponse {
+  repeated ListPlanVersion plan_versions = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+// Request and response messages for CopyVersionToDraft RPC
+message CopyVersionToDraftRequest {
+  string plan_id = 1;
+  string plan_version_id = 2;
+}
+
+message CopyVersionToDraftResponse {
+  PlanVersion plan_version = 1;
+}
+
+// Request and response messages for PublishPlanVersion RPC
+message PublishPlanVersionRequest {
+  string plan_id = 1;
+  string plan_version_id = 2;
+}
+
+message PublishPlanVersionResponse {
+  PlanVersion plan_version = 1;
+}
+
+// Request and response messages for GetLastPublishedPlanVersion RPC
+message GetLastPublishedPlanVersionRequest {
+  string plan_id = 1;
+}
+
+message GetLastPublishedPlanVersionResponse {
+  PlanVersion version = 1;
+}
+
+// Request and response messages for DiscardDraftVersion RPC
+message DiscardDraftVersionRequest {
+  string plan_id = 1;
+  string plan_version_id = 2;
+}
+
+message DiscardDraftVersionResponse {}
+
+// Request and response messages for UpdateDraftPlanOverview RPC
+message UpdateDraftPlanOverviewRequest {
+  string plan_version_id = 1;
+  string plan_id = 2;
+  string name = 3;
+  optional string description = 4;
+  string currency = 5;
+  uint32 net_terms = 6;
+  repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 7;
+}
+
+message UpdateDraftPlanOverviewResponse {
+  PlanOverview plan_overview = 1;
+}
+
+// Request and response messages for UpdatePublishedPlanOverview RPC
+message UpdatePublishedPlanOverviewRequest {
+  string plan_id = 1;
+  string plan_version_id = 2;
+  string name = 3;
+  optional string description = 4;
+}
+
+message UpdatePublishedPlanOverviewResponse {
+  PlanOverview plan_overview = 1;
+}
+
+// Request and response messages for GetPlanOverviewByExternalId RPC
+message GetPlanOverviewByExternalIdRequest {
+  string external_id = 1;
+}
+
+message GetPlanOverviewByExternalIdResponse {
+  PlanOverview plan_overview = 1;
+}
+
+message GetPlanParametersRequest {
+  string plan_version_id = 1;
+}
+message GetPlanParametersResponse {
+  repeated PlanParameter parameters = 1;
+}
+
+// Response message for all RPCs returning EmptyResponse
+message EmptyResponse {
+}
+
+service PlansService {
+  rpc CreateDraftPlan(CreateDraftPlanRequest) returns (CreateDraftPlanResponse) {}
+  rpc GetPlanByExternalId(GetPlanByExternalIdRequest) returns (GetPlanByExternalIdResponse) {}
+  rpc ListPlans(ListPlansRequest) returns (ListPlansResponse) {}
+
+  rpc GetPlanVersionById(GetPlanVersionByIdRequest) returns (GetPlanVersionByIdResponse) {}
+  rpc ListPlanVersionById(ListPlanVersionByIdRequest) returns (ListPlanVersionByIdResponse) {}
+  rpc CopyVersionToDraft(CopyVersionToDraftRequest) returns (CopyVersionToDraftResponse) {}
+  rpc PublishPlanVersion(PublishPlanVersionRequest) returns (PublishPlanVersionResponse) {}
+
+  rpc GetLastPublishedPlanVersion(GetLastPublishedPlanVersionRequest) returns (GetLastPublishedPlanVersionResponse) {}
+  rpc DiscardDraftVersion(DiscardDraftVersionRequest) returns (DiscardDraftVersionResponse) {}
+
+  rpc UpdateDraftPlanOverview(UpdateDraftPlanOverviewRequest) returns (UpdateDraftPlanOverviewResponse) {}
+  rpc UpdatePublishedPlanOverview(UpdatePublishedPlanOverviewRequest) returns (UpdatePublishedPlanOverviewResponse) {}
+  rpc GetPlanOverviewByExternalId(GetPlanOverviewByExternalIdRequest) returns (GetPlanOverviewByExternalIdResponse) {}
+
+  rpc GetPlanParameters(GetPlanParametersRequest) returns (GetPlanParametersResponse) {}
+}

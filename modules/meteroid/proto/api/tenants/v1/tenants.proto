@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package meteroid.api.tenants.v1;
+
+import "api/tenants/v1/models.proto";
+
+message ListTenantsRequest {}
+
+message ListTenantsResponse {
+  repeated Tenant tenants = 1;
+}
+
+message GetTenantByIdRequest {
+  string tenant_id = 1;
+}
+
+message GetTenantByIdResponse {
+  Tenant tenant = 1;
+  TenantBillingConfiguration billing_config = 2;
+}
+
+message CreateTenantRequest {
+  string name = 1;
+  string slug = 2;
+  string currency = 3;
+}
+
+message CreateTenantResponse {
+  Tenant tenant = 1;
+}
+
+message ConfigureTenantBillingRequest {
+  TenantBillingConfiguration billing_config = 1;
+}
+
+message ConfigureTenantBillingResponse {
+  TenantBillingConfiguration billing_config = 1;
+}
+
+message ActiveTenantRequest {}
+
+message ActiveTenantResponse {
+  Tenant tenant = 1;
+  TenantBillingConfiguration billing_config = 2;
+}
+
+
+service TenantsService {
+  rpc ActiveTenant(ActiveTenantRequest) returns (ActiveTenantResponse) {}
+  rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse) {}
+  rpc GetTenantById(GetTenantByIdRequest) returns (GetTenantByIdResponse) {}
+  rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse) {}
+  rpc ConfigureTenantBilling(ConfigureTenantBillingRequest) returns (ConfigureTenantBillingResponse) {}
+}

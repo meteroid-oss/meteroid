@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package meteroid.api.customers.v1;
+
+message CustomerBillingConfig {
+  message Stripe {
+    string customer_id = 1;
+    CollectionMethod collection_method = 2;
+
+    enum CollectionMethod {
+      SEND_INVOICE = 0;
+      CHARGE_AUTOMATICALLY = 1;
+    }
+  }
+
+  oneof billing_config_oneof {
+    Stripe stripe = 1;
+  }
+}
+
+message Customer {
+  string id = 1;
+  string name = 2;
+  optional string alias = 3;
+  CustomerBillingConfig billing_config = 4;
+  // google.protobuf.Timestamp archived_at = 5;
+}

@@ -1,0 +1,16 @@
+.fadeInDown {
+  animation-name: fadeInDown;
+  transition-timing-function: ease-out;
+  animation-duration: 200ms;
+}
+
+@keyframes fadeInDown {
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}

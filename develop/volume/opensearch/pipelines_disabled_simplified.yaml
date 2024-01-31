@@ -1,0 +1,20 @@
+demo-pipeline:
+  source:
+    otel_trace_source:
+      port: 21890
+      ssl: false
+    otel_metrics_source:
+      port: 21891
+      ssl: false
+    otel_logs_source:
+      port: 21892
+      ssl: false
+
+  sink:
+    - opensearch:
+        hosts: ["http://opensearch:9200"]
+        insecure: true
+        username: admin
+        password: admin
+        index: otel
+    #- stdout:

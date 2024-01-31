@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package meteroid.metering.v1;
+
+import "common/v1/decimal.proto";
+import "common/v1/date.proto";
+
+import "google/protobuf/timestamp.proto";
+
+
+
+message Event {
+  string event_id = 1;
+  string event_name = 2;
+  oneof customer_id {
+    string meteroid_customer_id = 3;
+    string external_customer_id = 4;
+  }
+  // rfc3339 string instead ?
+  google.protobuf.Timestamp timestamp = 5;
+  map<string, string> properties = 6;
+  // sdk : value as an alias to properties["value"] ?
+  // optional source ?
+}
+
+message Metadata {
+  string key = 1;
+  string value = 2;
+}
+
+
+
+message Meter {
+  string meter_slug = 1;
+  string event_name = 3;
+
+  // TODO used ? (can we store metadata in clickhouse ? if yes do we want some metadata field instead)
+  //optional string description = 3;
+  // actually this could be used even if not stored, and could include some context like the product family etc
+  //  repeated Metadata metadata = 6;
+
+  // optional for COUNT. Can be a property, or a JSON path
+  optional string aggregation_key = 4;
+  AggregationType aggregation = 5;
+  // do we allow window size, like openmeter ?
+  // or full window + optional partial window for high throughput like orb ?
+
+  // ex: region,instance_type
+  repeated string dimensions = 6;
+
+  enum AggregationType {
+    SUM = 0;
+    MIN = 1;
+    MAX = 2;
+    MEAN = 3;
+    LATEST = 4;
+    COUNT = 5;
+    COUNT_DISTINCT = 6;
+  }
+
+  // unit conversions
+  // segmentation matrix (or that's just the group_by_dimensions ?)
+}
+
+message ResourceIdentifier {
+  string meteroid_id = 1;
+  //  the identifier of the resource within the customer's system (associated with the Meteroid's resource)
+  string external_id = 2;
+}

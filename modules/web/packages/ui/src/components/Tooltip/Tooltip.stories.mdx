@@ -1,0 +1,21 @@
+import { Meta, Story } from '@storybook/addon-docs'
+import { PlusIcon } from '@heroicons/react/24/solid'
+
+import { Button } from '../Button'
+import { Tooltip, TooltipContent, TooltipTrigger } from './Tooltip'
+
+<Meta title="Tooltip" component={Tooltip} />
+
+# Tooltip
+
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Button variant="outline" className="w-10 rounded-full p-0">
+      <PlusIcon className="h-4 w-4" />
+      <span className="sr-only">Add</span>
+    </Button>
+  </TooltipTrigger>
+  <TooltipContent>
+    <p>Add to library</p>
+  </TooltipContent>
+</Tooltip>

@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package meteroid.api.subscriptions.v1;
+
+import "common/v1/date.proto";
+import "api/pricecomponents/v1/models.proto";
+import "api/shared/v1/shared.proto";
+import "api/schedules/v1/models.proto";
+
+
+message SubscriptionParameters {
+  repeated SubscriptionParameter parameters = 1;
+  optional meteroid.api.shared.v1.BillingPeriod committed_billing_period = 2;
+
+  message SubscriptionParameter {
+    string component_id = 1;
+    uint64 value = 2;
+  }
+}
+
+message Subscription {
+  string id = 1;
+  string tenant_id = 2;
+  string customer_id = 3;
+  string plan_version_id = 4;
+  uint32 version = 5;
+  // string price_point_id = 5;
+  meteroid.common.v1.Date billing_start_date = 6;
+  meteroid.common.v1.Date billing_end_date = 7;
+  int32 net_terms = 8;
+  string currency = 9;
+  string customer_name = 10;
+
+  SubscriptionParameters parameters = 11;
+}
+
+
+// kept for compatibility, TODO remove
+message SubscriptionToInvoice {
+  string id = 1;
+  string tenant_id = 2;
+  string customer_id = 3;
+  string plan_version_id = 4;
+  // string price_point_id = 5;
+  meteroid.common.v1.Date period_start = 6;
+  meteroid.common.v1.Date period_end = 7;
+  int32 net_terms = 8;
+  string currency = 9;
+  uint32 version = 10;
+}
+
+// kept for compatibility, TODO remove
+message GetSubscriptionForComputeRequest {
+  string subscription_id = 1;
+}
+
+// kept for compatibility, TODO remove
+message SubscriptionForCompute {
+  repeated components.v1.PriceComponent price_components = 1;
+  schedules.v1.Schedule schedule = 2;
+  uint32 current_period_idx = 3;
+  meteroid.common.v1.Date billing_start = 4;
+  meteroid.common.v1.Date billing_end = 5;
+  meteroid.common.v1.Date period_start = 6;
+  meteroid.common.v1.Date period_end = 7;
+  string currency = 8;
+  uint32 net_terms = 9;
+  bool group_by_product = 10;
+  // the minimum frequency at which we can emit invoices.
+  // ex: if yearly subscription rate + monthly usage-based, this is monthly.
+  meteroid.api.shared.v1.BillingPeriod effective_billing_period = 11;
+
+  SubscriptionParameters parameters = 12;
+  string customer_id = 13;
+}

@@ -1,0 +1,40 @@
+FROM node:18-alpine AS base
+
+FROM base AS builder
+RUN apk add --no-cache libc6-compat
+RUN apk update
+# Set working directory
+WORKDIR /app
+RUN yarn global add turbo
+COPY . .
+RUN turbo prune --scope=@md/web --docker
+
+FROM base AS installer
+RUN apk add --no-cache libc6-compat
+RUN apk update
+WORKDIR /app
+RUN yarn global add pnpm
+
+# First install the dependencies (as they change less often)
+COPY .gitignore .gitignore
+COPY --from=builder /app/out/json/ .
+COPY --from=builder /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN pnpm install --filter=@md/web --ignore-scripts
+
+COPY --from=builder /app/out/full/ .
+# Run all the postinstall scripts
+RUN pnpm install --filter=@md/web
+# Build the project
+RUN pnpm run build --filter=@md/web
+
+# nginx state for serving content
+FROM nginx:stable-alpine as production
+# Copy from build stage
+COPY --from=installer /app/apps/web/dist /usr/share/nginx/html
+
+# Add nginx configuration
+COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

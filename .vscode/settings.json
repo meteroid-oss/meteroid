@@ -1,0 +1,23 @@
+{
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "typescript.preferences.importModuleSpecifier": "non-relative",
+  "tailwindCSS.experimental.classRegex": [
+    [
+      "cva\\(([^)]*)\\)",
+      "[\"'`]([^\"'`]*).*?[\"'`]",
+      "tw\\.[^`]+`([^`]*)`",
+      "tw\\(.*?\\).*?`([^`]*)"
+    ]
+  ],
+  "eslint.workingDirectories": ["modules/web/web-app", "modules/web/packages/*"],
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/*.code-search": true
+  },
+  "rust-analyzer.check.command": "clippy"
+}

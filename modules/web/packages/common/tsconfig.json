@@ -1,0 +1,10 @@
+{
+    "compilerOptions": {
+      "lib": ["ES2015"],
+      "module": "ESNext",
+      "target": "ES6",
+      "moduleResolution": "node",
+    },
+    "include": ["src"],
+    "exclude": ["dist", "build", "node_modules"]
+  }

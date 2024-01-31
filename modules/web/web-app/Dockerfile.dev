@@ -1,0 +1,31 @@
+FROM node:18-alpine AS base
+
+FROM base AS builder
+RUN apk add --no-cache libc6-compat
+RUN apk update
+# Set working directory
+WORKDIR /app
+RUN yarn global add turbo
+COPY . .
+RUN turbo prune --scope=@md/web --docker
+
+# Add lockfile and package.json's of isolated subworkspace
+FROM base AS installer
+RUN apk add --no-cache libc6-compat
+RUN apk update
+WORKDIR /app
+RUN yarn global add pnpm
+
+# First install the dependencies (as they change less often)
+COPY .gitignore .gitignore
+COPY --from=builder /app/out/json/ .
+COPY --from=builder /app/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN pnpm install --filter=@md/web --ignore-scripts
+
+COPY --from=builder /app/out/full/ .
+# RUn all the postinstall scripts 
+RUN pnpm install --filter=@md/web
+
+EXPOSE 5173
+
+CMD pnpm dev --filter=@md/web

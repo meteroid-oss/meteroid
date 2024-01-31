@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package meteroid.api.apitokens.v1;
+
+import "api/apitokens/v1/models.proto";
+
+
+message ListApiTokensRequest {}
+
+message ListApiTokensResponse {
+  repeated ApiToken api_tokens = 1;
+}
+
+message CreateApiTokenRequest {
+  string name = 1;
+}
+
+message CreateApiTokenResponse {
+  string api_key = 1;
+  ApiToken details = 2;
+}
+
+message GetApiTokenByIdRequest {
+  string id = 1;
+}
+
+message GetApiTokenByIdResponse {
+  string tenant_id = 1;
+  string hash = 2;
+}
+
+service ApiTokensService {
+  rpc ListApiTokens(ListApiTokensRequest) returns (ListApiTokensResponse) {}
+  rpc CreateApiToken(CreateApiTokenRequest) returns (CreateApiTokenResponse) {}
+  rpc GetApiTokenById(GetApiTokenByIdRequest) returns (GetApiTokenByIdResponse) {}
+}

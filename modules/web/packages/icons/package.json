@@ -1,0 +1,26 @@
+{
+  "name": "@md/icons",
+  "version": "0.1.0",
+  "devDependencies": {
+    "@md/tsconfig": "workspace:*",
+    "@svgr/babel-plugin-remove-jsx-attribute": "^8.0.0",
+    "@svgr/cli": "^8.0.1",
+    "eslint-config-next": "^13.2.4",
+    "onchange": "^7.1.0",
+    "path": "^0.12.7",
+    "replace-in-file": "^7.0.1",
+    "typescript": "^5.0.4"
+  },
+  "exports": {
+    ".": "./dist/index.ts"
+  },
+  "license": "MIT",
+  "main": "./dist/index.ts",
+  "types": "./dist/index.ts",
+  "private": true,
+  "scripts": {
+    "build": "rm -rf dist && svgr --typescript --template component-template.js --index-template index-template.js --out-dir dist -- src && node postbuild.js",
+    "dev": "onchange 'src/*.svg' -- pnpm build",
+    "postinstall": "pnpm build"
+  }
+}

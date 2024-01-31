@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package meteroid.api.invoices.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum InvoiceStatus {
+  DRAFT = 0;
+  FINALIZED = 1;
+  PENDING = 2;
+  VOID = 3;
+}
+
+enum InvoicingProvider {
+  STRIPE = 0;
+}
+
+message Invoice {
+  string id = 1;
+  InvoiceStatus status = 2;
+  InvoicingProvider invoicing_provider = 3;
+  string invoice_date = 4;
+  string customer_id = 5;
+  string customer_name = 6;
+  string subscription_id = 7;
+  string currency = 8;
+  int32 days_until_due = 9;
+}
+
+message DetailedInvoice {
+  string id = 1;
+  InvoiceStatus status = 2;
+  InvoicingProvider invoicing_provider = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+  string invoice_date = 6;
+  string customer_id = 7;
+  string customer_name = 8;
+  string subscription_id = 9;
+  string currency = 10;
+  int32 days_until_due = 11;
+  bool issued = 12;
+  int32 issue_attempts = 13;
+  string plan_name = 14;
+  int32 plan_version = 15;
+  string plan_external_id = 16;
+}

@@ -1,0 +1,21 @@
+{
+  "extends": "@md/tsconfig/vite.json",
+  "include": ["src"],
+  "exclude": ["dist", "node_modules"],
+  "compilerOptions": {
+    "types": ["node"],
+    "baseUrl": ".",
+    "lib": ["esnext"],
+    "target": "esnext",
+    "module": "CommonJS",
+    "esModuleInterop": true,
+    "strict": true,
+    "allowJs": true,
+    "moduleResolution": "node",
+    "preserveSymlinks": false,
+    "outDir": "dist",
+    "paths": {
+      "@icons/*": ["./src/*"]
+    }
+  }
+}

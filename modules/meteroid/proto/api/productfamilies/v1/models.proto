@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package meteroid.api.productfamilies.v1;
+
+message ProductFamily {
+  string id = 1;
+  string name = 2;
+  string external_id = 3;
+}

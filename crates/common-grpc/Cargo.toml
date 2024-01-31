@@ -1,0 +1,61 @@
+[package]
+name = "common-grpc"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+common-config.workspace = true
+common-logging = {workspace = true}
+
+cached = { workspace = true, features = ["async", "tokio"] }
+prost.workspace = true
+anyhow.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+time.workspace = true
+rust_decimal.workspace = true
+serde = { workspace = true, features = ["derive"] }
+cornucopia_async = { workspace = true, optional = true, features = ["with-serde_json-1", "deadpool"]}
+http = { workspace = true }
+moka = { workspace = true }
+tonic = { workspace = true }
+tonic-tracing-opentelemetry.workspace = true
+tower = { workspace = true }
+tower-layer = { workspace = true }
+tower-service = { workspace = true }
+tower-http = { workspace = true }
+hyper = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+once_cell = { workspace = true }
+http-body = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+pin-project = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+
+common-repository = { workspace = true, optional = true }
+meteroid-repository = { workspace = true, optional = true }
+argon2 = { workspace = true }
+base62 = { workspace = true }
+uuid = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+secrecy = { workspace = true }
+jsonwebtoken.workspace = true
+
+
+[build-dependencies]
+prost-build.workspace = true
+
+
+[features]
+server = ["dep:common-repository", "dep:meteroid-repository", "dep:cornucopia_async"]
+client = []
+default = ["client"]

@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package meteroid.api.subscriptions.v1;
+
+import "common/v1/date.proto";
+import "common/v1/pagination.proto";
+import "api/subscriptions/v1/models.proto";
+
+
+message ListSubscriptionsPerPlanRequest {
+  string plan_id = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+
+message ListSubscriptionsPerPlanResponse {
+  repeated Subscription subscriptions = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message CreateSubscriptionRequest {
+  string customer_id = 2;
+  string plan_version_id = 3;
+  //  optional string price_point_id = 4;
+  meteroid.common.v1.Date billing_start = 5;
+  meteroid.common.v1.Date billing_end = 6;
+  int32 net_terms = 7;
+  uint32 billing_day = 8;
+
+  SubscriptionParameters parameters = 11;
+}
+
+message CreateSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+message GetSubscriptionDetailsRequest {
+  string subscription_id = 1;
+}
+
+message GetSubscriptionDetailsResponse {
+  Subscription subscription = 1;
+}
+
+message ApplySlotsDeltaRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+  int32 delta = 3;
+}
+
+message ApplySlotsDeltaResponse {
+  uint32 active_slots = 1;
+}
+
+service SubscriptionsService {
+  rpc ListSubscriptionsPerPlan (ListSubscriptionsPerPlanRequest) returns (ListSubscriptionsPerPlanResponse) {}
+  rpc CreateSubscription (CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
+  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse) {}
+  rpc ApplySlotsDelta(ApplySlotsDeltaRequest) returns (ApplySlotsDeltaResponse) {}
+}

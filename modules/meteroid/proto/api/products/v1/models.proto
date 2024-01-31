@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package meteroid.api.products.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message Product {
+  string id = 1;
+  string name = 2;
+  optional string description = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message ProductMeta {
+  string id = 1;
+  string name = 2;
+}

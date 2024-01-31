@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package meteroid.api.users.v1;
+
+import "api/users/v1/models.proto";
+
+message UpsertUserRequest {
+  string id = 1;
+  string email = 2;
+  string password_hash = 3;
+}
+
+message UpsertUserResponse {
+  string id = 1;
+  string email = 2;
+}
+
+message GetUserByIdRequest {
+  string id = 1;
+}
+
+message GetUserByIdResponse {
+  User user = 1;
+}
+
+message FindUserByEmailRequest {
+  string email = 1;
+}
+
+message FindUserByEmailResponse {
+  User user = 1;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message MeRequest {}
+
+message MeResponse {
+  User user = 1;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string token = 1;
+  User user = 2;
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  optional string invite_key = 3;
+}
+
+message RegisterResponse {
+  string token = 1;
+  User user = 2;
+}
+
+service UsersService {
+  rpc UpsertUser(UpsertUserRequest) returns (UpsertUserResponse) {}
+  rpc Me(MeRequest) returns (MeResponse) {}
+  rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse) {}
+  rpc FindUserByEmail(FindUserByEmailRequest) returns (FindUserByEmailResponse) {}
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {}
+
+  rpc Login(LoginRequest) returns (LoginResponse) {}
+  rpc Register(RegisterRequest) returns (RegisterResponse) {}
+}

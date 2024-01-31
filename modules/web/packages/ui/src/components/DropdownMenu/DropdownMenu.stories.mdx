@@ -1,0 +1,84 @@
+import { Meta, Story } from '@storybook/addon-docs'
+import {
+  CloudIcon,
+  CreditCardIcon,
+  UsersIcon,
+  PlusIcon,
+  UserIcon,
+  UserPlusIcon,
+} from '@heroicons/react/24/solid'
+import { PlusCircleIcon } from '@heroicons/react/24/solid'
+
+import { Button } from '../Button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuPortal,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from './DropdownMenu'
+
+<Meta title="DropdownMenu" component={DropdownMenu} />
+
+# DropdownMenu
+
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button variant="outline">Open</Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent className="w-56">
+    <DropdownMenuLabel>My Account</DropdownMenuLabel>
+    <DropdownMenuSeparator />
+    <DropdownMenuGroup>
+      <DropdownMenuItem>
+        <UserIcon className="mr-2 h-4 w-4" />
+        <span>Profile</span>
+        <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+      </DropdownMenuItem>
+      <DropdownMenuItem>
+        <CreditCardIcon className="mr-2 h-4 w-4" />
+        <span>Billing</span>
+        <DropdownMenuShortcut>⌘B</DropdownMenuShortcut>
+      </DropdownMenuItem>
+    </DropdownMenuGroup>
+    <DropdownMenuSeparator />
+    <DropdownMenuGroup>
+      <DropdownMenuItem>
+        <UsersIcon className="mr-2 h-4 w-4" />
+        <span>Team</span>
+      </DropdownMenuItem>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <UserPlusIcon className="mr-2 h-4 w-4" />
+          <span>Invite users</span>
+        </DropdownMenuSubTrigger>
+        <DropdownMenuPortal>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem>
+              <CloudIcon className="mr-2 h-4 w-4" />
+              <span>Cloud</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>
+              <PlusCircleIcon className="mr-2 h-4 w-4" />
+              <span>More...</span>
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuPortal>
+      </DropdownMenuSub>
+      <DropdownMenuItem>
+        <PlusIcon className="mr-2 h-4 w-4" />
+        <span>New Team</span>
+        <DropdownMenuShortcut>⌘+T</DropdownMenuShortcut>
+      </DropdownMenuItem>
+    </DropdownMenuGroup>
+    <DropdownMenuSeparator />
+  </DropdownMenuContent>
+</DropdownMenu>

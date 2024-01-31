@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package meteroid.api.shared.v1;
+
+enum BillingPeriod {
+  MONTHLY = 0;
+  QUARTERLY = 1;
+  ANNUAL = 2;
+}

@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package meteroid.api.schedules.v1;
+
+import "api/shared/v1/adjustments.proto";
+import "api/shared/v1/shared.proto";
+
+
+// wrapper for serde
+message PlanRamps {
+  repeated PlanRamp ramps = 1;
+
+  message PlanRamp {
+    uint32 index = 1;
+    optional uint32 duration_in_months = 2;
+    PlanRampAdjustment ramp_adjustment = 3;
+    // Commitment ? ex: do a phase on a monthly schedule, with a 6 month commitment
+
+    message PlanRampAdjustment {
+      adjustments.v1.Discount.Amount minimum = 1;
+      adjustments.v1.StandardDiscount discount = 2;
+      // Commitments, Credit etc
+    }
+  }
+}
+
+
+message Schedule {
+  string id = 1;
+  meteroid.api.shared.v1.BillingPeriod term = 2;
+  string name = 3;
+  PlanRamps ramps = 4;
+}

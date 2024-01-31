@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package meteroid.api.apitokens.v1;
+
+import "google/protobuf/timestamp.proto";
+
+
+message ApiToken {
+  string id = 1;
+  string tenant_id = 2;
+  string name = 3;
+  string hint = 4;
+  google.protobuf.Timestamp created_at = 5;
+  string created_by = 6;
+}

@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package meteroid.api.billablemetrics.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message Aggregation {
+  enum AggregationType {
+    SUM = 0;
+    MIN = 1;
+    MAX = 2;
+    MEAN = 3;
+    LATEST = 4;
+    COUNT = 5;
+    COUNT_DISTINCT = 6;
+  }
+  AggregationType aggregation_type = 1;
+  optional string aggregation_key = 2;
+
+  message UnitConversion {
+    enum UnitConversionRounding {
+      NONE = 0;
+      UP = 1;
+      DOWN = 2;
+      NEAREST = 3;
+      // NEAREST_HALF = 4;
+      // NEAREST_DECILE = 5;
+    }
+    double factor = 1;
+    UnitConversionRounding rounding = 2;
+  }
+  UnitConversion unit_conversion = 3;
+}
+
+message SegmentationMatrix {
+
+  oneof matrix {
+    SegmentationMatrixSingle single = 1;
+    SegmentationMatrixDouble double = 2;
+    SegmentationMatrixLinked linked = 3;
+  }
+
+  message Dimension {
+    string key = 1;
+    repeated string values = 2;
+  }
+
+  message SegmentationMatrixSingle {
+    Dimension dimension = 1;
+  }
+
+  message SegmentationMatrixDouble {
+    Dimension dimension1 = 1;
+    Dimension dimension2 = 2;
+  }
+
+  message SegmentationMatrixLinked {
+    message DimensionValues {
+      repeated string values = 1;
+    }
+    string dimension_key = 1;
+    string linked_dimension_key = 2;
+    map<string, DimensionValues> values = 3;
+  }
+}
+
+
+message BillableMetric {
+  string id = 1;
+  string name = 2;
+  string code = 3;
+  optional string description = 4;
+  Aggregation aggregation = 5;
+  SegmentationMatrix segmentation_matrix = 6;
+  optional string usage_group_key = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp archived_at = 9;
+}
+
+message BillableMetricMeta {
+  string id = 1;
+  string name = 2;
+  string code = 3;
+  Aggregation.AggregationType aggregation_type = 5;
+  optional string aggregation_key = 6;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp archived_at = 9;
+}
+

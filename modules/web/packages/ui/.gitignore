@@ -1,0 +1,5 @@
+src/**/*.js
+src/**/*.d.ts
+build-storybook.log
+
+!src/internal/pipe.js

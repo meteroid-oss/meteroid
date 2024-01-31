@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package meteroid.api.invoices.v1;
+
+import "api/invoices/v1/models.proto";
+import "common/v1/pagination.proto";
+
+message ListInvoicesRequest {
+  enum SortBy {
+    DATE_DESC = 0;
+    DATE_ASC = 1;
+    ID_DESC = 2;
+    ID_ASC = 3;
+  }
+  SortBy order_by = 1;
+  optional string search = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+  optional InvoiceStatus status = 4;
+}
+
+message ListInvoicesResponse {
+  repeated Invoice invoices = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetInvoiceRequest {
+  string id = 1;
+}
+
+message GetInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
+service InvoicesService {
+  rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
+  rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
+}

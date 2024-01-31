@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package meteroid.api.billablemetrics.v1;
+
+import "api/billablemetrics/v1/models.proto";
+import "common/v1/pagination.proto";
+
+message CreateBillableMetricRequest {
+  string name = 1;
+  string code = 2;
+  optional string description = 3;
+  Aggregation aggregation = 4;
+  SegmentationMatrix segmentation_matrix = 5;
+  optional string usage_group_key = 6;
+  string family_external_id = 7;
+}
+
+message CreateBillableMetricResponse {
+  BillableMetric billable_metric = 1;
+}
+
+message ListBillableMetricsRequest {
+  string family_external_id = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+
+message ListBillableMetricsResponse {
+  repeated BillableMetricMeta billable_metrics = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetBillableMetricRequest {
+  string id = 1;
+}
+
+message GetBillableMetricResponse {
+  BillableMetric billable_metric = 1;
+}
+
+service BillableMetricsService {
+  rpc CreateBillableMetric (CreateBillableMetricRequest) returns (CreateBillableMetricResponse) {}
+  rpc ListBillableMetrics (ListBillableMetricsRequest) returns (ListBillableMetricsResponse) {}
+  rpc GetBillableMetric (GetBillableMetricRequest) returns (GetBillableMetricResponse) {}
+}

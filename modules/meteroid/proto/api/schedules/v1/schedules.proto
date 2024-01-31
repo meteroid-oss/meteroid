@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package meteroid.api.schedules.v1;
+
+import "api/shared/v1/shared.proto";
+import "api/schedules/v1/models.proto";
+
+message ListSchedulesRequests {
+  string plan_version_id = 1;
+}
+
+message ListSchedulesResponse {
+  repeated Schedule schedules = 1;
+}
+
+message CreateScheduleRequest {
+  string plan_version_id = 1;
+  meteroid.api.shared.v1.BillingPeriod billing_period = 2;
+  PlanRamps ramps = 3;
+}
+
+message CreateScheduleResponse {
+  Schedule schedule = 1;
+}
+
+message EditScheduleRequest {
+  string plan_version_id = 1;
+  Schedule schedule = 2;
+}
+
+message EditScheduleResponse {
+  Schedule schedule = 1;
+}
+
+message RemoveScheduleRequest {
+  string schedule_id = 1;
+}
+
+message EmptyResponse {}
+
+service SchedulesService {
+  rpc ListSchedules(ListSchedulesRequests) returns (ListSchedulesResponse) {}
+  rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse) {}
+  rpc EditSchedule(EditScheduleRequest) returns (EditScheduleResponse) {}
+  rpc RemoveSchedule(RemoveScheduleRequest) returns (EmptyResponse) {}
+}

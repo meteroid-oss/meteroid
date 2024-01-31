@@ -1,0 +1,101 @@
+[package]
+name = "meteroid"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+error-stack.workspace = true
+thiserror.workspace = true
+blake3.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+common-config = { workspace = true }
+common-logging = { workspace = true }
+common-grpc = { workspace = true, features = ["server"] }
+meteroid-grpc = { path = "crates/meteroid-grpc", features = ["server"] }
+meteroid-repository = { path = "crates/meteroid-repository", features = [] }
+cornucopia_async = { workspace = true, features = ["with-serde_json-1", "deadpool"] }
+deadpool-postgres.workspace = true
+dotenvy.workspace = true
+envconfig.workspace = true
+futures.workspace = true
+log.workspace = true
+nanoid.workspace = true
+prost-types.workspace = true
+prost.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio-stream.workspace = true
+tonic-health.workspace = true
+tonic-reflection.workspace = true
+tonic.workspace = true
+tonic-web.workspace = true
+tonic-tracing-opentelemetry.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+opentelemetry.workspace = true
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid.workspace = true
+uuid7.workspace = true
+base64.workspace = true
+argon2 = { workspace = true }
+base62.workspace = true
+http = { workspace = true }
+
+
+tracing-log = { workspace = true }
+secrecy.workspace = true
+chacha20poly1305.workspace = true
+anyhow.workspace = true
+axum = { workspace = true, features = ["default", "macros", "http2"] }
+hyper = { workspace = true, features = ["http1", "http2", "server"] }
+reqwest = { workspace = true, optional = true }
+
+rust_decimal = { workspace = true, features = ["serde_json"] }
+rust_decimal_macros = { workspace = true }
+
+metering-grpc = { workspace = true, features = ["client"] }
+common-domain = { workspace = true }
+common-utils = { workspace = true, features = ["error-stack-conv"] }
+common-repository = { workspace = true }
+distributed-lock = { workspace = true, features = ["postgres-support"] }
+stripe-client = { path = "crates/stripe-client" }
+object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }
+bytes.workspace = true
+ring.workspace = true
+async-trait.workspace = true
+hex.workspace = true
+url.workspace = true
+tracing-futures.workspace = true
+opentelemetry_sdk = { workspace = true }
+fang = { workspace = true, features = ["asynk", "derive-error"] }
+typetag = { workspace = true }
+jsonwebtoken.workspace = true
+
+once_cell.workspace = true
+tower-layer.workspace = true
+
+[dev-dependencies]
+rstest = { workspace = true }
+testcontainers = { workspace = true }
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+tokio-util = { workspace = true }
+clickhouse-rs = { workspace = true }
+rdkafka = { workspace = true }
+metering = { workspace = true }
+kafka = { workspace = true }
+fastrand = { workspace = true }
+
+[[bin]]
+name = "meteroid"
+path = "src/bin/server.rs"
+
+# local / staging. For production workload, prefer running each worker as a pod and use k8s scheduler
+[[bin]]
+name = "scheduler"
+path = "src/bin/scheduler.rs"

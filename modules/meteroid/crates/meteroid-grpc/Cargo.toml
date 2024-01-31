@@ -1,0 +1,31 @@
+[package]
+name = "meteroid-grpc"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+serde = { workspace = true, features = ["derive"] }
+common-grpc = { workspace = true }
+error-stack.workspace = true
+thiserror.workspace = true
+pbjson = "0.6.0"
+pbjson-types = "0.6.0"
+
+
+[build-dependencies]
+tonic-build.workspace = true
+error-stack.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+prost-build.workspace = true
+pbjson-build = "0.6.2"
+
+[features]
+default = ["client"]
+server = []
+client = []

@@ -1,0 +1,30 @@
+{
+  "extends": "@md/tsconfig/vite.json",
+  "exclude": ["node_modules", "packages"],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/components/*": ["./components/*"],
+      "@/styles": ["./styles/"],
+      "@/styles/*": ["./styles/*"],
+      "@/utils/*": ["lib/utils/*"],
+      "@/public/*": ["./public/*"],
+      "@/features/*": ["./features/*"],
+      "@/hooks/*": ["./hooks/*"],
+      "@/containers/*": ["./containers/*"],
+      "@/data/*": ["./data/*"],
+      "@/lib/*": ["./lib/*"],
+      "@/pages": ["./pages/"],
+      "@/pages/*": ["./pages/*"],
+      "@/services/*": ["./services/*"],
+      "@/types/*": ["./types/*"],
+      "@/rpc/*": ["./generated/*"],
+
+      // required to resolve trpc types in dev
+      "@ui/*": ["../packages/ui/src/*"]
+    },
+    "typeRoots": [
+      "./types"
+    ]
+  }
+}

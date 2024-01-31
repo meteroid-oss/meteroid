@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package meteroid.api.adjustments.v1;
+
+import "common/v1/decimal.proto";
+
+message Discount {
+  message Amount {
+    uint32 value_in_cents = 1;
+  }
+
+  message Percent {
+    meteroid.common.v1.Decimal percentage = 1;
+  }
+
+  message Quantity {
+    uint32 quantity_value = 1;
+    // TODO per period, ex: 100k free per day
+  }
+}
+
+message StandardDiscount {
+  oneof discount_type {
+    Discount.Amount amount = 1;
+    Discount.Percent percent = 2;
+  }
+}
+
+message Minimum {
+  message Amount {
+    uint32 value_in_cents = 1;
+  }
+  message Quantity {
+    uint32 quantity_value = 1;
+  }
+}
+
+

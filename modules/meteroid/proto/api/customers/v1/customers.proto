@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package meteroid.api.customers.v1;
+
+import "common/v1/pagination.proto";
+import "api/customers/v1/models.proto";
+
+message CreateCustomerRequest {
+  string name = 1;
+  optional string alias = 2;
+  CustomerBillingConfig billing_config = 4;
+}
+
+message CreateCustomerResponse {
+  Customer customer = 1;
+}
+
+message ListCustomerRequest {
+  optional string search = 1;
+  SortBy sort_by = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+
+  enum SortBy {
+    DATE_DESC = 0;
+    DATE_ASC = 1;
+    NAME_DESC = 2;
+    NAME_ASC = 3;
+  }
+}
+message ListCustomerResponse {
+  repeated Customer customers = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetCustomerRequest {
+  string id = 1;
+}
+
+message GetCustomerByAliasRequest {
+  string alias = 1;
+}
+
+service CustomersService {
+  rpc CreateCustomer (CreateCustomerRequest) returns (CreateCustomerResponse) {}
+  rpc ListCustomers (ListCustomerRequest) returns (ListCustomerResponse) {}
+  rpc GetCustomer (GetCustomerRequest) returns (Customer) {}
+  rpc GetCustomerByAlias (GetCustomerByAliasRequest) returns (Customer) {}
+}

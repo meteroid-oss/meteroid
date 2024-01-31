@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package meteroid.internal.v1;
+
+
+message ResolvedId {
+  string external_id = 1;
+  string meteroid_id = 2;
+}
+
+message ResolveCustomerExternalIdsRequest {
+  string tenant_id = 1;
+  repeated string external_ids = 2;
+}
+
+message ResolveCustomerExternalIdsResponse {
+  repeated ResolvedId customers = 1;
+  repeated string unresolved_ids = 2;
+}
+
+message ResolveApiKeyRequest {
+  string api_key_id = 1;
+}
+
+message ResolveApiKeyResponse {
+  string tenant_id = 1;
+  string hash = 2;
+}
+
+service InternalService {
+  rpc ResolveCustomerExternalIds(ResolveCustomerExternalIdsRequest) returns (ResolveCustomerExternalIdsResponse) {}
+  rpc ResolveApiKey(ResolveApiKeyRequest) returns (ResolveApiKeyResponse) {}
+}

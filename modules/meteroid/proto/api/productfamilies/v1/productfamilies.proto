@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package meteroid.api.productfamilies.v1;
+
+import "api/productfamilies/v1/models.proto";
+
+message ListProductFamiliesRequest {}
+
+message ListProductFamiliesResponse {
+  repeated ProductFamily product_families = 1;
+}
+
+message CreateProductFamilyRequest {
+  string name = 1;
+  string external_id = 2;
+}
+
+message CreateProductFamilyResponse {
+  ProductFamily product_family = 1;
+}
+
+message GetProductFamilyByExternalIdRequest {
+  string external_id = 1;
+}
+
+message GetProductFamilyByExternalIdResponse {
+  ProductFamily product_family = 1;
+}
+
+service ProductFamiliesService {
+  rpc ListProductFamilies(ListProductFamiliesRequest) returns (ListProductFamiliesResponse) {}
+  rpc CreateProductFamily(CreateProductFamilyRequest) returns (CreateProductFamilyResponse) {}
+  rpc GetProductFamilyByExternalId(GetProductFamilyByExternalIdRequest) returns (GetProductFamilyByExternalIdResponse) {}
+}

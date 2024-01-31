@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package meteroid.api.components.v1;
+
+import "api/shared/v1/shared.proto";
+import "common/v1/decimal.proto";
+
+message UsagePricing {
+
+  message BlockSize {
+    uint32 block_size = 1;
+  }
+
+  message PerUnit {
+    meteroid.common.v1.Decimal unit_price = 1;
+  }
+
+  message TieredAndVolume {
+    repeated Row rows = 1;
+    BlockSize block_size = 2; // opt
+
+    message Row {
+      uint32 first_unit = 1;
+      optional uint32 last_unit = 2;
+      meteroid.common.v1.Decimal unit_price = 3;
+      meteroid.common.v1.Decimal flat_fee = 4; // optional
+      meteroid.common.v1.Decimal flat_cap = 5; // optional , https://postmarkapp.com/pricing
+    }
+  }
+
+
+
+  message Package {
+    uint32 block_size = 1;
+    meteroid.common.v1.Decimal block_price = 2;
+  }
+
+  message Model {
+    oneof model {
+      PerUnit per_unit = 1;
+      TieredAndVolume tiered = 2;
+      TieredAndVolume volume = 3;
+      Package package = 4;
+      // matrix TODO
+    }
+  }
+}
+
+// message BpsPricing {
+//     message TieredAndVolumeBps {
+//         repeated Row rows = 1;
+
+//         message Row {
+//           uint32 first_unit = 1;
+//           uint32 last_unit = 2;
+//          meteroid.common.v1.Decimal fee_percent = 3;
+//          meteroid.common.v1.Decimal unit_cap = 4;
+//         }
+//     }
+//     message Model {
+//         oneof model {
+//             TieredAndVolumeBps tiered_bps = 4;
+//          TieredAndVolumeBps volume_bps = 5;
+//         }
+//     }
+// }
+
+
+
+
+
+
+
+message Fee {
+
+
+  message FixedFeePricing {
+    meteroid.common.v1.Decimal unit_price = 1;
+    uint32 quantity = 2;
+    BillingType billing_type = 3;
+
+  }
+
+  message OneTime {
+    FixedFeePricing pricing = 1;
+  }
+
+  message RecurringFixedFee {
+    FixedFeePricing fee = 1;
+    meteroid.api.shared.v1.BillingPeriod cadence = 2;
+  }
+
+  message TermFeePricing {
+    oneof pricing {
+      SingleTerm single = 1;
+      TermBased term_based = 2;
+    }
+
+    message TermBased {
+      repeated TermRate rates = 1;
+      message TermRate {
+        meteroid.api.shared.v1.BillingPeriod term = 1;
+        meteroid.common.v1.Decimal price = 2;
+      }
+    }
+
+    message SingleTerm {
+      meteroid.common.v1.Decimal price = 1;
+      meteroid.api.shared.v1.BillingPeriod cadence = 2;
+    }
+
+  }
+
+  message SubscriptionRate {
+    TermFeePricing pricing = 1;
+  }
+
+  message SlotBased {
+    TermFeePricing pricing = 1;
+    // TODO support volume/tiered pricing ?
+    SlotUnit slot_unit = 2;
+
+    UpgradePolicy upgrade_policy = 3;
+    DowngradePolicy downgrade_policy = 4;
+
+    optional uint32 minimum_count = 5;
+    // should these be in the entitlement definition ? or both ? (max feature value VS max slots for this specific price)
+    optional uint32 quota = 6;
+    // Discount.FreeUnits free_units = 7;
+
+
+
+    // Github model :
+    // Upgrade => Prorated
+    // Downgrade => End of period
+
+
+
+    enum UpgradePolicy {
+      // Added slots are billed instantly for a prorated amount.
+      PRORATED = 0;
+      // Added slots are billed instantly for a full amount.
+      // FULL = 1;
+      // // Slots are added instantly, but are billed for the active number at the end of a period // slite
+      // BILLED_AT_END_OF_PERIOD = 2;
+    }
+
+    // TODO No credit yet, so only END_OF_PERIOD for now
+    enum DowngradePolicy {
+      // Removed slots are still counted until the end of the period.
+      REMOVE_AT_END_OF_PERIOD = 0;
+      // Removed slots are instantly dropped and a prorated credit is added.
+      // ONLY COMPATIBLE with UpgradePolicy.PRORATED !
+      // CREDITS = 1;
+    }
+
+    message SlotUnit {
+      optional string id = 1;
+      string name = 2;
+    }
+  }
+
+
+  message BillableMetric {
+    string id = 1;
+    string name = 2;
+  }
+
+  message Capacity {
+    BillableMetric metric = 1;
+    CapacityPricing pricing = 2;
+
+    // TODO yearly commitment
+
+    // do we need a Policy on what happens if a user upgrades/downgrade the capacity ?
+    // sane one seems : on upgrade, bill instantly prorated. On downgrade, apply at the end of period
+
+
+    message CapacityPricing {
+      oneof pricing {
+        SingleTerm single = 1;
+        TermBased term_based = 2;
+      }
+
+      message TermBased {
+        repeated TermRate rates = 1;
+        message TermRate {
+          meteroid.api.shared.v1.BillingPeriod term = 1;
+          repeated Threshold thresholds = 2;
+        }
+      }
+
+      message SingleTerm {
+        repeated Threshold thresholds = 1;
+      }
+
+      message Threshold {
+        uint64 included_amount = 1;
+        meteroid.common.v1.Decimal price = 2;
+        meteroid.common.v1.Decimal per_unit_overage = 3; // TODO block size
+      }
+
+    }
+  }
+
+  message UsageBased {
+    BillableMetric metric = 1;
+    UsagePricing.Model model = 2;
+    // Minimum minimum = 3;
+    // Discount discount = 4; // free units, $, %
+  }
+
+
+  enum BillingType {
+    ARREAR = 0;
+    ADVANCE = 1;
+  }
+
+  message Type {
+    oneof fee {
+      //
+      SubscriptionRate rate = 1;
+      SlotBased slot_based = 2;
+      Capacity capacity = 3;
+      //
+      UsageBased usage_based = 4;
+      //
+      RecurringFixedFee recurring = 5;
+      OneTime one_time = 6;
+    }
+  }
+}
+
+
+
+message PriceComponent {
+  string id = 1;
+  string name = 2;
+  Fee.Type fee_type = 3;
+  // unique by name for a tenant
+  ProductItem product_item = 4;
+  //
+
+  message ProductItem {
+    string id = 1;
+    string name = 2;
+  }
+
+}

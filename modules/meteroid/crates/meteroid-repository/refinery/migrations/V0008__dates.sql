@@ -1,0 +1,9 @@
+-- @generated - DO NOT EDIT 
+-- AlterTable
+ALTER TABLE "invoice" ALTER COLUMN "start_date" SET DATA TYPE DATE,
+ALTER COLUMN "end_date" SET DATA TYPE DATE,
+ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(3),
+ALTER COLUMN "updated_at" SET DATA TYPE TIMESTAMPTZ(3);
+
+-- AlterTable
+ALTER TABLE "webhook_event" ALTER COLUMN "received_at" SET DATA TYPE TIMESTAMPTZ(3);

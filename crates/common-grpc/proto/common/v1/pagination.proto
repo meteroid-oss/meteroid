@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package meteroid.common.v1;
+
+message Pagination {
+  uint32 limit = 1;
+  uint32 offset = 2;
+}
+
+message PaginationResponse {
+  uint32 limit = 1;
+  uint32 offset = 2;
+  uint32 total = 3;
+}

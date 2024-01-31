@@ -1,0 +1,26 @@
+[package]
+name = "stripe-client"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+serde_qs = { workspace = true }
+serde_json = { workspace = true }
+serde_path_to_error = { workspace = true }
+http-types = { workspace = true }
+common-domain = { workspace = true }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+hex = { workspace = true }
+reqwest = { workspace = true, features = ["default"] }
+anyhow = { workspace = true }
+bytes = { workspace = true }

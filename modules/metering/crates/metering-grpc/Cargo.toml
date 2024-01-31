@@ -1,0 +1,25 @@
+[package]
+name = "metering-grpc"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "metering_grpc"
+
+[dependencies]
+tonic.workspace = true
+prost.workspace = true
+prost-types.workspace = true
+common-grpc = { path = "../../../../crates/common-grpc" }
+chrono = { workspace = true, optional = true }
+
+[build-dependencies]
+tonic-build.workspace = true
+prost-build.workspace = true
+
+[features]
+default = ["client"]
+server = ["dep:chrono"]
+client = []

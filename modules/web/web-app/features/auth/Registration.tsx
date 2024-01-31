@@ -1,0 +1,31 @@
+import { Loader } from '@/features/auth/components/Loader'
+import { RegistrationForm } from '@/features/auth/components/RegistrationForm'
+import { useQuery } from '@/lib/connectrpc'
+import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+
+import type { FunctionComponent } from 'react'
+import { useSearchParams } from 'react-router-dom'
+
+export const Registration: FunctionComponent = () => {
+  const { data, isLoading } = useQuery(getInstance, undefined, {
+    refetchOnMount: 'always',
+  })
+
+  let [searchParams] = useSearchParams()
+
+  let invite = searchParams.get('invite') ?? undefined
+
+  if (isLoading) {
+    return <Loader />
+  }
+
+  if (data && data.instance?.organizationId && !invite) {
+    return (
+      <div className="text-center">
+        To join your organisation, request an invite link from your administrator
+      </div>
+    )
+  }
+
+  return <RegistrationForm invite={invite} />
+}
