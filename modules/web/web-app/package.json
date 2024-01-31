@@ -81,6 +81,7 @@
   "private": true,
   "scripts": {
     "build": "tsc && vite build",
+    "build:js": "vite build",
     "dev": "vite",
     "lint": "tsc --noEmit && eslint \"./**/*.ts*\"",
     "lint:fix": "eslint . --ext .ts,.js,.tsx,.jsx --fix",

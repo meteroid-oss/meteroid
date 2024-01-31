@@ -9,8 +9,8 @@ on:
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 concurrency:
-    group: "${{ github.workflow }}-${{ github.ref }}"
-    cancel-in-progress: true
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -32,6 +32,8 @@ jobs:
             dockerfile: modules/meteroid/scheduler.Dockerfile
           - name: metering-api
             dockerfile: modules/metering/Dockerfile
+          - name: meteroid-web
+            dockerfile: modules/web/web-app/Dockerfile
         include:
           - platform: linux/amd64
             mold_arch: x86_64
@@ -42,7 +44,7 @@ jobs:
             mold_arch: aarch64
             proto_arch: aarch_64
             prefix: arm64
-            runs_on: buildjet-4vcpu-ubuntu-2204-arm
+            runs_on: ubuntu-latest
     runs-on: ${{ matrix.runs_on }}
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +109,7 @@ jobs:
           - meteroid-api
           - meteroid-scheduler
           - metering-api
+          - meteroid-web
     runs-on: ubuntu-latest
     steps:
       - name: Login to GHCR
