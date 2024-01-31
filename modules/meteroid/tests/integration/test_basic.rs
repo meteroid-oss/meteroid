@@ -133,6 +133,7 @@ async fn test_main() {
         .create_customer(tonic::Request::new(
             api::customers::v1::CreateCustomerRequest {
                 name: "Customer A".to_string(),
+                email: Some("customer@domain.com".to_string()),
                 alias: None,
                 billing_config: Some(CustomerBillingConfig::default()),
             },
