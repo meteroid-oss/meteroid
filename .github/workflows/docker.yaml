@@ -94,7 +94,10 @@ jobs:
             PROFILE=temp
             CI=${{ env.CI }}
           push: true
-          tags: ${{ steps.meteroid-docker.outputs.tags }}
+          tags: |
+            ${{ steps.meteroid-docker.outputs.tags }}
+            ghcr.io/meteroid-oss/${{ matrix.image_type.name }}:${{ github.sha }}
+            ghcr.io/meteroid-oss/${{ matrix.image_type.name }}:latest
           labels: ${{ steps.meteroid-docker.outputs.labels }}
           # layer caching
           cache-from: type=gha
