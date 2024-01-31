@@ -29,6 +29,7 @@ ARG PROTO_VERSION=21.8
 ARG PROTO_ARCH
 RUN apk add --no-cache libc6-compat
 RUN apk update
+
 RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-${PROTO_ARCH}.zip && \
     unzip protoc*.zip && \
     mv bin/protoc /usr/local/bin && \
