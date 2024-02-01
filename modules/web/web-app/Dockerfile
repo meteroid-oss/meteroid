@@ -24,22 +24,15 @@ COPY --from=builder /app/modules/web/out/pnpm-lock.yaml modules/web/pnpm-lock.ya
 # First install the dependencies (as they change less often)
 RUN pnpm install --filter=@md/web --ignore-scripts --prefix modules/web
 
-# install protoc
-ARG PROTO_VERSION=21.8
-ARG PROTO_ARCH
 RUN apk add --no-cache libc6-compat
 RUN apk update
-
-RUN wget https://github.com/protocolbuffers/protobuf/releases/download/v${PROTO_VERSION}/protoc-${PROTO_VERSION}-linux-${PROTO_ARCH}.zip && \
-    unzip protoc*.zip && \
-    mv bin/protoc /usr/local/bin && \
-    mv include/google /usr/local/include
-
 
 # Copy code & run all the postinstall scripts
 COPY --link --from=builder /app/modules/web/out/full/ modules/web/
 COPY --link --from=builder /app/modules/meteroid/proto/ modules/meteroid/proto/
+COPY --link --from=builder /app/modules/metering/proto/ modules/metering/proto/
 COPY --link --from=builder /app/crates/common-grpc/proto/ crates/common-grpc/proto/
+COPY --link --from=builder /app/buf.work.yaml buf.work.yaml
 # Run all the postinstall scripts
 RUN cd modules/web && pnpm install --filter=@md/web
 # Build the project

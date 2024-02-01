@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@babel/preset-react": "^7.22.15",
-    "@bufbuild/protobuf": "^1.5.1",
+    "@bufbuild/protobuf": "^1.7.2",
     "@codemirror/autocomplete": "^6.10.2",
     "@codemirror/lang-json": "^6.0.1",
     "@codemirror/lint": "^6.4.2",

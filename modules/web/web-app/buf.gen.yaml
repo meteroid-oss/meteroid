@@ -15,7 +15,7 @@ types:
         - meteroid.api.tenants.v1.TenantsService
         - meteroid.api.users.v1.UsersService
 plugins:
-  - plugin: buf.build/bufbuild/es:v1.6.0
+  - plugin: buf.build/bufbuild/es:v1.7.1
     opt:
       - target=ts
       - import_extension=

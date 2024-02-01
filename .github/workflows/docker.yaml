@@ -44,7 +44,7 @@ jobs:
             mold_arch: aarch64
             proto_arch: aarch_64
             prefix: arm64
-            runs_on: buildjet-4vcpu-ubuntu-2204-arm
+            runs_on: ubuntu-latest
     runs-on: ${{ matrix.runs_on }}
     steps:
       - uses: actions/checkout@v4

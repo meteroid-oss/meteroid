@@ -17,7 +17,6 @@
     "kill-port": "^2.0.1",
     "lint-staged": "^15.0.2",
     "prettier": "^3.0.3",
-    "ts-proto": "^1.162.1",
     "turbo": "^1.10.16",
     "typescript": "^5.2.2"
   },
