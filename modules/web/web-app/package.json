@@ -52,6 +52,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.23.2",
+    "@bufbuild/buf": "^1.29.0",
     "@bufbuild/protoc-gen-es": "^1.5.1",
     "@connectrpc/protoc-gen-connect-es": "^1.1.4",
     "@connectrpc/protoc-gen-connect-query": "^1.0.0",
@@ -84,6 +85,6 @@
     "lint": "tsc --noEmit && eslint \"./**/*.ts*\"",
     "lint:fix": "eslint . --ext .ts,.js,.tsx,.jsx --fix",
     "preview": "vite preview",
-    "postinstall": "sh ./build-proto-web.sh"
+    "postinstall": "buf generate --template=buf.gen.yaml ../../.."
   }
 }

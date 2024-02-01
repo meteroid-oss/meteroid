@@ -2,30 +2,28 @@ syntax = "proto3";
 
 package meteroid.metering.v1;
 
-import "common/v1/decimal.proto";
-import "common/v1/date.proto";
 
 import "models.proto";
 
 
 message RegisterMeterRequest {
-    Meter meter = 1;
-    string tenant_id = 2; // TODO make more convenient ?
+  Meter meter = 1;
+  string tenant_id = 2; // TODO make more convenient ?
 }
 
 message RegisterMeterResponse {
-    // optional metadata that will be attached to the meter by the server, to persist
-    repeated Metadata metadata = 1;
+  // optional metadata that will be attached to the meter by the server, to persist
+  repeated Metadata metadata = 1;
 }
 
 message UnregisterMeterRequest {
-    ResourceIdentifier meter = 1;
+  ResourceIdentifier meter = 1;
 }
 
-message UnregisterMeterResponse { }
+message UnregisterMeterResponse {}
 
 service MetersService {
-    rpc RegisterMeter (RegisterMeterRequest) returns (RegisterMeterResponse);
-    rpc UnregisterMeter (UnregisterMeterRequest) returns (UnregisterMeterResponse);
-    // list / get metadata
+  rpc RegisterMeter (RegisterMeterRequest) returns (RegisterMeterResponse);
+  rpc UnregisterMeter (UnregisterMeterRequest) returns (UnregisterMeterResponse);
+  // list / get metadata
 }

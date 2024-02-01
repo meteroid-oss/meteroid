@@ -2,12 +2,7 @@ syntax = "proto3";
 
 package meteroid.metering.v1;
 
-import "common/v1/decimal.proto";
-import "common/v1/date.proto";
-
 import "google/protobuf/timestamp.proto";
-
-
 
 message Event {
   string event_id = 1;
