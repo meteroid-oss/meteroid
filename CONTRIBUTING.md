@@ -32,7 +32,7 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
   `docker compose -f develop/docker-compose.yml --profile web up`
 
 - Start the Rust backend
-  `cargo run -p meteroid --bin server`
+  `cargo run -p meteroid --bin meteroid-api`
 
 It will automatically run migrations. You can then apply the seed data (in /develop/data/seed.sql) through psql or the tool of your choice.
 
