@@ -22,19 +22,23 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 ### Install the dependencies & build
 
 - `cargo build -p meteroid`
+- if you need the metering api : `cargo build -p metering`
 - `pnpm install --prefix modules/web`
 
 ### Run the apps
 
 - Copy the `.env.example` file to `.env`.
 
-- Start the database with docker compose. If you intend to run the Web, you will need the "web" profile as below.
-  `docker compose -f develop/docker-compose.yml --profile web up`
+- Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering" profile as follows: 
+`docker compose -f develop/docker-compose.yml --profile metering up`
 
 - Start the Rust backend
   `cargo run -p meteroid --bin meteroid-api`
 
 It will automatically run migrations. You can then apply the seed data (in /develop/data/seed.sql) through psql or the tool of your choice.
+
+- Optionally start the Metering Rust backend
+  `cargo run -p metering --bin metering-api`
 
 - Start the Web frontend
   `pnpm --prefix modules/web/web-app run dev`
@@ -49,16 +53,18 @@ Click on the "Sandbox" tenant on the left to access the main UI.
 After a pull, you should update/build the dependencies.
 
 - `cargo build -p meteroid`
+- `cargo build -p metering`
 - `pnpm install --prefix modules/web`
 
 ### Updating the protobuf files
 
 Protobuf files are found in /modules/meteroid/proto
 
-After an update, you can rebuild rust & reinstall the web dependencies via the command above, or you can run the following commands for faster feedback:
+After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the command above, or you can run the following commands for faster feedback:
 
 - `cargo build -p meteroid-grpc`
-- `sh ./modules/web/web-app/build-proto-web.sh`
+- for metering: `cargo build -p metering-grpc`
+- `pnpm --prefix modules/web/web-app run generate:proto`
 
 ### Updating the database models and queries
 

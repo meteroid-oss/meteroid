@@ -86,6 +86,7 @@
     "lint": "tsc --noEmit && eslint \"./**/*.ts*\"",
     "lint:fix": "eslint . --ext .ts,.js,.tsx,.jsx --fix",
     "preview": "vite preview",
-    "postinstall": "buf generate --template=buf.gen.yaml ../../.."
+    "generate:proto": "buf generate --template=buf.gen.yaml ../../..",
+    "postinstall": "pnpm run generate:proto"
   }
 }
