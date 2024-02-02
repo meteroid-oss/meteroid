@@ -14,16 +14,16 @@ pub struct Config {
     #[envconfig(from = "DATABASE_URL")]
     pub database_url: String,
 
-    #[envconfig(from = "METEROID_ENDPOINT")]
+    #[envconfig(from = "METEROID_API_LISTEN_ADDRESS")]
     pub listen_addr: SocketAddr,
 
-    #[envconfig(from = "METERING_URI")]
+    #[envconfig(from = "METERING_API_EXTERNAL_URL")]
     pub metering_endpoint: String,
 
     #[envconfig(from = "OBJECT_STORE_URI")]
     pub object_store_uri: String,
 
-    #[envconfig(from = "INVOICING_WEBHOOK_ENDPOINT")]
+    #[envconfig(from = "INVOICING_WEBHOOK_LISTEN_ADDRESS")]
     pub invoicing_webhook_addr: SocketAddr,
 
     #[envconfig(nested = true)]

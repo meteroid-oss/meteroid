@@ -7,10 +7,10 @@ use std::net::SocketAddr;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
-    #[envconfig(from = "METERING_ENDPOINT", default = "127.0.0.1:8080")]
+    #[envconfig(from = "METERING_API_LISTEN_ADDRESS", default = "127.0.0.1:8080")]
     pub listen_addr: SocketAddr,
 
-    #[envconfig(from = "METEROID_URI", default = "http://127.0.0.1:50050")]
+    #[envconfig(from = "METEROID_API_EXTERNAL_URL", default = "http://127.0.0.1:50050")]
     pub meteroid_endpoint: String,
 
     #[envconfig(nested = true)]

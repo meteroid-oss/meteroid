@@ -1,6 +1,6 @@
 connect:
   api_key: "pv_sand_9XzHg0EYO2Usy9ITU6bbhBnkYYbx/2vO7XtUUeQ7Wq9EZCAbBG"
-  endpoint: $METERING_URI
+  endpoint: $METERING_API_EXTERNAL_URL
 events_per_second: 200
 limit: 5000
 events:
