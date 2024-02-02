@@ -20,7 +20,7 @@ const queryClient = new QueryClient({
 
 export const App: React.FC = () => {
   const transport = createGrpcWebTransport({
-    baseUrl: 'http://127.0.0.1:50061',
+    baseUrl: env.meteroidApiUri,
     interceptors: [errorInterceptor, loggingInterceptor, authInterceptor],
   })
   return (
