@@ -56,5 +56,8 @@ RUN groupadd --system md --gid 151 \
     && useradd --system --gid md --uid 151 md
 
 USER md
+
+EXPOSE 50061
 EXPOSE 8080
+
 CMD ["meteroid-api"]
