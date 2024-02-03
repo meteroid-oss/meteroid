@@ -81,7 +81,7 @@ where
         let path = request.uri().path().to_string().clone();
         let headers = request.headers_mut();
 
-        let signature_header = match headers.get(HMAC_SIGNATURE_HEADER) {
+        let signature_header = match headers.remove(HMAC_SIGNATURE_HEADER) {
             Some(signature_header) => signature_header,
             None => {
                 let error = Status::unauthenticated("Missing hmac signature");

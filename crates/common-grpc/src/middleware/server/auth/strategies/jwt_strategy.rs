@@ -17,16 +17,20 @@ use uuid::Uuid;
 use cached::proc_macro::cached;
 
 pub fn validate_jwt(
-    header_map: &HeaderMap,
+    header_map: &mut HeaderMap,
     jwt_secret: SecretString,
 ) -> Result<AuthenticatedState, Status> {
+
     let header = header_map
-        .get(BEARER_AUTH_HEADER)
+        .remove(BEARER_AUTH_HEADER);
+
+    let bearer = header
+        .as_ref()
         .ok_or(Status::unauthenticated("Missing JWT"))?
         .to_str()
         .map_err(|_| Status::permission_denied("Invalid JWT"))?;
 
-    let token = header
+    let token = bearer
         .strip_prefix("Bearer ")
         .ok_or(Status::unauthenticated("Missing JWT"))?;
 

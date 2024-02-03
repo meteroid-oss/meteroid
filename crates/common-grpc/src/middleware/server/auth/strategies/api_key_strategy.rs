@@ -46,7 +46,7 @@ async fn validate_api_token_by_id_cached(
 }
 
 pub async fn validate_api_key(
-    header_map: &HeaderMap,
+    header_map: &mut HeaderMap,
     pool: &Pool,
     gm: &GrpcServiceMethod,
 ) -> Result<AuthenticatedState, Status> {
@@ -54,8 +54,11 @@ pub async fn validate_api_key(
         return Err(Status::permission_denied("Forbidden"));
     }
 
-    let api_key = header_map
-        .get(API_KEY_HEADER)
+    let api_key_header = header_map
+        .remove(API_KEY_HEADER);
+
+    let api_key = api_key_header
+        .as_ref()
         .ok_or(Status::unauthenticated("Missing API key"))?
         .to_str()
         .map_err(|_| Status::permission_denied("Invalid API key"))?;

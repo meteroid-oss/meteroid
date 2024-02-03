@@ -108,18 +108,18 @@ where
 
         let sm = GrpcServiceMethod::extract(request.uri());
 
-        let metadata = request.headers().clone();
+        let mut metadata = request.headers_mut().clone();
 
         let pool = self.pool.clone();
         let jwt_secret = self.jwt_secret.clone();
 
         let future = async move {
             let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
-                validate_api_key(&metadata, &pool, &sm)
+                validate_api_key(&mut metadata, &pool, &sm)
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError)
             } else if metadata.contains_key(BEARER_AUTH_HEADER) {
-                validate_jwt(&metadata, jwt_secret).map_err(|e| BoxError::from(e) as BoxError)
+                validate_jwt(&mut metadata, jwt_secret).map_err(|e| BoxError::from(e) as BoxError)
             } else {
                 Err(Box::new(Status::unauthenticated("No authentication provided")) as BoxError)
             }?;

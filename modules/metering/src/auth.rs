@@ -96,12 +96,12 @@ where
 
         let _sm = GrpcServiceMethod::extract(request.uri());
 
-        let metadata = request.headers().clone();
+        let mut metadata = request.headers_mut().clone();
         let mut internal_client = self.internal_client.clone();
 
         let future = async move {
             let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
-                validate_api_key(&metadata, &mut internal_client)
+                validate_api_key(&mut metadata, &mut internal_client)
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError)
             } else {
@@ -176,11 +176,14 @@ async fn validate_api_token_by_id_cached(
 }
 
 pub async fn validate_api_key(
-    header_map: &HeaderMap,
+    header_map: &mut HeaderMap,
     internal_client: &mut InternalServiceClient<LayeredClientService>,
 ) -> Result<AuthenticatedState, Status> {
-    let api_key = header_map
-        .get(API_KEY_HEADER)
+    let api_key_header = header_map
+        .remove(API_KEY_HEADER);
+
+    let api_key = api_key_header
+        .as_ref()
         .ok_or(Status::unauthenticated("Missing API key"))?
         .to_str()
         .map_err(|_| Status::permission_denied("Invalid API key"))?;
