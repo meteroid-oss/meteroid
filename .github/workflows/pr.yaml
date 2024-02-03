@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v2
       - name: Install dependencies
         run: |
-          sudo apt-get install -y cmake clang unzip postgresql libsasl2-dev
+          sudo apt-get install -y cmake clang unzip libsasl2-dev
           wget https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
           unzip protoc*.zip
           sudo mv bin/protoc /usr/local/bin
@@ -45,12 +45,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.3
-      - name: Compile
-        run: cargo check
       - name: Install nextest
-        run: cargo install cargo-nextest
+        uses: taiki-e/cache-cargo-install-action@v1
+        with:
+          tool: cargo-nextest
       - name: Test
         run: cargo nextest run
+      - name: Compile
+        run: cargo check
 
   fmt:
     name: Rustfmt
