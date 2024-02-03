@@ -14,7 +14,7 @@ use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl InternalService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn resolve_customer_external_ids(
         &self,
         request: Request<ResolveCustomerExternalIdsRequest>,

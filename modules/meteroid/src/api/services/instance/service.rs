@@ -17,7 +17,7 @@ use meteroid_repository::organizations::CreateOrganizationParams;
 
 #[tonic::async_trait]
 impl InstanceService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_instance(
         &self,
         _request: Request<GetInstanceRequest>,
@@ -41,7 +41,7 @@ impl InstanceService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn init_instance(
         &self,
         request: Request<InitInstanceRequest>,

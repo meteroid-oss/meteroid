@@ -23,7 +23,7 @@ impl MetersService {
 
 #[tonic::async_trait]
 impl MetersServiceGrpc for MetersService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn register_meter(
         &self,
         request: Request<RegisterMeterRequest>,
@@ -59,7 +59,7 @@ impl MetersServiceGrpc for MetersService {
         Ok(Response::new(RegisterMeterResponse { metadata: vec![] }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn unregister_meter(
         &self,
         _request: Request<UnregisterMeterRequest>,

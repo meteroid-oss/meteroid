@@ -27,7 +27,7 @@ use meteroid_repository::{OrganizationUserRole, Params};
 
 #[tonic::async_trait]
 impl UsersService for UsersDbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn upsert_user(
         &self,
         request: Request<UpsertUserRequest>,
@@ -59,7 +59,7 @@ impl UsersService for UsersDbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn me(&self, request: Request<MeRequest>) -> Result<Response<MeResponse>, Status> {
         let actor = request.actor()?;
         let connection = self.get_connection().await?;
@@ -84,7 +84,7 @@ impl UsersService for UsersDbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_user_by_id(
         &self,
         request: Request<GetUserByIdRequest>,
@@ -113,7 +113,7 @@ impl UsersService for UsersDbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn find_user_by_email(
         &self,
         request: Request<FindUserByEmailRequest>,
@@ -142,7 +142,7 @@ impl UsersService for UsersDbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_users(
         &self,
         _request: Request<ListUsersRequest>,

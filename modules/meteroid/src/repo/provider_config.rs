@@ -53,7 +53,7 @@ impl ProviderConfigRepoCornucopia {
 
 #[async_trait::async_trait]
 impl ProviderConfigRepo for ProviderConfigRepoCornucopia {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_config_by_provider_and_tenant(
         &self,
         provider: InvoicingProvider,

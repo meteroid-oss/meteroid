@@ -76,7 +76,7 @@ impl ClickhouseConnector {
 
 #[async_trait]
 impl Connector for ClickhouseConnector {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn register_meter(&self, meter: Meter) -> Result<(), ConnectorError> {
         let mut client = self
             .pool
@@ -96,7 +96,7 @@ impl Connector for ClickhouseConnector {
         Ok(())
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn query_meter(&self, params: QueryMeterParams) -> Result<Vec<Usage>, ConnectorError> {
         let mut client = self
             .pool

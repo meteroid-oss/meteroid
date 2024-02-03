@@ -22,7 +22,7 @@ use super::{mapping, TenantServiceComponents};
 
 #[tonic::async_trait]
 impl TenantsService for TenantServiceComponents {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn active_tenant(
         &self,
         request: Request<ActiveTenantRequest>,
@@ -51,7 +51,7 @@ impl TenantsService for TenantServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_tenants(
         &self,
         request: Request<ListTenantsRequest>,
@@ -76,7 +76,7 @@ impl TenantsService for TenantServiceComponents {
         Ok(Response::new(ListTenantsResponse { tenants: result }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_tenant_by_id(
         &self,
         request: Request<GetTenantByIdRequest>,
@@ -105,7 +105,7 @@ impl TenantsService for TenantServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_tenant(
         &self,
         request: Request<CreateTenantRequest>,
@@ -137,7 +137,7 @@ impl TenantsService for TenantServiceComponents {
         Ok(Response::new(CreateTenantResponse { tenant: Some(rs) }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn configure_tenant_billing(
         &self,
         request: Request<ConfigureTenantBillingRequest>,
