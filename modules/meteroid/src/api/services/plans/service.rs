@@ -28,7 +28,7 @@ use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl PlansService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_draft_plan(
         &self,
         request: Request<CreateDraftPlanRequest>,
@@ -115,7 +115,7 @@ impl PlansService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_plan_by_external_id(
         &self,
         request: Request<GetPlanByExternalIdRequest>,
@@ -157,7 +157,7 @@ impl PlansService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_plans(
         &self,
         request: Request<ListPlansRequest>,
@@ -205,7 +205,7 @@ impl PlansService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_plan_version_by_id(
         &self,
         request: Request<GetPlanVersionByIdRequest>,
@@ -232,7 +232,7 @@ impl PlansService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_plan_version_by_id(
         &self,
         request: Request<ListPlanVersionByIdRequest>,
@@ -272,7 +272,7 @@ impl PlansService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn copy_version_to_draft(
         &self,
         request: Request<CopyVersionToDraftRequest>,
@@ -327,7 +327,7 @@ impl PlansService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn publish_plan_version(
         &self,
         request: Request<PublishPlanVersionRequest>,
@@ -364,7 +364,7 @@ impl PlansService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_last_published_plan_version(
         &self,
         request: Request<GetLastPublishedPlanVersionRequest>,
@@ -395,7 +395,7 @@ impl PlansService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn discard_draft_version(
         &self,
         request: Request<DiscardDraftVersionRequest>,
@@ -425,7 +425,7 @@ impl PlansService for DbService {
         Ok(Response::new(DiscardDraftVersionResponse {}))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn update_draft_plan_overview(
         &self,
         request: Request<UpdateDraftPlanOverviewRequest>,
@@ -507,7 +507,7 @@ impl PlansService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn update_published_plan_overview(
         &self,
         request: Request<UpdatePublishedPlanOverviewRequest>,
@@ -550,7 +550,7 @@ impl PlansService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_plan_overview_by_external_id(
         &self,
         request: Request<GetPlanOverviewByExternalIdRequest>,
@@ -578,7 +578,7 @@ impl PlansService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_plan_parameters(
         &self,
         request: Request<GetPlanParametersRequest>,

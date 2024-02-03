@@ -22,7 +22,7 @@ use meteroid_grpc::meteroid::api::components::v1::{
 
 #[tonic::async_trait]
 impl PriceComponentsService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_price_components(
         &self,
         request: Request<ListPriceComponentRequest>,
@@ -44,7 +44,7 @@ impl PriceComponentsService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_price_component(
         &self,
         request: Request<CreatePriceComponentRequest>,
@@ -129,7 +129,7 @@ impl PriceComponentsService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn edit_price_component(
         &self,
         request: Request<EditPriceComponentRequest>,
@@ -213,7 +213,7 @@ impl PriceComponentsService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn remove_price_component(
         &self,
         request: Request<RemovePriceComponentRequest>,

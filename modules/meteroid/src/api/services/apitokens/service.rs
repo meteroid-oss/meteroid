@@ -25,7 +25,7 @@ use common_grpc::middleware::server::auth::RequestExt;
 
 #[tonic::async_trait]
 impl ApiTokensService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_api_tokens(
         &self,
         request: Request<ListApiTokensRequest>,
@@ -52,7 +52,7 @@ impl ApiTokensService for DbService {
         Ok(Response::new(ListApiTokensResponse { api_tokens: result }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_api_token(
         &self,
         request: Request<CreateApiTokenRequest>,
@@ -124,7 +124,7 @@ impl ApiTokensService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_api_token_by_id(
         &self,
         request: Request<GetApiTokenByIdRequest>,

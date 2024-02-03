@@ -17,7 +17,7 @@ use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl BillableMetricsService for BillableMetricsComponents {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_billable_metric(
         &self,
         request: Request<CreateBillableMetricRequest>,
@@ -92,7 +92,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_billable_metrics(
         &self,
         request: Request<ListBillableMetricsRequest>,
@@ -131,7 +131,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_billable_metric(
         &self,
         request: Request<GetBillableMetricRequest>,

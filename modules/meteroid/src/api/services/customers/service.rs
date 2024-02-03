@@ -20,7 +20,7 @@ use super::mapping;
 
 #[tonic::async_trait]
 impl CustomersService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_customer(
         &self,
         request: tonic::Request<CreateCustomerRequest>,
@@ -68,7 +68,7 @@ impl CustomersService for DbService {
         Ok(Response::new(CreateCustomerResponse { customer: Some(rs) }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_customers(
         &self,
         request: tonic::Request<ListCustomerRequest>,
@@ -115,7 +115,7 @@ impl CustomersService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_customer(
         &self,
         request: Request<GetCustomerRequest>,
@@ -143,7 +143,7 @@ impl CustomersService for DbService {
         Ok(Response::new(rs))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_customer_by_alias(
         &self,
         request: Request<GetCustomerByAliasRequest>,

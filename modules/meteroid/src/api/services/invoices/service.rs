@@ -14,7 +14,7 @@ use crate::api::services::utils::PaginationExt;
 
 #[tonic::async_trait]
 impl InvoicesService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_invoices(
         &self,
         request: Request<ListInvoicesRequest>,
@@ -62,7 +62,7 @@ impl InvoicesService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_invoice(
         &self,
         request: Request<GetInvoiceRequest>,

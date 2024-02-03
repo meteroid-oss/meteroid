@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 #[tonic::async_trait]
 impl SubscriptionsService for SubscriptionServiceComponents {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_subscriptions_per_plan(
         &self,
         request: Request<ListSubscriptionsPerPlanRequest>,
@@ -69,7 +69,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_subscription(
         &self,
         request: Request<CreateSubscriptionRequest>,
@@ -300,7 +300,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_subscription_details(
         &self,
         request: Request<GetSubscriptionDetailsRequest>,
@@ -330,7 +330,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn apply_slots_delta(
         &self,
         request: Request<ApplySlotsDeltaRequest>,

@@ -21,7 +21,7 @@ use meteroid_repository::Params;
 
 #[tonic::async_trait]
 impl ProductsService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_product(
         &self,
         request: Request<CreateProductRequest>,
@@ -57,7 +57,7 @@ impl ProductsService for DbService {
         Ok(Response::new(CreateProductResponse { product: Some(res) }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_products(
         &self,
         request: Request<ListProductsRequest>,
@@ -96,7 +96,7 @@ impl ProductsService for DbService {
         Ok(Response::new(res))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn search_products(
         &self,
         request: Request<SearchProductsRequest>,
@@ -136,7 +136,7 @@ impl ProductsService for DbService {
         Ok(Response::new(res))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_product(
         &self,
         request: Request<GetProductRequest>,

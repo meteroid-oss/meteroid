@@ -16,7 +16,7 @@ use super::mapping;
 
 #[tonic::async_trait]
 impl ProductFamiliesService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_product_families(
         &self,
         request: Request<ListProductFamiliesRequest>,
@@ -43,7 +43,7 @@ impl ProductFamiliesService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_product_family(
         &self,
         request: Request<CreateProductFamilyRequest>,
@@ -75,7 +75,7 @@ impl ProductFamiliesService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn get_product_family_by_external_id(
         &self,
         request: Request<GetProductFamilyByExternalIdRequest>,

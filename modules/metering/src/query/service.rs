@@ -28,7 +28,7 @@ impl UsageQueryService {
 
 #[tonic::async_trait]
 impl UsageQueryServiceGrpc for UsageQueryService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn query_meter(
         &self,
         request: Request<QueryMeterRequest>,
@@ -94,7 +94,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
         Ok(Response::new(QueryMeterResponse { usage }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn query_raw_events(
         &self,
         _request: Request<QueryRawEventsRequest>,

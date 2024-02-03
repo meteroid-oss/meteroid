@@ -23,7 +23,7 @@ use super::mapping;
 
 #[tonic::async_trait]
 impl SchedulesService for DbService {
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn list_schedules(
         &self,
         request: Request<ListSchedulesRequests>,
@@ -58,7 +58,7 @@ impl SchedulesService for DbService {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn create_schedule(
         &self,
         request: Request<CreateScheduleRequest>,
@@ -107,7 +107,7 @@ impl SchedulesService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn edit_schedule(
         &self,
         request: Request<EditScheduleRequest>,
@@ -153,7 +153,7 @@ impl SchedulesService for DbService {
         }))
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip_all)]
     async fn remove_schedule(
         &self,
         request: Request<RemoveScheduleRequest>,
