@@ -179,8 +179,7 @@ pub async fn validate_api_key(
     header_map: &mut HeaderMap,
     internal_client: &mut InternalServiceClient<LayeredClientService>,
 ) -> Result<AuthenticatedState, Status> {
-    let api_key_header = header_map
-        .remove(API_KEY_HEADER);
+    let api_key_header = header_map.remove(API_KEY_HEADER);
 
     let api_key = api_key_header
         .as_ref()

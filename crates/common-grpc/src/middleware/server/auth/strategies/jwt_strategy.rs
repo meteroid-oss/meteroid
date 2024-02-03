@@ -20,9 +20,7 @@ pub fn validate_jwt(
     header_map: &mut HeaderMap,
     jwt_secret: SecretString,
 ) -> Result<AuthenticatedState, Status> {
-
-    let header = header_map
-        .remove(BEARER_AUTH_HEADER);
+    let header = header_map.remove(BEARER_AUTH_HEADER);
 
     let bearer = header
         .as_ref()

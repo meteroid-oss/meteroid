@@ -54,8 +54,7 @@ pub async fn validate_api_key(
         return Err(Status::permission_denied("Forbidden"));
     }
 
-    let api_key_header = header_map
-        .remove(API_KEY_HEADER);
+    let api_key_header = header_map.remove(API_KEY_HEADER);
 
     let api_key = api_key_header
         .as_ref()
