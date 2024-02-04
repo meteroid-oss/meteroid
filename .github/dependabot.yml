@@ -10,6 +10,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+        # wait for https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
+      - dependency-name: "tonic-tracing-opentelemetry"
 
   - package-ecosystem: "github-actions"
     directory: "/"

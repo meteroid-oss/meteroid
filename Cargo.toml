@@ -105,7 +105,7 @@ tonic = "0.10.2"
 tonic-build = "0.10.2"
 tonic-health = "0.10.2"
 tonic-reflection = "0.10.2"
-tonic-tracing-opentelemetry = "0.15.0"
+tonic-tracing-opentelemetry = "0.14.1"
 tonic-web = "0.10.2"
 tower = { version = "0.4.13" }
 tower-service = { version = "0.3.2" }
