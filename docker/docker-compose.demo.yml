@@ -47,9 +47,8 @@ services:
     image: ghcr.io/meteroid-oss/meteroid-api:latest
     container_name: meteroid-api
     depends_on:
-      - meteroid-db
-      - clickhouse
-      - redpanda
+      meteroid-db:
+        condition: service_healthy
     networks:
       - meteroid_net
     ports:
@@ -77,9 +76,12 @@ services:
     image: ghcr.io/meteroid-oss/metering-api:latest
     container_name: metering-api
     depends_on:
-      - meteroid-db
-      - meteroid-api
-      - clickhouse
+      meteroid-api:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
     networks:
       - meteroid_net
     ports:
@@ -161,6 +163,12 @@ services:
       - meteroid_net
     ports:
       - 9092:9092
+    healthcheck:
+       test: ["CMD","curl","-f","http://localhost:9644/v1/status/ready"]
+       start_period: 30s
+       interval: 5s
+       timeout: 2s
+       retries: 24
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:v2.3.1
@@ -187,7 +195,8 @@ services:
   redpanda-topic-create:
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
     depends_on:
-      - redpanda
+      redpanda:
+        condition: service_healthy
     entrypoint: [ "bash", "-c", "sleep 5 && rpk topic create meteroid-events-raw --brokers redpanda:29092" ]
     networks:
       - meteroid_net
