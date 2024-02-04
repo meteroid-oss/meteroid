@@ -7,6 +7,7 @@ import { CustomersEditPanel, CustomersHeader, CustomersTable } from '@/features/
 import useDebounce from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 
 import type { PaginationState } from '@tanstack/react-table'
 
@@ -29,6 +30,7 @@ export const Customers: FunctionComponent = () => {
         offset: pagination.pageIndex * pagination.pageSize,
       },
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
+      sortBy: ListCustomerRequest_SortBy.NAME_ASC,
     },
     {}
   )

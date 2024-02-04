@@ -26,8 +26,10 @@ const PriceInput = <T extends FieldValues>({
   showCurrency = true,
   className,
   placeholder,
-  size,
-  defaultValue,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  size: _size,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  defaultValue: _defaultValue,
   precision = 2,
   error,
   ...props

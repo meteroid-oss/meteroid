@@ -13,6 +13,6 @@ export const useProductFamily = () => {
   )
 
   return {
-    productFamily: productFamily.data ?? undefined,
+    productFamily: productFamily.data?.productFamily ?? undefined,
   }
 }

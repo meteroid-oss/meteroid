@@ -1,15 +1,13 @@
-import { ButtonAlt, FormItem, Input, Label, Modal } from '@ui/components'
-import { z } from 'zod'
-
-import { useZodForm } from '@/hooks/useZodForm'
-import { StandardTable } from '@/components/table/StandardTable'
-import { useQuery } from '@/lib/connectrpc'
-import { listUsers } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { getInvite } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { ColumnDef } from '@tanstack/react-table'
-import { User, UserRole } from '@/rpc/api/users/v1/models_pb'
-import { SimpleTable } from '@/components/table/SimpleTable'
+import { ButtonAlt, Input, Label, Modal } from '@ui/components'
 import { useMemo, useState } from 'react'
+
+import { SimpleTable } from '@/components/table/SimpleTable'
+import { useQuery } from '@/lib/connectrpc'
+import { getInvite } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import { User, UserRole } from '@/rpc/api/users/v1/models_pb'
+import { listUsers } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+
 
 const userRoleMapping: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'Owner',

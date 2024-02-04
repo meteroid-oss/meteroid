@@ -15,7 +15,7 @@ export const getSessionToken = (): undefined | string => {
 }
 
 export const sessionAtom = atomWithStorage<Session | null>(LS_SESSION_KEY, null, undefined, {
-  unstable_getOnInit: true,
+  getOnInit: true,
 })
 
 export const useSession = () => {

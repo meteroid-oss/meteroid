@@ -72,8 +72,9 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
     const validated = formPriceCompoentSchema.safeParse(data)
 
     console.log('validated', validated)
+    if (!overview?.planVersionId) return
 
-    createPriceComponent.mutate({ ...data, planVersionId: overview?.planVersionId! })
+    createPriceComponent.mutate({ ...data, planVersionId: overview.planVersionId })
   }
 
   return (
@@ -125,8 +126,9 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   }
 
   const onSubmit = (data: FormPriceComponent) => {
+    if (!overview?.planVersionId) return
     editPriceComponent.mutate({
-      planVersionId: overview?.planVersionId!,
+      planVersionId: overview.planVersionId,
       component: {
         id: component.id,
         feeType: mapFeeType(data.fee),

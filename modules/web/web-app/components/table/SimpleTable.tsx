@@ -1,12 +1,6 @@
 import { spaces } from '@md/foundation'
 import { Flex, Skeleton, Table, cn } from '@md/ui'
-import {
-  ColumnDef,
-  Row,
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-} from '@tanstack/react-table'
+import { ColumnDef, Row, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
 
@@ -80,7 +74,7 @@ export const SimpleTable = <A extends object>({
     }
 
     return rows.map(standardRowRenderer)
-  }, [isLoading, data, rows, standardRowRenderer, columns, emptyMessage])
+  }, [isLoading, data, rows, columns, emptyMessage])
 
   return (
     <Flex direction="column" gap={spaces.space9}>

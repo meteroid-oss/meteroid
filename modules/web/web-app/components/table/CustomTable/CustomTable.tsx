@@ -123,16 +123,6 @@ export const CustomTable = <A extends object>({
     return rows.map(rowRenderer)
   }, [isLoading, data, rows, rowRenderer, columns, emptyMessage])
 
-  // useEffect(() => {
-  //   const tableElement = document.querySelector('table') as HTMLTableElement
-  //   const tableRect = tableElement.getBoundingClientRect()
-  //   const tableBody = tableElement.querySelector('tbody') as HTMLTableSectionElement
-  //   const paginationElement = document.getElementById('pagination') as HTMLDivElement
-  //   const height = `calc(100vh - ${tableRect.top}px - ${paginationElement.offsetHeight}px - ${spaces.space12} * 2)`
-  //
-  //   tableBody.style.height = height
-  // }, [])
-
   return (
     <Flex direction="column" gap={spaces.space9}>
       <Table
@@ -140,6 +130,7 @@ export const CustomTable = <A extends object>({
           const sortType = header.column.getIsSorted()
           const columnName = flexRender(header.column.columnDef.header, header.getContext())
           const isEmpty = typeof columnName === 'object'
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const className: string | undefined = (header.column.columnDef as any).className
           const rowSortable = sortable && header.column.getCanSort()
           return (

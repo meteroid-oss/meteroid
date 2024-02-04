@@ -8,7 +8,7 @@ import { ColumnDef } from '@tanstack/react-table'
 import { ButtonAlt, Table } from '@ui/components'
 import { useAtom } from 'jotai'
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react'
-import { Fragment, ReactNode, useCallback, useMemo, useState } from 'react'
+import { ReactNode, useCallback, useMemo, useState } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { SimpleTable } from '@/components/table/SimpleTable'
@@ -30,7 +30,8 @@ import {
   SubscriptionRate,
   UsageBased,
   UsagePricingModel,
- TieredAndVolumeRow } from '@/lib/schemas/plans'
+  TieredAndVolumeRow,
+} from '@/lib/schemas/plans'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import {
   removePriceComponent,
@@ -51,7 +52,7 @@ export const PriceComponentCard: React.FC<{
 
   const queryClient = useQueryClient()
 
-  const [_, setEditedComponents] = useAtom(editedComponentsAtom)
+  const [, setEditedComponents] = useAtom(editedComponentsAtom)
 
   const priceElement = useMemo(() => toPriceElements(component.fee), [component])
 
@@ -173,7 +174,7 @@ const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
       .exhaustive()
 
   return match<FeeType, PriceElement | undefined>(feeType ?? undefined)
-    .with({ fee: 'rate' }, ({}) => ({
+    .with({ fee: 'rate' }, () => ({
       feeType: 'Rate',
       cadence: 'Committed term',
     }))

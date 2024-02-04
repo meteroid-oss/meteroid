@@ -3,7 +3,7 @@ import { ButtonAlt, FormItem, Input, Label, RadioGroup, RadioGroupItem, Textarea
 import { customAlphabet } from 'nanoid'
 import { FC, useEffect } from 'react'
 import { useController, useWatch } from 'react-hook-form'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useProductFamily } from '@/hooks/useProductFamily'
@@ -45,7 +45,6 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
 
   const createPlan = useMutation(createDraftPlan)
 
-  const [, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
 
   const onSubmit = async (data: z.infer<typeof createPlanSchema>) => {

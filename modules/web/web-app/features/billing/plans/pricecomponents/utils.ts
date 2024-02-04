@@ -15,7 +15,6 @@ import {
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
-
 interface AddedComponent {
   ref: string
   component: DeepPartial<PriceComponent>
@@ -202,7 +201,7 @@ export const formatPrice = (currency: string) => (price: string) => {
 export const useCurrency = () => {
   const { data: plan } = usePlan()
 
-  return plan?.currentVersion?.currency ?? 'USD' // TODO
+  return plan?.planDetails?.currentVersion?.currency ?? 'USD' // TODO
 }
 
 export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY'): string => {

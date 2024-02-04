@@ -2,7 +2,6 @@ import { ButtonAlt as Button, Dropdown, PopoverAlt as Popover } from '@md/ui'
 import { ChevronDownIcon, PlusIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { useOrganization } from '@/hooks/useOrganization'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { listTenants } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
@@ -11,7 +10,6 @@ export const TenantDropdown = () => {
   const tenants = useQuery(listTenants).data?.tenants ?? []
 
   const { tenant } = useTenant()
-  const { organization } = useOrganization()
 
   return (
     <Dropdown
@@ -27,7 +25,7 @@ export const TenantDropdown = () => {
               </Link>
             ))}
           <Popover.Separator />
-          <Link to={`/organization/${organization?.slug}/tenants/new`}>
+          <Link to="/tenants/new">
             <Dropdown.Item icon={<PlusIcon size="12" />}>New tenant</Dropdown.Item>
           </Link>
         </>

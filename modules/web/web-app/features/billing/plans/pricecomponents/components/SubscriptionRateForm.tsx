@@ -20,12 +20,9 @@ import {
   FeeFormProps,
   EditPriceComponentCard,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
-import {
-  useCurrency,
-  useBillingPeriods,
-  BillingPeriodUnion,
-} from '@/features/billing/plans/pricecomponents/utils'
+import { useCurrency, useBillingPeriods } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm, Methods } from '@/hooks/useZodForm'
+import { BillingPeriod } from '@/lib/mapping'
 import {
   SubscriptionRateSchema,
   SubscriptionRate,
@@ -116,8 +113,8 @@ export const TermRateTable = ({
     name: 'pricing.rates',
   })
 
-  const [itemsToAdd, setItemsToAdd] = useState<BillingPeriodUnion[]>([])
-  const [itemsToRemove, setItemsToRemove] = useState<BillingPeriodUnion[]>([])
+  const [itemsToAdd, setItemsToAdd] = useState<BillingPeriod[]>([])
+  const [itemsToRemove, setItemsToRemove] = useState<BillingPeriod[]>([])
 
   useEffect(() => {
     if (!billingPeriods) return

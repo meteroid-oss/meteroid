@@ -44,9 +44,13 @@ export const CapacityForm = (props: FeeFormProps) => {
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
 
-  const metrics = useQuery(listBillableMetrics, {
-    familyExternalId,
-  })
+  const metrics = useQuery(
+    listBillableMetrics,
+    {
+      familyExternalId: familyExternalId!,
+    },
+    { enabled: !!familyExternalId }
+  )
 
   const metricsOptions = useMemo(() => {
     if (!metrics.data?.billableMetrics) return []
@@ -85,7 +89,9 @@ export const CapacityForm = (props: FeeFormProps) => {
                 className="lg:w-[180px] xl:w-[230px]"
               >
                 {metricsOptions.map(option => (
-                  <SelectItem value={option.value}>{option.label}</SelectItem>
+                  <SelectItem value={option.value} key={option.value}>
+                    {option.label}
+                  </SelectItem>
                 ))}
               </ControlledSelect>
             </FormItem>

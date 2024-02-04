@@ -46,9 +46,15 @@ export const UsageBasedForm = (props: FeeFormProps) => {
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
 
-  const metrics = useQuery(listBillableMetrics, {
-    familyExternalId,
-  })
+  const metrics = useQuery(
+    listBillableMetrics,
+    {
+      familyExternalId: familyExternalId!,
+    },
+    {
+      enabled: !!familyExternalId,
+    }
+  )
 
   const metricsOptions =
     metrics.data?.billableMetrics?.map(metric => ({ label: metric.name, value: metric.id })) ?? []
@@ -68,7 +74,9 @@ export const UsageBasedForm = (props: FeeFormProps) => {
                 className="max-w-[280px]"
               >
                 {metricsOptions.map(option => (
-                  <SelectItem value={option.value}>{option.label}</SelectItem>
+                  <SelectItem value={option.value} key={option.value}>
+                    {option.label}
+                  </SelectItem>
                 ))}
               </ControlledSelect>
             </FormItem>
@@ -81,7 +89,9 @@ export const UsageBasedForm = (props: FeeFormProps) => {
                 className="max-w-[320px]"
               >
                 {models.map(([option, label]) => (
-                  <SelectItem value={option}>{label}</SelectItem>
+                  <SelectItem value={option} key={option}>
+                    {label}
+                  </SelectItem>
                 ))}
               </ControlledSelect>
             </FormItem>

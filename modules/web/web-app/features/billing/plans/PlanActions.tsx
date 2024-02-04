@@ -66,12 +66,12 @@ export const PlanActions = () => {
 
   const discardDraft = async () => {
     const ok = window.confirm('Are you sure you want to discard this draft?')
-    if (!ok) return
+    if (!ok || !overview) return
     setIsBusy(true)
 
     await discardDraftMutation.mutateAsync({
-      planId: overview?.planId!,
-      planVersionId: overview?.planVersionId!,
+      planId: overview.planId,
+      planVersionId: overview.planVersionId,
     })
     resetAtoms()
 
@@ -91,9 +91,11 @@ export const PlanActions = () => {
   const publishPlan = async () => {
     setIsBusy(true)
 
+    if (!overview) return
+
     await publishPlanMutation.mutateAsync({
-      planId: overview?.planId!,
-      planVersionId: overview?.planVersionId!,
+      planId: overview.planId,
+      planVersionId: overview.planVersionId,
     })
     setIsBusy(false)
   }
@@ -105,9 +107,10 @@ export const PlanActions = () => {
   })
 
   const copyToDraft = async () => {
+    if (!overview) return
     await copyToDraftMutation.mutateAsync({
-      planId: overview?.planId!,
-      planVersionId: overview?.planVersionId!,
+      planId: overview.planId,
+      planVersionId: overview.planVersionId,
     })
   }
 

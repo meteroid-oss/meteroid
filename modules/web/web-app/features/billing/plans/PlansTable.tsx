@@ -7,6 +7,7 @@ import { StandardTable } from '@/components/table/StandardTable'
 import { useQuery } from '@/lib/connectrpc'
 import { Plan } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { useTypedParams } from '@/utils/params'
 
 import type { FunctionComponent } from 'react'
@@ -20,11 +21,12 @@ export const PlansTable: FunctionComponent = () => {
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
 
   const plansQuery = useQuery(listPlans, {
-    productFamilyExternalId: familyExternalId,
+    productFamilyExternalId: familyExternalId!,
     pagination: {
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
     },
+    orderBy: ListPlansRequest_SortBy.DATE_DESC,
   })
   const isLoading = plansQuery.isLoading
 
@@ -66,7 +68,7 @@ export const PlansTable: FunctionComponent = () => {
         cell: () => <MoreVerticalIcon size={16} className="cursor-pointer" />,
       },
     ],
-    []
+    [navigate]
   )
 
   return (

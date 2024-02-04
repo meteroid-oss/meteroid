@@ -1,5 +1,4 @@
 import * as Dialog from '@radix-ui/react-dialog'
-import { Space } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { ButtonAlt as Button } from '../ButtonAlt'
