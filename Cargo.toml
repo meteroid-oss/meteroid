@@ -127,7 +127,7 @@ url = "2.4.1"
 clickhouse-rs = "1.1.0-alpha.1"
 quick_cache = "0.4.0"
 cornucopia = { version = "0.9" }
-cornucopia_async = { version = "0.4.0", default-features = false }
+cornucopia_async = { version = "0.6.0", default-features = false }
 object_store = { version = "0.7.1", default-features = false }
 fastrand = "2.0.1"
 serde_yaml = "0.9.30"
