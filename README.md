@@ -1,30 +1,56 @@
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](CODE_OF_CONDUCT.md)
-[![License: AGPL V3](https://img.shields.io/badge/license-AGPL%20V3-blue)](LICENSE.md)
-[![Discord](https://img.shields.io/discord/1202199422910595155?logo=Discord&logoColor=%23FFFFFF&style=plastic)](https://go.meteroid.com/discord)
 
-<br/>
-<br/>
+<div align="center">
+  <a href="https://www.meteroid.com?utm_source=github" target="_blank">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/meteroid-logo-wordmark--dark.svg">
+    <img alt="Novu Logo" src="assets/meteroid-logo-wordmark--light.svg" width="220"/>
+  </picture>
+  </a>
+</div>
 
-<p align="center">
-  <img src="assets/meteroid-logo-wordmark--light.svg#gh-light-mode-only" alt="Meteroid Billing Infrastructure" height="40">
-  <img src="assets/meteroid-logo-wordmark--light.svg#gh-light-mode-only#gh-dark-mode-only" alt="Meteroid Billing Infrastructure" height="40">
-</p>
 
 <h3 align="center">
-Cloud-native pricing and billing infrastructure for product-led SaaS.
+  Cloud-native pricing and billing infrastructure for product-led SaaS 🔥.
 </h3>
-<h4>
-Open-source alternative to Chargebee, Metronome, Orb, Stripe Billing, made for scale and extensibility !
-</h4>
+
+<br/>
 
 <p align="center">
-  <img src="assets/meteroid-banner.png" alt="Quickwit Cloud-Native Search Engine" style="max-height: 400px" >
+  <a href="CODE_OF_CONDUCT.md">
+    <img src="https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg" alt="Code of conduct">
+  </a>
+  <a href="LICENSE.md">
+    <img src="https://img.shields.io/badge/license-AGPL%20V3-blue" alt="AGPL V3">
+  </a>
+  <a href="https://go.meteroid.com/discord?utm_source=github">
+    <img src="https://img.shields.io/discord/1202199422910595155?logo=Discord&logoColor=%23FFFFFF&style=plastic" alt="Discord">
+  </a>
 </p>
+
+
+<h4 align="center">
+  Open-source alternative to Chargebee, Metronome, Orb, Stripe Billing, made for scale and extensibility !
+</h4>
+
 ---
 
-<b>Meteroid is in ALPHA ! Use at your own risk !</b>
+<div align="center" flex>
+    
 
-<p>We are working fulltime on our first stable release and on improving our DX and UX.</p>
+  <b>⚠️ Meteroid is in ALPHA </b>
+  <br/>
+  <b>Not all feature are finished, and the API is not stable. </b>
+  
+  <br/>
+  
+  <span>We are working fulltime on our first stable release, and on improving our DX and UX.</span>
+</div>
+
+
+
+<p align="center">
+  <img src="assets/meteroid-banner.png" alt="Meteroid Billing Infrastructure Banner" width="640" >
+</p>
 
 <br/>
 
