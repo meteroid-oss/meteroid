@@ -15,4 +15,6 @@ tokio-postgres = { workspace = true, features = [
 tokio = { workspace = true, features = ["full"] }
 deadpool-postgres.workspace = true
 tokio-postgres-rustls.workspace = true
-rustls = { workspace = true, features = ["dangerous_configuration"] }
+rustls = { workspace = true, features = ["ring"] }
+ring.workspace = true
+

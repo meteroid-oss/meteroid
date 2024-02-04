@@ -45,7 +45,7 @@ chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
 chacha20poly1305 = "0.10.1"
 # cornucopia is on 0.10.x
-deadpool-postgres = "0.10.5"
+deadpool-postgres = "0.12.1"
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
 error-stack = "0.4.1"
@@ -63,7 +63,7 @@ http-body = "0.4.5"
 jsonwebtoken = "9.2.0"
 lazy_static = "1"
 log = "0.4.20"
-miette = { version = "5.10.0", default-features = false }
+miette = { version = "6.0.1", default-features = false }
 moka = { version = "0.12.3", features = ["log", "logging", "sync"]}
 nanoid = "0.4.0"
 once_cell = "1.18.0"
@@ -81,7 +81,7 @@ regex = "1"
 ring = "0.17.4"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
-rustls = { version = "0.21.7", default-features = false }
+rustls = { version = "0.22.2", default-features = false }
 redis = { version = "0.24.0", default-features = false }
 refinery = { version = "0.8.11", default-features = false }
 secrecy = "0.8.0"
@@ -99,13 +99,13 @@ tokio-stream = "0.1.14"
 tokio-test = { version = "0.4.3" }
 # cornucopia is on 0.7.7
 tokio-postgres = { version = "0.7.7", default-features = false }
-tokio-postgres-rustls = "0.10.0"
+tokio-postgres-rustls = "0.11.1"
 tokio-util = "0.7.10"
 tonic = "0.10.2"
 tonic-build = "0.10.2"
 tonic-health = "0.10.2"
 tonic-reflection = "0.10.2"
-tonic-tracing-opentelemetry = "0.14.1"
+tonic-tracing-opentelemetry = "0.14.1" # do not update https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
 tonic-web = "0.10.2"
 tower = { version = "0.4.13" }
 tower-service = { version = "0.3.2" }
@@ -127,8 +127,8 @@ url = "2.4.1"
 clickhouse-rs = "1.1.0-alpha.1"
 quick_cache = "0.4.0"
 cornucopia = { version = "0.9" }
-cornucopia_async = { version = "0.4.0", default-features = false }
-object_store = { version = "0.7.1", default-features = false }
+cornucopia_async = { version = "0.6.0", default-features = false }
+object_store = { version = "0.9.0", default-features = false }
 fastrand = "2.0.1"
 serde_yaml = "0.9.30"
 shellexpand = "3.1.0"
