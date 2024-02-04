@@ -65,7 +65,7 @@
     "concurrently": "^8.2.2",
     "fs": "0.0.1-security",
     "json": "^11.0.0",
-    "postcss": "^8.4.31",
+    "postcss": "^8.4.33",
     "postcss-loader": "^7.3.3",
     "postcss-scss": "^4.0.9",
     "postcss-selector-parser": "^6.0.13",
