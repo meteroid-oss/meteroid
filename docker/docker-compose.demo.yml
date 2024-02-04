@@ -185,34 +185,6 @@ services:
   #   for development purposes only
   # ********************
 
-  # Jaeger
-  #   https://www.jaegertracing.io/docs/1.50/getting-started/#all-in-one
-  jaeger:
-    image: jaegertracing/all-in-one:1.50
-    container_name: jaeger
-    command:
-      - "--memory.max-traces=8000"
-      - "--query.base-path=/jaeger/ui"
-      - "--prometheus.server-url=http://prometheus:9090"
-      - "--prometheus.query.normalize-calls=true"
-      - "--prometheus.query.normalize-duration=true"
-    networks:
-      - meteroid_net
-    ports:
-      # - '5778:5778'                   # serve configs (sampling, etc.)
-      # closing ports because of using otelcol
-      # - '4317:4317'                     # OTLP over gRPC
-      # - '4318:4318'                     # OTLP over HTTP
-      - '16686:16686'                   # jaeger frontend
-    environment:
-      - METRICS_STORAGE_TYPE=prometheus # https://www.jaegertracing.io/docs/1.50/deployment/#metrics-storage-backends
-    deploy:
-      resources:
-        limits:
-          memory: 300M
-    restart: unless-stopped
-    logging: *logging
-
   # Grafana
   grafana:
     image: grafana/grafana:10.2.2
@@ -246,9 +218,6 @@ services:
       # same as jaeger ports
       - "4317:4317"                        # OTLP over gRPC receiver
       - "4318:4318"                        # OTLP over HTTP receiver
-    depends_on:
-      - jaeger
-      - dataprepper
     deploy:
       resources:
         limits:
@@ -281,56 +250,3 @@ services:
         limits:
           memory: 300M
     logging: *logging
-
-  opensearch:
-    image: opensearchproject/opensearch:latest
-    container_name: opensearch
-    environment:
-      - cluster.name=demo-cluster
-      - node.name=demo-node
-      - bootstrap.memory_lock=true
-      - discovery.type=single-node
-      - plugins.security.disabled=true
-      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
-    networks:
-      - meteroid_net
-    ports:
-      - "9200:9200"
-    logging: *logging
-
-  opensearch-dashboards:
-    build: opensearch-dashboards # see https://opensearch.org/docs/latest/security/configuration/disable/
-    container_name: opensearch-dashboards
-    networks:
-      - meteroid_net
-    ports:
-      - 5601:5601
-    environment:
-      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
-    depends_on:
-      - opensearch
-    logging: *logging
-
-  dataprepper:
-    image: opensearchproject/data-prepper:latest
-    container_name: dataprepper
-    volumes:
-      - ./volume/opensearch/pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml
-      - ./volume/opensearch/data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml
-    networks:
-      - meteroid_net
-    ports:
-      - "4900:4900"
-      - "21890:21890"
-      - "21891:21891"
-      - "21892:21892"
-    logging: *logging
-
-

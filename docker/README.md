@@ -24,14 +24,7 @@ Ports
 | 9092  |       | redpanda             |             |
 | 8090  |       | redpanda-console     |             |
 | 9644  |       | redpanda-console     |             |
-| 16686 |       | jaeger               |             |
 | 3000  | HTTP  | grafana              |             |
 | 4317  |       | otelcol              |             |
 | 4318  |       | otelcol              |             |
 | 9090  | HTTP  | prometheus           |             |
-| 9200  |       | opensearch           |             |
-| 5601  |       | opensearch-dashboard |             |
-| 4900  |       | data-prepper         |             |
-| 21890 |       | data-prepper         |             |
-| 21891 |       | data-prepper         |             |
-| 21892 |       | data-prepper         |             |
