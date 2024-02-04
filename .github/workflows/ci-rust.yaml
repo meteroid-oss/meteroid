@@ -1,3 +1,5 @@
+name: CI
+
 on:
   workflow_dispatch:
   push:
@@ -6,19 +8,10 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - ".github/workflows/ci-rust.yaml"
-      - "crates/**"
-      - "modules/meteroid/**"
-      - "modules/metering/**"
-      - "extra/**"
-      - "Cargo.toml"
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
-
-name: Check and Lint Rust module
 
 env:
   SCCACHE_GHA_ENABLED: "true"
@@ -36,7 +29,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   check:
-    name: Build
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

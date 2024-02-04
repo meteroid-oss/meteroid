@@ -46,10 +46,12 @@ impl ClickhouseConnector {
         );
         let kafka_mv_ddl = sql::init::create_kafka_mv_sql();
 
-        let mut client = pool
-            .get_handle()
-            .await
-            .map_err(|err| ConnectorError::ConnectionError(format!("Failed to connect to Clickhouse : {}", err.to_string())))?;
+        let mut client = pool.get_handle().await.map_err(|err| {
+            ConnectorError::ConnectionError(format!(
+                "Failed to connect to Clickhouse : {}",
+                err.to_string()
+            ))
+        })?;
 
         client
             .execute(event_table_ddl)

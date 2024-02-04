@@ -1,4 +1,4 @@
-name: Lint Web Module
+name: CI Web
 
 on:
   workflow_dispatch:
@@ -9,7 +9,8 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/ci-ui.yaml' s
+      - '.github/workflows/ci-ui.yaml'
+      - 'modules/meteroid/proto/**'
       - 'modules/web/**'
 
 concurrency:
@@ -19,7 +20,7 @@ concurrency:
 jobs:
   lint:
     runs-on: ubuntu-latest
-
+    name: Lint
     steps:
       - uses: actions/checkout@v3
       - name: Setup Node.js
