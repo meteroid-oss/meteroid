@@ -6,7 +6,7 @@ Requirements:
   
 How to run:
 ```bash
-docker compose -f docker-compose.demo.yml up
+docker compose -f docker/docker-compose.demo.yml up
 ```
 
 Ports

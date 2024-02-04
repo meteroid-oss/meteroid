@@ -55,7 +55,7 @@
     "kill:ports": "kill-port --port 5173,8000",
     "lint": "turbo run lint",
     "prepare": "cd ../.. && husky install modules/web/.husky",
-    "serve:db": "docker compose --profile dev -f docker/docker-compose.yml up"
+    "serve:db": "docker compose --profile dev -f docker/docker-compose.dev.yml up"
   },
   "syncpack": {
     "filter": "^(?!@md).*",
