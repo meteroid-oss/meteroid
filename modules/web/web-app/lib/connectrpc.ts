@@ -6,13 +6,13 @@ import {
 } from '@connectrpc/connect-query'
 import { CreateQueryOptions } from '@connectrpc/connect-query/dist/cjs/create-use-query-options'
 import { matchPath } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { getSessionToken } from '@/features/auth/session'
 
 import type { Message, PartialMessage, PlainMessage } from '@bufbuild/protobuf'
 import type { Interceptor, ConnectError, Transport } from '@connectrpc/connect'
 import type { UseQueryResult } from '@tanstack/react-query'
-import { toast } from 'sonner'
 
 const loggingInterceptorSkipError = [
   'AbortError: The user aborted a request.',
@@ -21,7 +21,6 @@ const loggingInterceptorSkipError = [
 export const loggingInterceptor: Interceptor = next => async req => {
   try {
     const result = await next(req)
-    // @ts-ignore
     console.log(`🔃 to ${req.method.name} `, req.message, result?.message)
     return result
   } catch (e) {

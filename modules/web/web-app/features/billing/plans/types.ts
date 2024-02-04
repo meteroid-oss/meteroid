@@ -1,6 +1,5 @@
-import { AppRouterOutput } from '@/lib/schemas'
+import { PriceComponent, FeeType } from '@/lib/schemas/plans'
 
-export type Plan = AppRouterOutput['plans']['list'][number]
-export type PriceComponent = AppRouterOutput['plans']['listPriceComponents'][number]
+export type PriceComponentType = FeeType['fee']
 
-export type PriceComponentType = NonNullable<NonNullable<PriceComponent['fee']>['fee']>
+export type { PriceComponent }

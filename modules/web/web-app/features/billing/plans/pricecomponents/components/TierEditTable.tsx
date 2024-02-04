@@ -12,16 +12,15 @@ export const TierEditTable = ({
   removeTier,
   unremovableIndices,
   maxTiers,
-  overrideHasInteracted,
 }: {
   headers: string[]
   headerDescriptions?: (string | undefined)[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tiers: EditableTableCellProps<any>[][]
   addTier: () => void
   removeTier: (idx: number) => void
   unremovableIndices: number[]
   maxTiers?: number
-  overrideHasInteracted?: boolean
 }) => {
   return (
     <div className="col-span-5">

@@ -1,14 +1,10 @@
 import { ButtonAlt as Button, PopoverAlt as Popover } from '@md/ui'
 import {
-  Activity as IconActivity,
-  BookOpen as IconBookOpen,
   HelpCircle as IconHelpCircle,
-  Mail as IconMail,
   MessageCircle as IconMessageCircle,
 } from 'lucide-react'
 import { FC } from 'react'
 import SVG from 'react-inlinesvg'
-import { Link } from 'react-router-dom'
 
 const HelpPopover: FC = () => {
   return (
@@ -19,43 +15,9 @@ const HelpPopover: FC = () => {
       sideOffset={8}
       overlay={
         <div className="my-4 w-96 space-y-4">
-          <div className="my-5 space-y-4 px-5">
-            <h5 className="text-scale-1200">Need help with your project?</h5>
-            <p className="text-sm text-scale-900">
-              For issues with your project hosted on supabase.com, or other inquiries about our
-              hosted services.
-            </p>
-            <div className="space-x-1">
-              <Link to="/support/new">
-                <Button type="default" icon={<IconMail />}>
-                  Contact Support
-                </Button>
-              </Link>
-              <a target="_blank" rel="noreferrer" href="https://supabase.com/docs/">
-                <Button type="text" size="tiny" icon={<IconBookOpen />}>
-                  Docs
-                </Button>
-              </a>
-              <a target="_blank" rel="noreferrer" href="https://status.supabase.com/">
-                <Button type="text" size="tiny" icon={<IconActivity />}>
-                  Status
-                </Button>
-              </a>
-            </div>
-            <p className="text-sm text-scale-900">
-              Expected response time is based on your billing tier. Pro and Pay as You Go plans are
-              prioritized.
-            </p>
-          </div>
-          <Popover.Separator />
           <div className="mb-4 space-y-2">
             <div className="mb-4 px-5">
-              <h5 className="mb-2">Reach out to the community</h5>
-
-              <p className="text-sm text-scale-900">
-                For other support, including questions on our client libraries, advice, or best
-                practices.
-              </p>
+              <h5 className="mb-2">Reach out to the team and community</h5>
             </div>
             <div className="px-5">
               <div
@@ -63,7 +25,7 @@ const HelpPopover: FC = () => {
                 style={{ background: '#404EED' }}
               >
                 <a
-                  href="https://discord.supabase.com"
+                  href="https://go.meteroid.com/discord"
                   target="_blank"
                   className="dark block cursor-pointer"
                   rel="noreferrer"
@@ -78,7 +40,7 @@ const HelpPopover: FC = () => {
                     type="secondary"
                     icon={<SVG src="/img/discord-icon.svg" className="h-4 w-4" />}
                   >
-                    <span style={{ color: '#404EED' }}>Join Discord server</span>
+                    <span style={{ color: '#404EED' }}>Join us on Discord</span>
                   </Button>
                 </a>
               </div>
@@ -86,7 +48,7 @@ const HelpPopover: FC = () => {
             <div className="px-5">
               <div className="relative space-y-2 overflow-hidden rounded px-5 py-4 pb-12 shadow-md">
                 <a
-                  href="https://github.com/supabase/supabase/discussions"
+                  href="https://github.com/meteroid-oss/meteroid/discussions"
                   target="_blank"
                   className="block cursor-pointer"
                   rel="noreferrer"
@@ -112,7 +74,7 @@ const HelpPopover: FC = () => {
       <Button
         as="span"
         type="default"
-        icon={<IconHelpCircle size={16} strokeWidth={1.5} className="text-scale-900" />}
+        icon={<IconHelpCircle size={16} strokeWidth={1.5} className="text-scale-1200" />}
       >
         Help / Feedback
       </Button>

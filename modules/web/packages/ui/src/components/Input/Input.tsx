@@ -38,7 +38,7 @@
 //   }
 // )
 // Input.displayName = 'Input'
-import { AlertCircleIcon, CopyIcon } from 'lucide-react'
+import { CopyIcon } from 'lucide-react'
 import { forwardRef, useState } from 'react'
 
 import { twInputAltStyles } from '@ui/components/Input/Input.styles'

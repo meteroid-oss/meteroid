@@ -2,12 +2,12 @@ import { TransportProvider } from '@connectrpc/connect-query'
 import { createGrpcWebTransport } from '@connectrpc/connect-web'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router-dom'
+import { Toaster } from 'sonner'
 
 import { authInterceptor, errorInterceptor, loggingInterceptor } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 
 import router from './router/router'
-import { Toaster } from 'sonner'
 
 const queryClient = new QueryClient({
   defaultOptions: {

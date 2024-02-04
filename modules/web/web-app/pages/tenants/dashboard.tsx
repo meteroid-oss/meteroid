@@ -1,12 +1,12 @@
 import { TenantPageLayout } from '@/components/layouts'
-import { NotImplementedPageEmptyState } from '@/features/temp/NotImplementedPage'
+import { Dashboard } from '@/features/dashboard/Dashboard'
 
 import type { FunctionComponent } from 'react'
 
-export const Dashboard: FunctionComponent = () => {
+export const DashboardPage: FunctionComponent = () => {
   return (
     <TenantPageLayout title="Home">
-      <NotImplementedPageEmptyState />
+      <Dashboard />
     </TenantPageLayout>
   )
 }

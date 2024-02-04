@@ -1,15 +1,17 @@
+name: CI
+
 on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
 
-
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
   cancel-in-progress: true
-
-
-name: Check and Lint
 
 env:
   SCCACHE_GHA_ENABLED: "true"
@@ -21,12 +23,13 @@ jobs:
       pull-requests: read
     name: Validate PR title
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - uses: amannn/action-semantic-pull-request@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   check:
-    name: Build
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -84,6 +87,6 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.4
       - uses: giraffate/clippy-action@v1
         with:
-          reporter: 'github-pr-review'
+          reporter: "github-pr-review"
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          clippy_flags: '-- -Dwarnings'
+          clippy_flags: "-- -Dwarnings"

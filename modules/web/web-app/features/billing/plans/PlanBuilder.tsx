@@ -1,10 +1,10 @@
-import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { useMutation, createConnectQueryKey, disableQuery } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
 import { ButtonAlt, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
-import React, { ReactNode, useMemo, useState } from 'react'
+import { ReactNode, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Loading } from '@/components/atoms/Loading'
@@ -28,21 +28,12 @@ import {
   createSubscription,
   listSubscriptionsPerPlan,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
-import { useTypedParams } from '@/utils/params'
-
-type PriceComponentType = 'rate' | 'slot' | 'capacity' | 'usage_based' | 'scheduled'
-
-type SidePanelOpenProps = { type: 'price-component'; data: { type: PriceComponentType } }
 
 interface Props {
   children?: ReactNode
 }
 export const PlanBuilder: React.FC<Props> = ({ children }) => {
   const navigate = useNavigate()
-
-  const { feeType } = useTypedParams<{ feeType: PriceComponentType }>()
-
-  const [isSaving, setIsSaving] = useState(false)
 
   const isDraft = useIsDraftVersion()
   const overview = usePlanOverview()
@@ -99,8 +90,6 @@ const SubscriptionsTab = () => {
 
   const queryClient = useQueryClient()
 
-  const navigate = useNavigate()
-
   const createSubscriptionMutation = useMutation(createSubscription, {
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -111,10 +100,11 @@ const SubscriptionsTab = () => {
 
   const { data: subscriptions } = useQuery(
     listSubscriptionsPerPlan,
-    {
-      planId: overview?.planId!,
-    },
-    { enabled: !!overview }
+    overview
+      ? {
+          planId: overview.planId,
+        }
+      : disableQuery
   )
 
   // temporary
@@ -132,12 +122,14 @@ const SubscriptionsTab = () => {
     accrued: '$0',
   }))
 
-  const coustoemr = customers?.customers?.find(a => a.name === 'Comodo')
+  const customer = customers?.customers?.find(a => a.name === 'Comodo')
 
   const quickCreateSubscription = async () => {
     await createSubscriptionMutation.mutateAsync({
+      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
       planVersionId: overview?.planVersionId!,
-      customerId: coustoemr?.id!,
+      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
+      customerId: customer?.id!,
       billingDay: 1,
       billingStart: mapDate(new Date()),
       netTerms: 0,
@@ -192,8 +184,6 @@ const SubscriptionsTab = () => {
 const PlanBody = () => {
   const { data: plan, isLoading } = usePlan()
 
-  const navigate = useNavigate()
-
   if (isLoading) {
     return (
       <>
@@ -208,7 +198,9 @@ const PlanBody = () => {
 
   return (
     <>
-      <PlanOverview plan={plan.planDetails?.plan!} version={plan.planDetails?.currentVersion!} />
+      {plan.planDetails?.currentVersion && plan.planDetails.plan && (
+        <PlanOverview plan={plan.planDetails.plan} version={plan.planDetails.currentVersion} />
+      )}
 
       <PriceComponentSection />
 

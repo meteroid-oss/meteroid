@@ -1,0 +1,38 @@
+name: CI Web
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/ci-ui.yaml'
+      - 'modules/meteroid/proto/**'
+      - 'modules/web/**'
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    name: Lint
+    steps:
+      - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.9.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20' 
+          cache: 'pnpm'
+          cache-dependency-path: 'modules/web/pnpm-lock.yaml'
+      - name: Install dependencies
+        run: pnpm install --prefix modules/web
+      - name: Run lint
+        run: pnpm --prefix modules/web lint

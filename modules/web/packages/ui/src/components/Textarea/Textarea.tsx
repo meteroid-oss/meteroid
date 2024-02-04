@@ -1,6 +1,5 @@
 import * as React from 'react'
 
-import { StyledTextarea } from './Textarea.styled'
 import { cn } from '@ui/lib'
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>

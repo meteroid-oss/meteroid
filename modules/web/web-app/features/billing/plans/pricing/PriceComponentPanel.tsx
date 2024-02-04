@@ -9,7 +9,7 @@ import {
   CircleDollarSignIcon,
   ArrowBigUp,
 } from 'lucide-react'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAddComponent } from '@/features/billing/plans/pricecomponents/utils'

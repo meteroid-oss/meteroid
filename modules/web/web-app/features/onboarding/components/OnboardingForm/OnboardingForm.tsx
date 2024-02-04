@@ -22,7 +22,7 @@ const OnboardingForm: FunctionComponent<OnboardingFormProps> = ({ nextStep }) =>
 
   return (
     <form
-      onSubmit={methods.handleSubmit(async values => {
+      onSubmit={methods.handleSubmit(async () => {
         nextStep()
       })}
     >

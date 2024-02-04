@@ -1,7 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { colors, radius, spaces } from '@md/foundation'
+import { spaces } from '@md/foundation'
 import { Flex, FormItem, Input, Modal, SidePanel } from '@md/ui'
-import { styled } from '@stitches/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
@@ -109,12 +108,3 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
     </>
   )
 }
-
-const FixedCharges = styled('div', {
-  padding: spaces.space3,
-  backgroundColor: colors.neutral3,
-  borderRadius: radius.radius3,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: spaces.space2,
-})

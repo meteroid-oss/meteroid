@@ -4,12 +4,12 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
-import { Customer } from '@/rpc/api/customers/v1/models_pb'
+import { CustomerList } from '@/rpc/api/customers/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
 
 interface CustomersTableProps {
-  data: Customer[]
+  data: CustomerList[]
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
@@ -23,7 +23,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
   totalCount,
   isLoading,
 }) => {
-  const columns = useMemo<ColumnDef<Customer>[]>(
+  const columns = useMemo<ColumnDef<CustomerList>[]>(
     () => [
       {
         header: 'Name',

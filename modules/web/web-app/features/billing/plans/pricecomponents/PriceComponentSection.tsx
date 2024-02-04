@@ -1,3 +1,4 @@
+import { disableQuery } from '@connectrpc/connect-query'
 import { ButtonAlt } from '@ui/components'
 import { useNavigate } from 'react-router-dom'
 
@@ -33,10 +34,11 @@ export const PriceComponentSection = () => {
 
   const priceComponents = useQuery(
     listPriceComponents,
-    {
-      planVersionId: overview?.planVersionId!,
-    },
-    { enabled: !!overview }
+    overview?.planVersionId
+      ? {
+          planVersionId: overview.planVersionId,
+        }
+      : disableQuery
   )?.data?.components?.map(
     c =>
       ({
