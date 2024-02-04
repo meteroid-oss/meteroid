@@ -71,8 +71,8 @@ importers:
         specifier: ^0.1.8
         version: 0.1.8
       '@tailwindcss/forms':
-        specifier: ^0.5.0
-        version: 0.5.0(tailwindcss@3.3.3)
+        specifier: ^0.5.7
+        version: 0.5.7(tailwindcss@3.3.3)
       '@tailwindcss/typography':
         specifier: ^0.5.9
         version: 0.5.9(tailwindcss@3.3.3)
@@ -331,8 +331,8 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2
       '@tailwindcss/forms':
-        specifier: ^0.5.6
-        version: 0.5.6(tailwindcss@3.3.5)
+        specifier: ^0.5.7
+        version: 0.5.7(tailwindcss@3.3.5)
       '@tailwindcss/typography':
         specifier: ^0.5.10
         version: 0.5.10(tailwindcss@3.3.5)
@@ -560,8 +560,8 @@ importers:
         specifier: workspace:*
         version: link:../packages/tsconfig
       '@tailwindcss/forms':
-        specifier: ^0.5.6
-        version: 0.5.6(tailwindcss@3.3.4)
+        specifier: ^0.5.7
+        version: 0.5.7(tailwindcss@3.3.4)
       '@tailwindcss/typography':
         specifier: ^0.5.10
         version: 0.5.10(tailwindcss@3.3.4)
@@ -7344,8 +7344,8 @@ packages:
       defer-to-connect: 1.1.3
     dev: true
 
-  /@tailwindcss/forms@0.5.0(tailwindcss@3.3.3):
-    resolution: {integrity: sha512-KzWugryEBFkmoaYcBE18rs6gthWCFHHO7cAZm2/hv3hwD67AzwP7udSCa22E7R1+CEJL/FfhYsJWrc0b1aeSzw==}
+  /@tailwindcss/forms@0.5.7(tailwindcss@3.3.3):
+    resolution: {integrity: sha512-QE7X69iQI+ZXwldE+rzasvbJiyV/ju1FGHH0Qn2W3FKbuYtqp8LKcy6iSw79fVUT5/Vvf+0XgLCeYVG+UV6hOw==}
     peerDependencies:
       tailwindcss: '>=3.0.0 || >= 3.0.0-alpha.1'
     dependencies:
@@ -7353,8 +7353,8 @@ packages:
       tailwindcss: 3.3.3(ts-node@10.9.1)
     dev: false
 
-  /@tailwindcss/forms@0.5.6(tailwindcss@3.3.4):
-    resolution: {integrity: sha512-Fw+2BJ0tmAwK/w01tEFL5TiaJBX1NLT1/YbWgvm7ws3Qcn11kiXxzNTEQDMs5V3mQemhB56l3u0i9dwdzSQldA==}
+  /@tailwindcss/forms@0.5.7(tailwindcss@3.3.4):
+    resolution: {integrity: sha512-QE7X69iQI+ZXwldE+rzasvbJiyV/ju1FGHH0Qn2W3FKbuYtqp8LKcy6iSw79fVUT5/Vvf+0XgLCeYVG+UV6hOw==}
     peerDependencies:
       tailwindcss: '>=3.0.0 || >= 3.0.0-alpha.1'
     dependencies:
@@ -7362,8 +7362,8 @@ packages:
       tailwindcss: 3.3.4(ts-node@10.9.1)
     dev: true
 
-  /@tailwindcss/forms@0.5.6(tailwindcss@3.3.5):
-    resolution: {integrity: sha512-Fw+2BJ0tmAwK/w01tEFL5TiaJBX1NLT1/YbWgvm7ws3Qcn11kiXxzNTEQDMs5V3mQemhB56l3u0i9dwdzSQldA==}
+  /@tailwindcss/forms@0.5.7(tailwindcss@3.3.5):
+    resolution: {integrity: sha512-QE7X69iQI+ZXwldE+rzasvbJiyV/ju1FGHH0Qn2W3FKbuYtqp8LKcy6iSw79fVUT5/Vvf+0XgLCeYVG+UV6hOw==}
     peerDependencies:
       tailwindcss: '>=3.0.0 || >= 3.0.0-alpha.1'
     dependencies:
