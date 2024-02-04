@@ -7,6 +7,6 @@ license.workspace = true
 
 [dependencies]
 cornucopia.workspace = true
-miette = { workspace = true, features = ["fancy"] }
+miette = { workspace = true, features = ["fancy", "derive"] }
 postgres.workspace = true
 thiserror.workspace = true

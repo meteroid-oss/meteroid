@@ -22,11 +22,13 @@ postgres-types = { workspace = true, features = ["derive"] }
 uuid.workspace = true
 time.workspace = true
 tokio-postgres-rustls.workspace = true
-rustls = { workspace = true, features = ["dangerous_configuration"] }
+rustls = { workspace = true, features = ["ring"] }
+ring.workspace = true
 refinery = { workspace = true, features = ["tokio-postgres"] }
 error-stack.workspace = true
 thiserror.workspace = true
 tracing = { workspace = true }
+common-repository.workspace = true
 
 ## TODO drop
 lazy_static.workspace = true
@@ -35,4 +37,4 @@ regex.workspace = true
 
 [build-dependencies]
 cornucopia-build = { workspace = true }
-miette = { workspace = true, features = ["fancy"] }
+miette = { workspace = true, features = ["fancy", "derive"] }
