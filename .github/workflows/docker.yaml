@@ -1,12 +1,13 @@
 name: Docker Build
 
 on:
+  release:
+    types:
+      - published
   push:
     branches:
       - main
       - '*docker*'
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -97,7 +98,6 @@ jobs:
           tags: |
             ${{ steps.meteroid-docker.outputs.tags }}
             ghcr.io/meteroid-oss/${{ matrix.image_type.name }}:${{ github.sha }}
-            ghcr.io/meteroid-oss/${{ matrix.image_type.name }}:latest
           labels: ${{ steps.meteroid-docker.outputs.labels }}
           # layer caching
           cache-from: type=gha
@@ -152,3 +152,12 @@ jobs:
           docker manifest annotate ${IMAGE}:tip ${IMAGE}:arm64-${TAG} --arch arm64
           docker manifest annotate ${IMAGE}:tip ${IMAGE}:amd64-${TAG} --arch amd64
           docker manifest push     ${IMAGE}:tip
+      - name: Push latest to latest tag.
+        if: github.event_name == 'release'
+        run: |
+          TAG=${{ steps.meteroid-docker.outputs.version }}
+          IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
+          docker manifest create   ${IMAGE}:latest ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
+          docker manifest annotate ${IMAGE}:latest ${IMAGE}:arm64-${TAG} --arch arm64
+          docker manifest annotate ${IMAGE}:latest ${IMAGE}:amd64-${TAG} --arch amd64
+          docker manifest push     ${IMAGE}:latest
