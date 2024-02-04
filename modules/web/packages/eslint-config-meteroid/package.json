@@ -9,7 +9,7 @@
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "^4.6.0",
-    "eslint-plugin-turbo": "^1.10.16",
+    "eslint-plugin-turbo": "^1.12.2",
     "eslint-plugin-unused-imports": "^3.0.0"
   },
   "license": "MIT",
