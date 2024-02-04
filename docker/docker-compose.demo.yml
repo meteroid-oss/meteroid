@@ -66,7 +66,10 @@ services:
     image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
     container_name: meteroid-scheduler
     depends_on:
-      - meteroid-api
+      meteroid-db:
+        condition: service_healthy
+      meteroid-api:
+        condition: service_healthy
     networks:
       - meteroid_net
     env_file:
