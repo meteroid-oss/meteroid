@@ -31,9 +31,9 @@ updates:
       dev-deps:
         dependency-type: "development"
     ignore:
-      # For all packages, ignore all patch updates
-      - dependency-name: '*'
-        update-types: ['version-update:semver-patch']
+      # For all packages, ignore all patch updates, TODO uncomment
+#      - dependency-name: '*'
+#        update-types: ['version-update:semver-patch']
       # don't try to update internal packages
       - dependency-name: "@md/*"
       - dependency-name: "@meteroid/*"
