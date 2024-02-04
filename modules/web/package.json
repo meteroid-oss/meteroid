@@ -21,7 +21,7 @@
     "typescript": "^5.2.2"
   },
   "engines": {
-    "node": ">=20.x",
+    "node": ">=18.x",
     "pnpm": ">=8.0.0",
     "npm": "pnpm",
     "yarn": "pnpm"
@@ -36,9 +36,6 @@
     "*.json": [
       "prettier --write"
     ]
-  },
-  "overrides": {
-    "@types/node": "^20.8.8"
   },
   "packageManager": "pnpm@8.9.0",
   "private": true,
@@ -63,6 +60,6 @@
   },
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "web-app"
   ]
 }
