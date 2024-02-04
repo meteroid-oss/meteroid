@@ -54,7 +54,7 @@ services:
       - '50061:50061'
       - '8080:8080'
     env_file:
-      - .env.demo
+      - demo.env
 
   meteroid-scheduler:
     image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
@@ -64,7 +64,7 @@ services:
     networks:
       - meteroid_net
     env_file:
-      - .env.demo
+      - demo.env
 
   metering-api:
     image: ghcr.io/meteroid-oss/metering-api:latest
@@ -77,7 +77,7 @@ services:
     ports:
       - '50062:50062'
     env_file:
-      - .env.demo
+      - demo.env
 
   meteroid-web:
     image: ghcr.io/meteroid-oss/meteroid-web:latest
@@ -89,7 +89,7 @@ services:
     ports:
       - '9000:80'
     env_file:
-      - .env.demo
+      - demo.env
 
   minio:
     image: minio/minio:latest
