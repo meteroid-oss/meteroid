@@ -2,9 +2,9 @@
   "name": "@md/config",
   "version": "0.1.0",
   "dependencies": {
-    "@mertasan/tailwindcss-variables": "^2.2.3",
+    "@mertasan/tailwindcss-variables": "^2.7.0",
     "@radix-ui/colors": "^0.1.8",
-    "@tailwindcss/forms": "^0.5.0",
+    "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.9",
     "deepmerge": "^4.2.2",
     "tailwindcss": "^3.3.3",

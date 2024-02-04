@@ -10,13 +10,8 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
-
-  - package-ecosystem: docker
-    directory: "/"
-    schedule:
-      interval: daily
-      time: "20:00"
-    open-pull-requests-limit: 10
+        # wait for https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
+      - dependency-name: "tonic-tracing-opentelemetry"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -31,3 +26,16 @@ updates:
       interval: daily
       time: "20:00"
     open-pull-requests-limit: 10
+    groups:
+      # temporary
+      deps:
+        dependency-type: "production"
+      dev-deps:
+        dependency-type: "development"
+    ignore:
+      # For all packages, ignore all patch updates, TODO uncomment
+#      - dependency-name: '*'
+#        update-types: ['version-update:semver-patch']
+      # don't try to update internal packages
+      - dependency-name: "@md/*"
+      - dependency-name: "@meteroid/*"
