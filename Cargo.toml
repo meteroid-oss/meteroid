@@ -45,7 +45,7 @@ chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
 chacha20poly1305 = "0.10.1"
 # cornucopia is on 0.10.x
-deadpool-postgres = "0.10.5"
+deadpool-postgres = "0.12.1"
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
 error-stack = "0.4.1"
