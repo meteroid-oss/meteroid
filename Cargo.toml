@@ -141,7 +141,6 @@ common-config = { path = "crates/common-config" }
 common-logging = { path = "crates/common-logging" }
 common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }
-common-grpc-cache = { path = "crates/common-grpc-cache" }
 metering-grpc = { path = "modules/metering/crates/metering-grpc" }
 meteroid-grpc = { path = "modules/meteroid/crates/meteroid-grpc" }
 meteroid-repository = { path = "modules/meteroid/crates/meteroid-repository" }
