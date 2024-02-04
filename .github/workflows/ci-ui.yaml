@@ -31,6 +31,7 @@ jobs:
         with:
           node-version: '20' 
           cache: 'pnpm'
+          cache-dependency-path: 'modules/web/pnpm-lock.yaml'
       - name: Install dependencies
         run: pnpm install --prefix modules/web
       - name: Run lint
