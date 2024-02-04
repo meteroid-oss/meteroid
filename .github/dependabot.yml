@@ -12,6 +12,11 @@ updates:
         update-types: ["version-update:semver-patch"]
         # wait for https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
       - dependency-name: "tonic-tracing-opentelemetry"
+        # wait for tonic : https://github.com/hyperium/tonic/issues/1579
+      - dependency-name: "http"
+      - dependency-name: "hyper"
+      - dependency-name: "axum"
+      - dependency-name: "http-body"
 
   - package-ecosystem: "github-actions"
     directory: "/"
