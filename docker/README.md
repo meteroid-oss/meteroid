@@ -16,7 +16,7 @@ Ports
 | 5432  |       | PostgreSQL           |             |     
 | 50061 | gRPC  | meteroid-api         |             |
 | 8080  | HTTP  | meteroid-api         | callback    |
-| 50062 | gRPC  | meteroid-api         |             |
+| 50062 | gRPC  | metering-api         |             |
 | 9000  | HTTP  | meteroid-web         |             |
 | 8123  |       | clickhouse           |             |
 | 9010  |       | clickhouse           |             |
