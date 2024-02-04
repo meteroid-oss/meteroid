@@ -48,6 +48,8 @@ services:
     container_name: meteroid-api
     depends_on:
       - meteroid-db
+      - clickhouse
+      - redpanda
     networks:
       - meteroid_net
     ports:
@@ -55,6 +57,11 @@ services:
       - '8080:8080'
     env_file:
       - demo.env
+    healthcheck:
+      test: [ "CMD", "bin/grpc_health_probe", "-addr=localhost:50061" ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
 
   meteroid-scheduler:
     image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
@@ -78,6 +85,11 @@ services:
       - '50062:50062'
     env_file:
       - demo.env
+    healthcheck:
+      test: [ "CMD", "bin/grpc_health_probe", "-addr=localhost:50062" ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
 
   meteroid-web:
     image: ghcr.io/meteroid-oss/meteroid-web:latest

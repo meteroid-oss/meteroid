@@ -38,11 +38,13 @@ jobs:
           - platform: linux/amd64
             mold_arch: x86_64
             proto_arch: x86_64
+            grpc_health_probe_arch: amd64
             prefix: amd64
             runs_on: ubuntu-latest
           - platform: linux/arm64
             mold_arch: aarch64
             proto_arch: aarch_64
+            grpc_health_probe_arch: arm64
             prefix: arm64
             runs_on: ubuntu-latest
     runs-on: ${{ matrix.runs_on }}
@@ -91,6 +93,7 @@ jobs:
           build-args: |
             MOLD_ARCH=${{ matrix.mold_arch }}
             PROTO_ARCH=${{ matrix.proto_arch }}
+            GRPC_HEALTH_PROBE_ARCH=${{ matrix.grpc_health_probe_arch }}
             PROFILE=temp
             CI=${{ env.CI }}
           push: true
