@@ -1,9 +1,16 @@
+<br/>
+
+<div align="center">
+  Like this project ? Leave us a star ⭐ or join us in the discussions 💬
+</div>
+
+<br/><br/>
 
 <div align="center">
   <a href="https://www.meteroid.com?utm_source=github" target="_blank">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/meteroid-logo-wordmark--dark.svg">
-    <img alt="Novu Logo" src="assets/meteroid-logo-wordmark--light.svg" width="220"/>
+    <img alt="Meteroid Logo" src="assets/meteroid-logo-wordmark--light.svg" width="280"/>
   </picture>
   </a>
 </div>
