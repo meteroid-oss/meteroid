@@ -22,8 +22,8 @@ importers:
         specifier: ^0.21.2
         version: 0.21.2
       dependency-cruiser:
-        specifier: ^16.1.0
-        version: 16.1.0
+        specifier: ^16.2.0
+        version: 16.2.0
       dotenv-cli:
         specifier: ^7.3.0
         version: 7.3.0
@@ -6994,12 +6994,6 @@ packages:
     hasBin: true
     dev: true
 
-  /acorn@8.11.2:
-    resolution: {integrity: sha512-nc0Axzp/0FILLEVsm4fNwLCwMttvhEI263QtVPQcbpfZZ3ts0hLsZGOpE6czNlid7CJ9MlyH8reXkpsf3YUY4w==}
-    engines: {node: '>=0.4.0'}
-    hasBin: true
-    dev: true
-
   /acorn@8.11.3:
     resolution: {integrity: sha512-Y9rRfJG5jcKOE0CLisYbojUjIrIEE7AGMzA/Sm4BslANhbS+cDMpgBdcPT91oJ7OuJ9hYJBx59RjbhxVnrF8Xg==}
     engines: {node: '>=0.4.0'}
@@ -7832,6 +7826,11 @@ packages:
     engines: {node: '>=16'}
     dev: true
 
+  /commander@12.0.0:
+    resolution: {integrity: sha512-MwVNWlYjDTtOjX5PiD7o5pK0UrFU/OYgcJfjjK4RaHZETNtjJqrZa9Y9ds88+A+f+d5lv+561eZ+yCKoS3gbAA==}
+    engines: {node: '>=18'}
+    dev: true
+
   /commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
     dev: true
@@ -8365,8 +8364,8 @@ packages:
     engines: {node: '>= 0.8'}
     dev: true
 
-  /dependency-cruiser@16.1.0:
-    resolution: {integrity: sha512-gmuLNIi4ygkf9KLKZzCWc+og7uwFTkTPauT2ma764NtHQt3r4GoWqCR/lZK/kCfOpNOPU9mB0EM/7RmRL6BFXA==}
+  /dependency-cruiser@16.2.0:
+    resolution: {integrity: sha512-ud6xsI7h3T5zFhGjEYg7rtBizA9kKe+uR6ynuOLftnj55nCFp1g7kgbTX/zypCUkmZnkiEvFl9C/BC2kNVvSPQ==}
     engines: {node: ^18.17||>=20}
     hasBin: true
     dependencies:
@@ -8377,10 +8376,10 @@ packages:
       acorn-walk: 8.3.2
       ajv: 8.12.0
       chalk: 5.3.0
-      commander: 11.1.0
+      commander: 12.0.0
       enhanced-resolve: 5.15.0
       figures: 6.0.1
-      ignore: 5.3.0
+      ignore: 5.3.1
       indent-string: 5.0.0
       interpret: 3.1.1
       is-installed-globally: 1.0.0
@@ -9973,11 +9972,6 @@ packages:
 
   /ignore@5.2.4:
     resolution: {integrity: sha512-MAb38BcSbH0eHNBxn7ql2NH/kX33OkB3lZ1BNdh7ENeRChHTYsTvWrMubiIAMNS2llXEEgZ1MUOBtXChP3kaFQ==}
-    engines: {node: '>= 4'}
-    dev: true
-
-  /ignore@5.3.0:
-    resolution: {integrity: sha512-g7dmpshy+gD7mh88OC9NwSGTKoc3kyLAZQRU1mt53Aw/vnvfXnbC+F/7F7QoYVKbV+KNvJx8wArewKy1vXMtlg==}
     engines: {node: '>= 4'}
     dev: true
 
@@ -13982,7 +13976,7 @@ packages:
   /unplugin@1.5.0:
     resolution: {integrity: sha512-9ZdRwbh/4gcm1JTOkp9lAkIDrtOyOxgHmY7cjuwI8L/2RTikMcVG25GsZwNAgRuap3iDw2jeq7eoqtAsz5rW3A==}
     dependencies:
-      acorn: 8.11.2
+      acorn: 8.11.3
       chokidar: 3.5.3
       webpack-sources: 3.2.3
       webpack-virtual-modules: 0.5.0
