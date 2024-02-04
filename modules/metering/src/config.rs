@@ -10,7 +10,7 @@ pub struct Config {
     #[envconfig(from = "METERING_API_LISTEN_ADDRESS", default = "127.0.0.1:8080")]
     pub listen_addr: SocketAddr,
 
-    #[envconfig(from = "METEROID_API_EXTERNAL_URL", default = "http://127.0.0.1:50050")]
+    #[envconfig(from = "METEROID_API_EXTERNAL_URL", default = "http://127.0.0.1:50061")]
     pub meteroid_endpoint: String,
 
     #[envconfig(nested = true)]

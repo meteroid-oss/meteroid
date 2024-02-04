@@ -1,0 +1,205 @@
+version: "3.8"
+
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+volumes:
+  pg_data:
+  redpanda_data:
+  clickhouse_data:
+
+networks:
+  meteroid_net:
+
+name: meteroid-demo
+
+services:
+
+  ### Meteroid Dependencies
+  meteroid-db:
+    image: postgres:15.2
+    container_name: meteroid-db
+    ports:
+      - '5432:5432'
+    user: postgres
+    environment:
+      - POSTGRES_USER=meteroid
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=meteroid
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+    networks:
+      - meteroid_net
+
+  meteroid-api:
+    image: ghcr.io/meteroid-oss/meteroid-api:latest
+    container_name: meteroid-api
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+    networks:
+      - meteroid_net
+    ports:
+      - '50061:50061'
+      - '8080:8080'
+    env_file:
+      - demo.env
+    healthcheck:
+      test: [ "CMD", "bin/grpc_health_probe", "-addr=localhost:50061" ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
+
+  meteroid-scheduler:
+    image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
+    container_name: meteroid-scheduler
+    depends_on:
+      meteroid-db:
+        condition: service_healthy
+      meteroid-api:
+        condition: service_healthy
+    networks:
+      - meteroid_net
+    env_file:
+      - demo.env
+
+  metering-api:
+    image: ghcr.io/meteroid-oss/metering-api:latest
+    container_name: metering-api
+    depends_on:
+      meteroid-api:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - meteroid_net
+    ports:
+      - '50062:50062'
+    env_file:
+      - demo.env
+    healthcheck:
+      test: [ "CMD", "bin/grpc_health_probe", "-addr=localhost:50062" ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
+
+  meteroid-web:
+    image: ghcr.io/meteroid-oss/meteroid-web:latest
+    container_name: meteroid-web
+    depends_on:
+      - meteroid-api
+    networks:
+      - meteroid_net
+    ports:
+      - '9000:80'
+    env_file:
+      - demo.env
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: meteroid
+      MINIO_ROOT_PASSWORD: meteroid
+    command: server /data
+    profiles:
+      - experimental # TODO
+    networks:
+      - meteroid_net
+
+  ### Metering Dependencies
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.12.1-alpine
+    container_name: clickhouse
+    ports:
+      - 8123:8123
+      - 9010:9000
+      - 9009:9009
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: default
+      CLICKHOUSE_DB: meteroid
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://clickhouse:8123/ping || exit 1
+      interval: 5s
+      timeout: 3s
+      retries: 100
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./volume/clickhouse/config.xml:/develop/clickhouse/config.xml
+    networks:
+      - meteroid_net
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    container_name: redpanda
+    hostname: redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      - --advertise-kafka-addr INTERNAL://redpanda:29092,EXTERNAL://localhost:9092
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - meteroid_net
+    ports:
+      - 9092:9092
+    healthcheck:
+       test: ["CMD","curl","-f","http://localhost:9644/v1/status/ready"]
+       start_period: 30s
+       interval: 5s
+       timeout: 2s
+       retries: 24
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.3.1
+    container_name: redpanda-console
+    entrypoint: /bin/sh
+    command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
+    ports:
+      - 8090:8080
+      - 9644:9644
+    networks:
+      - meteroid_net
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:29092"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+    depends_on:
+      - redpanda
+
+  redpanda-topic-create:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    entrypoint: [ "bash", "-c", "sleep 5 && rpk topic create meteroid-events-raw --brokers redpanda:29092" ]
+    networks:
+      - meteroid_net

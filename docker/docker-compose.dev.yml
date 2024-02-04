@@ -14,11 +14,14 @@ volumes:
 networks:
   meteroid_net:
 
+name: meteroid-dev
+
 services:
 
   ### Meteroid Dependencies
-  db:
+  meteroid-db:
     image: postgres:15.2
+    container_name: meteroid-db
     ports:
       - '5432:5432'
     user: postgres
@@ -74,7 +77,7 @@ services:
       retries: 100
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/config.xml:/develop/clickhouse/config.xml
+      - ./volume/clickhouse/config.xml:/develop/clickhouse/config.xml
     networks:
       - meteroid_net
     profiles:
@@ -193,7 +196,7 @@ services:
     logging: *logging
 
   # OpenTelemetry Collector
-  otelcol:
+  otel-col:
     image: otel/opentelemetry-collector-contrib:0.88.0
     container_name: otel-col
     command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
