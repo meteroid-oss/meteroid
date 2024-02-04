@@ -14,18 +14,21 @@ volumes:
 networks:
   meteroid_net:
 
+name: meteroid-demo
+
 services:
 
   ### Meteroid Dependencies
-  db:
+  meteroid-db:
     image: postgres:15.2
+    container_name: meteroid-db
     ports:
       - '5432:5432'
     user: postgres
     environment:
-      - POSTGRES_USER=${DATABASE_USER:-meteroid}
-      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
-      - POSTGRES_DB=${DATABASE_NAME:-meteroid}
+      - POSTGRES_USER=meteroid
+      - POSTGRES_PASSWORD=secret
+      - POSTGRES_DB=meteroid
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -39,6 +42,54 @@ services:
       - "wal_level=logical"
     networks:
       - meteroid_net
+
+  meteroid-api:
+    image: ghcr.io/meteroid-oss/meteroid-api:latest
+    container_name: meteroid-api
+    depends_on:
+      - meteroid-db
+    networks:
+      - meteroid_net
+    ports:
+      - '50061:50061'
+      - '8080:8080'
+    env_file:
+      - .env.demo
+
+  meteroid-scheduler:
+    image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
+    container_name: meteroid-scheduler
+    depends_on:
+      - meteroid-api
+    networks:
+      - meteroid_net
+    env_file:
+      - .env.demo
+
+  metering-api:
+    image: ghcr.io/meteroid-oss/metering-api:latest
+    container_name: metering-api
+    depends_on:
+      - meteroid-db
+      - clickhouse
+    networks:
+      - meteroid_net
+    ports:
+      - '50062:50062'
+    env_file:
+      - .env.demo
+
+  meteroid-web:
+    image: ghcr.io/meteroid-oss/meteroid-web:latest
+    container_name: meteroid-web
+    depends_on:
+      - meteroid-api
+    networks:
+      - meteroid_net
+    ports:
+      - '9000:80'
+    env_file:
+      - .env.demo
 
   minio:
     image: minio/minio:latest
@@ -54,9 +105,10 @@ services:
   ### Metering Dependencies
   clickhouse:
     image: clickhouse/clickhouse-server:23.12.1-alpine
+    container_name: clickhouse
     ports:
       - 8123:8123
-      - 9000:9000
+      - 9010:9000
       - 9009:9009
     environment:
       CLICKHOUSE_USER: default
@@ -74,11 +126,9 @@ services:
       retries: 100
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./clickhouse/config.xml:/develop/clickhouse/config.xml
+      - ./volume/clickhouse/config.xml:/develop/clickhouse/config.xml
     networks:
       - meteroid_net
-    profiles:
-      - metering
 
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
@@ -98,16 +148,14 @@ services:
       - meteroid_net
     ports:
       - 9092:9092
-    profiles:
-      - metering
-
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:v2.3.1
+    container_name: redpanda-console
     entrypoint: /bin/sh
     command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
     ports:
-      - 8080:8080
+      - 8090:8080
       - 9644:9644
     networks:
       - meteroid_net
@@ -122,8 +170,6 @@ services:
             urls: ["http://redpanda:9644"]
     depends_on:
       - redpanda
-    profiles:
-      - metering
 
   redpanda-topic-create:
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
@@ -132,8 +178,6 @@ services:
     entrypoint: [ "bash", "-c", "sleep 5 && rpk topic create meteroid-events-raw --brokers redpanda:29092" ]
     networks:
       - meteroid_net
-    profiles:
-      - metering
 
   # ********************
   # Telemetry Components
@@ -167,8 +211,6 @@ services:
         limits:
           memory: 300M
     restart: unless-stopped
-    profiles:
-      - telemetry
     logging: *logging
 
   # Grafana
@@ -188,12 +230,10 @@ services:
       resources:
         limits:
           memory: 100M
-    profiles:
-      - telemetry
     logging: *logging
 
   # OpenTelemetry Collector
-  otelcol:
+  otel-col:
     image: otel/opentelemetry-collector-contrib:0.88.0
     container_name: otel-col
     command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
@@ -214,8 +254,6 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    profiles:
-      - telemetry
     logging: *logging
 
   # Prometheus
@@ -242,8 +280,6 @@ services:
       resources:
         limits:
           memory: 300M
-    profiles:
-      - telemetry
     logging: *logging
 
   opensearch:
@@ -267,8 +303,6 @@ services:
       - meteroid_net
     ports:
       - "9200:9200"
-    profiles:
-      - telemetry
     logging: *logging
 
   opensearch-dashboards:
@@ -282,10 +316,7 @@ services:
       OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
     depends_on:
       - opensearch
-    profiles:
-      - telemetry
     logging: *logging
-
 
   dataprepper:
     image: opensearchproject/data-prepper:latest
@@ -300,8 +331,6 @@ services:
       - "21890:21890"
       - "21891:21891"
       - "21892:21892"
-    profiles:
-      - telemetry
     logging: *logging
 
 

@@ -1,0 +1,310 @@
+version: "3.8"
+
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+volumes:
+  pg_data:
+  redpanda_data:
+  clickhouse_data:
+
+networks:
+  meteroid_net:
+
+name: meteroid-dev
+
+services:
+
+  ### Meteroid Dependencies
+  meteroid-db:
+    image: postgres:15.2
+    container_name: meteroid-db
+    ports:
+      - '5432:5432'
+    user: postgres
+    environment:
+      - POSTGRES_USER=${DATABASE_USER:-meteroid}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_DB=${DATABASE_NAME:-meteroid}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+    networks:
+      - meteroid_net
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: meteroid
+      MINIO_ROOT_PASSWORD: meteroid
+    command: server /data
+    profiles:
+      - experimental # TODO
+    networks:
+      - meteroid_net
+
+  ### Metering Dependencies
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.12.1-alpine
+    ports:
+      - 8123:8123
+      - 9000:9000
+      - 9009:9009
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: default
+      CLICKHOUSE_DB: meteroid
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://clickhouse:8123/ping || exit 1
+      interval: 5s
+      timeout: 3s
+      retries: 100
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./volume/clickhouse/config.xml:/develop/clickhouse/config.xml
+    networks:
+      - meteroid_net
+    profiles:
+      - metering
+
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    container_name: redpanda
+    hostname: redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      - --advertise-kafka-addr INTERNAL://redpanda:29092,EXTERNAL://localhost:9092
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - meteroid_net
+    ports:
+      - 9092:9092
+    profiles:
+      - metering
+
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.3.1
+    entrypoint: /bin/sh
+    command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
+    ports:
+      - 8080:8080
+      - 9644:9644
+    networks:
+      - meteroid_net
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+      CONSOLE_CONFIG_FILE: |
+        kafka:
+          brokers: ["redpanda:29092"]
+        redpanda:
+          adminApi:
+            enabled: true
+            urls: ["http://redpanda:9644"]
+    depends_on:
+      - redpanda
+    profiles:
+      - metering
+
+  redpanda-topic-create:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    depends_on:
+      - redpanda
+    entrypoint: [ "bash", "-c", "sleep 5 && rpk topic create meteroid-events-raw --brokers redpanda:29092" ]
+    networks:
+      - meteroid_net
+    profiles:
+      - metering
+
+  # ********************
+  # Telemetry Components
+  #   inspired by https://github.com/open-telemetry/opentelemetry-demo
+  #   for development purposes only
+  # ********************
+
+  # Jaeger
+  #   https://www.jaegertracing.io/docs/1.50/getting-started/#all-in-one
+  jaeger:
+    image: jaegertracing/all-in-one:1.50
+    container_name: jaeger
+    command:
+      - "--memory.max-traces=8000"
+      - "--query.base-path=/jaeger/ui"
+      - "--prometheus.server-url=http://prometheus:9090"
+      - "--prometheus.query.normalize-calls=true"
+      - "--prometheus.query.normalize-duration=true"
+    networks:
+      - meteroid_net
+    ports:
+      # - '5778:5778'                   # serve configs (sampling, etc.)
+      # closing ports because of using otelcol
+      # - '4317:4317'                     # OTLP over gRPC
+      # - '4318:4318'                     # OTLP over HTTP
+      - '16686:16686'                   # jaeger frontend
+    environment:
+      - METRICS_STORAGE_TYPE=prometheus # https://www.jaegertracing.io/docs/1.50/deployment/#metrics-storage-backends
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+    restart: unless-stopped
+    profiles:
+      - telemetry
+    logging: *logging
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: grafana
+    networks:
+      - meteroid_net
+    ports:
+      - "3000:3000"
+    environment:
+      - "GF_INSTALL_PLUGINS=grafana-opensearch-datasource"
+    volumes:
+      - ./volume/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./volume/grafana/provisioning/:/etc/grafana/provisioning/
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+    profiles:
+      - telemetry
+    logging: *logging
+
+  # OpenTelemetry Collector
+  otel-col:
+    image: otel/opentelemetry-collector-contrib:0.88.0
+    container_name: otel-col
+    command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
+    volumes:
+      - ./volume/otelcollector/otelcol-config.yml:/etc/otelcol-config.yml
+      - ./volume/otelcollector/otelcol-config-extras.yml:/etc/otelcol-config-extras.yml
+    networks:
+      - meteroid_net
+    ports:
+      # same as jaeger ports
+      - "4317:4317"                        # OTLP over gRPC receiver
+      - "4318:4318"                        # OTLP over HTTP receiver
+    depends_on:
+      - jaeger
+      - dataprepper
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    profiles:
+      - telemetry
+    logging: *logging
+
+  # Prometheus
+  prometheus:
+    image: quay.io/prometheus/prometheus:v2.47.2
+    container_name: prometheus
+    command:
+      - --web.console.templates=/etc/prometheus/consoles
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --storage.tsdb.retention.time=1h
+      - --config.file=/etc/prometheus/prometheus-config.yaml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+      - --enable-feature=exemplar-storage
+      - --enable-feature=otlp-write-receiver
+    volumes:
+      - ./volume/prometheus/prometheus-config.yaml:/etc/prometheus/prometheus-config.yaml
+    networks:
+      - meteroid_net
+    ports:
+      - "9090:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+    profiles:
+      - telemetry
+    logging: *logging
+
+  opensearch:
+    image: opensearchproject/opensearch:latest
+    container_name: opensearch
+    environment:
+      - cluster.name=demo-cluster
+      - node.name=demo-node
+      - bootstrap.memory_lock=true
+      - discovery.type=single-node
+      - plugins.security.disabled=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    networks:
+      - meteroid_net
+    ports:
+      - "9200:9200"
+    profiles:
+      - telemetry
+    logging: *logging
+
+  opensearch-dashboards:
+    build: opensearch-dashboards # see https://opensearch.org/docs/latest/security/configuration/disable/
+    container_name: opensearch-dashboards
+    networks:
+      - meteroid_net
+    ports:
+      - 5601:5601
+    environment:
+      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
+    depends_on:
+      - opensearch
+    profiles:
+      - telemetry
+    logging: *logging
+
+
+  dataprepper:
+    image: opensearchproject/data-prepper:latest
+    container_name: dataprepper
+    volumes:
+      - ./volume/opensearch/pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml
+      - ./volume/opensearch/data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml
+    networks:
+      - meteroid_net
+    ports:
+      - "4900:4900"
+      - "21890:21890"
+      - "21891:21891"
+      - "21892:21892"
+    profiles:
+      - telemetry
+    logging: *logging
+
+
