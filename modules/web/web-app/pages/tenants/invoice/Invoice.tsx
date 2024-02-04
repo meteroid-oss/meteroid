@@ -29,7 +29,7 @@ export const Invoice = () => {
 
   return (
     <Fragment>
-      <TenantPageLayout title="Invoices">
+      <TenantPageLayout title="Invoice">
         <Flex direction="column" gap={spaces.space9} fullHeight>
           {isLoading || !data ? (
             <>

@@ -1,6 +1,7 @@
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
 import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
@@ -26,7 +27,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
     () => [
       {
         header: 'Name',
-        accessorKey: 'name',
+        cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
       },
       {
         header: 'Active subscriptions',

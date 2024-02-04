@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.api.customers.v1;
 
+import "google/protobuf/timestamp.proto";
+
 message CustomerBillingConfig {
   message Stripe {
     string customer_id = 1;
@@ -18,10 +20,34 @@ message CustomerBillingConfig {
   }
 }
 
+message CustomerList {
+  string id = 1;
+  string name = 2;
+  optional string email = 3;
+  optional string alias = 4;
+}
+
+message Address {
+  optional string line1 = 1;
+  optional string line2 = 2;
+  optional string city = 3;
+  optional string country = 4;
+  optional string state = 5;
+  optional string zipCode = 6;
+}
+
 message Customer {
   string id = 1;
   string name = 2;
-  optional string alias = 3;
-  CustomerBillingConfig billing_config = 4;
-  // google.protobuf.Timestamp archived_at = 5;
+  optional string email = 3;
+  optional string alias = 4;
+  CustomerBillingConfig billing_config = 5;
+  optional string invoicing_email = 6;
+  optional string phone = 7;
+  int32 balance_value_cents = 8;
+  string balance_currency = 9;
+  optional google.protobuf.Timestamp archived_at = 10;
+  optional google.protobuf.Timestamp created_at = 11;
+  optional Address billing_address = 12;
+  optional Address shipping_address = 13;
 }

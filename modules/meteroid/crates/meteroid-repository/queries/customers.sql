@@ -1,19 +1,21 @@
---: Customer(id, name, alias?, billing_config?)
---! create_customer (id, name, alias?, tenant_id, created_by) : Customer
-INSERT INTO customer (id, name, alias, tenant_id, created_by, billing_config)
+--: Customer(id, name, alias?, email?, billing_config?, invoicing_email?, phone?, archived_at?, created_at?, billing_address?, shipping_address?)
+--: CustomerList(alias?, email?)
+--! create_customer (id, name, email?, alias?, tenant_id, created_by): (alias?, email?)
+INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES (:id,
         :name,
         :alias,
+        :email,
         :tenant_id,
         :created_by,
         :billing_config)
-RETURNING id, name, alias, billing_config;
+RETURNING id, name, email, alias;
 
---! list_customers (search?) : (alias?, billing_config?)
+--! list_customers (search?) : CustomerList
 SELECT id,
        name,
+       email,
        alias,
-       billing_config,
        COUNT(*) OVER () AS total_count
 FROM customer
 WHERE tenant_id = :tenant_id
@@ -49,7 +51,16 @@ WHERE tenant_id = :tenant_id
 SELECT id,
        name,
        alias,
-       billing_config
+       billing_config,
+       email,
+       invoicing_email,
+       phone,
+       balance_value_cents,
+       balance_currency,
+       archived_at,
+       created_at,
+       billing_address,
+       shipping_address
 FROM customer
 WHERE id = :id;
 
@@ -58,7 +69,16 @@ WHERE id = :id;
 SELECT id,
        name,
        alias,
-       billing_config
+       billing_config,
+       email,
+       invoicing_email,
+       phone,
+       balance_value_cents,
+       balance_currency,
+       archived_at,
+       created_at,
+       billing_address,
+       shipping_address
 FROM customer
 WHERE tenant_id = :tenant_id
   AND alias = :alias;
