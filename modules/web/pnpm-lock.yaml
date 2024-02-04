@@ -65,8 +65,8 @@ importers:
   packages/config:
     dependencies:
       '@mertasan/tailwindcss-variables':
-        specifier: ^2.2.3
-        version: 2.2.3(autoprefixer@10.4.16)(postcss@8.4.32)
+        specifier: ^2.7.0
+        version: 2.7.0(autoprefixer@10.4.16)(postcss@8.4.32)
       '@radix-ui/colors':
         specifier: ^0.1.8
         version: 0.1.8
@@ -3217,8 +3217,8 @@ packages:
       react: 18.2.0
     dev: true
 
-  /@mertasan/tailwindcss-variables@2.2.3(autoprefixer@10.4.16)(postcss@8.4.32):
-    resolution: {integrity: sha512-FAgpAwuub43kGTCj7iPQmUrZabs+0fa5nl2n07rCYm2ho2gmmSZsX+u4+0Xp8fWbFUDEYJ8MjOMLhJqnNIBe0A==}
+  /@mertasan/tailwindcss-variables@2.7.0(autoprefixer@10.4.16)(postcss@8.4.32):
+    resolution: {integrity: sha512-rKPhxi/0r6XWP0+OjPmsfrloX/TtQmvONj2Pr3Nl8BNBznQVP3M9sphguDBUDC0AiKYx2xgup3XzAhlIDLPLIA==}
     engines: {node: '>=12.13.0'}
     peerDependencies:
       autoprefixer: ^10.0.2
