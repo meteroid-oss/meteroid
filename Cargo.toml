@@ -40,7 +40,7 @@ base62 = "2.0.2"
 base64 = "0.21.4"
 blake3 = "1.5.0"
 bytes = "1.5.0"
-cached = "0.46.1"
+cached = "0.48.1"
 chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
 chacha20poly1305 = "0.10.1"
