@@ -44,7 +44,7 @@ services:
       - meteroid_net
 
   meteroid-api:
-    image: ghcr.io/meteroid-oss/meteroid-api:latest
+    image: ghcr.io/meteroid-oss/meteroid-api:0.12.0
     container_name: meteroid-api
     depends_on:
       meteroid-db:
@@ -63,7 +63,7 @@ services:
       retries: 3
 
   meteroid-scheduler:
-    image: ghcr.io/meteroid-oss/meteroid-scheduler:latest
+    image: ghcr.io/meteroid-oss/meteroid-scheduler:0.12.0
     container_name: meteroid-scheduler
     depends_on:
       meteroid-db:
@@ -76,7 +76,7 @@ services:
       - demo.env
 
   metering-api:
-    image: ghcr.io/meteroid-oss/metering-api:latest
+    image: ghcr.io/meteroid-oss/metering-api:0.12.0
     container_name: metering-api
     depends_on:
       meteroid-api:
@@ -98,7 +98,7 @@ services:
       retries: 3
 
   meteroid-web:
-    image: ghcr.io/meteroid-oss/meteroid-web:latest
+    image: ghcr.io/meteroid-oss/meteroid-web:0.12.0
     container_name: meteroid-web
     depends_on:
       - meteroid-api
@@ -108,6 +108,11 @@ services:
       - '9000:80'
     env_file:
       - demo.env
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:80/" ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
 
   minio:
     image: minio/minio:latest
