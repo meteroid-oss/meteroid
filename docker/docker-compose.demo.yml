@@ -78,6 +78,7 @@ services:
     container_name: metering-api
     depends_on:
       - meteroid-db
+      - meteroid-api
       - clickhouse
     networks:
       - meteroid_net
