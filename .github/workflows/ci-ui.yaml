@@ -23,17 +23,15 @@ jobs:
     name: Lint
     steps:
       - uses: actions/checkout@v3
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8.9.0
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '20' 
-          cache: 'pnpm'      
-
-      - name: Install pnpm
-        run: npm install -g pnpm
-
+          cache: 'pnpm'
       - name: Install dependencies
         run: pnpm install --prefix modules/web
-
       - name: Run lint
         run: pnpm --prefix modules/web lint
