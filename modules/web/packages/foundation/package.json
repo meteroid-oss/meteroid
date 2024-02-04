@@ -7,10 +7,10 @@
   },
   "devDependencies": {
     "@md/tsconfig": "workspace:*",
-    "@types/react": "^18.2.31",
+    "@types/react": "^18.2.52",
     "eslint-config-next": "^14.1.0",
-    "typescript": "^5.0.4",
-    "ts-node": "^10.9.1"
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
   },
   "exports": {
     ".": "./src/index.ts",

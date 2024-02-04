@@ -2,7 +2,7 @@
   "name": "@md/tsconfig",
   "version": "0.1.0",
   "devDependencies": {
-    "tsconfig-paths": "^4.1.0"
+    "tsconfig-paths": "^4.2.0"
   },
   "files": [
     "base.json",
