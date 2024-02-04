@@ -108,6 +108,11 @@ services:
       - '9000:80'
     env_file:
       - demo.env
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:80/" ]
+      interval: 5s
+      timeout: 30s
+      retries: 3
 
   minio:
     image: minio/minio:latest
