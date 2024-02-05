@@ -59,6 +59,7 @@ pub mod invoices {
             days_until_due: db_invoice.days_until_due,
             issued: db_invoice.issued,
             issue_attempts: db_invoice.issue_attempts,
+            amount_cents: db_invoice.amount_cents,
         }
     }
 
@@ -74,6 +75,7 @@ pub mod invoices {
             subscription_id: db_invoice.subscription_id.to_string(),
             currency: db_invoice.currency,
             days_until_due: db_invoice.days_until_due,
+            amount_cents: db_invoice.amount_cents,
         }
     }
 }

@@ -1,4 +1,5 @@
 import { spaces } from '@md/foundation'
+import { G } from "@mobily/ts-belt";
 import { Flex, Skeleton } from '@ui/components'
 import { ChevronLeftIcon } from 'lucide-react'
 import { Fragment } from 'react'
@@ -51,8 +52,10 @@ export const Invoice = () => {
                 </div>
               </div>
               <div className="flex h-full gap-4">
-                <div className="flex flex-col gap-2 border-r-2 border-slate-600 pr-4">
-                  <div className="text-4xl font-semibold">$ to be computed</div>
+                <div className="flex flex-col gap-2 border-r border-slate-600 pr-4 w-80">
+                  <div className="text-4xl font-semibold text-right">{!G.isNullable(data.amountCents)
+                    ? new Intl.NumberFormat(navigator.language, { style: 'currency', currency: data.currency }).format(data.amountCents)
+                    : ''}</div>
                 </div>
                 <div className="flex-1 flex flex-col gap-2">
                   <InvoiceCard invoice={data} />

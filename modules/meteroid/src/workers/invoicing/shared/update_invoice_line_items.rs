@@ -25,7 +25,7 @@ pub async fn update_invoice_line_items(
         .into_report()
         .change_context(errors::WorkerError::MeteringError)?;
 
-    let invoice_lines_json = serde_json::to_value(invoice_lines)
+    let invoice_lines_json = serde_json::to_value(invoice_lines.lines)
         .attach_printable("Failed to encode computed invoice lines to JSON")
         .change_context(errors::WorkerError::MeteringError)?; // TODO
 

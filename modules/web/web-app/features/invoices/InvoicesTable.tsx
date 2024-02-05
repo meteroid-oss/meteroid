@@ -1,3 +1,4 @@
+import { G } from '@mobily/ts-belt'
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
 import { Dropdown } from '@ui/components'
 import { MoreVerticalIcon } from 'lucide-react'
@@ -33,15 +34,17 @@ export const InvoicesTable: FunctionComponent<CustomersTableProps> = ({
       },
       {
         header: 'Amount',
-        accessorFn: () => 'to be computed',
-      },
-      {
-        header: 'Invoice date',
-        accessorFn: cell => cell.invoiceDate,
+        accessorFn: cell => !G.isNullable(cell.amountCents)
+          ? new Intl.NumberFormat(navigator.language).format(cell.amountCents)
+          : '',
       },
       {
         header: 'Currency',
         accessorKey: 'currency',
+      },
+      {
+        header: 'Invoice date',
+        accessorFn: cell => cell.invoiceDate,
       },
       {
         header: 'Status',

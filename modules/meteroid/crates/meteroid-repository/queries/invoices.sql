@@ -1,13 +1,13 @@
---: ListInvoice()
---: Invoice(last_issue_attempt_at?,last_issue_error?)
---: DetailedInvoice(updated_at?, last_issue_attempt_at?,last_issue_error?)
+--: ListInvoice(days_until_due?, amount_cents?)
+--: Invoice(days_until_due?, amount_cents?, last_issue_attempt_at?,last_issue_error?)
+--: DetailedInvoice(days_until_due?, amount_cents?, updated_at?, last_issue_attempt_at?,last_issue_error?)
 
---! create_invoice () : Invoice
+--! create_invoice (amount_cents?) : Invoice
 INSERT INTO invoice (id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id,
-                     currency, days_until_due, line_items)
+                     currency, days_until_due, line_items, amount_cents)
 VALUES (:id, :status, :invoicing_provider, :invoice_date, :tenant_id, :customer_id, :subscription_id,
-        :currency, :days_until_due, :line_items)
-RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, currency, days_until_due, line_items, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
+        :currency, :days_until_due, :line_items, :amount_cents)
+RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, currency, days_until_due, line_items, amount_cents, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
 
 
 --! update_invoice_status
@@ -41,10 +41,11 @@ SET status             = COALESCE(:status, status),
     currency           = COALESCE(:currency, currency),
     days_until_due     = COALESCE(:days_until_due, days_until_due),
     line_items         = COALESCE(:line_items, line_items),
+    amount_cents       = COALESCE(:amount_cents, amount_cents),
     updated_at         = NOW()
 WHERE id = :id
   AND status NOT IN ('FINALIZED', 'VOID')
-RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, currency, days_until_due, line_items, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
+RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, currency, days_until_due, line_items, amount_cents, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
 
 -- Update the invoices with 'DRAFT' status where the end date has passed but the grace period is not over (or won't be in the next 5 minutes)
 --! update_pending_finalization_invoices
@@ -70,6 +71,7 @@ SELECT invoice.id,
        invoice.currency,
        invoice.days_until_due,
        invoice.line_items,
+       invoice.amount_cents,
        invoice.issued,
        invoice.issue_attempts,
        invoice.last_issue_attempt_at,
@@ -92,6 +94,7 @@ SELECT invoice.id,
        invoice.currency,
        invoice.days_until_due,
        invoice.line_items,
+       invoice.amount_cents,
        invoice.issued,
        invoice.issue_attempts,
        invoice.last_issue_attempt_at,
@@ -119,6 +122,7 @@ SELECT id,
        currency,
        days_until_due,
        line_items,
+       amount_cents,
        issued,
        issue_attempts,
        last_issue_attempt_at,
@@ -138,6 +142,7 @@ SELECT invoice.id,
        invoice.subscription_id,
        invoice.currency,
        invoice.days_until_due,
+       invoice.amount_cents,
        customer.name   AS customer_name,
        COUNT(*) OVER() AS total_count
 FROM invoice
@@ -192,6 +197,7 @@ SELECT id,
        currency,
        days_until_due,
        line_items,
+       amount_cents,
        issued,
        issue_attempts,
        last_issue_attempt_at,
@@ -214,6 +220,7 @@ SELECT invoice.id,
        invoice.issue_attempts,
        invoice.last_issue_attempt_at,
        invoice.last_issue_error,
+       invoice.amount_cents,
        customer.name        AS customer_name,
        plan.name            AS plan_name,
        plan.external_id     AS plan_external_id,
