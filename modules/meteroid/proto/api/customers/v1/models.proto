@@ -38,7 +38,7 @@ message Address {
 
 message ShippingAddress {
   Address address = 1;
-  bool sameThanBilling = 7;
+  bool sameAsBilling = 7;
 }
 
 message Customer {

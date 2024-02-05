@@ -10,7 +10,7 @@ const addressSchema = z.object({
 })
 const shippingAddressSchema = z.object({
   address: addressSchema.optional(),
-  sameThanBilling: z.boolean(),
+  sameAsBilling: z.boolean(),
 })
 export const addressesSchema = z.object({
   billing_address: addressSchema.optional(),

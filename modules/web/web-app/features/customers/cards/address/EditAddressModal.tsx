@@ -36,11 +36,11 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
       billing_address: customer.billingAddress,
       shipping_address: {
         ...customer.shippingAddress,
-        sameThanBilling: customer.shippingAddress?.sameThanBilling !== false,
+        sameAsBilling: customer.shippingAddress?.sameAsBilling !== false,
       },
     },
   })
-  const sameShippingAddress = methods.watch('shipping_address.sameThanBilling')
+  const sameShippingAddress = methods.watch('shipping_address.sameAsBilling')
 
   const withItem = (label: string, name: FieldPath<z.TypeOf<typeof addressesSchema>>) => {
     return (
@@ -78,12 +78,12 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
 
             <h3 className="font-semibold">Shipping address</h3>
             <CheckboxFormItem
-              name="shipping_address.sameThanBilling"
+              name="shipping_address.sameAsBilling"
               label="Same as billing address"
             >
               <ControlledCheckbox
-                {...methods.withControl(`shipping_address.sameThanBilling`)}
-                id="shipping_address.sameThanBilling"
+                {...methods.withControl(`shipping_address.sameAsBilling`)}
+                id="shipping_address.sameAsBilling"
               />
             </CheckboxFormItem>
 
