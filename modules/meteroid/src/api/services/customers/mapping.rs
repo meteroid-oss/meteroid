@@ -17,9 +17,19 @@ pub mod customer {
         })
     }
 
-    fn decode_address(address: Value) -> Result<server::Address, DatabaseError> {
+    fn decode_billing_address(address: Value) -> Result<server::Address, DatabaseError> {
         serde_json::from_value(address).map_err(|_| {
-            errors::DatabaseError::JsonParsingError("Failed to deserialize address".to_owned())
+            errors::DatabaseError::JsonParsingError(
+                "Failed to deserialize billing address".to_owned(),
+            )
+        })
+    }
+
+    fn decode_shipping_address(address: Value) -> Result<server::ShippingAddress, DatabaseError> {
+        serde_json::from_value(address).map_err(|_| {
+            errors::DatabaseError::JsonParsingError(
+                "Failed to deserialize shipping address".to_owned(),
+            )
         })
     }
 
@@ -41,8 +51,14 @@ pub mod customer {
             balance_currency: customer.balance_currency,
             archived_at: customer.archived_at.map(datetime_to_timestamp),
             created_at: customer.created_at.map(datetime_to_timestamp),
-            billing_address: customer.billing_address.map(decode_address).transpose()?,
-            shipping_address: customer.shipping_address.map(decode_address).transpose()?,
+            billing_address: customer
+                .billing_address
+                .map(decode_billing_address)
+                .transpose()?,
+            shipping_address: customer
+                .shipping_address
+                .map(decode_shipping_address)
+                .transpose()?,
         })
     }
 

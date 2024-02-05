@@ -5,8 +5,9 @@ import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
-import { AddressCard } from '@/features/customers/cards/AddressCard'
-import { CustomerCard } from '@/features/customers/cards/CustomerCard'
+import { AddressCard } from '@/features/customers/cards/address/AddressCard'
+import { BalanceCard } from '@/features/customers/cards/balance/BalanceCard'
+import { CustomerCard } from '@/features/customers/cards/customer/CustomerCard'
 import { useQuery } from '@/lib/connectrpc'
 import { getCustomer } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
@@ -53,10 +54,9 @@ export const Customer = () => {
                   </div>
                 )}
               </div>
-              <div className="flex-1 flex flex-col gap-2">
-                <CustomerCard customer={data} />
-                <AddressCard customer={data} />
-              </div>
+              <CustomerCard customer={data} />
+              <AddressCard customer={data} />
+              <BalanceCard customer={data} />
             </>
           )}
         </Flex>

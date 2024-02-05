@@ -36,6 +36,11 @@ message Address {
   optional string zipCode = 6;
 }
 
+message ShippingAddress {
+  Address address = 1;
+  bool sameThanBilling = 7;
+}
+
 message Customer {
   string id = 1;
   string name = 2;
@@ -49,5 +54,18 @@ message Customer {
   optional google.protobuf.Timestamp archived_at = 10;
   optional google.protobuf.Timestamp created_at = 11;
   optional Address billing_address = 12;
-  optional Address shipping_address = 13;
+  optional ShippingAddress shipping_address = 13;
+}
+
+message PatchCustomer {
+  string id = 10;
+  optional string name = 1;
+  optional string email = 2;
+  optional string alias = 3;
+  optional string invoicing_email = 4;
+  optional string phone = 5;
+  optional int32 balance_value_cents = 6;
+  optional string balance_currency = 7;
+  optional Address billing_address = 8;
+  optional ShippingAddress shipping_address = 9;
 }

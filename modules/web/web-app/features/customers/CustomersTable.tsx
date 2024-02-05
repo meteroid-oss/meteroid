@@ -1,12 +1,11 @@
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
 import { MoreVerticalIcon } from 'lucide-react'
+import type { FunctionComponent } from 'react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { CustomerList } from '@/rpc/api/customers/v1/models_pb'
-
-import type { FunctionComponent } from 'react'
 
 interface CustomersTableProps {
   data: CustomerList[]

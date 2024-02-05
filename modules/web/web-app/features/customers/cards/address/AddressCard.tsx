@@ -1,13 +1,15 @@
-import { match, P } from 'ts-pattern'
+import { ButtonAlt } from '@ui/components'
+import { useState } from 'react'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { EditAddressModal } from '@/features/customers/cards/address/EditAddressModal'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
 
 interface Props {
   customer: Customer
 }
 
-const AddressLines = ({ address }: { address: Address }) => {
+const AddressLines = ({ address }: { address: Partial<Address> }) => {
   return (
     <div className="flex flex-col gap-0.5">
       <span>{address.line1}</span>
@@ -21,10 +23,17 @@ const AddressLines = ({ address }: { address: Address }) => {
 }
 
 export const AddressCard = ({ customer }: Props) => {
+  const [editModalVisible, setEditModalVisible] = useState<boolean>(false)
+
   return (
     <PageSection
       header={{
         title: 'Addresses',
+        actions: (
+          <ButtonAlt type="outline" onClick={() => setEditModalVisible(true)} className="py-1.5 ">
+            Edit
+          </ButtonAlt>
+        ),
       }}
     >
       <div className="flex text-sm">
@@ -34,16 +43,19 @@ export const AddressCard = ({ customer }: Props) => {
         </div>
         <div className="basis-2/4 flex flex-col gap-2">
           <span className="text-slate-1000">Shipping address</span>
-          {match(customer)
-            .with({ billingAddress: P.not(P.nullish), shippingAddress: P.nullish }, () => (
-              <span className="text-slate-1000 italic">Same as billing address</span>
-            ))
-            .with({ shippingAddress: P.not(P.nullish) }, c => (
-              <AddressLines address={c.shippingAddress} />
-            ))
-            .otherwise(() => null)}
+          {customer.shippingAddress?.sameThanBilling ? (
+            <span className="text-slate-1000 italic">Same as billing address</span>
+          ) : (
+            <AddressLines address={customer.shippingAddress?.address || {}} />
+          )}
         </div>
       </div>
+
+      <EditAddressModal
+        customer={customer}
+        visible={editModalVisible}
+        onCancel={() => setEditModalVisible(false)}
+      />
     </PageSection>
   )
 }
