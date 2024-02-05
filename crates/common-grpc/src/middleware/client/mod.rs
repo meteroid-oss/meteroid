@@ -1,11 +1,7 @@
 use tonic::transport::Channel;
-use tonic::{Request, Status};
 use tonic_tracing_opentelemetry::middleware::client::{OtelGrpcLayer, OtelGrpcService};
-use uuid::Uuid;
 
 use common_config::auth::InternalAuthConfig;
-
-use crate::middleware::server::AuthorizedState;
 
 pub mod auth;
 pub mod metric;
