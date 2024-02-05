@@ -1881,6 +1881,28 @@ WHERE bm.id = ANY ($1)
             pub tenant_id: uuid::Uuid,
             pub aliases: T2,
         }
+        #[derive(Debug)]
+        pub struct PatchCustomerParams<
+            T1: cornucopia_async::StringSql,
+            T2: cornucopia_async::StringSql,
+            T3: cornucopia_async::StringSql,
+            T4: cornucopia_async::StringSql,
+            T5: cornucopia_async::StringSql,
+            T6: cornucopia_async::StringSql,
+            T7: cornucopia_async::JsonSql,
+            T8: cornucopia_async::JsonSql,
+        > {
+            pub name: T1,
+            pub alias: Option<T2>,
+            pub email: Option<T3>,
+            pub invoicing_email: Option<T4>,
+            pub phone: Option<T5>,
+            pub balance_value_cents: i32,
+            pub balance_currency: T6,
+            pub billing_address: Option<T7>,
+            pub shipping_address: Option<T8>,
+            pub id: uuid::Uuid,
+        }
         #[derive(Debug, Clone, PartialEq)]
         pub struct CreateCustomer {
             pub id: uuid::Uuid,
@@ -2684,6 +2706,116 @@ WHERE tenant_id = $1
                 params: &'a GetCustomerIdsByAliasParams<T1, T2>,
             ) -> GetCustomerIdsByAliasQuery<'a, C, GetCustomerIdsByAlias, 2> {
                 self.bind(client, &params.tenant_id, &params.aliases)
+            }
+        }
+        pub fn patch_customer() -> PatchCustomerStmt {
+            PatchCustomerStmt(cornucopia_async::private::Stmt::new(
+                "UPDATE customer
+SET
+    name = $1,
+    alias = $2,
+    email = $3,
+    invoicing_email = $4,
+    phone = $5,
+    balance_value_cents = $6,
+    balance_currency = $7,
+    billing_address = $8,
+    shipping_address = $9
+WHERE id = $10",
+            ))
+        }
+        pub struct PatchCustomerStmt(cornucopia_async::private::Stmt);
+        impl PatchCustomerStmt {
+            pub async fn bind<
+                'a,
+                C: GenericClient,
+                T1: cornucopia_async::StringSql,
+                T2: cornucopia_async::StringSql,
+                T3: cornucopia_async::StringSql,
+                T4: cornucopia_async::StringSql,
+                T5: cornucopia_async::StringSql,
+                T6: cornucopia_async::StringSql,
+                T7: cornucopia_async::JsonSql,
+                T8: cornucopia_async::JsonSql,
+            >(
+                &'a mut self,
+                client: &'a C,
+                name: &'a T1,
+                alias: &'a Option<T2>,
+                email: &'a Option<T3>,
+                invoicing_email: &'a Option<T4>,
+                phone: &'a Option<T5>,
+                balance_value_cents: &'a i32,
+                balance_currency: &'a T6,
+                billing_address: &'a Option<T7>,
+                shipping_address: &'a Option<T8>,
+                id: &'a uuid::Uuid,
+            ) -> Result<u64, tokio_postgres::Error> {
+                let stmt = self.0.prepare(client).await?;
+                client
+                    .execute(
+                        stmt,
+                        &[
+                            name,
+                            alias,
+                            email,
+                            invoicing_email,
+                            phone,
+                            balance_value_cents,
+                            balance_currency,
+                            billing_address,
+                            shipping_address,
+                            id,
+                        ],
+                    )
+                    .await
+            }
+        }
+        impl<
+                'a,
+                C: GenericClient + Send + Sync,
+                T1: cornucopia_async::StringSql,
+                T2: cornucopia_async::StringSql,
+                T3: cornucopia_async::StringSql,
+                T4: cornucopia_async::StringSql,
+                T5: cornucopia_async::StringSql,
+                T6: cornucopia_async::StringSql,
+                T7: cornucopia_async::JsonSql,
+                T8: cornucopia_async::JsonSql,
+            >
+            cornucopia_async::Params<
+                'a,
+                PatchCustomerParams<T1, T2, T3, T4, T5, T6, T7, T8>,
+                std::pin::Pin<
+                    Box<
+                        dyn futures::Future<Output = Result<u64, tokio_postgres::Error>>
+                            + Send
+                            + 'a,
+                    >,
+                >,
+                C,
+            > for PatchCustomerStmt
+        {
+            fn params(
+                &'a mut self,
+                client: &'a C,
+                params: &'a PatchCustomerParams<T1, T2, T3, T4, T5, T6, T7, T8>,
+            ) -> std::pin::Pin<
+                Box<dyn futures::Future<Output = Result<u64, tokio_postgres::Error>> + Send + 'a>,
+            > {
+                Box::pin(self.bind(
+                    client,
+                    &params.name,
+                    &params.alias,
+                    &params.email,
+                    &params.invoicing_email,
+                    &params.phone,
+                    &params.balance_value_cents,
+                    &params.balance_currency,
+                    &params.billing_address,
+                    &params.shipping_address,
+                    &params.id,
+                ))
             }
         }
     }

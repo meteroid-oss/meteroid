@@ -90,3 +90,17 @@ SELECT id,
 FROM customer
 WHERE tenant_id = :tenant_id
   AND alias = ANY (:aliases);
+
+--! patch_customer(alias?, email?, invoicing_email?, phone?, billing_address?, shipping_address?)
+UPDATE customer
+SET
+    name = :name,
+    alias = :alias,
+    email = :email,
+    invoicing_email = :invoicing_email,
+    phone = :phone,
+    balance_value_cents = :balance_value_cents,
+    balance_currency = :balance_currency,
+    billing_address = :billing_address,
+    shipping_address = :shipping_address
+WHERE id = :id;        

@@ -13,7 +13,8 @@ use crate::api::services::utils::PaginationExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, list_customer_request::SortBy,
     CreateCustomerRequest, CreateCustomerResponse, Customer, GetCustomerByAliasRequest,
-    GetCustomerRequest, ListCustomerRequest, ListCustomerResponse,
+    GetCustomerRequest, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
+    PatchCustomerResponse,
 };
 
 use super::mapping;
@@ -67,6 +68,63 @@ impl CustomersService for DbService {
         })?;
 
         Ok(Response::new(CreateCustomerResponse { customer: Some(rs) }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn patch_customer(
+        &self,
+        request: tonic::Request<PatchCustomerRequest>,
+    ) -> std::result::Result<tonic::Response<PatchCustomerResponse>, tonic::Status> {
+        let connection = self.get_connection().await?;
+
+        let customer = request
+            .into_inner()
+            .customer
+            .ok_or(Status::internal("customer payload missing").clone())?;
+
+        let saved_customer = db::customers::get_customer_by_id()
+            .bind(&connection, &parse_uuid(&customer.id, "id")?)
+            .one()
+            .await
+            .map_err(|e| {
+                Status::internal("Failed to get customer")
+                    .set_source(Arc::new(e))
+                    .clone()
+            })?;
+
+        let params = db::customers::PatchCustomerParams {
+            id: parse_uuid(&customer.id, "id")?,
+            name: customer.name.unwrap_or(saved_customer.name),
+            alias: customer.alias.or(saved_customer.alias),
+            email: customer.email.or(saved_customer.email),
+            invoicing_email: customer.invoicing_email.or(saved_customer.invoicing_email),
+            phone: customer.phone.or(saved_customer.phone),
+            balance_value_cents: customer
+                .balance_value_cents
+                .unwrap_or(saved_customer.balance_value_cents),
+            balance_currency: customer
+                .balance_currency
+                .unwrap_or(saved_customer.balance_currency),
+            billing_address: customer
+                .billing_address
+                .map(|s| serde_json::to_value(s).unwrap())
+                .or(saved_customer.billing_address),
+            shipping_address: customer
+                .shipping_address
+                .map(|s| serde_json::to_value(s).unwrap())
+                .or(saved_customer.shipping_address),
+        };
+
+        db::customers::patch_customer()
+            .params(&connection, &params)
+            .await
+            .map_err(|e| {
+                Status::internal("Failed to patch customer")
+                    .set_source(Arc::new(e))
+                    .clone()
+            })?;
+
+        Ok(Response::new(PatchCustomerResponse {}))
     }
 
     #[tracing::instrument(skip_all)]

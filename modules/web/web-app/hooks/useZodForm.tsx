@@ -18,7 +18,7 @@ export function useZodForm<TSchema extends z.ZodTypeAny>(
     name,
   })
   const withError = (name: FieldPath<z.TypeOf<TSchema>>) => ({
-    error: form.getFieldState(name)?.error?.message,
+    error: form.formState.errors[name]?.message,
   })
 
   return { ...form, withControl, withError }

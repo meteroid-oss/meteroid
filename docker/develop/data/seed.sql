@@ -439,43 +439,40 @@ VALUES ('018c3763-070e-709d-8413-f42828e71943', '018c3463-05f3-7c1f-92b1-ddb1f70
 -- Data for Name: invoice
 --
 
-INSERT INTO public."invoice" 
-       values (
-       '123e4567-e89b-12d3-a456-426614174000',
-       -- status
-       'VOID', 
-       -- extenal status
-       'VOID', 
-       -- dates
-       '2023-12-02 21:49:08.805', '2024-12-02 21:49:08.805', '2023-12-02 20:00:00.000', '2023-12-02 20:00:00.000',
-       -- tenant
-       '018c2c82-3df1-7e84-9e05-6e141d0e751a',
-       -- customer
-       '018c3463-05f3-7c1f-92b1-ddb1f70905a2',
-       -- sub 
-       '018c347a-b42b-709f-8e70-b0b63029aa35',
-       -- currency
-       'USD',
-       -- days until due
-       31,
-       -- external
-       NULL, 
-       -- invoice_id
-       'ACME-001',
-       -- provider
-       'STRIPE',
-       -- items
-       '[]',
-       -- issued
-       FALSE,
-       -- attempts
-       2,
-       -- last_issue_attempt_at
-       '2023-12-04 10:28:39.845',
-       -- last_issue_error
-       NULL,
-       -- data_updated_at
-       '2023-12-04 10:28:39.845'
+INSERT INTO public."invoice" (
+    id, status, external_status, created_at, updated_at, tenant_id, customer_id, subscription_id, currency, invoicing_provider, line_items, issued, issue_attempts, last_issue_attempt_at, last_issue_error, data_updated_at, invoice_date
+) VALUES (
+    '123e4567-e89b-12d3-a456-426614174000',
+    -- status
+    'VOID',
+    -- external_status
+    'VOID',
+    -- dates
+    '2023-12-02 21:49:08.805', '2024-12-02 21:49:08.805',
+    -- tenant_id
+    '018c2c82-3df1-7e84-9e05-6e141d0e751a',
+    -- customer_id
+    '018c3463-05f3-7c1f-92b1-ddb1f70905a2',
+    -- subscription_id
+    '018c347a-b42b-709f-8e70-b0b63029aa35',
+    -- currency
+    'USD',
+    -- invoicing_provider
+    'STRIPE',
+    -- line_items
+    '[]',
+    -- issued
+    FALSE,
+    -- attempts
+    2,
+    -- last_issue_attempt_at
+    '2023-12-04 10:28:39.845',
+    -- last_issue_error
+    NULL,
+     -- data_updated_at
+    '2023-12-04 10:28:39.845',
+     -- invoice_date
+    '2023-12-04 10:00:00.000'
 );
 
 --
