@@ -4,8 +4,7 @@ updates:
   - package-ecosystem: cargo
     directory: "/"
     schedule:
-      interval: daily
-      time: "20:00"
+      interval: weekly
     open-pull-requests-limit: 10
     ignore:
       - dependency-name: "*"
@@ -17,30 +16,27 @@ updates:
       - dependency-name: "hyper"
       - dependency-name: "axum"
       - dependency-name: "http-body"
+      - dependency-name: "tower-http"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: daily
-      time: "20:00"
+      interval: weekly
     open-pull-requests-limit: 10
 
   - package-ecosystem: "npm"
     directory: "/modules/web"
     schedule:
-      interval: daily
-      time: "20:00"
+      interval: weekly
     open-pull-requests-limit: 10
     groups:
-      # temporary
       deps:
         dependency-type: "production"
       dev-deps:
         dependency-type: "development"
     ignore:
-      # For all packages, ignore all patch updates, TODO uncomment
-#      - dependency-name: '*'
-#        update-types: ['version-update:semver-patch']
+      # - dependency-name: "*"
+      #   update-types: ["version-update:semver-patch"]
       # don't try to update internal packages
       - dependency-name: "@md/*"
       - dependency-name: "@meteroid/*"
