@@ -59,7 +59,7 @@
     "@md/tsconfig": "workspace:*",
     "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.10",
-    "@types/react": "^18.2.52",
+    "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.18",
     "@types/react-helmet": "^6.1.11",
     "@types/react-table": "^7.7.19",
