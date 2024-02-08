@@ -16,3 +16,4 @@ pub mod schedules;
 pub mod subscriptions;
 pub mod tenants;
 pub mod users;
+pub mod webhooksout;

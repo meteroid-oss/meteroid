@@ -45,7 +45,6 @@ pub async fn start_api_server(
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
     let compute_service = Arc::new(InvoiceEngine::new(query_service_client));
-
     Server::builder()
         .accept_http1(true)
         .layer(cors())
@@ -89,6 +88,10 @@ pub async fn start_api_server(
         .add_service(services::subscriptions::service(
             pool.clone(),
             compute_service,
+        ))
+        .add_service(services::webhooksout::service(
+            pool.clone(),
+            config.secrets_crypt_key.clone(),
         ))
         .add_service(services::internal::service(pool.clone()))
         .serve(config.listen_addr)

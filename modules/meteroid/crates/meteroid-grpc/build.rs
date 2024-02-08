@@ -25,6 +25,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         "subscriptions",
         "tenants",
         "users",
+        "webhooksout",
     ];
 
     let mut proto_files = Vec::new();

@@ -4,6 +4,7 @@ use chacha20poly1305::{
 };
 use error_stack::{Result, ResultExt};
 use secrecy::{ExposeSecret, SecretString};
+use tonic::Status;
 
 const NONCE_SIZE: usize = 12;
 
@@ -17,6 +18,12 @@ pub enum EncryptionError {
     EncryptError,
     #[error("Decryption error")]
     DecryptError,
+}
+
+impl From<EncryptionError> for Status {
+    fn from(error: EncryptionError) -> Self {
+        Status::new(tonic::Code::Internal, error.to_string())
+    }
 }
 
 pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<SecretString, EncryptionError> {

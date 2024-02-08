@@ -123,7 +123,7 @@ impl ProviderConfigRepo for ProviderConfigRepoCornucopia {
 }
 
 pub mod model {
-    use crate::repo::crypt;
+    use crate::crypt;
     use crate::repo::errors::RepoError;
     use error_stack::{Result, ResultExt};
     use meteroid_repository::InvoicingProviderEnum;

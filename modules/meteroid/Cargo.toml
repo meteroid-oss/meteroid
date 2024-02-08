@@ -26,6 +26,7 @@ prost-types.workspace = true
 prost.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+svix.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream.workspace = true
@@ -79,6 +80,7 @@ jsonwebtoken.workspace = true
 
 once_cell.workspace = true
 tower-layer.workspace = true
+fastrand = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -89,7 +91,6 @@ clickhouse-rs = { workspace = true }
 rdkafka = { workspace = true }
 metering = { workspace = true }
 kafka = { workspace = true }
-fastrand = { workspace = true }
 
 [[bin]]
 name = "meteroid-api"
