@@ -50,7 +50,7 @@ async fn test_webhook_endpoint_out() {
     assert_eq!(created.description, Some("Test".to_string()));
     assert_eq!(created.events_to_listen, events_to_listen.clone());
     assert!(created.enabled);
-    assert!(svix::webhooks::Webhook::new(created.secret.as_str()).is_ok());
+    assert!(meteroid::webhook::Webhook::new(created.secret.as_str()).is_ok());
 
     // list endpoints
     let listed = clients

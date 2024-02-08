@@ -9,5 +9,6 @@ mod errors;
 pub mod mapping;
 pub mod models;
 pub mod repo;
+pub mod webhook;
 pub mod webhook_in_api;
 pub mod workers;
