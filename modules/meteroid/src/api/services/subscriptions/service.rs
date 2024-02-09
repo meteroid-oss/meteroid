@@ -258,7 +258,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                     .clone()
             })?;
 
-        let serialized_invoice_lines = serde_json::to_value(invoice_lines).map_err(|e| {
+        let serialized_invoice_lines = serde_json::to_value(invoice_lines.lines).map_err(|e| {
             Status::internal("Failed to serialize invoice lines")
                 .set_source(Arc::new(e))
                 .clone()
@@ -275,6 +275,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             currency: subscription.currency.clone(),
             days_until_due: subscription.net_terms,
             line_items: serialized_invoice_lines,
+            amount_cents: Some(invoice_lines.total),
         };
 
         db::invoices::create_invoice()
@@ -478,6 +479,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 })?;
 
             let invoice_lines = vec![invoice_line];
+            let total = Some(invoice_lines.iter().map(|line| line.total).sum());
 
             let serialized_invoice_lines = serde_json::to_value(invoice_lines).map_err(|e| {
                 Status::internal("Failed to serialize invoice lines")
@@ -496,6 +498,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 currency: subscription.currency.clone(),
                 days_until_due: subscription.net_terms,
                 line_items: serialized_invoice_lines,
+                amount_cents: total,
             };
 
             db::invoices::create_invoice()

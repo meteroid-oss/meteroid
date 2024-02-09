@@ -3,6 +3,12 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Debug, Deserialize, Serialize)]
+pub struct InvoiceLines {
+    pub total: i64,
+    pub lines: Vec<InvoiceLine>,
+}
+
+#[derive(PartialEq, Debug, Deserialize, Serialize)]
 pub struct InvoiceLine {
     pub name: String,
     pub total: i64,

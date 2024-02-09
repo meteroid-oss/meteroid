@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { StatusPill } from '@/features/invoices/StatusPill'
+import { amountFormat } from "@/features/invoices/amountFormat";
 import { CustomerCard } from '@/features/invoices/cards/CustomerCard'
 import { InvoiceCard } from '@/features/invoices/cards/InvoiceCard'
 import { SubscriptionCard } from '@/features/invoices/cards/SubscriptionCard'
@@ -51,8 +52,8 @@ export const Invoice = () => {
                 </div>
               </div>
               <div className="flex h-full gap-4">
-                <div className="flex flex-col gap-2 border-r-2 border-slate-600 pr-4">
-                  <div className="text-4xl font-semibold">$ to be computed</div>
+                <div className="flex flex-col gap-2 border-r border-slate-600 pr-4 w-80">
+                  <div className="text-4xl font-semibold text-right">{amountFormat(data)}</div>
                 </div>
                 <div className="flex-1 flex flex-col gap-2">
                   <InvoiceCard invoice={data} />

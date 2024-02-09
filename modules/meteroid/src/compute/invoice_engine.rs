@@ -43,7 +43,7 @@ impl InvoiceEngine {
         db_client: &C,
         subscription_id: &Uuid,
         invoice_date: &NaiveDate,
-    ) -> Result<Vec<InvoiceLine>> {
+    ) -> Result<InvoiceLines> {
         // Fetch subscription price point details
         let sub = SubscriptionClient::fetch_subscription_details(
             db_client,
@@ -105,7 +105,10 @@ impl InvoiceEngine {
         //     unimplemented!()
         // }
 
-        Ok(invoice_lines)
+        Ok(InvoiceLines {
+            total: invoice_lines.iter().map(|line| line.total).sum(),
+            lines: invoice_lines,
+        })
     }
 }
 

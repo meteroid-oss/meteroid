@@ -456,6 +456,7 @@ async fn test_metering_e2e() {
         currency: subscription.currency.clone(),
         days_until_due: subscription.net_terms,
         line_items: serde_json::Value::Null,
+        amount_cents: Some(100),
     };
 
     let _invoice_p2 = meteroid_repository::invoices::create_invoice()

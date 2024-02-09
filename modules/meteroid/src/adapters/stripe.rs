@@ -259,7 +259,7 @@ impl Stripe {
             currency: Some(invoice.currency.as_str()),
             collection_method: Some(collection_method),
             days_until_due: match collection_method {
-                CollectionMethod::SendInvoice => Some(invoice.days_until_due as u32),
+                CollectionMethod::SendInvoice => invoice.days_until_due.map(|d| d as u32),
                 _ => None,
             },
             customer: Some(stripe_customer.as_ref()),

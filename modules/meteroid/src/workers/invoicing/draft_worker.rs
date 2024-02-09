@@ -155,6 +155,7 @@ fn subscription_to_draft(
         currency: subscription.currency.clone(),
         days_until_due: subscription.net_terms,
         line_items: serde_json::Value::Null,
+        amount_cents: None,
     };
 
     Ok(params)
