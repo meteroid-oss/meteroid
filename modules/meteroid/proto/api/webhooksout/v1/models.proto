@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package meteroid.api.webhooks.out.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum WebhookEventType {
+  CUSTOMER_CREATED = 0;
+  SUBSCRIPTION_CREATED = 1;
+  INVOICE_CREATED = 2;
+  INVOICE_FINALIZED = 3;
+}
+
+message WebhookEndpoint {
+  string id = 1;
+  string url = 2;
+  optional string description = 3;
+  string secret = 4;
+  bool enabled = 5;
+  repeated WebhookEventType events_to_listen = 7;
+  google.protobuf.Timestamp created_at = 6;
+}

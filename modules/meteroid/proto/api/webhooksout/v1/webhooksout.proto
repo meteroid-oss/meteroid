@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package meteroid.api.webhooks.out.v1;
+
+import "api/webhooksout/v1/models.proto";
+import "google/protobuf/timestamp.proto";
+
+message CreateWebhookEndpointRequest {
+  string url = 1;
+  optional string description = 2;
+  repeated WebhookEventType events_to_listen = 7;
+}
+
+message CreateWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
+}
+
+message ListWebhookEndpointsRequest {}
+
+message ListWebhookEndpointsResponse {
+  repeated WebhookEndpoint endpoints = 1;
+}
+
+service WebhooksService {
+  rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse) {};
+  rpc ListWebhookEndpoints(ListWebhookEndpointsRequest) returns (ListWebhookEndpointsResponse) {};
+}

@@ -46,7 +46,7 @@ base64.workspace = true
 argon2 = { workspace = true }
 base62.workspace = true
 http = { workspace = true }
-
+hmac-sha256 = { workspace = true }
 
 tracing-log = { workspace = true }
 secrecy.workspace = true
@@ -79,6 +79,7 @@ jsonwebtoken.workspace = true
 
 once_cell.workspace = true
 tower-layer.workspace = true
+fastrand = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -89,7 +90,6 @@ clickhouse-rs = { workspace = true }
 rdkafka = { workspace = true }
 metering = { workspace = true }
 kafka = { workspace = true }
-fastrand = { workspace = true }
 
 [[bin]]
 name = "meteroid-api"

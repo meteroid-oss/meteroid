@@ -3,7 +3,7 @@ use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
 use meteroid::repo::get_pool;
 use meteroid::repo::provider_config::{ProviderConfigRepo, ProviderConfigRepoCornucopia};
-use meteroid::webhook_api;
+use meteroid::webhook_in_api;
 use meteroid_repository::migrations;
 use std::sync::Arc;
 use tokio::signal;
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::select! {
         _ = private_server => {},
-        _ = webhook_api::serve(
+        _ = webhook_in_api::serve(
             config.invoicing_webhook_addr,
             object_store_client,
             pool.clone(),

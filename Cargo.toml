@@ -56,6 +56,7 @@ humantime = { version = "2.1.0" }
 fang = { version = "0.10.4", default-features = false }
 hex = "0.4.3"
 hmac = "0.12.1"
+hmac-sha256 = "1.1.7"
 hyper = { version = "0.14.27", default-features = false }
 http = { version = "0.2.10" }
 http-types = "2.12.0"

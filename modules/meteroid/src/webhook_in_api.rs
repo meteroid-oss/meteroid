@@ -131,10 +131,10 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
 
     // index in db
-    db::webhook_events::create_webhook_event()
+    db::webhook_in_events::create_webhook_in_event()
         .params(
             &connection,
-            &db::webhook_events::CreateWebhookEventParams {
+            &db::webhook_in_events::CreateWebhookInEventParams {
                 id: event_id,
                 provider_config_id: provider_config.id,
                 received_at,

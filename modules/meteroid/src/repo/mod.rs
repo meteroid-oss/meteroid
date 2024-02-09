@@ -2,7 +2,6 @@ use crate::config::Config;
 use deadpool_postgres::Pool;
 use std::sync::OnceLock;
 
-pub mod crypt;
 pub mod errors;
 pub mod provider_config;
 

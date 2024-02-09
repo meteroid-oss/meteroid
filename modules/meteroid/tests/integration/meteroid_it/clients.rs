@@ -18,6 +18,7 @@ use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_client::Sched
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_client::SubscriptionsServiceClient;
 use meteroid_grpc::meteroid::api::tenants::v1::tenants_service_client::TenantsServiceClient;
 use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceClient;
+use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_client::WebhooksServiceClient;
 
 pub type TestLayeredClientService = AddAuthorization<SetRequestHeader<Channel, HeaderValue>>;
 
@@ -34,6 +35,7 @@ pub struct AllClients {
     pub schedules: SchedulesServiceClient<TestLayeredClientService>,
     pub tenants: TenantsServiceClient<TestLayeredClientService>,
     pub users: UsersServiceClient<TestLayeredClientService>,
+    pub webhooks_out: WebhooksServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
@@ -53,6 +55,7 @@ impl AllClients {
             subscriptions: SubscriptionsServiceClient::new(service.clone()),
             tenants: TenantsServiceClient::new(service.clone()),
             users: UsersServiceClient::new(service.clone()),
+            webhooks_out: WebhooksServiceClient::new(service.clone()),
         }
     }
 

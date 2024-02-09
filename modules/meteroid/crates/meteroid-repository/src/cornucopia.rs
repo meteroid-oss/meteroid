@@ -882,6 +882,94 @@ pub mod types {
                 }
             }
         }
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[allow(non_camel_case_types)]
+        pub enum WebhookOutEventTypeEnum {
+            CUSTOMER_CREATED,
+            SUBSCRIPTION_CREATED,
+            INVOICE_CREATED,
+            INVOICE_FINALIZED,
+        }
+        impl<'a> postgres_types::ToSql for WebhookOutEventTypeEnum {
+            fn to_sql(
+                &self,
+                ty: &postgres_types::Type,
+                buf: &mut postgres_types::private::BytesMut,
+            ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+            {
+                let s = match *self {
+                    WebhookOutEventTypeEnum::CUSTOMER_CREATED => "CUSTOMER_CREATED",
+                    WebhookOutEventTypeEnum::SUBSCRIPTION_CREATED => "SUBSCRIPTION_CREATED",
+                    WebhookOutEventTypeEnum::INVOICE_CREATED => "INVOICE_CREATED",
+                    WebhookOutEventTypeEnum::INVOICE_FINALIZED => "INVOICE_FINALIZED",
+                };
+                buf.extend_from_slice(s.as_bytes());
+                std::result::Result::Ok(postgres_types::IsNull::No)
+            }
+            fn accepts(ty: &postgres_types::Type) -> bool {
+                if ty.name() != "WebhookOutEventTypeEnum" {
+                    return false;
+                }
+                match *ty.kind() {
+                    postgres_types::Kind::Enum(ref variants) => {
+                        if variants.len() != 4 {
+                            return false;
+                        }
+                        variants.iter().all(|v| match &**v {
+                            "CUSTOMER_CREATED" => true,
+                            "SUBSCRIPTION_CREATED" => true,
+                            "INVOICE_CREATED" => true,
+                            "INVOICE_FINALIZED" => true,
+                            _ => false,
+                        })
+                    }
+                    _ => false,
+                }
+            }
+            fn to_sql_checked(
+                &self,
+                ty: &postgres_types::Type,
+                out: &mut postgres_types::private::BytesMut,
+            ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
+            {
+                postgres_types::__to_sql_checked(self, ty, out)
+            }
+        }
+        impl<'a> postgres_types::FromSql<'a> for WebhookOutEventTypeEnum {
+            fn from_sql(
+                ty: &postgres_types::Type,
+                buf: &'a [u8],
+            ) -> Result<WebhookOutEventTypeEnum, Box<dyn std::error::Error + Sync + Send>>
+            {
+                match std::str::from_utf8(buf)? {
+                    "CUSTOMER_CREATED" => Ok(WebhookOutEventTypeEnum::CUSTOMER_CREATED),
+                    "SUBSCRIPTION_CREATED" => Ok(WebhookOutEventTypeEnum::SUBSCRIPTION_CREATED),
+                    "INVOICE_CREATED" => Ok(WebhookOutEventTypeEnum::INVOICE_CREATED),
+                    "INVOICE_FINALIZED" => Ok(WebhookOutEventTypeEnum::INVOICE_FINALIZED),
+                    s => Result::Err(Into::into(format!("invalid variant `{}`", s))),
+                }
+            }
+            fn accepts(ty: &postgres_types::Type) -> bool {
+                if ty.name() != "WebhookOutEventTypeEnum" {
+                    return false;
+                }
+                match *ty.kind() {
+                    postgres_types::Kind::Enum(ref variants) => {
+                        if variants.len() != 4 {
+                            return false;
+                        }
+                        variants.iter().all(|v| match &**v {
+                            "CUSTOMER_CREATED" => true,
+                            "SUBSCRIPTION_CREATED" => true,
+                            "INVOICE_CREATED" => true,
+                            "INVOICE_FINALIZED" => true,
+                            _ => false,
+                        })
+                    }
+                    _ => false,
+                }
+            }
+        }
     }
 }
 #[allow(clippy::all, clippy::pedantic)]
@@ -11403,19 +11491,19 @@ FROM
             }
         }
     }
-    pub mod webhook_events {
+    pub mod webhook_in_events {
         use cornucopia_async::GenericClient;
         use futures;
         use futures::{StreamExt, TryStreamExt};
         #[derive(Debug)]
-        pub struct CreateWebhookEventParams<T1: cornucopia_async::StringSql> {
+        pub struct CreateWebhookInEventParams<T1: cornucopia_async::StringSql> {
             pub id: uuid::Uuid,
             pub received_at: time::OffsetDateTime,
             pub key: T1,
             pub provider_config_id: uuid::Uuid,
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct WebhookEvent {
+        pub struct WebhookInEvent {
             pub id: uuid::Uuid,
             pub received_at: time::OffsetDateTime,
             pub action: Option<String>,
@@ -11425,7 +11513,7 @@ FROM
             pub error: Option<String>,
             pub provider_config_id: uuid::Uuid,
         }
-        pub struct WebhookEventBorrowed<'a> {
+        pub struct WebhookInEventBorrowed<'a> {
             pub id: uuid::Uuid,
             pub received_at: time::OffsetDateTime,
             pub action: Option<&'a str>,
@@ -11435,9 +11523,9 @@ FROM
             pub error: Option<&'a str>,
             pub provider_config_id: uuid::Uuid,
         }
-        impl<'a> From<WebhookEventBorrowed<'a>> for WebhookEvent {
+        impl<'a> From<WebhookInEventBorrowed<'a>> for WebhookInEvent {
             fn from(
-                WebhookEventBorrowed {
+                WebhookInEventBorrowed {
                     id,
                     received_at,
                     action,
@@ -11446,7 +11534,7 @@ FROM
                     attempts,
                     error,
                     provider_config_id,
-                }: WebhookEventBorrowed<'a>,
+                }: WebhookInEventBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
@@ -11460,22 +11548,22 @@ FROM
                 }
             }
         }
-        pub struct WebhookEventQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct WebhookInEventQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> WebhookEventBorrowed,
-            mapper: fn(WebhookEventBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> WebhookInEventBorrowed,
+            mapper: fn(WebhookInEventBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> WebhookEventQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> WebhookInEventQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(WebhookEventBorrowed) -> R,
-            ) -> WebhookEventQuery<'a, C, R, N> {
-                WebhookEventQuery {
+                mapper: fn(WebhookInEventBorrowed) -> R,
+            ) -> WebhookInEventQuery<'a, C, R, N> {
+                WebhookInEventQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -11516,7 +11604,7 @@ FROM
             }
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct FindWebhookEventsByTenantId {
+        pub struct FindWebhookInEventsByTenantId {
             pub id: uuid::Uuid,
             pub received_at: time::OffsetDateTime,
             pub action: String,
@@ -11526,7 +11614,7 @@ FROM
             pub error: String,
             pub invoicing_provider: super::super::types::public::InvoicingProviderEnum,
         }
-        pub struct FindWebhookEventsByTenantIdBorrowed<'a> {
+        pub struct FindWebhookInEventsByTenantIdBorrowed<'a> {
             pub id: uuid::Uuid,
             pub received_at: time::OffsetDateTime,
             pub action: &'a str,
@@ -11536,9 +11624,9 @@ FROM
             pub error: &'a str,
             pub invoicing_provider: super::super::types::public::InvoicingProviderEnum,
         }
-        impl<'a> From<FindWebhookEventsByTenantIdBorrowed<'a>> for FindWebhookEventsByTenantId {
+        impl<'a> From<FindWebhookInEventsByTenantIdBorrowed<'a>> for FindWebhookInEventsByTenantId {
             fn from(
-                FindWebhookEventsByTenantIdBorrowed {
+                FindWebhookInEventsByTenantIdBorrowed {
                     id,
                     received_at,
                     action,
@@ -11547,7 +11635,7 @@ FROM
                     attempts,
                     error,
                     invoicing_provider,
-                }: FindWebhookEventsByTenantIdBorrowed<'a>,
+                }: FindWebhookInEventsByTenantIdBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
@@ -11561,22 +11649,22 @@ FROM
                 }
             }
         }
-        pub struct FindWebhookEventsByTenantIdQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct FindWebhookInEventsByTenantIdQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> FindWebhookEventsByTenantIdBorrowed,
-            mapper: fn(FindWebhookEventsByTenantIdBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> FindWebhookInEventsByTenantIdBorrowed,
+            mapper: fn(FindWebhookInEventsByTenantIdBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> FindWebhookEventsByTenantIdQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> FindWebhookInEventsByTenantIdQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(FindWebhookEventsByTenantIdBorrowed) -> R,
-            ) -> FindWebhookEventsByTenantIdQuery<'a, C, R, N> {
-                FindWebhookEventsByTenantIdQuery {
+                mapper: fn(FindWebhookInEventsByTenantIdBorrowed) -> R,
+            ) -> FindWebhookInEventsByTenantIdQuery<'a, C, R, N> {
+                FindWebhookInEventsByTenantIdQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -11616,21 +11704,21 @@ FROM
                 Ok(it)
             }
         }
-        pub fn get_webhook_event_by_id() -> GetWebhookEventByIdStmt {
-            GetWebhookEventByIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, received_at, action, key, processed, attempts, error, provider_config_id FROM webhook_event WHERE id = $1"))
+        pub fn get_webhook_in_event_by_id() -> GetWebhookInEventByIdStmt {
+            GetWebhookInEventByIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, received_at, action, key, processed, attempts, error, provider_config_id FROM webhook_in_event WHERE id = $1"))
         }
-        pub struct GetWebhookEventByIdStmt(cornucopia_async::private::Stmt);
-        impl GetWebhookEventByIdStmt {
+        pub struct GetWebhookInEventByIdStmt(cornucopia_async::private::Stmt);
+        impl GetWebhookInEventByIdStmt {
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 id: &'a uuid::Uuid,
-            ) -> WebhookEventQuery<'a, C, WebhookEvent, 1> {
-                WebhookEventQuery {
+            ) -> WebhookInEventQuery<'a, C, WebhookInEvent, 1> {
+                WebhookInEventQuery {
                     client,
                     params: [id],
                     stmt: &mut self.0,
-                    extractor: |row| WebhookEventBorrowed {
+                    extractor: |row| WebhookInEventBorrowed {
                         id: row.get(0),
                         received_at: row.get(1),
                         action: row.get(2),
@@ -11640,19 +11728,19 @@ FROM
                         error: row.get(6),
                         provider_config_id: row.get(7),
                     },
-                    mapper: |it| <WebhookEvent>::from(it),
+                    mapper: |it| <WebhookInEvent>::from(it),
                 }
             }
         }
-        pub fn create_webhook_event() -> CreateWebhookEventStmt {
-            CreateWebhookEventStmt(cornucopia_async::private::Stmt::new(
-                "INSERT INTO webhook_event (id, received_at, key, provider_config_id)
+        pub fn create_webhook_in_event() -> CreateWebhookInEventStmt {
+            CreateWebhookInEventStmt(cornucopia_async::private::Stmt::new(
+                "INSERT INTO webhook_in_event (id, received_at, key, provider_config_id)
 VALUES ($1, $2, $3, $4)
 RETURNING id, received_at, action, key, processed, attempts, error, provider_config_id",
             ))
         }
-        pub struct CreateWebhookEventStmt(cornucopia_async::private::Stmt);
-        impl CreateWebhookEventStmt {
+        pub struct CreateWebhookInEventStmt(cornucopia_async::private::Stmt);
+        impl CreateWebhookInEventStmt {
             pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
                 &'a mut self,
                 client: &'a C,
@@ -11660,12 +11748,12 @@ RETURNING id, received_at, action, key, processed, attempts, error, provider_con
                 received_at: &'a time::OffsetDateTime,
                 key: &'a T1,
                 provider_config_id: &'a uuid::Uuid,
-            ) -> WebhookEventQuery<'a, C, WebhookEvent, 4> {
-                WebhookEventQuery {
+            ) -> WebhookInEventQuery<'a, C, WebhookInEvent, 4> {
+                WebhookInEventQuery {
                     client,
                     params: [id, received_at, key, provider_config_id],
                     stmt: &mut self.0,
-                    extractor: |row| WebhookEventBorrowed {
+                    extractor: |row| WebhookInEventBorrowed {
                         id: row.get(0),
                         received_at: row.get(1),
                         action: row.get(2),
@@ -11675,23 +11763,23 @@ RETURNING id, received_at, action, key, processed, attempts, error, provider_con
                         error: row.get(6),
                         provider_config_id: row.get(7),
                     },
-                    mapper: |it| <WebhookEvent>::from(it),
+                    mapper: |it| <WebhookInEvent>::from(it),
                 }
             }
         }
         impl<'a, C: GenericClient, T1: cornucopia_async::StringSql>
             cornucopia_async::Params<
                 'a,
-                CreateWebhookEventParams<T1>,
-                WebhookEventQuery<'a, C, WebhookEvent, 4>,
+                CreateWebhookInEventParams<T1>,
+                WebhookInEventQuery<'a, C, WebhookInEvent, 4>,
                 C,
-            > for CreateWebhookEventStmt
+            > for CreateWebhookInEventStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a CreateWebhookEventParams<T1>,
-            ) -> WebhookEventQuery<'a, C, WebhookEvent, 4> {
+                params: &'a CreateWebhookInEventParams<T1>,
+            ) -> WebhookInEventQuery<'a, C, WebhookInEvent, 4> {
                 self.bind(
                     client,
                     &params.id,
@@ -11701,25 +11789,25 @@ RETURNING id, received_at, action, key, processed, attempts, error, provider_con
                 )
             }
         }
-        pub fn find_webhook_events_by_tenant_id() -> FindWebhookEventsByTenantIdStmt {
-            FindWebhookEventsByTenantIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT webhook_event.id, webhook_event.received_at, webhook_event.action, webhook_event.key, webhook_event.processed, webhook_event.attempts, webhook_event.error, provider_config.invoicing_provider
-FROM webhook_event
-JOIN provider_config ON provider_config.id = webhook_event.provider_config_id
+        pub fn find_webhook_in_events_by_tenant_id() -> FindWebhookInEventsByTenantIdStmt {
+            FindWebhookInEventsByTenantIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT webhook_in_event.id, webhook_in_event.received_at, webhook_in_event.action, webhook_in_event.key, webhook_in_event.processed, webhook_in_event.attempts, webhook_in_event.error, provider_config.invoicing_provider
+FROM webhook_in_event
+JOIN provider_config ON provider_config.id = webhook_in_event.provider_config_id
 WHERE provider_config.tenant_id = $1"))
         }
-        pub struct FindWebhookEventsByTenantIdStmt(cornucopia_async::private::Stmt);
-        impl FindWebhookEventsByTenantIdStmt {
+        pub struct FindWebhookInEventsByTenantIdStmt(cornucopia_async::private::Stmt);
+        impl FindWebhookInEventsByTenantIdStmt {
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 tenant_id: &'a uuid::Uuid,
-            ) -> FindWebhookEventsByTenantIdQuery<'a, C, FindWebhookEventsByTenantId, 1>
+            ) -> FindWebhookInEventsByTenantIdQuery<'a, C, FindWebhookInEventsByTenantId, 1>
             {
-                FindWebhookEventsByTenantIdQuery {
+                FindWebhookInEventsByTenantIdQuery {
                     client,
                     params: [tenant_id],
                     stmt: &mut self.0,
-                    extractor: |row| FindWebhookEventsByTenantIdBorrowed {
+                    extractor: |row| FindWebhookInEventsByTenantIdBorrowed {
                         id: row.get(0),
                         received_at: row.get(1),
                         action: row.get(2),
@@ -11729,7 +11817,248 @@ WHERE provider_config.tenant_id = $1"))
                         error: row.get(6),
                         invoicing_provider: row.get(7),
                     },
-                    mapper: |it| <FindWebhookEventsByTenantId>::from(it),
+                    mapper: |it| <FindWebhookInEventsByTenantId>::from(it),
+                }
+            }
+        }
+    }
+    pub mod webhook_out_endpoints {
+        use cornucopia_async::GenericClient;
+        use futures;
+        use futures::{StreamExt, TryStreamExt};
+        #[derive(Debug)]
+        pub struct CreateEndpointParams<
+            T1: cornucopia_async::StringSql,
+            T2: cornucopia_async::StringSql,
+            T3: cornucopia_async::StringSql,
+            T4: cornucopia_async::ArraySql<Item = super::super::types::public::WebhookOutEventTypeEnum>,
+        > {
+            pub id: uuid::Uuid,
+            pub tenant_id: uuid::Uuid,
+            pub url: T1,
+            pub description: Option<T2>,
+            pub secret: T3,
+            pub events_to_listen: T4,
+            pub enabled: bool,
+        }
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct WebhookOutEndpoint {
+            pub id: uuid::Uuid,
+            pub tenant_id: uuid::Uuid,
+            pub url: String,
+            pub description: Option<String>,
+            pub secret: String,
+            pub created_at: time::PrimitiveDateTime,
+            pub events_to_listen: Vec<super::super::types::public::WebhookOutEventTypeEnum>,
+            pub enabled: bool,
+        }
+        pub struct WebhookOutEndpointBorrowed<'a> {
+            pub id: uuid::Uuid,
+            pub tenant_id: uuid::Uuid,
+            pub url: &'a str,
+            pub description: Option<&'a str>,
+            pub secret: &'a str,
+            pub created_at: time::PrimitiveDateTime,
+            pub events_to_listen: cornucopia_async::ArrayIterator<
+                'a,
+                super::super::types::public::WebhookOutEventTypeEnum,
+            >,
+            pub enabled: bool,
+        }
+        impl<'a> From<WebhookOutEndpointBorrowed<'a>> for WebhookOutEndpoint {
+            fn from(
+                WebhookOutEndpointBorrowed {
+                    id,
+                    tenant_id,
+                    url,
+                    description,
+                    secret,
+                    created_at,
+                    events_to_listen,
+                    enabled,
+                }: WebhookOutEndpointBorrowed<'a>,
+            ) -> Self {
+                Self {
+                    id,
+                    tenant_id,
+                    url: url.into(),
+                    description: description.map(|v| v.into()),
+                    secret: secret.into(),
+                    created_at,
+                    events_to_listen: events_to_listen.map(|v| v).collect(),
+                    enabled,
+                }
+            }
+        }
+        pub struct WebhookOutEndpointQuery<'a, C: GenericClient, T, const N: usize> {
+            client: &'a C,
+            params: [&'a (dyn postgres_types::ToSql + Sync); N],
+            stmt: &'a mut cornucopia_async::private::Stmt,
+            extractor: fn(&tokio_postgres::Row) -> WebhookOutEndpointBorrowed,
+            mapper: fn(WebhookOutEndpointBorrowed) -> T,
+        }
+        impl<'a, C, T: 'a, const N: usize> WebhookOutEndpointQuery<'a, C, T, N>
+        where
+            C: GenericClient,
+        {
+            pub fn map<R>(
+                self,
+                mapper: fn(WebhookOutEndpointBorrowed) -> R,
+            ) -> WebhookOutEndpointQuery<'a, C, R, N> {
+                WebhookOutEndpointQuery {
+                    client: self.client,
+                    params: self.params,
+                    stmt: self.stmt,
+                    extractor: self.extractor,
+                    mapper,
+                }
+            }
+            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let row = self.client.query_one(stmt, &self.params).await?;
+                Ok((self.mapper)((self.extractor)(&row)))
+            }
+            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+                self.iter().await?.try_collect().await
+            }
+            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                Ok(self
+                    .client
+                    .query_opt(stmt, &self.params)
+                    .await?
+                    .map(|row| (self.mapper)((self.extractor)(&row))))
+            }
+            pub async fn iter(
+                self,
+            ) -> Result<
+                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
+                tokio_postgres::Error,
+            > {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let it = self
+                    .client
+                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
+                    .await?
+                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
+                    .into_stream();
+                Ok(it)
+            }
+        }
+        pub fn create_endpoint() -> CreateEndpointStmt {
+            CreateEndpointStmt(cornucopia_async :: private :: Stmt :: new("insert into webhook_out_endpoint (id, tenant_id, url, description, secret, events_to_listen, enabled)
+values ($1, $2, $3, $4, $5, $6, $7)
+returning id, tenant_id, url, description, secret, created_at, events_to_listen, enabled"))
+        }
+        pub struct CreateEndpointStmt(cornucopia_async::private::Stmt);
+        impl CreateEndpointStmt {
+            pub fn bind<
+                'a,
+                C: GenericClient,
+                T1: cornucopia_async::StringSql,
+                T2: cornucopia_async::StringSql,
+                T3: cornucopia_async::StringSql,
+                T4: cornucopia_async::ArraySql<
+                    Item = super::super::types::public::WebhookOutEventTypeEnum,
+                >,
+            >(
+                &'a mut self,
+                client: &'a C,
+                id: &'a uuid::Uuid,
+                tenant_id: &'a uuid::Uuid,
+                url: &'a T1,
+                description: &'a Option<T2>,
+                secret: &'a T3,
+                events_to_listen: &'a T4,
+                enabled: &'a bool,
+            ) -> WebhookOutEndpointQuery<'a, C, WebhookOutEndpoint, 7> {
+                WebhookOutEndpointQuery {
+                    client,
+                    params: [
+                        id,
+                        tenant_id,
+                        url,
+                        description,
+                        secret,
+                        events_to_listen,
+                        enabled,
+                    ],
+                    stmt: &mut self.0,
+                    extractor: |row| WebhookOutEndpointBorrowed {
+                        id: row.get(0),
+                        tenant_id: row.get(1),
+                        url: row.get(2),
+                        description: row.get(3),
+                        secret: row.get(4),
+                        created_at: row.get(5),
+                        events_to_listen: row.get(6),
+                        enabled: row.get(7),
+                    },
+                    mapper: |it| <WebhookOutEndpoint>::from(it),
+                }
+            }
+        }
+        impl<
+                'a,
+                C: GenericClient,
+                T1: cornucopia_async::StringSql,
+                T2: cornucopia_async::StringSql,
+                T3: cornucopia_async::StringSql,
+                T4: cornucopia_async::ArraySql<
+                    Item = super::super::types::public::WebhookOutEventTypeEnum,
+                >,
+            >
+            cornucopia_async::Params<
+                'a,
+                CreateEndpointParams<T1, T2, T3, T4>,
+                WebhookOutEndpointQuery<'a, C, WebhookOutEndpoint, 7>,
+                C,
+            > for CreateEndpointStmt
+        {
+            fn params(
+                &'a mut self,
+                client: &'a C,
+                params: &'a CreateEndpointParams<T1, T2, T3, T4>,
+            ) -> WebhookOutEndpointQuery<'a, C, WebhookOutEndpoint, 7> {
+                self.bind(
+                    client,
+                    &params.id,
+                    &params.tenant_id,
+                    &params.url,
+                    &params.description,
+                    &params.secret,
+                    &params.events_to_listen,
+                    &params.enabled,
+                )
+            }
+        }
+        pub fn list_endpoints() -> ListEndpointsStmt {
+            ListEndpointsStmt(cornucopia_async :: private :: Stmt :: new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
+from webhook_out_endpoint
+where tenant_id = $1"))
+        }
+        pub struct ListEndpointsStmt(cornucopia_async::private::Stmt);
+        impl ListEndpointsStmt {
+            pub fn bind<'a, C: GenericClient>(
+                &'a mut self,
+                client: &'a C,
+                tenant_id: &'a uuid::Uuid,
+            ) -> WebhookOutEndpointQuery<'a, C, WebhookOutEndpoint, 1> {
+                WebhookOutEndpointQuery {
+                    client,
+                    params: [tenant_id],
+                    stmt: &mut self.0,
+                    extractor: |row| WebhookOutEndpointBorrowed {
+                        id: row.get(0),
+                        tenant_id: row.get(1),
+                        url: row.get(2),
+                        description: row.get(3),
+                        secret: row.get(4),
+                        created_at: row.get(5),
+                        events_to_listen: row.get(6),
+                        enabled: row.get(7),
+                    },
+                    mapper: |it| <WebhookOutEndpoint>::from(it),
                 }
             }
         }
