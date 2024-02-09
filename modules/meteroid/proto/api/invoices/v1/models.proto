@@ -25,7 +25,7 @@ message Invoice {
   string subscription_id = 7;
   string currency = 8;
   optional int32 days_until_due = 9;
-  optional int32 amount_cents = 10;
+  optional int64 amount_cents = 10;
 }
 
 message DetailedInvoice {
@@ -45,5 +45,5 @@ message DetailedInvoice {
   string plan_name = 14;
   int32 plan_version = 15;
   string plan_external_id = 16;
-  optional int32 amount_cents = 17;
+  optional int64 amount_cents = 17;
 }

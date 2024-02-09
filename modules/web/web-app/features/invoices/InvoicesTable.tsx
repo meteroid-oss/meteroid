@@ -1,4 +1,3 @@
-import { G } from '@mobily/ts-belt'
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
 import { Dropdown } from '@ui/components'
 import { MoreVerticalIcon } from 'lucide-react'
@@ -7,9 +6,8 @@ import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { StatusPill } from '@/features/invoices/StatusPill'
+import { amountFormat } from "@/features/invoices/amountFormat";
 import { Invoice } from '@/rpc/api/invoices/v1/models_pb'
-
-import type { FunctionComponent } from 'react'
 
 interface CustomersTableProps {
   data: Invoice[]
@@ -19,13 +17,13 @@ interface CustomersTableProps {
   isLoading?: boolean
 }
 
-export const InvoicesTable: FunctionComponent<CustomersTableProps> = ({
+export const InvoicesTable = ({
   data,
   pagination,
   setPagination,
   totalCount,
   isLoading,
-}) => {
+}: CustomersTableProps) => {
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [
       {
@@ -34,9 +32,7 @@ export const InvoicesTable: FunctionComponent<CustomersTableProps> = ({
       },
       {
         header: 'Amount',
-        accessorFn: cell => !G.isNullable(cell.amountCents)
-          ? new Intl.NumberFormat(navigator.language).format(cell.amountCents)
-          : '',
+        accessorFn: amountFormat,
       },
       {
         header: 'Currency',
