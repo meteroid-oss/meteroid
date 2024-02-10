@@ -5,13 +5,13 @@ use std::sync::Arc;
 pub enum EventBusError {
     #[error("Failed to publish event")]
     PublishFailed,
-    //#[error("Failed to handle event")]
-    //EventHandlerFailed(Box<dyn std::error::Error>),
+    #[error("Failed to handle event")]
+    EventHandlerFailed(Box<dyn std::error::Error>),
 }
 
 /**
  * EventBus is a simple event bus implementation.
- * It allows to have one publisher many subscribers.
+ * It allows to have one publisher and many subscribers.
  * NOTE:
  *   It doesn't use persistent storage, the publisher is decoupled from the subscribers
  *   so if the process dies, all in-flight events are lost.
