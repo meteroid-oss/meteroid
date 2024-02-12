@@ -54,9 +54,11 @@ export const Customer = () => {
                   </div>
                 )}
               </div>
-              <CustomerCard customer={data} />
-              <AddressCard customer={data} />
-              <BalanceCard customer={data} />
+              <Flex direction="column" fullHeight>
+                <CustomerCard customer={data} />
+                <AddressCard customer={data} />
+                <BalanceCard customer={data} />
+              </Flex>
             </>
           )}
         </Flex>

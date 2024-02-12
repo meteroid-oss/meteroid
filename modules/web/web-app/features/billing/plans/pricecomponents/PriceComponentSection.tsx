@@ -69,7 +69,7 @@ export const PriceComponentSection = () => {
         ) : null,
       }}
     >
-      <div className="grid gap-y-4 my-4">
+      <div className="grid gap-y-4">
         {priceComponents?.map(priceComponent => (
           <>
             {isDraft && editedComponens?.find(id => id === priceComponent.id) ? (
