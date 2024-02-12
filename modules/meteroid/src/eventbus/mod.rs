@@ -52,13 +52,6 @@ impl EventBusStatic {
     }
 }
 
-impl dyn EventBus<Event> {
-    pub fn in_memory() -> Arc<dyn EventBus<Event>> {
-        let bus = memory::InMemory::new();
-        Arc::new(bus)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Event {
     pub event_id: Uuid,
