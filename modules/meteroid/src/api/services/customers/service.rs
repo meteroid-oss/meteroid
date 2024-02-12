@@ -4,12 +4,10 @@ use meteroid_repository as db;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-use crate::{
-    api::services::utils::{parse_uuid, uuid_gen},
-    db::DbService,
-};
+use crate::api::services::utils::{parse_uuid, uuid_gen};
 
 use crate::api::services::utils::PaginationExt;
+use crate::eventbus::Event;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, list_customer_request::SortBy,
     CreateCustomerRequest, CreateCustomerResponse, Customer, GetCustomerByAliasRequest,
@@ -17,10 +15,10 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     PatchCustomerResponse,
 };
 
-use super::mapping;
+use super::{mapping, CustomerServiceComponents};
 
 #[tonic::async_trait]
-impl CustomersService for DbService {
+impl CustomersService for CustomerServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn create_customer(
         &self,
@@ -60,6 +58,11 @@ impl CustomersService for DbService {
                     .set_source(Arc::new(e))
                     .clone()
             })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::customer_created(customer.id, tenant_id))
+            .await;
 
         let rs = mapping::customer::create_db_to_server(customer).map_err(|e| {
             Status::internal("Failed to map db customer to proto")

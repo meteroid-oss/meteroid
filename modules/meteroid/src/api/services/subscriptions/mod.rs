@@ -1,5 +1,6 @@
 use crate::compute::InvoiceEngine;
 use crate::db::{get_connection, get_transaction};
+use crate::eventbus::{Event, EventBus};
 use deadpool_postgres::{Object, Transaction};
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsServiceServer;
 use meteroid_repository::Pool;
@@ -15,6 +16,7 @@ mod service;
 pub struct SubscriptionServiceComponents {
     pub pool: Pool,
     pub compute_service: Arc<InvoiceEngine>,
+    pub eventbus: Arc<dyn EventBus<Event>>,
 }
 
 impl SubscriptionServiceComponents {
@@ -32,10 +34,12 @@ impl SubscriptionServiceComponents {
 pub fn service(
     pool: Pool,
     subscription_billing: Arc<InvoiceEngine>,
+    eventbus: Arc<dyn EventBus<Event>>,
 ) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
     let inner = SubscriptionServiceComponents {
         pool,
         compute_service: subscription_billing,
+        eventbus,
     };
     SubscriptionsServiceServer::new(inner)
 }

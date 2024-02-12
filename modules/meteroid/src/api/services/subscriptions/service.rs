@@ -6,6 +6,7 @@ use crate::compute::clients::subscription::SubscriptionClient;
 use crate::compute::fees::shared::CadenceExtractor;
 use crate::compute::fees::ComputeInvoiceLine;
 use crate::compute::period;
+use crate::eventbus::Event;
 use crate::mapping::common::{chrono_to_date, chrono_to_datetime, date_to_chrono};
 use crate::models::InvoiceLine;
 use crate::parse_uuid;
@@ -293,6 +294,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .set_source(Arc::new(e))
                 .clone()
         })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::subscription_created(
+                subscription.subscription_id,
+                subscription.tenant_id,
+            ))
+            .await;
 
         let rs = mapping::subscriptions::db_to_proto(subscription)?;
 
