@@ -303,6 +303,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             ))
             .await;
 
+        let _ = self
+            .eventbus
+            .publish(Event::invoice_finalized(params.id, params.tenant_id))
+            .await;
+
         let rs = mapping::subscriptions::db_to_proto(subscription)?;
 
         Ok(Response::new(CreateSubscriptionResponse {
@@ -402,6 +407,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let active_slots =
             get_active_slots(&transaction, &subscription_id, &price_component_id, &now).await?;
+
+        let mut finalized_invoice = None;
 
         if inner.delta < 0 {
             let billing_period = component_fee
@@ -519,6 +526,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                         .set_source(Arc::new(e))
                         .clone()
                 })?;
+
+            finalized_invoice = Some(params.id);
         }
 
         transaction.commit().await.map_err(|e| {
@@ -526,6 +535,13 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .set_source(Arc::new(e))
                 .clone()
         })?;
+
+        if let Some(invoice_id) = finalized_invoice {
+            let _ = self
+                .eventbus
+                .publish(Event::invoice_finalized(invoice_id, subscription.tenant_id))
+                .await;
+        }
 
         Ok(Response::new(ApplySlotsDeltaResponse {
             // fetch from db instead?

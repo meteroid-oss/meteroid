@@ -7,8 +7,10 @@ use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::StreamExt;
 use meteroid_repository as db;
+use std::ops::Deref;
 use time::Date;
 
+use crate::eventbus::{Event, EventBus, EventBusStatic};
 use meteroid_repository::subscriptions::SubscriptionToInvoice;
 
 const BATCH_SIZE: usize = 100;
@@ -23,16 +25,21 @@ impl AsyncRunnable for DraftWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         let pool = get_pool();
+        let eventbus = EventBusStatic::get().await;
 
-        draft_worker(pool, time::OffsetDateTime::now_utc().date())
-            .timed(|res, elapsed| record_call("draft", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in draft worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        draft_worker(
+            pool,
+            eventbus.deref(),
+            time::OffsetDateTime::now_utc().date(),
+        )
+        .timed(|res, elapsed| record_call("draft", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in draft worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -50,7 +57,11 @@ impl AsyncRunnable for DraftWorker {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn draft_worker(pool: &Pool, today: Date) -> Result<(), errors::WorkerError> {
+pub async fn draft_worker(
+    pool: &Pool,
+    eventbus: &dyn EventBus<Event>,
+    today: Date,
+) -> Result<(), errors::WorkerError> {
     let db_client = pool
         .get()
         .await
@@ -93,9 +104,9 @@ pub async fn draft_worker(pool: &Pool, today: Date) -> Result<(), errors::Worker
         log::debug!("Creating {} draft invoices", params.len());
 
         // cornucopia doesn't support batch insert (unless you UNNEST, but we'll move away from cornucopia soon anyway)
-        for param in params {
+        for param in &params {
             db::invoices::create_invoice()
-                .params(&transaction, &param)
+                .params(&transaction, param)
                 .one()
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
@@ -105,6 +116,12 @@ pub async fn draft_worker(pool: &Pool, today: Date) -> Result<(), errors::Worker
             .commit()
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
+
+        for param in &params {
+            let _ = eventbus
+                .publish(Event::invoice_created(param.id, param.tenant_id))
+                .await;
+        }
     }
 
     Ok(())

@@ -5,6 +5,7 @@ use meteroid_repository as db;
 
 use crate::{compute::InvoiceEngine, errors};
 
+use crate::eventbus::{Event, EventBus, EventBusStatic};
 use crate::repo::get_pool;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
@@ -28,15 +29,20 @@ pub struct FinalizeWorker;
 impl AsyncRunnable for FinalizeWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        finalize_worker(get_pool().clone(), MeteringClient::get().clone())
-            .timed(|res, elapsed| record_call("finalize", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in finalize worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        let eventbus = EventBusStatic::get().await;
+        finalize_worker(
+            get_pool().clone(),
+            MeteringClient::get().clone(),
+            eventbus.clone(),
+        )
+        .timed(|res, elapsed| record_call("finalize", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in finalize worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -57,6 +63,7 @@ impl AsyncRunnable for FinalizeWorker {
 pub async fn finalize_worker(
     db_pool: Pool,
     metering_client: MeteringClient,
+    eventbus: Arc<dyn EventBus<Event>>,
 ) -> Result<(), errors::WorkerError> {
     let connection = db_pool
         .get()
@@ -93,6 +100,8 @@ pub async fn finalize_worker(
                     .await
                     .change_context(errors::WorkerError::DatabaseError)?;
 
+                let eventbus = eventbus.clone();
+
                 let task = tokio::spawn(async move {
                     let _permit = permit; // Moves permit into the async block
                     let mut result = shared::update_invoice_line_items(
@@ -108,6 +117,13 @@ pub async fn finalize_worker(
                             .await
                             .change_context(errors::WorkerError::DatabaseError)
                             .map(|_| ());
+
+                        let _ = eventbus
+                            .publish(Event::invoice_finalized(
+                                invoice.id.clone(),
+                                invoice.tenant_id.clone(),
+                            ))
+                            .await;
                     }
 
                     if let Err(e) = result {
