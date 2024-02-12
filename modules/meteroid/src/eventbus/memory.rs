@@ -1,9 +1,10 @@
 use crate::eventbus::{EventBus, EventBusError, EventHandler};
 use std::fmt::Debug;
 use std::sync::Arc;
+use tokio::sync::broadcast::error::RecvError;
 
 /**
- * Simple in-memory event bus implementation.
+ * Simple in-memory event bus implementation based on tokio::sync::broadcast.
  * It allows to have one publisher and many subscribers.
  * NOTE:
  *   As it doesn't use persistent storage and the publisher is decoupled from the subscribers,
@@ -31,12 +32,15 @@ impl<E: Debug + Clone + Send + 'static> EventBus<E> for InMemory<E> {
                             };
                         });
                     }
-                    Err(e) => {
-                        log::error!(
-                            "Error receiving event from broadcast channel. Ignoring it. {:?}",
-                            e
-                        );
-                    }
+                    Err(e) => match e {
+                        RecvError::Lagged(lagged) => {
+                            log::warn!("Receiver lagged by {}", lagged)
+                        }
+                        RecvError::Closed => {
+                            log::info!("Broadcast channel closed. Stopping event handler");
+                            break;
+                        }
+                    },
                 };
             }
         });
