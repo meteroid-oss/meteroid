@@ -9,6 +9,7 @@ license.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
 blake3.workspace = true
+cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock"] }
 common-config = { workspace = true }
 common-logging = { workspace = true }
@@ -24,6 +25,7 @@ log.workspace = true
 nanoid.workspace = true
 prost-types.workspace = true
 prost.workspace = true
+reqwest = { workspace = true, features = ["default"] }
 serde_json.workspace = true
 serde.workspace = true
 time.workspace = true
@@ -54,7 +56,6 @@ chacha20poly1305.workspace = true
 anyhow.workspace = true
 axum = { workspace = true, features = ["default", "macros", "http2"] }
 hyper = { workspace = true, features = ["http1", "http2", "server"] }
-reqwest = { workspace = true, optional = true }
 
 rust_decimal = { workspace = true, features = ["serde_json"] }
 rust_decimal_macros = { workspace = true }
@@ -90,6 +91,7 @@ clickhouse-rs = { workspace = true }
 rdkafka = { workspace = true }
 metering = { workspace = true }
 kafka = { workspace = true }
+mockito = { workspace = true }
 
 [[bin]]
 name = "meteroid-api"

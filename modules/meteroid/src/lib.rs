@@ -6,6 +6,7 @@ pub mod crypt;
 pub mod db;
 pub mod encoding;
 mod errors;
+pub mod eventbus;
 pub mod mapping;
 pub mod models;
 pub mod repo;

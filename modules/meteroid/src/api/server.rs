@@ -13,6 +13,8 @@ use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQuer
 
 use crate::api::cors::cors;
 use crate::compute::InvoiceEngine;
+use crate::eventbus::webhook_handler::WebhookHandler;
+use crate::eventbus::{Event, EventBus};
 use crate::repo::provider_config::ProviderConfigRepo;
 
 use super::super::config::Config;
@@ -45,6 +47,17 @@ pub async fn start_api_server(
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
     let compute_service = Arc::new(InvoiceEngine::new(query_service_client));
+
+    let eventbus: Arc<dyn EventBus<Event>> = Arc::new(crate::eventbus::memory::InMemory::new());
+
+    eventbus
+        .subscribe(Arc::new(WebhookHandler::new(
+            pool.clone(),
+            config.secrets_crypt_key.clone(),
+            true,
+        )))
+        .await;
+
     Server::builder()
         .accept_http1(true)
         .layer(cors())
@@ -68,7 +81,7 @@ pub async fn start_api_server(
             pool.clone(),
             metering_service,
         ))
-        .add_service(services::customers::service(pool.clone()))
+        .add_service(services::customers::service(pool.clone(), eventbus.clone()))
         .add_service(services::tenants::service(
             pool.clone(),
             provider_config_repo,
@@ -88,6 +101,7 @@ pub async fn start_api_server(
         .add_service(services::subscriptions::service(
             pool.clone(),
             compute_service,
+            eventbus.clone(),
         ))
         .add_service(services::webhooksout::service(
             pool.clone(),
