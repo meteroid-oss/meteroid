@@ -103,7 +103,7 @@ tokio-test = { version = "0.4.3" }
 tokio-postgres = { version = "0.7.7", default-features = false }
 tokio-postgres-rustls = "0.11.1"
 tokio-util = "0.7.10"
-tonic = "0.10.2"
+tonic = "0.11.0"
 tonic-build = "0.10.2"
 tonic-health = "0.10.2"
 tonic-reflection = "0.10.2"
