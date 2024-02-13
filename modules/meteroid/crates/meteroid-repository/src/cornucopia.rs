@@ -2965,6 +2965,7 @@ WHERE id = $10",
             pub tenant_id: uuid::Uuid,
             pub status: Option<super::super::types::public::InvoiceStatusEnum>,
             pub search: Option<T1>,
+            pub customer_id: Option<uuid::Uuid>,
             pub order_by: T2,
             pub limit: i64,
             pub offset: i64,
@@ -4046,19 +4047,20 @@ FROM invoice
 WHERE invoice.tenant_id = $1
   AND ($2 :: \"InvoiceStatusEnum\" IS NULL OR invoice.status = $2)
   AND ($3 :: TEXT IS NULL OR customer.name ILIKE '%' || $3 || '%')
+  AND ($4 :: UUID IS NULL OR customer_id = $4)
 ORDER BY CASE
-             WHEN $4 = 'DATE_DESC' THEN invoice.created_at
+             WHEN $5 = 'DATE_DESC' THEN invoice.created_at
              END DESC,
          CASE
-             WHEN $4 = 'DATE_ASC' THEN invoice.created_at
+             WHEN $5 = 'DATE_ASC' THEN invoice.created_at
              END ASC,
          CASE
-             WHEN $4 = 'ID_DESC' THEN invoice.invoice_id
+             WHEN $5 = 'ID_DESC' THEN invoice.invoice_id
              END DESC,
          CASE
-             WHEN $4 = 'ID_ASC' THEN invoice.invoice_id
+             WHEN $5 = 'ID_ASC' THEN invoice.invoice_id
              END ASC
-LIMIT $5 OFFSET $6",
+LIMIT $6 OFFSET $7",
             ))
         }
         pub struct ListTenantInvoicesStmt(cornucopia_async::private::Stmt);
@@ -4074,13 +4076,22 @@ LIMIT $5 OFFSET $6",
                 tenant_id: &'a uuid::Uuid,
                 status: &'a Option<super::super::types::public::InvoiceStatusEnum>,
                 search: &'a Option<T1>,
+                customer_id: &'a Option<uuid::Uuid>,
                 order_by: &'a T2,
                 limit: &'a i64,
                 offset: &'a i64,
-            ) -> ListInvoiceQuery<'a, C, ListInvoice, 6> {
+            ) -> ListInvoiceQuery<'a, C, ListInvoice, 7> {
                 ListInvoiceQuery {
                     client,
-                    params: [tenant_id, status, search, order_by, limit, offset],
+                    params: [
+                        tenant_id,
+                        status,
+                        search,
+                        customer_id,
+                        order_by,
+                        limit,
+                        offset,
+                    ],
                     stmt: &mut self.0,
                     extractor: |row| ListInvoiceBorrowed {
                         id: row.get(0),
@@ -4109,7 +4120,7 @@ LIMIT $5 OFFSET $6",
             cornucopia_async::Params<
                 'a,
                 ListTenantInvoicesParams<T1, T2>,
-                ListInvoiceQuery<'a, C, ListInvoice, 6>,
+                ListInvoiceQuery<'a, C, ListInvoice, 7>,
                 C,
             > for ListTenantInvoicesStmt
         {
@@ -4117,12 +4128,13 @@ LIMIT $5 OFFSET $6",
                 &'a mut self,
                 client: &'a C,
                 params: &'a ListTenantInvoicesParams<T1, T2>,
-            ) -> ListInvoiceQuery<'a, C, ListInvoice, 6> {
+            ) -> ListInvoiceQuery<'a, C, ListInvoice, 7> {
                 self.bind(
                     client,
                     &params.tenant_id,
                     &params.status,
                     &params.search,
+                    &params.customer_id,
                     &params.order_by,
                     &params.limit,
                     &params.offset,

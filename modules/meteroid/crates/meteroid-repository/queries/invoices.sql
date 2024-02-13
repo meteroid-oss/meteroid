@@ -132,7 +132,7 @@ WHERE status = 'FINALIZED'
   AND issued = false
   AND issue_attempts < :issue_max_attempts;
 
---! list_tenant_invoices (search?, status?) : ListInvoice
+--! list_tenant_invoices (search?, status?, customer_id?) : ListInvoice
 SELECT invoice.id,
        invoice.status,
        invoice.invoicing_provider,
@@ -150,6 +150,7 @@ FROM invoice
 WHERE invoice.tenant_id = :tenant_id
   AND (:status :: "InvoiceStatusEnum" IS NULL OR invoice.status = :status)
   AND (:search :: TEXT IS NULL OR customer.name ILIKE '%' || :search || '%')
+  AND (:customer_id :: UUID IS NULL OR customer_id = :customer_id)
 ORDER BY CASE
              WHEN :order_by = 'DATE_DESC' THEN invoice.created_at
              END DESC,

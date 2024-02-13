@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { TenantPageLayout } from '@/components/layouts'
 import { AddressCard } from '@/features/customers/cards/address/AddressCard'
 import { BalanceCard } from '@/features/customers/cards/balance/BalanceCard'
+import { InvoicesCard } from '@/features/customers/cards/balance/InvoicesCard'
 import { CustomerCard } from '@/features/customers/cards/customer/CustomerCard'
 import { useQuery } from '@/lib/connectrpc'
 import { getCustomer } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
@@ -58,6 +59,7 @@ export const Customer = () => {
                 <CustomerCard customer={data} />
                 <AddressCard customer={data} />
                 <BalanceCard customer={data} />
+                <InvoicesCard customer={data} />
               </Flex>
             </>
           )}

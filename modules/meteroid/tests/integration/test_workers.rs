@@ -112,6 +112,7 @@ async fn fetch_invoices(pool: Pool) -> Vec<ListInvoice> {
         offset: 0,
         status: None,
         order_by: "DATE_ASC",
+        customer_id: None,
         search,
     };
 
