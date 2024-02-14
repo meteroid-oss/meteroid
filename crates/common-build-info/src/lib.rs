@@ -1,3 +1,5 @@
+use std::fmt::Formatter;
+
 #[derive(Debug, Clone)]
 pub struct BuildInfo {
     pub name: String,
@@ -8,6 +10,22 @@ pub struct BuildInfo {
     pub target_os: String,
     pub target_arch: String,
     pub git_info: String,
+}
+
+impl std::fmt::Display for BuildInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} {} [{}] ({}) {}-{}-{}",
+            self.name,
+            self.version,
+            self.profile,
+            self.git_info,
+            self.target_family,
+            self.target_os,
+            self.target_arch,
+        )
+    }
 }
 
 impl BuildInfo {
