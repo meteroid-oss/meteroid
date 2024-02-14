@@ -2,11 +2,11 @@ use std::net::SocketAddr;
 
 use envconfig::Envconfig;
 
+use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
-use common_config::analytics::AnalyticsConfig;
 use meteroid::config::Config;
 use meteroid::workers::fang::ext::FangExtConfig;
 

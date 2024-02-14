@@ -7,8 +7,8 @@ use crate::api::services::utils::uuid_gen;
 use crate::config::Config;
 use crate::repo::get_pool;
 
-pub mod memory;
 pub mod analytics_handler;
+pub mod memory;
 pub mod webhook_handler;
 
 static CONFIG: tokio::sync::OnceCell<Arc<dyn EventBus<Event>>> = tokio::sync::OnceCell::const_new();
@@ -48,14 +48,14 @@ impl EventBusStatic {
                     config.secrets_crypt_key.clone(),
                     true,
                 )))
-                    .await;
+                .await;
 
                 bus.subscribe(Arc::new(webhook_handler::WebhookHandler::new(
                     pool.clone(),
                     config.secrets_crypt_key.clone(),
                     true,
                 )))
-                    .await;
+                .await;
 
                 if config.analytics.enabled {
                     bus.subscribe(Arc::new(analytics_handler::AnalyticsHandler::new(

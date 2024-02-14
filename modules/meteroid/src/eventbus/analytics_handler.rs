@@ -135,7 +135,7 @@ impl AnalyticsHandler {
                 "version": subscription.version,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -168,7 +168,7 @@ impl AnalyticsHandler {
                 "currency": invoice.currency,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }

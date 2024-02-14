@@ -1,12 +1,14 @@
 use std::net::SocketAddr;
 
-use crate::workers::fang::ext::FangExtConfig;
+use envconfig::Envconfig;
+use secrecy::SecretString;
+
+use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
-use common_config::analytics::AnalyticsConfig;
-use envconfig::Envconfig;
-use secrecy::SecretString;
+
+use crate::workers::fang::ext::FangExtConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
@@ -43,8 +45,8 @@ pub struct Config {
     pub jwt_secret: SecretString,
 
     #[envconfig(
-        from = "SECRETS_CRYPT_KEY",
-        default = "00000000000000000000000000000000"
+    from = "SECRETS_CRYPT_KEY",
+    default = "00000000000000000000000000000000"
     )]
     pub secrets_crypt_key: SecretString,
 
