@@ -15,7 +15,7 @@ use meteroid_repository::webhook_out_events::CreateEventParams;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
-const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const ENDPOINT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const ENDPOINT_RETRIES: u32 = 3;
 
 pub struct WebhookHandler {
@@ -78,7 +78,7 @@ impl WebhookHandler {
 
         self.client
             .post(&endpoint.url)
-            .timeout(REQUEST_TIMEOUT)
+            .timeout(ENDPOINT_REQUEST_TIMEOUT)
             .header(webhook::HEADER_WEBHOOK_ID, event.event_id.to_string())
             .header(
                 webhook::HEADER_WEBHOOK_TIMESTAMP,
