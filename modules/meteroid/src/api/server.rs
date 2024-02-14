@@ -15,6 +15,7 @@ use crate::api::cors::cors;
 use crate::compute::InvoiceEngine;
 use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::eventbus::{Event, EventBus};
+use crate::eventbus::tracking_handler::TrackingHandler;
 use crate::repo::provider_config::ProviderConfigRepo;
 
 use super::super::config::Config;
@@ -57,6 +58,17 @@ pub async fn start_api_server(
             true,
         )))
         .await;
+
+    if config.tracking.enabled {
+        log::info!("Tracking is enabled");
+
+        eventbus
+            .subscribe(Arc::new(TrackingHandler::new(
+                config.tracking.clone(),
+                pool.clone(),
+            )))
+            .await;
+    }
 
     Server::builder()
         .accept_http1(true)

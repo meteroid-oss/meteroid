@@ -5,6 +5,7 @@ For production use case, prefer a dedicated scheduler like kubernetes cronjob
 */
 
 use std::time::Duration;
+use common_build_info::BuildInfo;
 
 use common_logging::init::init_telemetry;
 use distributed_lock::locks::LockKey;
@@ -20,6 +21,9 @@ use meteroid::workers::invoicing::price_worker::PriceWorker;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
+
+    let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
+    println!("Starting {:?}", build_info);
 
     let config = Config::get();
     let pool = get_pool();

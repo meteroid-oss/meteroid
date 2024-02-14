@@ -7,6 +7,7 @@ use meteroid::webhook_in_api;
 use meteroid_repository::migrations;
 use std::sync::Arc;
 use tokio::signal;
+use common_build_info::BuildInfo;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,6 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => Err(error),
         Ok(_) => Ok(()),
     }?;
+
+    let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
+    println!("Starting {:?}", build_info);
 
     let config = Config::get();
 

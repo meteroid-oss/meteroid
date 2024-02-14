@@ -298,6 +298,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let _ = self
             .eventbus
             .publish(Event::subscription_created(
+                actor,
                 subscription.subscription_id,
                 subscription.tenant_id,
             ))

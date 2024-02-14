@@ -6,6 +6,7 @@ use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use envconfig::Envconfig;
 use secrecy::SecretString;
+use common_config::tracking::TrackingConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
@@ -34,6 +35,9 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub idempotency: IdempotencyConfig,
+
+    #[envconfig(nested = true)]
+    pub tracking: TrackingConfig,
 
     #[envconfig(from = "JWT_SECRET")]
     pub jwt_secret: SecretString,
