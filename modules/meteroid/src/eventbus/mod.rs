@@ -8,7 +8,7 @@ use crate::config::Config;
 use crate::repo::get_pool;
 
 pub mod memory;
-pub mod tracking_handler;
+pub mod analytics_handler;
 pub mod webhook_handler;
 
 static CONFIG: tokio::sync::OnceCell<Arc<dyn EventBus<Event>>> = tokio::sync::OnceCell::const_new();
@@ -57,13 +57,14 @@ impl EventBusStatic {
                 )))
                     .await;
 
-                if config.tracking.enabled {
-                    log::info!("Tracking is enabled");
-                    bus.subscribe(Arc::new(tracking_handler::TrackingHandler::new(
-                        config.tracking.clone(),
+                if config.analytics.enabled {
+                    bus.subscribe(Arc::new(analytics_handler::AnalyticsHandler::new(
+                        config.analytics.clone(),
                         pool.clone(),
                     )))
-                        .await;
+                    .await;
+                } else {
+                    log::info!("Analytics is disabled");
                 }
 
                 bus

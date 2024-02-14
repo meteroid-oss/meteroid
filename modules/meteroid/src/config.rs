@@ -4,7 +4,7 @@ use crate::workers::fang::ext::FangExtConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
-use common_config::tracking::TrackingConfig;
+use common_config::analytics::AnalyticsConfig;
 use envconfig::Envconfig;
 use secrecy::SecretString;
 
@@ -37,7 +37,7 @@ pub struct Config {
     pub idempotency: IdempotencyConfig,
 
     #[envconfig(nested = true)]
-    pub tracking: TrackingConfig,
+    pub analytics: AnalyticsConfig,
 
     #[envconfig(from = "JWT_SECRET")]
     pub jwt_secret: SecretString,

@@ -6,7 +6,7 @@ use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
-use common_config::tracking::TrackingConfig;
+use common_config::analytics::AnalyticsConfig;
 use meteroid::config::Config;
 use meteroid::workers::fang::ext::FangExtConfig;
 
@@ -35,7 +35,7 @@ pub fn mocked_config(
             ttl: "5s".parse().unwrap(),
             size: 100000,
         },
-        tracking: TrackingConfig {
+        analytics: AnalyticsConfig {
             enabled: false,
             api_key: "".to_string().into(),
         },

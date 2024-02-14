@@ -5,20 +5,20 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use common_build_info::BuildInfo;
-use common_config::tracking::TrackingConfig;
+use common_config::analytics::AnalyticsConfig;
 use common_repository::Pool;
 
 use crate::eventbus::{Event, EventBusError, EventData, EventHandler, TenantEventDataDetails};
 
-pub struct TrackingHandler {
+pub struct AnalyticsHandler {
     pool: Pool,
     client: segment::HttpClient,
     api_key: SecretString,
     context: Value,
 }
 
-impl TrackingHandler {
-    pub fn new(config: TrackingConfig, pool: Pool) -> Self {
+impl AnalyticsHandler {
+    pub fn new(config: AnalyticsConfig, pool: Pool) -> Self {
         let build_info = BuildInfo::get();
 
         // https://segment.com/docs/connections/spec/common/#context
@@ -33,7 +33,7 @@ impl TrackingHandler {
             "git_info": build_info.git_info,
         });
 
-        TrackingHandler {
+        AnalyticsHandler {
             pool,
             client: segment::HttpClient::default(),
             api_key: config.api_key,
@@ -208,7 +208,7 @@ impl TrackingHandler {
 }
 
 #[async_trait::async_trait]
-impl EventHandler<Event> for TrackingHandler {
+impl EventHandler<Event> for AnalyticsHandler {
     #[tracing::instrument(skip_all)]
     async fn handle(&self, event: Event) -> Result<(), EventBusError> {
         log::debug!("Handling event: {:?}", event);
