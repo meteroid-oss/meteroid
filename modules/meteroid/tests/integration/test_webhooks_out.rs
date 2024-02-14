@@ -159,7 +159,7 @@ async fn test_webhook_out_handler() {
             ),
         };
 
-        let expected_api_request =
+        let expected_endpoint_request =
             r#"{"type":"subscription.created","timestamp":"2024-01-01T23:22:15Z","data":{"billing_day":1,"billing_end_date":null,"billing_start_date":"2023-11-04","currency":"EUR","customer_name":"Sportify","net_terms":0}}"#.to_string();
 
         test_webhook_handler(
@@ -171,7 +171,7 @@ async fn test_webhook_out_handler() {
             &handler,
             &event,
             WebhookEventType::SubscriptionCreated,
-            expected_api_request,
+            expected_endpoint_request,
         )
         .await;
     }
@@ -191,7 +191,7 @@ async fn test_webhook_out_handler() {
             ),
         };
 
-        let expected_api_request =
+        let expected_endpoint_request =
             r#"{"type":"customer.created","timestamp":"2024-02-01T23:22:15Z","data":{"balance_value_cents":0,"email":null,"invoicing_email":null,"name":"Uber","phone":null}}"#.to_string();
 
         test_webhook_handler(
@@ -203,7 +203,7 @@ async fn test_webhook_out_handler() {
             &handler,
             &event,
             WebhookEventType::CustomerCreated,
-            expected_api_request,
+            expected_endpoint_request,
         )
         .await;
     }
@@ -221,11 +221,11 @@ async fn test_webhook_handler(
     handler: &WebhookHandler,
     event: &Event,
     event_type: WebhookEventType,
-    expected_api_request: String,
+    expected_endpoint_request: String,
 ) {
     fn endpoint_mock(
         endpoint_server: &mut mockito::Server,
-        expected_api_request: String,
+        expected_endpoint_request: String,
         event: &Event,
     ) -> mockito::Mock {
         endpoint_server
@@ -240,13 +240,13 @@ async fn test_webhook_handler(
                 "webhook-signature",
                 mockito::Matcher::Regex(r"v1,.*".to_string()),
             )
-            .match_body(mockito::Matcher::JsonString(expected_api_request))
+            .match_body(mockito::Matcher::JsonString(expected_endpoint_request))
             .with_status(201)
             .create()
     }
 
-    let endpoint_mock1 = endpoint_mock(endpoint_server1, expected_api_request.clone(), event);
-    let endpoint_mock2 = endpoint_mock(endpoint_server2, expected_api_request.clone(), event);
+    let endpoint_mock1 = endpoint_mock(endpoint_server1, expected_endpoint_request.clone(), event);
+    let endpoint_mock2 = endpoint_mock(endpoint_server2, expected_endpoint_request.clone(), event);
 
     let _ = handler.handle(event.clone()).await.unwrap();
 
@@ -256,10 +256,10 @@ async fn test_webhook_handler(
     endpoint_mock2.assert();
     endpoint_mock2.remove();
 
-    async fn test_events(
+    async fn assert_events(
         endpoint_id: &String,
         clients: &meteroid_it::clients::AllClients,
-        expected_api_request: String,
+        expected_endpoint_request: String,
         event_type: WebhookEventType,
     ) {
         let events = clients
@@ -285,20 +285,20 @@ async fn test_webhook_handler(
         assert_eq!(events[0].event_type(), event_type);
         assert_eq!(events[0].error_message, None);
         assert_eq!(events[0].response_body, Some("".to_string()));
-        assert_eq!(events[0].request_body, expected_api_request.clone());
+        assert_eq!(events[0].request_body, expected_endpoint_request.clone());
     }
 
-    test_events(
+    assert_events(
         endpoint1_id,
         clients,
-        expected_api_request.clone(),
+        expected_endpoint_request.clone(),
         event_type,
     )
     .await;
-    test_events(
+    assert_events(
         endpoint2_id,
         clients,
-        expected_api_request.clone(),
+        expected_endpoint_request.clone(),
         event_type,
     )
     .await;
