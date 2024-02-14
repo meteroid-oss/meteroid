@@ -218,7 +218,7 @@ async fn test_webhook_customer_created_handler(
                 entity_id: CUSTOMER_UBER_ID,
             },
         ),
-        actor: None
+        actor: None,
     };
 
     fn endpoint_mock(endpoint_server: &mut mockito::Server) -> mockito::Mock {

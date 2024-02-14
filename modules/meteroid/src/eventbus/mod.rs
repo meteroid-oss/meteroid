@@ -1,13 +1,15 @@
+use std::fmt::Debug;
+use std::sync::Arc;
+
+use uuid::Uuid;
+
 use crate::api::services::utils::uuid_gen;
 use crate::config::Config;
 use crate::repo::get_pool;
-use std::fmt::Debug;
-use std::sync::Arc;
-use uuid::Uuid;
 
 pub mod memory;
-pub mod webhook_handler;
 pub mod tracking_handler;
+pub mod webhook_handler;
 
 static CONFIG: tokio::sync::OnceCell<Arc<dyn EventBus<Event>>> = tokio::sync::OnceCell::const_new();
 
@@ -45,20 +47,23 @@ impl EventBusStatic {
                     pool.clone(),
                     config.secrets_crypt_key.clone(),
                     true,
-                ))).await;
+                )))
+                    .await;
 
                 bus.subscribe(Arc::new(webhook_handler::WebhookHandler::new(
                     pool.clone(),
                     config.secrets_crypt_key.clone(),
                     true,
-                ))).await;
+                )))
+                    .await;
 
                 if config.tracking.enabled {
                     log::info!("Tracking is enabled");
                     bus.subscribe(Arc::new(tracking_handler::TrackingHandler::new(
                         config.tracking.clone(),
                         pool.clone(),
-                    ))).await;
+                    )))
+                        .await;
                 }
 
                 bus
@@ -81,36 +86,48 @@ impl Event {
             event_id: uuid_gen::v7(),
             event_timestamp: chrono::Utc::now(),
             event_data,
-            actor
+            actor,
         }
     }
 
     pub fn customer_created(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
-        Self::new(EventData::CustomerCreated(TenantEventDataDetails {
-            tenant_id,
-            entity_id: customer_id,
-        }), Some(actor))
+        Self::new(
+            EventData::CustomerCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: customer_id,
+            }),
+            Some(actor),
+        )
     }
 
     pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
-        Self::new(EventData::SubscriptionCreated(TenantEventDataDetails {
-            tenant_id,
-            entity_id: subscription_id,
-        }), Some(actor))
+        Self::new(
+            EventData::SubscriptionCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: subscription_id,
+            }),
+            Some(actor),
+        )
     }
 
     pub fn invoice_created(invoice_id: Uuid, tenant_id: Uuid) -> Self {
-        Self::new(EventData::InvoiceCreated(TenantEventDataDetails {
-            tenant_id,
-            entity_id: invoice_id,
-        }), None)
+        Self::new(
+            EventData::InvoiceCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: invoice_id,
+            }),
+            None,
+        )
     }
 
     pub fn invoice_finalized(invoice_id: Uuid, tenant_id: Uuid) -> Self {
-        Self::new(EventData::InvoiceFinalized(TenantEventDataDetails {
-            tenant_id,
-            entity_id: invoice_id,
-        }), None)
+        Self::new(
+            EventData::InvoiceFinalized(TenantEventDataDetails {
+                tenant_id,
+                entity_id: invoice_id,
+            }),
+            None,
+        )
     }
 }
 

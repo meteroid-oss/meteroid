@@ -2,7 +2,8 @@
 pub struct BuildInfo {
     pub name: String,
     pub version: String,
-    pub profile: String, // debug | release
+    // debug | release
+    pub profile: String,
     pub target_family: String,
     pub target_os: String,
     pub target_arch: String,
@@ -23,14 +24,18 @@ impl BuildInfo {
     }
 
     pub fn get() -> &'static Self {
-        INSTANCE.get().expect("BuildInfo value is not set on binary start")
+        INSTANCE
+            .get()
+            .expect("BuildInfo value is not set on binary start")
     }
 
     pub fn set(name: &str) -> &'static Self {
         match INSTANCE.get() {
             None => {
                 let build_info = Self::build(name);
-                INSTANCE.set(build_info).expect("Failed to set BuildInfo value");
+                INSTANCE
+                    .set(build_info)
+                    .expect("Failed to set BuildInfo value");
                 BuildInfo::get()
             }
             Some(v) => {
@@ -38,7 +43,6 @@ impl BuildInfo {
             }
         }
     }
-
 }
 
 static INSTANCE: std::sync::OnceLock<BuildInfo> = std::sync::OnceLock::new();

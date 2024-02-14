@@ -50,20 +50,30 @@ impl TrackingHandler {
 
     fn actor_as_user(actor: Option<Uuid>) -> User {
         if let Some(ref actor) = actor {
-            User::UserId { user_id: actor.clone().as_hyphenated().to_string() }
+            User::UserId {
+                user_id: actor.clone().as_hyphenated().to_string(),
+            }
         } else {
-            User::AnonymousId { anonymous_id: "unknown".to_string() }
+            User::AnonymousId {
+                anonymous_id: "unknown".to_string(),
+            }
         }
     }
 
     async fn send_track(&self, event_name: String, actor: Option<Uuid>, properties: Value) {
-        let result = self.client.send(self.api_key.expose_secret().to_string(), Message::from(Track {
-            user: Self::actor_as_user(actor),
-            event: event_name,
-            properties,
-            context: Some(self.context.clone()),
-            ..Default::default()
-        })).await;
+        let result = self
+            .client
+            .send(
+                self.api_key.expose_secret().to_string(),
+                Message::from(Track {
+                    user: Self::actor_as_user(actor),
+                    event: event_name,
+                    properties,
+                    context: Some(self.context.clone()),
+                    ..Default::default()
+                }),
+            )
+            .await;
 
         if let Err(err) = result {
             log::error!("Error sending event to segment. {:?}", err);
@@ -84,9 +94,14 @@ impl TrackingHandler {
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
-        self.send_track("customer-created".to_string(), event.actor, serde_json::json!({
-            "customer_id": customer.id,
-        })).await;
+        self.send_track(
+            "customer-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "customer_id": customer.id,
+            }),
+        )
+        .await;
 
         Ok(())
     }
@@ -109,13 +124,18 @@ impl TrackingHandler {
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
-        self.send_track("subscription-created".to_string(), event.actor, serde_json::json!({
-            "subscription_id": subscription.subscription_id,
-            "tenant_id": subscription.tenant_id,
-            "customer_id": subscription.customer_id,
-            "currency": subscription.currency,
-            "version": subscription.version,
-        })).await;
+        self.send_track(
+            "subscription-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "subscription_id": subscription.subscription_id,
+                "tenant_id": subscription.tenant_id,
+                "customer_id": subscription.customer_id,
+                "currency": subscription.currency,
+                "version": subscription.version,
+            }),
+        )
+            .await;
 
         Ok(())
     }
@@ -138,12 +158,17 @@ impl TrackingHandler {
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
-        self.send_track("invoice-draft".to_string(), event.actor, serde_json::json!({
-            "invoice_id": invoice.id,
-            "customer_id": invoice.customer_id,
-            "subscription_id": invoice.subscription_id,
-            "currency": invoice.currency,
-        })).await;
+        self.send_track(
+            "invoice-draft".to_string(),
+            event.actor,
+            serde_json::json!({
+                "invoice_id": invoice.id,
+                "customer_id": invoice.customer_id,
+                "subscription_id": invoice.subscription_id,
+                "currency": invoice.currency,
+            }),
+        )
+            .await;
 
         Ok(())
     }
@@ -166,12 +191,17 @@ impl TrackingHandler {
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
-        self.send_track("invoice-finalized".to_string(), event.actor, serde_json::json!({
-            "invoice_id": invoice.id,
-            "customer_id": invoice.customer_id,
-            "subscription_id": invoice.subscription_id,
-            "currency": invoice.currency,
-        })).await;
+        self.send_track(
+            "invoice-finalized".to_string(),
+            event.actor,
+            serde_json::json!({
+                "invoice_id": invoice.id,
+                "customer_id": invoice.customer_id,
+                "subscription_id": invoice.subscription_id,
+                "currency": invoice.currency,
+            }),
+        )
+        .await;
 
         Ok(())
     }
@@ -184,18 +214,12 @@ impl EventHandler<Event> for TrackingHandler {
         log::debug!("Handling event: {:?}", event);
 
         match &event.event_data {
-            EventData::CustomerCreated(details) => {
-                self.customer_created(&event, details).await?
-            }
+            EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
             }
-            EventData::InvoiceCreated(details) => {
-                self.invoice_draft(&event, details).await?
-            }
-            EventData::InvoiceFinalized(details) => {
-                self.invoice_finalized(&event, details).await?
-            }
+            EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
+            EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
             _ => {
                 log::debug!("Skipping event: {:?}", &event);
                 return Ok(());
@@ -205,4 +229,3 @@ impl EventHandler<Event> for TrackingHandler {
         Ok(())
     }
 }
-

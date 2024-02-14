@@ -1,3 +1,4 @@
+use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
@@ -7,7 +8,6 @@ use meteroid::webhook_in_api;
 use meteroid_repository::migrations;
 use std::sync::Arc;
 use tokio::signal;
-use common_build_info::BuildInfo;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

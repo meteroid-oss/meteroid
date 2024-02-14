@@ -13,13 +13,13 @@ use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQuer
 
 use crate::api::cors::cors;
 use crate::compute::InvoiceEngine;
-use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::eventbus::{Event, EventBus};
 use crate::eventbus::tracking_handler::TrackingHandler;
+use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::repo::provider_config::ProviderConfigRepo;
 
-use super::super::config::Config;
 use super::services;
+use super::super::config::Config;
 
 pub async fn start_api_server(
     config: Config,

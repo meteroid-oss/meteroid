@@ -5,8 +5,8 @@ For production use case, prefer a dedicated scheduler like kubernetes cronjob
 */
 
 use std::time::Duration;
-use common_build_info::BuildInfo;
 
+use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use distributed_lock::locks::LockKey;
 use meteroid::config::Config;

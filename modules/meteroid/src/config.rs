@@ -4,9 +4,9 @@ use crate::workers::fang::ext::FangExtConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
+use common_config::tracking::TrackingConfig;
 use envconfig::Envconfig;
 use secrecy::SecretString;
-use common_config::tracking::TrackingConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
