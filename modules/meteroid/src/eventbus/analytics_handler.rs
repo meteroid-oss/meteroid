@@ -1,6 +1,6 @@
 use secrecy::{ExposeSecret, SecretString};
-use segment::{Client, Message};
 use segment::message::{Track, User};
+use segment::{Client, Message};
 use serde_json::Value;
 use uuid::Uuid;
 

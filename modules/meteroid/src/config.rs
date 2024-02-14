@@ -45,8 +45,8 @@ pub struct Config {
     pub jwt_secret: SecretString,
 
     #[envconfig(
-    from = "SECRETS_CRYPT_KEY",
-    default = "00000000000000000000000000000000"
+        from = "SECRETS_CRYPT_KEY",
+        default = "00000000000000000000000000000000"
     )]
     pub secrets_crypt_key: SecretString,
 
