@@ -1,7 +1,9 @@
-use common_logging::init::init_telemetry;
 use envconfig::Envconfig;
-use metering::config::Config;
 use tokio::signal;
+
+use common_build_info::BuildInfo;
+use common_logging::init::init_telemetry;
+use metering::config::Config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -10,6 +12,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => Err(error),
         Ok(_) => Ok(()),
     }?;
+
+    let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
+    println!("Starting {:?}", build_info);
 
     let config = Config::init_from_env().map_err(|err| err)?;
 
@@ -30,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = exit => {
               log::info!("Interrupted");
         }
-    };
+    }
 
     Ok(())
 }

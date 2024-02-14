@@ -13,6 +13,7 @@ cached = { workspace = true, features = ["async", "tokio", "redis_store", "redis
 chrono.workspace = true
 chrono-tz.workspace = true
 clickhouse-rs.workspace = true
+common-build-info.workspace = true
 common-config.workspace = true
 common-logging.workspace = true
 dotenvy.workspace = true

@@ -173,6 +173,7 @@ async fn test_webhook_subscription_created_handler(
                 entity_id: SUBSCRIPTION_SPORTIFY_ID1,
             },
         ),
+        actor: None,
     };
 
     fn endpoint_mock(endpoint_server: &mut mockito::Server) -> mockito::Mock {
@@ -217,6 +218,7 @@ async fn test_webhook_customer_created_handler(
                 entity_id: CUSTOMER_UBER_ID,
             },
         ),
+        actor: None,
     };
 
     fn endpoint_mock(endpoint_server: &mut mockito::Server) -> mockito::Mock {
