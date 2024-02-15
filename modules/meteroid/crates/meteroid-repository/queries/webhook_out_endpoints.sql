@@ -9,3 +9,9 @@ returning id, tenant_id, url, description, secret, created_at, events_to_listen,
 select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
 from webhook_out_endpoint
 where tenant_id = :tenant_id;
+
+--! get_by_id_and_tenant(): WebhookOutEndpoint
+select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
+from webhook_out_endpoint
+where id = :id and tenant_id = :tenant_id
+limit 1;

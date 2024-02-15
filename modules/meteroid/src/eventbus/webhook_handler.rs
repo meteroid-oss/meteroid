@@ -4,24 +4,39 @@ use crate::webhook;
 use crate::webhook::Webhook;
 use cached::proc_macro::cached;
 use common_repository::Pool;
+use cornucopia_async::Params;
 use meteroid_repository::WebhookOutEventTypeEnum;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::api::services::utils::uuid_gen;
+use meteroid_repository::webhook_out_events::CreateEventParams;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+
+const ENDPOINT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const ENDPOINT_RETRIES: u32 = 3;
+
 pub struct WebhookHandler {
     pub pool: Pool,
     pub crypt_key: SecretString,
-    pub client: reqwest::Client,
+    pub client: ClientWithMiddleware,
     pub cache_enabled: bool,
 }
 
 impl WebhookHandler {
     pub fn new(pool: Pool, crypt_key: SecretString, cache_enabled: bool) -> Self {
+        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(ENDPOINT_RETRIES);
+        let client = ClientBuilder::new(reqwest::Client::new())
+            // Retry failed requests.
+            .with(RetryTransientMiddleware::new_with_policy(retry_policy))
+            .build();
+
         WebhookHandler {
             pool,
             crypt_key,
-            client: reqwest::Client::new(),
+            client,
             cache_enabled,
         }
     }
@@ -40,8 +55,12 @@ impl WebhookHandler {
         webhook_event: &WebhookEvent,
         webhook_event_payload: &Vec<u8>,
         endpoint: &Endpoint,
-    ) -> Result<(), EventBusError> {
-        log::debug!("Sending event {:?} to endpoint {}", event, endpoint.url);
+    ) -> Result<reqwest::Response, EventBusError> {
+        log::debug!(
+            "Sending event {} to endpoint {}",
+            event.event_id,
+            endpoint.url
+        );
 
         let webhook = Webhook::new(endpoint.secret.as_str()).map_err(|e| {
             EventBusError::EventHandlerFailed(format!("Invalid webhook signature: {}", e))
@@ -57,9 +76,9 @@ impl WebhookHandler {
                 EventBusError::EventHandlerFailed(format!("Failed to sign event: {}", e))
             })?;
 
-        let response = self
-            .client
+        self.client
             .post(&endpoint.url)
+            .timeout(ENDPOINT_REQUEST_TIMEOUT)
             .header(webhook::HEADER_WEBHOOK_ID, event.event_id.to_string())
             .header(
                 webhook::HEADER_WEBHOOK_TIMESTAMP,
@@ -74,14 +93,51 @@ impl WebhookHandler {
                     "Failed to send event to endpoint: {}",
                     e
                 ))
-            })?;
+            })
+    }
 
-        if !response.status().is_success() {
-            return Err(EventBusError::EventHandlerFailed(format!(
-                "Failed to send event to endpoint: {}",
-                response.status()
-            )));
-        }
+    #[tracing::instrument(skip_all)]
+    async fn log_endpoint_response_to_db(
+        &self,
+        event: &Event,
+        endpoint: &Endpoint,
+        webhook_event_payload: &Vec<u8>,
+        endpoint_response: Result<reqwest::Response, EventBusError>,
+    ) -> Result<(), EventBusError> {
+        let event_type = get_event_type(event).ok_or_else(|| {
+            EventBusError::EventHandlerFailed("Failed to get event type".to_string())
+        })?;
+
+        let request_body = String::from_utf8(webhook_event_payload.clone()).map_err(|e| {
+            EventBusError::EventHandlerFailed(format!("Failed to convert payload to string: {}", e))
+        })?;
+
+        let (http_status_code, response_body, error_message) = match endpoint_response {
+            Ok(r) => (Some(r.status().as_u16() as i16), r.text().await.ok(), None),
+            Err(e) => (None, None, Some(e.to_string())),
+        };
+
+        let conn = self
+            .pool
+            .get()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        let params = CreateEventParams {
+            id: uuid_gen::v7(),
+            endpoint_id: endpoint.id,
+            event_type,
+            request_body,
+            response_body,
+            error_message,
+            http_status_code,
+        };
+
+        meteroid_repository::webhook_out_events::create_event()
+            .params(&conn, &params)
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
         Ok(())
     }
@@ -308,11 +364,13 @@ impl EventHandler<Event> for WebhookHandler {
                 .send_webhook_event(&event, &webhook_event, &webhook_event_payload, &endpoint)
                 .await;
 
-            if let Err(e) = send_result {
-                log::error!("{}", e);
-            }
+            let log_result = self
+                .log_endpoint_response_to_db(&event, &endpoint, &webhook_event_payload, send_result)
+                .await;
 
-            // todo log attempts into a database table webhook_out_events
+            if let Err(e) = log_result {
+                log::error!("Failed to log webhook event: {}", e);
+            }
         }
 
         Ok(())
@@ -321,6 +379,7 @@ impl EventHandler<Event> for WebhookHandler {
 
 #[derive(Clone)]
 struct Endpoint {
+    pub id: Uuid,
     pub url: String,
     pub secret: String,
     pub event_types: Vec<WebhookOutEventTypeEnum>,
@@ -409,6 +468,7 @@ async fn get_active_endpoints_by_tenant(
                 let secret = crate::crypt::decrypt(crypt_key, e.secret.as_str()).ok()?;
 
                 Some(Endpoint {
+                    id: e.id,
                     url: e.url,
                     secret: secret.expose_secret().to_string(),
                     event_types: e.events_to_listen,

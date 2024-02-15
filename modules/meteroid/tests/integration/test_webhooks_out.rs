@@ -10,6 +10,7 @@ use crate::meteroid_it::container::SeedLevel;
 use crate::meteroid_it::db::seed::{CUSTOMER_UBER_ID, SUBSCRIPTION_SPORTIFY_ID1, TENANT_ID};
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
+use meteroid_grpc::meteroid::api::webhooks::out::v1::WebhookEventType;
 
 #[tokio::test]
 async fn test_webhook_endpoint_out() {
@@ -32,8 +33,8 @@ async fn test_webhook_endpoint_out() {
     );
 
     let events_to_listen = vec![
-        api::webhooks::out::v1::WebhookEventType::CustomerCreated as i32,
-        api::webhooks::out::v1::WebhookEventType::SubscriptionCreated as i32,
+        WebhookEventType::CustomerCreated as i32,
+        WebhookEventType::SubscriptionCreated as i32,
     ];
 
     // create endpoint 1
@@ -102,15 +103,15 @@ async fn test_webhook_out_handler() {
     );
 
     // create endpoint 1
-    let _ = clients
+    let endpoint1 = clients
         .webhooks_out
         .clone()
         .create_webhook_endpoint(api::webhooks::out::v1::CreateWebhookEndpointRequest {
             url: endpoint_url1,
             description: Some("Test".to_string()),
             events_to_listen: vec![
-                api::webhooks::out::v1::WebhookEventType::CustomerCreated as i32,
-                api::webhooks::out::v1::WebhookEventType::SubscriptionCreated as i32,
+                WebhookEventType::CustomerCreated as i32,
+                WebhookEventType::SubscriptionCreated as i32,
             ],
         })
         .await
@@ -120,15 +121,15 @@ async fn test_webhook_out_handler() {
         .unwrap();
 
     // create endpoint 2
-    let _ = clients
+    let endpoint2 = clients
         .webhooks_out
         .clone()
         .create_webhook_endpoint(api::webhooks::out::v1::CreateWebhookEndpointRequest {
             url: endpoint_url2,
             description: Some("Test".to_string()),
             events_to_listen: vec![
-                api::webhooks::out::v1::WebhookEventType::CustomerCreated as i32,
-                api::webhooks::out::v1::WebhookEventType::SubscriptionCreated as i32,
+                WebhookEventType::CustomerCreated as i32,
+                WebhookEventType::SubscriptionCreated as i32,
             ],
         })
         .await
@@ -143,106 +144,164 @@ async fn test_webhook_out_handler() {
         false,
     );
 
-    test_webhook_subscription_created_handler(
-        &mut endpoint_server1,
-        &mut endpoint_server2,
-        &handler,
-    )
-    .await;
+    // subscription.created
+    {
+        let event = Event {
+            event_id: uuid::Uuid::from_str("de88623b-a85b-48a6-8720-bc656a9107c7").unwrap(),
+            event_timestamp: DateTime::parse_from_rfc3339("2024-01-01T23:22:15Z")
+                .unwrap()
+                .to_utc(),
+            event_data: meteroid::eventbus::EventData::SubscriptionCreated(
+                meteroid::eventbus::TenantEventDataDetails {
+                    tenant_id: TENANT_ID,
+                    entity_id: SUBSCRIPTION_SPORTIFY_ID1,
+                },
+            ),
+            actor: None,
+        };
 
-    test_webhook_customer_created_handler(&mut endpoint_server1, &mut endpoint_server2, &handler)
+        let expected_endpoint_request =
+            r#"{"type":"subscription.created","timestamp":"2024-01-01T23:22:15Z","data":{"billing_day":1,"billing_end_date":null,"billing_start_date":"2023-11-04","currency":"EUR","customer_name":"Sportify","net_terms":0}}"#.to_string();
+
+        test_webhook_handler(
+            &clients,
+            &mut endpoint_server1,
+            &endpoint1.id,
+            &mut endpoint_server2,
+            &endpoint2.id,
+            &handler,
+            &event,
+            WebhookEventType::SubscriptionCreated,
+            expected_endpoint_request,
+        )
         .await;
+    }
+
+    // customer.created
+    {
+        let event = Event {
+            event_id: uuid::Uuid::from_str("de88623b-a85b-48a6-8720-bc656a9107c8").unwrap(),
+            event_timestamp: DateTime::parse_from_rfc3339("2024-02-01T23:22:15Z")
+                .unwrap()
+                .to_utc(),
+            event_data: meteroid::eventbus::EventData::CustomerCreated(
+                meteroid::eventbus::TenantEventDataDetails {
+                    tenant_id: TENANT_ID,
+                    entity_id: CUSTOMER_UBER_ID,
+                },
+            ),
+            actor: None,
+        };
+
+        let expected_endpoint_request =
+            r#"{"type":"customer.created","timestamp":"2024-02-01T23:22:15Z","data":{"balance_value_cents":0,"email":null,"invoicing_email":null,"name":"Uber","phone":null}}"#.to_string();
+
+        test_webhook_handler(
+            &clients,
+            &mut endpoint_server1,
+            &endpoint1.id,
+            &mut endpoint_server2,
+            &endpoint2.id,
+            &handler,
+            &event,
+            WebhookEventType::CustomerCreated,
+            expected_endpoint_request,
+        )
+        .await;
+    }
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
 }
 
-async fn test_webhook_subscription_created_handler(
+async fn test_webhook_handler(
+    clients: &meteroid_it::clients::AllClients,
     endpoint_server1: &mut mockito::Server,
+    endpoint1_id: &String,
     endpoint_server2: &mut mockito::Server,
+    endpoint2_id: &String,
     handler: &WebhookHandler,
+    event: &Event,
+    event_type: WebhookEventType,
+    expected_endpoint_request: String,
 ) {
-    let event = Event {
-        event_id: uuid::Uuid::from_str("de88623b-a85b-48a6-8720-bc656a9107c7").unwrap(),
-        event_timestamp: DateTime::parse_from_rfc3339("2024-01-01T23:22:15Z")
-            .unwrap()
-            .to_utc(),
-        event_data: meteroid::eventbus::EventData::SubscriptionCreated(
-            meteroid::eventbus::TenantEventDataDetails {
-                tenant_id: TENANT_ID,
-                entity_id: SUBSCRIPTION_SPORTIFY_ID1,
-            },
-        ),
-        actor: None,
-    };
-
-    fn endpoint_mock(endpoint_server: &mut mockito::Server) -> mockito::Mock {
+    fn endpoint_mock(
+        endpoint_server: &mut mockito::Server,
+        expected_endpoint_request: String,
+        event: &Event,
+    ) -> mockito::Mock {
         endpoint_server
             .mock("POST", "/")
             .match_header("content-type", "application/json")
-            .match_header("webhook-id", "de88623b-a85b-48a6-8720-bc656a9107c7")
-            .match_header("webhook-timestamp", "1704151335")
-            .match_header("webhook-signature", mockito::Matcher::Regex(r"v1,.*".to_string()))
-            .match_body(mockito::Matcher::JsonString(
-                r#"{"type":"subscription.created","timestamp":"2024-01-01T23:22:15Z","data":{"billing_day":1,"billing_end_date":null,"billing_start_date":"2023-11-04","currency":"EUR","customer_name":"Sportify","net_terms":0}}"#.to_string(),
-            ))
+            .match_header("webhook-id", event.event_id.to_string().as_str())
+            .match_header(
+                "webhook-timestamp",
+                event.event_timestamp.timestamp().to_string().as_str(),
+            )
+            .match_header(
+                "webhook-signature",
+                mockito::Matcher::Regex(r"v1,.*".to_string()),
+            )
+            .match_body(mockito::Matcher::JsonString(expected_endpoint_request))
             .with_status(201)
             .create()
     }
 
-    let endpoint_mock1 = endpoint_mock(endpoint_server1);
-    let endpoint_mock2 = endpoint_mock(endpoint_server2);
+    let endpoint_mock1 = endpoint_mock(endpoint_server1, expected_endpoint_request.clone(), event);
+    let endpoint_mock2 = endpoint_mock(endpoint_server2, expected_endpoint_request.clone(), event);
 
-    let _ = handler.handle(event).await.unwrap();
+    let _ = handler.handle(event.clone()).await.unwrap();
 
     endpoint_mock1.assert();
     endpoint_mock1.remove();
 
     endpoint_mock2.assert();
     endpoint_mock2.remove();
-}
 
-async fn test_webhook_customer_created_handler(
-    endpoint_server1: &mut mockito::Server,
-    endpoint_server2: &mut mockito::Server,
-    handler: &WebhookHandler,
-) {
-    let event = Event {
-        event_id: uuid::Uuid::from_str("de88623b-a85b-48a6-8720-bc656a9107c8").unwrap(),
-        event_timestamp: DateTime::parse_from_rfc3339("2024-02-01T23:22:15Z")
+    async fn assert_events(
+        endpoint_id: &String,
+        clients: &meteroid_it::clients::AllClients,
+        expected_endpoint_request: String,
+        event_type: WebhookEventType,
+    ) {
+        let events = clients
+            .webhooks_out
+            .clone()
+            .list_webhook_events(api::webhooks::out::v1::ListWebhookEventsRequest {
+                order_by: api::webhooks::out::v1::list_webhook_events_request::SortBy::DateDesc
+                    as i32,
+                endpoint_id: endpoint_id.clone(),
+                pagination: None,
+            })
+            .await
             .unwrap()
-            .to_utc(),
-        event_data: meteroid::eventbus::EventData::CustomerCreated(
-            meteroid::eventbus::TenantEventDataDetails {
-                tenant_id: TENANT_ID,
-                entity_id: CUSTOMER_UBER_ID,
-            },
-        ),
-        actor: None,
-    };
+            .into_inner()
+            .events
+            .iter()
+            .filter(|e| e.event_type() == event_type)
+            .cloned()
+            .collect::<Vec<_>>();
 
-    fn endpoint_mock(endpoint_server: &mut mockito::Server) -> mockito::Mock {
-        endpoint_server
-            .mock("POST", "/")
-            .match_header("content-type", "application/json")
-            .match_header("webhook-id", "de88623b-a85b-48a6-8720-bc656a9107c8")
-            .match_header("webhook-timestamp", "1706829735")
-            .match_header("webhook-signature", mockito::Matcher::Regex(r"v1,.*".to_string()))
-            .match_body(mockito::Matcher::JsonString(
-                r#"{"type":"customer.created","timestamp":"2024-02-01T23:22:15Z","data":{"balance_value_cents":0,"email":null,"invoicing_email":null,"name":"Uber","phone":null}}"#.to_string(),
-            ))
-            .with_status(201)
-            .create()
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].http_status_code, Some(201));
+        assert_eq!(events[0].event_type(), event_type);
+        assert_eq!(events[0].error_message, None);
+        assert_eq!(events[0].response_body, Some("".to_string()));
+        assert_eq!(events[0].request_body, expected_endpoint_request.clone());
     }
 
-    let endpoint_mock1 = endpoint_mock(endpoint_server1);
-    let endpoint_mock2 = endpoint_mock(endpoint_server2);
-
-    let _ = handler.handle(event).await.unwrap();
-
-    endpoint_mock1.assert();
-    endpoint_mock1.remove();
-
-    endpoint_mock2.assert();
-    endpoint_mock2.remove();
+    assert_events(
+        endpoint1_id,
+        clients,
+        expected_endpoint_request.clone(),
+        event_type,
+    )
+    .await;
+    assert_events(
+        endpoint2_id,
+        clients,
+        expected_endpoint_request.clone(),
+        event_type,
+    )
+    .await;
 }

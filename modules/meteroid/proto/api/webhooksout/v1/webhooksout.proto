@@ -4,6 +4,8 @@ package meteroid.api.webhooks.out.v1;
 
 import "api/webhooksout/v1/models.proto";
 import "google/protobuf/timestamp.proto";
+import "api/invoices/v1/models.proto";
+import "common/v1/pagination.proto";
 
 message CreateWebhookEndpointRequest {
   string url = 1;
@@ -21,7 +23,25 @@ message ListWebhookEndpointsResponse {
   repeated WebhookEndpoint endpoints = 1;
 }
 
+message ListWebhookEventsRequest {
+  enum SortBy {
+    DATE_DESC = 0;
+    DATE_ASC = 1;
+    ID_DESC = 2;
+    ID_ASC = 3;
+  }
+  SortBy order_by = 1;
+  string endpoint_id = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+}
+
+message ListWebhookEventsResponse {
+  repeated WebhookEvent events = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
 service WebhooksService {
   rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse) {};
   rpc ListWebhookEndpoints(ListWebhookEndpointsRequest) returns (ListWebhookEndpointsResponse) {};
+  rpc ListWebhookEvents(ListWebhookEventsRequest) returns (ListWebhookEventsResponse) {};
 }

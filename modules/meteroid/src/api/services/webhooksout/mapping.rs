@@ -52,3 +52,22 @@ pub mod event_type {
         }
     }
 }
+
+pub mod event {
+    use crate::api::services::shared::mapping::datetime::datetime_to_timestamp;
+    use crate::api::services::webhooksout::mapping::event_type;
+    use meteroid_grpc::meteroid::api::webhooks::out::v1::WebhookEvent as WebhookEventProto;
+    use meteroid_repository::webhook_out_events::ListWebhookOutEvent as ListWebhookOutEventDb;
+
+    pub fn to_proto(event: &ListWebhookOutEventDb) -> WebhookEventProto {
+        WebhookEventProto {
+            id: event.id.to_string(),
+            event_type: event_type::to_proto(&event.event_type).into(),
+            created_at: Some(datetime_to_timestamp(event.created_at)),
+            http_status_code: event.http_status_code.map(|x| x as i32),
+            request_body: event.request_body.clone(),
+            response_body: event.response_body.clone(),
+            error_message: event.error_message.clone(),
+        }
+    }
+}

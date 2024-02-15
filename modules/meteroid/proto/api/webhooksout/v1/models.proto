@@ -20,3 +20,13 @@ message WebhookEndpoint {
   repeated WebhookEventType events_to_listen = 7;
   google.protobuf.Timestamp created_at = 6;
 }
+
+message WebhookEvent {
+  string id = 1;
+  WebhookEventType event_type = 2;
+  google.protobuf.Timestamp created_at = 3;
+  string request_body = 4;
+  optional string response_body = 5;
+  optional int32 http_status_code = 6;
+  optional string error_message = 7;
+}
