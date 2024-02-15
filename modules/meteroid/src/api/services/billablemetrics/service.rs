@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use super::{mapping, BillableMetricsComponents};
 use crate::api::services::utils::{parse_uuid, PaginationExt};
+use crate::eventbus::Event;
 use common_grpc::middleware::server::auth::RequestExt;
 use cornucopia_async::Params;
 use log::error;
@@ -86,6 +87,11 @@ impl BillableMetricsService for BillableMetricsComponents {
                 tenant_id: tenant_id.to_string(),
             }))
             .await; // TODO add in db/response the register , error and allow retrying
+
+        let _ = self
+            .eventbus
+            .publish(Event::billable_metric_created(actor, metric.id, tenant_id))
+            .await;
 
         Ok(Response::new(CreateBillableMetricResponse {
             billable_metric: Some(rs),

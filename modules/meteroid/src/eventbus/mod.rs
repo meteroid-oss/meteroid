@@ -100,6 +100,16 @@ impl Event {
         )
     }
 
+    pub fn billable_metric_created(actor: Uuid, billable_metric_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::BillableMetricCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: billable_metric_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn customer_created(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::CustomerCreated(TenantEventDataDetails {
@@ -144,6 +154,7 @@ impl Event {
 #[derive(Debug, Clone)]
 pub enum EventData {
     ApiTokenCreated(EventDataDetails),
+    BillableMetricCreated(TenantEventDataDetails),
     OrganizationCreated(EventDataDetails),
     TenantCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
