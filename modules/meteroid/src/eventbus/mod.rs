@@ -91,6 +91,15 @@ impl Event {
         }
     }
 
+    pub fn api_token_created(actor: Uuid, api_token_id: Uuid) -> Self {
+        Self::new(
+            EventData::ApiTokenCreated(EventDataDetails {
+                entity_id: api_token_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn customer_created(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::CustomerCreated(TenantEventDataDetails {
@@ -134,6 +143,7 @@ impl Event {
 
 #[derive(Debug, Clone)]
 pub enum EventData {
+    ApiTokenCreated(EventDataDetails),
     OrganizationCreated(EventDataDetails),
     TenantCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),

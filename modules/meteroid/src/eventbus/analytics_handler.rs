@@ -8,7 +8,9 @@ use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
 use common_repository::Pool;
 
-use crate::eventbus::{Event, EventBusError, EventData, EventHandler, TenantEventDataDetails};
+use crate::eventbus::{
+    Event, EventBusError, EventData, EventDataDetails, EventHandler, TenantEventDataDetails,
+};
 
 pub struct AnalyticsHandler {
     pool: Pool,
@@ -80,6 +82,32 @@ impl AnalyticsHandler {
         }
     }
 
+    #[tracing::instrument(skip_all)]
+    async fn api_token_created(
+        &self,
+        event: &Event,
+        event_data_details: &EventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let api_token = meteroid_repository::api_tokens::get_api_token_by_id()
+            .bind(&conn, &event_data_details.entity_id)
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "api-token-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "api_token_id": event_data_details.entity_id,
+                "tenant_id": api_token.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
     #[tracing::instrument(skip_all)]
     async fn customer_created(
         &self,
@@ -214,6 +242,7 @@ impl EventHandler<Event> for AnalyticsHandler {
         log::debug!("Handling event: {:?}", event);
 
         match &event.event_data {
+            EventData::ApiTokenCreated(details) => self.api_token_created(&event, details).await?,
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?

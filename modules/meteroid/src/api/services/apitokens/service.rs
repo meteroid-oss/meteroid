@@ -4,11 +4,10 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     api::services::utils::{parse_uuid, uuid_gen},
-    db::DbService,
     parse_uuid,
 };
 
-use super::mapping;
+use super::{mapping, ApiTokensServiceComponents};
 use meteroid_grpc::meteroid::api::apitokens::v1::{
     api_tokens_service_server::ApiTokensService, CreateApiTokenRequest, CreateApiTokenResponse,
     GetApiTokenByIdRequest, GetApiTokenByIdResponse, ListApiTokensRequest, ListApiTokensResponse,
@@ -17,6 +16,7 @@ use meteroid_repository::Params;
 use nanoid::nanoid;
 
 use crate::api::services::utils::rng::BASE62_ALPHABET;
+use crate::eventbus::Event;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
@@ -24,7 +24,7 @@ use argon2::{
 use common_grpc::middleware::server::auth::RequestExt;
 
 #[tonic::async_trait]
-impl ApiTokensService for DbService {
+impl ApiTokensService for ApiTokensServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn list_api_tokens(
         &self,
@@ -116,6 +116,11 @@ impl ApiTokensService for DbService {
                     .set_source(Arc::new(e))
                     .clone()
             })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::api_token_created(actor, res.id))
+            .await;
 
         let response = CreateApiTokenResponse {
             api_key,
