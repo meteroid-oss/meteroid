@@ -1,10 +1,13 @@
-use crate::db::{get_connection, get_transaction};
-use crate::eventbus::{Event, EventBus};
+use std::sync::Arc;
+
 use deadpool_postgres::{Object, Transaction};
+use tonic::Status;
+
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_server::CustomersServiceServer;
 use meteroid_repository::Pool;
-use std::sync::Arc;
-use tonic::Status;
+
+use crate::db::{get_connection, get_transaction};
+use crate::eventbus::{Event, EventBus};
 
 pub mod mapping;
 mod service;

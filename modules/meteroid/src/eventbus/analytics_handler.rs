@@ -135,6 +135,33 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn customer_patched(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let customer = meteroid_repository::customers::get_customer_by_id()
+            .bind(&conn, &event_data_details.entity_id)
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "customer-patched".to_string(),
+            event.actor,
+            serde_json::json!({
+                "customer_id": customer.id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn subscription_created(
         &self,
         event: &Event,
@@ -244,6 +271,7 @@ impl EventHandler<Event> for AnalyticsHandler {
         match &event.event_data {
             EventData::ApiTokenCreated(details) => self.api_token_created(&event, details).await?,
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
+            EventData::CustomerPatched(details) => self.customer_patched(&event, details).await?,
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
             }

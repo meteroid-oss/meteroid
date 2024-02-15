@@ -78,6 +78,8 @@ impl CustomersService for CustomerServiceComponents {
         &self,
         request: tonic::Request<PatchCustomerRequest>,
     ) -> std::result::Result<tonic::Response<PatchCustomerResponse>, tonic::Status> {
+        let tenant_id = request.tenant()?;
+        let actor = request.actor()?;
         let connection = self.get_connection().await?;
 
         let customer = request
@@ -126,6 +128,11 @@ impl CustomersService for CustomerServiceComponents {
                     .set_source(Arc::new(e))
                     .clone()
             })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::customer_patched(actor, saved_customer.id, tenant_id))
+            .await;
 
         Ok(Response::new(PatchCustomerResponse {}))
     }
