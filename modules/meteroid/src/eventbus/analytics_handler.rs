@@ -8,6 +8,7 @@ use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
 use common_repository::Pool;
 
+use crate::api::services::billablemetrics::mapping::aggregation_type::db_to_server;
 use crate::eventbus::{
     Event, EventBusError, EventData, EventDataDetails, EventHandler, TenantEventDataDetails,
 };
@@ -115,12 +116,25 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let billable_metric = meteroid_repository::billable_metrics::get_billable_metric_by_id()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
         self.send_track(
             "billable-metric-created".to_string(),
             event.actor,
             serde_json::json!({
                 "billable_metric_id": event_data_details.entity_id,
                 "tenant_id": event_data_details.tenant_id,
+                "aggregation_type": db_to_server(billable_metric.aggregation_type).as_str_name()
             }),
         )
         .await;
