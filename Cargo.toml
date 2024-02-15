@@ -11,6 +11,7 @@ members = [
     "modules/metering/crates/metering-grpc",
     # shared
     "crates/kafka",
+    "crates/common-build-info",
     "crates/common-config",
     "crates/common-domain",
     "crates/common-grpc",
@@ -39,6 +40,8 @@ backon = "0.4.1"
 base62 = "2.0.2"
 base64 = "0.21.4"
 blake3 = "1.5.0"
+build-info = "0.0.34"
+build-info-build = "0.0.34"
 bytes = "1.5.0"
 cached = "0.48.1"
 chrono = { version = "0.4.31", default-features = false }
@@ -89,6 +92,7 @@ rustls = { version = "0.22.2", default-features = false }
 redis = { version = "0.24.0", default-features = false }
 refinery = { version = "0.8.11", default-features = false }
 secrecy = "0.8.0"
+segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
 serde_json = "1.0.107"
 serde_path_to_error = "0.1.14"
@@ -140,6 +144,7 @@ rstest = "0.18.2"
 
 
 # TODO prefix it all
+common-build-info = { path = "crates/common-build-info" }
 common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
 common-logging = { path = "crates/common-logging" }

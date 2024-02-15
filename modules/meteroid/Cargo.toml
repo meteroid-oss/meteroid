@@ -11,6 +11,7 @@ thiserror.workspace = true
 blake3.workspace = true
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock"] }
+common-build-info = { workspace = true }
 common-config = { workspace = true }
 common-logging = { workspace = true }
 common-grpc = { workspace = true, features = ["server"] }
@@ -28,6 +29,7 @@ prost.workspace = true
 reqwest = { workspace = true, features = ["default"] }
 reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
+segment.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 time.workspace = true

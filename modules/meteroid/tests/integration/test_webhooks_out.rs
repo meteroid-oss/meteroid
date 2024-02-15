@@ -157,6 +157,7 @@ async fn test_webhook_out_handler() {
                     entity_id: SUBSCRIPTION_SPORTIFY_ID1,
                 },
             ),
+            actor: None,
         };
 
         let expected_endpoint_request =
@@ -189,6 +190,7 @@ async fn test_webhook_out_handler() {
                     entity_id: CUSTOMER_UBER_ID,
                 },
             ),
+            actor: None,
         };
 
         let expected_endpoint_request =

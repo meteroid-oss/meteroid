@@ -61,7 +61,7 @@ impl CustomersService for CustomerServiceComponents {
 
         let _ = self
             .eventbus
-            .publish(Event::customer_created(customer.id, tenant_id))
+            .publish(Event::customer_created(actor, customer.id, tenant_id))
             .await;
 
         let rs = mapping::customer::create_db_to_server(customer).map_err(|e| {

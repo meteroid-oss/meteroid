@@ -13,6 +13,7 @@ use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQuer
 
 use crate::api::cors::cors;
 use crate::compute::InvoiceEngine;
+use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::eventbus::{Event, EventBus};
 use crate::repo::provider_config::ProviderConfigRepo;
@@ -57,6 +58,17 @@ pub async fn start_api_server(
             true,
         )))
         .await;
+
+    if config.analytics.enabled {
+        eventbus
+            .subscribe(Arc::new(AnalyticsHandler::new(
+                config.analytics.clone(),
+                pool.clone(),
+            )))
+            .await;
+    } else {
+        log::info!("Analytics is disabled");
+    }
 
     Server::builder()
         .accept_http1(true)

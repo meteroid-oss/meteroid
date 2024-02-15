@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use envconfig::Envconfig;
 
+use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
@@ -33,6 +34,10 @@ pub fn mocked_config(
             required: false,
             ttl: "5s".parse().unwrap(),
             size: 100000,
+        },
+        analytics: AnalyticsConfig {
+            enabled: false,
+            api_key: "".to_string().into(),
         },
         jwt_secret: "secret".to_string().into(),
         secrets_crypt_key: "00000000000000000000000000000000".to_string().into(),

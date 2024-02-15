@@ -1,3 +1,4 @@
+use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
@@ -15,6 +16,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(error) => Err(error),
         Ok(_) => Ok(()),
     }?;
+
+    let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
+    println!("Starting {}", build_info);
 
     let config = Config::get();
 
