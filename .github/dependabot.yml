@@ -17,7 +17,14 @@ updates:
       - dependency-name: "axum"
       - dependency-name: "http-body"
       - dependency-name: "tower-http"
-
+    groups:
+      tonic:
+        patterns:
+          - "tonic"
+          - "tonic-health"
+          - "tonic-web"
+          - "tonic-reflection"
+          - "tonic-build"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
