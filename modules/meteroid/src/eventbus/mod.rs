@@ -218,6 +218,16 @@ impl Event {
         )
     }
 
+    pub fn product_family_created(actor: Uuid, product_family_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentRemoved(TenantEventDataDetails {
+                tenant_id,
+                entity_id: product_family_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::SubscriptionCreated(TenantEventDataDetails {
@@ -244,6 +254,7 @@ pub enum EventData {
     PriceComponentCreated(TenantEventDataDetails),
     PriceComponentEdited(TenantEventDataDetails),
     PriceComponentRemoved(TenantEventDataDetails),
+    ProductFamilyCreated(TenantEventDataDetails),
     SubscriptionCreated(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
 }

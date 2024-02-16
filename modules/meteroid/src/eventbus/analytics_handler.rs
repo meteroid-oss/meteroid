@@ -446,6 +446,25 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn product_family_created(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        self.send_track(
+            "product-family-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "product_family_id": event_data_details.entity_id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn subscription_created(
         &self,
         event: &Event,
@@ -513,6 +532,9 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::PriceComponentRemoved(details) => {
                 self.price_component_removed(&event, details).await?
+            }
+            EventData::ProductFamilyCreated(details) => {
+                self.product_family_created(&event, details).await?
             }
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
