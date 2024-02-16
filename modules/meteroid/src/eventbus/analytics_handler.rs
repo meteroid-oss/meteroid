@@ -365,6 +365,87 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn price_component_created(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let price_component = meteroid_repository::price_components::get_price_component()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "price-component-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "price_component_id": price_component.id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn price_component_edited(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let price_component = meteroid_repository::price_components::get_price_component()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "price-component-edited".to_string(),
+            event.actor,
+            serde_json::json!({
+                "price_component_id": price_component.id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn price_component_removed(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        self.send_track(
+            "price-component-removed".to_string(),
+            event.actor,
+            serde_json::json!({
+                "price_component_id": event_data_details.entity_id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn subscription_created(
         &self,
         event: &Event,
@@ -423,6 +504,15 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::PlanDiscardedVersion(details) => {
                 self.plan_discarded_version(&event, details).await?
+            }
+            EventData::PriceComponentCreated(details) => {
+                self.price_component_created(&event, details).await?
+            }
+            EventData::PriceComponentEdited(details) => {
+                self.price_component_edited(&event, details).await?
+            }
+            EventData::PriceComponentRemoved(details) => {
+                self.price_component_removed(&event, details).await?
             }
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?

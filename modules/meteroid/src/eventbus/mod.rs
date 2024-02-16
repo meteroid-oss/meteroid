@@ -188,6 +188,36 @@ impl Event {
         )
     }
 
+    pub fn price_component_created(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: price_component_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn price_component_edited(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentEdited(TenantEventDataDetails {
+                tenant_id,
+                entity_id: price_component_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn price_component_removed(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentRemoved(TenantEventDataDetails {
+                tenant_id,
+                entity_id: price_component_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::SubscriptionCreated(TenantEventDataDetails {
@@ -211,6 +241,9 @@ pub enum EventData {
     PlanCreatedDraft(TenantEventDataDetails),
     PlanPublishedVersion(TenantEventDataDetails),
     PlanDiscardedVersion(TenantEventDataDetails),
+    PriceComponentCreated(TenantEventDataDetails),
+    PriceComponentEdited(TenantEventDataDetails),
+    PriceComponentRemoved(TenantEventDataDetails),
     SubscriptionCreated(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
 }

@@ -6,11 +6,11 @@ use tonic::{Request, Response, Status};
 
 use crate::{
     api::services::utils::{parse_uuid, uuid_gen},
-    db::DbService,
     parse_uuid,
 };
 
-use super::mapping;
+use super::{mapping, PriceComponentServiceComponents};
+use crate::eventbus::Event;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::fee::r#type::Fee;
 use meteroid_grpc::meteroid::api::components::v1::{
@@ -21,7 +21,7 @@ use meteroid_grpc::meteroid::api::components::v1::{
 };
 
 #[tonic::async_trait]
-impl PriceComponentsService for DbService {
+impl PriceComponentsService for PriceComponentServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn list_price_components(
         &self,
@@ -49,6 +49,7 @@ impl PriceComponentsService for DbService {
         &self,
         request: Request<CreatePriceComponentRequest>,
     ) -> Result<Response<CreatePriceComponentResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
         let mut connection = self.get_connection().await?;
@@ -122,7 +123,16 @@ impl PriceComponentsService for DbService {
                 .clone()
         })?;
 
-        let response = mapping::components::db_to_server(component)?;
+        let response = mapping::components::db_to_server(component.clone())?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::price_component_created(
+                actor,
+                component.id,
+                tenant_id,
+            ))
+            .await;
 
         Ok(Response::new(CreatePriceComponentResponse {
             component: Some(response),
@@ -134,6 +144,7 @@ impl PriceComponentsService for DbService {
         &self,
         request: Request<EditPriceComponentRequest>,
     ) -> Result<Response<EditPriceComponentResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
         let mut connection = self.get_connection().await?;
@@ -206,7 +217,16 @@ impl PriceComponentsService for DbService {
                 .clone()
         })?;
 
-        let response = mapping::components::db_to_server(component)?;
+        let response = mapping::components::db_to_server(component.clone())?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::price_component_edited(
+                actor,
+                component.id,
+                tenant_id,
+            ))
+            .await;
 
         Ok(Response::new(EditPriceComponentResponse {
             component: Some(response),
@@ -218,15 +238,18 @@ impl PriceComponentsService for DbService {
         &self,
         request: Request<RemovePriceComponentRequest>,
     ) -> Result<Response<EmptyResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
         let connection = self.get_connection().await?;
+
+        let price_component_id = parse_uuid(&req.price_component_id, "price_component_id")?;
 
         db::price_components::delete_price_component()
             .params(
                 &connection,
                 &db::price_components::DeletePriceComponentParams {
-                    id: parse_uuid(&req.price_component_id, "price_component_id")?,
+                    id: price_component_id.clone(),
                     tenant_id,
                 },
             )
@@ -236,6 +259,15 @@ impl PriceComponentsService for DbService {
                     .set_source(Arc::new(e))
                     .clone()
             })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::price_component_removed(
+                actor,
+                price_component_id,
+                tenant_id,
+            ))
+            .await;
 
         Ok(Response::new(EmptyResponse {}))
     }
