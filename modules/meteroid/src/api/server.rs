@@ -91,6 +91,7 @@ pub async fn start_api_server(
         .add_service(reflection_service)
         .add_service(services::billablemetrics::service(
             pool.clone(),
+            eventbus.clone(),
             metering_service,
         ))
         .add_service(services::customers::service(pool.clone(), eventbus.clone()))
