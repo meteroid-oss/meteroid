@@ -12,8 +12,9 @@ use uuid::Uuid;
 
 use crate::{api::services::utils::parse_uuid, parse_uuid};
 
-use super::{mapping, UsersDbService};
+use super::{mapping, UsersServiceComponents};
 use crate::api::services::utils::uuid_gen;
+use crate::eventbus::Event;
 use common_grpc::middleware::common::jwt::Claims;
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
@@ -26,12 +27,13 @@ use meteroid_grpc::meteroid::api::users::v1::{
 use meteroid_repository::{OrganizationUserRole, Params};
 
 #[tonic::async_trait]
-impl UsersService for UsersDbService {
+impl UsersService for UsersServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn upsert_user(
         &self,
         request: Request<UpsertUserRequest>,
     ) -> Result<Response<UpsertUserResponse>, Status> {
+        let actor = request.actor()?;
         let req = request.into_inner();
         let connection = self.get_connection().await?;
 
@@ -55,6 +57,11 @@ impl UsersService for UsersDbService {
             id: res.id.to_string(),
             email: res.email,
         };
+
+        let _ = self
+            .eventbus
+            .publish(Event::user_created(actor, res.id))
+            .await;
 
         Ok(Response::new(response))
     }
@@ -227,6 +234,7 @@ impl UsersService for UsersDbService {
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
         idempotency_cache(request, |request| async {
+            let actor = request.actor()?;
             let req = request.into_inner();
             let mut connection = self.get_connection().await?;
 
@@ -247,12 +255,13 @@ impl UsersService for UsersDbService {
                 transaction: &Transaction<'_>,
                 user_role: OrganizationUserRole,
                 organization_id: Uuid,
+                user_id: Uuid
             ) -> Result<Response<RegisterResponse>, Status> {
                 // Hash password
                 let hashed_password = hash_password(&req.password)?;
 
                 let params = db::users::UpsertUserParams {
-                    id: uuid_gen::v7(),
+                    id: user_id,
                     email: &req.email,
                     password_hash: Some(hashed_password),
                 };
@@ -311,12 +320,14 @@ impl UsersService for UsersDbService {
 
                     let transaction = self.get_transaction(&mut connection).await?;
 
+                    let user_id = uuid_gen::v7();
                     let res = create_user(
                         &req,
                         &self.jwt_secret,
                         &transaction,
                         OrganizationUserRole::MEMBER,
                         instance.id,
+                        user_id
                     )
                     .await?;
 
@@ -325,6 +336,11 @@ impl UsersService for UsersDbService {
                             .set_source(Arc::new(e))
                             .clone()
                     })?;
+
+                    let _ = self
+                        .eventbus
+                        .publish(Event::user_created(actor, user_id))
+                        .await;
 
                     Ok(res)
                 }
@@ -358,12 +374,15 @@ impl UsersService for UsersDbService {
                                     .clone()
                             })?;
 
+                        let user_id = uuid_gen::v7();
+
                         let res = create_user(
                             &req,
                             &self.jwt_secret,
                             &transaction,
                             OrganizationUserRole::ADMIN,
                             org.id,
+                            user_id
                         )
                         .await?;
 
@@ -372,6 +391,11 @@ impl UsersService for UsersDbService {
                                 .set_source(Arc::new(e))
                                 .clone()
                         })?;
+
+                        let _ = self
+                            .eventbus
+                            .publish(Event::user_created(actor, user_id))
+                            .await;
 
                         Ok(res)
                     }

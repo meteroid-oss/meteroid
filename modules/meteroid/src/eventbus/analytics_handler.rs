@@ -8,7 +8,6 @@ use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
 use common_repository::Pool;
 
-use crate::api::services::billablemetrics::mapping::aggregation_type::db_to_server;
 use crate::eventbus::{
     Event, EventBusError, EventData, EventDataDetails, EventHandler, TenantEventDataDetails,
 };
@@ -134,7 +133,7 @@ impl AnalyticsHandler {
             serde_json::json!({
                 "billable_metric_id": event_data_details.entity_id,
                 "tenant_id": event_data_details.tenant_id,
-                "aggregation_type": db_to_server(billable_metric.aggregation_type).as_str_name()
+                "aggregation_type": crate::api::services::billablemetrics::mapping::aggregation_type::db_to_server(billable_metric.aggregation_type).as_str_name()
             }),
         )
         .await;
@@ -497,6 +496,33 @@ impl AnalyticsHandler {
 
         Ok(())
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn user_created(
+        &self,
+        event: &Event,
+        event_data_details: &EventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let user = meteroid_repository::users::get_user_by_id()
+            .bind(&conn, &event_data_details.entity_id)
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "user-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "user_id": user.id,
+                "role": crate::api::services::users::mapping::role::db_to_server(user.role).as_str_name(),
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -539,6 +565,7 @@ impl EventHandler<Event> for AnalyticsHandler {
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
             }
+            EventData::UserCreated(details) => self.user_created(&event, details).await?,
             _ => {
                 log::debug!("Skipping event: {:?}", &event);
                 return Ok(());

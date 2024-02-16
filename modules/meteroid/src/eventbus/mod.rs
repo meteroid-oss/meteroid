@@ -237,6 +237,13 @@ impl Event {
             Some(actor),
         )
     }
+
+    pub fn user_created(actor: Uuid, user_id: Uuid) -> Self {
+        Self::new(
+            EventData::UserCreated(EventDataDetails { entity_id: user_id }),
+            Some(actor),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -257,6 +264,7 @@ pub enum EventData {
     ProductFamilyCreated(TenantEventDataDetails),
     SubscriptionCreated(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
+    UserCreated(EventDataDetails),
 }
 
 #[derive(Debug, Clone)]
