@@ -129,6 +129,15 @@ impl Event {
         )
     }
 
+    pub fn instance_inited(actor: Uuid, organization_id: Uuid) -> Self {
+        Self::new(
+            EventData::InstanceInited(EventDataDetails {
+                entity_id: organization_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::SubscriptionCreated(TenantEventDataDetails {
@@ -164,13 +173,14 @@ impl Event {
 pub enum EventData {
     ApiTokenCreated(EventDataDetails),
     BillableMetricCreated(TenantEventDataDetails),
-    OrganizationCreated(EventDataDetails),
-    TenantCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
     CustomerPatched(TenantEventDataDetails),
-    SubscriptionCreated(TenantEventDataDetails),
+    InstanceInited(EventDataDetails),
     InvoiceCreated(TenantEventDataDetails),
     InvoiceFinalized(TenantEventDataDetails),
+    OrganizationCreated(EventDataDetails),
+    SubscriptionCreated(TenantEventDataDetails),
+    TenantCreated(TenantEventDataDetails),
 }
 
 #[derive(Debug, Clone)]

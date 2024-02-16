@@ -196,6 +196,24 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn instance_inited(
+        &self,
+        event: &Event,
+        event_data_details: &EventDataDetails,
+    ) -> Result<(), EventBusError> {
+        self.send_track(
+            "instance-inited".to_string(),
+            event.actor,
+            serde_json::json!({
+                "organization_id": event_data_details.entity_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn subscription_created(
         &self,
         event: &Event,
@@ -309,11 +327,12 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::CustomerPatched(details) => self.customer_patched(&event, details).await?,
+            EventData::InstanceInited(details) => self.instance_inited(&event, details).await?,
+            EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
+            EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
             }
-            EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
-            EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
             _ => {
                 log::debug!("Skipping event: {:?}", &event);
                 return Ok(());
