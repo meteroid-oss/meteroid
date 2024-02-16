@@ -238,10 +238,10 @@ impl Event {
         )
     }
 
-    pub fn user_created(actor: Uuid, user_id: Uuid) -> Self {
+    pub fn user_created(actor: Option<Uuid>, user_id: Uuid) -> Self {
         Self::new(
             EventData::UserCreated(EventDataDetails { entity_id: user_id }),
-            Some(actor),
+            actor,
         )
     }
 }

@@ -33,7 +33,7 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<UpsertUserRequest>,
     ) -> Result<Response<UpsertUserResponse>, Status> {
-        let actor = request.actor()?;
+        let actor = request.actor().ok();
         let req = request.into_inner();
         let connection = self.get_connection().await?;
 
@@ -234,7 +234,7 @@ impl UsersService for UsersServiceComponents {
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
         idempotency_cache(request, |request| async {
-            let actor = request.actor()?;
+            let actor = request.actor().ok();
             let req = request.into_inner();
             let mut connection = self.get_connection().await?;
 
