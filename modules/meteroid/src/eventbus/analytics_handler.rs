@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
+use common_logging::unwrapper::UnwrapLogger;
 use common_repository::Pool;
 
 use crate::eventbus::{
@@ -63,8 +64,7 @@ impl AnalyticsHandler {
     }
 
     async fn send_track(&self, event_name: String, actor: Option<Uuid>, properties: Value) {
-        let result = self
-            .client
+        self.client
             .send(
                 self.api_key.expose_secret().to_string(),
                 Message::from(Track {
@@ -75,11 +75,8 @@ impl AnalyticsHandler {
                     ..Default::default()
                 }),
             )
-            .await;
-
-        if let Err(err) = result {
-            log::error!("Error sending event to segment. {:?}", err);
-        }
+            .await
+            .unwrap_to_log_warn(|err| format!("Error sending event to segment. {:?}", err))
     }
 
     #[tracing::instrument(skip_all)]
