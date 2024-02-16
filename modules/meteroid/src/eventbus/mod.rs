@@ -138,16 +138,6 @@ impl Event {
         )
     }
 
-    pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
-        Self::new(
-            EventData::SubscriptionCreated(TenantEventDataDetails {
-                tenant_id,
-                entity_id: subscription_id,
-            }),
-            Some(actor),
-        )
-    }
-
     pub fn invoice_created(invoice_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::InvoiceCreated(TenantEventDataDetails {
@@ -165,6 +155,16 @@ impl Event {
                 entity_id: invoice_id,
             }),
             None,
+        )
+    }
+
+    pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::SubscriptionCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: subscription_id,
+            }),
+            Some(actor),
         )
     }
 }
