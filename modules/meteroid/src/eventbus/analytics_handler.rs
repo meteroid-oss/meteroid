@@ -214,40 +214,6 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn subscription_created(
-        &self,
-        event: &Event,
-        event_data_details: &TenantEventDataDetails,
-    ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let subscription = meteroid_repository::subscriptions::subscription_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-        self.send_track(
-            "subscription-created".to_string(),
-            event.actor,
-            serde_json::json!({
-                "subscription_id": subscription.subscription_id,
-                "tenant_id": subscription.tenant_id,
-                "customer_id": subscription.customer_id,
-                "currency": subscription.currency,
-                "version": subscription.version,
-            }),
-        )
-        .await;
-
-        Ok(())
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn invoice_draft(
         &self,
         event: &Event,
@@ -312,6 +278,125 @@ impl AnalyticsHandler {
 
         Ok(())
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn plan_created_draft(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let plan_version = meteroid_repository::plans::get_plan_version_by_id()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "plan-created-draft".to_string(),
+            event.actor,
+            serde_json::json!({
+                "plan_version_id": plan_version.id,
+                "plan_id": plan_version.plan_id,
+                "version": plan_version.version,
+                "tenant_id": plan_version.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn plan_published_version(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let plan_version = meteroid_repository::plans::get_plan_version_by_id()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "plan-published-version".to_string(),
+            event.actor,
+            serde_json::json!({
+                "plan_version_id": plan_version.id,
+                "plan_id": plan_version.plan_id,
+                "version": plan_version.version,
+                "tenant_id": plan_version.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn plan_discarded_version(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        self.send_track(
+            "plan-discarded-version".to_string(),
+            event.actor,
+            serde_json::json!({
+                "plan_version_id": event_data_details.entity_id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn subscription_created(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let subscription = meteroid_repository::subscriptions::subscription_by_id()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "subscription-created".to_string(),
+            event.actor,
+            serde_json::json!({
+                "subscription_id": subscription.subscription_id,
+                "tenant_id": subscription.tenant_id,
+                "customer_id": subscription.customer_id,
+                "currency": subscription.currency,
+                "version": subscription.version,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait]
@@ -330,6 +415,15 @@ impl EventHandler<Event> for AnalyticsHandler {
             EventData::InstanceInited(details) => self.instance_inited(&event, details).await?,
             EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
             EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
+            EventData::PlanCreatedDraft(details) => {
+                self.plan_created_draft(&event, details).await?
+            }
+            EventData::PlanPublishedVersion(details) => {
+                self.plan_published_version(&event, details).await?
+            }
+            EventData::PlanDiscardedVersion(details) => {
+                self.plan_discarded_version(&event, details).await?
+            }
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
             }

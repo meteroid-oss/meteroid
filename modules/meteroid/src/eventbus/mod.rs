@@ -158,6 +158,36 @@ impl Event {
         )
     }
 
+    pub fn plan_created_draft(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PlanCreatedDraft(TenantEventDataDetails {
+                tenant_id,
+                entity_id: plan_version_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn plan_published_version(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PlanPublishedVersion(TenantEventDataDetails {
+                tenant_id,
+                entity_id: plan_version_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn plan_discarded_version(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PlanDiscardedVersion(TenantEventDataDetails {
+                tenant_id,
+                entity_id: plan_version_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::SubscriptionCreated(TenantEventDataDetails {
@@ -178,7 +208,9 @@ pub enum EventData {
     InstanceInited(EventDataDetails),
     InvoiceCreated(TenantEventDataDetails),
     InvoiceFinalized(TenantEventDataDetails),
-    OrganizationCreated(EventDataDetails),
+    PlanCreatedDraft(TenantEventDataDetails),
+    PlanPublishedVersion(TenantEventDataDetails),
+    PlanDiscardedVersion(TenantEventDataDetails),
     SubscriptionCreated(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
 }

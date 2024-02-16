@@ -101,7 +101,7 @@ pub async fn start_api_server(
         ))
         .add_service(services::apitokens::service(pool.clone(), eventbus.clone()))
         .add_service(services::pricecomponents::service(pool.clone()))
-        .add_service(services::plans::service(pool.clone()))
+        .add_service(services::plans::service(pool.clone(), eventbus.clone()))
         .add_service(services::schedules::service(pool.clone()))
         .add_service(services::productitems::service(pool.clone()))
         .add_service(services::productfamilies::service(pool.clone()))
