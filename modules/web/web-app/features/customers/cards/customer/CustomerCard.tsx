@@ -1,28 +1,25 @@
-import { ButtonAlt } from '@ui/components'
 import dayjs from 'dayjs'
-import { useState } from 'react'
+import { ComponentProps, useState } from 'react'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { Property } from '@/components/molecules/Property'
+import { CardAction } from '@/features/customers/cards/CardAction'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 
-interface Props {
+type Props = Pick<ComponentProps<typeof PageSection>, 'className'> & {
   customer: Customer
 }
 
-export const CustomerCard = ({ customer }: Props) => {
+export const CustomerCard = ({ customer, className }: Props) => {
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false)
 
   return (
     <PageSection
+      className={className}
       header={{
         title: 'Customer',
-        actions: (
-          <ButtonAlt type="outline" onClick={() => setEditModalVisible(true)} className="py-1.5">
-            Edit
-          </ButtonAlt>
-        ),
+        actions: <CardAction onClick={() => setEditModalVisible(true)} />,
       }}
     >
       <div className="flex text-sm">

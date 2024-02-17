@@ -1,11 +1,11 @@
-import { ButtonAlt } from '@ui/components'
-import { useState } from 'react'
+import { ComponentProps, useState } from 'react'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { CardAction } from '@/features/customers/cards/CardAction'
 import { EditAddressModal } from '@/features/customers/cards/address/EditAddressModal'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
 
-interface Props {
+type Props = Pick<ComponentProps<typeof PageSection>, 'className'> & {
   customer: Customer
 }
 
@@ -22,18 +22,15 @@ const AddressLines = ({ address }: { address: Partial<Address> }) => {
   )
 }
 
-export const AddressCard = ({ customer }: Props) => {
+export const AddressCard = ({ customer, className }: Props) => {
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false)
 
   return (
     <PageSection
+      className={className}
       header={{
         title: 'Addresses',
-        actions: (
-          <ButtonAlt type="outline" onClick={() => setEditModalVisible(true)} className="py-1.5 ">
-            Edit
-          </ButtonAlt>
-        ),
+        actions: <CardAction onClick={() => setEditModalVisible(true)} />,
       }}
     >
       <div className="flex text-sm">

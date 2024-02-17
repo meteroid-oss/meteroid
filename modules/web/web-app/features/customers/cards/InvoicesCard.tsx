@@ -1,7 +1,7 @@
 import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
 import { Flex, Skeleton } from '@ui/components'
-import { useState } from 'react'
+import { ComponentProps, useState } from 'react'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { InvoicesTable } from '@/features/invoices'
@@ -10,11 +10,11 @@ import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { ListInvoicesRequest_SortBy } from '@/rpc/api/invoices/v1/invoices_pb'
 
-interface Props {
+type Props = Pick<ComponentProps<typeof PageSection>, 'className'> & {
   customer: Customer
 }
 
-export const InvoicesCard = ({ customer }: Props) => {
+export const InvoicesCard = ({ customer, className }: Props) => {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
@@ -31,6 +31,7 @@ export const InvoicesCard = ({ customer }: Props) => {
 
   return (
     <PageSection
+      className={className}
       header={{
         title: 'Invoices',
       }}
