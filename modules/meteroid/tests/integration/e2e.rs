@@ -624,6 +624,7 @@ async fn fetch_invoices<C: GenericClient>(conn: &C, tenant_id: Uuid) -> Vec<List
         offset: 0,
         status: None,
         order_by: "DATE_ASC",
+        customer_id: None,
         search,
     };
 

@@ -1159,7 +1159,7 @@ pub mod queries {
             }
         }
         pub fn list_api_tokens() -> ListApiTokensStmt {
-            ListApiTokensStmt(cornucopia_async::private::Stmt::new("SELECT id, tenant_id, name, hint, created_at, created_by FROM api_token WHERE tenant_id = $1"))
+            ListApiTokensStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, tenant_id, name, hint, created_at, created_by FROM api_token WHERE tenant_id = $1"))
         }
         pub struct ListApiTokensStmt(cornucopia_async::private::Stmt);
         impl ListApiTokensStmt {
@@ -2413,7 +2413,7 @@ WHERE bm.id = ANY ($1)
             }
         }
         pub fn create_customer() -> CreateCustomerStmt {
-            CreateCustomerStmt(cornucopia_async::private::Stmt::new("INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
+            CreateCustomerStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES ($1,
         $2,
         $3,
@@ -2965,6 +2965,7 @@ WHERE id = $10",
             pub tenant_id: uuid::Uuid,
             pub status: Option<super::super::types::public::InvoiceStatusEnum>,
             pub search: Option<T1>,
+            pub customer_id: Option<uuid::Uuid>,
             pub order_by: T2,
             pub limit: i64,
             pub offset: i64,
@@ -3494,7 +3495,7 @@ WHERE id = $10",
             }
         }
         pub fn create_invoice() -> CreateInvoiceStmt {
-            CreateInvoiceStmt(cornucopia_async::private::Stmt::new("INSERT INTO invoice (id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id,
+            CreateInvoiceStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO invoice (id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id,
                      currency, days_until_due, line_items, amount_cents)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
         $8, $9, $10, $11)
@@ -3732,7 +3733,7 @@ WHERE id = $2
             }
         }
         pub fn patch_invoice() -> PatchInvoiceStmt {
-            PatchInvoiceStmt(cornucopia_async::private::Stmt::new("UPDATE invoice
+            PatchInvoiceStmt(cornucopia_async :: private :: Stmt :: new("UPDATE invoice
 SET status             = COALESCE($1, status),
     invoicing_provider = COALESCE($2, invoicing_provider),
     invoice_date       = COALESCE($3, invoice_date),
@@ -3916,7 +3917,7 @@ WHERE invoice.status NOT IN ('VOID', 'FINALIZED')
             }
         }
         pub fn get_outdated_invoices() -> GetOutdatedInvoicesStmt {
-            GetOutdatedInvoicesStmt(cornucopia_async::private::Stmt::new("SELECT invoice.id,
+            GetOutdatedInvoicesStmt(cornucopia_async :: private :: Stmt :: new("SELECT invoice.id,
        invoice.status,
        invoice.invoicing_provider,
        invoice.invoice_date,
@@ -4046,19 +4047,20 @@ FROM invoice
 WHERE invoice.tenant_id = $1
   AND ($2 :: \"InvoiceStatusEnum\" IS NULL OR invoice.status = $2)
   AND ($3 :: TEXT IS NULL OR customer.name ILIKE '%' || $3 || '%')
+  AND ($4 :: UUID IS NULL OR customer_id = $4)
 ORDER BY CASE
-             WHEN $4 = 'DATE_DESC' THEN invoice.created_at
+             WHEN $5 = 'DATE_DESC' THEN invoice.created_at
              END DESC,
          CASE
-             WHEN $4 = 'DATE_ASC' THEN invoice.created_at
+             WHEN $5 = 'DATE_ASC' THEN invoice.created_at
              END ASC,
          CASE
-             WHEN $4 = 'ID_DESC' THEN invoice.invoice_id
+             WHEN $5 = 'ID_DESC' THEN invoice.invoice_id
              END DESC,
          CASE
-             WHEN $4 = 'ID_ASC' THEN invoice.invoice_id
+             WHEN $5 = 'ID_ASC' THEN invoice.invoice_id
              END ASC
-LIMIT $5 OFFSET $6",
+LIMIT $6 OFFSET $7",
             ))
         }
         pub struct ListTenantInvoicesStmt(cornucopia_async::private::Stmt);
@@ -4074,13 +4076,22 @@ LIMIT $5 OFFSET $6",
                 tenant_id: &'a uuid::Uuid,
                 status: &'a Option<super::super::types::public::InvoiceStatusEnum>,
                 search: &'a Option<T1>,
+                customer_id: &'a Option<uuid::Uuid>,
                 order_by: &'a T2,
                 limit: &'a i64,
                 offset: &'a i64,
-            ) -> ListInvoiceQuery<'a, C, ListInvoice, 6> {
+            ) -> ListInvoiceQuery<'a, C, ListInvoice, 7> {
                 ListInvoiceQuery {
                     client,
-                    params: [tenant_id, status, search, order_by, limit, offset],
+                    params: [
+                        tenant_id,
+                        status,
+                        search,
+                        customer_id,
+                        order_by,
+                        limit,
+                        offset,
+                    ],
                     stmt: &mut self.0,
                     extractor: |row| ListInvoiceBorrowed {
                         id: row.get(0),
@@ -4109,7 +4120,7 @@ LIMIT $5 OFFSET $6",
             cornucopia_async::Params<
                 'a,
                 ListTenantInvoicesParams<T1, T2>,
-                ListInvoiceQuery<'a, C, ListInvoice, 6>,
+                ListInvoiceQuery<'a, C, ListInvoice, 7>,
                 C,
             > for ListTenantInvoicesStmt
         {
@@ -4117,12 +4128,13 @@ LIMIT $5 OFFSET $6",
                 &'a mut self,
                 client: &'a C,
                 params: &'a ListTenantInvoicesParams<T1, T2>,
-            ) -> ListInvoiceQuery<'a, C, ListInvoice, 6> {
+            ) -> ListInvoiceQuery<'a, C, ListInvoice, 7> {
                 self.bind(
                     client,
                     &params.tenant_id,
                     &params.status,
                     &params.search,
+                    &params.customer_id,
                     &params.order_by,
                     &params.limit,
                     &params.offset,
@@ -4835,7 +4847,7 @@ WHERE invoice.id = $1
         }
         impl<'a> From<GetOrganizationByInviteHashBorrowed<'a>> for GetOrganizationByInviteHash {
             fn from(
-                GetOrganizationByInviteHashBorrowed { id,name,}: GetOrganizationByInviteHashBorrowed<'a>,
+                GetOrganizationByInviteHashBorrowed { id,name,} : GetOrganizationByInviteHashBorrowed < 'a >,
             ) -> Self {
                 Self {
                     id,
@@ -7523,7 +7535,7 @@ WHERE
             }
         }
         pub fn upsert_price_component() -> UpsertPriceComponentStmt {
-            UpsertPriceComponentStmt(cornucopia_async::private::Stmt::new("INSERT INTO price_component (id, name, fee, plan_version_id, product_item_id, billable_metric_id)
+            UpsertPriceComponentStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO price_component (id, name, fee, plan_version_id, product_item_id, billable_metric_id)
 SELECT $1,
        $2,
        $3,
@@ -8655,7 +8667,7 @@ WHERE
             }
         }
         pub fn get_config_by_provider_and_endpoint() -> GetConfigByProviderAndEndpointStmt {
-            GetConfigByProviderAndEndpointStmt(cornucopia_async::private::Stmt::new("SELECT id, tenant_id, invoicing_provider, enabled, webhook_security, api_security FROM provider_config WHERE tenant_id = $1 AND invoicing_provider = $2 AND enabled = TRUE"))
+            GetConfigByProviderAndEndpointStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, tenant_id, invoicing_provider, enabled, webhook_security, api_security FROM provider_config WHERE tenant_id = $1 AND invoicing_provider = $2 AND enabled = TRUE"))
         }
         pub struct GetConfigByProviderAndEndpointStmt(cornucopia_async::private::Stmt);
         impl GetConfigByProviderAndEndpointStmt {
@@ -8698,7 +8710,7 @@ WHERE
             }
         }
         pub fn create_provider_config() -> CreateProviderConfigStmt {
-            CreateProviderConfigStmt(cornucopia_async::private::Stmt::new("INSERT INTO provider_config (id, tenant_id, invoicing_provider, enabled, webhook_security, api_security)
+            CreateProviderConfigStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO provider_config (id, tenant_id, invoicing_provider, enabled, webhook_security, api_security)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (tenant_id, invoicing_provider)
   where enabled = TRUE
@@ -9236,7 +9248,7 @@ WHERE s.id = $1
             }
         }
         pub fn create_slot_transaction() -> CreateSlotTransactionStmt {
-            CreateSlotTransactionStmt(cornucopia_async::private::Stmt::new("insert into slot_transaction(id, price_component_id, subscription_id, delta, prev_active_slots, effective_at, transaction_at)
+            CreateSlotTransactionStmt(cornucopia_async :: private :: Stmt :: new("insert into slot_transaction(id, price_component_id, subscription_id, delta, prev_active_slots, effective_at, transaction_at)
 values ($1,
         $2,
         $3,
@@ -9302,7 +9314,7 @@ returning id"))
             }
         }
         pub fn get_active_slots() -> GetActiveSlotsStmt {
-            GetActiveSlotsStmt(cornucopia_async::private::Stmt::new("WITH RankedSlotTransactions AS (
+            GetActiveSlotsStmt(cornucopia_async :: private :: Stmt :: new("WITH RankedSlotTransactions AS (
   SELECT
     st.*,
     ROW_NUMBER() OVER (PARTITION BY st.subscription_id, st.price_component_id ORDER BY st.transaction_at DESC) AS row_num
@@ -11740,7 +11752,7 @@ FROM
             }
         }
         pub fn get_webhook_in_event_by_id() -> GetWebhookInEventByIdStmt {
-            GetWebhookInEventByIdStmt(cornucopia_async::private::Stmt::new("SELECT id, received_at, action, key, processed, attempts, error, provider_config_id FROM webhook_in_event WHERE id = $1"))
+            GetWebhookInEventByIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, received_at, action, key, processed, attempts, error, provider_config_id FROM webhook_in_event WHERE id = $1"))
         }
         pub struct GetWebhookInEventByIdStmt(cornucopia_async::private::Stmt);
         impl GetWebhookInEventByIdStmt {
@@ -11825,7 +11837,7 @@ RETURNING id, received_at, action, key, processed, attempts, error, provider_con
             }
         }
         pub fn find_webhook_in_events_by_tenant_id() -> FindWebhookInEventsByTenantIdStmt {
-            FindWebhookInEventsByTenantIdStmt(cornucopia_async::private::Stmt::new("SELECT webhook_in_event.id, webhook_in_event.received_at, webhook_in_event.action, webhook_in_event.key, webhook_in_event.processed, webhook_in_event.attempts, webhook_in_event.error, provider_config.invoicing_provider
+            FindWebhookInEventsByTenantIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT webhook_in_event.id, webhook_in_event.received_at, webhook_in_event.action, webhook_in_event.key, webhook_in_event.processed, webhook_in_event.attempts, webhook_in_event.error, provider_config.invoicing_provider
 FROM webhook_in_event
 JOIN provider_config ON provider_config.id = webhook_in_event.provider_config_id
 WHERE provider_config.tenant_id = $1"))
@@ -11986,7 +11998,7 @@ WHERE provider_config.tenant_id = $1"))
             }
         }
         pub fn create_endpoint() -> CreateEndpointStmt {
-            CreateEndpointStmt(cornucopia_async::private::Stmt::new("insert into webhook_out_endpoint (id, tenant_id, url, description, secret, events_to_listen, enabled)
+            CreateEndpointStmt(cornucopia_async :: private :: Stmt :: new("insert into webhook_out_endpoint (id, tenant_id, url, description, secret, events_to_listen, enabled)
 values ($1, $2, $3, $4, $5, $6, $7)
 returning id, tenant_id, url, description, secret, created_at, events_to_listen, enabled"))
         }
@@ -12073,7 +12085,7 @@ returning id, tenant_id, url, description, secret, created_at, events_to_listen,
             }
         }
         pub fn list_endpoints() -> ListEndpointsStmt {
-            ListEndpointsStmt(cornucopia_async::private::Stmt::new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
+            ListEndpointsStmt(cornucopia_async :: private :: Stmt :: new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
 from webhook_out_endpoint
 where tenant_id = $1"))
         }
@@ -12103,7 +12115,7 @@ where tenant_id = $1"))
             }
         }
         pub fn get_by_id_and_tenant() -> GetByIdAndTenantStmt {
-            GetByIdAndTenantStmt(cornucopia_async::private::Stmt::new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
+            GetByIdAndTenantStmt(cornucopia_async :: private :: Stmt :: new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
 from webhook_out_endpoint
 where id = $1 and tenant_id = $2
 limit 1"))
@@ -12383,7 +12395,7 @@ limit 1"))
             }
         }
         pub fn create_event() -> CreateEventStmt {
-            CreateEventStmt(cornucopia_async::private::Stmt::new("insert into webhook_out_event(id, endpoint_id, event_type, request_body, response_body, http_status_code, error_message)
+            CreateEventStmt(cornucopia_async :: private :: Stmt :: new("insert into webhook_out_event(id, endpoint_id, event_type, request_body, response_body, http_status_code, error_message)
 values ($1, $2, $3, $4, $5, $6, $7)
 returning id, endpoint_id, event_type, request_body, response_body, http_status_code, created_at, error_message"))
         }

@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { StatusPill } from '@/features/invoices/StatusPill'
-import { amountFormat } from "@/features/invoices/amountFormat";
+import { amountFormat } from '@/features/invoices/amountFormat'
 import { Invoice } from '@/rpc/api/invoices/v1/models_pb'
 
 interface CustomersTableProps {
@@ -15,6 +15,7 @@ interface CustomersTableProps {
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
   isLoading?: boolean
+  linkPrefix?: string
 }
 
 export const InvoicesTable = ({
@@ -23,12 +24,15 @@ export const InvoicesTable = ({
   setPagination,
   totalCount,
   isLoading,
+  linkPrefix = '',
 }: CustomersTableProps) => {
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [
       {
         header: 'Customer',
-        cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.customerName}</Link>,
+        cell: ({ row }) => (
+          <Link to={`${linkPrefix}${row.original.id}`}>{row.original.customerName}</Link>
+        ),
       },
       {
         header: 'Amount',
@@ -56,7 +60,7 @@ export const InvoicesTable = ({
             align="start"
             overlay={
               <div className="pl-4">
-                <Link to={`${row.original.id}`}>
+                <Link to={`${linkPrefix}${row.original.id}`}>
                   <Dropdown.Item key="header" className="hover:bg-slate-500">
                     View invoice
                   </Dropdown.Item>

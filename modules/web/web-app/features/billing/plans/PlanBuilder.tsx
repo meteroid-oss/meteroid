@@ -210,7 +210,7 @@ const PlanBody = () => {
           subtitle: 'Define a period during which your customers can try out this plan for free.',
         }}
       >
-        <div className="py-6 space-x-4 ">
+        <div className="space-x-4 ">
           <div className="flex items-center space-x-3 opacity-75 text-scale-1000 text-sm">
             <AlertCircleIcon size={16} strokeWidth={2} />
             <div className="text-scale-1000 w-full">This plan has no configured trial.</div>
@@ -224,7 +224,7 @@ const PlanBody = () => {
           subtitle: 'Define the phases of your plan.',
         }}
       >
-        <div className="py-6 space-x-4 ">
+        <div className="space-x-4 ">
           <SimpleTable columns={[]} data={[]} emptyMessage="No schedule configured" />
         </div>
       </PageSection>
@@ -235,7 +235,7 @@ const PlanBody = () => {
             'Define alternative prices and currencies for this plans, for specific countries or audiences.',
         }}
       >
-        <Tabs defaultValue="localizations" className="w-full mt-2 py-2">
+        <Tabs defaultValue="localizations" className="w-full">
           <TabsList className="w-full justify-start">
             <TabsTrigger value="localizations">Localizations</TabsTrigger>
             <TabsTrigger value="audiences">Audiences</TabsTrigger>
@@ -259,7 +259,7 @@ const PlanBody = () => {
           subtitle: 'Define the addons that can be associated with this plan',
         }}
       >
-        <div className="py-6 space-x-4 ">
+        <div className="space-x-4 ">
           <SimpleTable headTrClasses="!hidden" columns={[]} data={[]} emptyMessage="No addons" />
         </div>
       </PageSection>

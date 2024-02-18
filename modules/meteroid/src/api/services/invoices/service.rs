@@ -37,6 +37,9 @@ impl InvoicesService for DbService {
                 Err(_) => "DATE_DESC",
             },
             search: req.search,
+            customer_id: req
+                .customer_id
+                .map(|c| parse_uuid(&c, "customer_id").unwrap()),
         };
 
         let invoices = db::invoices::list_tenant_invoices()

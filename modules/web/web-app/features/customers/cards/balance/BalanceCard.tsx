@@ -1,27 +1,23 @@
-import { ButtonAlt } from '@ui/components'
-import { useState } from 'react'
+import { ComponentProps, useState } from 'react'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { Property } from '@/components/molecules/Property'
+import { CardAction } from '@/features/customers/cards/CardAction'
 import { EditBalanceModal } from '@/features/customers/cards/balance/EditBalanceModal'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 
-interface Props {
+type Props = Pick<ComponentProps<typeof PageSection>, 'className'> & {
   customer: Customer
 }
-
-export const BalanceCard = ({ customer }: Props) => {
+export const BalanceCard = ({ customer, className }: Props) => {
   const [editModalVisible, setEditModalVisible] = useState<boolean>(false)
 
   return (
     <PageSection
+      className={className}
       header={{
         title: 'Balance',
-        actions: (
-          <ButtonAlt type="outline" onClick={() => setEditModalVisible(true)} className="py-1.5 ">
-            Edit
-          </ButtonAlt>
-        ),
+        actions: <CardAction onClick={() => setEditModalVisible(true)} />,
       }}
     >
       <div className="flex text-sm">

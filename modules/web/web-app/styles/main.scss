@@ -192,6 +192,11 @@ div[data-radix-portal]:not(.portal--toast) {
   @apply border-l border-slate-500;
 }
 
+.table-container thead th:last-child {
+  @apply rounded rounded-l-none rounded-b-none;
+  @apply border-r border-slate-500;
+}
+
 .table-container tbody tr {
   @apply bg-transparent;
 }
