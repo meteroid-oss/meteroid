@@ -1,10 +1,10 @@
-use super::mapping;
+use super::{mapping, PlanServiceComponents};
 use crate::api::services::pricecomponents;
 use crate::api::services::shared::mapping::period::billing_period_to_db;
 use crate::api::services::utils::PaginationExt;
+use crate::eventbus::Event;
 use crate::{
     api::services::utils::{parse_uuid, uuid_gen},
-    db::DbService,
     parse_uuid,
 };
 use common_grpc::middleware::server::auth::RequestExt;
@@ -27,12 +27,13 @@ use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
-impl PlansService for DbService {
+impl PlansService for PlanServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn create_draft_plan(
         &self,
         request: Request<CreateDraftPlanRequest>,
     ) -> Result<Response<CreateDraftPlanResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let created_by = request.actor()?;
 
@@ -103,8 +104,13 @@ impl PlansService for DbService {
                 .clone()
         })?;
 
-        let mapped_version = mapping::plans::version::db_to_server(version);
+        let mapped_version = mapping::plans::version::db_to_server(version.clone());
         let mapped_plan = mapping::plans::db_to_server(plan);
+
+        let _ = self
+            .eventbus
+            .publish(Event::plan_created_draft(actor, version.id, tenant_id))
+            .await;
 
         Ok(Response::new(CreateDraftPlanResponse {
             plan: Some(PlanDetails {
@@ -332,13 +338,14 @@ impl PlansService for DbService {
         &self,
         request: Request<PublishPlanVersionRequest>,
     ) -> Result<Response<PublishPlanVersionResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
         let connection = self.get_connection().await?;
 
         // TODO validations
         // - all components on committed must have values for all periods
-        let res = db::plans::publish_plan_version()
+        let plan_version_row = db::plans::publish_plan_version()
             .bind(&connection, &parse_uuid!(&req.plan_version_id)?, &tenant_id)
             .one()
             .await
@@ -357,7 +364,16 @@ impl PlansService for DbService {
                     .clone()
             })?;
 
-        let response = mapping::plans::version::db_to_server(res);
+        let response = mapping::plans::version::db_to_server(plan_version_row.clone());
+
+        let _ = self
+            .eventbus
+            .publish(Event::plan_published_version(
+                actor,
+                plan_version_row.id,
+                tenant_id,
+            ))
+            .await;
 
         Ok(Response::new(PublishPlanVersionResponse {
             plan_version: Some(response),
@@ -400,12 +416,16 @@ impl PlansService for DbService {
         &self,
         request: Request<DiscardDraftVersionRequest>,
     ) -> Result<Response<DiscardDraftVersionResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
         let connection = self.get_connection().await?;
 
+        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+        let plan_id = parse_uuid!(&req.plan_id)?;
+
         db::plans::delete_draft_plan_version()
-            .bind(&connection, &parse_uuid!(&req.plan_version_id)?, &tenant_id)
+            .bind(&connection, &plan_version_id, &tenant_id)
             .await
             .map_err(|e| {
                 Status::internal("Unable to discard draft version")
@@ -414,13 +434,22 @@ impl PlansService for DbService {
             })?;
 
         db::plans::delete_plan_if_no_versions()
-            .bind(&connection, &parse_uuid!(&req.plan_id)?, &tenant_id)
+            .bind(&connection, &plan_id, &tenant_id)
             .await
             .map_err(|e| {
                 Status::internal("Unable to discard_draft_plan")
                     .set_source(Arc::new(e))
                     .clone()
             })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::plan_discarded_version(
+                actor,
+                plan_version_id,
+                tenant_id,
+            ))
+            .await;
 
         Ok(Response::new(DiscardDraftVersionResponse {}))
     }

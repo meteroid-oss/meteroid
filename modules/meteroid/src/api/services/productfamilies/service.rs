@@ -3,8 +3,9 @@ use meteroid_repository as db;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-use crate::{api::services::utils::uuid_gen, db::DbService};
+use crate::api::services::utils::uuid_gen;
 
+use crate::eventbus::Event;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::productfamilies::v1::{
     product_families_service_server::ProductFamiliesService, CreateProductFamilyRequest,
@@ -12,10 +13,10 @@ use meteroid_grpc::meteroid::api::productfamilies::v1::{
     GetProductFamilyByExternalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
 };
 
-use super::mapping;
+use super::{mapping, ProductFamilyServiceComponents};
 
 #[tonic::async_trait]
-impl ProductFamiliesService for DbService {
+impl ProductFamiliesService for ProductFamilyServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn list_product_families(
         &self,
@@ -48,6 +49,7 @@ impl ProductFamiliesService for DbService {
         &self,
         request: Request<CreateProductFamilyRequest>,
     ) -> Result<Response<CreateProductFamilyResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
         let client = self.pool.get().await.unwrap();
@@ -69,7 +71,17 @@ impl ProductFamiliesService for DbService {
                     .clone()
             })?;
 
-        let rs = mapping::product_family::db_to_server(product_family);
+        let rs = mapping::product_family::db_to_server(product_family.clone());
+
+        let _ = self
+            .eventbus
+            .publish(Event::product_family_created(
+                actor,
+                product_family.id,
+                tenant_id,
+            ))
+            .await;
+
         Ok(Response::new(CreateProductFamilyResponse {
             product_family: Some(rs),
         }))
