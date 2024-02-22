@@ -1,32 +1,30 @@
-
-
 use tonic::{Request, Response, Status};
 
-use crate::{
-    api::services::utils::{parse_uuid},
-    parse_uuid,
-};
+use crate::{api::services::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, StatsServiceComponents};
 use meteroid_grpc::meteroid::api::stats::v1 as grpc;
-use meteroid_grpc::meteroid::api::stats::v1::{general_stats_response, signup_series, stats_service_server::StatsService, GeneralStatsRequest, GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse, MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest, MrrLogResponse, SignupSeries, SignupSparklineRequest, SignupSparklineRequestResponse, TopRevenueByCustomerRequest, TopRevenueByCustomerResponse, TrialConversionRateSparklineRequest, TrialConversionRateSparklineResponse, TrialConversionSeries, TrialConversionMetaDataPoint, MrrBreakdownScope};
-
-
+use meteroid_grpc::meteroid::api::stats::v1::{
+    general_stats_response, signup_series, stats_service_server::StatsService, GeneralStatsRequest,
+    GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse, MrrBreakdownScope,
+    MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest, MrrLogResponse, SignupSeries,
+    SignupSparklineRequest, SignupSparklineRequestResponse, TopRevenueByCustomerRequest,
+    TopRevenueByCustomerResponse, TrialConversionMetaDataPoint,
+    TrialConversionRateSparklineRequest, TrialConversionRateSparklineResponse,
+    TrialConversionSeries,
+};
 
 use crate::api::services::shared;
 use crate::api::services::stats::mapping::trend_to_server;
 
 use crate::services::stats::stats_service;
-use crate::services::stats::stats_service::{
-    RevenueByCustomerRequest,
-};
+use crate::services::stats::stats_service::RevenueByCustomerRequest;
 
-use uuid::Uuid;
 use common_grpc::middleware::server::auth::RequestExt;
+use uuid::Uuid;
 
 use meteroid_grpc::meteroid::api::stats::v1::mrr_chart_series;
 use meteroid_grpc::meteroid::api::stats::v1::trial_conversion_series;
-
 
 #[tonic::async_trait]
 impl StatsService for StatsServiceComponents {
@@ -35,7 +33,6 @@ impl StatsService for StatsServiceComponents {
         request: Request<GeneralStatsRequest>,
     ) -> Result<Response<GeneralStatsResponse>, Status> {
         let tenant_id = request.tenant()?;
-
 
         let (
             net_revenue_res,
@@ -102,10 +99,11 @@ impl StatsService for StatsServiceComponents {
         let plans_id = if req.plans_id.is_empty() {
             None
         } else {
-            let parsed: Vec<Uuid> =  req.plans_id.into_iter()
-                .map(|plan_id|
-                    parse_uuid!(&plan_id)
-                ).collect::<Result<Vec<Uuid>, Status>>()?;
+            let parsed: Vec<Uuid> = req
+                .plans_id
+                .into_iter()
+                .map(|plan_id| parse_uuid!(&plan_id))
+                .collect::<Result<Vec<Uuid>, Status>>()?;
             Some(parsed)
         };
 
@@ -151,14 +149,14 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-
         let mrr_breakdown = self
             .stats_service
             .mrr_breakdown(stats_service::MRRBreakdownRequest {
                 tenant_id,
                 scope: mapping::mrr_breakdown_scope_from_server(
-                    MrrBreakdownScope::try_from(req.scope)
-                        .map_err(|e| Status::invalid_argument(format!("Failed to parse scope: {}", e)))?
+                    MrrBreakdownScope::try_from(req.scope).map_err(|e| {
+                        Status::invalid_argument(format!("Failed to parse scope: {}", e))
+                    })?,
                 ),
             })
             .await
@@ -195,7 +193,9 @@ impl StatsService for StatsServiceComponents {
                     customer_id: entry.customer_id,
                     customer_name: entry.customer_name,
                     applies_to: Some(shared::mapping::date::to_proto(entry.applies_to)),
-                    created_at: Some(shared::mapping::datetime::offset_datetime_to_timestamp(entry.created_at)),
+                    created_at: Some(shared::mapping::datetime::offset_datetime_to_timestamp(
+                        entry.created_at,
+                    )),
                     description: entry.description,
                     plan_name: entry.plan_name,
                     subscription_id: entry.subscription_id,

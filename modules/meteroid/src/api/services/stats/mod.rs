@@ -1,6 +1,3 @@
-
-
-
 use crate::services::stats::stats_service::{PgStatsService, StatsService};
 use meteroid_grpc::meteroid::api::stats::v1::stats_service_server::StatsServiceServer;
 use meteroid_repository::Pool;
@@ -9,7 +6,7 @@ use std::sync::Arc;
 mod mapping;
 mod service;
 
-pub struct StatsServiceComponents  {
+pub struct StatsServiceComponents {
     pub pool: Pool,
     pub stats_service: Arc<dyn StatsService + Send + Sync>,
 }

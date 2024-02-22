@@ -36,6 +36,7 @@ FROM
         LEFT JOIN
     bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = :tenant_id
+  AND (bi.revenue_year IS NULL OR bi.currency = :currency)
   AND (bi.revenue_year IS NULL OR bi.revenue_year >= DATE_PART('year', CURRENT_DATE))
 ORDER BY
     total_revenue_cents DESC

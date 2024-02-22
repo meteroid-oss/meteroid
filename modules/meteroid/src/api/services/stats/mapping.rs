@@ -1,6 +1,8 @@
-use crate::services::stats::stats_service::{CountAndValue, MRRBreakdown, MRRBreakdownScope, MrrMovementType, Trend, TrendScope};
+use crate::services::stats::stats_service::{
+    CountAndValue, MRRBreakdown, MRRBreakdownScope, MrrMovementType, Trend, TrendScope,
+};
 use meteroid_grpc::meteroid::api::stats::v1 as proto;
-use meteroid_grpc::meteroid::api::stats::v1::{BreakdownStat, MrrBreakdownScope, MrrBreakdown};
+use meteroid_grpc::meteroid::api::stats::v1::{BreakdownStat, MrrBreakdown, MrrBreakdownScope};
 
 pub fn trend_to_server(trend: &Trend) -> proto::Trend {
     proto::Trend {

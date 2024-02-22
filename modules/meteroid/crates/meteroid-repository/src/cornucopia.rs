@@ -9490,9 +9490,10 @@ GROUP BY
             pub currency: T2,
             pub tenant_id: uuid::Uuid,
         }
-        #[derive(Clone, Copy, Debug)]
-        pub struct TopRevenuePerCustomerParams {
+        #[derive(Debug)]
+        pub struct TopRevenuePerCustomerParams<T1: cornucopia_async::StringSql> {
             pub tenant_id: uuid::Uuid,
+            pub currency: T1,
             pub limit: i64,
         }
         #[derive(Debug)]
@@ -10852,23 +10853,25 @@ FROM
         LEFT JOIN
     bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = $1
+  AND (bi.revenue_year IS NULL OR bi.currency = $2)
   AND (bi.revenue_year IS NULL OR bi.revenue_year >= DATE_PART('year', CURRENT_DATE))
 ORDER BY
     total_revenue_cents DESC
-LIMIT $2",
+LIMIT $3",
             ))
         }
         pub struct TopRevenuePerCustomerStmt(cornucopia_async::private::Stmt);
         impl TopRevenuePerCustomerStmt {
-            pub fn bind<'a, C: GenericClient>(
+            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
                 &'a mut self,
                 client: &'a C,
                 tenant_id: &'a uuid::Uuid,
+                currency: &'a T1,
                 limit: &'a i64,
-            ) -> TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 2> {
+            ) -> TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 3> {
                 TopRevenuePerCustomerQuery {
                     client,
-                    params: [tenant_id, limit],
+                    params: [tenant_id, currency, limit],
                     stmt: &mut self.0,
                     extractor: |row| TopRevenuePerCustomerBorrowed {
                         id: row.get(0),
@@ -10879,20 +10882,20 @@ LIMIT $2",
                 }
             }
         }
-        impl<'a, C: GenericClient>
+        impl<'a, C: GenericClient, T1: cornucopia_async::StringSql>
             cornucopia_async::Params<
                 'a,
-                TopRevenuePerCustomerParams,
-                TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 2>,
+                TopRevenuePerCustomerParams<T1>,
+                TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 3>,
                 C,
             > for TopRevenuePerCustomerStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a TopRevenuePerCustomerParams,
-            ) -> TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 2> {
-                self.bind(client, &params.tenant_id, &params.limit)
+                params: &'a TopRevenuePerCustomerParams<T1>,
+            ) -> TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 3> {
+                self.bind(client, &params.tenant_id, &params.currency, &params.limit)
             }
         }
         pub fn insert_mrr_movement_log() -> InsertMrrMovementLogStmt {
@@ -11033,8 +11036,6 @@ WHERE date <= $1
        COUNT(*) FILTER (WHERE movement_type = 'CHURN')                           AS churn_count,
        COALESCE(SUM(net_mrr_change) FILTER (WHERE movement_type = 'REACTIVATION'), 0)::bigint AS reactivation_mrr,
        COUNT(*) FILTER (WHERE movement_type = 'REACTIVATION')                    AS reactivation_count
---     SUM(net_mrr_change) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_mrr,
---     COUNT(*) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_count
 FROM bi_mrr_movement_log bi
 WHERE applies_to BETWEEN $2 AND $3
   AND bi.currency = $4
@@ -11124,8 +11125,6 @@ ORDER BY period"))
        COUNT(*) FILTER (WHERE movement_type = 'REACTIVATION')                    AS reactivation_count,
        p.id,
        p.name
---     SUM(net_mrr_change) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_mrr,
---     COUNT(*) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_count
 FROM bi_mrr_movement_log bi
          JOIN plan_version pv on bi.plan_version_id = pv.id
          JOIN plan p on pv.plan_id = p.id

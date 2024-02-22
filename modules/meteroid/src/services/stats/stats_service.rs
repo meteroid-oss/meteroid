@@ -1,6 +1,5 @@
 use crate::compute::fees::shared::ToCents;
 
-
 use cornucopia_async::Params;
 use deadpool_postgres::{Object, Pool};
 
@@ -12,10 +11,8 @@ use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 use thiserror::Error;
 
-use uuid::Uuid;
 use crate::services::stats::utils::date_utils;
-
-
+use uuid::Uuid;
 
 #[derive(Error, Debug)]
 pub enum StatServiceError {
@@ -144,9 +141,7 @@ pub enum MRRBreakdownScope {
     LastYear,
 }
 
-
 impl MRRBreakdownScope {
-
     fn to_date_range(&self, now: time::Date) -> (time::Date, time::Date) {
         use date_utils::*;
 
@@ -156,8 +151,12 @@ impl MRRBreakdownScope {
             MRRBreakdownScope::ThisQuarter => (start_of_quarter(now), now),
             MRRBreakdownScope::ThisYear => (start_of_year(now), now),
             MRRBreakdownScope::LastWeek => (
-                start_of_week(now).checked_sub(time::Duration::days(7)).unwrap(),
-                end_of_week(now).checked_sub(time::Duration::days(7)).unwrap(),
+                start_of_week(now)
+                    .checked_sub(time::Duration::days(7))
+                    .unwrap(),
+                end_of_week(now)
+                    .checked_sub(time::Duration::days(7))
+                    .unwrap(),
             ),
             MRRBreakdownScope::LastMonth => (
                 start_of_month(sub_months(now, 1)),
@@ -285,8 +284,7 @@ impl PgStatsService {
                 StatServiceError::InternalServerError("Failed to query tenant".to_string())
             })?;
 
-        let currency = currency.currency
-            .as_str();
+        let currency = currency.currency.as_str();
         Ok(currency.to_string())
     }
 }
@@ -421,9 +419,10 @@ impl StatsService for PgStatsService {
             .one()
             .await
             .map_err(|e| {
-                StatServiceError::InternalServerError(
-                    format!("Failed to get trial conversion rate : {}", e),
-                )
+                StatServiceError::InternalServerError(format!(
+                    "Failed to get trial conversion rate : {}",
+                    e
+                ))
             })?;
 
         Ok(all_time.round_dp(1).to_f32().unwrap_or(0.0))
@@ -462,13 +461,15 @@ impl StatsService for PgStatsService {
 
         let mut metadata_series = Vec::new();
 
-        let month_format = time::format_description::parse(
-            "[year]-[month]",
-        ).unwrap();
+        let month_format = time::format_description::parse("[year]-[month]").unwrap();
 
         for dp in chart_data {
-            let month_str = dp.month.format(&month_format)
-                .map_err(|_| StatServiceError::InternalServerError("Failed to format month".to_string()))?
+            let month_str = dp
+                .month
+                .format(&month_format)
+                .map_err(|_| {
+                    StatServiceError::InternalServerError("Failed to format month".to_string())
+                })?
                 .to_string();
 
             metadata_series.push(TrialConversionMetaDataPoint {
@@ -514,7 +515,10 @@ impl StatsService for PgStatsService {
             conversions_90_days_series,
         ];
 
-        Ok(TrialConversionRateResponse { series, metadata: metadata_series })
+        Ok(TrialConversionRateResponse {
+            series,
+            metadata: metadata_series,
+        })
     }
 
     async fn top_revenue_by_customer(
@@ -526,7 +530,12 @@ impl StatsService for PgStatsService {
         let currency = self.get_currency(&request.tenant_id).await?;
 
         let data = db::stats::top_revenue_per_customer()
-            .bind(&conn, &request.tenant_id,  &currency, &(request.limit as i64))
+            .bind(
+                &conn,
+                &request.tenant_id,
+                &currency,
+                &(request.limit as i64),
+            )
             .all()
             .await
             .map_err(|_| {
@@ -539,7 +548,7 @@ impl StatsService for PgStatsService {
             .into_iter()
             .map(|d| RevenueByCustomer {
                 customer_name: d.name,
-                customer_id: d.customer_id,
+                customer_id: d.id,
                 revenue: d.total_revenue_cents,
             })
             .collect())
@@ -647,14 +656,18 @@ impl StatsService for PgStatsService {
                     )
                 })?;
 
-            let day_format = time::format_description::parse(
-                "[year]-[month]-[day]",
-            ).unwrap();
+            let day_format = time::format_description::parse("[year]-[month]-[day]").unwrap();
 
             for data in plans_data {
                 let data_point = MrrChartDataPoint {
-                    x: data.period.format(&day_format)
-                        .map_err(|_| StatServiceError::InternalServerError("Failed to format month".to_string()))?
+                    x: data
+                        .period
+                        .format(&day_format)
+                        .map_err(|_| {
+                            StatServiceError::InternalServerError(
+                                "Failed to format month".to_string(),
+                            )
+                        })?
                         .to_string(),
                     data: MRRBreakdown {
                         new_business: CountAndValue {
@@ -760,15 +773,21 @@ impl StatsService for PgStatsService {
                 &request
                     .before
                     .map(|s| {
-                        s.parse()
-                            .map_err(|_| StatServiceError::InternalServerError("Invalid before cursor".to_string()))
+                        s.parse().map_err(|_| {
+                            StatServiceError::InternalServerError(
+                                "Invalid before cursor".to_string(),
+                            )
+                        })
                     })
                     .transpose()?,
                 &request
                     .after
                     .map(|s| {
-                        s.parse()
-                            .map_err(|_| StatServiceError::InternalServerError("Invalid after cursor".to_string()))
+                        s.parse().map_err(|_| {
+                            StatServiceError::InternalServerError(
+                                "Invalid after cursor".to_string(),
+                            )
+                        })
                     })
                     .transpose()?,
                 &10i64,
@@ -807,7 +826,6 @@ fn map_movement_type(m: db::MrrMovementType) -> MrrMovementType {
         db::MrrMovementType::REACTIVATION => MrrMovementType::Reactivation,
     }
 }
-
 
 fn calculate_trend(current: i64, previous: i64) -> (i64, f32) {
     let change = current - previous;

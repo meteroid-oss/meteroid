@@ -1,6 +1,6 @@
 pub mod date_utils {
-    use time::Month;
     use time::util;
+    use time::Month;
 
     pub fn start_of_week(date: time::Date) -> time::Date {
         if date.weekday() == time::Weekday::Monday {
@@ -9,7 +9,7 @@ pub mod date_utils {
         date.prev_occurrence(time::Weekday::Monday)
     }
     pub fn end_of_week(date: time::Date) -> time::Date {
-        if date.weekday() == time::Weekday::Sunday  {
+        if date.weekday() == time::Weekday::Sunday {
             return date;
         }
         date.next_occurrence(time::Weekday::Sunday)
@@ -30,7 +30,12 @@ pub mod date_utils {
             10 | 11 | 12 => 10,
             _ => unreachable!(),
         };
-        time::Date::from_calendar_date(date.year(), Month::try_from(quarter_start_month).expect("invalid month"), 1).expect("invalid quarter")
+        time::Date::from_calendar_date(
+            date.year(),
+            Month::try_from(quarter_start_month).expect("invalid month"),
+            1,
+        )
+        .expect("invalid quarter")
     }
     pub fn end_of_quarter(date: time::Date) -> time::Date {
         let month = date.month() as u8;
@@ -49,7 +54,7 @@ pub mod date_utils {
         date - time::Duration::days(date.ordinal() as i64 - 1)
     }
     pub fn end_of_year(date: time::Date) -> time::Date {
-        let days_in_year =util::days_in_year(date.year());
+        let days_in_year = util::days_in_year(date.year());
         date + time::Duration::days(days_in_year as i64 - date.ordinal() as i64)
     }
 
@@ -60,7 +65,12 @@ pub mod date_utils {
             year -= 1;
             month += 12;
         }
-        time::Date::from_calendar_date(year, Month::try_from(month as u8).expect("invalid month"), date.day()).expect("invalid date")
+        time::Date::from_calendar_date(
+            year,
+            Month::try_from(month as u8).expect("invalid month"),
+            date.day(),
+        )
+        .expect("invalid date")
     }
 }
 
@@ -74,7 +84,10 @@ mod tests {
     fn test_start_of_week() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap(); // wednesday
         let start_of_week = date_utils::start_of_week(date);
-        assert_eq!(start_of_week, Date::from_calendar_date(2024, Month::February, 19).unwrap());
+        assert_eq!(
+            start_of_week,
+            Date::from_calendar_date(2024, Month::February, 19).unwrap()
+        );
         assert_eq!(start_of_week.weekday(), time::Weekday::Monday);
     }
 
@@ -82,7 +95,10 @@ mod tests {
     fn test_end_of_week() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap();
         let end_of_week = date_utils::end_of_week(date);
-        assert_eq!(end_of_week, Date::from_calendar_date(2024, Month::February, 26).unwrap());
+        assert_eq!(
+            end_of_week,
+            Date::from_calendar_date(2024, Month::February, 26).unwrap()
+        );
         assert_eq!(end_of_week.weekday(), time::Weekday::Saturday);
     }
 
@@ -90,52 +106,75 @@ mod tests {
     fn test_start_of_month() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap();
         let start_of_month = date_utils::start_of_month(date);
-        assert_eq!(start_of_month, Date::from_calendar_date(2024, Month::February, 1).unwrap());
+        assert_eq!(
+            start_of_month,
+            Date::from_calendar_date(2024, Month::February, 1).unwrap()
+        );
     }
 
     #[test]
     fn test_end_of_month() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap();
         let end_of_month = date_utils::end_of_month(date);
-        assert_eq!(end_of_month, Date::from_calendar_date(2024, Month::February, 29).unwrap());
+        assert_eq!(
+            end_of_month,
+            Date::from_calendar_date(2024, Month::February, 29).unwrap()
+        );
     }
 
     #[test]
     fn test_start_of_quarter() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap();
         let start_of_quarter = date_utils::start_of_quarter(date);
-        assert_eq!(start_of_quarter, Date::from_calendar_date(2024, Month::January, 1).unwrap());
+        assert_eq!(
+            start_of_quarter,
+            Date::from_calendar_date(2024, Month::January, 1).unwrap()
+        );
     }
 
     #[test]
     fn test_end_of_quarter() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap();
         let end_of_quarter = date_utils::end_of_quarter(date);
-        assert_eq!(end_of_quarter, Date::from_calendar_date(2024, Month::March, 31).unwrap());
+        assert_eq!(
+            end_of_quarter,
+            Date::from_calendar_date(2024, Month::March, 31).unwrap()
+        );
     }
 
     #[test]
     fn test_start_of_year() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap(); // wednesday
         let start_of_year = date_utils::start_of_year(date);
-        assert_eq!(start_of_year, Date::from_calendar_date(2024, Month::January, 1).unwrap());
+        assert_eq!(
+            start_of_year,
+            Date::from_calendar_date(2024, Month::January, 1).unwrap()
+        );
     }
 
     #[test]
     fn test_end_of_year() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap(); // wednesday
         let end_of_year = date_utils::end_of_year(date);
-        assert_eq!(end_of_year, Date::from_calendar_date(2024, Month::December, 31).unwrap());
+        assert_eq!(
+            end_of_year,
+            Date::from_calendar_date(2024, Month::December, 31).unwrap()
+        );
     }
 
     #[test]
     fn test_sub_months() {
         let date = Date::from_calendar_date(2024, Month::February, 21).unwrap(); // wednesday
         let sub_months = date_utils::sub_months(date, 2);
-        assert_eq!(sub_months, Date::from_calendar_date(2023, Month::December, 21).unwrap());
+        assert_eq!(
+            sub_months,
+            Date::from_calendar_date(2023, Month::December, 21).unwrap()
+        );
 
         let sub_months = date_utils::sub_months(date, 12);
-        assert_eq!(sub_months, Date::from_calendar_date(2023, Month::February, 21).unwrap());
+        assert_eq!(
+            sub_months,
+            Date::from_calendar_date(2023, Month::February, 21).unwrap()
+        );
     }
-
 }
