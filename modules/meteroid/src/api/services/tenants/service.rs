@@ -115,7 +115,7 @@ impl TenantsService for TenantServiceComponents {
         let req = request.into_inner();
         let connection = self.get_connection().await?;
 
-        let params = db::tenants::CreateTenantOssParams {
+        let params = db::tenants::CreateTenantForUserParams {
             id: uuid_gen::v7(),
             name: req.name,
             slug: req.slug,
@@ -123,7 +123,7 @@ impl TenantsService for TenantServiceComponents {
             user_id: actor,
         };
 
-        let tenant = db::tenants::create_tenant_oss()
+        let tenant = db::tenants::create_tenant_for_user()
             .params(&connection, &params)
             .one()
             .await

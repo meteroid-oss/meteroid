@@ -18,7 +18,7 @@ SELECT t.id, t.name, t.slug, t.currency
 FROM tenant AS t
 WHERE t.id = :tenant_id;
 
---! create_tenant_oss : Tenant
+--! create_tenant_for_user : Tenant
 INSERT INTO tenant(id, name, slug, organization_id, currency)
 VALUES (:id, :name, :slug,
         (SELECT o.id
@@ -27,4 +27,9 @@ VALUES (:id, :name, :slug,
                   JOIN "user" u ON u.id = om.user_id
          WHERE u.id = :user_id LIMIT 1),
         :currency)
+RETURNING id, name, slug, currency;
+
+--! create_tenant_for_org : Tenant
+INSERT INTO tenant(id, name, slug, organization_id, currency)
+VALUES (:id, :name, :slug, :organization_id, :currency)
 RETURNING id, name, slug, currency;

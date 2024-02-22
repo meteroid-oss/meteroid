@@ -22,12 +22,14 @@ module.exports = config({
       dark: 'var(--colors-neutral2)',
     }),
     fontFamily: {
-      sans: ['circular', 'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif'],
+      sans: ['InterVariable', 'Inter', 'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif'],
       mono: ['source code pro', 'Menlo', 'monospace'],
     },
   },
   variants: {
     extend: {},
   },
-  plugins: [require('@tailwindcss/typography')],
+  plugins: [
+    // require('@tailwindcss/typography')
+  ],
 })

@@ -6,7 +6,7 @@ Requirements:
   
 How to run:
 ```bash
-docker compose -f docker/demo/docker-compose.yml up
+docker compose -f docker/demo/docker-compose.yml --env-file .env up
 ```
 
 Ports

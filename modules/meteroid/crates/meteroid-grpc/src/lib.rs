@@ -84,6 +84,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod stats {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.stats.v1");
+            }
+        }
+
         pub mod tenants {
             pub mod v1 {
                 include_proto_serde!("meteroid.api.tenants.v1");

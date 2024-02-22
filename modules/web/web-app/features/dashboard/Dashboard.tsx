@@ -1,4 +1,26 @@
+import { TopCard } from '@/features/dashboard/cards/TopCard'
+
 import { useMemo } from 'react'
+import { useQuery } from '@/lib/connectrpc'
+import {
+  generalStats,
+  topRevenueByCustomer,
+} from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
+import { TopSection } from '@/features/dashboard/sections/TopSection'
+import { formatCurrency, formatRate } from '@/features/dashboard/utils'
+import { MrrSection } from '@/features/dashboard/sections/MrrSection'
+import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
+/*
+
+- usage revenue (distributed by metric)
+- just usage by metric and plan
+- dunning monthly
+- revenue at risk
+- ARR
+- ARPU // 	Total MRR / Total Paid Subscriber Count
+- LTV // 	Average Revenue Per Subscriber / Paid Subscriber Churn
+
+*/
 
 export const Dashboard = () => {
   const date = useMemo(() => {
@@ -19,15 +41,20 @@ export const Dashboard = () => {
     }
   }, [])
 
+  const stats = useQuery(generalStats)
 
+  console.log(stats)
 
   return (
     <>
-      <div className="h-full self-center">
+      <div className="h-full max-w-screen-xl xl:mx-auto self-center space-y-6 relative">
         <div>
-          <h1 className="text-2xl">Good {timeOfDay}, user</h1>
-          <span className="text-xs">{date}</span>
+          <h1 className="text-2xl">Good {timeOfDay}, Joe</h1>
+          <span className="text-xs text-slate-1100">{date}</span>
         </div>
+        <TopSection />
+        <MrrSection />
+        <DetailsSection />
       </div>
     </>
   )

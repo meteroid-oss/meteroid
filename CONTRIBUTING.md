@@ -30,7 +30,7 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - Copy the `.env.example` file to `.env`.
 
 - Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering" profile as follows: 
-`docker compose -f docker/develop/docker-compose.yml --profile metering up`
+`docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
   `cargo run -p meteroid --bin meteroid-api`

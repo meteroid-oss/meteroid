@@ -22,6 +22,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         "productfamilies",
         "products",
         "schedules",
+        "stats",
         "subscriptions",
         "tenants",
         "users",

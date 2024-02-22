@@ -12,3 +12,19 @@ message PaginationResponse {
   uint32 offset = 2;
   uint32 total = 3;
 }
+
+
+message CursorPagination {
+  uint32 limit = 1;
+  Cursor cursor = 2;
+}
+
+message Cursor {
+  optional string before = 1;
+  optional string after = 2;
+}
+
+message CursorPaginationResponse {
+  optional string previous = 1;
+  optional string next = 2;
+}

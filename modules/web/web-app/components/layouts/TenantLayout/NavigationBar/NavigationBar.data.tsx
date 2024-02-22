@@ -1,1 +1,1 @@
-export const NAVIGATION_BAR_WIDTH = 64
+export const NAVIGATION_BAR_WIDTH = 55
