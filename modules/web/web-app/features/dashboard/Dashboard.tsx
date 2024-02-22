@@ -10,17 +10,6 @@ import { TopSection } from '@/features/dashboard/sections/TopSection'
 import { formatCurrency, formatRate } from '@/features/dashboard/utils'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
-/*
-
-- usage revenue (distributed by metric)
-- just usage by metric and plan
-- dunning monthly
-- revenue at risk
-- ARR
-- ARPU // 	Total MRR / Total Paid Subscriber Count
-- LTV // 	Average Revenue Per Subscriber / Paid Subscriber Churn
-
-*/
 
 export const Dashboard = () => {
   const date = useMemo(() => {

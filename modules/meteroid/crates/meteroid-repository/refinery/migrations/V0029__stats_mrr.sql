@@ -45,8 +45,7 @@ CREATE TABLE bi_delta_mrr_daily (
 );
 
 
--- we intentionally ignore the case where a movement log could get updated, as it is only a maintenance case.
--- If updated, the caller is responsible for disabling the bi_mrr_movement_log and updating the snapshots.
+
 CREATE OR REPLACE FUNCTION fn_update_mrr()
     RETURNS TRIGGER AS $$
 BEGIN
@@ -71,7 +70,6 @@ BEGIN
     ON CONFLICT (tenant_id, plan_version_id, currency, date) DO UPDATE
         SET
             net_mrr_cents = bi_delta_mrr_daily.net_mrr_cents + EXCLUDED.net_mrr_cents,
-            gross_mrr_cents = bi_delta_mrr_daily.gross_mrr_cents + EXCLUDED.net_mrr_cents,
             new_business_cents = bi_delta_mrr_daily.new_business_cents + EXCLUDED.new_business_cents,
             new_business_count = bi_delta_mrr_daily.new_business_count + EXCLUDED.new_business_count,
             expansion_cents = bi_delta_mrr_daily.expansion_cents + EXCLUDED.expansion_cents,
@@ -91,7 +89,6 @@ CREATE TRIGGER tr_after_insert_bi_mrr_movement_log
     AFTER INSERT ON bi_mrr_movement_log
     FOR EACH ROW
 EXECUTE FUNCTION fn_update_mrr();
-
 
 
 CREATE TABLE bi_saas_metrics_monthly (

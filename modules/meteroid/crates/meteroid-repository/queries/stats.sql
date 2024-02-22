@@ -71,8 +71,6 @@ SELECT DATE_TRUNC(:date_trunc, applies_to)                                      
        COUNT(*) FILTER (WHERE movement_type = 'CHURN')                           AS churn_count,
        COALESCE(SUM(net_mrr_change) FILTER (WHERE movement_type = 'REACTIVATION'), 0)::bigint AS reactivation_mrr,
        COUNT(*) FILTER (WHERE movement_type = 'REACTIVATION')                    AS reactivation_count
---     SUM(net_mrr_change) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_mrr,
---     COUNT(*) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_count
 FROM bi_mrr_movement_log bi
 WHERE applies_to BETWEEN :start_date AND :end_date
   AND bi.currency = :currency
@@ -96,8 +94,6 @@ SELECT DATE_TRUNC(:date_trunc, applies_to)                                      
        COUNT(*) FILTER (WHERE movement_type = 'REACTIVATION')                    AS reactivation_count,
        p.id,
        p.name
---     SUM(net_mrr_change) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_mrr,
---     COUNT(*) FILTER (WHERE movement_type = 'INCREMENTAL_USAGE') AS incremental_usage_count
 FROM bi_mrr_movement_log bi
          JOIN plan_version pv on bi.plan_version_id = pv.id
          JOIN plan p on pv.plan_id = p.id

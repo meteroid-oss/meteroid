@@ -47,18 +47,6 @@ enum MRRMovementType {
   REACTIVATION = 4;
 }
 
-//message StatData {
-//  string stat_code = 1;
-//  string stat_human = 2;
-//  string currency_code = 3;
-//  int64 current = 4;
-//  bool has_data = 5;
-//  Trend trend = 6;
-//  repeated int64 values = 7;
-//  // TODO precision ?
-//}
-
-
 message MRRBreakdown {
   BreakdownStat new_business = 1;
   BreakdownStat expansion = 2;
@@ -68,18 +56,10 @@ message MRRBreakdown {
   int64 net_new_mrr = 6;
 }
 
-
-
-
-
-//
-
 message Period {
   google.protobuf.Timestamp start_date = 1;
   google.protobuf.Timestamp end_date = 2;
 }
-
-
 
 message SignupSeries {
   string name = 1;
