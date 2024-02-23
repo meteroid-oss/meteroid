@@ -39,23 +39,6 @@ pub struct Trend {
     pub scope: TrendScope,
 }
 
-// ultimately, each standard metric will be queryable as :
-// - a trend
-// - a trend with chart
-// - a full chart with breakdown and trends for all scopes
-
-// there are a few specific metrics in addition to that behave differently, ex: top customers
-
-pub struct TrendRequest {
-    pub scope: TrendScope,
-    pub tenant_id: Uuid,
-}
-
-pub struct SparklineRequest {
-    pub scope: TrendScope,
-    pub tenant_id: Uuid,
-}
-
 pub struct SignupDataPoint {
     pub x: String,
     pub total: i64,

@@ -23,8 +23,6 @@ export const SignupsSparkline = () => {
       ]
     : []
 
-  console.log('series', series)
-
   const isEmpty = !chartData.data?.series?.data?.length
 
   if (isEmpty) {

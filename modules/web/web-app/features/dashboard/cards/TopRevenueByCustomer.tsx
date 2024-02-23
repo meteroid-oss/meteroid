@@ -6,8 +6,6 @@ import { topRevenueByCustomer } from '@/rpc/api/stats/v1/stats-StatsService_conn
 export const TopRevenueByCustomers = () => {
   const q = useQuery(topRevenueByCustomer, { count: 3 })
 
-  console.log(q)
-
   return (
     <TopCard
       title="Top revenue by customers"

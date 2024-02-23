@@ -218,25 +218,6 @@ FROM
     current_period,
     previous_period;
 
-
---
--- --! query_subscription_trend
--- WITH  subscriptions_total AS (SELECT COUNT(*) AS total
---                            FROM subscription
---                            WHERE tenant_id = :tenant_id
---                            AND status = 'ACTIVE' -- TODO drop trials etc
---                        ),
---      change AS (SELECT COUNT(*) AS total
---                         FROM subscription
---                         WHERE created_at BETWEEN (CURRENT_DATE - INTERVAL '1 day' * :period_days) AND CURRENT_DATE
---                           AND tenant_id = :tenant_id
---                           AND status = 'ACTIVE'
---                         )
--- SELECT subscriptions_total.total as total_subscriptions,
---        change.total as new_subscriptions
--- FROM subscriptions_total,
---         change;
-
 --! count_active_subscriptions
 SELECT COUNT(*) AS total
 FROM subscription

@@ -49,7 +49,6 @@ export const MrrChart = (props: MrrChartProps) => {
 
   const isEmpty = !chartData.data?.series || chartData.data.series.every(s => s.data.length === 0)
 
-  console.log('isEmpty', isEmpty)
   return (
     <div>
       <div className="py-2 flex flex-row gap-12">

@@ -3,7 +3,6 @@ CREATE TYPE "InvoiceType" as ENUM ('RECURRING', 'ONE_OFF', 'ADJUSTMENT', 'IMPORT
 
 -- finalized invoice should have static references, even if the subscription gets updated, as we don't version the subscription.
 ALTER TABLE "invoice"
---     ADD COLUMN "plan_id"         uuid   NULL references plan on update cascade on delete restrict,
     ADD COLUMN "plan_version_id" uuid NULL references plan_version on update cascade on delete restrict,
     ADD COLUMN invoice_type "InvoiceType" NOT NULL default 'RECURRING',
     ADD COLUMN "finalized_at"    TIMESTAMP(3);

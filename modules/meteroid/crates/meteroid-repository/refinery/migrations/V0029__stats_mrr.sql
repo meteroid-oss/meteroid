@@ -15,9 +15,6 @@ CREATE TABLE bi_mrr_movement_log
     credit_note_id uuid NULL references credit_note on update cascade on delete restrict,
     plan_version_id uuid NOT NULL references plan_version on update cascade on delete restrict,
     tenant_id uuid NOT NULL references tenant on update cascade on delete restrict
-    -- incremental_usage_breakdown jsonb NULL if we want to check usage breakdown ? or we rely on the invoice ?
-    -- if case multiple events happen in a short time, bi_mrr_movements can be merged (ex: upgrade twice) TODO
-    -- superseded_by uuid NULL references bi_mrr_movement_log on update cascade on delete restrict
 ) ;
 
 CREATE INDEX "bi_mrr_movement_log_idx" ON "bi_mrr_movement_log" ("tenant_id", "applies_to");
@@ -39,8 +36,6 @@ CREATE TABLE bi_delta_mrr_daily (
     churn_count int NOT NULL,
     reactivation_cents BIGINT NOT NULL,
     reactivation_count int NOT NULL,
-    -- incremental_usage_cents bigint NOT NULL,
-    -- usage breakdown ?
     PRIMARY KEY(tenant_id, plan_version_id, currency, date)
 );
 

@@ -3,8 +3,6 @@ import { useMemo } from 'react'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
-import { useQuery } from '@/lib/connectrpc'
-import { generalStats } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
 export const Dashboard = () => {
   const date = useMemo(() => {
@@ -24,10 +22,6 @@ export const Dashboard = () => {
       return 'morning'
     }
   }, [])
-
-  const stats = useQuery(generalStats)
-
-  console.log(stats)
 
   return (
     <>
