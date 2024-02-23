@@ -1,15 +1,10 @@
-import { TopCard } from '@/features/dashboard/cards/TopCard'
-
 import { useMemo } from 'react'
-import { useQuery } from '@/lib/connectrpc'
-import {
-  generalStats,
-  topRevenueByCustomer,
-} from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
-import { TopSection } from '@/features/dashboard/sections/TopSection'
-import { formatCurrency, formatRate } from '@/features/dashboard/utils'
-import { MrrSection } from '@/features/dashboard/sections/MrrSection'
+
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
+import { MrrSection } from '@/features/dashboard/sections/MrrSection'
+import { TopSection } from '@/features/dashboard/sections/TopSection'
+import { useQuery } from '@/lib/connectrpc'
+import { generalStats } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
 export const Dashboard = () => {
   const date = useMemo(() => {

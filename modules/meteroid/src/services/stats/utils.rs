@@ -97,9 +97,9 @@ mod tests {
         let end_of_week = date_utils::end_of_week(date);
         assert_eq!(
             end_of_week,
-            Date::from_calendar_date(2024, Month::February, 26).unwrap()
+            Date::from_calendar_date(2024, Month::February, 25).unwrap()
         );
-        assert_eq!(end_of_week.weekday(), time::Weekday::Saturday);
+        assert_eq!(end_of_week.weekday(), time::Weekday::Sunday);
     }
 
     #[test]

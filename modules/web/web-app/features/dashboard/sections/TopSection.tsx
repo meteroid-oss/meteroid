@@ -1,7 +1,8 @@
+import { useQuery } from '@connectrpc/connect-query'
+
 import { StatCard } from '@/features/dashboard/cards/StatCard'
 import { formatCurrency, formattedTrend } from '@/features/dashboard/utils'
 import { generalStats } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
-import { useQuery } from '@connectrpc/connect-query'
 
 export const TopSection = () => {
   const stats = useQuery(generalStats)

@@ -311,5 +311,4 @@ impl StatsService for StatsServiceComponents {
             revenue_by_customer: top_revenue_by_customer,
         }))
     }
-
 }

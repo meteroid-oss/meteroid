@@ -1,7 +1,8 @@
-import { useQuery } from '@/lib/connectrpc'
-import { signupSparkline } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { linearGradientDef } from '@nivo/core'
 import { ResponsiveLine } from '@nivo/line'
+
+import { useQuery } from '@/lib/connectrpc'
+import { signupSparkline } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
 
 export const SignupsSparkline = () => {

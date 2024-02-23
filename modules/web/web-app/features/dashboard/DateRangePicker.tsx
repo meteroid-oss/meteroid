@@ -1,13 +1,18 @@
 'use client'
 
-import * as React from 'react'
-import { subYears, format } from 'date-fns'
+import {
+  ButtonLegacy as Button,
+  Calendar,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@ui/components'
+import { cn } from '@ui/lib'
+import { format } from 'date-fns'
 import { Calendar as CalendarIcon } from 'lucide-react'
+import * as React from 'react'
 import { DateRange } from 'react-day-picker'
 
-import { Popover, PopoverContent, PopoverTrigger, Calendar } from '@ui/components'
-import { ButtonLegacy as Button } from '@ui/components'
-import { cn } from '@ui/lib'
 
 export interface DatePickerWithRangeProps {
   range: DateRange | undefined
@@ -24,7 +29,7 @@ export function DatePickerWithRange({
         <PopoverTrigger asChild>
           <Button
             id="date"
-            variant={'outline'}
+            variant="outline"
             className={cn(
               'w-[250px] justify-start text-left font-normal border border-slate-400 rounded-md',
               !range && 'text-muted-foreground'

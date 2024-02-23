@@ -1,16 +1,18 @@
-import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
-import { MrrChart } from '@/features/dashboard/charts/MrrChart'
+import { disableQuery } from '@connectrpc/connect-query'
 import { Select, SelectItem } from '@ui/components'
 import { subYears } from 'date-fns'
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
+import * as React from 'react'
 import { DateRange } from 'react-day-picker'
-import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { useQuery } from '@/lib/connectrpc'
-import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
-import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
-import { disableQuery } from '@connectrpc/connect-query'
+
+import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { MrrBreakdownCard } from '@/features/dashboard/cards/MrrBreakdownCard'
 import { MrrLogsCard } from '@/features/dashboard/cards/MrrLogsCard'
+import { MrrChart } from '@/features/dashboard/charts/MrrChart'
+import { useQuery } from '@/lib/connectrpc'
+import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
+import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
 const ALL = '_all'
 
@@ -55,7 +57,7 @@ export const MrrSection = () => {
           <div className="flex gap-1">
             <DatePickerWithRange range={range} setRange={setRange} />
             <Select onValueChange={setProductFamily} value={productFamily}>
-              <SelectItem value={'_all'}>All product lines</SelectItem>
+              <SelectItem value="_all">All product lines</SelectItem>
               {productFamilies.data?.productFamilies.map(pf => (
                 <SelectItem key={pf.externalId} value={pf.externalId}>
                   {pf.name}
@@ -63,7 +65,7 @@ export const MrrSection = () => {
               ))}
             </Select>
             <Select onValueChange={setPlan} value={plan}>
-              <SelectItem value={'_all'}>All plans</SelectItem>
+              <SelectItem value="_all">All plans</SelectItem>
               {plans.data?.plans.map(p => (
                 <SelectItem key={p.externalId} value={p.externalId}>
                   {p.name}
