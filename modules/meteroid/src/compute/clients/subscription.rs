@@ -102,6 +102,7 @@ impl SubscriptionClient {
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             customer_external_id: subscription.customer_external_id,
+            plan_version_id: subscription.plan_version_id,
             billing_start_date,
             billing_end_date: subscription
                 .billing_end_date

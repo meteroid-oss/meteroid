@@ -163,7 +163,7 @@ pub struct MRRBreakdownRequest {
 }
 
 pub struct CountAndValue {
-    pub count: i64,
+    pub count: i32,
     pub value: i64,
 }
 pub struct MRRBreakdown {
@@ -173,6 +173,7 @@ pub struct MRRBreakdown {
     pub churn: CountAndValue,
     pub reactivation: CountAndValue,
     pub net_new_mrr: i64,
+    pub total_net_mrr: i64,
     // scheduled_mrr_movements: CountAndValue,
 }
 
@@ -542,7 +543,7 @@ impl StatsService for PgStatsService {
 
         let currency = self.get_currency(&tenant_id).await?;
 
-        let total_mrr = db::stats::mrr_at_date()
+        let total_mrr = db::stats::total_mrr_at_date()
             .bind(
                 &conn,
                 &time::OffsetDateTime::now_utc().date(),
@@ -565,14 +566,13 @@ impl StatsService for PgStatsService {
 
         let currency = self.get_currency(&request.tenant_id).await?;
 
-        let total_data = db::stats::query_total_mrr()
+        let total = db::stats::query_total_mrr()
             .params(
                 &conn,
                 &QueryTotalMrrParams {
                     tenant_id: request.tenant_id,
                     start_date: request.start_date,
                     end_date: request.end_date,
-                    date_trunc: "day".to_string(),
                     currency: currency.clone(),
                 },
             )
@@ -586,7 +586,7 @@ impl StatsService for PgStatsService {
             name: "Total MRR".to_string(),
             code: "total_mrr".to_string(),
             plan: None,
-            data: total_data
+            data: total
                 .iter()
                 .map(|d| MrrChartDataPoint {
                     x: d.period.to_string(),
@@ -612,6 +612,7 @@ impl StatsService for PgStatsService {
                             value: d.reactivation_mrr,
                         },
                         net_new_mrr: d.net_new_mrr,
+                        total_net_mrr: d.total_net_mrr,
                     },
                 })
                 .collect(),
@@ -627,7 +628,6 @@ impl StatsService for PgStatsService {
                         plan_ids: request.plans_id.unwrap(),
                         start_date: request.start_date,
                         end_date: request.end_date,
-                        date_trunc: "day".to_string(),
                         currency: currency.clone(),
                     },
                 )
@@ -644,7 +644,7 @@ impl StatsService for PgStatsService {
             for data in plans_data {
                 let data_point = MrrChartDataPoint {
                     x: data
-                        .period
+                        .date
                         .format(&day_format)
                         .map_err(|_| {
                             StatServiceError::InternalServerError(
@@ -674,17 +674,18 @@ impl StatsService for PgStatsService {
                             value: data.reactivation_mrr,
                         },
                         net_new_mrr: data.net_new_mrr,
+                        total_net_mrr: data.total_net_mrr,
                     },
                 };
 
                 series_map
-                    .entry(data.name.clone())
+                    .entry(data.plan_name.clone())
                     .or_insert_with(|| MrrChartSeries {
-                        name: data.name.clone(),
-                        code: format!("mrr_breakdown_plan_{}", data.id),
+                        name: data.plan_name.clone(),
+                        code: format!("mrr_breakdown_plan_{}", data.plan_id),
                         plan: Some(Plan {
-                            id: data.id,
-                            name: data.name.clone(),
+                            id: data.plan_id,
+                            name: data.plan_name.clone(),
                         }),
                         data: vec![],
                     })
@@ -743,6 +744,7 @@ impl StatsService for PgStatsService {
                 value: breakdown.reactivation_mrr,
             },
             net_new_mrr: breakdown.net_new_mrr,
+            total_net_mrr: 0,
         })
     }
 

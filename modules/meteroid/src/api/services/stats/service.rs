@@ -59,7 +59,7 @@ impl StatsService for StatsServiceComponents {
                 count: active_subscriptions,
             }),
             pending_invoices: Some(general_stats_response::PendingInvoices {
-                count: pending_invoices_res.count,
+                count: pending_invoices_res.count as i64,
                 value_cents: pending_invoices_res.value,
             }),
             signups: Some(general_stats_response::Signups {

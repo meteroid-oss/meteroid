@@ -17,6 +17,7 @@ pub struct SubscriptionDetails {
     pub id: uuid::Uuid,
     pub tenant_id: uuid::Uuid,
     pub customer_id: uuid::Uuid,
+    pub plan_version_id: uuid::Uuid,
     pub customer_external_id: Option<String>,
     pub billing_start_date: chrono::NaiveDate,
     pub billing_end_date: Option<chrono::NaiveDate>,

@@ -19,7 +19,6 @@ CREATE TABLE bi_mrr_movement_log
 
 CREATE INDEX "bi_mrr_movement_log_idx" ON "bi_mrr_movement_log" ("tenant_id", "applies_to");
 
-
 CREATE TABLE bi_delta_mrr_daily (
     tenant_id UUID NOT NULL,
     plan_version_id UUID NOT NULL,
@@ -84,20 +83,3 @@ CREATE TRIGGER tr_after_insert_bi_mrr_movement_log
     AFTER INSERT ON bi_mrr_movement_log
     FOR EACH ROW
 EXECUTE FUNCTION fn_update_mrr();
-
-
-CREATE TABLE bi_saas_metrics_monthly (
-   id UUID PRIMARY KEY,
-   tenant_id UUID NOT NULL,
-   month DATE NOT NULL,
-   timestamp TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-   currency TEXT NOT NULL,
-   mrr bigint NOT NULL,
-   arr bigint NOT NULL,
-   paid_subscriber_count bigint NOT NULL,
-   paid_subscriber_churn bigint NOT NULL,
-   arpu bigint NOT NULL,
-   ltv bigint NOT NULL,
-   breakout jsonb NOT NULL
-);
-

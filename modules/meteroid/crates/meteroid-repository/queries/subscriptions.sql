@@ -25,6 +25,7 @@ where (s.billing_end_date is null OR s.billing_end_date < :input_date)
 --! get_subscription_current_period (subscription_id): GetSubscriptionCurrentPeriod
 SELECT s.id,
        s.tenant_id,
+       s.plan_version_id,
        s.billing_start_date,
        s.billing_end_date,
        s.billing_day,
