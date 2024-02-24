@@ -220,7 +220,7 @@ impl Event {
 
     pub fn product_family_created(actor: Uuid, product_family_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
-            EventData::PriceComponentRemoved(TenantEventDataDetails {
+            EventData::ProductFamilyCreated(TenantEventDataDetails {
                 tenant_id,
                 entity_id: product_family_id,
             }),
