@@ -52,6 +52,7 @@ pub fn mrr_breakdown_to_server(breakdown: &MRRBreakdown) -> MrrBreakdown {
         new_business: Some(breakdown_stat_to_server(&breakdown.new_business)),
         reactivation: Some(breakdown_stat_to_server(&breakdown.reactivation)),
         net_new_mrr: breakdown.net_new_mrr.clone(),
+        total_net_mrr: breakdown.total_net_mrr.clone(),
     }
 }
 

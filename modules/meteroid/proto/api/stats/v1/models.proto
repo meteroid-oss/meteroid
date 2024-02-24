@@ -54,6 +54,7 @@ message MRRBreakdown {
   BreakdownStat churn = 4;
   BreakdownStat reactivation = 5;
   int64 net_new_mrr = 6;
+  int64 total_net_mrr = 7;
 }
 
 message Period {

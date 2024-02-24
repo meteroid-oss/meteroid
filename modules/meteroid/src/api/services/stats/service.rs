@@ -28,6 +28,7 @@ use meteroid_grpc::meteroid::api::stats::v1::trial_conversion_series;
 
 #[tonic::async_trait]
 impl StatsService for StatsServiceComponents {
+    #[tracing::instrument(skip_all)]
     async fn general_stats(
         &self,
         request: Request<GeneralStatsRequest>,
@@ -74,6 +75,7 @@ impl StatsService for StatsServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn total_mrr_chart(
         &self,
         request: Request<MrrChartRequest>,
@@ -142,6 +144,7 @@ impl StatsService for StatsServiceComponents {
         Ok(Response::new(MrrChartResponse { series }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn mrr_breakdown(
         &self,
         request: Request<MrrBreakdownRequest>,
@@ -167,6 +170,7 @@ impl StatsService for StatsServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn mrr_log(
         &self,
         request: Request<MrrLogRequest>,
@@ -204,6 +208,7 @@ impl StatsService for StatsServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn signup_sparkline(
         &self,
         request: Request<SignupSparklineRequest>,
@@ -234,6 +239,7 @@ impl StatsService for StatsServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn trial_conversion_rate_sparkline(
         &self,
         request: Request<TrialConversionRateSparklineRequest>,
@@ -280,6 +286,7 @@ impl StatsService for StatsServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn top_revenue_by_customer(
         &self,
         request: Request<TopRevenueByCustomerRequest>,
