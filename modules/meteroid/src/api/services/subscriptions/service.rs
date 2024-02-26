@@ -270,6 +270,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             invoicing_provider: db::InvoicingProviderEnum::STRIPE,
             status: db::InvoiceStatusEnum::FINALIZED,
             invoice_date: subscription.billing_start_date,
+            plan_version_id,
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             subscription_id: subscription.subscription_id,
@@ -284,6 +285,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .one()
             .await
             .map_err(|e| {
+                log::error!("Failed to create invoice: {:?}", e);
                 Status::internal("Failed to create invoice")
                     .set_source(Arc::new(e))
                     .clone()
@@ -510,6 +512,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 status: db::InvoiceStatusEnum::FINALIZED,
                 invoice_date: now.date(),
                 tenant_id: subscription.tenant_id,
+                plan_version_id: subscription.plan_version_id,
                 customer_id: subscription.customer_id,
                 subscription_id: subscription.id,
                 currency: subscription.currency.clone(),
@@ -523,6 +526,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .one()
                 .await
                 .map_err(|e| {
+                    log::error!("Failed to create invoice: {:?}", e);
                     Status::internal("Failed to create invoice")
                         .set_source(Arc::new(e))
                         .clone()

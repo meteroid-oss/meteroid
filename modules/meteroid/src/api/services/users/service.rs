@@ -256,7 +256,7 @@ impl UsersService for UsersServiceComponents {
                 user_role: OrganizationUserRole,
                 organization_id: Uuid,
                 user_id: Uuid
-            ) -> Result<Response<RegisterResponse>, Status> {
+            ) -> Result<RegisterResponse, Status> {
                 // Hash password
                 let hashed_password = hash_password(&req.password)?;
 
@@ -296,14 +296,14 @@ impl UsersService for UsersServiceComponents {
                 // Generate JWT token
                 let token = generate_jwt_token(&new_user.id.to_string(), &jwt_secret)?;
 
-                Ok(Response::new(RegisterResponse {
+                Ok(RegisterResponse {
                     token,
                     user: Some(User {
                         id: new_user.id.to_string(),
                         email: new_user.email,
                         role: mapping::role::db_to_server(user_role).into(),
                     }),
-                }))
+                })
             }
 
             match req.invite_key {
@@ -342,7 +342,7 @@ impl UsersService for UsersServiceComponents {
                         .publish(Event::user_created(actor, user_id))
                         .await;
 
-                    Ok(res)
+                    Ok(Response::new(res))
                 }
                 None => {
                     // Check if there are any existing users
@@ -386,6 +386,23 @@ impl UsersService for UsersServiceComponents {
                         )
                         .await?;
 
+
+                    let _ = db::tenants::create_tenant_for_org()
+                        .params(&transaction, &db::tenants::CreateTenantForOrgParams {
+                            id: uuid_gen::v7(),
+                            name: "Sandbox",
+                            slug: "sandbox",
+                            currency: "EUR",
+                            organization_id: org.id
+                        })
+                        .one()
+                        .await
+                        .map_err(|e| {
+                            Status::internal("Failed to create tenant")
+                                .set_source(Arc::new(e))
+                                .clone()
+                        })?;
+
                         transaction.commit().await.map_err(|e| {
                             Status::internal("Failed to commit transaction")
                                 .set_source(Arc::new(e))
@@ -397,7 +414,7 @@ impl UsersService for UsersServiceComponents {
                             .publish(Event::user_created(actor, user_id))
                             .await;
 
-                        Ok(res)
+                        Ok(Response::new(res))
                     }
                 }
             }

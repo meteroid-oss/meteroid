@@ -1,5 +1,9 @@
 import { useMemo } from 'react'
 
+import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
+import { MrrSection } from '@/features/dashboard/sections/MrrSection'
+import { TopSection } from '@/features/dashboard/sections/TopSection'
+
 export const Dashboard = () => {
   const date = useMemo(() => {
     const today = new Date()
@@ -19,15 +23,16 @@ export const Dashboard = () => {
     }
   }, [])
 
-
-
   return (
     <>
-      <div className="h-full self-center">
+      <div className="h-full max-w-screen-xl xl:mx-auto self-center space-y-6 relative">
         <div>
-          <h1 className="text-2xl">Good {timeOfDay}, user</h1>
-          <span className="text-xs">{date}</span>
+          <h1 className="text-2xl">Good {timeOfDay}, Joe</h1>
+          <span className="text-xs text-slate-1100">{date}</span>
         </div>
+        <TopSection />
+        <MrrSection />
+        <DetailsSection />
       </div>
     </>
   )

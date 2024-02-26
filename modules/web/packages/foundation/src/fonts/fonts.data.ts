@@ -1,7 +1,7 @@
 export const fontFamilies = [
   {
     familyName: 'Inter var',
-    fontPath: '/Inter/Inter-roman.var',
+    fontPath: '/Inter/Inter.var',
     fontWeight: '100 900',
     fontStyle: 'normal',
     woff: true,

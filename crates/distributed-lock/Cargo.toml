@@ -12,7 +12,6 @@ thiserror.workspace = true
 tokio-postgres = { workspace = true, optional = true }
 deadpool-postgres = { workspace = true, optional = true }
 
-
 [features]
 default = ["postgres-support"]
 postgres-support = ["dep:tokio-postgres", "dep:deadpool-postgres"]

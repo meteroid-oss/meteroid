@@ -29,6 +29,7 @@ error-stack.workspace = true
 thiserror.workspace = true
 tracing = { workspace = true }
 common-repository.workspace = true
+rust_decimal = {workspace = true, features = ["db-postgres"] }
 
 ## TODO drop
 lazy_static.workspace = true

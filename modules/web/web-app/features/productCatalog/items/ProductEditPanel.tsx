@@ -55,7 +55,6 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
         className={`transition-all duration-100 ease-in `}
         onCancel={safeClosePanel}
         onConfirm={methods.handleSubmit(async values => {
-          console.log('values', values)
           await createProductMut.mutateAsync(values)
           methods.reset()
           closePanel()

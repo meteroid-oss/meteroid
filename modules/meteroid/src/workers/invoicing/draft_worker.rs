@@ -169,6 +169,7 @@ fn subscription_to_draft(
         tenant_id: subscription.tenant_id,
         customer_id: subscription.customer_id,
         subscription_id: subscription.subscription_id,
+        plan_version_id: subscription.plan_version_id,
         currency: subscription.currency.clone(),
         days_until_due: subscription.net_terms,
         line_items: serde_json::Value::Null,

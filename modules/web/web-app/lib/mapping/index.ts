@@ -9,6 +9,10 @@ export const mapDate = (date: Date): DateMessage => {
   })
 }
 
+export const mapDateFromGrpc = (date: DateMessage): Date => {
+  return new Date(date.year, date.month, date.day)
+}
+
 export type BillingPeriod = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
 export const mapBillingPeriod = (period: BillingPeriod): BillingPeriodMessage => {
   switch (period) {

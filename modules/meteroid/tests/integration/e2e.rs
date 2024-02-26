@@ -457,6 +457,7 @@ async fn test_metering_e2e() {
         tenant_id: tenant_uuid.clone(),
         customer_id: Uuid::from_str(&customer_1).unwrap(),
         subscription_id: Uuid::from_str(&subscription.id).unwrap(),
+        plan_version_id: Uuid::from_str(&plan_version_id).unwrap(),
         currency: subscription.currency.clone(),
         days_until_due: subscription.net_terms,
         line_items: serde_json::Value::Null,

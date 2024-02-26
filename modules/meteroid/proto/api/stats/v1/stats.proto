@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package meteroid.api.stats.v1;
+
+import "common/v1/date.proto";
+import "api/stats/v1/models.proto";
+
+
+message GeneralStatsRequest {
+}
+
+message GeneralStatsResponse {
+  TotalNetRevenue total_net_revenue = 1;
+  TotalActiveSubscriptions total_active_subscriptions = 2;
+  PendingInvoices pending_invoices = 3;
+  Signups signups = 4;
+  TrialConversion trial_conversion = 5;
+  TotalMrr total_mrr = 6;
+
+  message TotalNetRevenue {
+    Trend trend = 1;
+  }
+  message TotalActiveSubscriptions {
+    int64 count = 1;
+  }
+  message PendingInvoices {
+    int64 count = 1;
+    int64 value_cents = 2;
+  }
+  message Signups {
+    int64 count = 1;
+  }
+  message TrialConversion {
+    float rate_percent = 1;
+  }
+  message TotalMrr {
+    int64 value_cents = 1;
+  }
+}
+
+
+message SignupSparklineRequest {
+}
+
+message SignupSparklineRequestResponse {
+  SignupSeries series = 1;
+}
+
+message TrialConversionRateSparklineRequest {
+}
+
+message TrialConversionRateSparklineResponse {
+  repeated TrialConversionSeries series = 1;
+  repeated TrialConversionMetaDataPoint metadata = 2;
+}
+
+message TopRevenueByCustomerRequest {
+  uint32 count = 1;
+}
+
+
+message TopRevenueByCustomerResponse {
+  repeated RevenueByCustomer revenue_by_customer = 1;
+}
+
+message MrrLogRequest {
+  optional string before = 1;
+  optional string after = 2;
+}
+
+message MrrLogResponse {
+  repeated MrrLogEntry entries = 1;
+}
+
+message MrrChartRequest {
+  common.v1.Date start_date = 1;
+  common.v1.Date end_date = 2;
+  repeated string plans_id = 3;
+}
+
+message MrrChartResponse {
+  repeated MrrChartSeries series = 1;
+}
+
+message MRRBreakdownRequest {
+  MRRBreakdownScope scope = 1;
+}
+
+message MRRBreakdownResponse {
+  MRRBreakdown mmr_breakdown = 1;
+}
+
+service StatsService {
+  rpc GeneralStats(GeneralStatsRequest) returns (GeneralStatsResponse) {}
+  rpc TotalMrrChart(MrrChartRequest) returns (MrrChartResponse);
+  rpc MrrBreakdown(MRRBreakdownRequest) returns (MRRBreakdownResponse);
+  rpc MrrLog(MrrLogRequest) returns (MrrLogResponse);
+  rpc SignupSparkline(SignupSparklineRequest) returns (SignupSparklineRequestResponse);
+  rpc TrialConversionRateSparkline(TrialConversionRateSparklineRequest) returns (TrialConversionRateSparklineResponse);
+  rpc TopRevenueByCustomer(TopRevenueByCustomerRequest) returns (TopRevenueByCustomerResponse);
+}

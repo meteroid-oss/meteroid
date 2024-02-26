@@ -13,6 +13,7 @@ pub mod pricecomponents;
 pub mod productfamilies;
 pub mod productitems;
 pub mod schedules;
+pub mod stats;
 pub mod subscriptions;
 pub mod tenants;
 pub mod users;
