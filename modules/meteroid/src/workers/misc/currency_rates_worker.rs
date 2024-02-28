@@ -1,10 +1,7 @@
-use crate::adapters::stripe::Stripe;
-use crate::adapters::types::InvoicingAdapter;
 use crate::api::services::utils::uuid_gen;
 use crate::errors;
 use crate::repo::get_pool;
-use crate::repo::provider_config::model::InvoicingProvider;
-use crate::repo::provider_config::{ProviderConfigRepo, ProviderConfigRepoCornucopia};
+
 use crate::services::currency_rates::{CurrencyRatesService, OpenexchangeRatesService};
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
@@ -13,9 +10,7 @@ use deadpool_postgres::Pool;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use meteroid_repository as db;
-use meteroid_repository::invoices::UpdateInvoiceIssueErrorParams;
 use meteroid_repository::rates::InsertRatesParams;
-use meteroid_repository::InvoicingProviderEnum;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
@@ -27,7 +22,7 @@ impl AsyncRunnable for CurrencyRatesWorker {
     #[tracing::instrument(skip(self, _queue))]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         let pool = get_pool();
-        currency_rates_worker(pool, &OpenexchangeRatesService::get())
+        currency_rates_worker(pool, OpenexchangeRatesService::get())
             .timed(|res, elapsed| record_call("issue", res, elapsed))
             .await
             .map_err(|err| {

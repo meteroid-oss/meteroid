@@ -1,12 +1,7 @@
-use meteroid_repository as db;
-
-use crate::api::services::utils::uuid_gen;
 use crate::constants::{OSS_API, SUPPORTED_CURRENCIES};
-use crate::repo::get_pool;
+
 use async_trait::async_trait;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
-use meteroid_repository::rates::InsertRatesParams;
+
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -15,9 +10,7 @@ static OPEN_EXCHANGES_RATES_SERVICE: std::sync::OnceLock<OpenexchangeRatesServic
     std::sync::OnceLock::new();
 
 #[derive(Error, Debug)]
-enum CurrencyRatesError {
-    #[error("Failed to save exchange rates")]
-    DbError,
+pub enum CurrencyRatesError {
     #[error("Failed to fetch exchange rates")]
     FetchFailed,
     #[error("Failed to parse exchange rates")]
@@ -27,7 +20,7 @@ enum CurrencyRatesError {
 }
 
 #[async_trait]
-pub(crate) trait CurrencyRatesService: Send + Sync + 'static {
+pub trait CurrencyRatesService: Send + Sync + 'static {
     async fn fetch_latest_exchange_rates(&self) -> Result<ExchangeRates, CurrencyRatesError>;
 }
 

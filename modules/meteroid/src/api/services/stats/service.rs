@@ -299,6 +299,7 @@ impl StatsService for StatsServiceComponents {
             .top_revenue_by_customer(RevenueByCustomerRequest {
                 tenant_id,
                 limit: req.count,
+                currency: None, // TODO decide between approx via usd or currency select
             })
             .await
             .map_err(|e| {
