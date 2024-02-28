@@ -1,11 +1,12 @@
 import { spaces } from '@md/foundation'
-import { Flex, Skeleton } from '@ui/components'
+import { Flex, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
 import { ChevronLeftIcon, LockIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
+import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressCard } from '@/features/customers/cards/address/AddressCard'
 import { BalanceCard } from '@/features/customers/cards/balance/BalanceCard'
 import { CustomerCard } from '@/features/customers/cards/customer/CustomerCard'
@@ -59,7 +60,19 @@ export const Customer = () => {
                 <CustomerCard customer={data} className="col-span-2" />
                 <BalanceCard customer={data} className="col-span-1" />
                 <AddressCard customer={data} className="col-span-2" />
-                <InvoicesCard customer={data} className="col-span-3" />
+
+                <Tabs defaultValue="invoices" className="w-full col-span-3">
+                  <TabsList className="w-full justify-start">
+                    <TabsTrigger value="invoices">Invoices</TabsTrigger>
+                    <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="invoices" className="pt-4">
+                    <InvoicesCard customer={data} />
+                  </TabsContent>
+                  <TabsContent value="subscriptions" className="pt-4">
+                    <SubscriptionsCard customer={data} />
+                  </TabsContent>
+                </Tabs>
               </div>
             </>
           )}

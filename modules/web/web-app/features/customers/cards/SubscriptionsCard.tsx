@@ -3,29 +3,27 @@ import { PaginationState } from '@tanstack/react-table'
 import { Flex, Skeleton } from '@ui/components'
 import { useState } from 'react'
 
-import { InvoicesTable } from '@/features/invoices'
+import { SubscriptionsTable } from '@/features/subscriptions/SubscriptionsTable'
 import { useQuery } from '@/lib/connectrpc'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
-import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import { ListInvoicesRequest_SortBy } from '@/rpc/api/invoices/v1/invoices_pb'
+import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 type Props = {
   customer: Customer
 }
 
-export const InvoicesCard = ({ customer }: Props) => {
+export const SubscriptionsCard = ({ customer }: Props) => {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
   })
 
-  const invoicesQuery = useQuery(listInvoices, {
+  const invoicesQuery = useQuery(listSubscriptions, {
     pagination: {
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
     },
     customerId: customer.id,
-    orderBy: ListInvoicesRequest_SortBy.DATE_DESC,
   })
 
   return invoicesQuery.isLoading ? (
@@ -34,13 +32,13 @@ export const InvoicesCard = ({ customer }: Props) => {
       <Skeleton height={44} />
     </Flex>
   ) : (
-    <InvoicesTable
-      data={invoicesQuery.data?.invoices || []}
+    <SubscriptionsTable
+      data={invoicesQuery.data?.subscriptions || []}
       totalCount={invoicesQuery.data?.paginationMeta?.total || 0}
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}
-      linkPrefix="../../invoices/"
+      hideCustomer
     />
   )
 }

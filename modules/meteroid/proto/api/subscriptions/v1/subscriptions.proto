@@ -7,12 +7,13 @@ import "common/v1/pagination.proto";
 import "api/subscriptions/v1/models.proto";
 
 
-message ListSubscriptionsPerPlanRequest {
-  string plan_id = 1;
-  meteroid.common.v1.Pagination pagination = 2;
+message ListSubscriptionsRequest {
+  optional string plan_id = 1;
+  optional string customer_id = 2;
+  meteroid.common.v1.Pagination pagination = 3;
 }
 
-message ListSubscriptionsPerPlanResponse {
+message ListSubscriptionsResponse {
   repeated Subscription subscriptions = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
@@ -52,7 +53,7 @@ message ApplySlotsDeltaResponse {
 }
 
 service SubscriptionsService {
-  rpc ListSubscriptionsPerPlan (ListSubscriptionsPerPlanRequest) returns (ListSubscriptionsPerPlanResponse) {}
+  rpc ListSubscriptions (ListSubscriptionsRequest) returns (ListSubscriptionsResponse) {}
   rpc CreateSubscription (CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse) {}
   rpc ApplySlotsDelta(ApplySlotsDeltaRequest) returns (ApplySlotsDeltaResponse) {}

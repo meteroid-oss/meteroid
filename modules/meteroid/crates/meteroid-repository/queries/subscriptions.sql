@@ -72,9 +72,9 @@ VALUES (:id,
 RETURNING id
 ;
 
---: Subscription(billing_end_date?)
+
 --: SubscriptionList(billing_end_date?)
---! list_subscriptions_per_plan : SubscriptionList
+--! list_subscriptions(customer_id?, plan_id?) : SubscriptionList
 SELECT s.id             AS subscription_id,
        s.tenant_id,
        s.customer_id,
@@ -84,19 +84,24 @@ SELECT s.id             AS subscription_id,
        s.billing_day,
        s.effective_billing_period,
        s.input_parameters,
-       pp.currency,
        s.net_terms,
+       pp.currency,
        pp.version,
-       c.name           as customer_name,
+       c.name           AS customer_name,
+       p.id             AS plan_id,
+       p.name           AS plan_name,
        count(*) OVER () AS total_count
 FROM subscription s
-         JOIN plan_version pp ON s.plan_version_id = pp.id
-         JOIN customer c ON s.customer_id = c.id
-WHERE pp.plan_id = :plan_id
-  AND s.tenant_id = :tenant_id
+         JOIN plan_version pp   ON s.plan_version_id = pp.id
+         JOIN plan p            ON pp.plan_id = p.id
+         JOIN customer c        ON s.customer_id = c.id
+WHERE s.tenant_id = :tenant_id
+  AND (:plan_id :: UUID         IS NULL OR pp.plan_id = :plan_id)
+  AND (:customer_id :: UUID     IS NULL OR s.customer_id = :customer_id)
 ORDER BY s.id DESC
-LIMIT :limit OFFSET :offset;
+    LIMIT :limit OFFSET :offset;
 
+--: Subscription(billing_end_date?)
 --! subscription_by_id   : Subscription
 SELECT s.id   AS subscription_id,
        s.tenant_id,
@@ -107,13 +112,16 @@ SELECT s.id   AS subscription_id,
        s.billing_day,
        s.effective_billing_period,
        s.input_parameters,
-       pp.currency,
        s.net_terms,
+       pp.currency,
        pp.version,
-       c.name as customer_name
+       c.name           AS customer_name,
+       p.id             AS plan_id,
+       p.name           AS plan_name
 FROM subscription s
-         JOIN plan_version pp ON s.plan_version_id = pp.id
-         JOIN customer c ON s.customer_id = c.id
+         JOIN plan_version pp   ON s.plan_version_id = pp.id
+         JOIN plan p            ON pp.plan_id = p.id
+         JOIN customer c        ON s.customer_id = c.id
 WHERE s.id = :subscription_id
   AND s.tenant_id = :tenant_id;
 

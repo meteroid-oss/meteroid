@@ -30,8 +30,9 @@ message Subscription {
   int32 net_terms = 8;
   string currency = 9;
   string customer_name = 10;
-
-  SubscriptionParameters parameters = 11;
+  string plan_id = 11;
+  string plan_name = 12;
+  SubscriptionParameters parameters = 13;
 }
 
 
