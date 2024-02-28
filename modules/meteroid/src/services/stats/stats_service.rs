@@ -512,10 +512,9 @@ impl StatsService for PgStatsService {
     ) -> Result<Vec<RevenueByCustomer>, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        let currency = if request.currency.is_some() {
-            request.currency.unwrap()
-        } else {
-            self.get_currency(&request.tenant_id).await?
+        let currency = match request.currency {
+            Some(currency) => currency,
+            None => self.get_currency(&request.tenant_id).await?,
         };
 
         let data = db::stats::top_revenue_per_customer()
