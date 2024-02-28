@@ -11577,41 +11577,39 @@ WHERE tenant_id = $1
             }
         }
         pub fn query_pending_invoices() -> QueryPendingInvoicesStmt {
-            QueryPendingInvoicesStmt(cornucopia_async::private::Stmt::new(
-                "WITH tenant_currency AS (
+            QueryPendingInvoicesStmt(cornucopia_async :: private :: Stmt :: new("WITH tenant_currency AS (
     SELECT currency FROM tenant WHERE id = $1
 ),
- latest_rate AS (
-     SELECT
-         rates
-     FROM
-         historical_rates_from_usd
-     WHERE
-         date  <= CURRENT_DATE
-     ORDER BY date DESC
-     LIMIT 1
- ),
- converted_invoices AS (
-     SELECT
-         convert_currency(
-                 i.amount_cents,
-                 (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
-                 (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
-         )::BIGINT AS converted_amount_cents
-     FROM
-         invoice i,
-         latest_rate,
-         tenant_currency
-     WHERE
-         i.tenant_id = $1
-       AND i.status = 'PENDING'
- )
+     latest_rate AS (
+         SELECT
+             rates
+         FROM
+             historical_rates_from_usd
+         WHERE
+             date  <= CURRENT_DATE
+         ORDER BY date DESC
+         LIMIT 1
+     ),
+     converted_invoices AS (
+         SELECT
+             convert_currency(
+                     i.amount_cents,
+                     (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
+                     (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
+             )::BIGINT AS converted_amount_cents
+         FROM
+             invoice i,
+             latest_rate,
+             tenant_currency
+         WHERE
+             i.tenant_id = $1
+           AND i.status = 'PENDING'
+     )
 SELECT
     COUNT(*)::integer AS total,
     COALESCE(SUM(converted_amount_cents), 0) AS total_cents
 FROM
-    converted_invoices",
-            ))
+    converted_invoices"))
         }
         pub struct QueryPendingInvoicesStmt(cornucopia_async::private::Stmt);
         impl QueryPendingInvoicesStmt {
