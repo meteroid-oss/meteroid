@@ -11811,9 +11811,10 @@ FROM monthly_trials"))
             pub net_terms: i32,
         }
         #[derive(Clone, Copy, Debug)]
-        pub struct ListSubscriptionsPerPlanParams {
-            pub plan_id: uuid::Uuid,
+        pub struct ListSubscriptionsParams {
             pub tenant_id: uuid::Uuid,
+            pub plan_id: Option<uuid::Uuid>,
+            pub customer_id: Option<uuid::Uuid>,
             pub limit: i64,
             pub offset: i64,
         }
@@ -12128,10 +12129,12 @@ FROM monthly_trials"))
             pub billing_day: i16,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: serde_json::Value,
-            pub currency: String,
             pub net_terms: i32,
+            pub currency: String,
             pub version: i32,
             pub customer_name: String,
+            pub plan_id: uuid::Uuid,
+            pub plan_name: String,
             pub total_count: i64,
         }
         pub struct SubscriptionListBorrowed<'a> {
@@ -12144,10 +12147,12 @@ FROM monthly_trials"))
             pub billing_day: i16,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
-            pub currency: &'a str,
             pub net_terms: i32,
+            pub currency: &'a str,
             pub version: i32,
             pub customer_name: &'a str,
+            pub plan_id: uuid::Uuid,
+            pub plan_name: &'a str,
             pub total_count: i64,
         }
         impl<'a> From<SubscriptionListBorrowed<'a>> for SubscriptionList {
@@ -12162,10 +12167,12 @@ FROM monthly_trials"))
                     billing_day,
                     effective_billing_period,
                     input_parameters,
-                    currency,
                     net_terms,
+                    currency,
                     version,
                     customer_name,
+                    plan_id,
+                    plan_name,
                     total_count,
                 }: SubscriptionListBorrowed<'a>,
             ) -> Self {
@@ -12179,10 +12186,12 @@ FROM monthly_trials"))
                     billing_day,
                     effective_billing_period,
                     input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
-                    currency: currency.into(),
                     net_terms,
+                    currency: currency.into(),
                     version,
                     customer_name: customer_name.into(),
+                    plan_id,
+                    plan_name: plan_name.into(),
                     total_count,
                 }
             }
@@ -12253,10 +12262,12 @@ FROM monthly_trials"))
             pub billing_day: i16,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: serde_json::Value,
-            pub currency: String,
             pub net_terms: i32,
+            pub currency: String,
             pub version: i32,
             pub customer_name: String,
+            pub plan_id: uuid::Uuid,
+            pub plan_name: String,
         }
         pub struct SubscriptionBorrowed<'a> {
             pub subscription_id: uuid::Uuid,
@@ -12268,10 +12279,12 @@ FROM monthly_trials"))
             pub billing_day: i16,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
-            pub currency: &'a str,
             pub net_terms: i32,
+            pub currency: &'a str,
             pub version: i32,
             pub customer_name: &'a str,
+            pub plan_id: uuid::Uuid,
+            pub plan_name: &'a str,
         }
         impl<'a> From<SubscriptionBorrowed<'a>> for Subscription {
             fn from(
@@ -12285,10 +12298,12 @@ FROM monthly_trials"))
                     billing_day,
                     effective_billing_period,
                     input_parameters,
-                    currency,
                     net_terms,
+                    currency,
                     version,
                     customer_name,
+                    plan_id,
+                    plan_name,
                 }: SubscriptionBorrowed<'a>,
             ) -> Self {
                 Self {
@@ -12301,10 +12316,12 @@ FROM monthly_trials"))
                     billing_day,
                     effective_billing_period,
                     input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
-                    currency: currency.into(),
                     net_terms,
+                    currency: currency.into(),
                     version,
                     customer_name: customer_name.into(),
+                    plan_id,
+                    plan_name: plan_name.into(),
                 }
             }
         }
@@ -12569,8 +12586,8 @@ RETURNING id
                 )
             }
         }
-        pub fn list_subscriptions_per_plan() -> ListSubscriptionsPerPlanStmt {
-            ListSubscriptionsPerPlanStmt(cornucopia_async::private::Stmt::new(
+        pub fn list_subscriptions() -> ListSubscriptionsStmt {
+            ListSubscriptionsStmt(cornucopia_async::private::Stmt::new(
                 "SELECT s.id             AS subscription_id,
        s.tenant_id,
        s.customer_id,
@@ -12580,33 +12597,38 @@ RETURNING id
        s.billing_day,
        s.effective_billing_period,
        s.input_parameters,
-       pp.currency,
        s.net_terms,
+       pp.currency,
        pp.version,
-       c.name           as customer_name,
+       c.name           AS customer_name,
+       p.id             AS plan_id,
+       p.name           AS plan_name,
        count(*) OVER () AS total_count
 FROM subscription s
-         JOIN plan_version pp ON s.plan_version_id = pp.id
-         JOIN customer c ON s.customer_id = c.id
-WHERE pp.plan_id = $1
-  AND s.tenant_id = $2
+         JOIN plan_version pp   ON s.plan_version_id = pp.id
+         JOIN plan p            ON pp.plan_id = p.id
+         JOIN customer c        ON s.customer_id = c.id
+WHERE s.tenant_id = $1
+  AND ($2 :: UUID         IS NULL OR pp.plan_id = $2)
+  AND ($3 :: UUID     IS NULL OR s.customer_id = $3)
 ORDER BY s.id DESC
-LIMIT $3 OFFSET $4",
+    LIMIT $4 OFFSET $5",
             ))
         }
-        pub struct ListSubscriptionsPerPlanStmt(cornucopia_async::private::Stmt);
-        impl ListSubscriptionsPerPlanStmt {
+        pub struct ListSubscriptionsStmt(cornucopia_async::private::Stmt);
+        impl ListSubscriptionsStmt {
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
-                plan_id: &'a uuid::Uuid,
                 tenant_id: &'a uuid::Uuid,
+                plan_id: &'a Option<uuid::Uuid>,
+                customer_id: &'a Option<uuid::Uuid>,
                 limit: &'a i64,
                 offset: &'a i64,
-            ) -> SubscriptionListQuery<'a, C, SubscriptionList, 4> {
+            ) -> SubscriptionListQuery<'a, C, SubscriptionList, 5> {
                 SubscriptionListQuery {
                     client,
-                    params: [plan_id, tenant_id, limit, offset],
+                    params: [tenant_id, plan_id, customer_id, limit, offset],
                     stmt: &mut self.0,
                     extractor: |row| SubscriptionListBorrowed {
                         subscription_id: row.get(0),
@@ -12618,11 +12640,13 @@ LIMIT $3 OFFSET $4",
                         billing_day: row.get(6),
                         effective_billing_period: row.get(7),
                         input_parameters: row.get(8),
-                        currency: row.get(9),
-                        net_terms: row.get(10),
+                        net_terms: row.get(9),
+                        currency: row.get(10),
                         version: row.get(11),
                         customer_name: row.get(12),
-                        total_count: row.get(13),
+                        plan_id: row.get(13),
+                        plan_name: row.get(14),
+                        total_count: row.get(15),
                     },
                     mapper: |it| <SubscriptionList>::from(it),
                 }
@@ -12631,20 +12655,21 @@ LIMIT $3 OFFSET $4",
         impl<'a, C: GenericClient>
             cornucopia_async::Params<
                 'a,
-                ListSubscriptionsPerPlanParams,
-                SubscriptionListQuery<'a, C, SubscriptionList, 4>,
+                ListSubscriptionsParams,
+                SubscriptionListQuery<'a, C, SubscriptionList, 5>,
                 C,
-            > for ListSubscriptionsPerPlanStmt
+            > for ListSubscriptionsStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a ListSubscriptionsPerPlanParams,
-            ) -> SubscriptionListQuery<'a, C, SubscriptionList, 4> {
+                params: &'a ListSubscriptionsParams,
+            ) -> SubscriptionListQuery<'a, C, SubscriptionList, 5> {
                 self.bind(
                     client,
-                    &params.plan_id,
                     &params.tenant_id,
+                    &params.plan_id,
+                    &params.customer_id,
                     &params.limit,
                     &params.offset,
                 )
@@ -12661,13 +12686,16 @@ LIMIT $3 OFFSET $4",
        s.billing_day,
        s.effective_billing_period,
        s.input_parameters,
-       pp.currency,
        s.net_terms,
+       pp.currency,
        pp.version,
-       c.name as customer_name
+       c.name           AS customer_name,
+       p.id             AS plan_id,
+       p.name           AS plan_name
 FROM subscription s
-         JOIN plan_version pp ON s.plan_version_id = pp.id
-         JOIN customer c ON s.customer_id = c.id
+         JOIN plan_version pp   ON s.plan_version_id = pp.id
+         JOIN plan p            ON pp.plan_id = p.id
+         JOIN customer c        ON s.customer_id = c.id
 WHERE s.id = $1
   AND s.tenant_id = $2",
             ))
@@ -12694,10 +12722,12 @@ WHERE s.id = $1
                         billing_day: row.get(6),
                         effective_billing_period: row.get(7),
                         input_parameters: row.get(8),
-                        currency: row.get(9),
-                        net_terms: row.get(10),
+                        net_terms: row.get(9),
+                        currency: row.get(10),
                         version: row.get(11),
                         customer_name: row.get(12),
+                        plan_id: row.get(13),
+                        plan_name: row.get(14),
                     },
                     mapper: |it| <Subscription>::from(it),
                 }

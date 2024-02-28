@@ -26,7 +26,7 @@ import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService
 import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import {
   createSubscription,
-  listSubscriptionsPerPlan,
+  listSubscriptions,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 interface Props {
@@ -93,13 +93,13 @@ const SubscriptionsTab = () => {
   const createSubscriptionMutation = useMutation(createSubscription, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listSubscriptionsPerPlan, { planId: overview?.planId }),
+        queryKey: createConnectQueryKey(listSubscriptions, { planId: overview?.planId }),
       })
     },
   })
 
   const { data: subscriptions } = useQuery(
-    listSubscriptionsPerPlan,
+    listSubscriptions,
     overview
       ? {
           planId: overview.planId,

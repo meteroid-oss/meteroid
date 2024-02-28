@@ -18,8 +18,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::ApplySlotsDeltaRequest;
 use meteroid_grpc::meteroid::api::subscriptions::v1::ApplySlotsDeltaResponse;
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
     CreateSubscriptionRequest, CreateSubscriptionResponse, GetSubscriptionDetailsRequest,
-    GetSubscriptionDetailsResponse, ListSubscriptionsPerPlanRequest,
-    ListSubscriptionsPerPlanResponse,
+    GetSubscriptionDetailsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
 };
 use meteroid_repository as db;
 use meteroid_repository::BillingPeriodEnum;
@@ -32,22 +31,25 @@ use uuid::Uuid;
 #[tonic::async_trait]
 impl SubscriptionsService for SubscriptionServiceComponents {
     #[tracing::instrument(skip_all)]
-    async fn list_subscriptions_per_plan(
+    async fn list_subscriptions(
         &self,
-        request: Request<ListSubscriptionsPerPlanRequest>,
-    ) -> Result<Response<ListSubscriptionsPerPlanResponse>, Status> {
+        request: Request<ListSubscriptionsRequest>,
+    ) -> Result<Response<ListSubscriptionsResponse>, Status> {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
         let connection = self.get_connection().await?;
 
-        let params = db::subscriptions::ListSubscriptionsPerPlanParams {
-            plan_id: parse_uuid!(inner.plan_id)?,
+        let params = db::subscriptions::ListSubscriptionsParams {
+            plan_id: inner.plan_id.map(|p| parse_uuid(&p, "plan_id").unwrap()),
+            customer_id: inner
+                .customer_id
+                .map(|c| parse_uuid(&c, "customer_id").unwrap()),
             tenant_id,
             limit: inner.pagination.limit(),
             offset: inner.pagination.offset(),
         };
 
-        let subscriptions = db::subscriptions::list_subscriptions_per_plan()
+        let subscriptions = db::subscriptions::list_subscriptions()
             .params(&connection, &params)
             .all()
             .await
@@ -64,7 +66,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .map(|c| mapping::subscriptions::list_db_to_proto(c).unwrap())
             .collect();
 
-        Ok(Response::new(ListSubscriptionsPerPlanResponse {
+        Ok(Response::new(ListSubscriptionsResponse {
             subscriptions,
             pagination_meta: inner.pagination.into_response(total as u32),
         }))

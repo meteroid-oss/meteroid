@@ -6,42 +6,36 @@ import { FunctionComponent } from 'react'
 
 import PageHeading from '@/components/atoms/PageHeading/PageHeading'
 
-interface CustomersProps {
+interface SubscriptionsProps {
   count: number
   isLoading: boolean
   refetch: () => void
   setEditPanelVisible: (visible: boolean) => void
-  setSearch: (search: string) => void
-  search: string
 }
 
-export const CustomersHeader: FunctionComponent<CustomersProps> = ({
+export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
   count,
   isLoading,
   refetch,
   setEditPanelVisible,
-  setSearch,
-  search,
 }) => {
   return (
     <Flex direction="column" gap={spaces.space9}>
       <Flex direction="row" align="center" justify="space-between">
-        <PageHeading count={count}>Customers</PageHeading>
+        <PageHeading count={count}>Subscriptions</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
-          <Button variant="tertiary">Import / Export</Button>
           <Button variant="primary" onClick={() => setEditPanelVisible(true)}>
-            <PlusIcon size={10} fill={colors.white1} /> New customer
+            <PlusIcon size={10} fill={colors.white1} /> New subscription
           </Button>
         </Flex>
       </Flex>
       <Flex direction="row" align="center" gap={spaces.space4}>
         <Input2
-          placeholder="Search customers"
+          placeholder="Search subscriptions"
           icon={<SearchIcon size={16} />}
           iconPosition="right"
           width="fit-content"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          disabled
         />
         <Button variant="tertiary" loading={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} />
