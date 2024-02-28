@@ -43,6 +43,7 @@ pub enum LockKey {
     InvoicingIssue,
     InvoicingFinalize,
     InvoicingPrice,
+    CurrencyRates,
 }
 
 impl LockKey {
@@ -53,6 +54,7 @@ impl LockKey {
             LockKey::InvoicingIssue => 1002,
             LockKey::InvoicingFinalize => 1003,
             LockKey::InvoicingPrice => 1004,
+            LockKey::CurrencyRates => 2000,
         }
     }
 }

@@ -42,5 +42,6 @@ pub fn mocked_config(
         jwt_secret: "secret".to_string().into(),
         secrets_crypt_key: "00000000000000000000000000000000".to_string().into(),
         fang_ext: FangExtConfig::init_from_env().unwrap(),
+        openexchangerates_api_key: None,
     }
 }

@@ -8924,6 +8924,217 @@ RETURNING id, tenant_id, invoicing_provider, enabled, webhook_security, api_secu
             }
         }
     }
+    pub mod rates {
+        use cornucopia_async::GenericClient;
+        use futures;
+        use futures::{StreamExt, TryStreamExt};
+        #[derive(Debug)]
+        pub struct InsertRatesParams<T1: cornucopia_async::JsonSql> {
+            pub id: uuid::Uuid,
+            pub date: time::Date,
+            pub rates: T1,
+        }
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct InsertRates {
+            pub id: uuid::Uuid,
+            pub date: time::Date,
+            pub rates: serde_json::Value,
+        }
+        pub struct InsertRatesBorrowed<'a> {
+            pub id: uuid::Uuid,
+            pub date: time::Date,
+            pub rates: postgres_types::Json<&'a serde_json::value::RawValue>,
+        }
+        impl<'a> From<InsertRatesBorrowed<'a>> for InsertRates {
+            fn from(InsertRatesBorrowed { id, date, rates }: InsertRatesBorrowed<'a>) -> Self {
+                Self {
+                    id,
+                    date,
+                    rates: serde_json::from_str(rates.0.get()).unwrap(),
+                }
+            }
+        }
+        pub struct InsertRatesQuery<'a, C: GenericClient, T, const N: usize> {
+            client: &'a C,
+            params: [&'a (dyn postgres_types::ToSql + Sync); N],
+            stmt: &'a mut cornucopia_async::private::Stmt,
+            extractor: fn(&tokio_postgres::Row) -> InsertRatesBorrowed,
+            mapper: fn(InsertRatesBorrowed) -> T,
+        }
+        impl<'a, C, T: 'a, const N: usize> InsertRatesQuery<'a, C, T, N>
+        where
+            C: GenericClient,
+        {
+            pub fn map<R>(
+                self,
+                mapper: fn(InsertRatesBorrowed) -> R,
+            ) -> InsertRatesQuery<'a, C, R, N> {
+                InsertRatesQuery {
+                    client: self.client,
+                    params: self.params,
+                    stmt: self.stmt,
+                    extractor: self.extractor,
+                    mapper,
+                }
+            }
+            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let row = self.client.query_one(stmt, &self.params).await?;
+                Ok((self.mapper)((self.extractor)(&row)))
+            }
+            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+                self.iter().await?.try_collect().await
+            }
+            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                Ok(self
+                    .client
+                    .query_opt(stmt, &self.params)
+                    .await?
+                    .map(|row| (self.mapper)((self.extractor)(&row))))
+            }
+            pub async fn iter(
+                self,
+            ) -> Result<
+                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
+                tokio_postgres::Error,
+            > {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let it = self
+                    .client
+                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
+                    .await?
+                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
+                    .into_stream();
+                Ok(it)
+            }
+        }
+        pub struct SerdejsonValueQuery<'a, C: GenericClient, T, const N: usize> {
+            client: &'a C,
+            params: [&'a (dyn postgres_types::ToSql + Sync); N],
+            stmt: &'a mut cornucopia_async::private::Stmt,
+            extractor:
+                fn(&tokio_postgres::Row) -> postgres_types::Json<&serde_json::value::RawValue>,
+            mapper: fn(postgres_types::Json<&serde_json::value::RawValue>) -> T,
+        }
+        impl<'a, C, T: 'a, const N: usize> SerdejsonValueQuery<'a, C, T, N>
+        where
+            C: GenericClient,
+        {
+            pub fn map<R>(
+                self,
+                mapper: fn(postgres_types::Json<&serde_json::value::RawValue>) -> R,
+            ) -> SerdejsonValueQuery<'a, C, R, N> {
+                SerdejsonValueQuery {
+                    client: self.client,
+                    params: self.params,
+                    stmt: self.stmt,
+                    extractor: self.extractor,
+                    mapper,
+                }
+            }
+            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let row = self.client.query_one(stmt, &self.params).await?;
+                Ok((self.mapper)((self.extractor)(&row)))
+            }
+            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+                self.iter().await?.try_collect().await
+            }
+            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                Ok(self
+                    .client
+                    .query_opt(stmt, &self.params)
+                    .await?
+                    .map(|row| (self.mapper)((self.extractor)(&row))))
+            }
+            pub async fn iter(
+                self,
+            ) -> Result<
+                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
+                tokio_postgres::Error,
+            > {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let it = self
+                    .client
+                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
+                    .await?
+                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
+                    .into_stream();
+                Ok(it)
+            }
+        }
+        pub fn insert_rates() -> InsertRatesStmt {
+            InsertRatesStmt(cornucopia_async::private::Stmt::new(
+                "INSERT INTO historical_rates_from_usd (id, date, rates)
+VALUES ($1, $2, $3)
+ON CONFLICT (date) DO UPDATE SET rates = EXCLUDED.rates
+RETURNING id, date, rates",
+            ))
+        }
+        pub struct InsertRatesStmt(cornucopia_async::private::Stmt);
+        impl InsertRatesStmt {
+            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::JsonSql>(
+                &'a mut self,
+                client: &'a C,
+                id: &'a uuid::Uuid,
+                date: &'a time::Date,
+                rates: &'a T1,
+            ) -> InsertRatesQuery<'a, C, InsertRates, 3> {
+                InsertRatesQuery {
+                    client,
+                    params: [id, date, rates],
+                    stmt: &mut self.0,
+                    extractor: |row| InsertRatesBorrowed {
+                        id: row.get(0),
+                        date: row.get(1),
+                        rates: row.get(2),
+                    },
+                    mapper: |it| <InsertRates>::from(it),
+                }
+            }
+        }
+        impl<'a, C: GenericClient, T1: cornucopia_async::JsonSql>
+            cornucopia_async::Params<
+                'a,
+                InsertRatesParams<T1>,
+                InsertRatesQuery<'a, C, InsertRates, 3>,
+                C,
+            > for InsertRatesStmt
+        {
+            fn params(
+                &'a mut self,
+                client: &'a C,
+                params: &'a InsertRatesParams<T1>,
+            ) -> InsertRatesQuery<'a, C, InsertRates, 3> {
+                self.bind(client, &params.id, &params.date, &params.rates)
+            }
+        }
+        pub fn get_rates() -> GetRatesStmt {
+            GetRatesStmt(cornucopia_async::private::Stmt::new(
+                "SELECT rates
+FROM historical_rates_from_usd
+WHERE date = $1",
+            ))
+        }
+        pub struct GetRatesStmt(cornucopia_async::private::Stmt);
+        impl GetRatesStmt {
+            pub fn bind<'a, C: GenericClient>(
+                &'a mut self,
+                client: &'a C,
+                date: &'a time::Date,
+            ) -> SerdejsonValueQuery<'a, C, serde_json::Value, 1> {
+                SerdejsonValueQuery {
+                    client,
+                    params: [date],
+                    stmt: &mut self.0,
+                    extractor: |row| row.get(0),
+                    mapper: |it| serde_json::from_str(it.0.get()).unwrap(),
+                }
+            }
+        }
+    }
     pub mod schedules {
         use cornucopia_async::GenericClient;
         use futures;
@@ -9530,58 +9741,46 @@ GROUP BY
             pub tenant_id: uuid::Uuid,
             pub plan_version_id: uuid::Uuid,
         }
-        #[derive(Debug)]
-        pub struct NewMrrAtDateParams<T1: cornucopia_async::StringSql> {
+        #[derive(Clone, Copy, Debug)]
+        pub struct NewMrrAtDateParams {
             pub date: time::Date,
             pub tenant_id: uuid::Uuid,
-            pub currency: T1,
+        }
+        #[derive(Clone, Copy, Debug)]
+        pub struct TotalMrrAtDateParams {
+            pub tenant_id: uuid::Uuid,
+            pub date: time::Date,
         }
         #[derive(Debug)]
-        pub struct TotalMrrAtDateParams<T1: cornucopia_async::StringSql> {
+        pub struct TotalMrrAtDateByPlanParams<T1: cornucopia_async::ArraySql<Item = uuid::Uuid>> {
             pub date: time::Date,
             pub tenant_id: uuid::Uuid,
-            pub currency: T1,
+            pub plan_ids: T1,
         }
-        #[derive(Debug)]
-        pub struct TotalMrrAtDateByPlanParams<
-            T1: cornucopia_async::StringSql,
-            T2: cornucopia_async::ArraySql<Item = uuid::Uuid>,
-        > {
-            pub date: time::Date,
+        #[derive(Clone, Copy, Debug)]
+        pub struct QueryTotalMrrParams {
             pub tenant_id: uuid::Uuid,
-            pub currency: T1,
-            pub plan_ids: T2,
-        }
-        #[derive(Debug)]
-        pub struct QueryTotalMrrParams<T1: cornucopia_async::StringSql> {
             pub start_date: time::Date,
-            pub tenant_id: uuid::Uuid,
-            pub currency: T1,
             pub end_date: time::Date,
         }
         #[derive(Debug)]
-        pub struct QueryTotalMrrByPlanParams<
-            T1: cornucopia_async::StringSql,
-            T2: cornucopia_async::ArraySql<Item = uuid::Uuid>,
-        > {
-            pub start_date: time::Date,
+        pub struct QueryTotalMrrByPlanParams<T1: cornucopia_async::ArraySql<Item = uuid::Uuid>> {
             pub tenant_id: uuid::Uuid,
-            pub currency: T1,
-            pub plan_ids: T2,
+            pub start_date: time::Date,
+            pub plan_ids: T1,
             pub end_date: time::Date,
         }
         #[derive(Clone, Copy, Debug)]
         pub struct GetMrrBreakdownParams {
+            pub tenant_id: uuid::Uuid,
             pub start_date: time::Date,
             pub end_date: time::Date,
-            pub tenant_id: uuid::Uuid,
         }
-        #[derive(Debug)]
-        pub struct QueryTotalNetRevenueParams<T1: cornucopia_async::StringSql> {
+        #[derive(Clone, Copy, Debug)]
+        pub struct QueryTotalNetRevenueParams {
+            pub tenant_id: uuid::Uuid,
             pub start_date: time::Date,
             pub end_date: time::Date,
-            pub currency: Option<T1>,
-            pub tenant_id: uuid::Uuid,
         }
         #[derive(Clone, Copy, Debug)]
         pub struct GetLastMrrMovementsParams {
@@ -9600,11 +9799,13 @@ GROUP BY
             pub id: uuid::Uuid,
             pub name: String,
             pub total_revenue_cents: i64,
+            pub currency: String,
         }
         pub struct TopRevenuePerCustomerBorrowed<'a> {
             pub id: uuid::Uuid,
             pub name: &'a str,
             pub total_revenue_cents: i64,
+            pub currency: &'a str,
         }
         impl<'a> From<TopRevenuePerCustomerBorrowed<'a>> for TopRevenuePerCustomer {
             fn from(
@@ -9612,12 +9813,14 @@ GROUP BY
                     id,
                     name,
                     total_revenue_cents,
+                    currency,
                 }: TopRevenuePerCustomerBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
                     name: name.into(),
                     total_revenue_cents,
+                    currency: currency.into(),
                 }
             }
         }
@@ -9730,25 +9933,25 @@ GROUP BY
         }
         #[derive(Debug, Clone, PartialEq)]
         pub struct TotalMrrAtDateByPlan {
-            pub total_net_mrr: i64,
+            pub total_net_mrr_cents: i64,
             pub plan_id: uuid::Uuid,
             pub plan_name: String,
         }
         pub struct TotalMrrAtDateByPlanBorrowed<'a> {
-            pub total_net_mrr: i64,
+            pub total_net_mrr_cents: i64,
             pub plan_id: uuid::Uuid,
             pub plan_name: &'a str,
         }
         impl<'a> From<TotalMrrAtDateByPlanBorrowed<'a>> for TotalMrrAtDateByPlan {
             fn from(
                 TotalMrrAtDateByPlanBorrowed {
-                    total_net_mrr,
+                    total_net_mrr_cents,
                     plan_id,
                     plan_name,
                 }: TotalMrrAtDateByPlanBorrowed<'a>,
             ) -> Self {
                 Self {
-                    total_net_mrr,
+                    total_net_mrr_cents,
                     plan_id,
                     plan_name: plan_name.into(),
                 }
@@ -10036,83 +10239,6 @@ GROUP BY
                 mapper: fn(GetMrrBreakdown) -> R,
             ) -> GetMrrBreakdownQuery<'a, C, R, N> {
                 GetMrrBreakdownQuery {
-                    client: self.client,
-                    params: self.params,
-                    stmt: self.stmt,
-                    extractor: self.extractor,
-                    mapper,
-                }
-            }
-            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
-                let stmt = self.stmt.prepare(self.client).await?;
-                let row = self.client.query_one(stmt, &self.params).await?;
-                Ok((self.mapper)((self.extractor)(&row)))
-            }
-            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
-                self.iter().await?.try_collect().await
-            }
-            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
-                let stmt = self.stmt.prepare(self.client).await?;
-                Ok(self
-                    .client
-                    .query_opt(stmt, &self.params)
-                    .await?
-                    .map(|row| (self.mapper)((self.extractor)(&row))))
-            }
-            pub async fn iter(
-                self,
-            ) -> Result<
-                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
-                tokio_postgres::Error,
-            > {
-                let stmt = self.stmt.prepare(self.client).await?;
-                let it = self
-                    .client
-                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
-                    .await?
-                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
-                    .into_stream();
-                Ok(it)
-            }
-        }
-        #[derive(Debug, Clone, PartialEq)]
-        pub struct QueryTotalNetRevenue {
-            pub total_net_revenue: i64,
-            pub currency: String,
-        }
-        pub struct QueryTotalNetRevenueBorrowed<'a> {
-            pub total_net_revenue: i64,
-            pub currency: &'a str,
-        }
-        impl<'a> From<QueryTotalNetRevenueBorrowed<'a>> for QueryTotalNetRevenue {
-            fn from(
-                QueryTotalNetRevenueBorrowed {
-                    total_net_revenue,
-                    currency,
-                }: QueryTotalNetRevenueBorrowed<'a>,
-            ) -> Self {
-                Self {
-                    total_net_revenue,
-                    currency: currency.into(),
-                }
-            }
-        }
-        pub struct QueryTotalNetRevenueQuery<'a, C: GenericClient, T, const N: usize> {
-            client: &'a C,
-            params: [&'a (dyn postgres_types::ToSql + Sync); N],
-            stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> QueryTotalNetRevenueBorrowed,
-            mapper: fn(QueryTotalNetRevenueBorrowed) -> T,
-        }
-        impl<'a, C, T: 'a, const N: usize> QueryTotalNetRevenueQuery<'a, C, T, N>
-        where
-            C: GenericClient,
-        {
-            pub fn map<R>(
-                self,
-                mapper: fn(QueryTotalNetRevenueBorrowed) -> R,
-            ) -> QueryTotalNetRevenueQuery<'a, C, R, N> {
-                QueryTotalNetRevenueQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -10648,13 +10774,13 @@ GROUP BY
             TopRevenuePerCustomerStmt(cornucopia_async::private::Stmt::new(
                 "SELECT c.id,
        c.name,
-       COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents
+       COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
+       bi.currency
 FROM customer c
-         LEFT JOIN
-     bi_customer_ytd_summary bi ON bi.customer_id = c.id
+         LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = $1
   AND (bi.revenue_year IS NULL OR bi.currency = $2)
-  AND (bi.revenue_year IS NULL OR bi.revenue_year >= DATE_PART('year', CURRENT_DATE))
+  AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
 ORDER BY total_revenue_cents DESC
 LIMIT $3",
             ))
@@ -10676,6 +10802,7 @@ LIMIT $3",
                         id: row.get(0),
                         name: row.get(1),
                         total_revenue_cents: row.get(2),
+                        currency: row.get(3),
                     },
                     mapper: |it| <TopRevenuePerCustomer>::from(it),
                 }
@@ -10783,115 +10910,115 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
             }
         }
         pub fn new_mrr_at_date() -> NewMrrAtDateStmt {
-            NewMrrAtDateStmt(cornucopia_async::private::Stmt::new(
-                "SELECT net_mrr_cents
-FROM bi_delta_mrr_daily
-WHERE date = $1
-  AND tenant_id = $2
-  AND currency = $3",
-            ))
+            NewMrrAtDateStmt(cornucopia_async :: private :: Stmt :: new("SELECT
+    (bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC)::bigint AS net_mrr_cents
+FROM bi_delta_mrr_daily bd
+         JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+WHERE bd.date = $1
+  AND tenant_id = $2"))
         }
         pub struct NewMrrAtDateStmt(cornucopia_async::private::Stmt);
         impl NewMrrAtDateStmt {
-            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
+            pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 date: &'a time::Date,
                 tenant_id: &'a uuid::Uuid,
-                currency: &'a T1,
-            ) -> I64Query<'a, C, i64, 3> {
+            ) -> I64Query<'a, C, i64, 2> {
                 I64Query {
                     client,
-                    params: [date, tenant_id, currency],
+                    params: [date, tenant_id],
                     stmt: &mut self.0,
                     extractor: |row| row.get(0),
                     mapper: |it| it,
                 }
             }
         }
-        impl<'a, C: GenericClient, T1: cornucopia_async::StringSql>
-            cornucopia_async::Params<'a, NewMrrAtDateParams<T1>, I64Query<'a, C, i64, 3>, C>
+        impl<'a, C: GenericClient>
+            cornucopia_async::Params<'a, NewMrrAtDateParams, I64Query<'a, C, i64, 2>, C>
             for NewMrrAtDateStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a NewMrrAtDateParams<T1>,
-            ) -> I64Query<'a, C, i64, 3> {
-                self.bind(client, &params.date, &params.tenant_id, &params.currency)
+                params: &'a NewMrrAtDateParams,
+            ) -> I64Query<'a, C, i64, 2> {
+                self.bind(client, &params.date, &params.tenant_id)
             }
         }
         pub fn total_mrr_at_date() -> TotalMrrAtDateStmt {
-            TotalMrrAtDateStmt(cornucopia_async::private::Stmt::new(
-                "SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr
-FROM bi_delta_mrr_daily
-WHERE date <= $1
-  AND tenant_id = $2
-  AND currency = $3",
-            ))
+            TotalMrrAtDateStmt(cornucopia_async :: private :: Stmt :: new("SELECT
+    COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
+FROM
+    bi_delta_mrr_daily bd
+        JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+WHERE
+    bd.tenant_id = $1
+  AND bd.date <= $2"))
         }
         pub struct TotalMrrAtDateStmt(cornucopia_async::private::Stmt);
         impl TotalMrrAtDateStmt {
-            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
+            pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
-                date: &'a time::Date,
                 tenant_id: &'a uuid::Uuid,
-                currency: &'a T1,
-            ) -> I64Query<'a, C, i64, 3> {
+                date: &'a time::Date,
+            ) -> I64Query<'a, C, i64, 2> {
                 I64Query {
                     client,
-                    params: [date, tenant_id, currency],
+                    params: [tenant_id, date],
                     stmt: &mut self.0,
                     extractor: |row| row.get(0),
                     mapper: |it| it,
                 }
             }
         }
-        impl<'a, C: GenericClient, T1: cornucopia_async::StringSql>
-            cornucopia_async::Params<'a, TotalMrrAtDateParams<T1>, I64Query<'a, C, i64, 3>, C>
+        impl<'a, C: GenericClient>
+            cornucopia_async::Params<'a, TotalMrrAtDateParams, I64Query<'a, C, i64, 2>, C>
             for TotalMrrAtDateStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a TotalMrrAtDateParams<T1>,
-            ) -> I64Query<'a, C, i64, 3> {
-                self.bind(client, &params.date, &params.tenant_id, &params.currency)
+                params: &'a TotalMrrAtDateParams,
+            ) -> I64Query<'a, C, i64, 2> {
+                self.bind(client, &params.tenant_id, &params.date)
             }
         }
         pub fn total_mrr_at_date_by_plan() -> TotalMrrAtDateByPlanStmt {
-            TotalMrrAtDateByPlanStmt(cornucopia_async :: private :: Stmt :: new("SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr, p.id as plan_id, p.name as plan_name
-FROM bi_delta_mrr_daily bi
-         JOIN plan_version pv on bi.plan_version_id = pv.id
-         JOIN plan p on pv.plan_id = p.id
-WHERE date <= $1
+            TotalMrrAtDateByPlanStmt(cornucopia_async :: private :: Stmt :: new("SELECT
+    COALESCE(SUM(bi.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bi.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents,
+    p.id AS plan_id,
+    p.name AS plan_name
+FROM
+    bi_delta_mrr_daily bi
+        JOIN
+    plan_version pv ON bi.plan_version_id = pv.id
+        JOIN
+    plan p ON pv.plan_id = p.id
+        JOIN historical_rates_from_usd hr ON bi.historical_rate_id = hr.id
+WHERE
+    bi.date <= $1
   AND bi.tenant_id = $2
-  AND bi.currency = $3
-  AND p.id = ANY ($4)
-GROUP BY p.id"))
+  AND p.id = ANY ($3)
+GROUP BY
+    p.id"))
         }
         pub struct TotalMrrAtDateByPlanStmt(cornucopia_async::private::Stmt);
         impl TotalMrrAtDateByPlanStmt {
-            pub fn bind<
-                'a,
-                C: GenericClient,
-                T1: cornucopia_async::StringSql,
-                T2: cornucopia_async::ArraySql<Item = uuid::Uuid>,
-            >(
+            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::ArraySql<Item = uuid::Uuid>>(
                 &'a mut self,
                 client: &'a C,
                 date: &'a time::Date,
                 tenant_id: &'a uuid::Uuid,
-                currency: &'a T1,
-                plan_ids: &'a T2,
-            ) -> TotalMrrAtDateByPlanQuery<'a, C, TotalMrrAtDateByPlan, 4> {
+                plan_ids: &'a T1,
+            ) -> TotalMrrAtDateByPlanQuery<'a, C, TotalMrrAtDateByPlan, 3> {
                 TotalMrrAtDateByPlanQuery {
                     client,
-                    params: [date, tenant_id, currency, plan_ids],
+                    params: [date, tenant_id, plan_ids],
                     stmt: &mut self.0,
                     extractor: |row| TotalMrrAtDateByPlanBorrowed {
-                        total_net_mrr: row.get(0),
+                        total_net_mrr_cents: row.get(0),
                         plan_id: row.get(1),
                         plan_name: row.get(2),
                     },
@@ -10899,74 +11026,79 @@ GROUP BY p.id"))
                 }
             }
         }
-        impl<
-                'a,
-                C: GenericClient,
-                T1: cornucopia_async::StringSql,
-                T2: cornucopia_async::ArraySql<Item = uuid::Uuid>,
-            >
+        impl<'a, C: GenericClient, T1: cornucopia_async::ArraySql<Item = uuid::Uuid>>
             cornucopia_async::Params<
                 'a,
-                TotalMrrAtDateByPlanParams<T1, T2>,
-                TotalMrrAtDateByPlanQuery<'a, C, TotalMrrAtDateByPlan, 4>,
+                TotalMrrAtDateByPlanParams<T1>,
+                TotalMrrAtDateByPlanQuery<'a, C, TotalMrrAtDateByPlan, 3>,
                 C,
             > for TotalMrrAtDateByPlanStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a TotalMrrAtDateByPlanParams<T1, T2>,
-            ) -> TotalMrrAtDateByPlanQuery<'a, C, TotalMrrAtDateByPlan, 4> {
-                self.bind(
-                    client,
-                    &params.date,
-                    &params.tenant_id,
-                    &params.currency,
-                    &params.plan_ids,
-                )
+                params: &'a TotalMrrAtDateByPlanParams<T1>,
+            ) -> TotalMrrAtDateByPlanQuery<'a, C, TotalMrrAtDateByPlan, 3> {
+                self.bind(client, &params.date, &params.tenant_id, &params.plan_ids)
             }
         }
         pub fn query_total_mrr() -> QueryTotalMrrStmt {
-            QueryTotalMrrStmt(cornucopia_async :: private :: Stmt :: new("WITH initial_mrr AS (
-    SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr
-    FROM bi_delta_mrr_daily
-    WHERE date < $1
-      AND tenant_id = $2
-      AND currency = $3
-)
-SELECT date                       AS period,
-       (im.total_net_mrr + COALESCE(SUM(net_mrr_cents) OVER (ORDER BY date), 0)::bigint) as total_net_mrr,
-       net_mrr_cents::bigint      AS net_new_mrr,
-       new_business_cents::bigint AS new_business_mrr,
-       new_business_count,
-       expansion_cents::bigint    AS expansion_mrr,
-       expansion_count,
-       contraction_cents::bigint  AS contraction_mrr,
-       contraction_count,
-       churn_cents::bigint        AS churn_mrr,
-       churn_count,
-       reactivation_cents::bigint AS reactivation_mrr,
-       reactivation_count
-FROM bi_delta_mrr_daily bi
-         CROSS JOIN initial_mrr im
-WHERE date BETWEEN $1 AND $4
-  AND bi.currency = $3
-  AND bi.tenant_id = $2
-ORDER BY period"))
+            QueryTotalMrrStmt(cornucopia_async :: private :: Stmt :: new("WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+),
+     initial_mrr AS (
+         SELECT
+             COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
+         FROM
+             bi_delta_mrr_daily bd
+                 JOIN
+             conversion_rates cr ON bd.historical_rate_id = cr.id
+         WHERE
+             bd.date < $2
+           AND bd.tenant_id = $1
+     )
+SELECT
+    bi.date AS period,
+    (im.total_net_mrr_cents + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+    (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
+    (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+    bi.new_business_count,
+    (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
+    bi.expansion_count,
+    (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
+    bi.contraction_count,
+    (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
+    bi.churn_count,
+    (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+    bi.reactivation_count
+FROM
+    bi_delta_mrr_daily bi
+        JOIN
+    conversion_rates cr ON bi.historical_rate_id = cr.id
+        CROSS JOIN
+    initial_mrr im
+WHERE
+    bi.date BETWEEN $2 AND $3
+  AND bi.tenant_id = $1
+ORDER BY
+    period"))
         }
         pub struct QueryTotalMrrStmt(cornucopia_async::private::Stmt);
         impl QueryTotalMrrStmt {
-            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
+            pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
-                start_date: &'a time::Date,
                 tenant_id: &'a uuid::Uuid,
-                currency: &'a T1,
+                start_date: &'a time::Date,
                 end_date: &'a time::Date,
-            ) -> QueryTotalMrrQuery<'a, C, QueryTotalMrr, 4> {
+            ) -> QueryTotalMrrQuery<'a, C, QueryTotalMrr, 3> {
                 QueryTotalMrrQuery {
                     client,
-                    params: [start_date, tenant_id, currency, end_date],
+                    params: [tenant_id, start_date, end_date],
                     stmt: &mut self.0,
                     extractor: |row| QueryTotalMrr {
                         period: row.get(0),
@@ -10987,83 +11119,91 @@ ORDER BY period"))
                 }
             }
         }
-        impl<'a, C: GenericClient, T1: cornucopia_async::StringSql>
+        impl<'a, C: GenericClient>
             cornucopia_async::Params<
                 'a,
-                QueryTotalMrrParams<T1>,
-                QueryTotalMrrQuery<'a, C, QueryTotalMrr, 4>,
+                QueryTotalMrrParams,
+                QueryTotalMrrQuery<'a, C, QueryTotalMrr, 3>,
                 C,
             > for QueryTotalMrrStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a QueryTotalMrrParams<T1>,
-            ) -> QueryTotalMrrQuery<'a, C, QueryTotalMrr, 4> {
+                params: &'a QueryTotalMrrParams,
+            ) -> QueryTotalMrrQuery<'a, C, QueryTotalMrr, 3> {
                 self.bind(
                     client,
-                    &params.start_date,
                     &params.tenant_id,
-                    &params.currency,
+                    &params.start_date,
                     &params.end_date,
                 )
             }
         }
         pub fn query_total_mrr_by_plan() -> QueryTotalMrrByPlanStmt {
-            QueryTotalMrrByPlanStmt(cornucopia_async :: private :: Stmt :: new("WITH initial_mrr AS (
-    SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr, pv.plan_id as plan_id
-    FROM bi_delta_mrr_daily bi
-             JOIN plan_version pv on bi.plan_version_id = pv.id
-    WHERE date < $1
-      AND bi.tenant_id = $2
-      AND bi.currency = $3
-      AND pv.plan_id = ANY ($4)
-    GROUP BY pv.plan_id
-)
-SELECT date,
-       p.id                       as plan_id,
-       p.name                     as plan_name,
-       (im.total_net_mrr + COALESCE(SUM(net_mrr_cents) OVER (ORDER BY date), 0)::bigint) as total_net_mrr,
-       net_mrr_cents::bigint      AS net_new_mrr,
-       new_business_cents::bigint AS new_business_mrr,
-       new_business_count,
-       expansion_cents::bigint    AS expansion_mrr,
-       expansion_count,
-       contraction_cents::bigint  AS contraction_mrr,
-       contraction_count,
-       churn_cents::bigint        AS churn_mrr,
-       churn_count,
-       reactivation_cents::bigint AS reactivation_mrr,
-       reactivation_count
+            QueryTotalMrrByPlanStmt(cornucopia_async :: private :: Stmt :: new("WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+),
+     initial_mrr AS (
+         SELECT
+             COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
+             pv.plan_id
+         FROM
+             bi_delta_mrr_daily bi
+                 JOIN
+             plan_version pv ON bi.plan_version_id = pv.id
+                 JOIN
+             conversion_rates cr ON bi.historical_rate_id = cr.id
+         WHERE
+             bi.date < $2
+           AND bi.tenant_id = $1
+           AND pv.plan_id = ANY ($3)
+         GROUP BY
+             pv.plan_id
+     )
+SELECT    bi.date,
+          p.id AS plan_id,
+          p.name AS plan_name,
+          (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+          (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
+          (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+          bi.new_business_count,
+          (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
+          bi.expansion_count,
+          (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
+          bi.contraction_count,
+          (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
+          bi.churn_count,
+          (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+          bi.reactivation_count
 FROM bi_delta_mrr_daily bi
-JOIN plan_version pv on bi.plan_version_id = pv.id
-JOIN plan p on pv.plan_id = p.id
-JOIN initial_mrr im on pv.plan_id = im.plan_id
-WHERE date BETWEEN $1 AND $5
-  AND bi.currency = $3
-  AND bi.tenant_id = $2
-  AND p.id = ANY ($4)
+         JOIN plan_version pv on bi.plan_version_id = pv.id
+         JOIN plan p on pv.plan_id = p.id
+         JOIN
+     conversion_rates cr ON bi.historical_rate_id = cr.id
+         JOIN initial_mrr im on pv.plan_id = im.plan_id
+WHERE bi.date BETWEEN $2 AND $4
+  AND bi.tenant_id = $1
+  AND p.id = ANY ($3)
 ORDER BY date"))
         }
         pub struct QueryTotalMrrByPlanStmt(cornucopia_async::private::Stmt);
         impl QueryTotalMrrByPlanStmt {
-            pub fn bind<
-                'a,
-                C: GenericClient,
-                T1: cornucopia_async::StringSql,
-                T2: cornucopia_async::ArraySql<Item = uuid::Uuid>,
-            >(
+            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::ArraySql<Item = uuid::Uuid>>(
                 &'a mut self,
                 client: &'a C,
-                start_date: &'a time::Date,
                 tenant_id: &'a uuid::Uuid,
-                currency: &'a T1,
-                plan_ids: &'a T2,
+                start_date: &'a time::Date,
+                plan_ids: &'a T1,
                 end_date: &'a time::Date,
-            ) -> QueryTotalMrrByPlanQuery<'a, C, QueryTotalMrrByPlan, 5> {
+            ) -> QueryTotalMrrByPlanQuery<'a, C, QueryTotalMrrByPlan, 4> {
                 QueryTotalMrrByPlanQuery {
                     client,
-                    params: [start_date, tenant_id, currency, plan_ids, end_date],
+                    params: [tenant_id, start_date, plan_ids, end_date],
                     stmt: &mut self.0,
                     extractor: |row| QueryTotalMrrByPlanBorrowed {
                         date: row.get(0),
@@ -11086,29 +11226,23 @@ ORDER BY date"))
                 }
             }
         }
-        impl<
-                'a,
-                C: GenericClient,
-                T1: cornucopia_async::StringSql,
-                T2: cornucopia_async::ArraySql<Item = uuid::Uuid>,
-            >
+        impl<'a, C: GenericClient, T1: cornucopia_async::ArraySql<Item = uuid::Uuid>>
             cornucopia_async::Params<
                 'a,
-                QueryTotalMrrByPlanParams<T1, T2>,
-                QueryTotalMrrByPlanQuery<'a, C, QueryTotalMrrByPlan, 5>,
+                QueryTotalMrrByPlanParams<T1>,
+                QueryTotalMrrByPlanQuery<'a, C, QueryTotalMrrByPlan, 4>,
                 C,
             > for QueryTotalMrrByPlanStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a QueryTotalMrrByPlanParams<T1, T2>,
-            ) -> QueryTotalMrrByPlanQuery<'a, C, QueryTotalMrrByPlan, 5> {
+                params: &'a QueryTotalMrrByPlanParams<T1>,
+            ) -> QueryTotalMrrByPlanQuery<'a, C, QueryTotalMrrByPlan, 4> {
                 self.bind(
                     client,
-                    &params.start_date,
                     &params.tenant_id,
-                    &params.currency,
+                    &params.start_date,
                     &params.plan_ids,
                     &params.end_date,
                 )
@@ -11116,22 +11250,33 @@ ORDER BY date"))
         }
         pub fn get_mrr_breakdown() -> GetMrrBreakdownStmt {
             GetMrrBreakdownStmt(cornucopia_async::private::Stmt::new(
-                "SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint      AS net_new_mrr,
-       COALESCE(SUM(new_business_cents), 0)::bigint AS new_business_mrr,
-       COALESCE(SUM(new_business_count), 0)::integer AS new_business_count,
-       COALESCE(SUM(expansion_cents), 0)::bigint    AS expansion_mrr,
-       COALESCE(SUM(expansion_count), 0)::integer    AS expansion_count,
-       COALESCE(SUM(contraction_cents), 0)::bigint  AS contraction_mrr,
-       COALESCE(SUM(contraction_count), 0)::integer  AS contraction_count,
-       COALESCE(SUM(churn_cents), 0)::bigint        AS churn_mrr,
-       COALESCE(SUM(churn_count), 0)::integer        AS churn_count,
-       COALESCE(SUM(reactivation_cents), 0)::bigint AS reactivation_mrr,
-       COALESCE(SUM(reactivation_count), 0)::integer AS reactivation_count
-FROM bi_delta_mrr_daily bi
-         JOIN tenant t on bi.tenant_id = t.id
-WHERE date BETWEEN $1 AND $2
-  AND bi.currency = t.currency
-  AND bi.tenant_id = $3",
+                "WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
+    FROM
+        historical_rates_from_usd
+)
+SELECT
+    COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT AS net_new_mrr,
+    COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
+    COALESCE(SUM(bi.new_business_count), 0)::INTEGER AS new_business_count,
+    COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT AS expansion_mrr,
+    COALESCE(SUM(bi.expansion_count), 0)::INTEGER AS expansion_count,
+    COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT AS contraction_mrr,
+    COALESCE(SUM(bi.contraction_count), 0)::INTEGER AS contraction_count,
+    COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT AS churn_mrr,
+    COALESCE(SUM(bi.churn_count), 0)::INTEGER AS churn_count,
+    COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
+    COALESCE(SUM(bi.reactivation_count), 0)::INTEGER AS reactivation_count
+FROM
+    bi_delta_mrr_daily bi
+        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+WHERE
+    bi.date BETWEEN $2 AND $3
+  AND bi.tenant_id = $1
+GROUP BY
+    bi.tenant_id",
             ))
         }
         pub struct GetMrrBreakdownStmt(cornucopia_async::private::Stmt);
@@ -11139,13 +11284,13 @@ WHERE date BETWEEN $1 AND $2
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
+                tenant_id: &'a uuid::Uuid,
                 start_date: &'a time::Date,
                 end_date: &'a time::Date,
-                tenant_id: &'a uuid::Uuid,
             ) -> GetMrrBreakdownQuery<'a, C, GetMrrBreakdown, 3> {
                 GetMrrBreakdownQuery {
                     client,
-                    params: [start_date, end_date, tenant_id],
+                    params: [tenant_id, start_date, end_date],
                     stmt: &mut self.0,
                     extractor: |row| GetMrrBreakdown {
                         net_new_mrr: row.get(0),
@@ -11179,65 +11324,61 @@ WHERE date BETWEEN $1 AND $2
             ) -> GetMrrBreakdownQuery<'a, C, GetMrrBreakdown, 3> {
                 self.bind(
                     client,
+                    &params.tenant_id,
                     &params.start_date,
                     &params.end_date,
-                    &params.tenant_id,
                 )
             }
         }
         pub fn query_total_net_revenue() -> QueryTotalNetRevenueStmt {
             QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt::new(
-                "SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total_net_revenue,
-       currency
+                "WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+)
+SELECT COALESCE(SUM(net_revenue_cents  * cr.conversion_rate), 0)::bigint AS total_net_revenue
 FROM bi_revenue_daily
-WHERE revenue_date BETWEEN $1 AND $2
-  AND (currency = $3 OR $3 IS NULL)
-  AND tenant_id = $4
-GROUP BY currency
-ORDER BY currency",
+         JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+WHERE revenue_date BETWEEN $2 AND $3
+  AND tenant_id = $1
+",
             ))
         }
         pub struct QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt);
         impl QueryTotalNetRevenueStmt {
-            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
+            pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
+                tenant_id: &'a uuid::Uuid,
                 start_date: &'a time::Date,
                 end_date: &'a time::Date,
-                currency: &'a Option<T1>,
-                tenant_id: &'a uuid::Uuid,
-            ) -> QueryTotalNetRevenueQuery<'a, C, QueryTotalNetRevenue, 4> {
-                QueryTotalNetRevenueQuery {
+            ) -> I64Query<'a, C, i64, 3> {
+                I64Query {
                     client,
-                    params: [start_date, end_date, currency, tenant_id],
+                    params: [tenant_id, start_date, end_date],
                     stmt: &mut self.0,
-                    extractor: |row| QueryTotalNetRevenueBorrowed {
-                        total_net_revenue: row.get(0),
-                        currency: row.get(1),
-                    },
-                    mapper: |it| <QueryTotalNetRevenue>::from(it),
+                    extractor: |row| row.get(0),
+                    mapper: |it| it,
                 }
             }
         }
-        impl<'a, C: GenericClient, T1: cornucopia_async::StringSql>
-            cornucopia_async::Params<
-                'a,
-                QueryTotalNetRevenueParams<T1>,
-                QueryTotalNetRevenueQuery<'a, C, QueryTotalNetRevenue, 4>,
-                C,
-            > for QueryTotalNetRevenueStmt
+        impl<'a, C: GenericClient>
+            cornucopia_async::Params<'a, QueryTotalNetRevenueParams, I64Query<'a, C, i64, 3>, C>
+            for QueryTotalNetRevenueStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a QueryTotalNetRevenueParams<T1>,
-            ) -> QueryTotalNetRevenueQuery<'a, C, QueryTotalNetRevenue, 4> {
+                params: &'a QueryTotalNetRevenueParams,
+            ) -> I64Query<'a, C, i64, 3> {
                 self.bind(
                     client,
+                    &params.tenant_id,
                     &params.start_date,
                     &params.end_date,
-                    &params.currency,
-                    &params.tenant_id,
                 )
             }
         }
@@ -11331,30 +11472,42 @@ LIMIT $4",
         pub fn query_revenue_trend() -> QueryRevenueTrendStmt {
             QueryRevenueTrendStmt(cornucopia_async :: private :: Stmt :: new("WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
                        CURRENT_DATE - INTERVAL '1 day' * ($1::integer * 2) AS start_previous_period),
-     revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total_ytd
+     conversion_rates AS (
+         SELECT
+             id,
+             (rates->>(SELECT currency FROM tenant WHERE id = $2))::NUMERIC AS conversion_rate
+         FROM
+             historical_rates_from_usd
+     ),
+     revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
-                              JOIN
-                          tenant ON bi_revenue_daily.tenant_id = tenant.id
+                              JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                      WHERE revenue_date BETWEEN DATE_TRUNC('year', CURRENT_DATE) AND CURRENT_DATE
-                       AND bi_revenue_daily.tenant_id = $2
-                       AND tenant.currency = bi_revenue_daily.currency),
-     current_period AS (SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total
-                        FROM bi_revenue_daily
-                                 JOIN
-                             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
-                                 JOIN
-                             tenant ON bi_revenue_daily.tenant_id = tenant.id
-                        WHERE bi_revenue_daily.tenant_id = $2
-                          AND tenant.currency = bi_revenue_daily.currency),
-     previous_period AS (SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total
-                         FROM bi_revenue_daily
-                                  JOIN
-                              period
-                              ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
-                                  JOIN
-                              tenant ON bi_revenue_daily.tenant_id = tenant.id
-                         WHERE bi_revenue_daily.tenant_id = $2
-                           AND tenant.currency = bi_revenue_daily.currency)
+                       AND bi_revenue_daily.tenant_id = $2),
+     current_period AS (
+         SELECT
+             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+         FROM
+             bi_revenue_daily
+                 JOIN
+             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
+                 JOIN
+             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         WHERE
+             bi_revenue_daily.tenant_id = $2
+     ),
+     previous_period AS (
+         SELECT
+             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+         FROM
+             bi_revenue_daily
+                 JOIN
+             period ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
+                 JOIN
+             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         WHERE
+             bi_revenue_daily.tenant_id = $2
+     )
 SELECT COALESCE(revenue_ytd.total_ytd, 0) AS total_ytd,
        COALESCE(current_period.total, 0)  AS total_current_period,
        COALESCE(previous_period.total, 0) AS total_previous_period
@@ -11424,12 +11577,39 @@ WHERE tenant_id = $1
             }
         }
         pub fn query_pending_invoices() -> QueryPendingInvoicesStmt {
-            QueryPendingInvoicesStmt(cornucopia_async::private::Stmt::new(
-                "SELECT COUNT(*)::integer AS total, COALESCE(SUM(amount_cents), 0) AS total_cents
-FROM invoice
-WHERE tenant_id = $1
-  AND status = 'PENDING'",
-            ))
+            QueryPendingInvoicesStmt(cornucopia_async :: private :: Stmt :: new("WITH tenant_currency AS (
+    SELECT currency FROM tenant WHERE id = $1
+),
+     latest_rate AS (
+         SELECT
+             rates
+         FROM
+             historical_rates_from_usd
+         WHERE
+             date  <= CURRENT_DATE
+         ORDER BY date DESC
+         LIMIT 1
+     ),
+     converted_invoices AS (
+         SELECT
+             convert_currency(
+                     i.amount_cents,
+                     (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
+                     (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
+             )::BIGINT AS converted_amount_cents
+         FROM
+             invoice i,
+             latest_rate,
+             tenant_currency
+         WHERE
+             i.tenant_id = $1
+           AND i.status = 'PENDING'
+     )
+SELECT
+    COUNT(*)::integer AS total,
+    COALESCE(SUM(converted_amount_cents), 0) AS total_cents
+FROM
+    converted_invoices"))
         }
         pub struct QueryPendingInvoicesStmt(cornucopia_async::private::Stmt);
         impl QueryPendingInvoicesStmt {
