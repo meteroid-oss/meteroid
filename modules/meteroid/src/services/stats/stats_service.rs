@@ -79,11 +79,13 @@ pub struct RevenueByCustomer {
     pub customer_name: String,
     pub customer_id: Uuid,
     pub revenue: i64,
+    pub currency: String,
 }
 
 pub struct RevenueByCustomerRequest {
     pub limit: u32,
     pub tenant_id: Uuid,
+    pub currency: Option<String>,
 }
 
 pub struct MrrChartRequest {
@@ -321,7 +323,6 @@ impl StatsService for PgStatsService {
     async fn pending_invoices(&self, tenant_id: Uuid) -> Result<CountAndValue, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        // TODO currency
         let trend = db::stats::query_pending_invoices()
             .bind(&conn, &tenant_id)
             .one()
@@ -511,7 +512,11 @@ impl StatsService for PgStatsService {
     ) -> Result<Vec<RevenueByCustomer>, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        let currency = self.get_currency(&request.tenant_id).await?;
+        let currency = if request.currency.is_some() {
+            request.currency.unwrap()
+        } else {
+            self.get_currency(&request.tenant_id).await?
+        };
 
         let data = db::stats::top_revenue_per_customer()
             .bind(
@@ -534,6 +539,7 @@ impl StatsService for PgStatsService {
                 customer_name: d.name,
                 customer_id: d.id,
                 revenue: d.total_revenue_cents,
+                currency: d.currency,
             })
             .collect())
     }
@@ -541,15 +547,8 @@ impl StatsService for PgStatsService {
     async fn total_mrr(&self, tenant_id: Uuid) -> Result<i64, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        let currency = self.get_currency(&tenant_id).await?;
-
         let total_mrr = db::stats::total_mrr_at_date()
-            .bind(
-                &conn,
-                &time::OffsetDateTime::now_utc().date(),
-                &tenant_id,
-                &currency.clone(),
-            )
+            .bind(&conn, &tenant_id, &time::OffsetDateTime::now_utc().date())
             .one()
             .await
             .map_err(|_| {
@@ -564,8 +563,6 @@ impl StatsService for PgStatsService {
     ) -> Result<MrrChartResponse, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        let currency = self.get_currency(&request.tenant_id).await?;
-
         let total = db::stats::query_total_mrr()
             .params(
                 &conn,
@@ -573,7 +570,6 @@ impl StatsService for PgStatsService {
                     tenant_id: request.tenant_id,
                     start_date: request.start_date,
                     end_date: request.end_date,
-                    currency: currency.clone(),
                 },
             )
             .all()
@@ -628,7 +624,6 @@ impl StatsService for PgStatsService {
                         plan_ids: request.plans_id.unwrap(),
                         start_date: request.start_date,
                         end_date: request.end_date,
-                        currency: currency.clone(),
                     },
                 )
                 .all()

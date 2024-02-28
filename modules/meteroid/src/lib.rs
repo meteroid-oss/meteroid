@@ -2,6 +2,7 @@ pub mod adapters;
 pub mod api;
 pub mod compute;
 pub mod config;
+pub mod constants;
 pub mod crypt;
 pub mod db;
 pub mod encoding;

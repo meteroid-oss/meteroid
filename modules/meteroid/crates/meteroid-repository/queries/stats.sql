@@ -1,13 +1,14 @@
+-- we still require the currency on this one as it cannot be converted to the tenant currency reliably, being an aggregation. We may switch to top_mrr or LTV
 --! top_revenue_per_customer
 SELECT c.id,
        c.name,
-       COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents
+       COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
+       bi.currency
 FROM customer c
-         LEFT JOIN
-     bi_customer_ytd_summary bi ON bi.customer_id = c.id
+         LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = :tenant_id
   AND (bi.revenue_year IS NULL OR bi.currency = :currency)
-  AND (bi.revenue_year IS NULL OR bi.revenue_year >= DATE_PART('year', CURRENT_DATE))
+  AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
 ORDER BY total_revenue_cents DESC
 LIMIT :limit;
 
@@ -18,123 +19,184 @@ VALUES (:id, :movement_type, :net_mrr_change, :currency, :applies_to, :descripti
         :plan_version_id);
 
 --! new_mrr_at_date
-SELECT net_mrr_cents
-FROM bi_delta_mrr_daily
-WHERE date = :date
-  AND tenant_id = :tenant_id
-  AND currency = :currency;
+SELECT
+    (bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC)::bigint AS net_mrr_cents
+FROM bi_delta_mrr_daily bd
+         JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+WHERE bd.date = :date
+  AND tenant_id = :tenant_id;
 
 --! total_mrr_at_date
-SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr
-FROM bi_delta_mrr_daily
-WHERE date <= :date
-  AND tenant_id = :tenant_id
-  AND currency = :currency;
+SELECT
+    COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
+FROM
+    bi_delta_mrr_daily bd
+        JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+WHERE
+    bd.tenant_id = :tenant_id
+  AND bd.date <= :date;
+
 
 --! total_mrr_at_date_by_plan
-SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr, p.id as plan_id, p.name as plan_name
+SELECT
+    COALESCE(SUM(bi.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bi.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents,
+    p.id AS plan_id,
+    p.name AS plan_name
+FROM
+    bi_delta_mrr_daily bi
+        JOIN
+    plan_version pv ON bi.plan_version_id = pv.id
+        JOIN
+    plan p ON pv.plan_id = p.id
+        JOIN historical_rates_from_usd hr ON bi.historical_rate_id = hr.id
+WHERE
+    bi.date <= :date
+  AND bi.tenant_id = :tenant_id
+  AND p.id = ANY (:plan_ids)
+GROUP BY
+    p.id;
+
+
+--! query_total_mrr
+WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = :tenant_id))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+),
+     initial_mrr AS (
+         SELECT
+             COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
+         FROM
+             bi_delta_mrr_daily bd
+                 JOIN
+             conversion_rates cr ON bd.historical_rate_id = cr.id
+         WHERE
+             bd.date < :start_date
+           AND bd.tenant_id = :tenant_id
+     )
+SELECT
+    bi.date AS period,
+    (im.total_net_mrr_cents + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+    (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
+    (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+    bi.new_business_count,
+    (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
+    bi.expansion_count,
+    (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
+    bi.contraction_count,
+    (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
+    bi.churn_count,
+    (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+    bi.reactivation_count
+FROM
+    bi_delta_mrr_daily bi
+        JOIN
+    conversion_rates cr ON bi.historical_rate_id = cr.id
+        CROSS JOIN
+    initial_mrr im
+WHERE
+    bi.date BETWEEN :start_date AND :end_date
+  AND bi.tenant_id = :tenant_id
+ORDER BY
+    period;
+
+--! query_total_mrr_by_plan
+WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = :tenant_id))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+),
+     initial_mrr AS (
+         SELECT
+             COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
+             pv.plan_id
+         FROM
+             bi_delta_mrr_daily bi
+                 JOIN
+             plan_version pv ON bi.plan_version_id = pv.id
+                 JOIN
+             conversion_rates cr ON bi.historical_rate_id = cr.id
+         WHERE
+             bi.date < :start_date
+           AND bi.tenant_id = :tenant_id
+           AND pv.plan_id = ANY (:plan_ids)
+         GROUP BY
+             pv.plan_id
+     )
+SELECT    bi.date,
+          p.id AS plan_id,
+          p.name AS plan_name,
+          (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+          (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
+          (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+          bi.new_business_count,
+          (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
+          bi.expansion_count,
+          (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
+          bi.contraction_count,
+          (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
+          bi.churn_count,
+          (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+          bi.reactivation_count
 FROM bi_delta_mrr_daily bi
          JOIN plan_version pv on bi.plan_version_id = pv.id
          JOIN plan p on pv.plan_id = p.id
-WHERE date <= :date
-  AND bi.tenant_id = :tenant_id
-  AND bi.currency = :currency
-  AND p.id = ANY (:plan_ids)
-GROUP BY p.id;
-
---! query_total_mrr
-WITH initial_mrr AS (
-    SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr
-    FROM bi_delta_mrr_daily
-    WHERE date < :start_date
-      AND tenant_id = :tenant_id
-      AND currency = :currency
-)
-SELECT date                       AS period,
-       (im.total_net_mrr + COALESCE(SUM(net_mrr_cents) OVER (ORDER BY date), 0)::bigint) as total_net_mrr,
-       net_mrr_cents::bigint      AS net_new_mrr,
-       new_business_cents::bigint AS new_business_mrr,
-       new_business_count,
-       expansion_cents::bigint    AS expansion_mrr,
-       expansion_count,
-       contraction_cents::bigint  AS contraction_mrr,
-       contraction_count,
-       churn_cents::bigint        AS churn_mrr,
-       churn_count,
-       reactivation_cents::bigint AS reactivation_mrr,
-       reactivation_count
-FROM bi_delta_mrr_daily bi
-         CROSS JOIN initial_mrr im
-WHERE date BETWEEN :start_date AND :end_date
-  AND bi.currency = :currency
-  AND bi.tenant_id = :tenant_id
-ORDER BY period;
-
---! query_total_mrr_by_plan
-WITH initial_mrr AS (
-    SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint AS total_net_mrr, pv.plan_id as plan_id
-    FROM bi_delta_mrr_daily bi
-             JOIN plan_version pv on bi.plan_version_id = pv.id
-    WHERE date < :start_date
-      AND bi.tenant_id = :tenant_id
-      AND bi.currency = :currency
-      AND pv.plan_id = ANY (:plan_ids)
-    GROUP BY pv.plan_id
-)
-SELECT date,
-       p.id                       as plan_id,
-       p.name                     as plan_name,
-       (im.total_net_mrr + COALESCE(SUM(net_mrr_cents) OVER (ORDER BY date), 0)::bigint) as total_net_mrr,
-       net_mrr_cents::bigint      AS net_new_mrr,
-       new_business_cents::bigint AS new_business_mrr,
-       new_business_count,
-       expansion_cents::bigint    AS expansion_mrr,
-       expansion_count,
-       contraction_cents::bigint  AS contraction_mrr,
-       contraction_count,
-       churn_cents::bigint        AS churn_mrr,
-       churn_count,
-       reactivation_cents::bigint AS reactivation_mrr,
-       reactivation_count
-FROM bi_delta_mrr_daily bi
-JOIN plan_version pv on bi.plan_version_id = pv.id
-JOIN plan p on pv.plan_id = p.id
-JOIN initial_mrr im on pv.plan_id = im.plan_id
-WHERE date BETWEEN :start_date AND :end_date
-  AND bi.currency = :currency
+         JOIN
+     conversion_rates cr ON bi.historical_rate_id = cr.id
+         JOIN initial_mrr im on pv.plan_id = im.plan_id
+WHERE bi.date BETWEEN :start_date AND :end_date
   AND bi.tenant_id = :tenant_id
   AND p.id = ANY (:plan_ids)
 ORDER BY date;
 
 
 --! get_mrr_breakdown
-SELECT COALESCE(SUM(net_mrr_cents), 0)::bigint      AS net_new_mrr,
-       COALESCE(SUM(new_business_cents), 0)::bigint AS new_business_mrr,
-       COALESCE(SUM(new_business_count), 0)::integer AS new_business_count,
-       COALESCE(SUM(expansion_cents), 0)::bigint    AS expansion_mrr,
-       COALESCE(SUM(expansion_count), 0)::integer    AS expansion_count,
-       COALESCE(SUM(contraction_cents), 0)::bigint  AS contraction_mrr,
-       COALESCE(SUM(contraction_count), 0)::integer  AS contraction_count,
-       COALESCE(SUM(churn_cents), 0)::bigint        AS churn_mrr,
-       COALESCE(SUM(churn_count), 0)::integer        AS churn_count,
-       COALESCE(SUM(reactivation_cents), 0)::bigint AS reactivation_mrr,
-       COALESCE(SUM(reactivation_count), 0)::integer AS reactivation_count
-FROM bi_delta_mrr_daily bi
-         JOIN tenant t on bi.tenant_id = t.id
-WHERE date BETWEEN :start_date AND :end_date
-  AND bi.currency = t.currency
-  AND bi.tenant_id = :tenant_id;
+WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = :tenant_id))::NUMERIC AS rate
+    FROM
+        historical_rates_from_usd
+)
+SELECT
+    COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT AS net_new_mrr,
+    COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
+    COALESCE(SUM(bi.new_business_count), 0)::INTEGER AS new_business_count,
+    COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT AS expansion_mrr,
+    COALESCE(SUM(bi.expansion_count), 0)::INTEGER AS expansion_count,
+    COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT AS contraction_mrr,
+    COALESCE(SUM(bi.contraction_count), 0)::INTEGER AS contraction_count,
+    COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT AS churn_mrr,
+    COALESCE(SUM(bi.churn_count), 0)::INTEGER AS churn_count,
+    COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
+    COALESCE(SUM(bi.reactivation_count), 0)::INTEGER AS reactivation_count
+FROM
+    bi_delta_mrr_daily bi
+        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+WHERE
+    bi.date BETWEEN :start_date AND :end_date
+  AND bi.tenant_id = :tenant_id
+GROUP BY
+    bi.tenant_id;
 
-
---! query_total_net_revenue(currency?)
-SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total_net_revenue,
-       currency
+--! query_total_net_revenue
+WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = :tenant_id))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+)
+SELECT COALESCE(SUM(net_revenue_cents  * cr.conversion_rate), 0)::bigint AS total_net_revenue
 FROM bi_revenue_daily
+         JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
 WHERE revenue_date BETWEEN :start_date AND :end_date
-  AND (currency = :currency OR :currency IS NULL)
   AND tenant_id = :tenant_id
-GROUP BY currency
-ORDER BY currency;
+;
 
 --! get_last_mrr_movements (before?, after?)
 SELECT bi.id,
@@ -168,30 +230,42 @@ LIMIT :limit;
 --! query_revenue_trend
 WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * :period_days::integer       AS start_current_period,
                        CURRENT_DATE - INTERVAL '1 day' * (:period_days::integer * 2) AS start_previous_period),
-     revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total_ytd
+     conversion_rates AS (
+         SELECT
+             id,
+             (rates->>(SELECT currency FROM tenant WHERE id = :tenant_id))::NUMERIC AS conversion_rate
+         FROM
+             historical_rates_from_usd
+     ),
+     revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
-                              JOIN
-                          tenant ON bi_revenue_daily.tenant_id = tenant.id
+                              JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                      WHERE revenue_date BETWEEN DATE_TRUNC('year', CURRENT_DATE) AND CURRENT_DATE
-                       AND bi_revenue_daily.tenant_id = :tenant_id
-                       AND tenant.currency = bi_revenue_daily.currency),
-     current_period AS (SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total
-                        FROM bi_revenue_daily
-                                 JOIN
-                             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
-                                 JOIN
-                             tenant ON bi_revenue_daily.tenant_id = tenant.id
-                        WHERE bi_revenue_daily.tenant_id = :tenant_id
-                          AND tenant.currency = bi_revenue_daily.currency),
-     previous_period AS (SELECT COALESCE(SUM(net_revenue_cents), 0)::bigint AS total
-                         FROM bi_revenue_daily
-                                  JOIN
-                              period
-                              ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
-                                  JOIN
-                              tenant ON bi_revenue_daily.tenant_id = tenant.id
-                         WHERE bi_revenue_daily.tenant_id = :tenant_id
-                           AND tenant.currency = bi_revenue_daily.currency)
+                       AND bi_revenue_daily.tenant_id = :tenant_id),
+     current_period AS (
+         SELECT
+             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+         FROM
+             bi_revenue_daily
+                 JOIN
+             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
+                 JOIN
+             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         WHERE
+             bi_revenue_daily.tenant_id = :tenant_id
+     ),
+     previous_period AS (
+         SELECT
+             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+         FROM
+             bi_revenue_daily
+                 JOIN
+             period ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
+                 JOIN
+             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         WHERE
+             bi_revenue_daily.tenant_id = :tenant_id
+     )
 SELECT COALESCE(revenue_ytd.total_ytd, 0) AS total_ytd,
        COALESCE(current_period.total, 0)  AS total_current_period,
        COALESCE(previous_period.total, 0) AS total_previous_period
@@ -206,10 +280,39 @@ WHERE tenant_id = :tenant_id
   AND status = 'ACTIVE';
 
 --! query_pending_invoices
-SELECT COUNT(*)::integer AS total, COALESCE(SUM(amount_cents), 0) AS total_cents
-FROM invoice
-WHERE tenant_id = :tenant_id
-  AND status = 'PENDING';
+WITH tenant_currency AS (
+    SELECT currency FROM tenant WHERE id = :tenant_id
+),
+     latest_rate AS (
+         SELECT
+             rates
+         FROM
+             historical_rates_from_usd
+         WHERE
+             date  <= CURRENT_DATE
+         ORDER BY date DESC
+         LIMIT 1
+     ),
+     converted_invoices AS (
+         SELECT
+             convert_currency(
+                     i.amount_cents,
+                     (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
+                     (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
+             )::BIGINT AS converted_amount_cents
+         FROM
+             invoice i,
+             latest_rate,
+             tenant_currency
+         WHERE
+             i.tenant_id = :tenant_id
+           AND i.status = 'PENDING'
+     )
+SELECT
+    COUNT(*)::integer AS total,
+    COALESCE(SUM(converted_amount_cents), 0) AS total_cents
+FROM
+    converted_invoices;
 
 --! daily_new_signups_30_days
 WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 29)) AS date),
