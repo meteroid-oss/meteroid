@@ -10694,7 +10694,7 @@ GROUP BY
        COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
        bi.currency
 FROM customer c
-       LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
+         LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = $1
   AND (bi.revenue_year IS NULL OR bi.currency = $2)
   AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
@@ -10827,10 +10827,10 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
             }
         }
         pub fn new_mrr_at_date() -> NewMrrAtDateStmt {
-            NewMrrAtDateStmt(cornucopia_async::private::Stmt::new("SELECT (bd.net_mrr_cents_usd *
-        (hr.rates ->> (SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC)::bigint AS net_mrr_cents
+            NewMrrAtDateStmt(cornucopia_async::private::Stmt::new("SELECT
+    (bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC)::bigint AS net_mrr_cents
 FROM bi_delta_mrr_daily bd
-       JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+         JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
 WHERE bd.date = $1
   AND tenant_id = $2"))
         }
@@ -10864,12 +10864,13 @@ WHERE bd.date = $1
             }
         }
         pub fn total_mrr_at_date() -> TotalMrrAtDateStmt {
-            TotalMrrAtDateStmt(cornucopia_async::private::Stmt::new("SELECT COALESCE(
-         SUM(bd.net_mrr_cents_usd * (hr.rates ->> (SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC),
-         0)::bigint AS total_net_mrr_cents
-FROM bi_delta_mrr_daily bd
-       JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
-WHERE bd.tenant_id = $1
+            TotalMrrAtDateStmt(cornucopia_async::private::Stmt::new("SELECT
+    COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
+FROM
+    bi_delta_mrr_daily bd
+        JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+WHERE
+    bd.tenant_id = $1
   AND bd.date <= $2"))
         }
         pub struct TotalMrrAtDateStmt(cornucopia_async::private::Stmt);
@@ -10902,21 +10903,23 @@ WHERE bd.tenant_id = $1
             }
         }
         pub fn total_mrr_at_date_by_plan() -> TotalMrrAtDateByPlanStmt {
-            TotalMrrAtDateByPlanStmt(cornucopia_async::private::Stmt::new("SELECT COALESCE(
-         SUM(bi.net_mrr_cents_usd * (hr.rates ->> (SELECT currency FROM tenant WHERE id = bi.tenant_id))::NUMERIC),
-         0)::bigint AS total_net_mrr_cents,
-       p.id         AS plan_id,
-       p.name       AS plan_name
-FROM bi_delta_mrr_daily bi
-       JOIN
-     plan_version pv ON bi.plan_version_id = pv.id
-       JOIN
-     plan p ON pv.plan_id = p.id
-       JOIN historical_rates_from_usd hr ON bi.historical_rate_id = hr.id
-WHERE bi.date <= $1
+            TotalMrrAtDateByPlanStmt(cornucopia_async::private::Stmt::new("SELECT
+    COALESCE(SUM(bi.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bi.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents,
+    p.id AS plan_id,
+    p.name AS plan_name
+FROM
+    bi_delta_mrr_daily bi
+        JOIN
+    plan_version pv ON bi.plan_version_id = pv.id
+        JOIN
+    plan p ON pv.plan_id = p.id
+        JOIN historical_rates_from_usd hr ON bi.historical_rate_id = hr.id
+WHERE
+    bi.date <= $1
   AND bi.tenant_id = $2
   AND p.id = ANY ($3)
-GROUP BY p.id"))
+GROUP BY
+    p.id"))
         }
         pub struct TotalMrrAtDateByPlanStmt(cornucopia_async::private::Stmt);
         impl TotalMrrAtDateByPlanStmt {
@@ -10957,37 +10960,49 @@ GROUP BY p.id"))
             }
         }
         pub fn query_total_mrr() -> QueryTotalMrrStmt {
-            QueryTotalMrrStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
-                          FROM historical_rates_from_usd),
-     initial_mrr AS (SELECT COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
-                     FROM bi_delta_mrr_daily bd
-                            JOIN
-                          conversion_rates cr ON bd.historical_rate_id = cr.id
-                     WHERE bd.date < $2
-                       AND bd.tenant_id = $1)
-SELECT bi.date                                                                                       AS period,
-       (im.total_net_mrr_cents +
-        COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
-       (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT                                           AS net_new_mrr,
-       (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT                                      AS new_business_mrr,
-       bi.new_business_count,
-       (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT                                         AS expansion_mrr,
-       bi.expansion_count,
-       (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT                                       AS contraction_mrr,
-       bi.contraction_count,
-       (bi.churn_cents_usd * cr.conversion_rate)::BIGINT                                             AS churn_mrr,
-       bi.churn_count,
-       (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT                                      AS reactivation_mrr,
-       bi.reactivation_count
-FROM bi_delta_mrr_daily bi
-       JOIN
-     conversion_rates cr ON bi.historical_rate_id = cr.id
-       CROSS JOIN
-     initial_mrr im
-WHERE bi.date BETWEEN $2 AND $3
+            QueryTotalMrrStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+),
+     initial_mrr AS (
+         SELECT
+             COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
+         FROM
+             bi_delta_mrr_daily bd
+                 JOIN
+             conversion_rates cr ON bd.historical_rate_id = cr.id
+         WHERE
+             bd.date < $2
+           AND bd.tenant_id = $1
+     )
+SELECT
+    bi.date AS period,
+    (im.total_net_mrr_cents + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+    (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
+    (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+    bi.new_business_count,
+    (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
+    bi.expansion_count,
+    (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
+    bi.contraction_count,
+    (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
+    bi.churn_count,
+    (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+    bi.reactivation_count
+FROM
+    bi_delta_mrr_daily bi
+        JOIN
+    conversion_rates cr ON bi.historical_rate_id = cr.id
+        CROSS JOIN
+    initial_mrr im
+WHERE
+    bi.date BETWEEN $2 AND $3
   AND bi.tenant_id = $1
-ORDER BY period"))
+ORDER BY
+    period"))
         }
         pub struct QueryTotalMrrStmt(cornucopia_async::private::Stmt);
         impl QueryTotalMrrStmt {
@@ -11043,42 +11058,51 @@ ORDER BY period"))
             }
         }
         pub fn query_total_mrr_by_plan() -> QueryTotalMrrByPlanStmt {
-            QueryTotalMrrByPlanStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
-                          FROM historical_rates_from_usd),
-     initial_mrr AS (SELECT COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
-                            pv.plan_id
-                     FROM bi_delta_mrr_daily bi
-                            JOIN
-                          plan_version pv ON bi.plan_version_id = pv.id
-                            JOIN
-                          conversion_rates cr ON bi.historical_rate_id = cr.id
-                     WHERE bi.date < $2
-                       AND bi.tenant_id = $1
-                       AND pv.plan_id = ANY ($3)
-                     GROUP BY pv.plan_id)
-SELECT bi.date,
-       p.id                                                     AS plan_id,
-       p.name                                                   AS plan_name,
-       (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) *
-                               cr.conversion_rate)::BIGINT      AS total_net_mrr,
-       (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT      AS net_new_mrr,
-       (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
-       bi.new_business_count,
-       (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT    AS expansion_mrr,
-       bi.expansion_count,
-       (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT  AS contraction_mrr,
-       bi.contraction_count,
-       (bi.churn_cents_usd * cr.conversion_rate)::BIGINT        AS churn_mrr,
-       bi.churn_count,
-       (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
-       bi.reactivation_count
+            QueryTotalMrrByPlanStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+),
+     initial_mrr AS (
+         SELECT
+             COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
+             pv.plan_id
+         FROM
+             bi_delta_mrr_daily bi
+                 JOIN
+             plan_version pv ON bi.plan_version_id = pv.id
+                 JOIN
+             conversion_rates cr ON bi.historical_rate_id = cr.id
+         WHERE
+             bi.date < $2
+           AND bi.tenant_id = $1
+           AND pv.plan_id = ANY ($3)
+         GROUP BY
+             pv.plan_id
+     )
+SELECT    bi.date,
+          p.id AS plan_id,
+          p.name AS plan_name,
+          (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+          (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
+          (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+          bi.new_business_count,
+          (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
+          bi.expansion_count,
+          (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
+          bi.contraction_count,
+          (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
+          bi.churn_count,
+          (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+          bi.reactivation_count
 FROM bi_delta_mrr_daily bi
-       JOIN plan_version pv on bi.plan_version_id = pv.id
-       JOIN plan p on pv.plan_id = p.id
-       JOIN
+         JOIN plan_version pv on bi.plan_version_id = pv.id
+         JOIN plan p on pv.plan_id = p.id
+         JOIN
      conversion_rates cr ON bi.historical_rate_id = cr.id
-       JOIN initial_mrr im on pv.plan_id = im.plan_id
+         JOIN initial_mrr im on pv.plan_id = im.plan_id
 WHERE bi.date BETWEEN $2 AND $4
   AND bi.tenant_id = $1
   AND p.id = ANY ($3)
@@ -11142,25 +11166,35 @@ ORDER BY date"))
             }
         }
         pub fn get_mrr_breakdown() -> GetMrrBreakdownStmt {
-            GetMrrBreakdownStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
-                          FROM historical_rates_from_usd)
-SELECT COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT      AS net_new_mrr,
-       COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
-       COALESCE(SUM(bi.new_business_count), 0)::INTEGER              AS new_business_count,
-       COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT    AS expansion_mrr,
-       COALESCE(SUM(bi.expansion_count), 0)::INTEGER                 AS expansion_count,
-       COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT  AS contraction_mrr,
-       COALESCE(SUM(bi.contraction_count), 0)::INTEGER               AS contraction_count,
-       COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT        AS churn_mrr,
-       COALESCE(SUM(bi.churn_count), 0)::INTEGER                     AS churn_count,
-       COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
-       COALESCE(SUM(bi.reactivation_count), 0)::INTEGER              AS reactivation_count
-FROM bi_delta_mrr_daily bi
-       JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
-WHERE bi.date BETWEEN $2 AND $3
+            GetMrrBreakdownStmt(cornucopia_async::private::Stmt::new(
+                "WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
+    FROM
+        historical_rates_from_usd
+)
+SELECT
+    COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT AS net_new_mrr,
+    COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
+    COALESCE(SUM(bi.new_business_count), 0)::INTEGER AS new_business_count,
+    COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT AS expansion_mrr,
+    COALESCE(SUM(bi.expansion_count), 0)::INTEGER AS expansion_count,
+    COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT AS contraction_mrr,
+    COALESCE(SUM(bi.contraction_count), 0)::INTEGER AS contraction_count,
+    COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT AS churn_mrr,
+    COALESCE(SUM(bi.churn_count), 0)::INTEGER AS churn_count,
+    COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
+    COALESCE(SUM(bi.reactivation_count), 0)::INTEGER AS reactivation_count
+FROM
+    bi_delta_mrr_daily bi
+        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+WHERE
+    bi.date BETWEEN $2 AND $3
   AND bi.tenant_id = $1
-GROUP BY bi.tenant_id"))
+GROUP BY
+    bi.tenant_id",
+            ))
         }
         pub struct GetMrrBreakdownStmt(cornucopia_async::private::Stmt);
         impl GetMrrBreakdownStmt {
@@ -11214,15 +11248,21 @@ GROUP BY bi.tenant_id"))
             }
         }
         pub fn query_total_net_revenue() -> QueryTotalNetRevenueStmt {
-            QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
-                          FROM historical_rates_from_usd)
-SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_net_revenue
+            QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt::new(
+                "WITH conversion_rates AS (
+    SELECT
+        id,
+        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+    FROM
+        historical_rates_from_usd
+)
+SELECT COALESCE(SUM(net_revenue_cents  * cr.conversion_rate), 0)::bigint AS total_net_revenue
 FROM bi_revenue_daily
-       JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
 WHERE revenue_date BETWEEN $2 AND $3
   AND tenant_id = $1
-"))
+",
+            ))
         }
         pub struct QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt);
         impl QueryTotalNetRevenueStmt {
@@ -11277,11 +11317,11 @@ WHERE revenue_date BETWEEN $2 AND $3
        s.id   as subscription_id,
        p.name as plan_name
 FROM bi_mrr_movement_log bi
-       LEFT JOIN invoice i on bi.invoice_id = i.id
-       JOIN subscription s on i.subscription_id = s.id
-       JOIN plan_version pv on bi.plan_version_id = pv.id
-       JOIN plan p on pv.plan_id = p.id
-       JOIN customer c on s.customer_id = c.id
+         LEFT JOIN invoice i on bi.invoice_id = i.id
+         JOIN subscription s on i.subscription_id = s.id
+         JOIN plan_version pv on bi.plan_version_id = pv.id
+         JOIN plan p on pv.plan_id = p.id
+         JOIN customer c on s.customer_id = c.id
 WHERE bi.tenant_id = $1
   AND (bi.id < $2 OR $2 IS NULL)
   AND (bi.id > $3 OR $3 IS NULL)
@@ -11349,29 +11389,42 @@ LIMIT $4",
         pub fn query_revenue_trend() -> QueryRevenueTrendStmt {
             QueryRevenueTrendStmt(cornucopia_async::private::Stmt::new("WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
                        CURRENT_DATE - INTERVAL '1 day' * ($1::integer * 2) AS start_previous_period),
-     conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = $2))::NUMERIC AS conversion_rate
-                          FROM historical_rates_from_usd),
+     conversion_rates AS (
+         SELECT
+             id,
+             (rates->>(SELECT currency FROM tenant WHERE id = $2))::NUMERIC AS conversion_rate
+         FROM
+             historical_rates_from_usd
+     ),
      revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
-                            JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+                              JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                      WHERE revenue_date BETWEEN DATE_TRUNC('year', CURRENT_DATE) AND CURRENT_DATE
                        AND bi_revenue_daily.tenant_id = $2),
-     current_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
-                        FROM bi_revenue_daily
-                               JOIN
-                             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
-                               JOIN
-                             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
-                        WHERE bi_revenue_daily.tenant_id = $2),
-     previous_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
-                         FROM bi_revenue_daily
-                                JOIN
-                              period
-                              ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
-                                JOIN
-                              conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
-                         WHERE bi_revenue_daily.tenant_id = $2)
+     current_period AS (
+         SELECT
+             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+         FROM
+             bi_revenue_daily
+                 JOIN
+             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
+                 JOIN
+             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         WHERE
+             bi_revenue_daily.tenant_id = $2
+     ),
+     previous_period AS (
+         SELECT
+             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+         FROM
+             bi_revenue_daily
+                 JOIN
+             period ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
+                 JOIN
+             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+         WHERE
+             bi_revenue_daily.tenant_id = $2
+     )
 SELECT COALESCE(revenue_ytd.total_ytd, 0) AS total_ytd,
        COALESCE(current_period.total, 0)  AS total_current_period,
        COALESCE(previous_period.total, 0) AS total_previous_period
@@ -11442,28 +11495,39 @@ WHERE tenant_id = $1
             }
         }
         pub fn query_pending_invoices() -> QueryPendingInvoicesStmt {
-            QueryPendingInvoicesStmt(cornucopia_async::private::Stmt::new("WITH tenant_currency AS (SELECT currency
-                         FROM tenant
-                         WHERE id = $1),
-     latest_rate AS (SELECT rates
-                     FROM historical_rates_from_usd
-                     WHERE date <= CURRENT_DATE
-                     ORDER BY date DESC
-                     LIMIT 1),
-     converted_invoices AS (SELECT convert_currency(
-                                     i.amount_cents,
-                                     (SELECT (rates ->> i.currency)::NUMERIC FROM latest_rate),
-                                     (SELECT (rates ->> (SELECT currency FROM tenant_currency))::NUMERIC
-                                      FROM latest_rate)
-                                   )::BIGINT AS converted_amount_cents
-                            FROM invoice i,
-                                 latest_rate,
-                                 tenant_currency
-                            WHERE i.tenant_id = $1
-                              AND i.status = 'PENDING')
-SELECT COUNT(*)::integer                        AS total,
-       COALESCE(SUM(converted_amount_cents), 0) AS total_cents
-FROM converted_invoices"))
+            QueryPendingInvoicesStmt(cornucopia_async::private::Stmt::new("WITH tenant_currency AS (
+    SELECT currency FROM tenant WHERE id = $1
+),
+     latest_rate AS (
+         SELECT
+             rates
+         FROM
+             historical_rates_from_usd
+         WHERE
+             date  <= CURRENT_DATE
+         ORDER BY date DESC
+         LIMIT 1
+     ),
+     converted_invoices AS (
+         SELECT
+             convert_currency(
+                     i.amount_cents,
+                     (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
+                     (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
+             )::BIGINT AS converted_amount_cents
+         FROM
+             invoice i,
+             latest_rate,
+             tenant_currency
+         WHERE
+             i.tenant_id = $1
+           AND i.status = 'PENDING'
+     )
+SELECT
+    COUNT(*)::integer AS total,
+    COALESCE(SUM(converted_amount_cents), 0) AS total_cents
+FROM
+    converted_invoices"))
         }
         pub struct QueryPendingInvoicesStmt(cornucopia_async::private::Stmt);
         impl QueryPendingInvoicesStmt {
@@ -11496,7 +11560,7 @@ SELECT ds.date                                                                  
        COALESCE(d.daily_signups, 0)                                                   AS daily_signups,
        COALESCE(SUM(COALESCE(d.daily_signups, 0)) OVER (ORDER BY ds.date), 0)::bigint AS total_signups_over_30_days
 FROM date_series ds
-       LEFT JOIN daily_signups d ON ds.date = d.signup_date
+         LEFT JOIN daily_signups d ON ds.date = d.signup_date
 ORDER BY ds.date"))
         }
         pub struct DailyNewSignups30DaysStmt(cornucopia_async::private::Stmt);
@@ -11527,10 +11591,10 @@ ORDER BY ds.date"))
                          AND created_at >= CURRENT_DATE - INTERVAL '60 days'
                        GROUP BY signup_date)
 SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '30 days'),
-                0)::bigint AS total_last_30_days,
+                0)::bigint                                                                                    AS total_last_30_days,
        COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '30 days' AND
                                                  signup_date > CURRENT_DATE - INTERVAL '60 days'),
-                0)::bigint AS total_previous_30_days
+                0)::bigint                                                                                    AS total_previous_30_days
 FROM signup_counts"))
         }
         pub struct NewSignupsTrend30DaysStmt(cornucopia_async::private::Stmt);
@@ -11553,17 +11617,15 @@ FROM signup_counts"))
             }
         }
         pub fn get_all_time_trial_conversion_rate() -> GetAllTimeTrialConversionRateStmt {
-            GetAllTimeTrialConversionRateStmt(cornucopia_async::private::Stmt::new(
-                "SELECT CASE
-         WHEN COUNT(*) > 0 THEN
-           ROUND((COUNT(*) FILTER (WHERE s.activated_at IS NOT NULL)::DECIMAL / COUNT(*)) * 100, 2)
-         ELSE
-           0
-         END AS all_time_conversion_rate_percentage
+            GetAllTimeTrialConversionRateStmt(cornucopia_async::private::Stmt::new("SELECT CASE
+           WHEN COUNT(*) > 0 THEN
+               ROUND((COUNT(*) FILTER (WHERE s.activated_at IS NOT NULL)::DECIMAL / COUNT(*)) * 100, 2)
+           ELSE
+               0
+           END AS all_time_conversion_rate_percentage
 FROM subscription s
 WHERE s.tenant_id = $1
-  AND s.trial_start_date IS NOT NULL",
-            ))
+  AND s.trial_start_date IS NOT NULL"))
         }
         pub struct GetAllTimeTrialConversionRateStmt(cornucopia_async::private::Stmt);
         impl GetAllTimeTrialConversionRateStmt {
@@ -11584,40 +11646,40 @@ WHERE s.tenant_id = $1
         pub fn query_trial_to_paid_conversion_over_time() -> QueryTrialToPaidConversionOverTimeStmt
         {
             QueryTrialToPaidConversionOverTimeStmt(cornucopia_async::private::Stmt::new("WITH month_series AS (SELECT generate_series(
-                               DATE_TRUNC('month', COALESCE(MIN(trial_start_date), CURRENT_DATE)),
-                               CURRENT_DATE,
-                               '1 month'
+                                     DATE_TRUNC('month', COALESCE(MIN(trial_start_date), CURRENT_DATE)),
+                                     CURRENT_DATE,
+                                     '1 month'
                              ) AS month
                       FROM subscription
                       WHERE tenant_id = $1),
      monthly_trials AS (SELECT ms.month,
-                               COALESCE(COUNT(s.trial_start_date), 0) AS total_trials,
+                               COALESCE(COUNT(s.trial_start_date), 0)                                                AS total_trials,
                                COALESCE(COUNT(s.activated_at)
                                         FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '30 days'),
-                                        0)                            AS conversions_30,
+                                        0)                                                                           AS conversions_30,
                                COALESCE(COUNT(s.activated_at)
                                         FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '90 days'),
-                                        0)                            AS conversions_90,
-                               COALESCE(COUNT(s.activated_at), 0)     AS conversions
+                                        0)                                                                           AS conversions_90,
+                               COALESCE(COUNT(s.activated_at), 0)                                                    AS conversions
                         FROM month_series ms
-                               LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
-                          AND s.tenant_id = $1
+                                 LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
+                            AND s.tenant_id = $1
                         GROUP BY ms.month
                         ORDER BY ms.month)
 SELECT month,
        total_trials,
        conversions,
        CASE
-         WHEN total_trials > 0 THEN ROUND((conversions::DECIMAL / total_trials) * 100, 2)
-         ELSE 0 END AS conversion_rate_percentage,
+           WHEN total_trials > 0 THEN ROUND((conversions::DECIMAL / total_trials) * 100, 2)
+           ELSE 0 END                                                                                      AS conversion_rate_percentage,
        conversions_30,
        CASE
-         WHEN total_trials > 0 THEN ROUND((conversions_30::DECIMAL / total_trials) * 100, 2)
-         ELSE 0 END AS conversion_rate_30_percentage,
+           WHEN total_trials > 0 THEN ROUND((conversions_30::DECIMAL / total_trials) * 100, 2)
+           ELSE 0 END                                                                                      AS conversion_rate_30_percentage,
        conversions_90,
        CASE
-         WHEN total_trials > 0 THEN ROUND((conversions_90::DECIMAL / total_trials) * 100, 2)
-         ELSE 0 END AS conversion_rate_90_percentage
+           WHEN total_trials > 0 THEN ROUND((conversions_90::DECIMAL / total_trials) * 100, 2)
+           ELSE 0 END                                                                                      AS conversion_rate_90_percentage
 FROM monthly_trials"))
         }
         pub struct QueryTrialToPaidConversionOverTimeStmt(cornucopia_async::private::Stmt);
