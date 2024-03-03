@@ -893,89 +893,6 @@ pub mod types {
         }
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[allow(non_camel_case_types)]
-        pub enum SubscriptionStatusEnum {
-            PENDING,
-            ACTIVE,
-            CANCELLED,
-        }
-        impl<'a> postgres_types::ToSql for SubscriptionStatusEnum {
-            fn to_sql(
-                &self,
-                ty: &postgres_types::Type,
-                buf: &mut postgres_types::private::BytesMut,
-            ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
-            {
-                let s = match *self {
-                    SubscriptionStatusEnum::PENDING => "PENDING",
-                    SubscriptionStatusEnum::ACTIVE => "ACTIVE",
-                    SubscriptionStatusEnum::CANCELLED => "CANCELLED",
-                };
-                buf.extend_from_slice(s.as_bytes());
-                std::result::Result::Ok(postgres_types::IsNull::No)
-            }
-            fn accepts(ty: &postgres_types::Type) -> bool {
-                if ty.name() != "SubscriptionStatusEnum" {
-                    return false;
-                }
-                match *ty.kind() {
-                    postgres_types::Kind::Enum(ref variants) => {
-                        if variants.len() != 3 {
-                            return false;
-                        }
-                        variants.iter().all(|v| match &**v {
-                            "PENDING" => true,
-                            "ACTIVE" => true,
-                            "CANCELLED" => true,
-                            _ => false,
-                        })
-                    }
-                    _ => false,
-                }
-            }
-            fn to_sql_checked(
-                &self,
-                ty: &postgres_types::Type,
-                out: &mut postgres_types::private::BytesMut,
-            ) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Sync + Send>>
-            {
-                postgres_types::__to_sql_checked(self, ty, out)
-            }
-        }
-        impl<'a> postgres_types::FromSql<'a> for SubscriptionStatusEnum {
-            fn from_sql(
-                ty: &postgres_types::Type,
-                buf: &'a [u8],
-            ) -> Result<SubscriptionStatusEnum, Box<dyn std::error::Error + Sync + Send>>
-            {
-                match std::str::from_utf8(buf)? {
-                    "PENDING" => Ok(SubscriptionStatusEnum::PENDING),
-                    "ACTIVE" => Ok(SubscriptionStatusEnum::ACTIVE),
-                    "CANCELLED" => Ok(SubscriptionStatusEnum::CANCELLED),
-                    s => Result::Err(Into::into(format!("invalid variant `{}`", s))),
-                }
-            }
-            fn accepts(ty: &postgres_types::Type) -> bool {
-                if ty.name() != "SubscriptionStatusEnum" {
-                    return false;
-                }
-                match *ty.kind() {
-                    postgres_types::Kind::Enum(ref variants) => {
-                        if variants.len() != 3 {
-                            return false;
-                        }
-                        variants.iter().all(|v| match &**v {
-                            "PENDING" => true,
-                            "ACTIVE" => true,
-                            "CANCELLED" => true,
-                            _ => false,
-                        })
-                    }
-                    _ => false,
-                }
-            }
-        }
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[allow(non_camel_case_types)]
         pub enum WebhookOutEventTypeEnum {
             CUSTOMER_CREATED,
             SUBSCRIPTION_CREATED,
@@ -1251,7 +1168,7 @@ pub mod queries {
             }
         }
         pub fn list_api_tokens() -> ListApiTokensStmt {
-            ListApiTokensStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, tenant_id, name, hint, created_at, created_by FROM api_token WHERE tenant_id = $1"))
+            ListApiTokensStmt(cornucopia_async::private::Stmt::new("SELECT id, tenant_id, name, hint, created_at, created_by FROM api_token WHERE tenant_id = $1"))
         }
         pub struct ListApiTokensStmt(cornucopia_async::private::Stmt);
         impl ListApiTokensStmt {
@@ -2505,7 +2422,7 @@ WHERE bm.id = ANY ($1)
             }
         }
         pub fn create_customer() -> CreateCustomerStmt {
-            CreateCustomerStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
+            CreateCustomerStmt(cornucopia_async::private::Stmt::new("INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES ($1,
         $2,
         $3,
@@ -3592,7 +3509,7 @@ WHERE id = $10",
             }
         }
         pub fn create_invoice() -> CreateInvoiceStmt {
-            CreateInvoiceStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO invoice (id,
+            CreateInvoiceStmt(cornucopia_async::private::Stmt::new("INSERT INTO invoice (id,
                      status,
                      invoicing_provider,
                      invoice_date,
@@ -3719,7 +3636,7 @@ RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, 
             }
         }
         pub fn update_invoice_status() -> UpdateInvoiceStatusStmt {
-            UpdateInvoiceStatusStmt(cornucopia_async :: private :: Stmt :: new("UPDATE invoice
+            UpdateInvoiceStatusStmt(cornucopia_async::private::Stmt::new("UPDATE invoice
 SET status     = $1::\"InvoiceStatusEnum\",
     updated_at = NOW(),
     finalized_at = CASE WHEN $1::\"InvoiceStatusEnum\" = 'FINALIZED' THEN NOW() ELSE finalized_at END
@@ -3856,7 +3773,7 @@ WHERE id = $2
             }
         }
         pub fn patch_invoice() -> PatchInvoiceStmt {
-            PatchInvoiceStmt(cornucopia_async :: private :: Stmt :: new("UPDATE invoice
+            PatchInvoiceStmt(cornucopia_async::private::Stmt::new("UPDATE invoice
 SET status             = COALESCE($1, status),
     invoicing_provider = COALESCE($2, invoicing_provider),
     invoice_date       = COALESCE($3, invoice_date),
@@ -4044,7 +3961,7 @@ WHERE invoice.status NOT IN ('VOID', 'FINALIZED')
             }
         }
         pub fn get_outdated_invoices() -> GetOutdatedInvoicesStmt {
-            GetOutdatedInvoicesStmt(cornucopia_async :: private :: Stmt :: new("SELECT invoice.id,
+            GetOutdatedInvoicesStmt(cornucopia_async::private::Stmt::new("SELECT invoice.id,
        invoice.status,
        invoice.invoicing_provider,
        invoice.invoice_date,
@@ -4980,7 +4897,7 @@ WHERE invoice.id = $1
         }
         impl<'a> From<GetOrganizationByInviteHashBorrowed<'a>> for GetOrganizationByInviteHash {
             fn from(
-                GetOrganizationByInviteHashBorrowed { id,name,} : GetOrganizationByInviteHashBorrowed < 'a >,
+                GetOrganizationByInviteHashBorrowed { id,name,}: GetOrganizationByInviteHashBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
@@ -7668,7 +7585,7 @@ WHERE
             }
         }
         pub fn upsert_price_component() -> UpsertPriceComponentStmt {
-            UpsertPriceComponentStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO price_component (id, name, fee, plan_version_id, product_item_id, billable_metric_id)
+            UpsertPriceComponentStmt(cornucopia_async::private::Stmt::new("INSERT INTO price_component (id, name, fee, plan_version_id, product_item_id, billable_metric_id)
 SELECT $1,
        $2,
        $3,
@@ -8800,7 +8717,7 @@ WHERE
             }
         }
         pub fn get_config_by_provider_and_endpoint() -> GetConfigByProviderAndEndpointStmt {
-            GetConfigByProviderAndEndpointStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, tenant_id, invoicing_provider, enabled, webhook_security, api_security FROM provider_config WHERE tenant_id = $1 AND invoicing_provider = $2 AND enabled = TRUE"))
+            GetConfigByProviderAndEndpointStmt(cornucopia_async::private::Stmt::new("SELECT id, tenant_id, invoicing_provider, enabled, webhook_security, api_security FROM provider_config WHERE tenant_id = $1 AND invoicing_provider = $2 AND enabled = TRUE"))
         }
         pub struct GetConfigByProviderAndEndpointStmt(cornucopia_async::private::Stmt);
         impl GetConfigByProviderAndEndpointStmt {
@@ -8843,7 +8760,7 @@ WHERE
             }
         }
         pub fn create_provider_config() -> CreateProviderConfigStmt {
-            CreateProviderConfigStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO provider_config (id, tenant_id, invoicing_provider, enabled, webhook_security, api_security)
+            CreateProviderConfigStmt(cornucopia_async::private::Stmt::new("INSERT INTO provider_config (id, tenant_id, invoicing_provider, enabled, webhook_security, api_security)
 VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (tenant_id, invoicing_provider)
   where enabled = TRUE
@@ -9592,7 +9509,7 @@ WHERE s.id = $1
             }
         }
         pub fn create_slot_transaction() -> CreateSlotTransactionStmt {
-            CreateSlotTransactionStmt(cornucopia_async :: private :: Stmt :: new("insert into slot_transaction(id, price_component_id, subscription_id, delta, prev_active_slots, effective_at, transaction_at)
+            CreateSlotTransactionStmt(cornucopia_async::private::Stmt::new("insert into slot_transaction(id, price_component_id, subscription_id, delta, prev_active_slots, effective_at, transaction_at)
 values ($1,
         $2,
         $3,
@@ -9658,7 +9575,7 @@ returning id"))
             }
         }
         pub fn get_active_slots() -> GetActiveSlotsStmt {
-            GetActiveSlotsStmt(cornucopia_async :: private :: Stmt :: new("WITH RankedSlotTransactions AS (
+            GetActiveSlotsStmt(cornucopia_async::private::Stmt::new("WITH RankedSlotTransactions AS (
   SELECT
     st.*,
     ROW_NUMBER() OVER (PARTITION BY st.subscription_id, st.price_component_id ORDER BY st.transaction_at DESC) AS row_num
@@ -10777,7 +10694,7 @@ GROUP BY
        COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
        bi.currency
 FROM customer c
-         LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
+       LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = $1
   AND (bi.revenue_year IS NULL OR bi.currency = $2)
   AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
@@ -10825,7 +10742,7 @@ LIMIT $3",
             }
         }
         pub fn insert_mrr_movement_log() -> InsertMrrMovementLogStmt {
-            InsertMrrMovementLogStmt(cornucopia_async :: private :: Stmt :: new("INSERT INTO bi_mrr_movement_log (id, movement_type, net_mrr_change, currency, applies_to, description, invoice_id,
+            InsertMrrMovementLogStmt(cornucopia_async::private::Stmt::new("INSERT INTO bi_mrr_movement_log (id, movement_type, net_mrr_change, currency, applies_to, description, invoice_id,
                                  tenant_id, plan_version_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
         $9)"))
@@ -10910,10 +10827,10 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
             }
         }
         pub fn new_mrr_at_date() -> NewMrrAtDateStmt {
-            NewMrrAtDateStmt(cornucopia_async :: private :: Stmt :: new("SELECT
-    (bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC)::bigint AS net_mrr_cents
+            NewMrrAtDateStmt(cornucopia_async::private::Stmt::new("SELECT (bd.net_mrr_cents_usd *
+        (hr.rates ->> (SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC)::bigint AS net_mrr_cents
 FROM bi_delta_mrr_daily bd
-         JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+       JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
 WHERE bd.date = $1
   AND tenant_id = $2"))
         }
@@ -10947,13 +10864,12 @@ WHERE bd.date = $1
             }
         }
         pub fn total_mrr_at_date() -> TotalMrrAtDateStmt {
-            TotalMrrAtDateStmt(cornucopia_async :: private :: Stmt :: new("SELECT
-    COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
-FROM
-    bi_delta_mrr_daily bd
-        JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
-WHERE
-    bd.tenant_id = $1
+            TotalMrrAtDateStmt(cornucopia_async::private::Stmt::new("SELECT COALESCE(
+         SUM(bd.net_mrr_cents_usd * (hr.rates ->> (SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC),
+         0)::bigint AS total_net_mrr_cents
+FROM bi_delta_mrr_daily bd
+       JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+WHERE bd.tenant_id = $1
   AND bd.date <= $2"))
         }
         pub struct TotalMrrAtDateStmt(cornucopia_async::private::Stmt);
@@ -10986,23 +10902,21 @@ WHERE
             }
         }
         pub fn total_mrr_at_date_by_plan() -> TotalMrrAtDateByPlanStmt {
-            TotalMrrAtDateByPlanStmt(cornucopia_async :: private :: Stmt :: new("SELECT
-    COALESCE(SUM(bi.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bi.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents,
-    p.id AS plan_id,
-    p.name AS plan_name
-FROM
-    bi_delta_mrr_daily bi
-        JOIN
-    plan_version pv ON bi.plan_version_id = pv.id
-        JOIN
-    plan p ON pv.plan_id = p.id
-        JOIN historical_rates_from_usd hr ON bi.historical_rate_id = hr.id
-WHERE
-    bi.date <= $1
+            TotalMrrAtDateByPlanStmt(cornucopia_async::private::Stmt::new("SELECT COALESCE(
+         SUM(bi.net_mrr_cents_usd * (hr.rates ->> (SELECT currency FROM tenant WHERE id = bi.tenant_id))::NUMERIC),
+         0)::bigint AS total_net_mrr_cents,
+       p.id         AS plan_id,
+       p.name       AS plan_name
+FROM bi_delta_mrr_daily bi
+       JOIN
+     plan_version pv ON bi.plan_version_id = pv.id
+       JOIN
+     plan p ON pv.plan_id = p.id
+       JOIN historical_rates_from_usd hr ON bi.historical_rate_id = hr.id
+WHERE bi.date <= $1
   AND bi.tenant_id = $2
   AND p.id = ANY ($3)
-GROUP BY
-    p.id"))
+GROUP BY p.id"))
         }
         pub struct TotalMrrAtDateByPlanStmt(cornucopia_async::private::Stmt);
         impl TotalMrrAtDateByPlanStmt {
@@ -11043,49 +10957,37 @@ GROUP BY
             }
         }
         pub fn query_total_mrr() -> QueryTotalMrrStmt {
-            QueryTotalMrrStmt(cornucopia_async :: private :: Stmt :: new("WITH conversion_rates AS (
-    SELECT
-        id,
-        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
-    FROM
-        historical_rates_from_usd
-),
-     initial_mrr AS (
-         SELECT
-             COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
-         FROM
-             bi_delta_mrr_daily bd
-                 JOIN
-             conversion_rates cr ON bd.historical_rate_id = cr.id
-         WHERE
-             bd.date < $2
-           AND bd.tenant_id = $1
-     )
-SELECT
-    bi.date AS period,
-    (im.total_net_mrr_cents + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
-    (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
-    (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
-    bi.new_business_count,
-    (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
-    bi.expansion_count,
-    (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
-    bi.contraction_count,
-    (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
-    bi.churn_count,
-    (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
-    bi.reactivation_count
-FROM
-    bi_delta_mrr_daily bi
-        JOIN
-    conversion_rates cr ON bi.historical_rate_id = cr.id
-        CROSS JOIN
-    initial_mrr im
-WHERE
-    bi.date BETWEEN $2 AND $3
+            QueryTotalMrrStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
+                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                          FROM historical_rates_from_usd),
+     initial_mrr AS (SELECT COALESCE(SUM(bd.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_cents
+                     FROM bi_delta_mrr_daily bd
+                            JOIN
+                          conversion_rates cr ON bd.historical_rate_id = cr.id
+                     WHERE bd.date < $2
+                       AND bd.tenant_id = $1)
+SELECT bi.date                                                                                       AS period,
+       (im.total_net_mrr_cents +
+        COALESCE(SUM(bi.net_mrr_cents_usd) OVER (ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
+       (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT                                           AS net_new_mrr,
+       (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT                                      AS new_business_mrr,
+       bi.new_business_count,
+       (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT                                         AS expansion_mrr,
+       bi.expansion_count,
+       (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT                                       AS contraction_mrr,
+       bi.contraction_count,
+       (bi.churn_cents_usd * cr.conversion_rate)::BIGINT                                             AS churn_mrr,
+       bi.churn_count,
+       (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT                                      AS reactivation_mrr,
+       bi.reactivation_count
+FROM bi_delta_mrr_daily bi
+       JOIN
+     conversion_rates cr ON bi.historical_rate_id = cr.id
+       CROSS JOIN
+     initial_mrr im
+WHERE bi.date BETWEEN $2 AND $3
   AND bi.tenant_id = $1
-ORDER BY
-    period"))
+ORDER BY period"))
         }
         pub struct QueryTotalMrrStmt(cornucopia_async::private::Stmt);
         impl QueryTotalMrrStmt {
@@ -11141,51 +11043,42 @@ ORDER BY
             }
         }
         pub fn query_total_mrr_by_plan() -> QueryTotalMrrByPlanStmt {
-            QueryTotalMrrByPlanStmt(cornucopia_async :: private :: Stmt :: new("WITH conversion_rates AS (
-    SELECT
-        id,
-        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
-    FROM
-        historical_rates_from_usd
-),
-     initial_mrr AS (
-         SELECT
-             COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
-             pv.plan_id
-         FROM
-             bi_delta_mrr_daily bi
-                 JOIN
-             plan_version pv ON bi.plan_version_id = pv.id
-                 JOIN
-             conversion_rates cr ON bi.historical_rate_id = cr.id
-         WHERE
-             bi.date < $2
-           AND bi.tenant_id = $1
-           AND pv.plan_id = ANY ($3)
-         GROUP BY
-             pv.plan_id
-     )
-SELECT    bi.date,
-          p.id AS plan_id,
-          p.name AS plan_name,
-          (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) * cr.conversion_rate)::BIGINT AS total_net_mrr,
-          (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT AS net_new_mrr,
-          (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
-          bi.new_business_count,
-          (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT AS expansion_mrr,
-          bi.expansion_count,
-          (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT AS contraction_mrr,
-          bi.contraction_count,
-          (bi.churn_cents_usd * cr.conversion_rate)::BIGINT AS churn_mrr,
-          bi.churn_count,
-          (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
-          bi.reactivation_count
+            QueryTotalMrrByPlanStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
+                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                          FROM historical_rates_from_usd),
+     initial_mrr AS (SELECT COALESCE(SUM(bi.net_mrr_cents_usd * cr.conversion_rate), 0)::BIGINT AS total_net_mrr_usd,
+                            pv.plan_id
+                     FROM bi_delta_mrr_daily bi
+                            JOIN
+                          plan_version pv ON bi.plan_version_id = pv.id
+                            JOIN
+                          conversion_rates cr ON bi.historical_rate_id = cr.id
+                     WHERE bi.date < $2
+                       AND bi.tenant_id = $1
+                       AND pv.plan_id = ANY ($3)
+                     GROUP BY pv.plan_id)
+SELECT bi.date,
+       p.id                                                     AS plan_id,
+       p.name                                                   AS plan_name,
+       (im.total_net_mrr_usd + COALESCE(SUM(bi.net_mrr_cents_usd) OVER (PARTITION BY p.id ORDER BY bi.date), 0) *
+                               cr.conversion_rate)::BIGINT      AS total_net_mrr,
+       (bi.net_mrr_cents_usd * cr.conversion_rate)::BIGINT      AS net_new_mrr,
+       (bi.new_business_cents_usd * cr.conversion_rate)::BIGINT AS new_business_mrr,
+       bi.new_business_count,
+       (bi.expansion_cents_usd * cr.conversion_rate)::BIGINT    AS expansion_mrr,
+       bi.expansion_count,
+       (bi.contraction_cents_usd * cr.conversion_rate)::BIGINT  AS contraction_mrr,
+       bi.contraction_count,
+       (bi.churn_cents_usd * cr.conversion_rate)::BIGINT        AS churn_mrr,
+       bi.churn_count,
+       (bi.reactivation_cents_usd * cr.conversion_rate)::BIGINT AS reactivation_mrr,
+       bi.reactivation_count
 FROM bi_delta_mrr_daily bi
-         JOIN plan_version pv on bi.plan_version_id = pv.id
-         JOIN plan p on pv.plan_id = p.id
-         JOIN
+       JOIN plan_version pv on bi.plan_version_id = pv.id
+       JOIN plan p on pv.plan_id = p.id
+       JOIN
      conversion_rates cr ON bi.historical_rate_id = cr.id
-         JOIN initial_mrr im on pv.plan_id = im.plan_id
+       JOIN initial_mrr im on pv.plan_id = im.plan_id
 WHERE bi.date BETWEEN $2 AND $4
   AND bi.tenant_id = $1
   AND p.id = ANY ($3)
@@ -11249,35 +11142,25 @@ ORDER BY date"))
             }
         }
         pub fn get_mrr_breakdown() -> GetMrrBreakdownStmt {
-            GetMrrBreakdownStmt(cornucopia_async::private::Stmt::new(
-                "WITH conversion_rates AS (
-    SELECT
-        id,
-        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
-    FROM
-        historical_rates_from_usd
-)
-SELECT
-    COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT AS net_new_mrr,
-    COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
-    COALESCE(SUM(bi.new_business_count), 0)::INTEGER AS new_business_count,
-    COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT AS expansion_mrr,
-    COALESCE(SUM(bi.expansion_count), 0)::INTEGER AS expansion_count,
-    COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT AS contraction_mrr,
-    COALESCE(SUM(bi.contraction_count), 0)::INTEGER AS contraction_count,
-    COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT AS churn_mrr,
-    COALESCE(SUM(bi.churn_count), 0)::INTEGER AS churn_count,
-    COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
-    COALESCE(SUM(bi.reactivation_count), 0)::INTEGER AS reactivation_count
-FROM
-    bi_delta_mrr_daily bi
-        JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
-WHERE
-    bi.date BETWEEN $2 AND $3
+            GetMrrBreakdownStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
+                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
+                          FROM historical_rates_from_usd)
+SELECT COALESCE(SUM(bi.net_mrr_cents_usd * cr.rate), 0)::BIGINT      AS net_new_mrr,
+       COALESCE(SUM(bi.new_business_cents_usd * cr.rate), 0)::BIGINT AS new_business_mrr,
+       COALESCE(SUM(bi.new_business_count), 0)::INTEGER              AS new_business_count,
+       COALESCE(SUM(bi.expansion_cents_usd * cr.rate), 0)::BIGINT    AS expansion_mrr,
+       COALESCE(SUM(bi.expansion_count), 0)::INTEGER                 AS expansion_count,
+       COALESCE(SUM(bi.contraction_cents_usd * cr.rate), 0)::BIGINT  AS contraction_mrr,
+       COALESCE(SUM(bi.contraction_count), 0)::INTEGER               AS contraction_count,
+       COALESCE(SUM(bi.churn_cents_usd * cr.rate), 0)::BIGINT        AS churn_mrr,
+       COALESCE(SUM(bi.churn_count), 0)::INTEGER                     AS churn_count,
+       COALESCE(SUM(bi.reactivation_cents_usd * cr.rate), 0)::BIGINT AS reactivation_mrr,
+       COALESCE(SUM(bi.reactivation_count), 0)::INTEGER              AS reactivation_count
+FROM bi_delta_mrr_daily bi
+       JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
+WHERE bi.date BETWEEN $2 AND $3
   AND bi.tenant_id = $1
-GROUP BY
-    bi.tenant_id",
-            ))
+GROUP BY bi.tenant_id"))
         }
         pub struct GetMrrBreakdownStmt(cornucopia_async::private::Stmt);
         impl GetMrrBreakdownStmt {
@@ -11331,21 +11214,15 @@ GROUP BY
             }
         }
         pub fn query_total_net_revenue() -> QueryTotalNetRevenueStmt {
-            QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt::new(
-                "WITH conversion_rates AS (
-    SELECT
-        id,
-        (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
-    FROM
-        historical_rates_from_usd
-)
-SELECT COALESCE(SUM(net_revenue_cents  * cr.conversion_rate), 0)::bigint AS total_net_revenue
+            QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt::new("WITH conversion_rates AS (SELECT id,
+                                 (rates ->> (SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                          FROM historical_rates_from_usd)
+SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_net_revenue
 FROM bi_revenue_daily
-         JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+       JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
 WHERE revenue_date BETWEEN $2 AND $3
   AND tenant_id = $1
-",
-            ))
+"))
         }
         pub struct QueryTotalNetRevenueStmt(cornucopia_async::private::Stmt);
         impl QueryTotalNetRevenueStmt {
@@ -11400,11 +11277,11 @@ WHERE revenue_date BETWEEN $2 AND $3
        s.id   as subscription_id,
        p.name as plan_name
 FROM bi_mrr_movement_log bi
-         LEFT JOIN invoice i on bi.invoice_id = i.id
-         JOIN subscription s on i.subscription_id = s.id
-         JOIN plan_version pv on bi.plan_version_id = pv.id
-         JOIN plan p on pv.plan_id = p.id
-         JOIN customer c on s.customer_id = c.id
+       LEFT JOIN invoice i on bi.invoice_id = i.id
+       JOIN subscription s on i.subscription_id = s.id
+       JOIN plan_version pv on bi.plan_version_id = pv.id
+       JOIN plan p on pv.plan_id = p.id
+       JOIN customer c on s.customer_id = c.id
 WHERE bi.tenant_id = $1
   AND (bi.id < $2 OR $2 IS NULL)
   AND (bi.id > $3 OR $3 IS NULL)
@@ -11470,44 +11347,31 @@ LIMIT $4",
             }
         }
         pub fn query_revenue_trend() -> QueryRevenueTrendStmt {
-            QueryRevenueTrendStmt(cornucopia_async :: private :: Stmt :: new("WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
+            QueryRevenueTrendStmt(cornucopia_async::private::Stmt::new("WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
                        CURRENT_DATE - INTERVAL '1 day' * ($1::integer * 2) AS start_previous_period),
-     conversion_rates AS (
-         SELECT
-             id,
-             (rates->>(SELECT currency FROM tenant WHERE id = $2))::NUMERIC AS conversion_rate
-         FROM
-             historical_rates_from_usd
-     ),
+     conversion_rates AS (SELECT id,
+                                 (rates ->> (SELECT currency FROM tenant WHERE id = $2))::NUMERIC AS conversion_rate
+                          FROM historical_rates_from_usd),
      revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
-                              JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+                            JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                      WHERE revenue_date BETWEEN DATE_TRUNC('year', CURRENT_DATE) AND CURRENT_DATE
                        AND bi_revenue_daily.tenant_id = $2),
-     current_period AS (
-         SELECT
-             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
-         FROM
-             bi_revenue_daily
-                 JOIN
-             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
-                 JOIN
-             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
-         WHERE
-             bi_revenue_daily.tenant_id = $2
-     ),
-     previous_period AS (
-         SELECT
-             COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
-         FROM
-             bi_revenue_daily
-                 JOIN
-             period ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
-                 JOIN
-             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
-         WHERE
-             bi_revenue_daily.tenant_id = $2
-     )
+     current_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+                        FROM bi_revenue_daily
+                               JOIN
+                             period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
+                               JOIN
+                             conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+                        WHERE bi_revenue_daily.tenant_id = $2),
+     previous_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
+                         FROM bi_revenue_daily
+                                JOIN
+                              period
+                              ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
+                                JOIN
+                              conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
+                         WHERE bi_revenue_daily.tenant_id = $2)
 SELECT COALESCE(revenue_ytd.total_ytd, 0) AS total_ytd,
        COALESCE(current_period.total, 0)  AS total_current_period,
        COALESCE(previous_period.total, 0) AS total_previous_period
@@ -11557,7 +11421,8 @@ FROM revenue_ytd,
                 "SELECT COUNT(*) AS total
 FROM subscription
 WHERE tenant_id = $1
-  AND status = 'ACTIVE'",
+  AND now() >= activated_at
+  AND now() <= billing_end_date",
             ))
         }
         pub struct CountActiveSubscriptionsStmt(cornucopia_async::private::Stmt);
@@ -11577,39 +11442,28 @@ WHERE tenant_id = $1
             }
         }
         pub fn query_pending_invoices() -> QueryPendingInvoicesStmt {
-            QueryPendingInvoicesStmt(cornucopia_async :: private :: Stmt :: new("WITH tenant_currency AS (
-    SELECT currency FROM tenant WHERE id = $1
-),
-     latest_rate AS (
-         SELECT
-             rates
-         FROM
-             historical_rates_from_usd
-         WHERE
-             date  <= CURRENT_DATE
-         ORDER BY date DESC
-         LIMIT 1
-     ),
-     converted_invoices AS (
-         SELECT
-             convert_currency(
-                     i.amount_cents,
-                     (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
-                     (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
-             )::BIGINT AS converted_amount_cents
-         FROM
-             invoice i,
-             latest_rate,
-             tenant_currency
-         WHERE
-             i.tenant_id = $1
-           AND i.status = 'PENDING'
-     )
-SELECT
-    COUNT(*)::integer AS total,
-    COALESCE(SUM(converted_amount_cents), 0) AS total_cents
-FROM
-    converted_invoices"))
+            QueryPendingInvoicesStmt(cornucopia_async::private::Stmt::new("WITH tenant_currency AS (SELECT currency
+                         FROM tenant
+                         WHERE id = $1),
+     latest_rate AS (SELECT rates
+                     FROM historical_rates_from_usd
+                     WHERE date <= CURRENT_DATE
+                     ORDER BY date DESC
+                     LIMIT 1),
+     converted_invoices AS (SELECT convert_currency(
+                                     i.amount_cents,
+                                     (SELECT (rates ->> i.currency)::NUMERIC FROM latest_rate),
+                                     (SELECT (rates ->> (SELECT currency FROM tenant_currency))::NUMERIC
+                                      FROM latest_rate)
+                                   )::BIGINT AS converted_amount_cents
+                            FROM invoice i,
+                                 latest_rate,
+                                 tenant_currency
+                            WHERE i.tenant_id = $1
+                              AND i.status = 'PENDING')
+SELECT COUNT(*)::integer                        AS total,
+       COALESCE(SUM(converted_amount_cents), 0) AS total_cents
+FROM converted_invoices"))
         }
         pub struct QueryPendingInvoicesStmt(cornucopia_async::private::Stmt);
         impl QueryPendingInvoicesStmt {
@@ -11631,7 +11485,7 @@ FROM
             }
         }
         pub fn daily_new_signups_30_days() -> DailyNewSignups30DaysStmt {
-            DailyNewSignups30DaysStmt(cornucopia_async :: private :: Stmt :: new("WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 29)) AS date),
+            DailyNewSignups30DaysStmt(cornucopia_async::private::Stmt::new("WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 29)) AS date),
      daily_signups AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
@@ -11642,7 +11496,7 @@ SELECT ds.date                                                                  
        COALESCE(d.daily_signups, 0)                                                   AS daily_signups,
        COALESCE(SUM(COALESCE(d.daily_signups, 0)) OVER (ORDER BY ds.date), 0)::bigint AS total_signups_over_30_days
 FROM date_series ds
-         LEFT JOIN daily_signups d ON ds.date = d.signup_date
+       LEFT JOIN daily_signups d ON ds.date = d.signup_date
 ORDER BY ds.date"))
         }
         pub struct DailyNewSignups30DaysStmt(cornucopia_async::private::Stmt);
@@ -11666,17 +11520,17 @@ ORDER BY ds.date"))
             }
         }
         pub fn new_signups_trend_30_days() -> NewSignupsTrend30DaysStmt {
-            NewSignupsTrend30DaysStmt(cornucopia_async :: private :: Stmt :: new("WITH signup_counts AS (SELECT DATE(created_at) AS signup_date,
+            NewSignupsTrend30DaysStmt(cornucopia_async::private::Stmt::new("WITH signup_counts AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
                        WHERE tenant_id = $1
                          AND created_at >= CURRENT_DATE - INTERVAL '60 days'
                        GROUP BY signup_date)
 SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '30 days'),
-                0)::bigint                                                                                    AS total_last_30_days,
+                0)::bigint AS total_last_30_days,
        COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '30 days' AND
                                                  signup_date > CURRENT_DATE - INTERVAL '60 days'),
-                0)::bigint                                                                                    AS total_previous_30_days
+                0)::bigint AS total_previous_30_days
 FROM signup_counts"))
         }
         pub struct NewSignupsTrend30DaysStmt(cornucopia_async::private::Stmt);
@@ -11699,15 +11553,17 @@ FROM signup_counts"))
             }
         }
         pub fn get_all_time_trial_conversion_rate() -> GetAllTimeTrialConversionRateStmt {
-            GetAllTimeTrialConversionRateStmt(cornucopia_async :: private :: Stmt :: new("SELECT CASE
-           WHEN COUNT(*) > 0 THEN
-               ROUND((COUNT(*) FILTER (WHERE s.activated_at IS NOT NULL)::DECIMAL / COUNT(*)) * 100, 2)
-           ELSE
-               0
-           END AS all_time_conversion_rate_percentage
+            GetAllTimeTrialConversionRateStmt(cornucopia_async::private::Stmt::new(
+                "SELECT CASE
+         WHEN COUNT(*) > 0 THEN
+           ROUND((COUNT(*) FILTER (WHERE s.activated_at IS NOT NULL)::DECIMAL / COUNT(*)) * 100, 2)
+         ELSE
+           0
+         END AS all_time_conversion_rate_percentage
 FROM subscription s
 WHERE s.tenant_id = $1
-  AND s.trial_start_date IS NOT NULL"))
+  AND s.trial_start_date IS NOT NULL",
+            ))
         }
         pub struct GetAllTimeTrialConversionRateStmt(cornucopia_async::private::Stmt);
         impl GetAllTimeTrialConversionRateStmt {
@@ -11727,41 +11583,41 @@ WHERE s.tenant_id = $1
         }
         pub fn query_trial_to_paid_conversion_over_time() -> QueryTrialToPaidConversionOverTimeStmt
         {
-            QueryTrialToPaidConversionOverTimeStmt(cornucopia_async :: private :: Stmt :: new("WITH month_series AS (SELECT generate_series(
-                                     DATE_TRUNC('month', COALESCE(MIN(trial_start_date), CURRENT_DATE)),
-                                     CURRENT_DATE,
-                                     '1 month'
+            QueryTrialToPaidConversionOverTimeStmt(cornucopia_async::private::Stmt::new("WITH month_series AS (SELECT generate_series(
+                               DATE_TRUNC('month', COALESCE(MIN(trial_start_date), CURRENT_DATE)),
+                               CURRENT_DATE,
+                               '1 month'
                              ) AS month
                       FROM subscription
                       WHERE tenant_id = $1),
      monthly_trials AS (SELECT ms.month,
-                               COALESCE(COUNT(s.trial_start_date), 0)                                                AS total_trials,
+                               COALESCE(COUNT(s.trial_start_date), 0) AS total_trials,
                                COALESCE(COUNT(s.activated_at)
                                         FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '30 days'),
-                                        0)                                                                           AS conversions_30,
+                                        0)                            AS conversions_30,
                                COALESCE(COUNT(s.activated_at)
                                         FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '90 days'),
-                                        0)                                                                           AS conversions_90,
-                               COALESCE(COUNT(s.activated_at), 0)                                                    AS conversions
+                                        0)                            AS conversions_90,
+                               COALESCE(COUNT(s.activated_at), 0)     AS conversions
                         FROM month_series ms
-                                 LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
-                            AND s.tenant_id = $1
+                               LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
+                          AND s.tenant_id = $1
                         GROUP BY ms.month
                         ORDER BY ms.month)
 SELECT month,
        total_trials,
        conversions,
        CASE
-           WHEN total_trials > 0 THEN ROUND((conversions::DECIMAL / total_trials) * 100, 2)
-           ELSE 0 END                                                                                      AS conversion_rate_percentage,
+         WHEN total_trials > 0 THEN ROUND((conversions::DECIMAL / total_trials) * 100, 2)
+         ELSE 0 END AS conversion_rate_percentage,
        conversions_30,
        CASE
-           WHEN total_trials > 0 THEN ROUND((conversions_30::DECIMAL / total_trials) * 100, 2)
-           ELSE 0 END                                                                                      AS conversion_rate_30_percentage,
+         WHEN total_trials > 0 THEN ROUND((conversions_30::DECIMAL / total_trials) * 100, 2)
+         ELSE 0 END AS conversion_rate_30_percentage,
        conversions_90,
        CASE
-           WHEN total_trials > 0 THEN ROUND((conversions_90::DECIMAL / total_trials) * 100, 2)
-           ELSE 0 END                                                                                      AS conversion_rate_90_percentage
+         WHEN total_trials > 0 THEN ROUND((conversions_90::DECIMAL / total_trials) * 100, 2)
+         ELSE 0 END AS conversion_rate_90_percentage
 FROM monthly_trials"))
         }
         pub struct QueryTrialToPaidConversionOverTimeStmt(cornucopia_async::private::Stmt);
@@ -11795,6 +11651,11 @@ FROM monthly_trials"))
         use cornucopia_async::GenericClient;
         use futures;
         use futures::{StreamExt, TryStreamExt};
+        #[derive(Clone, Copy, Debug)]
+        pub struct GetSubscriptionByIdParams {
+            pub subscription_id: uuid::Uuid,
+            pub tenant_id: uuid::Uuid,
+        }
         #[derive(Debug)]
         pub struct CreateSubscriptionParams<T1: cornucopia_async::JsonSql> {
             pub id: uuid::Uuid,
@@ -11802,7 +11663,6 @@ FROM monthly_trials"))
             pub customer_id: uuid::Uuid,
             pub created_by: uuid::Uuid,
             pub plan_version_id: uuid::Uuid,
-            pub status: super::super::types::public::SubscriptionStatusEnum,
             pub billing_start: time::Date,
             pub billing_end: Option<time::Date>,
             pub billing_day: i16,
@@ -11819,13 +11679,14 @@ FROM monthly_trials"))
             pub offset: i64,
         }
         #[derive(Clone, Copy, Debug)]
-        pub struct SubscriptionByIdParams {
-            pub subscription_id: uuid::Uuid,
-            pub tenant_id: uuid::Uuid,
+        pub struct CancelSubscriptionParams {
+            pub billing_end_date: time::Date,
+            pub canceled_at: time::PrimitiveDateTime,
+            pub id: uuid::Uuid,
         }
         #[derive(Clone, Copy, Debug)]
-        pub struct UpdateSubscriptionStatusParams {
-            pub status: super::super::types::public::SubscriptionStatusEnum,
+        pub struct ActivateSubscriptionParams {
+            pub activated_at: time::PrimitiveDateTime,
             pub id: uuid::Uuid,
         }
         #[derive(Debug, Clone, PartialEq)]
@@ -11838,6 +11699,8 @@ FROM monthly_trials"))
             pub billing_start_date: time::Date,
             pub billing_end_date: Option<time::Date>,
             pub billing_day: i16,
+            pub activated_at: Option<time::PrimitiveDateTime>,
+            pub canceled_at: Option<time::PrimitiveDateTime>,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: serde_json::Value,
             pub currency: String,
@@ -11853,6 +11716,8 @@ FROM monthly_trials"))
             pub billing_start_date: time::Date,
             pub billing_end_date: Option<time::Date>,
             pub billing_day: i16,
+            pub activated_at: Option<time::PrimitiveDateTime>,
+            pub canceled_at: Option<time::PrimitiveDateTime>,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
             pub currency: &'a str,
@@ -11870,6 +11735,8 @@ FROM monthly_trials"))
                     billing_start_date,
                     billing_end_date,
                     billing_day,
+                    activated_at,
+                    canceled_at,
                     effective_billing_period,
                     input_parameters,
                     currency,
@@ -11886,6 +11753,8 @@ FROM monthly_trials"))
                     billing_start_date,
                     billing_end_date,
                     billing_day,
+                    activated_at,
+                    canceled_at,
                     effective_billing_period,
                     input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
                     currency: currency.into(),
@@ -11950,50 +11819,71 @@ FROM monthly_trials"))
             }
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct GetSubscriptionCurrentPeriod {
+        pub struct Subscription {
             pub id: uuid::Uuid,
             pub tenant_id: uuid::Uuid,
             pub plan_version_id: uuid::Uuid,
             pub billing_start_date: time::Date,
             pub billing_end_date: Option<time::Date>,
             pub billing_day: i16,
+            pub activated_at: Option<time::PrimitiveDateTime>,
+            pub canceled_at: Option<time::PrimitiveDateTime>,
+            pub trial_start_date: Option<time::Date>,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: serde_json::Value,
             pub customer_id: uuid::Uuid,
             pub customer_external_id: Option<String>,
+            pub customer_name: String,
+            pub plan_id: uuid::Uuid,
+            pub plan_name: String,
             pub currency: String,
+            pub version: i32,
             pub net_terms: i32,
         }
-        pub struct GetSubscriptionCurrentPeriodBorrowed<'a> {
+        pub struct SubscriptionBorrowed<'a> {
             pub id: uuid::Uuid,
             pub tenant_id: uuid::Uuid,
             pub plan_version_id: uuid::Uuid,
             pub billing_start_date: time::Date,
             pub billing_end_date: Option<time::Date>,
             pub billing_day: i16,
+            pub activated_at: Option<time::PrimitiveDateTime>,
+            pub canceled_at: Option<time::PrimitiveDateTime>,
+            pub trial_start_date: Option<time::Date>,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
             pub customer_id: uuid::Uuid,
             pub customer_external_id: Option<&'a str>,
+            pub customer_name: &'a str,
+            pub plan_id: uuid::Uuid,
+            pub plan_name: &'a str,
             pub currency: &'a str,
+            pub version: i32,
             pub net_terms: i32,
         }
-        impl<'a> From<GetSubscriptionCurrentPeriodBorrowed<'a>> for GetSubscriptionCurrentPeriod {
+        impl<'a> From<SubscriptionBorrowed<'a>> for Subscription {
             fn from(
-                GetSubscriptionCurrentPeriodBorrowed {
+                SubscriptionBorrowed {
                     id,
                     tenant_id,
                     plan_version_id,
                     billing_start_date,
                     billing_end_date,
                     billing_day,
+                    activated_at,
+                    canceled_at,
+                    trial_start_date,
                     effective_billing_period,
                     input_parameters,
                     customer_id,
                     customer_external_id,
+                    customer_name,
+                    plan_id,
+                    plan_name,
                     currency,
+                    version,
                     net_terms,
-                }: GetSubscriptionCurrentPeriodBorrowed<'a>,
+                }: SubscriptionBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
@@ -12002,31 +11892,38 @@ FROM monthly_trials"))
                     billing_start_date,
                     billing_end_date,
                     billing_day,
+                    activated_at,
+                    canceled_at,
+                    trial_start_date,
                     effective_billing_period,
                     input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
                     customer_id,
                     customer_external_id: customer_external_id.map(|v| v.into()),
+                    customer_name: customer_name.into(),
+                    plan_id,
+                    plan_name: plan_name.into(),
                     currency: currency.into(),
+                    version,
                     net_terms,
                 }
             }
         }
-        pub struct GetSubscriptionCurrentPeriodQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct SubscriptionQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> GetSubscriptionCurrentPeriodBorrowed,
-            mapper: fn(GetSubscriptionCurrentPeriodBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> SubscriptionBorrowed,
+            mapper: fn(SubscriptionBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> GetSubscriptionCurrentPeriodQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> SubscriptionQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(GetSubscriptionCurrentPeriodBorrowed) -> R,
-            ) -> GetSubscriptionCurrentPeriodQuery<'a, C, R, N> {
-                GetSubscriptionCurrentPeriodQuery {
+                mapper: fn(SubscriptionBorrowed) -> R,
+            ) -> SubscriptionQuery<'a, C, R, N> {
+                SubscriptionQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -12127,6 +12024,9 @@ FROM monthly_trials"))
             pub billing_start_date: time::Date,
             pub billing_end_date: Option<time::Date>,
             pub billing_day: i16,
+            pub activated_at: Option<time::PrimitiveDateTime>,
+            pub canceled_at: Option<time::PrimitiveDateTime>,
+            pub trial_start_date: Option<time::Date>,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: serde_json::Value,
             pub net_terms: i32,
@@ -12145,6 +12045,9 @@ FROM monthly_trials"))
             pub billing_start_date: time::Date,
             pub billing_end_date: Option<time::Date>,
             pub billing_day: i16,
+            pub activated_at: Option<time::PrimitiveDateTime>,
+            pub canceled_at: Option<time::PrimitiveDateTime>,
+            pub trial_start_date: Option<time::Date>,
             pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
             pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
             pub net_terms: i32,
@@ -12165,6 +12068,9 @@ FROM monthly_trials"))
                     billing_start_date,
                     billing_end_date,
                     billing_day,
+                    activated_at,
+                    canceled_at,
+                    trial_start_date,
                     effective_billing_period,
                     input_parameters,
                     net_terms,
@@ -12184,6 +12090,9 @@ FROM monthly_trials"))
                     billing_start_date,
                     billing_end_date,
                     billing_day,
+                    activated_at,
+                    canceled_at,
+                    trial_start_date,
                     effective_billing_period,
                     input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
                     net_terms,
@@ -12251,135 +12160,6 @@ FROM monthly_trials"))
                 Ok(it)
             }
         }
-        #[derive(Debug, Clone, PartialEq)]
-        pub struct Subscription {
-            pub subscription_id: uuid::Uuid,
-            pub tenant_id: uuid::Uuid,
-            pub customer_id: uuid::Uuid,
-            pub plan_version_id: uuid::Uuid,
-            pub billing_start_date: time::Date,
-            pub billing_end_date: Option<time::Date>,
-            pub billing_day: i16,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: serde_json::Value,
-            pub net_terms: i32,
-            pub currency: String,
-            pub version: i32,
-            pub customer_name: String,
-            pub plan_id: uuid::Uuid,
-            pub plan_name: String,
-        }
-        pub struct SubscriptionBorrowed<'a> {
-            pub subscription_id: uuid::Uuid,
-            pub tenant_id: uuid::Uuid,
-            pub customer_id: uuid::Uuid,
-            pub plan_version_id: uuid::Uuid,
-            pub billing_start_date: time::Date,
-            pub billing_end_date: Option<time::Date>,
-            pub billing_day: i16,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
-            pub net_terms: i32,
-            pub currency: &'a str,
-            pub version: i32,
-            pub customer_name: &'a str,
-            pub plan_id: uuid::Uuid,
-            pub plan_name: &'a str,
-        }
-        impl<'a> From<SubscriptionBorrowed<'a>> for Subscription {
-            fn from(
-                SubscriptionBorrowed {
-                    subscription_id,
-                    tenant_id,
-                    customer_id,
-                    plan_version_id,
-                    billing_start_date,
-                    billing_end_date,
-                    billing_day,
-                    effective_billing_period,
-                    input_parameters,
-                    net_terms,
-                    currency,
-                    version,
-                    customer_name,
-                    plan_id,
-                    plan_name,
-                }: SubscriptionBorrowed<'a>,
-            ) -> Self {
-                Self {
-                    subscription_id,
-                    tenant_id,
-                    customer_id,
-                    plan_version_id,
-                    billing_start_date,
-                    billing_end_date,
-                    billing_day,
-                    effective_billing_period,
-                    input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
-                    net_terms,
-                    currency: currency.into(),
-                    version,
-                    customer_name: customer_name.into(),
-                    plan_id,
-                    plan_name: plan_name.into(),
-                }
-            }
-        }
-        pub struct SubscriptionQuery<'a, C: GenericClient, T, const N: usize> {
-            client: &'a C,
-            params: [&'a (dyn postgres_types::ToSql + Sync); N],
-            stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> SubscriptionBorrowed,
-            mapper: fn(SubscriptionBorrowed) -> T,
-        }
-        impl<'a, C, T: 'a, const N: usize> SubscriptionQuery<'a, C, T, N>
-        where
-            C: GenericClient,
-        {
-            pub fn map<R>(
-                self,
-                mapper: fn(SubscriptionBorrowed) -> R,
-            ) -> SubscriptionQuery<'a, C, R, N> {
-                SubscriptionQuery {
-                    client: self.client,
-                    params: self.params,
-                    stmt: self.stmt,
-                    extractor: self.extractor,
-                    mapper,
-                }
-            }
-            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
-                let stmt = self.stmt.prepare(self.client).await?;
-                let row = self.client.query_one(stmt, &self.params).await?;
-                Ok((self.mapper)((self.extractor)(&row)))
-            }
-            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
-                self.iter().await?.try_collect().await
-            }
-            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
-                let stmt = self.stmt.prepare(self.client).await?;
-                Ok(self
-                    .client
-                    .query_opt(stmt, &self.params)
-                    .await?
-                    .map(|row| (self.mapper)((self.extractor)(&row))))
-            }
-            pub async fn iter(
-                self,
-            ) -> Result<
-                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
-                tokio_postgres::Error,
-            > {
-                let stmt = self.stmt.prepare(self.client).await?;
-                let it = self
-                    .client
-                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
-                    .await?
-                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
-                    .into_stream();
-                Ok(it)
-            }
-        }
         pub fn subscription_to_invoice_candidates() -> SubscriptionToInvoiceCandidatesStmt {
             SubscriptionToInvoiceCandidatesStmt(cornucopia_async::private::Stmt::new(
                 "SELECT s.id AS subscription_id,
@@ -12390,15 +12170,17 @@ FROM monthly_trials"))
        s.billing_start_date,
        s.billing_end_date,
        s.billing_day,
+       s.activated_at,
+       s.canceled_at,
        s.effective_billing_period,
        s.input_parameters,
        pp.currency,
        pp.net_terms,
        pp.version
 FROM subscription s
-         JOIN plan_version pp ON s.plan_version_id = pp.id
-         LEFT JOIN invoice i ON s.id = i.subscription_id AND i.invoice_date > $1
-where (s.billing_end_date is null OR s.billing_end_date < $1)
+       JOIN plan_version pp ON s.plan_version_id = pp.id
+       LEFT JOIN invoice i ON s.id = i.subscription_id AND i.invoice_date > $1
+where (s.billing_end_date is null OR s.billing_end_date > $1)
   AND i.id IS NULL",
             ))
         }
@@ -12422,68 +12204,98 @@ where (s.billing_end_date is null OR s.billing_end_date < $1)
                         billing_start_date: row.get(5),
                         billing_end_date: row.get(6),
                         billing_day: row.get(7),
-                        effective_billing_period: row.get(8),
-                        input_parameters: row.get(9),
-                        currency: row.get(10),
-                        net_terms: row.get(11),
-                        version: row.get(12),
+                        activated_at: row.get(8),
+                        canceled_at: row.get(9),
+                        effective_billing_period: row.get(10),
+                        input_parameters: row.get(11),
+                        currency: row.get(12),
+                        net_terms: row.get(13),
+                        version: row.get(14),
                     },
                     mapper: |it| <SubscriptionToInvoice>::from(it),
                 }
             }
         }
-        pub fn get_subscription_current_period() -> GetSubscriptionCurrentPeriodStmt {
-            GetSubscriptionCurrentPeriodStmt(cornucopia_async::private::Stmt::new(
+        pub fn get_subscription_by_id() -> GetSubscriptionByIdStmt {
+            GetSubscriptionByIdStmt(cornucopia_async::private::Stmt::new(
                 "SELECT s.id,
        s.tenant_id,
        s.plan_version_id,
        s.billing_start_date,
        s.billing_end_date,
        s.billing_day,
+       s.activated_at,
+       s.canceled_at,
+       s.trial_start_date,
        s.effective_billing_period,
        s.input_parameters,
        s.customer_id,
        c.alias as customer_external_id,
---        cbp.current_period_start_date,
---        cbp.current_period_end_date,
---        cbp.current_period_idx::integer,
+       c.name  AS customer_name,
+       p.id    AS plan_id,
+       p.name  AS plan_name,
        pp.currency,
+       pp.version,
        s.net_terms
 FROM subscription s
-         JOIN plan_version pp ON s.plan_version_id = pp.id
-         JOIN customer c ON s.customer_id = c.id
-         JOIN current_billing_period cbp ON s.id = cbp.subscription_id
-WHERE s.id = $1",
+       JOIN plan_version pp ON s.plan_version_id = pp.id
+       JOIN plan p ON pp.plan_id = p.id
+       JOIN customer c ON s.customer_id = c.id
+WHERE s.id = $1
+  AND s.tenant_id = $2",
             ))
         }
-        pub struct GetSubscriptionCurrentPeriodStmt(cornucopia_async::private::Stmt);
-        impl GetSubscriptionCurrentPeriodStmt {
+        pub struct GetSubscriptionByIdStmt(cornucopia_async::private::Stmt);
+        impl GetSubscriptionByIdStmt {
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 subscription_id: &'a uuid::Uuid,
-            ) -> GetSubscriptionCurrentPeriodQuery<'a, C, GetSubscriptionCurrentPeriod, 1>
-            {
-                GetSubscriptionCurrentPeriodQuery {
+                tenant_id: &'a uuid::Uuid,
+            ) -> SubscriptionQuery<'a, C, Subscription, 2> {
+                SubscriptionQuery {
                     client,
-                    params: [subscription_id],
+                    params: [subscription_id, tenant_id],
                     stmt: &mut self.0,
-                    extractor: |row| GetSubscriptionCurrentPeriodBorrowed {
+                    extractor: |row| SubscriptionBorrowed {
                         id: row.get(0),
                         tenant_id: row.get(1),
                         plan_version_id: row.get(2),
                         billing_start_date: row.get(3),
                         billing_end_date: row.get(4),
                         billing_day: row.get(5),
-                        effective_billing_period: row.get(6),
-                        input_parameters: row.get(7),
-                        customer_id: row.get(8),
-                        customer_external_id: row.get(9),
-                        currency: row.get(10),
-                        net_terms: row.get(11),
+                        activated_at: row.get(6),
+                        canceled_at: row.get(7),
+                        trial_start_date: row.get(8),
+                        effective_billing_period: row.get(9),
+                        input_parameters: row.get(10),
+                        customer_id: row.get(11),
+                        customer_external_id: row.get(12),
+                        customer_name: row.get(13),
+                        plan_id: row.get(14),
+                        plan_name: row.get(15),
+                        currency: row.get(16),
+                        version: row.get(17),
+                        net_terms: row.get(18),
                     },
-                    mapper: |it| <GetSubscriptionCurrentPeriod>::from(it),
+                    mapper: |it| <Subscription>::from(it),
                 }
+            }
+        }
+        impl<'a, C: GenericClient>
+            cornucopia_async::Params<
+                'a,
+                GetSubscriptionByIdParams,
+                SubscriptionQuery<'a, C, Subscription, 2>,
+                C,
+            > for GetSubscriptionByIdStmt
+        {
+            fn params(
+                &'a mut self,
+                client: &'a C,
+                params: &'a GetSubscriptionByIdParams,
+            ) -> SubscriptionQuery<'a, C, Subscription, 2> {
+                self.bind(client, &params.subscription_id, &params.tenant_id)
             }
         }
         pub fn create_subscription() -> CreateSubscriptionStmt {
@@ -12493,7 +12305,6 @@ WHERE s.id = $1",
                           customer_id,
                           created_by,
                           plan_version_id,
-                          status,
                           billing_start_date,
                           billing_end_date,
                           billing_day,
@@ -12510,8 +12321,7 @@ VALUES ($1,
         $8,
         $9,
         $10,
-        $11,
-        $12)
+        $11)
 RETURNING id
 ",
             ))
@@ -12526,14 +12336,13 @@ RETURNING id
                 customer_id: &'a uuid::Uuid,
                 created_by: &'a uuid::Uuid,
                 plan_version_id: &'a uuid::Uuid,
-                status: &'a super::super::types::public::SubscriptionStatusEnum,
                 billing_start: &'a time::Date,
                 billing_end: &'a Option<time::Date>,
                 billing_day: &'a i16,
                 effective_billing_period: &'a super::super::types::public::BillingPeriodEnum,
                 parameters: &'a Option<T1>,
                 net_terms: &'a i32,
-            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 12> {
+            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 11> {
                 UuidUuidQuery {
                     client,
                     params: [
@@ -12542,7 +12351,6 @@ RETURNING id
                         customer_id,
                         created_by,
                         plan_version_id,
-                        status,
                         billing_start,
                         billing_end,
                         billing_day,
@@ -12560,7 +12368,7 @@ RETURNING id
             cornucopia_async::Params<
                 'a,
                 CreateSubscriptionParams<T1>,
-                UuidUuidQuery<'a, C, uuid::Uuid, 12>,
+                UuidUuidQuery<'a, C, uuid::Uuid, 11>,
                 C,
             > for CreateSubscriptionStmt
         {
@@ -12568,7 +12376,7 @@ RETURNING id
                 &'a mut self,
                 client: &'a C,
                 params: &'a CreateSubscriptionParams<T1>,
-            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 12> {
+            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 11> {
                 self.bind(
                     client,
                     &params.id,
@@ -12576,7 +12384,6 @@ RETURNING id
                     &params.customer_id,
                     &params.created_by,
                     &params.plan_version_id,
-                    &params.status,
                     &params.billing_start,
                     &params.billing_end,
                     &params.billing_day,
@@ -12595,6 +12402,9 @@ RETURNING id
        s.billing_start_date,
        s.billing_end_date,
        s.billing_day,
+       s.activated_at,
+       s.canceled_at,
+       s.trial_start_date,
        s.effective_billing_period,
        s.input_parameters,
        s.net_terms,
@@ -12605,14 +12415,14 @@ RETURNING id
        p.name           AS plan_name,
        count(*) OVER () AS total_count
 FROM subscription s
-         JOIN plan_version pp   ON s.plan_version_id = pp.id
-         JOIN plan p            ON pp.plan_id = p.id
-         JOIN customer c        ON s.customer_id = c.id
+       JOIN plan_version pp ON s.plan_version_id = pp.id
+       JOIN plan p ON pp.plan_id = p.id
+       JOIN customer c ON s.customer_id = c.id
 WHERE s.tenant_id = $1
-  AND ($2 :: UUID         IS NULL OR pp.plan_id = $2)
-  AND ($3 :: UUID     IS NULL OR s.customer_id = $3)
+  AND ($2 :: UUID IS NULL OR pp.plan_id = $2)
+  AND ($3 :: UUID IS NULL OR s.customer_id = $3)
 ORDER BY s.id DESC
-    LIMIT $4 OFFSET $5",
+LIMIT $4 OFFSET $5",
             ))
         }
         pub struct ListSubscriptionsStmt(cornucopia_async::private::Stmt);
@@ -12638,15 +12448,18 @@ ORDER BY s.id DESC
                         billing_start_date: row.get(4),
                         billing_end_date: row.get(5),
                         billing_day: row.get(6),
-                        effective_billing_period: row.get(7),
-                        input_parameters: row.get(8),
-                        net_terms: row.get(9),
-                        currency: row.get(10),
-                        version: row.get(11),
-                        customer_name: row.get(12),
-                        plan_id: row.get(13),
-                        plan_name: row.get(14),
-                        total_count: row.get(15),
+                        activated_at: row.get(7),
+                        canceled_at: row.get(8),
+                        trial_start_date: row.get(9),
+                        effective_billing_period: row.get(10),
+                        input_parameters: row.get(11),
+                        net_terms: row.get(12),
+                        currency: row.get(13),
+                        version: row.get(14),
+                        customer_name: row.get(15),
+                        plan_id: row.get(16),
+                        plan_name: row.get(17),
+                        total_count: row.get(18),
                     },
                     mapper: |it| <SubscriptionList>::from(it),
                 }
@@ -12675,103 +12488,34 @@ ORDER BY s.id DESC
                 )
             }
         }
-        pub fn subscription_by_id() -> SubscriptionByIdStmt {
-            SubscriptionByIdStmt(cornucopia_async::private::Stmt::new(
-                "SELECT s.id   AS subscription_id,
-       s.tenant_id,
-       s.customer_id,
-       s.plan_version_id,
-       s.billing_start_date,
-       s.billing_end_date,
-       s.billing_day,
-       s.effective_billing_period,
-       s.input_parameters,
-       s.net_terms,
-       pp.currency,
-       pp.version,
-       c.name           AS customer_name,
-       p.id             AS plan_id,
-       p.name           AS plan_name
-FROM subscription s
-         JOIN plan_version pp   ON s.plan_version_id = pp.id
-         JOIN plan p            ON pp.plan_id = p.id
-         JOIN customer c        ON s.customer_id = c.id
-WHERE s.id = $1
-  AND s.tenant_id = $2",
-            ))
-        }
-        pub struct SubscriptionByIdStmt(cornucopia_async::private::Stmt);
-        impl SubscriptionByIdStmt {
-            pub fn bind<'a, C: GenericClient>(
-                &'a mut self,
-                client: &'a C,
-                subscription_id: &'a uuid::Uuid,
-                tenant_id: &'a uuid::Uuid,
-            ) -> SubscriptionQuery<'a, C, Subscription, 2> {
-                SubscriptionQuery {
-                    client,
-                    params: [subscription_id, tenant_id],
-                    stmt: &mut self.0,
-                    extractor: |row| SubscriptionBorrowed {
-                        subscription_id: row.get(0),
-                        tenant_id: row.get(1),
-                        customer_id: row.get(2),
-                        plan_version_id: row.get(3),
-                        billing_start_date: row.get(4),
-                        billing_end_date: row.get(5),
-                        billing_day: row.get(6),
-                        effective_billing_period: row.get(7),
-                        input_parameters: row.get(8),
-                        net_terms: row.get(9),
-                        currency: row.get(10),
-                        version: row.get(11),
-                        customer_name: row.get(12),
-                        plan_id: row.get(13),
-                        plan_name: row.get(14),
-                    },
-                    mapper: |it| <Subscription>::from(it),
-                }
-            }
-        }
-        impl<'a, C: GenericClient>
-            cornucopia_async::Params<
-                'a,
-                SubscriptionByIdParams,
-                SubscriptionQuery<'a, C, Subscription, 2>,
-                C,
-            > for SubscriptionByIdStmt
-        {
-            fn params(
-                &'a mut self,
-                client: &'a C,
-                params: &'a SubscriptionByIdParams,
-            ) -> SubscriptionQuery<'a, C, Subscription, 2> {
-                self.bind(client, &params.subscription_id, &params.tenant_id)
-            }
-        }
-        pub fn update_subscription_status() -> UpdateSubscriptionStatusStmt {
-            UpdateSubscriptionStatusStmt(cornucopia_async::private::Stmt::new(
+        pub fn cancel_subscription() -> CancelSubscriptionStmt {
+            CancelSubscriptionStmt(cornucopia_async::private::Stmt::new(
                 "UPDATE subscription
-SET status = $1
-WHERE id = $2",
+SET billing_end_date = $1,
+    canceled_at      = $2
+WHERE id = $3
+  and canceled_at is null",
             ))
         }
-        pub struct UpdateSubscriptionStatusStmt(cornucopia_async::private::Stmt);
-        impl UpdateSubscriptionStatusStmt {
+        pub struct CancelSubscriptionStmt(cornucopia_async::private::Stmt);
+        impl CancelSubscriptionStmt {
             pub async fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
-                status: &'a super::super::types::public::SubscriptionStatusEnum,
+                billing_end_date: &'a time::Date,
+                canceled_at: &'a time::PrimitiveDateTime,
                 id: &'a uuid::Uuid,
             ) -> Result<u64, tokio_postgres::Error> {
                 let stmt = self.0.prepare(client).await?;
-                client.execute(stmt, &[status, id]).await
+                client
+                    .execute(stmt, &[billing_end_date, canceled_at, id])
+                    .await
             }
         }
         impl<'a, C: GenericClient + Send + Sync>
             cornucopia_async::Params<
                 'a,
-                UpdateSubscriptionStatusParams,
+                CancelSubscriptionParams,
                 std::pin::Pin<
                     Box<
                         dyn futures::Future<Output = Result<u64, tokio_postgres::Error>>
@@ -12780,16 +12524,65 @@ WHERE id = $2",
                     >,
                 >,
                 C,
-            > for UpdateSubscriptionStatusStmt
+            > for CancelSubscriptionStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a UpdateSubscriptionStatusParams,
+                params: &'a CancelSubscriptionParams,
             ) -> std::pin::Pin<
                 Box<dyn futures::Future<Output = Result<u64, tokio_postgres::Error>> + Send + 'a>,
             > {
-                Box::pin(self.bind(client, &params.status, &params.id))
+                Box::pin(self.bind(
+                    client,
+                    &params.billing_end_date,
+                    &params.canceled_at,
+                    &params.id,
+                ))
+            }
+        }
+        pub fn activate_subscription() -> ActivateSubscriptionStmt {
+            ActivateSubscriptionStmt(cornucopia_async::private::Stmt::new(
+                "UPDATE subscription
+SET activated_at = $1
+WHERE id = $2
+  and activated_at is null",
+            ))
+        }
+        pub struct ActivateSubscriptionStmt(cornucopia_async::private::Stmt);
+        impl ActivateSubscriptionStmt {
+            pub async fn bind<'a, C: GenericClient>(
+                &'a mut self,
+                client: &'a C,
+                activated_at: &'a time::PrimitiveDateTime,
+                id: &'a uuid::Uuid,
+            ) -> Result<u64, tokio_postgres::Error> {
+                let stmt = self.0.prepare(client).await?;
+                client.execute(stmt, &[activated_at, id]).await
+            }
+        }
+        impl<'a, C: GenericClient + Send + Sync>
+            cornucopia_async::Params<
+                'a,
+                ActivateSubscriptionParams,
+                std::pin::Pin<
+                    Box<
+                        dyn futures::Future<Output = Result<u64, tokio_postgres::Error>>
+                            + Send
+                            + 'a,
+                    >,
+                >,
+                C,
+            > for ActivateSubscriptionStmt
+        {
+            fn params(
+                &'a mut self,
+                client: &'a C,
+                params: &'a ActivateSubscriptionParams,
+            ) -> std::pin::Pin<
+                Box<dyn futures::Future<Output = Result<u64, tokio_postgres::Error>> + Send + 'a>,
+            > {
+                Box::pin(self.bind(client, &params.activated_at, &params.id))
             }
         }
     }
@@ -14286,7 +14079,7 @@ FROM
             }
         }
         pub fn get_webhook_in_event_by_id() -> GetWebhookInEventByIdStmt {
-            GetWebhookInEventByIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT id, received_at, action, key, processed, attempts, error, provider_config_id FROM webhook_in_event WHERE id = $1"))
+            GetWebhookInEventByIdStmt(cornucopia_async::private::Stmt::new("SELECT id, received_at, action, key, processed, attempts, error, provider_config_id FROM webhook_in_event WHERE id = $1"))
         }
         pub struct GetWebhookInEventByIdStmt(cornucopia_async::private::Stmt);
         impl GetWebhookInEventByIdStmt {
@@ -14371,7 +14164,7 @@ RETURNING id, received_at, action, key, processed, attempts, error, provider_con
             }
         }
         pub fn find_webhook_in_events_by_tenant_id() -> FindWebhookInEventsByTenantIdStmt {
-            FindWebhookInEventsByTenantIdStmt(cornucopia_async :: private :: Stmt :: new("SELECT webhook_in_event.id, webhook_in_event.received_at, webhook_in_event.action, webhook_in_event.key, webhook_in_event.processed, webhook_in_event.attempts, webhook_in_event.error, provider_config.invoicing_provider
+            FindWebhookInEventsByTenantIdStmt(cornucopia_async::private::Stmt::new("SELECT webhook_in_event.id, webhook_in_event.received_at, webhook_in_event.action, webhook_in_event.key, webhook_in_event.processed, webhook_in_event.attempts, webhook_in_event.error, provider_config.invoicing_provider
 FROM webhook_in_event
 JOIN provider_config ON provider_config.id = webhook_in_event.provider_config_id
 WHERE provider_config.tenant_id = $1"))
@@ -14532,7 +14325,7 @@ WHERE provider_config.tenant_id = $1"))
             }
         }
         pub fn create_endpoint() -> CreateEndpointStmt {
-            CreateEndpointStmt(cornucopia_async :: private :: Stmt :: new("insert into webhook_out_endpoint (id, tenant_id, url, description, secret, events_to_listen, enabled)
+            CreateEndpointStmt(cornucopia_async::private::Stmt::new("insert into webhook_out_endpoint (id, tenant_id, url, description, secret, events_to_listen, enabled)
 values ($1, $2, $3, $4, $5, $6, $7)
 returning id, tenant_id, url, description, secret, created_at, events_to_listen, enabled"))
         }
@@ -14619,7 +14412,7 @@ returning id, tenant_id, url, description, secret, created_at, events_to_listen,
             }
         }
         pub fn list_endpoints() -> ListEndpointsStmt {
-            ListEndpointsStmt(cornucopia_async :: private :: Stmt :: new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
+            ListEndpointsStmt(cornucopia_async::private::Stmt::new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
 from webhook_out_endpoint
 where tenant_id = $1"))
         }
@@ -14649,7 +14442,7 @@ where tenant_id = $1"))
             }
         }
         pub fn get_by_id_and_tenant() -> GetByIdAndTenantStmt {
-            GetByIdAndTenantStmt(cornucopia_async :: private :: Stmt :: new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
+            GetByIdAndTenantStmt(cornucopia_async::private::Stmt::new("select id, tenant_id, url, description, secret, created_at, events_to_listen, enabled
 from webhook_out_endpoint
 where id = $1 and tenant_id = $2
 limit 1"))
@@ -14929,7 +14722,7 @@ limit 1"))
             }
         }
         pub fn create_event() -> CreateEventStmt {
-            CreateEventStmt(cornucopia_async :: private :: Stmt :: new("insert into webhook_out_event(id, endpoint_id, event_type, request_body, response_body, http_status_code, error_message)
+            CreateEventStmt(cornucopia_async::private::Stmt::new("insert into webhook_out_event(id, endpoint_id, event_type, request_body, response_body, http_status_code, error_message)
 values ($1, $2, $3, $4, $5, $6, $7)
 returning id, endpoint_id, event_type, request_body, response_body, http_status_code, created_at, error_message"))
         }

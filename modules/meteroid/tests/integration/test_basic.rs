@@ -172,7 +172,7 @@ async fn test_main() {
         .unwrap()
         .into_inner();
 
-    let db_subscription = meteroid_repository::subscriptions::subscription_by_id()
+    let db_subscription = meteroid_repository::subscriptions::get_subscription_by_id()
         .bind(
             &get_connection(&setup.pool).await.unwrap(),
             &uuid::Uuid::parse_str(subscription.subscription.clone().unwrap().id.as_str()).unwrap(),

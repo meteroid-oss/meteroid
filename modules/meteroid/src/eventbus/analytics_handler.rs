@@ -468,7 +468,7 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let conn = self.get_db_connection().await?;
 
-        let subscription = meteroid_repository::subscriptions::subscription_by_id()
+        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
             .bind(
                 &conn,
                 &event_data_details.entity_id,
@@ -482,7 +482,7 @@ impl AnalyticsHandler {
             "subscription-created".to_string(),
             event.actor,
             serde_json::json!({
-                "subscription_id": subscription.subscription_id,
+                "subscription_id": subscription.id,
                 "tenant_id": subscription.tenant_id,
                 "customer_id": subscription.customer_id,
                 "currency": subscription.currency,

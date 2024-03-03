@@ -13,9 +13,12 @@ use crate::parse_uuid;
 use common_grpc::middleware::server::auth::RequestExt;
 use cornucopia_async::{GenericClient, Params};
 use meteroid_grpc::meteroid::api::components::v1::fee::r#type::Fee;
+use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
-use meteroid_grpc::meteroid::api::subscriptions::v1::ApplySlotsDeltaRequest;
 use meteroid_grpc::meteroid::api::subscriptions::v1::ApplySlotsDeltaResponse;
+use meteroid_grpc::meteroid::api::subscriptions::v1::{
+    ApplySlotsDeltaRequest, CancelSubscriptionRequest, CancelSubscriptionResponse,
+};
 use meteroid_grpc::meteroid::api::subscriptions::v1::{
     CreateSubscriptionRequest, CreateSubscriptionResponse, GetSubscriptionDetailsRequest,
     GetSubscriptionDetailsResponse, ListSubscriptionsRequest, ListSubscriptionsResponse,
@@ -194,7 +197,6 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             created_by: actor,
             plan_version_id: plan_version_id.clone(),
             parameters: serialized_params,
-            status: db::SubscriptionStatusEnum::PENDING,
             // TODO can optimize, but with the component-based approach that's ok as long as it is the minimum
             effective_billing_period: BillingPeriodEnum::MONTHLY,
             billing_day: inner.billing_day as i16,
@@ -236,21 +238,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await?;
         }
 
-        let subscription = db::subscriptions::subscription_by_id()
-            .bind(&transaction, &subscription_id, &tenant_id)
-            .one()
-            .await
-            .map_err(|e| {
-                Status::internal("Failed to get subscription")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+        let subscription = subscription_by_id(&transaction, &subscription_id, &tenant_id).await?;
 
         let invoice_lines = self
             .compute_service
             .calculate_invoice_lines(
                 &transaction,
                 &subscription_id,
+                &tenant_id,
                 &date_to_chrono(subscription.billing_start_date)?,
             )
             .await
@@ -275,7 +270,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             plan_version_id,
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
-            subscription_id: subscription.subscription_id,
+            subscription_id: subscription.id,
             currency: subscription.currency.clone(),
             days_until_due: subscription.net_terms,
             line_items: serialized_invoice_lines,
@@ -303,7 +298,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .eventbus
             .publish(Event::subscription_created(
                 actor,
-                subscription.subscription_id,
+                subscription.id,
                 subscription.tenant_id,
             ))
             .await;
@@ -329,19 +324,12 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
         let connection = self.get_connection().await?;
 
-        let subscription = db::subscriptions::subscription_by_id()
-            .bind(
-                &connection,
-                &parse_uuid!(inner.subscription_id)?,
-                &tenant_id,
-            )
-            .one()
-            .await
-            .map_err(|e| {
-                Status::internal("Failed to get subscription")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+        let subscription = subscription_by_id(
+            &connection,
+            &parse_uuid!(inner.subscription_id)?,
+            &tenant_id,
+        )
+        .await?;
 
         let rs = mapping::subscriptions::db_to_proto(subscription)?;
 
@@ -355,6 +343,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         &self,
         request: Request<ApplySlotsDeltaRequest>,
     ) -> Result<Response<ApplySlotsDeltaResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
         let inner = request.into_inner();
 
         if inner.delta == 0 {
@@ -373,6 +363,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscription = &SubscriptionClient::fetch_subscription_details(
             &transaction,
             &subscription_id,
+            &tenant_id,
             &now_chrono.date(),
         )
         .await
@@ -555,6 +546,97 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             active_slots: (active_slots + inner.delta.max(0)) as u32,
         }))
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn cancel_subscription(
+        &self,
+        request: Request<CancelSubscriptionRequest>,
+    ) -> Result<Response<CancelSubscriptionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let inner = request.into_inner();
+        let subscription_id = parse_uuid!(inner.subscription_id)?;
+
+        let mut connection = self.get_connection().await?;
+        let transaction = self.get_transaction(&mut connection).await?;
+
+        let now_chrono = chrono::Utc::now().naive_utc();
+        let now = chrono_to_datetime(now_chrono)?;
+
+        let subscription = &SubscriptionClient::fetch_subscription_details(
+            &transaction,
+            &subscription_id,
+            &tenant_id,
+            &now_chrono.date(),
+        )
+        .await
+        .map_err(|e| {
+            Status::internal("Failed to fetch subscription details")
+                .set_source(Arc::new(ErrorWrapper::from(e)))
+                .clone()
+        })?;
+
+        let effective_at = inner.effective_at();
+
+        let period_idx = period::calculate_period_idx(
+            subscription.billing_start_date,
+            subscription.billing_day as u32,
+            now_chrono.date(),
+            subscription.effective_billing_period,
+        );
+
+        let (_, period_end) = period::calculate_period_range(
+            subscription.billing_start_date,
+            subscription.billing_day as u32,
+            period_idx,
+            subscription.effective_billing_period,
+        );
+
+        let current_period_end = chrono_to_date(period_end)?;
+
+        let billing_end_date = match effective_at {
+            EffectiveAt::BillingPeriodEnd => current_period_end,
+        };
+
+        db::subscriptions::cancel_subscription()
+            .bind(&transaction, &billing_end_date, &now, &subscription_id)
+            .await
+            .map_err(|e| {
+                Status::internal("Failed to cancel subscription")
+                    .set_source(Arc::new(e))
+                    .clone()
+            })?;
+
+        transaction.commit().await.map_err(|e| {
+            Status::internal("Failed to commit transaction")
+                .set_source(Arc::new(e))
+                .clone()
+        })?;
+
+        let subscription = subscription_by_id(&connection, &subscription_id, &tenant_id).await?;
+
+        let rs = mapping::subscriptions::db_to_proto(subscription)?;
+
+        Ok(Response::new(CancelSubscriptionResponse {
+            subscription: Some(rs),
+        }))
+    }
+}
+
+async fn subscription_by_id<C: GenericClient>(
+    transaction: &C,
+    subscription_id: &Uuid,
+    tenant_id: &Uuid,
+) -> Result<db::subscriptions::Subscription, Status> {
+    db::subscriptions::get_subscription_by_id()
+        .bind(transaction, subscription_id, tenant_id)
+        .one()
+        .await
+        .map_err(|e| {
+            log::error!("Failed to get subscription: {:?}", e);
+            Status::internal("Failed to get subscription")
+                .set_source(Arc::new(e))
+                .clone()
+        })
 }
 
 #[tracing::instrument(skip(transaction))]

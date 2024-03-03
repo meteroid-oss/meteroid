@@ -24,10 +24,11 @@ impl SubscriptionClient {
     pub async fn fetch_subscription_details<C: GenericClient>(
         db_client: &C,
         subscription_id: &Uuid,
+        tenant_id: &Uuid,
         invoice_date: &NaiveDate,
     ) -> anyhow::Result<SubscriptionDetails> {
-        let subscription = meteroid_repository::subscriptions::get_subscription_current_period()
-            .bind(db_client, &subscription_id)
+        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
+            .bind(db_client, subscription_id, tenant_id)
             .one()
             .await?;
 

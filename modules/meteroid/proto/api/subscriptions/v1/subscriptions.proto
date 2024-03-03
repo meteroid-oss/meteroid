@@ -52,9 +52,24 @@ message ApplySlotsDeltaResponse {
   uint32 active_slots = 1;
 }
 
+message CancelSubscriptionRequest {
+  string subscription_id = 1;
+  optional string reason = 2;
+  EffectiveAt effective_at = 3;
+
+  enum EffectiveAt {
+    BillingPeriodEnd = 0;
+  }
+}
+
+message CancelSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
 service SubscriptionsService {
   rpc ListSubscriptions (ListSubscriptionsRequest) returns (ListSubscriptionsResponse) {}
   rpc CreateSubscription (CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
   rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse) {}
   rpc ApplySlotsDelta(ApplySlotsDeltaRequest) returns (ApplySlotsDeltaResponse) {}
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse) {}
 }
