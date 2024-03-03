@@ -1,28 +1,29 @@
 [workspace]
 resolver = "2"
 members = [
-    # meteroid
-    "modules/meteroid",
-    "modules/meteroid/crates/meteroid-grpc",
-    "modules/meteroid/crates/meteroid-repository",
-    "modules/meteroid/crates/stripe-client",
-    # metering
-    "modules/metering",
-    "modules/metering/crates/metering-grpc",
-    # shared
-    "crates/kafka",
-    "crates/common-build-info",
-    "crates/common-config",
-    "crates/common-domain",
-    "crates/common-grpc",
-    "crates/common-logging",
-    "crates/cornucopia-build",
-    "crates/common-repository",
-    "crates/common-utils",
-    "crates/distributed-lock",
-    # extra
-    "extra/generator"
-
+  # meteroid
+  "modules/meteroid",
+  "modules/meteroid/crates/meteroid-grpc",
+  "modules/meteroid/crates/meteroid-repository",
+  "modules/meteroid/crates/stripe-client",
+  # metering
+  "modules/metering",
+  "modules/metering/crates/metering-grpc",
+  # shared
+  "crates/kafka",
+  "crates/common-build-info",
+  "crates/common-config",
+  "crates/common-domain",
+  "crates/common-grpc",
+  "crates/common-grpc-source-details-macros",
+  "crates/common-grpc-source-details-macros-impl",
+  "crates/common-logging",
+  "crates/cornucopia-build",
+  "crates/common-repository",
+  "crates/common-utils",
+  "crates/distributed-lock",
+  # extra
+  "extra/generator"
 ]
 
 [workspace.package]
@@ -68,7 +69,7 @@ jsonwebtoken = "9.2.0"
 lazy_static = "1"
 log = "0.4.20"
 miette = { version = "7.0.0", default-features = false }
-moka = { version = "0.12.3", features = ["log", "logging", "sync"]}
+moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 mockito = "1.2.0"
 nanoid = "0.4.0"
 once_cell = "1.18.0"
@@ -114,6 +115,7 @@ tonic-build = "0.10.2"
 tonic-health = "0.10.2"
 tonic-reflection = "0.10.2"
 tonic-tracing-opentelemetry = "0.14.1" # do not update https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
+tonic-types = "0.10.2"
 tonic-web = "0.10.2"
 tower = { version = "0.4.13" }
 tower-service = { version = "0.3.2" }
@@ -150,6 +152,8 @@ common-config = { path = "crates/common-config" }
 common-logging = { path = "crates/common-logging" }
 common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }
+common-grpc-source-details-macros = { path = "crates/common-grpc-source-details-macros" }
+common-grpc-source-details-macros-impl = { path = "crates/common-grpc-source-details-macros-impl" }
 metering-grpc = { path = "modules/metering/crates/metering-grpc" }
 meteroid-grpc = { path = "modules/meteroid/crates/meteroid-grpc" }
 meteroid-repository = { path = "modules/meteroid/crates/meteroid-repository" }

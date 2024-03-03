@@ -7,7 +7,8 @@ license.workspace = true
 
 [dependencies]
 common-config.workspace = true
-common-logging = {workspace = true}
+common-logging = { workspace = true }
+common-grpc-source-details-macros = { workspace = true }
 
 cached = { workspace = true, features = ["async", "tokio"] }
 prost.workspace = true
@@ -16,10 +17,12 @@ chrono = { workspace = true, features = ["clock"] }
 time.workspace = true
 rust_decimal.workspace = true
 serde = { workspace = true, features = ["derive"] }
-cornucopia_async = { workspace = true, optional = true, features = ["with-serde_json-1", "deadpool"]}
+serde_json.workspace = true
+cornucopia_async = { workspace = true, optional = true, features = ["with-serde_json-1", "deadpool"] }
 http = { workspace = true }
 moka = { workspace = true }
 tonic = { workspace = true }
+tonic-types = { workspace = true }
 tonic-tracing-opentelemetry.workspace = true
 tower = { workspace = true }
 tower-layer = { workspace = true }
@@ -50,10 +53,8 @@ sha2 = { workspace = true }
 secrecy = { workspace = true }
 jsonwebtoken.workspace = true
 
-
 [build-dependencies]
 prost-build.workspace = true
-
 
 [features]
 server = ["dep:common-repository", "dep:meteroid-repository", "dep:cornucopia_async"]

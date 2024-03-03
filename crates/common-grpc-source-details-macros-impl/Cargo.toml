@@ -1,0 +1,19 @@
+[package]
+name = "common-grpc-source-details-macros-impl"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+proc-macro-derive = true
+
+
+[dependencies]
+common-grpc-source-details-macros.workspace = true
+
+quote = "1.0.35"
+syn = "2.0.48"
