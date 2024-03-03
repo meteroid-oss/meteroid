@@ -15,5 +15,5 @@ proc-macro-derive = true
 [dependencies]
 common-grpc-source-details-macros.workspace = true
 
-quote = "1.0.35"
-syn = "2.0.48"
+quote.workspace = true
+syn.workspace = true

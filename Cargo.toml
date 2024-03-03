@@ -80,6 +80,7 @@ prost = "0.12.1"
 prost-build = "0.12.1"
 prost-types = "0.12.1"
 pbjson-build = "0.6.2"
+quote = "1.0.35"
 rand = "0.8.5"
 rdkafka = "0.36.0"
 reqwest = { version = "0.11.22", default-features = false }
@@ -98,6 +99,7 @@ serde = { version = "1.0.189", default-features = false }
 serde_json = "1.0.107"
 serde_path_to_error = "0.1.14"
 serde_qs = "0.12.0"
+syn = "2.0.48"
 sha2 = "0.10.8"
 testcontainers = "0.15.0"
 testcontainers-modules = { version = "0.3.2", default-features = false }
