@@ -1,20 +1,19 @@
-use common_grpc::middleware::server::auth::RequestExt;
 use cornucopia_async::Params;
-use meteroid_repository as db;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-use crate::api::services::utils::{parse_uuid, uuid_gen};
-
-use crate::api::services::customers::error::CustomerServiceError;
-use crate::api::services::utils::PaginationExt;
-use crate::eventbus::Event;
+use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, list_customer_request::SortBy,
     CreateCustomerRequest, CreateCustomerResponse, Customer, GetCustomerByAliasRequest,
     GetCustomerRequest, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
     PatchCustomerResponse,
 };
+use meteroid_repository as db;
+
+use crate::api::services::customers::error::CustomerServiceError;
+use crate::api::services::utils::PaginationExt;
+use crate::api::services::utils::{parse_uuid, uuid_gen};
+use crate::eventbus::Event;
 
 use super::{mapping, CustomerServiceComponents};
 
@@ -33,10 +32,13 @@ impl CustomersService for CustomerServiceComponents {
 
         let serialized_config = inner
             .billing_config
-            .ok_or_else(|| Status::invalid_argument("Missing billing_config"))
+            .ok_or_else(|| CustomerServiceError::MissingArgument("billing_config".to_string()))
             .and_then(|billing_config| {
                 serde_json::to_value(&billing_config).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to serialize billing_config: {}", e))
+                    CustomerServiceError::SerializationError(
+                        "failed to serialize billing_config".to_string(),
+                        e,
+                    )
                 })
             })?;
 
@@ -64,9 +66,7 @@ impl CustomersService for CustomerServiceComponents {
             .await;
 
         let rs = mapping::customer::create_db_to_server(customer).map_err(|e| {
-            Status::internal("Failed to map db customer to proto")
-                .set_source(Arc::new(e))
-                .clone()
+            CustomerServiceError::MappingError("failed to map db customer to proto".to_string(), e)
         })?;
 
         Ok(Response::new(CreateCustomerResponse { customer: Some(rs) }))
@@ -81,19 +81,20 @@ impl CustomersService for CustomerServiceComponents {
         let actor = request.actor()?;
         let connection = self.get_connection().await?;
 
-        let customer = request
-            .into_inner()
-            .customer
-            .ok_or(Status::internal("customer payload missing").clone())?;
+        let customer =
+            request
+                .into_inner()
+                .customer
+                .ok_or(CustomerServiceError::MissingArgument(
+                    "customer payload missing".to_string(),
+                ))?;
 
         let saved_customer = db::customers::get_customer_by_id()
             .bind(&connection, &parse_uuid(&customer.id, "id")?)
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get customer")
-                    .set_source(Arc::new(e))
-                    .clone()
+                CustomerServiceError::DatabaseError("failed to get customer".to_string(), e)
             })?;
 
         let params = db::customers::PatchCustomerParams {
@@ -123,9 +124,7 @@ impl CustomersService for CustomerServiceComponents {
             .params(&connection, &params)
             .await
             .map_err(|e| {
-                Status::internal("Failed to patch customer")
-                    .set_source(Arc::new(e))
-                    .clone()
+                CustomerServiceError::DatabaseError("Failed to patch customer".to_string(), e)
             })?;
 
         let _ = self
@@ -165,9 +164,7 @@ impl CustomersService for CustomerServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Failed to list customers")
-                    .set_source(Arc::new(e))
-                    .clone()
+                CustomerServiceError::DatabaseError("Failed to list customers".to_string(), e)
             })?;
 
         let total = customers.first().map(|c| c.total_count).unwrap_or(0);
@@ -197,15 +194,11 @@ impl CustomersService for CustomerServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get customer")
-                    .set_source(Arc::new(e))
-                    .clone()
+                CustomerServiceError::DatabaseError("failed to get customer".to_string(), e)
             })?;
 
         let rs = mapping::customer::db_to_server(customer).map_err(|e| {
-            Status::internal("Failed to map db customer to proto")
-                .set_source(Arc::new(e))
-                .clone()
+            CustomerServiceError::MappingError("failed to map db customer to proto".to_string(), e)
         })?;
 
         Ok(Response::new(rs))
@@ -226,15 +219,14 @@ impl CustomersService for CustomerServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get customer by alias")
-                    .set_source(Arc::new(e))
-                    .clone()
+                CustomerServiceError::DatabaseError(
+                    "failed to get customer by alias".to_string(),
+                    e,
+                )
             })?;
 
         let rs = mapping::customer::db_to_server(customer).map_err(|e| {
-            Status::internal("Failed to map db customer to proto")
-                .set_source(Arc::new(e))
-                .clone()
+            CustomerServiceError::MappingError("failed to map db customer to proto".to_string(), e)
         })?;
 
         Ok(Response::new(rs))
