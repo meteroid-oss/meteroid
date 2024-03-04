@@ -118,7 +118,7 @@ tonic-build = "0.10.2"
 tonic-health = "0.10.2"
 tonic-reflection = "0.10.2"
 tonic-tracing-opentelemetry = "0.14.1" # do not update https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
-tonic-types = "0.10.2"
+tonic-types = "0.11.0"
 tonic-web = "0.10.2"
 tower = { version = "0.4.13" }
 tower-service = { version = "0.3.2" }
