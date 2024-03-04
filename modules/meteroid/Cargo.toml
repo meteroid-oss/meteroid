@@ -15,8 +15,8 @@ common-build-info = { workspace = true }
 common-config = { workspace = true }
 common-logging = { workspace = true }
 common-grpc = { workspace = true, features = ["server"] }
-common-grpc-source-details-macros = { workspace = true }
-common-grpc-source-details-macros-impl = { workspace = true }
+common-grpc-error-as-tonic-macros = { workspace = true }
+common-grpc-error-as-tonic-macros-impl = { workspace = true }
 meteroid-grpc = { path = "crates/meteroid-grpc", features = ["server"] }
 meteroid-repository = { path = "crates/meteroid-repository", features = [] }
 cornucopia_async = { workspace = true, features = ["with-serde_json-1", "deadpool"] }

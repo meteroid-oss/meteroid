@@ -1,9 +1,8 @@
 use common_grpc::middleware::server::auth::RequestExt;
-use common_grpc_source_details_macros::SourceDetailsError;
 use cornucopia_async::Params;
 use meteroid_repository as db;
 use std::sync::Arc;
-use tonic::{Code, Request, Response, Status};
+use tonic::{Request, Response, Status};
 
 use crate::api::services::utils::{parse_uuid, uuid_gen};
 
@@ -56,8 +55,10 @@ impl CustomersService for CustomerServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                CustomerServiceError::DatabaseError("Failed to create customer".to_string(), e)
-                    .as_status(Code::InvalidArgument)
+                Status::from(CustomerServiceError::DatabaseError(
+                    "Failed to create customer".to_string(),
+                    e,
+                ))
             })?;
 
         let _ = self

@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use common_grpc_source_details_macros::SourceDetails;
+use common_grpc_error_as_tonic_macros::{SourceDetails, HEADER_SOURCE_DETAILS};
 use futures::ready;
 use http::{Request, Response};
 use pin_project::pin_project;
@@ -13,7 +13,6 @@ use tonic::{Code, Status};
 use tower::{Layer, Service};
 use tracing::log::{logger, Level, MetadataBuilder, Record};
 
-use crate::middleware::common::error_logger::HEADER_SOURCE_DETAILS;
 use crate::GrpcServiceMethod;
 
 #[derive(Debug, Clone, Default)]

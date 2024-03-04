@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 common-config.workspace = true
 common-logging = { workspace = true }
-common-grpc-source-details-macros = { workspace = true }
+common-grpc-error-as-tonic-macros = { workspace = true }
 
 cached = { workspace = true, features = ["async", "tokio"] }
 prost.workspace = true
