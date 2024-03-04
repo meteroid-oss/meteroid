@@ -277,7 +277,8 @@ FROM revenue_ytd,
 SELECT COUNT(*) AS total
 FROM subscription
 WHERE tenant_id = :tenant_id
-  AND status = 'ACTIVE';
+  AND now() >= activated_at
+  AND now() <= billing_end_date;
 
 --! query_pending_invoices
 WITH tenant_currency AS (

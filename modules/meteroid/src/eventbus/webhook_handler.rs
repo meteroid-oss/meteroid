@@ -212,7 +212,7 @@ impl WebhookHandler {
     ) -> Result<WebhookEvent, EventBusError> {
         let conn = self.get_db_connection().await?;
 
-        let subscription = meteroid_repository::subscriptions::subscription_by_id()
+        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
             .bind(
                 &conn,
                 &event_data_details.entity_id,

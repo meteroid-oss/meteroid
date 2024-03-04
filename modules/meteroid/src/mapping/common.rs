@@ -47,7 +47,7 @@ pub fn time_to_chrono(time_date: time::Time) -> Result<NaiveTime, MappingError> 
 }
 
 pub fn datetime_to_chrono(
-    time_date: time::PrimitiveDateTime,
+    time_date: &time::PrimitiveDateTime,
 ) -> Result<NaiveDateTime, MappingError> {
     let time = time_to_chrono(time_date.time())?;
     let date = date_to_chrono(time_date.date())?;

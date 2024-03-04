@@ -13,6 +13,7 @@ use crate::errors;
 
 use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::{InvoicingAdapter, ParsedRequest};
+use crate::datetime::time_utc_now;
 use crate::errors::InvoicingAdapterError;
 use crate::models::InvoiceLine;
 use axum::response::IntoResponse;
@@ -22,10 +23,9 @@ use deadpool_postgres::Pool;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
+use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_repository as db;
-use meteroid_repository::{
-    InvoiceExternalStatusEnum, InvoicingProviderEnum, SubscriptionStatusEnum,
-};
+use meteroid_repository::{InvoiceExternalStatusEnum, InvoicingProviderEnum};
 use stripe_client::webhook::event_type;
 use stripe_client::webhook::StripeWebhook;
 use uuid::Uuid;
@@ -216,15 +216,13 @@ impl Stripe {
             .await
             .change_context(errors::AdapterWebhookError::DatabaseError)?;
 
-        if let Some(subscription_status) =
-            Self::invoice_status_to_subscription_status(external_status)
-        {
-            db::subscriptions::update_subscription_status()
+        if let Some(_) = Self::invoice_status_to_subscription_status(external_status) {
+            db::subscriptions::activate_subscription()
                 .params(
                     &transaction,
-                    &db::subscriptions::UpdateSubscriptionStatusParams {
+                    &db::subscriptions::ActivateSubscriptionParams {
                         id: invoice.subscription_id,
-                        status: subscription_status,
+                        activated_at: time_utc_now(),
                     },
                 )
                 .await
@@ -241,9 +239,9 @@ impl Stripe {
 
     fn invoice_status_to_subscription_status(
         invoice_status: InvoiceExternalStatusEnum,
-    ) -> Option<SubscriptionStatusEnum> {
+    ) -> Option<SubscriptionStatus> {
         match invoice_status {
-            InvoiceExternalStatusEnum::PAID => Some(SubscriptionStatusEnum::ACTIVE),
+            InvoiceExternalStatusEnum::PAID => Some(SubscriptionStatus::Active),
             // todo what if payment failed? should we leave subscription Pending?
             _ => None,
         }
