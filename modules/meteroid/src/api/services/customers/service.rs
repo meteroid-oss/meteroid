@@ -3,19 +3,19 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
-    CreateCustomerRequest, CreateCustomerResponse,
-    Customer, customers_service_server::CustomersService, GetCustomerByAliasRequest, GetCustomerRequest,
-    list_customer_request::SortBy, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
+    customers_service_server::CustomersService, list_customer_request::SortBy,
+    CreateCustomerRequest, CreateCustomerResponse, Customer, GetCustomerByAliasRequest,
+    GetCustomerRequest, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
     PatchCustomerResponse,
 };
 use meteroid_repository as db;
 
 use crate::api::services::customers::error::CustomerServiceError;
-use crate::api::services::utils::{parse_uuid, uuid_gen};
 use crate::api::services::utils::PaginationExt;
+use crate::api::services::utils::{parse_uuid, uuid_gen};
 use crate::eventbus::Event;
 
-use super::{CustomerServiceComponents, mapping};
+use super::{mapping, CustomerServiceComponents};
 
 #[tonic::async_trait]
 impl CustomersService for CustomerServiceComponents {
