@@ -5,7 +5,7 @@
     "@md/tsconfig": "workspace:*",
     "@svgr/babel-plugin-remove-jsx-attribute": "^8.0.0",
     "@svgr/cli": "^8.1.0",
-    "eslint-config-next": "^14.1.0",
+    "eslint-config-next": "^14.1.2",
     "onchange": "^7.1.0",
     "path": "^0.12.7",
     "replace-in-file": "^7.1.0",
