@@ -55,10 +55,7 @@ impl CustomersService for CustomerServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::from(CustomerServiceError::DatabaseError(
-                    "Failed to create customer".to_string(),
-                    e,
-                ))
+                CustomerServiceError::DatabaseError("Failed to create customer".to_string(), e)
             })?;
 
         let _ = self

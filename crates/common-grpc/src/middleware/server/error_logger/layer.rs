@@ -4,7 +4,6 @@ use std::{
     task::{Context, Poll},
 };
 
-use common_grpc_error_as_tonic_macros::{SourceDetails, HEADER_SOURCE_DETAILS};
 use futures::ready;
 use http::{Request, Response};
 use pin_project::pin_project;
@@ -12,6 +11,8 @@ use tonic::metadata::MetadataMap;
 use tonic::{Code, Status};
 use tower::{Layer, Service};
 use tracing::log::{logger, Level, MetadataBuilder, Record};
+
+use common_grpc_error_as_tonic_macros::{SourceDetails, HEADER_SOURCE_DETAILS};
 
 use crate::GrpcServiceMethod;
 
@@ -87,17 +88,17 @@ where
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
-        let mut res = ready!(this.future.poll(cx));
+        let future_result = ready!(this.future.poll(cx));
 
-        let (mut res, grpc_status_code) = match res {
-            Ok(mut res) => {
-                let maybe_status = Status::from_header_map(res.headers());
-                let metadata_map = MetadataMap::from_headers(res.headers().clone());
+        let (result, grpc_status_code) = match future_result {
+            Ok(mut response) => {
+                let maybe_status = Status::from_header_map(response.headers());
+                let metadata_map = MetadataMap::from_headers(response.headers().clone());
 
                 // removing custom header from response
                 // because this workaround is necessary for logging
                 // source details error only on server side
-                let _ = res.headers_mut().remove(HEADER_SOURCE_DETAILS);
+                let _ = response.headers_mut().remove(HEADER_SOURCE_DETAILS);
 
                 match maybe_status {
                     Some(status) => {
@@ -106,35 +107,39 @@ where
                                 metadata_map.get_bin(HEADER_SOURCE_DETAILS);
 
                             if let Some(header_source_details) = maybe_header_source_details {
-                                let source_details: SourceDetails = serde_json::from_slice(
-                                    &header_source_details.to_bytes().unwrap().to_vec(),
-                                )
-                                .unwrap();
+                                let bytes = header_source_details.to_bytes().unwrap();
+                                let source_details: SourceDetails =
+                                    serde_json::from_slice(&bytes).unwrap();
 
                                 logger().log(
                                     &Record::builder()
                                         .metadata(
                                             MetadataBuilder::new()
-                                                .target(source_details.location.as_str())
+                                                .target(source_details.location_file.as_str())
                                                 .level(Level::Error)
                                                 .build(),
                                         )
                                         .args(format_args!(
-                                            "Failed to process {}/{} due {}",
-                                            this.sm.service, this.sm.method, source_details.source
+                                            "Failed to process gRPC {}/{} due to {} : {}",
+                                            this.sm.service,
+                                            this.sm.method,
+                                            source_details.msg,
+                                            source_details.source
                                         ))
-                                        // .file(Some(loc.file()))
-                                        // .line(Some(loc.line()))
-                                        // .level(level)
+                                        .file(Some(source_details.location_file.as_str()))
+                                        .line(Some(source_details.location_line))
                                         .build(),
                                 )
                             }
                         }
                     }
-                    None => {}
+                    None => {
+                        // not gRPC request?
+                        // ignoring
+                    }
                 }
 
-                (Ok(res), Code::Ok)
+                (Ok(response), Code::Ok)
             }
             Err(err) => {
                 let status = Status::from_error(err);
@@ -142,6 +147,6 @@ where
             }
         };
 
-        Poll::Ready(res)
+        Poll::Ready(result)
     }
 }
