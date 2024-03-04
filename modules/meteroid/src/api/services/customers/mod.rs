@@ -9,6 +9,7 @@ use meteroid_repository::Pool;
 use crate::db::{get_connection, get_transaction};
 use crate::eventbus::{Event, EventBus};
 
+pub mod error;
 pub mod mapping;
 mod service;
 

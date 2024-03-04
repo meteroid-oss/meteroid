@@ -6,6 +6,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::services::utils::{parse_uuid, uuid_gen};
 
+use crate::api::services::customers::error::CustomerServiceError;
 use crate::api::services::utils::PaginationExt;
 use crate::eventbus::Event;
 use meteroid_grpc::meteroid::api::customers::v1::{
@@ -54,9 +55,7 @@ impl CustomersService for CustomerServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to create customer")
-                    .set_source(Arc::new(e))
-                    .clone()
+                CustomerServiceError::DatabaseError("Failed to create customer".to_string(), e)
             })?;
 
         let _ = self
