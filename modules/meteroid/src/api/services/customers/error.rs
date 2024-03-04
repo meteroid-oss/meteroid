@@ -9,6 +9,21 @@ pub enum CustomerServiceError {
     #[code(InvalidArgument)]
     UnknownError(String),
 
+    #[error("Missing argument: {0}")]
+    #[code(InvalidArgument)]
+    MissingArgument(String),
+
+    #[error("Serialization error: {0}")]
+    #[code(InvalidArgument)]
+    SerializationError(String, #[source] serde_json::Error),
+
+    #[error("Mapping error: {0}")]
+    #[code(Internal)]
+    MappingError(
+        String,
+        #[source] crate::api::services::errors::DatabaseError,
+    ),
+
     #[error("Database error: {0}")]
     #[code(InvalidArgument)]
     DatabaseError(String, #[source] tokio_postgres::Error),
