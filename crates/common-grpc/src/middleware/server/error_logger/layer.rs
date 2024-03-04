@@ -90,7 +90,7 @@ where
         let this = self.project();
         let future_result = ready!(this.future.poll(cx));
 
-        let (result, grpc_status_code) = match future_result {
+        let result = match future_result {
             Ok(mut response) => {
                 let maybe_status = Status::from_header_map(response.headers());
                 let metadata_map = MetadataMap::from_headers(response.headers().clone());
@@ -139,11 +139,11 @@ where
                     }
                 }
 
-                (Ok(response), Code::Ok)
+                Ok(response)
             }
             Err(err) => {
                 let status = Status::from_error(err);
-                (Err::<_, BoxError>(status.clone().into()), status.code())
+                Err::<_, BoxError>(status.clone().into())
             }
         };
 
