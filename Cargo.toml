@@ -39,7 +39,7 @@ async-trait = "0.1.74"
 axum = { version = "0.6.20", default-features = false }
 backon = "0.4.1"
 base62 = "2.0.2"
-base64 = "0.21.4"
+base64 = "0.22.0"
 blake3 = "1.5.0"
 build-info = "0.0.35"
 build-info-build = "0.0.35"
