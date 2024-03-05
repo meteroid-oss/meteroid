@@ -1,8 +1,6 @@
 use deadpool_postgres::tokio_postgres;
-use error_stack::Report;
 use thiserror::Error;
 
-use crate::repo::errors::RepoError;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 
 #[derive(Debug, Error, ErrorAsTonic)]
@@ -13,7 +11,7 @@ pub enum TenantServiceError {
 
     #[error("Downstream service error: {0}")]
     #[code(InvalidArgument)]
-    DownstreamServiceError(String, #[source] Report<RepoError>),
+    DownstreamServiceError(String, #[source] Box<dyn std::error::Error + Sync + Send>),
 
     #[error("Database error: {0}")]
     #[code(InvalidArgument)]

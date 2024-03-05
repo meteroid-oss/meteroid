@@ -187,7 +187,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .billing_start
             .map(|d| {
                 shared::mapping::date::from_proto(d).map_err(|e| {
-                    SubscriptionServiceError::MappingError("unable to convert date".to_string(), e)
+                    SubscriptionServiceError::InvalidArgument(format!(
+                        "unable to convert date - {}",
+                        e
+                    ))
                 })
             })
             .transpose()?
@@ -211,10 +214,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .billing_end
                 .map(|d| {
                     shared::mapping::date::from_proto(d).map_err(|e| {
-                        SubscriptionServiceError::MappingError(
-                            "unable to convert date".to_string(),
-                            e,
-                        )
+                        SubscriptionServiceError::InvalidArgument(format!(
+                            "unable to convert date - {}",
+                            e
+                        ))
                     })
                 })
                 .transpose()?,

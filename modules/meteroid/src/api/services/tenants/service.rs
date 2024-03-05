@@ -165,7 +165,7 @@ impl TenantsService for TenantServiceComponents {
                     .map_err(|e| {
                         TenantServiceError::DownstreamServiceError(
                             "failed to create tenant billing_config".to_string(),
-                            e,
+                            Box::new(e.into_error()),
                         )
                     })?;
 
