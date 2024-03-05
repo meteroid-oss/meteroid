@@ -1,16 +1,16 @@
-use crate::{api::services::utils::parse_uuid, db::DbService, parse_uuid};
 use std::collections::HashSet;
 
-use meteroid_grpc::meteroid::internal::v1::internal_service_server::InternalService;
+use tonic::{Request, Response, Status};
 
+use meteroid_grpc::meteroid::internal::v1::internal_service_server::InternalService;
 use meteroid_grpc::meteroid::internal::v1::{
     ResolveApiKeyRequest, ResolveApiKeyResponse, ResolveCustomerExternalIdsRequest,
     ResolveCustomerExternalIdsResponse, ResolvedId,
 };
 use meteroid_repository as db;
 
-use std::sync::Arc;
-use tonic::{Request, Response, Status};
+use crate::api::services::internal::error::InternalServiceError;
+use crate::{api::services::utils::parse_uuid, db::DbService, parse_uuid};
 
 #[tonic::async_trait]
 impl InternalService for DbService {
@@ -27,9 +27,10 @@ impl InternalService for DbService {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Unable to resolve customer external ids")
-                    .set_source(Arc::new(e))
-                    .clone()
+                InternalServiceError::DatabaseError(
+                    "unable to resolve customer external ids".to_string(),
+                    e,
+                )
             })?;
 
         let mut customers: Vec<ResolvedId> = vec![];
@@ -66,9 +67,7 @@ impl InternalService for DbService {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to resolve api key")
-                    .set_source(Arc::new(e))
-                    .clone()
+                InternalServiceError::DatabaseError("unable to resolve api key".to_string(), e)
             })?;
 
         Ok(Response::new(ResolveApiKeyResponse {

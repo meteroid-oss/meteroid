@@ -1,5 +1,4 @@
 use meteroid_repository as db;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -15,6 +14,7 @@ use meteroid_grpc::meteroid::api::apitokens::v1::{
 use meteroid_repository::Params;
 use nanoid::nanoid;
 
+use crate::api::services::apitokens::error::ApiTokenServiceError;
 use crate::api::services::utils::rng::BASE62_ALPHABET;
 use crate::eventbus::Event;
 use argon2::{
@@ -39,9 +39,7 @@ impl ApiTokensService for ApiTokensServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                tonic::Status::internal("Unable to list api tokens")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ApiTokenServiceError::DatabaseError("unable to list api tokens".to_string(), e)
             })?;
 
         let result = api_tokens
@@ -85,8 +83,8 @@ impl ApiTokensService for ApiTokensServiceComponents {
         let api_key_hash = argon2
             .hash_password(&api_key_random.as_bytes(), &salt)
             .map_err(|e| {
-                log::error!("Unable to hash api key : {}", e);
-                Status::internal("Unable to hash api key")
+                log::error!("Unable to hash api key: {}", e);
+                ApiTokenServiceError::PasswordHashError("unable to hash api key".to_string())
             })?
             .to_string();
 
@@ -112,9 +110,7 @@ impl ApiTokensService for ApiTokensServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                tonic::Status::internal("Unable to create api token")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ApiTokenServiceError::DatabaseError("Unable to create api token".to_string(), e)
             })?;
 
         let _ = self
@@ -142,9 +138,10 @@ impl ApiTokensService for ApiTokensServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                tonic::Status::internal("Unable to get api token by hash")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ApiTokenServiceError::DatabaseError(
+                    "Unable to get api token by hash".to_string(),
+                    e,
+                )
             })?;
 
         Ok(Response::new(GetApiTokenByIdResponse {

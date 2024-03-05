@@ -6,6 +6,7 @@ use meteroid_repository::Pool;
 use std::sync::Arc;
 use tonic::Status;
 
+mod error;
 mod mapping;
 mod service;
 

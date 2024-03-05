@@ -1,16 +1,6 @@
 use cornucopia_async::Params;
-use meteroid_repository as db;
-use std::sync::Arc;
-
 use tonic::{Request, Response, Status};
 
-use crate::{
-    api::services::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
-
-use super::{mapping, PriceComponentServiceComponents};
-use crate::eventbus::Event;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::fee::r#type::Fee;
 use meteroid_grpc::meteroid::api::components::v1::{
@@ -19,6 +9,16 @@ use meteroid_grpc::meteroid::api::components::v1::{
     EmptyResponse, ListPriceComponentRequest, ListPriceComponentResponse,
     RemovePriceComponentRequest,
 };
+use meteroid_repository as db;
+
+use crate::api::services::pricecomponents::error::PriceComponentServiceError;
+use crate::eventbus::Event;
+use crate::{
+    api::services::utils::{parse_uuid, uuid_gen},
+    parse_uuid,
+};
+
+use super::{mapping, PriceComponentServiceComponents};
 
 #[tonic::async_trait]
 impl PriceComponentsService for PriceComponentServiceComponents {
@@ -70,10 +70,13 @@ impl PriceComponentsService for PriceComponentServiceComponents {
 
         let serialized_fee = req
             .fee_type
-            .ok_or_else(|| Status::invalid_argument("Missing fee_type"))
+            .ok_or_else(|| PriceComponentServiceError::MissingArgument("fee_type".to_string()))
             .and_then(|fee_type| {
                 serde_json::to_value(&fee_type).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to serialize fee_type: {}", e))
+                    PriceComponentServiceError::SerializationError(
+                        "Failed to serialize fee_type".to_string(),
+                        e,
+                    )
                 })
             })?;
 
@@ -96,9 +99,10 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to create price component")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PriceComponentServiceError::DatabaseError(
+                    "unable to create price component".to_string(),
+                    e,
+                )
             })?;
 
         let component = db::price_components::get_price_component()
@@ -112,15 +116,11 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get component")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PriceComponentServiceError::DatabaseError("unable to get component".to_string(), e)
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            PriceComponentServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         let response = mapping::components::db_to_server(component.clone())?;
@@ -152,11 +152,11 @@ impl PriceComponentsService for PriceComponentServiceComponents {
 
         let req_component = req
             .component
-            .ok_or_else(|| Status::invalid_argument("Missing component"))?;
+            .ok_or_else(|| PriceComponentServiceError::MissingArgument("component".to_string()))?;
 
         let fee_type = req_component
             .fee_type
-            .ok_or_else(|| Status::invalid_argument("Missing fee_type"))?;
+            .ok_or_else(|| PriceComponentServiceError::MissingArgument("fee_type".to_string()))?;
 
         let metric_id = fee_type.fee.as_ref().and_then(|f| match f {
             Fee::Rate(_) => None,
@@ -168,7 +168,10 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         });
 
         let serialized_fee = serde_json::to_value(fee_type).map_err(|e| {
-            Status::invalid_argument(format!("Failed to serialize fee_type: {}", e))
+            PriceComponentServiceError::SerializationError(
+                "failed to serialize fee_type".to_string(),
+                e,
+            )
         })?;
 
         let product_item = req_component.product_item;
@@ -190,9 +193,10 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             //.one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to edit price component")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PriceComponentServiceError::DatabaseError(
+                    "unable to edit price component".to_string(),
+                    e,
+                )
             })?;
 
         let component = db::price_components::get_price_component()
@@ -206,15 +210,11 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get component")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PriceComponentServiceError::DatabaseError("unable to get component".to_string(), e)
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            PriceComponentServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         let response = mapping::components::db_to_server(component.clone())?;
@@ -255,9 +255,10 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to remove price component")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PriceComponentServiceError::DatabaseError(
+                    "Unable to remove price component".to_string(),
+                    e,
+                )
             })?;
 
         let _ = self

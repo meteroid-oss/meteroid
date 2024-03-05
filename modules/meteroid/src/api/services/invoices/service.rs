@@ -1,3 +1,5 @@
+use tonic::{Request, Response, Status};
+
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
@@ -5,12 +7,12 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
 };
 use meteroid_repository as db;
 use meteroid_repository::Params;
-use std::sync::Arc;
-use tonic::{Request, Response, Status};
 
-use super::{mapping, DbService};
+use crate::api::services::invoices::error::InvoiceServiceError;
 use crate::api::services::utils::parse_uuid;
 use crate::api::services::utils::PaginationExt;
+
+use super::{mapping, DbService};
 
 #[tonic::async_trait]
 impl InvoicesService for DbService {
@@ -47,9 +49,10 @@ impl InvoicesService for DbService {
             .all()
             .await
             .map_err(|e| {
-                Status::internal(format!("Unable to list invoices of {}", tenant_id))
-                    .set_source(Arc::new(e))
-                    .clone()
+                InvoiceServiceError::DatabaseError(
+                    format!("Unable to list invoices of {}", tenant_id),
+                    e,
+                )
             })?;
 
         let total = invoices.first().map(|p| p.total_count).unwrap_or(0);
@@ -85,9 +88,10 @@ impl InvoicesService for DbService {
             .one()
             .await
             .map_err(|e| {
-                Status::internal(format!("Unable to get invoice {} of {}", req.id, tenant_id))
-                    .set_source(Arc::new(e))
-                    .clone()
+                InvoiceServiceError::DatabaseError(
+                    format!("Unable to get invoice {} of {}", req.id, tenant_id),
+                    e,
+                )
             })?;
 
         let response = GetInvoiceResponse {

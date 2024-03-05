@@ -1,16 +1,6 @@
 use cornucopia_async::Params;
-use meteroid_repository as db;
-use std::sync::Arc;
-
 use tonic::{Request, Response, Status};
 
-use crate::{
-    api::services::utils::{parse_uuid, uuid_gen},
-    db::DbService,
-    parse_uuid,
-};
-
-use crate::api::services::shared::mapping::period::billing_period_to_db;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::schedules::v1::{
     schedules_service_server::SchedulesService, CreateScheduleRequest, CreateScheduleResponse,
@@ -18,6 +8,15 @@ use meteroid_grpc::meteroid::api::schedules::v1::{
     ListSchedulesResponse, RemoveScheduleRequest, Schedule,
 };
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
+use meteroid_repository as db;
+
+use crate::api::services::schedules::error::ScheduleServiceError;
+use crate::api::services::shared::mapping::period::billing_period_to_db;
+use crate::{
+    api::services::utils::{parse_uuid, uuid_gen},
+    db::DbService,
+    parse_uuid,
+};
 
 use super::mapping;
 
@@ -43,9 +42,7 @@ impl SchedulesService for DbService {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Unable to publish plan version")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ScheduleServiceError::DatabaseError("unable to publish plan version".to_string(), e)
             })?;
 
         let schedules = res
@@ -69,17 +66,20 @@ impl SchedulesService for DbService {
 
         let ramps = &req
             .ramps
-            .ok_or_else(|| Status::invalid_argument("Missing ramps"))
+            .ok_or_else(|| ScheduleServiceError::MissingArgument("ramps".to_string()))
             .and_then(|ramps| {
                 serde_json::to_value(ramps).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to serialize ramps: {}", e))
+                    ScheduleServiceError::SerializationError(
+                        "failed to serialize ramps".to_string(),
+                        e,
+                    )
                 })
             })?;
 
         let billing_period: BillingPeriod = req
             .billing_period
             .try_into()
-            .map_err(|e| Status::invalid_argument(format!("Invalid billing period: {}", e)))?;
+            .map_err(|e| ScheduleServiceError::InvalidArgument("billing period".to_string(), e))?;
 
         let schedule = db::schedules::create_schedule()
             .params(
@@ -95,9 +95,10 @@ impl SchedulesService for DbService {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to create price schedule")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ScheduleServiceError::DatabaseError(
+                    "unable to create price schedule".to_string(),
+                    e,
+                )
             })?;
 
         let response = mapping::schedules::db_to_server(schedule)?;
@@ -118,14 +119,17 @@ impl SchedulesService for DbService {
 
         let schedule = req
             .schedule
-            .ok_or_else(|| Status::invalid_argument("Missing schedule"))?;
+            .ok_or_else(|| ScheduleServiceError::MissingArgument("schedule".to_string()))?;
 
         let ramps = &schedule
             .ramps
-            .ok_or_else(|| Status::invalid_argument("Missing ramps"))
+            .ok_or_else(|| ScheduleServiceError::MissingArgument("ramps".to_string()))
             .and_then(|ramps| {
                 serde_json::to_value(ramps).map_err(|e| {
-                    Status::invalid_argument(format!("Failed to serialize ramps: {}", e))
+                    ScheduleServiceError::SerializationError(
+                        "failed to serialize ramps".to_string(),
+                        e,
+                    )
                 })
             })?;
 
@@ -141,9 +145,7 @@ impl SchedulesService for DbService {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to edit price schedule")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ScheduleServiceError::DatabaseError("unable to edit price schedule".to_string(), e)
             })?;
 
         let response = mapping::schedules::db_to_server(schedule)?;
@@ -172,9 +174,10 @@ impl SchedulesService for DbService {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to remove price schedule")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ScheduleServiceError::DatabaseError(
+                    "unable to remove price schedule".to_string(),
+                    e,
+                )
             })?;
 
         Ok(Response::new(EmptyResponse {}))
