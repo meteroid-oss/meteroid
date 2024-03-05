@@ -3,7 +3,8 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 
 use quote::quote;
-use syn::{parse_macro_input, Attribute, Data, DeriveInput, Meta, NestedMeta};
+use syn::punctuated::Punctuated;
+use syn::{parse_macro_input, Attribute, Data, DeriveInput, Meta, Token};
 
 #[proc_macro_derive(ErrorAsTonic, attributes(code))]
 pub fn error_as_tonic_derive(input: TokenStream) -> TokenStream {
@@ -21,7 +22,7 @@ fn error_as_tonic_impl(ast: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
         Data::Enum(data) => &data.variants,
         _ => {
             return Err(syn::Error::new_spanned(
-                &ast,
+                ast,
                 "ErrorAsTonic can only be used on enums",
             ))
         }
@@ -34,7 +35,7 @@ fn error_as_tonic_impl(ast: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
         let code_attr = variant
             .attrs
             .iter()
-            .find(|attr| attr.path.is_ident("code"))
+            .find(|attr| attr.path().is_ident("code"))
             .ok_or_else(|| syn::Error::new_spanned(variant, "Missing `code` attribute"))?;
 
         let code = parse_code_attr(code_attr)?;
@@ -64,24 +65,16 @@ fn error_as_tonic_impl(ast: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
 }
 
 fn parse_code_attr(attr: &Attribute) -> syn::Result<proc_macro2::TokenStream> {
-    let meta = attr.parse_meta()?;
-    let nested = match meta {
-        Meta::List(meta) => {
-            if meta.nested.len() != 1 {
-                return Err(syn::Error::new_spanned(attr, "Expected exactly one `code`"));
-            }
-            meta.nested.first().unwrap().clone()
-        }
-        _ => {
-            return Err(syn::Error::new_spanned(
-                attr,
-                "Expected `code` attribute to be a list",
-            ))
-        }
-    };
+    let meta = attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)?;
 
-    match nested {
-        NestedMeta::Meta(Meta::Path(path)) => {
+    if meta.len() != 1 {
+        return Err(syn::Error::new_spanned(attr, "Expected exactly one `code`"));
+    }
+
+    let meta = meta.first().unwrap();
+
+    match meta {
+        Meta::Path(path) => {
             // Assuming the code is one of tonic::Code variants
             // No need to parse a string; it's directly the variant name
             if path.segments.len() == 1 {
