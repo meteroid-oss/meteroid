@@ -14,6 +14,6 @@ pub enum PriceComponentServiceError {
     SerializationError(String, #[source] serde_json::Error),
 
     #[error("Database error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     DatabaseError(String, #[source] tokio_postgres::Error),
 }

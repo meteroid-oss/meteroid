@@ -53,6 +53,6 @@ pub enum UserServiceError {
     DatabaseEntityNotFoundError(String, #[source] tokio_postgres::Error),
 
     #[error("Database error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     DatabaseError(String, #[source] tokio_postgres::Error),
 }

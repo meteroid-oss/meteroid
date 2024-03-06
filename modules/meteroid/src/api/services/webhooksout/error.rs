@@ -33,6 +33,6 @@ pub enum WebhookServiceError {
     DatabaseEntityNotFoundError(String),
 
     #[error("Database error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     DatabaseError(String, #[source] tokio_postgres::Error),
 }

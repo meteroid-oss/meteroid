@@ -14,6 +14,6 @@ pub enum TenantServiceError {
     DownstreamServiceError(String, #[source] Box<dyn std::error::Error + Sync + Send>),
 
     #[error("Database error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     DatabaseError(String, #[source] tokio_postgres::Error),
 }
