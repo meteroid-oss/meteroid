@@ -74,7 +74,11 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
     console.log('validated', validated)
     if (!overview?.planVersionId) return
 
-    createPriceComponent.mutate({ ...data, planVersionId: overview.planVersionId })
+    createPriceComponent.mutate({
+      planVersionId: overview.planVersionId,
+      name: data.name,
+      feeType: mapFeeType(data.fee),
+    })
   }
 
   return (
