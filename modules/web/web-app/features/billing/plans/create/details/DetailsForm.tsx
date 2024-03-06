@@ -53,6 +53,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       description: data.description,
       externalId: data.externalId,
       planType: PlanType[data.planType],
+      productFamilyExternalId: 'default',
     })
     navigate(`${plan.plan?.plan?.externalId}/onboarding`)
   }
