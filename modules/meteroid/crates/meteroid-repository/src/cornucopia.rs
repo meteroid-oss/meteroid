@@ -5396,8 +5396,8 @@ WHERE id = $2 ",
             T3: cornucopia_async::StringSql,
         > {
             pub tenant_id: uuid::Uuid,
-            pub search: Option<T1>,
-            pub product_family_external_id: T2,
+            pub product_family_external_id: T1,
+            pub search: Option<T2>,
             pub order_by: T3,
             pub limit: i64,
             pub offset: i64,
@@ -6680,11 +6680,12 @@ FROM
   JOIN product_family ON plan.product_family_id = product_family.id
 WHERE
   plan.tenant_id = $1
+  AND product_family.external_id = $2
   AND (
-    $2 :: TEXT IS NULL
-    OR to_tsvector('english', plan.name || ' ' || plan.external_id) @@ to_tsquery('english', $2)
+    $3 :: TEXT IS NULL
+        OR plan.name ILIKE '%' || $3 || '%'
+        OR plan.external_id ILIKE '%' || $3 || '%'
   )
-  AND product_family.external_id = $3
 ORDER BY
   CASE
     WHEN $4 = 'DATE_DESC' THEN plan.id
@@ -6714,8 +6715,8 @@ LIMIT
                 &'a mut self,
                 client: &'a C,
                 tenant_id: &'a uuid::Uuid,
-                search: &'a Option<T1>,
-                product_family_external_id: &'a T2,
+                product_family_external_id: &'a T1,
+                search: &'a Option<T2>,
                 order_by: &'a T3,
                 limit: &'a i64,
                 offset: &'a i64,
@@ -6724,8 +6725,8 @@ LIMIT
                     client,
                     params: [
                         tenant_id,
-                        search,
                         product_family_external_id,
+                        search,
                         order_by,
                         limit,
                         offset,
@@ -6766,8 +6767,8 @@ LIMIT
                 self.bind(
                     client,
                     &params.tenant_id,
-                    &params.search,
                     &params.product_family_external_id,
+                    &params.search,
                     &params.order_by,
                     &params.limit,
                     &params.offset,

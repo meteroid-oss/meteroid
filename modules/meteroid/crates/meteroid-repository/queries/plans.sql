@@ -265,11 +265,12 @@ FROM
   JOIN product_family ON plan.product_family_id = product_family.id
 WHERE
   plan.tenant_id = :tenant_id
+  AND product_family.external_id = :product_family_external_id
   AND (
     :search :: TEXT IS NULL
-    OR to_tsvector('english', plan.name || ' ' || plan.external_id) @@ to_tsquery('english', :search)
+        OR plan.name ILIKE '%' || :search || '%'
+        OR plan.external_id ILIKE '%' || :search || '%'
   )
-  AND product_family.external_id = :product_family_external_id
 ORDER BY
   CASE
     WHEN :order_by = 'DATE_DESC' THEN plan.id
