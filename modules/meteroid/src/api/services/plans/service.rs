@@ -1,12 +1,5 @@
-use super::{mapping, PlanServiceComponents};
-use crate::api::services::pricecomponents;
-use crate::api::services::shared::mapping::period::billing_period_to_db;
-use crate::api::services::utils::PaginationExt;
-use crate::eventbus::Event;
-use crate::{
-    api::services::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
+use tonic::{Request, Response, Status};
+
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::plans::v1::{
     list_plans_request::SortBy, plans_service_server::PlansService, CopyVersionToDraftRequest,
@@ -23,8 +16,18 @@ use meteroid_grpc::meteroid::api::plans::v1::{
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_repository as db;
 use meteroid_repository::Params;
-use std::sync::Arc;
-use tonic::{Request, Response, Status};
+
+use crate::api::services::plans::error::PlanServiceError;
+use crate::api::services::pricecomponents;
+use crate::api::services::shared::mapping::period::billing_period_to_db;
+use crate::api::services::utils::PaginationExt;
+use crate::eventbus::Event;
+use crate::{
+    api::services::utils::{parse_uuid, uuid_gen},
+    parse_uuid,
+};
+
+use super::{mapping, PlanServiceComponents};
 
 #[tonic::async_trait]
 impl PlansService for PlanServiceComponents {
@@ -67,11 +70,7 @@ impl PlansService for PlanServiceComponents {
             .params(&transaction, &params)
             .one()
             .await
-            .map_err(|e| {
-                Status::internal("Unable to create plan")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+            .map_err(|e| PlanServiceError::DatabaseError("Unable to create plan".to_string(), e))?;
 
         let plan_version_params = db::plans::CreatePlanVersionParams {
             id: uuid_gen::v7(),
@@ -93,15 +92,11 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to create plan version")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to create plan version".to_string(), e)
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            PlanServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         let mapped_version = mapping::plans::version::db_to_server(version.clone());
@@ -136,9 +131,7 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get plan by external_id")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to get plan by external_id".to_string(), e)
             })?;
 
         let plan_version = db::plans::last_plan_version()
@@ -146,9 +139,7 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get plan by external_id")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to get plan by external_id".to_string(), e)
             })?;
 
         let res_plan = mapping::plans::db_to_server(plan);
@@ -192,11 +183,7 @@ impl PlansService for PlanServiceComponents {
             .params(&connection, &params)
             .all()
             .await
-            .map_err(|e| {
-                Status::internal("Unable to list plans")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+            .map_err(|e| PlanServiceError::DatabaseError("unable to list plans".to_string(), e))?;
 
         let total = plans.first().map(|p| p.total_count).unwrap_or(0);
 
@@ -226,9 +213,7 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get version by id")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to get version by id".to_string(), e)
             })?;
 
         let response = GetPlanVersionByIdResponse {
@@ -259,11 +244,7 @@ impl PlansService for PlanServiceComponents {
             .params(&connection, &params)
             .all()
             .await
-            .map_err(|e| {
-                Status::internal("Unable to list plans")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+            .map_err(|e| PlanServiceError::DatabaseError("unable to list plans".to_string(), e))?;
 
         let total = plans.first().map(|p| p.total_count).unwrap_or(0);
 
@@ -298,9 +279,7 @@ impl PlansService for PlanServiceComponents {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to discard drafts")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to discard drafts".to_string(), e)
             })?;
 
         let params = db::plans::CopyVersionToDraftParams {
@@ -315,15 +294,14 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to copy plan version to draft")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError(
+                    "unable to copy plan version to draft".to_string(),
+                    e,
+                )
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            PlanServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         let response = mapping::plans::version::db_to_server(new_version);
@@ -350,18 +328,14 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to publish plan version")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to publish plan version".to_string(), e)
             })?;
 
         db::plans::activate_plan()
             .bind(&connection, &parse_uuid!(&req.plan_id)?, &tenant_id)
             .await
             .map_err(|e| {
-                Status::internal("Unable to activate plan")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to activate plan".to_string(), e)
             })?;
 
         let response = mapping::plans::version::db_to_server(plan_version_row.clone());
@@ -399,9 +373,10 @@ impl PlansService for PlanServiceComponents {
             .opt()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get last published plan version")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError(
+                    "unable to get last published plan version".to_string(),
+                    e,
+                )
             })?;
 
         let response = GetLastPublishedPlanVersionResponse {
@@ -428,18 +403,14 @@ impl PlansService for PlanServiceComponents {
             .bind(&connection, &plan_version_id, &tenant_id)
             .await
             .map_err(|e| {
-                Status::internal("Unable to discard draft version")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to discard draft version".to_string(), e)
             })?;
 
         db::plans::delete_plan_if_no_versions()
             .bind(&connection, &plan_id, &tenant_id)
             .await
             .map_err(|e| {
-                Status::internal("Unable to discard_draft_plan")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to discard_draft_plan".to_string(), e)
             })?;
 
         let _ = self
@@ -469,10 +440,10 @@ impl PlansService for PlanServiceComponents {
             .iter()
             .map(|f| {
                 BillingPeriod::try_from(*f)
-                    .map_err(|_| Status::invalid_argument("Invalid billing period"))
+                    .map_err(|_| PlanServiceError::InvalidArgument("billing period".to_string()))
                     .map(|period| billing_period_to_db(&period))
             })
-            .collect::<Result<Vec<db::BillingPeriodEnum>, Status>>()?;
+            .collect::<Result<Vec<db::BillingPeriodEnum>, PlanServiceError>>()?;
 
         db::plans::update_plan_version_overview()
             .params(
@@ -487,9 +458,10 @@ impl PlansService for PlanServiceComponents {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to update draft plan version overview")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError(
+                    "unable to update draft plan version overview".to_string(),
+                    e,
+                )
             })?;
 
         db::plans::update_plan_overview()
@@ -504,9 +476,7 @@ impl PlansService for PlanServiceComponents {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to update plan overview")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to update plan overview".to_string(), e)
             })?;
 
         let res = db::plans::get_plan_overview_by_id()
@@ -518,15 +488,11 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get plan overview")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to get plan overview".to_string(), e)
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            PlanServiceError::DatabaseError("Failed to commit transaction".to_string(), e)
         })?;
 
         let response = mapping::plans::overview::db_to_server(res);
@@ -557,9 +523,7 @@ impl PlansService for PlanServiceComponents {
             )
             .await
             .map_err(|e| {
-                Status::internal("Unable to update plan overview")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to update plan overview".to_string(), e)
             })?;
 
         let res = db::plans::get_plan_overview_by_id()
@@ -567,9 +531,7 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get plan overview")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError("unable to get plan overview".to_string(), e)
             })?;
 
         let response = mapping::plans::overview::db_to_server(res);
@@ -593,9 +555,10 @@ impl PlansService for PlanServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get plan overview by external_id")
-                    .set_source(Arc::new(e))
-                    .clone()
+                PlanServiceError::DatabaseError(
+                    "unable to get plan overview by external_id".to_string(),
+                    e,
+                )
             })?;
 
         let res_plan_version = mapping::plans::overview::db_to_server(plan);

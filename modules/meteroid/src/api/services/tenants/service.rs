@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use tonic::{Request, Response, Status};
 
+use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::tenants::v1::{
     tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
@@ -8,15 +9,14 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
     ListTenantsResponse, Tenant,
 };
 use meteroid_repository as db;
-use tonic::{Request, Response, Status};
+use meteroid_repository::Params;
 
+use crate::api::services::tenants::error::TenantServiceError;
 use crate::repo::provider_config::model::InvoicingProvider;
 use crate::{
     api::services::utils::{parse_uuid, uuid_gen},
     parse_uuid,
 };
-use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_repository::Params;
 
 use super::{mapping, TenantServiceComponents};
 
@@ -35,9 +35,7 @@ impl TenantsService for TenantServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get tenant by id")
-                    .set_source(Arc::new(e))
-                    .clone()
+                TenantServiceError::DatabaseError("failed to get tenant by id".to_string(), e)
             })?;
 
         Ok(Response::new(ActiveTenantResponse {
@@ -63,9 +61,7 @@ impl TenantsService for TenantServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get tenants for user")
-                    .set_source(Arc::new(e))
-                    .clone()
+                TenantServiceError::DatabaseError("failed to get tenants for user".to_string(), e)
             })?;
 
         let result = tenants
@@ -89,9 +85,7 @@ impl TenantsService for TenantServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get tenant by id")
-                    .set_source(Arc::new(e))
-                    .clone()
+                TenantServiceError::DatabaseError("failed to get tenant by id".to_string(), e)
             })?;
 
         Ok(Response::new(GetTenantByIdResponse {
@@ -128,9 +122,7 @@ impl TenantsService for TenantServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to create tenant")
-                    .set_source(Arc::new(e))
-                    .clone()
+                TenantServiceError::DatabaseError("failed to create tenant".to_string(), e)
             })?;
 
         let rs = mapping::tenants::db_to_server(tenant);
@@ -148,9 +140,13 @@ impl TenantsService for TenantServiceComponents {
         let billing_config = req
             .billing_config
             .clone()
-            .ok_or(Status::invalid_argument("Missing billing_config"))?
+            .ok_or(TenantServiceError::MissingArgument(
+                "billing_config".to_string(),
+            ))?
             .billing_config_oneof
-            .ok_or(Status::invalid_argument("Missing billing_config_oneof"))?;
+            .ok_or(TenantServiceError::MissingArgument(
+                "billing_config_oneof".to_string(),
+            ))?;
 
         match billing_config {
             BillingConfigOneof::Stripe(stripe) => {
@@ -167,9 +163,10 @@ impl TenantsService for TenantServiceComponents {
                     )
                     .await
                     .map_err(|e| {
-                        Status::internal("Failed to create tenant billing_config")
-                            .set_source(Arc::new(e.into_error()))
-                            .clone()
+                        TenantServiceError::DownstreamServiceError(
+                            "failed to create tenant billing_config".to_string(),
+                            Box::new(e.into_error()),
+                        )
                     })?;
 
                 Ok(Response::new(ConfigureTenantBillingResponse {

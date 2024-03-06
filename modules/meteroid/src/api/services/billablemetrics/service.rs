@@ -1,12 +1,8 @@
-use crate::api::services::utils::uuid_gen;
-use std::sync::Arc;
-
-use super::{mapping, BillableMetricsComponents};
-use crate::api::services::utils::{parse_uuid, PaginationExt};
-use crate::eventbus::Event;
-use common_grpc::middleware::server::auth::RequestExt;
 use cornucopia_async::Params;
 use log::error;
+use tonic::{Request, Response, Status};
+
+use common_grpc::middleware::server::auth::RequestExt;
 use metering_grpc::meteroid::metering::v1::RegisterMeterRequest;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     billable_metrics_service_server::BillableMetricsService, CreateBillableMetricRequest,
@@ -14,7 +10,13 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     ListBillableMetricsRequest, ListBillableMetricsResponse,
 };
 use meteroid_repository as db;
-use tonic::{Request, Response, Status};
+
+use crate::api::services::billablemetrics::error::BillableMetricServiceError;
+use crate::api::services::utils::uuid_gen;
+use crate::api::services::utils::{parse_uuid, PaginationExt};
+use crate::eventbus::Event;
+
+use super::{mapping, BillableMetricsComponents};
 
 #[tonic::async_trait]
 impl BillableMetricsService for BillableMetricsComponents {
@@ -32,10 +34,12 @@ impl BillableMetricsService for BillableMetricsComponents {
             Some(aggregation) => (
                 aggregation.aggregation_key,
                 Some(mapping::aggregation_type::server_to_db(
-                    aggregation
-                        .aggregation_type
-                        .try_into()
-                        .map_err(|_| Status::internal("unknown aggregation_type"))?,
+                    aggregation.aggregation_type.try_into().map_err(|e| {
+                        BillableMetricServiceError::MappingError(
+                            "unknown aggregation_type".to_string(),
+                            e,
+                        )
+                    })?,
                 )),
                 aggregation.unit_conversion,
             ),
@@ -70,9 +74,10 @@ impl BillableMetricsService for BillableMetricsComponents {
             .await
             .map_err(|e| {
                 error!("Unable to create billable metric: {:#?}", e);
-                Status::internal("Unable to create billable metric")
-                    .set_source(Arc::new(e))
-                    .clone()
+                BillableMetricServiceError::DatabaseError(
+                    "unable to create billable metric".to_string(),
+                    e,
+                )
             })?;
 
         let rs = mapping::metric::db_to_server(metric.clone());
@@ -120,9 +125,10 @@ impl BillableMetricsService for BillableMetricsComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Unable to list billable metrics")
-                    .set_source(Arc::new(e))
-                    .clone()
+                BillableMetricServiceError::DatabaseError(
+                    "unable to list billable metrics".to_string(),
+                    e,
+                )
             })?;
 
         let total_count = metrics.first().map(|p| p.total_count).unwrap_or(0);
@@ -157,9 +163,10 @@ impl BillableMetricsService for BillableMetricsComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get billable metric")
-                    .set_source(Arc::new(e))
-                    .clone()
+                BillableMetricServiceError::DatabaseError(
+                    "Unable to get billable metric".to_string(),
+                    e,
+                )
             })?;
 
         let rs = mapping::metric::db_to_server(metric);

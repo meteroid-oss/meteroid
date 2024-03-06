@@ -1,17 +1,17 @@
 use cornucopia_async::Params;
-use meteroid_repository as db;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-use crate::api::services::utils::uuid_gen;
-
-use crate::eventbus::Event;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::productfamilies::v1::{
     product_families_service_server::ProductFamiliesService, CreateProductFamilyRequest,
     CreateProductFamilyResponse, GetProductFamilyByExternalIdRequest,
     GetProductFamilyByExternalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
 };
+use meteroid_repository as db;
+
+use crate::api::services::productfamilies::error::ProductFamilyServiceError;
+use crate::api::services::utils::uuid_gen;
+use crate::eventbus::Event;
 
 use super::{mapping, ProductFamilyServiceComponents};
 
@@ -29,9 +29,10 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Unable to list product families")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ProductFamilyServiceError::DatabaseError(
+                    "unable to list product families".to_string(),
+                    e,
+                )
             })?;
 
         let result = families
@@ -66,9 +67,10 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to create product family")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ProductFamilyServiceError::DatabaseError(
+                    "unable to create product family".to_string(),
+                    e,
+                )
             })?;
 
         let rs = mapping::product_family::db_to_server(product_family.clone());
@@ -106,9 +108,10 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get product family by api name")
-                    .set_source(Arc::new(e))
-                    .clone()
+                ProductFamilyServiceError::DatabaseError(
+                    "unable to get product family by api name".to_string(),
+                    e,
+                )
             })?;
 
         let rs = mapping::product_family::db_to_server(product_family);

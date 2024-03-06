@@ -4,21 +4,14 @@ use thiserror::Error;
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 
 #[derive(Debug, Error, ErrorAsTonic)]
-pub enum CustomerServiceError {
+pub enum TenantServiceError {
     #[error("Missing argument: {0}")]
     #[code(InvalidArgument)]
     MissingArgument(String),
 
-    #[error("Serialization error: {0}")]
-    #[code(InvalidArgument)]
-    SerializationError(String, #[source] serde_json::Error),
-
-    #[error("Mapping error: {0}")]
+    #[error("Downstream service error: {0}")]
     #[code(Internal)]
-    MappingError(
-        String,
-        #[source] crate::api::services::errors::DatabaseError,
-    ),
+    DownstreamServiceError(String, #[source] Box<dyn std::error::Error + Sync + Send>),
 
     #[error("Database error: {0}")]
     #[code(Internal)]

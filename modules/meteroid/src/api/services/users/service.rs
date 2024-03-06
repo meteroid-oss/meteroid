@@ -3,18 +3,10 @@ use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use deadpool_postgres::Transaction;
 use jsonwebtoken::{EncodingKey, Header};
-use meteroid_repository as db;
 use secrecy::{ExposeSecret, SecretString};
-use std::sync::Arc;
-
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::{api::services::utils::parse_uuid, parse_uuid};
-
-use super::{mapping, UsersServiceComponents};
-use crate::api::services::utils::uuid_gen;
-use crate::eventbus::Event;
 use common_grpc::middleware::common::jwt::Claims;
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
@@ -24,7 +16,15 @@ use meteroid_grpc::meteroid::api::users::v1::{
     LoginResponse, MeRequest, MeResponse, RegisterRequest, RegisterResponse, UpsertUserRequest,
     UpsertUserResponse, User,
 };
+use meteroid_repository as db;
 use meteroid_repository::{OrganizationUserRole, Params};
+
+use crate::api::services::users::error::UserServiceError;
+use crate::api::services::utils::uuid_gen;
+use crate::eventbus::Event;
+use crate::{api::services::utils::parse_uuid, parse_uuid};
+
+use super::{mapping, UsersServiceComponents};
 
 #[tonic::async_trait]
 impl UsersService for UsersServiceComponents {
@@ -47,11 +47,7 @@ impl UsersService for UsersServiceComponents {
             .params(&connection, &params)
             .one()
             .await
-            .map_err(|e| {
-                tonic::Status::internal("Unable to create user.")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+            .map_err(|e| UserServiceError::DatabaseError("unable to create user".to_string(), e))?;
 
         let response = UpsertUserResponse {
             id: res.id.to_string(),
@@ -75,9 +71,7 @@ impl UsersService for UsersServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::not_found("Unable to find user.")
-                    .set_source(Arc::new(e))
-                    .clone()
+                UserServiceError::DatabaseEntityNotFoundError("unable to find user".to_string(), e)
             })?;
 
         let response = MeResponse {
@@ -104,9 +98,7 @@ impl UsersService for UsersServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::not_found("Unable to find user.")
-                    .set_source(Arc::new(e))
-                    .clone()
+                UserServiceError::DatabaseEntityNotFoundError("unable to find user".to_string(), e)
             })?;
 
         let response = GetUserByIdResponse {
@@ -133,9 +125,7 @@ impl UsersService for UsersServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                tonic::Status::not_found("Unable to find user.")
-                    .set_source(Arc::new(e))
-                    .clone()
+                UserServiceError::DatabaseEntityNotFoundError("unable to find user".to_string(), e)
             })?;
 
         let response = FindUserByEmailResponse {
@@ -160,11 +150,7 @@ impl UsersService for UsersServiceComponents {
             .bind(&connection)
             .all()
             .await
-            .map_err(|e| {
-                tonic::Status::internal("Unable to list users.")
-                    .set_source(Arc::new(e))
-                    .clone()
-            })?;
+            .map_err(|e| UserServiceError::DatabaseError("unable to list users".to_string(), e))?;
 
         let response = ListUsersResponse {
             users: res
@@ -193,24 +179,29 @@ impl UsersService for UsersServiceComponents {
                 .bind(&connection, &req.email)
                 .one()
                 .await
-                .map_err(|_| Status::unauthenticated("Invalid email or password."))?;
+                .map_err(|_| {
+                    UserServiceError::AuthenticationError("invalid email or password".to_string())
+                })?;
 
             // Validate password if any
             let argon2 = Argon2::default();
 
             if user.password_hash.is_none() {
-                return Err(Status::unauthenticated(
-                    "User does not have a password hash. Login is forbidden.",
-                ));
+                return Err(UserServiceError::AuthenticationError(
+                    "user does not have a password hash. Login is forbidden".to_string(),
+                )
+                .into());
             }
 
             let hash_binding = user.password_hash.unwrap();
             let db_hash_parsed = PasswordHash::new(&hash_binding)
-                .map_err(|_| Status::internal("Invalid password hash."))?;
+                .map_err(|_| UserServiceError::InvalidArgument("password hash".to_string()))?;
 
             argon2
                 .verify_password(req.password.as_bytes(), &db_hash_parsed)
-                .map_err(|_| Status::unauthenticated("Invalid email or password."))?;
+                .map_err(|_| {
+                    UserServiceError::AuthenticationError("invalid email or password".to_string())
+                })?;
 
             // Generate JWT token
             let token = generate_jwt_token(&user.id.to_string(), &self.jwt_secret)?;
@@ -243,10 +234,10 @@ impl UsersService for UsersServiceComponents {
                 .bind(&connection, &req.email)
                 .opt()
                 .await
-                .map_err(|_| Status::internal("Failed to check user existence"))?;
+                .map_err(|e| UserServiceError::DatabaseError("failed to check user existence".to_string(), e))?;
 
             if exists.is_some() {
-                return Err(Status::already_exists("User already exists."));
+                return Err(UserServiceError::UserAlreadyExistsError.into());
             }
 
             async fn create_user(
@@ -272,9 +263,7 @@ impl UsersService for UsersServiceComponents {
                     .one()
                     .await
                     .map_err(|e| {
-                        Status::internal("Failed to create user.")
-                            .set_source(Arc::new(e))
-                            .clone()
+                        UserServiceError::DatabaseError("failed to create user".to_string(), e)
                     })?;
 
                 let role_params = db::organizations::CreateOrganizationMemberParams {
@@ -288,9 +277,7 @@ impl UsersService for UsersServiceComponents {
                     .one()
                     .await
                     .map_err(|e| {
-                        Status::internal("Failed to set user role.")
-                            .set_source(Arc::new(e))
-                            .clone()
+                        UserServiceError::DatabaseError("failed to set user role".to_string(), e)
                     })?;
 
                 // Generate JWT token
@@ -313,9 +300,7 @@ impl UsersService for UsersServiceComponents {
                         .one()
                         .await
                         .map_err(|e| {
-                            Status::internal("Failed to validate invite.")
-                                .set_source(Arc::new(e))
-                                .clone()
+                            UserServiceError::DatabaseError("failed to validate invite".to_string(), e)
                         })?;
 
                     let transaction = self.get_transaction(&mut connection).await?;
@@ -332,9 +317,7 @@ impl UsersService for UsersServiceComponents {
                     .await?;
 
                     transaction.commit().await.map_err(|e| {
-                        Status::internal("Failed to commit transaction")
-                            .set_source(Arc::new(e))
-                            .clone()
+                        UserServiceError::DatabaseError("failed to commit transaction".to_string(), e)
                     })?;
 
                     let _ = self
@@ -350,9 +333,9 @@ impl UsersService for UsersServiceComponents {
                         .bind(&connection)
                         .one()
                         .await
-                        .map_err(|_| Status::internal("Failed to check instance users"))?;
+                        .map_err(|e| UserServiceError::DatabaseError("failed to check instance users".to_string(), e))?;
                     if has_users {
-                        Err(Status::permission_denied("Registration is currently closed. Please request an invite key from your administrator."))
+                        Err(UserServiceError::RegistrationClosed("registration is currently closed. Please request an invite key from your administrator.".to_string()).into())
                     } else {
                         // This is the first user. We allow invite-less registration & init the instance
                         let transaction = self.get_transaction(&mut connection).await?;
@@ -369,9 +352,7 @@ impl UsersService for UsersServiceComponents {
                             .one()
                             .await
                             .map_err(|e| {
-                                Status::internal("Unable to create instance")
-                                    .set_source(Arc::new(e))
-                                    .clone()
+                                UserServiceError::DatabaseError("unable to create instance".to_string(), e)
                             })?;
 
                         let user_id = uuid_gen::v7();
@@ -398,15 +379,11 @@ impl UsersService for UsersServiceComponents {
                         .one()
                         .await
                         .map_err(|e| {
-                            Status::internal("Failed to create tenant")
-                                .set_source(Arc::new(e))
-                                .clone()
+                            UserServiceError::DatabaseError("failed to create tenant".to_string(), e)
                         })?;
 
                         transaction.commit().await.map_err(|e| {
-                            Status::internal("Failed to commit transaction")
-                                .set_source(Arc::new(e))
-                                .clone()
+                            UserServiceError::DatabaseError("failed to commit transaction".to_string(), e)
                         })?;
 
                         let _ = self
@@ -422,7 +399,7 @@ impl UsersService for UsersServiceComponents {
     }
 }
 
-fn generate_jwt_token(user_id: &str, secret: &SecretString) -> Result<String, Status> {
+fn generate_jwt_token(user_id: &str, secret: &SecretString) -> Result<String, UserServiceError> {
     let claims = Claims {
         sub: user_id.to_owned(),
         exp: chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7, // 1 week validity
@@ -433,18 +410,16 @@ fn generate_jwt_token(user_id: &str, secret: &SecretString) -> Result<String, St
         &claims,
         &EncodingKey::from_secret(secret.expose_secret().as_bytes()),
     )
-    .map_err(|e| {
-        Status::internal("Failed to generate JWT token.")
-            .set_source(Arc::new(e))
-            .clone()
-    })
+    .map_err(|e| UserServiceError::JWTError("failed to generate JWT token".to_string(), e))
 }
 
-fn hash_password(password: &str) -> Result<String, Status> {
+fn hash_password(password: &str) -> Result<String, UserServiceError> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|_| Status::internal("Unable to hash password"))?;
+        .map_err(|_| {
+            UserServiceError::PasswordHashingError("unable to hash password".to_string())
+        })?;
     Ok(hash.to_string())
 }

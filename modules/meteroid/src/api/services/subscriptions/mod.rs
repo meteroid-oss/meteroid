@@ -10,6 +10,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use tonic::Status;
 
+mod error;
 mod mapping;
 mod service;
 

@@ -11,25 +11,19 @@ pub mod customer {
         billing_config: Value,
     ) -> Result<server::CustomerBillingConfig, DatabaseError> {
         serde_json::from_value(billing_config).map_err(|_| {
-            errors::DatabaseError::JsonParsingError(
-                "Failed to deserialize billing config".to_owned(),
-            )
+            DatabaseError::JsonParsingError("Failed to deserialize billing config".to_owned())
         })
     }
 
     fn decode_billing_address(address: Value) -> Result<server::Address, DatabaseError> {
         serde_json::from_value(address).map_err(|_| {
-            errors::DatabaseError::JsonParsingError(
-                "Failed to deserialize billing address".to_owned(),
-            )
+            DatabaseError::JsonParsingError("Failed to deserialize billing address".to_owned())
         })
     }
 
     fn decode_shipping_address(address: Value) -> Result<server::ShippingAddress, DatabaseError> {
         serde_json::from_value(address).map_err(|_| {
-            errors::DatabaseError::JsonParsingError(
-                "Failed to deserialize shipping address".to_owned(),
-            )
+            DatabaseError::JsonParsingError("Failed to deserialize shipping address".to_owned())
         })
     }
 

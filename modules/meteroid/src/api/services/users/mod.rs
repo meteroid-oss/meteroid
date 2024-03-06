@@ -9,6 +9,7 @@ use meteroid_grpc::meteroid::api::users::v1::users_service_server::UsersServiceS
 use crate::db::{get_connection, get_transaction};
 use crate::eventbus::{Event, EventBus};
 
+mod error;
 pub mod mapping;
 mod service;
 

@@ -2,6 +2,7 @@ use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_server::Sched
 use meteroid_repository::Pool;
 
 use crate::db::DbService;
+mod error;
 pub mod mapping;
 mod service;
 

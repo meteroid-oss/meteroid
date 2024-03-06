@@ -3,6 +3,7 @@ use deadpool_postgres::{Object, Pool, Transaction};
 use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_server::WebhooksServiceServer;
 use tonic::Status;
 
+mod error;
 mod mapping;
 mod service;
 

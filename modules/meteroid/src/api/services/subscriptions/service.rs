@@ -1,17 +1,9 @@
-use super::super::pricecomponents;
-use crate::api::services::shared;
-use crate::api::services::subscriptions::{mapping, ErrorWrapper, SubscriptionServiceComponents};
-use crate::api::services::utils::{parse_uuid, uuid_gen, PaginationExt};
-use crate::compute::clients::subscription::SubscriptionClient;
-use crate::compute::fees::shared::CadenceExtractor;
-use crate::compute::fees::ComputeInvoiceLine;
-use crate::compute::period;
-use crate::eventbus::Event;
-use crate::mapping::common::{chrono_to_date, chrono_to_datetime, date_to_chrono};
-use crate::models::InvoiceLine;
-use crate::parse_uuid;
-use common_grpc::middleware::server::auth::RequestExt;
 use cornucopia_async::{GenericClient, Params};
+use time::Time;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
+use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::fee::r#type::Fee;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
@@ -25,11 +17,21 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
 };
 use meteroid_repository as db;
 use meteroid_repository::BillingPeriodEnum;
-use std::sync::Arc;
-use time::Time;
-use tonic::{Request, Response, Status};
-use tracing::error;
-use uuid::Uuid;
+
+use crate::api::services::shared;
+use crate::api::services::subscriptions::error::SubscriptionServiceError;
+use crate::api::services::subscriptions::{mapping, SubscriptionServiceComponents};
+use crate::api::services::utils::{parse_uuid, uuid_gen, PaginationExt};
+use crate::compute::clients::subscription::SubscriptionClient;
+use crate::compute::fees::shared::CadenceExtractor;
+use crate::compute::fees::ComputeInvoiceLine;
+use crate::compute::period;
+use crate::eventbus::Event;
+use crate::mapping::common::{chrono_to_date, chrono_to_datetime, date_to_chrono};
+use crate::models::InvoiceLine;
+use crate::parse_uuid;
+
+use super::super::pricecomponents;
 
 #[tonic::async_trait]
 impl SubscriptionsService for SubscriptionServiceComponents {
@@ -57,9 +59,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Failed to list subscriptions")
-                    .set_source(Arc::new(e))
-                    .clone()
+                SubscriptionServiceError::DatabaseError(
+                    "failed to list subscriptions".to_string(),
+                    e,
+                )
             })?;
 
         let total = subscriptions.first().map(|c| c.total_count).unwrap_or(0);
@@ -92,15 +95,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to get plan version")
-                    .set_source(Arc::new(e))
-                    .clone()
+                SubscriptionServiceError::DatabaseError("failed to get plan version".to_string(), e)
             })?;
 
         if plan_version.is_draft_version {
-            return Err(Status::invalid_argument(
-                "Cannot create subscription for a draft version".to_string(),
-            ));
+            return Err(SubscriptionServiceError::InvalidArgument(
+                "cannot create subscription for a draft version".to_string(),
+            )
+            .into());
         }
 
         // validate that for each plan_parameter that we have a valid input_parameter value for it.
@@ -120,9 +122,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                     match plan_parameter {
                         pricecomponents::ext::PlanParameter::BillingPeriodTerm => {
                             if input_parameters.committed_billing_period.is_none() {
-                                return Err(Status::invalid_argument(
-                                    "Missing Billing Period parameter".to_string(),
-                                ));
+                                return Err(SubscriptionServiceError::MissingArgument(
+                                    "Billing Period parameter".to_string(),
+                                )
+                                .into());
                             }
                         }
                         pricecomponents::ext::PlanParameter::CapacityThresholdValue {
@@ -136,8 +139,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                                     p.component_id == component_id
                                         && capacity_values.contains(&p.value)
                                 })
-                                .ok_or(Status::invalid_argument(format!(
-                                    "Missing or invalid capacity threshold parameter for component {}",
+                                .ok_or(SubscriptionServiceError::MissingArgument(format!(
+                                    "missing or invalid capacity threshold parameter for component {}",
                                     component_id
                                 )))?;
                         }
@@ -152,8 +155,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                                         None
                                     }
                                 })
-                                .ok_or(Status::invalid_argument(format!(
-                                    "Missing committed_slot parameter for component {}",
+                                .ok_or(SubscriptionServiceError::MissingArgument(format!(
+                                    "committed_slot parameter for component {}",
                                     component_id
                                 )))?;
 
@@ -162,7 +165,9 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                     }
                 }
             } else {
-                return Err(Status::invalid_argument("Missing parameters".to_string()));
+                return Err(
+                    SubscriptionServiceError::MissingArgument("parameters".to_string()).into(),
+                );
             }
         }
 
@@ -170,9 +175,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .parameters
             .map(|parameters| {
                 serde_json::to_value(&parameters).map_err(|e| {
-                    Status::invalid_argument("Unable to serialize parameters")
-                        .set_source(Arc::new(e))
-                        .clone()
+                    SubscriptionServiceError::SerializationError(
+                        "Unable to serialize parameters".to_string(),
+                        e,
+                    )
                 })
             })
             .transpose()?;
@@ -181,13 +187,16 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .billing_start
             .map(|d| {
                 shared::mapping::date::from_proto(d).map_err(|e| {
-                    Status::internal("Unable to convert date")
-                        .set_source(Arc::new(e))
-                        .clone()
+                    SubscriptionServiceError::InvalidArgument(format!(
+                        "unable to convert date - {}",
+                        e
+                    ))
                 })
             })
             .transpose()?
-            .ok_or(Status::invalid_argument("Missing billing_start"))?;
+            .ok_or(SubscriptionServiceError::MissingArgument(
+                "billing_start".to_string(),
+            ))?;
 
         let billing_start_midnight = billing_start.with_time(Time::MIDNIGHT);
 
@@ -205,9 +214,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .billing_end
                 .map(|d| {
                     shared::mapping::date::from_proto(d).map_err(|e| {
-                        Status::internal("Unable to convert date")
-                            .set_source(Arc::new(e))
-                            .clone()
+                        SubscriptionServiceError::InvalidArgument(format!(
+                            "unable to convert date - {}",
+                            e
+                        ))
                     })
                 })
                 .transpose()?,
@@ -220,9 +230,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Failed to create subscription")
-                    .set_source(Arc::new(e))
-                    .clone()
+                SubscriptionServiceError::DatabaseError(
+                    "failed to create subscription".to_string(),
+                    e,
+                )
             })?;
 
         for (price_component_id, slots) in slot_transactions {
@@ -250,16 +261,17 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             )
             .await
             .map_err(|e| {
-                error!("Failed to calculate invoice lines: {:?}", e);
-                Status::internal("Failed to calculate invoice lines")
-                    .set_source(Arc::new(ErrorWrapper::from(e)))
-                    .clone()
+                SubscriptionServiceError::CalculationError(
+                    "failed to calculate invoice lines".to_string(),
+                    e,
+                )
             })?;
 
         let serialized_invoice_lines = serde_json::to_value(invoice_lines.lines).map_err(|e| {
-            Status::internal("Failed to serialize invoice lines")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::SerializationError(
+                "failed to serialize invoice lines".to_string(),
+                e,
+            )
         })?;
 
         let params = db::invoices::CreateInvoiceParams {
@@ -283,15 +295,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(|e| {
                 log::error!("Failed to create invoice: {:?}", e);
-                Status::internal("Failed to create invoice")
-                    .set_source(Arc::new(e))
-                    .clone()
+                SubscriptionServiceError::DatabaseError("failed to create invoice".to_string(), e)
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         let _ = self
@@ -348,7 +356,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         if inner.delta == 0 {
-            return Err(Status::invalid_argument("Delta should not be 0"));
+            return Err(SubscriptionServiceError::InvalidArgument(
+                "delta should not be 0".to_string(),
+            )
+            .into());
         }
 
         let subscription_id = parse_uuid!(inner.subscription_id)?;
@@ -368,9 +379,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         )
         .await
         .map_err(|e| {
-            Status::internal("Failed to fetch subscription details")
-                .set_source(Arc::new(ErrorWrapper::from(e)))
-                .clone()
+            SubscriptionServiceError::CalculationError(
+                "failed to fetch subscription details".to_string(),
+                e,
+            )
         })?;
 
         let price_component = subscription
@@ -378,7 +390,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .iter()
             .find(|c| c.id == price_component_id.to_string())
             .ok_or_else(|| {
-                Status::invalid_argument(format!(
+                SubscriptionServiceError::InvalidArgument(format!(
                     "Price component {} not found",
                     price_component_id
                 ))
@@ -393,7 +405,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 _ => None,
             })
             .ok_or_else(|| {
-                Status::invalid_argument(format!(
+                SubscriptionServiceError::InvalidArgument(format!(
                     "Price component {} does not contain slot based fee",
                     price_component_id
                 ))
@@ -412,16 +424,17 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .as_ref()
                 .and_then(|x| x.pricing.as_ref())
                 .ok_or_else(|| {
-                    Status::invalid_argument(format!(
+                    SubscriptionServiceError::InvalidArgument(format!(
                         "Missing pricing details for price component {}",
                         price_component_id
                     ))
                 })?
                 .extract_cadence(subscription)
                 .map_err(|e| {
-                    Status::internal("Failed to extract cadence from pricing")
-                        .set_source(Arc::new(ErrorWrapper::from(e)))
-                        .clone()
+                    SubscriptionServiceError::CalculationError(
+                        "failed to extract cadence from pricing".to_string(),
+                        e,
+                    )
                 })?;
 
             let period_idx = period::calculate_period_idx(
@@ -452,9 +465,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await?;
 
             if (active_slots_bp_end - inner.delta.abs()) < 0 {
-                return Err(Status::invalid_argument(
-                    "number of slots cannot be negative",
-                ));
+                return Err(SubscriptionServiceError::InvalidArgument(
+                    "number of slots cannot be negative".to_string(),
+                )
+                .into());
             }
 
             create_slot_transaction(
@@ -482,21 +496,25 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             let invoice_line: InvoiceLine = component_fee
                 .compute(subscription, price_component, Some(inner.delta as u64))
                 .map_err(|e| {
-                    Status::internal("Failed to compute invoice line for price component")
-                        .set_source(Arc::new(ErrorWrapper::from(e)))
-                        .clone()
+                    SubscriptionServiceError::CalculationError(
+                        "failed to compute invoice line for price component".to_string(),
+                        e,
+                    )
                 })?
                 .ok_or_else(|| {
-                    Status::invalid_argument("Failed to compute invoice line for price component")
+                    SubscriptionServiceError::InvalidArgument(
+                        "failed to compute invoice line for price component".to_string(),
+                    )
                 })?;
 
             let invoice_lines = vec![invoice_line];
             let total = Some(invoice_lines.iter().map(|line| line.total).sum());
 
             let serialized_invoice_lines = serde_json::to_value(invoice_lines).map_err(|e| {
-                Status::internal("Failed to serialize invoice lines")
-                    .set_source(Arc::new(e))
-                    .clone()
+                SubscriptionServiceError::SerializationError(
+                    "failed to serialize invoice lines".to_string(),
+                    e,
+                )
             })?;
 
             let params = db::invoices::CreateInvoiceParams {
@@ -519,19 +537,17 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 .one()
                 .await
                 .map_err(|e| {
-                    log::error!("Failed to create invoice: {:?}", e);
-                    Status::internal("Failed to create invoice")
-                        .set_source(Arc::new(e))
-                        .clone()
+                    SubscriptionServiceError::DatabaseError(
+                        "failed to create invoice".to_string(),
+                        e,
+                    )
                 })?;
 
             finalized_invoice = Some(params.id);
         }
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         if let Some(invoice_id) = finalized_invoice {
@@ -570,9 +586,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         )
         .await
         .map_err(|e| {
-            Status::internal("Failed to fetch subscription details")
-                .set_source(Arc::new(ErrorWrapper::from(e)))
-                .clone()
+            SubscriptionServiceError::CalculationError(
+                "failed to fetch subscription details".to_string(),
+                e,
+            )
         })?;
 
         let effective_at = inner.effective_at();
@@ -601,15 +618,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .bind(&transaction, &billing_end_date, &now, &subscription_id)
             .await
             .map_err(|e| {
-                Status::internal("Failed to cancel subscription")
-                    .set_source(Arc::new(e))
-                    .clone()
+                SubscriptionServiceError::DatabaseError(
+                    "failed to cancel subscription".to_string(),
+                    e,
+                )
             })?;
 
         transaction.commit().await.map_err(|e| {
-            Status::internal("Failed to commit transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
 
         let subscription = subscription_by_id(&connection, &subscription_id, &tenant_id).await?;
@@ -626,16 +642,13 @@ async fn subscription_by_id<C: GenericClient>(
     transaction: &C,
     subscription_id: &Uuid,
     tenant_id: &Uuid,
-) -> Result<db::subscriptions::Subscription, Status> {
+) -> Result<db::subscriptions::Subscription, SubscriptionServiceError> {
     db::subscriptions::get_subscription_by_id()
         .bind(transaction, subscription_id, tenant_id)
         .one()
         .await
         .map_err(|e| {
-            log::error!("Failed to get subscription: {:?}", e);
-            Status::internal("Failed to get subscription")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError("failed to get subscription".to_string(), e)
         })
 }
 
@@ -645,16 +658,13 @@ async fn get_active_slots<C: GenericClient>(
     subscription_id: &Uuid,
     price_component_id: &Uuid,
     timestamp: &time::PrimitiveDateTime,
-) -> Result<i32, Status> {
+) -> Result<i32, SubscriptionServiceError> {
     let slots = db::slot_transactions::get_active_slots()
         .bind(transaction, subscription_id, price_component_id, timestamp)
         .opt()
         .await
         .map_err(|e| {
-            log::error!("Failed to get active slots: {:?}", e);
-            Status::internal("Failed to get active slots")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError("failed to get active slots".to_string(), e)
         })?
         .map(|x| x as i32)
         .unwrap_or(0i32);
@@ -671,7 +681,7 @@ async fn create_slot_transaction<C: GenericClient>(
     delta: i32,
     effective_at: time::PrimitiveDateTime,
     transaction_at: time::PrimitiveDateTime,
-) -> Result<Uuid, Status> {
+) -> Result<Uuid, SubscriptionServiceError> {
     db::slot_transactions::create_slot_transaction()
         .params(
             transaction,
@@ -688,17 +698,17 @@ async fn create_slot_transaction<C: GenericClient>(
         .one()
         .await
         .map_err(|e| {
-            log::error!("Failed to create slot transaction: {:?}", e);
-            Status::internal("Failed to create slot transaction")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError(
+                "failed to create slot transaction".to_string(),
+                e,
+            )
         })
 }
 
 async fn lock_subscription_for_update<C: GenericClient>(
     transaction: &C,
     subscription_id: &Uuid,
-) -> Result<(), Status> {
+) -> Result<(), SubscriptionServiceError> {
     transaction
         .query_one(
             "SELECT 1 FROM subscription WHERE id = $1 FOR UPDATE",
@@ -706,10 +716,10 @@ async fn lock_subscription_for_update<C: GenericClient>(
         )
         .await
         .map_err(|e| {
-            log::error!("Failed to lock subscription for update: {:?}", e);
-            Status::internal("Failed to lock subscription for update")
-                .set_source(Arc::new(e))
-                .clone()
+            SubscriptionServiceError::DatabaseError(
+                "failed to lock subscription for update".to_string(),
+                e,
+            )
         })?;
 
     Ok(())

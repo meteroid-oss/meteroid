@@ -1,20 +1,20 @@
-use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_repository as db;
-use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::InstanceService;
-use meteroid_repository::Params;
-
-use crate::api::services::instance::InstanceServiceComponents;
-use crate::api::services::utils::uuid_gen;
-use crate::eventbus::Event;
 use meteroid_grpc::meteroid::api::instance::v1::{
     GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
     InitInstanceRequest, InitInstanceResponse, Instance,
 };
+use meteroid_repository as db;
 use meteroid_repository::organizations::CreateOrganizationParams;
+use meteroid_repository::Params;
+
+use crate::api::services::instance::error::InstanceServiceError;
+use crate::api::services::instance::InstanceServiceComponents;
+use crate::api::services::utils::uuid_gen;
+use crate::eventbus::Event;
 
 #[tonic::async_trait]
 impl InstanceService for InstanceServiceComponents {
@@ -29,9 +29,7 @@ impl InstanceService for InstanceServiceComponents {
             .opt()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get instance")
-                    .set_source(Arc::new(e))
-                    .clone()
+                InstanceServiceError::DatabaseError("unable to get instance".to_string(), e)
             })?;
 
         Ok(Response::new(GetInstanceResponse {
@@ -64,9 +62,7 @@ impl InstanceService for InstanceServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to create instance")
-                    .set_source(Arc::new(e))
-                    .clone()
+                InstanceServiceError::DatabaseError("unable to create instance".to_string(), e)
             })?;
 
         let _ = self
@@ -92,9 +88,7 @@ impl InstanceService for InstanceServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get instance")
-                    .set_source(Arc::new(e))
-                    .clone()
+                InstanceServiceError::DatabaseError("unable to get instance".to_string(), e)
             })?;
 
         let invite_opt = db::organizations::get_invite()
@@ -102,9 +96,7 @@ impl InstanceService for InstanceServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get invite")
-                    .set_source(Arc::new(e))
-                    .clone()
+                InstanceServiceError::DatabaseError("unable to get invite".to_string(), e)
             })?;
 
         let invite = match invite_opt {
@@ -116,9 +108,10 @@ impl InstanceService for InstanceServiceComponents {
                     .bind(&connection, &hash, &instance.id)
                     .await
                     .map_err(|e| {
-                        Status::internal("Unable to create invite")
-                            .set_source(Arc::new(e))
-                            .clone()
+                        InstanceServiceError::DatabaseError(
+                            "unable to create invite".to_string(),
+                            e,
+                        )
                     })?;
 
                 hash

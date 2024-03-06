@@ -1,9 +1,8 @@
-use crate::api::services::utils::parse_uuid;
-use crate::api::services::utils::{uuid_gen, webhook_security, PaginationExt};
-use crate::api::services::webhooksout::mapping::{endpoint, event, event_type};
-use crate::api::services::webhooksout::WebhooksServiceComponents;
-use common_grpc::middleware::server::auth::RequestExt;
 use cornucopia_async::Params;
+use secrecy::ExposeSecret;
+use tonic::{Request, Response, Status};
+
+use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::webhooks::out::v1::list_webhook_events_request::SortBy;
 use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_server::WebhooksService;
 use meteroid_grpc::meteroid::api::webhooks::out::v1::{
@@ -13,9 +12,12 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
 use meteroid_repository::webhook_out_endpoints::CreateEndpointParams;
 use meteroid_repository::webhook_out_events::ListEventsParams;
 use meteroid_repository::WebhookOutEventTypeEnum;
-use secrecy::ExposeSecret;
-use std::sync::Arc;
-use tonic::{Request, Response, Status};
+
+use crate::api::services::utils::parse_uuid;
+use crate::api::services::utils::{uuid_gen, webhook_security, PaginationExt};
+use crate::api::services::webhooksout::error::WebhookServiceError;
+use crate::api::services::webhooksout::mapping::{endpoint, event, event_type};
+use crate::api::services::webhooksout::WebhooksServiceComponents;
 
 #[tonic::async_trait]
 impl WebhooksService for WebhooksServiceComponents {
@@ -34,7 +36,7 @@ impl WebhooksService for WebhooksServiceComponents {
             .collect();
 
         url::Url::parse(req.url.as_str())
-            .map_err(|e| Status::invalid_argument(format!("Invalid URL: {}", e)))?;
+            .map_err(|e| WebhookServiceError::InvalidArgument(format!("Invalid URL: {}", e)))?;
 
         let secret_raw = webhook_security::gen();
         let secret = crate::crypt::encrypt(&self.crypt_key, secret_raw.as_str())
@@ -57,9 +59,10 @@ impl WebhooksService for WebhooksServiceComponents {
             .one()
             .await
             .map_err(|e| {
-                Status::internal("Unable to create webhook endpoint")
-                    .set_source(Arc::new(e))
-                    .clone()
+                WebhookServiceError::DatabaseError(
+                    "unable to create webhook endpoint".to_string(),
+                    e,
+                )
             })?;
 
         Ok(Response::new(CreateWebhookEndpointResponse {
@@ -81,9 +84,10 @@ impl WebhooksService for WebhooksServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Unable to list webhook endpoints")
-                    .set_source(Arc::new(e))
-                    .clone()
+                WebhookServiceError::DatabaseError(
+                    "unable to list webhook endpoints".to_string(),
+                    e,
+                )
             })?
             .iter()
             .map(|e| endpoint::to_proto(e, &self.crypt_key))
@@ -113,11 +117,13 @@ impl WebhooksService for WebhooksServiceComponents {
             .opt()
             .await
             .map_err(|e| {
-                Status::internal("Unable to get webhook endpoint")
-                    .set_source(Arc::new(e))
-                    .clone()
+                WebhookServiceError::DatabaseError("unable to get webhook endpoint".to_string(), e)
             })?
-            .ok_or_else(|| Status::not_found("Webhook endpoint not found"))?;
+            .ok_or_else(|| {
+                WebhookServiceError::DatabaseEntityNotFoundError(
+                    "Webhook endpoint not found".to_string(),
+                )
+            })?;
 
         let params = ListEventsParams {
             endpoint_id,
@@ -137,9 +143,7 @@ impl WebhooksService for WebhooksServiceComponents {
             .all()
             .await
             .map_err(|e| {
-                Status::internal("Unable to list webhook events")
-                    .set_source(Arc::new(e))
-                    .clone()
+                WebhookServiceError::DatabaseError("unable to list webhook events".to_string(), e)
             })?;
 
         let total = items.first().map(|p| p.total_count).unwrap_or(0);
