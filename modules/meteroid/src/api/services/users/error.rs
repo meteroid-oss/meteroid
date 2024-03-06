@@ -5,10 +5,6 @@ use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum UserServiceError {
-    #[error("Unknown error occurred: {0}")]
-    #[code(InvalidArgument)]
-    UnknownError(String),
-
     #[error("Invalid argument: {0}")]
     #[code(InvalidArgument)]
     InvalidArgument(String),

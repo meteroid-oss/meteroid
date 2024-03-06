@@ -99,8 +99,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             })?;
 
         if plan_version.is_draft_version {
-            return Err(SubscriptionServiceError::UnknownError(
-                "Cannot create subscription for a draft version".to_string(),
+            return Err(SubscriptionServiceError::InvalidArgument(
+                "cannot create subscription for a draft version".to_string(),
             )
             .into());
         }
@@ -502,7 +502,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                     )
                 })?
                 .ok_or_else(|| {
-                    SubscriptionServiceError::UnknownError(
+                    SubscriptionServiceError::InvalidArgument(
                         "failed to compute invoice line for price component".to_string(),
                     )
                 })?;

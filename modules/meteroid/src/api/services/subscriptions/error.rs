@@ -5,10 +5,6 @@ use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum SubscriptionServiceError {
-    #[error("Unknown error occurred: {0}")]
-    #[code(InvalidArgument)]
-    UnknownError(String),
-
     #[error("Invalid argument: {0}")]
     #[code(InvalidArgument)]
     InvalidArgument(String),
@@ -18,11 +14,11 @@ pub enum SubscriptionServiceError {
     MissingArgument(String),
 
     #[error("Calculation error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     CalculationError(String, #[source] anyhow::Error),
 
     #[error("Serialization error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     SerializationError(String, #[source] serde_json::Error),
 
     #[error("Database error: {0}")]

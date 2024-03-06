@@ -10,7 +10,7 @@ pub enum TenantServiceError {
     MissingArgument(String),
 
     #[error("Downstream service error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     DownstreamServiceError(String, #[source] Box<dyn std::error::Error + Sync + Send>),
 
     #[error("Database error: {0}")]

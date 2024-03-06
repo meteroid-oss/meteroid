@@ -6,7 +6,7 @@ use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum ApiTokenServiceError {
     #[error("Password hash error: {0}")]
-    #[code(InvalidArgument)]
+    #[code(Internal)]
     PasswordHashError(String),
 
     #[error("Database error: {0}")]
