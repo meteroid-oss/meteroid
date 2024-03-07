@@ -58,9 +58,18 @@ impl EventBusStatic {
                 .await;
 
                 if config.analytics.enabled {
+                    let country = match crate::eventbus::analytics_handler::get_geoip().await {
+                        Ok(geoip) => Some(geoip.country),
+                        Err(err) => {
+                            log::warn!("Failed to obtain data for analytics: {}", err);
+                            None
+                        }
+                    };
+
                     bus.subscribe(Arc::new(analytics_handler::AnalyticsHandler::new(
                         config.analytics.clone(),
                         pool.clone(),
+                        country,
                     )))
                     .await;
                 } else {
