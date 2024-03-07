@@ -1,7 +1,7 @@
 interface PageSectionProps {
   className?: string
   header?: {
-    title: string
+    title: React.ReactNode
     subtitle?: string
     actions?: React.ReactNode
   }
