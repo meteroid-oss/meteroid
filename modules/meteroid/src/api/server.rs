@@ -60,10 +60,19 @@ pub async fn start_api_server(
         .await;
 
     if config.analytics.enabled {
+        let country = match crate::eventbus::analytics_handler::get_geoip().await {
+            Ok(geoip) => Some(geoip.country),
+            Err(err) => {
+                log::warn!("Failed to obtain data for analytics: {}", err);
+                None
+            }
+        };
+
         eventbus
             .subscribe(Arc::new(AnalyticsHandler::new(
                 config.analytics.clone(),
                 pool.clone(),
+                country,
             )))
             .await;
     } else {

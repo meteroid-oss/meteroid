@@ -21,7 +21,7 @@ pub struct AnalyticsHandler {
 }
 
 impl AnalyticsHandler {
-    pub fn new(config: AnalyticsConfig, pool: Pool) -> Self {
+    pub fn new(config: AnalyticsConfig, pool: Pool, country: Option<String>) -> Self {
         let build_info = BuildInfo::get();
 
         // https://segment.com/docs/connections/spec/common/#context
@@ -34,6 +34,7 @@ impl AnalyticsHandler {
                 "arch": build_info.target_arch,
             },
             "git_info": build_info.git_info,
+            "country": country.unwrap_or_else(|| "unknown".to_string()),
         });
 
         AnalyticsHandler {
@@ -570,5 +571,23 @@ impl EventHandler<Event> for AnalyticsHandler {
         };
 
         Ok(())
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct GeoIp {
+    pub country: String,
+}
+
+pub async fn get_geoip() -> Result<GeoIp, String> {
+    let response = reqwest::Client::new()
+        .get("https://metero.id/ossapi/geoip")
+        .send()
+        .await
+        .map_err(|e| e.to_string());
+
+    match response {
+        Ok(response) => response.json::<GeoIp>().await.map_err(|e| e.to_string()),
+        Err(e) => Err(e),
     }
 }
