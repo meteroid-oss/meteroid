@@ -134,9 +134,8 @@ async fn issue_invoice(
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 
-            let customer =
-                crate::api::services::customers::mapping::customer::db_to_server(customer)
-                    .change_context(errors::WorkerError::DatabaseError)?;
+            let customer = crate::api::customers::mapping::customer::db_to_server(customer)
+                .change_context(errors::WorkerError::DatabaseError)?;
 
             let api_key = provider_config_repo
                 .get_config_by_provider_and_tenant(InvoicingProvider::Stripe, invoice.tenant_id)
