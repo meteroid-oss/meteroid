@@ -130,7 +130,7 @@ impl AnalyticsHandler {
             serde_json::json!({
                 "billable_metric_id": event_data_details.entity_id,
                 "tenant_id": event_data_details.tenant_id,
-                "aggregation_type": crate::api::services::billablemetrics::mapping::aggregation_type::db_to_server(billable_metric.aggregation_type).as_str_name()
+                "aggregation_type": crate::api::billablemetrics::mapping::aggregation_type::db_to_server(billable_metric.aggregation_type).as_str_name()
             }),
         )
         .await;
@@ -513,7 +513,7 @@ impl AnalyticsHandler {
             event.actor,
             serde_json::json!({
                 "user_id": user.id,
-                "role": crate::api::services::users::mapping::role::db_to_server(user.role).as_str_name(),
+                "role": crate::api::users::mapping::role::db_to_server(user.role).as_str_name(),
             }),
         )
         .await;

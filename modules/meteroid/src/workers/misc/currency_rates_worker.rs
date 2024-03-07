@@ -1,4 +1,4 @@
-use crate::api::services::utils::uuid_gen;
+use crate::api::utils::uuid_gen;
 use crate::errors;
 use crate::repo::get_pool;
 

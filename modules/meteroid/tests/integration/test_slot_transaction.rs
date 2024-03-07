@@ -3,7 +3,7 @@ use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
-use meteroid::api::services::utils::uuid_gen;
+use meteroid::api::utils::uuid_gen;
 use testcontainers::clients::Cli;
 use time::macros::datetime;
 use time::PrimitiveDateTime;

@@ -62,7 +62,7 @@ impl SubscriptionClient {
             .map(|pc| {
                 let db_metric = pc.billable_metric_id.and_then(|id| metrics_map.get(&id).cloned());
 
-                let grpc_metric = db_metric.map(crate::api::services::billablemetrics::mapping::metric::db_to_server);
+                let grpc_metric = db_metric.map(crate::api::billablemetrics::mapping::metric::db_to_server);
                 let fee: fee::Type = serde_json::from_value(pc.fee)?;
 
                 Ok(PriceComponent {
@@ -84,7 +84,7 @@ impl SubscriptionClient {
         let schedule = schedules
             .first()
             .cloned()
-            .map(crate::api::services::schedules::mapping::schedules::db_to_server)
+            .map(crate::api::schedules::mapping::schedules::db_to_server)
             .transpose()?;
 
         let parameters: SubscriptionParameters =

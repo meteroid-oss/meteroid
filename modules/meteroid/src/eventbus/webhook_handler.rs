@@ -10,7 +10,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::api::services::utils::uuid_gen;
+use crate::api::utils::uuid_gen;
 use meteroid_repository::webhook_out_events::CreateEventParams;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};

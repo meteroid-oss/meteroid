@@ -11,6 +11,7 @@ use common_grpc::middleware::server as common_middleware;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 
+use crate::api;
 use crate::api::cors::cors;
 use crate::compute::InvoiceEngine;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
@@ -19,7 +20,6 @@ use crate::eventbus::{Event, EventBus};
 use crate::repo::provider_config::ProviderConfigRepo;
 
 use super::super::config::Config;
-use super::services;
 
 pub async fn start_api_server(
     config: Config,
@@ -90,46 +90,43 @@ pub async fn start_api_server(
         .layer(common_middleware::error_logger::create())
         .add_service(health_service)
         .add_service(reflection_service)
-        .add_service(services::billablemetrics::service(
+        .add_service(api::billablemetrics::service(
             pool.clone(),
             eventbus.clone(),
             metering_service,
         ))
-        .add_service(services::customers::service(pool.clone(), eventbus.clone()))
-        .add_service(services::tenants::service(
-            pool.clone(),
-            provider_config_repo,
-        ))
-        .add_service(services::apitokens::service(pool.clone(), eventbus.clone()))
-        .add_service(services::pricecomponents::service(
+        .add_service(api::customers::service(pool.clone(), eventbus.clone()))
+        .add_service(api::tenants::service(pool.clone(), provider_config_repo))
+        .add_service(api::apitokens::service(pool.clone(), eventbus.clone()))
+        .add_service(api::pricecomponents::service(
             pool.clone(),
             eventbus.clone(),
         ))
-        .add_service(services::plans::service(pool.clone(), eventbus.clone()))
-        .add_service(services::schedules::service(pool.clone()))
-        .add_service(services::productitems::service(pool.clone()))
-        .add_service(services::productfamilies::service(
+        .add_service(api::plans::service(pool.clone(), eventbus.clone()))
+        .add_service(api::schedules::service(pool.clone()))
+        .add_service(api::productitems::service(pool.clone()))
+        .add_service(api::productfamilies::service(
             pool.clone(),
             eventbus.clone(),
         ))
-        .add_service(services::instance::service(pool.clone(), eventbus.clone()))
-        .add_service(services::invoices::service(pool.clone()))
-        .add_service(services::stats::service(pool.clone()))
-        .add_service(services::users::service(
+        .add_service(api::instance::service(pool.clone(), eventbus.clone()))
+        .add_service(api::invoices::service(pool.clone()))
+        .add_service(api::stats::service(pool.clone()))
+        .add_service(api::users::service(
             pool.clone(),
             eventbus.clone(),
             config.jwt_secret.clone(),
         ))
-        .add_service(services::subscriptions::service(
+        .add_service(api::subscriptions::service(
             pool.clone(),
             compute_service,
             eventbus.clone(),
         ))
-        .add_service(services::webhooksout::service(
+        .add_service(api::webhooksout::service(
             pool.clone(),
             config.secrets_crypt_key.clone(),
         ))
-        .add_service(services::internal::service(pool.clone()))
+        .add_service(api::internal::service(pool.clone()))
         .serve(config.listen_addr)
         .await?;
 

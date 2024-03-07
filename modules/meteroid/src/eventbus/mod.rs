@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::api::services::utils::uuid_gen;
+use crate::api::utils::uuid_gen;
 use crate::config::Config;
 use crate::repo::get_pool;
 
