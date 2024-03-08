@@ -2,23 +2,50 @@ syntax = "proto3";
 
 package meteroid.api.subscriptions.v1;
 
+option go_package = "./";
+
 import "common/v1/date.proto";
 import "common/v1/pagination.proto";
 import "api/subscriptions/v1/models.proto";
-
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
 
 message ListSubscriptionsRequest {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "ListSubscriptionsRequest"
+      description: "List subscriptions request"
+      required: []
+    }
+  };
+
   optional string plan_id = 1;
   optional string customer_id = 2;
   meteroid.common.v1.Pagination pagination = 3;
 }
 
 message ListSubscriptionsResponse {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "ListSubscriptionsResponse"
+      description: "List subscriptions response"
+      required: ["subscriptions", "pagination_meta"]
+    }
+  };
+
   repeated Subscription subscriptions = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
 message CreateSubscriptionRequest {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "CreateSubscriptionRequest"
+      description: "Create subscription request"
+      required: ["customer_id", "plan_version_id", "billing_start", "net_terms", "billing_day"]
+    }
+  };
+
   string customer_id = 2;
   string plan_version_id = 3;
   //  optional string price_point_id = 4;
@@ -31,28 +58,76 @@ message CreateSubscriptionRequest {
 }
 
 message CreateSubscriptionResponse {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "CreateSubscriptionResponse"
+      description: "Create subscription response"
+      required: ["subscription"]
+    }
+  };
+
   Subscription subscription = 1;
 }
 
 message GetSubscriptionDetailsRequest {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "GetSubscriptionDetailsRequest"
+      description: "Get subscription details request"
+      required: ["subscription_id"]
+    }
+  };
+
   string subscription_id = 1;
 }
 
 message GetSubscriptionDetailsResponse {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "GetSubscriptionDetailsResponse"
+      description: "Get subscription details response"
+      required: ["subscription"]
+    }
+  };
+
   Subscription subscription = 1;
 }
 
 message ApplySlotsDeltaRequest {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "ApplySlotsDeltaRequest"
+      description: "Apply slots delta request"
+      required: ["subscription_id", "price_component_id", "delta"]
+    }
+  };
+
   string subscription_id = 1;
   string price_component_id = 2;
   int32 delta = 3;
 }
 
 message ApplySlotsDeltaResponse {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "ApplySlotsDeltaResponse"
+      description: "Apply slots delta response"
+      required: ["active_slots"]
+    }
+  };
+
   uint32 active_slots = 1;
 }
 
 message CancelSubscriptionRequest {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "CancelSubscriptionRequest"
+      description: "Cancel subscription request"
+      required: ["subscription_id", "effective_at"]
+    }
+  };
+
   string subscription_id = 1;
   optional string reason = 2;
   EffectiveAt effective_at = 3;
@@ -63,13 +138,108 @@ message CancelSubscriptionRequest {
 }
 
 message CancelSubscriptionResponse {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_schema) = {
+    json_schema: {
+      title: "CancelSubscriptionResponse"
+      description: "Cancel subscription response"
+      required: ["subscription"]
+    }
+  };
+
   Subscription subscription = 1;
 }
 
 service SubscriptionsService {
-  rpc ListSubscriptions (ListSubscriptionsRequest) returns (ListSubscriptionsResponse) {}
-  rpc CreateSubscription (CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
-  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse) {}
-  rpc ApplySlotsDelta(ApplySlotsDeltaRequest) returns (ApplySlotsDeltaResponse) {}
-  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse) {}
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "subscription"
+  };
+
+  rpc ListSubscriptions (ListSubscriptionsRequest) returns (ListSubscriptionsResponse) {
+    option (google.api.http) = {
+      get: "/v1/subscriptions"
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "List subscriptions.";
+      operation_id: "listSubscriptions";
+      tags: "subscription";
+      responses: {
+        key: "200"
+        value: {
+          description: "OK";
+        }
+      }
+    };
+  }
+  rpc CreateSubscription (CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {
+    option (google.api.http) = {
+      post: "/v1/subscriptions"
+      body: "*"
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Create a subscription.";
+      operation_id: "createSubscription";
+      tags: "subscription";
+      responses: {
+        key: "200"
+        value: {
+          description: "OK";
+        }
+      }
+    };
+  }
+  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse) {
+    option (google.api.http) = {
+      get: "/v1/subscriptions/{subscription_id}"
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Get subscription details";
+      operation_id: "getSubscriptionDetails";
+      tags: "subscription";
+      responses: {
+        key: "200"
+        value: {
+          description: "OK";
+        }
+      }
+    };
+  }
+  rpc ApplySlotsDelta(ApplySlotsDeltaRequest) returns (ApplySlotsDeltaResponse) {
+    option (google.api.http) = {
+      post: "/v1/subscriptions/{subscription_id}/apply-slots-delta"
+      body: "*"
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Apply slots delta.";
+      operation_id: "applySlotsDelta";
+      tags: "subscription";
+      responses: {
+        key: "200"
+        value: {
+          description: "OK";
+        }
+      }
+    };
+  }
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse) {
+    option (google.api.http) = {
+      post: "/v1/subscriptions/{subscription_id}"
+      body: "*"
+    };
+
+    option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_operation) = {
+      summary: "Cancel subscription.";
+      operation_id: "cancelSubscription";
+      tags: "subscription";
+      responses: {
+        key: "200"
+        value: {
+          description: "OK";
+        }
+      }
+    };
+  }
 }

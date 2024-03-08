@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.common.v1;
 
+option go_package = "./";
+
 message Pagination {
   uint32 limit = 1;
   uint32 offset = 2;

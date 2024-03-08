@@ -2,6 +2,31 @@ syntax = "proto3";
 
 package meteroid.api.shared.v1;
 
+import "google/api/annotations.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "./";
+
+option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
+  info: {
+    title: "Meteroid API";
+    version: "1.0";
+    description: "";
+    contact: {
+      name: "Meteroid";
+      url: "https://github.com/meteroid-oss/meteroid";
+      email: "gaspard@meteroid.com";
+    };
+    license: {
+      name: "AGPL-3.0 license";
+      url: "https://github.com/meteroid-oss/meteroid/?tab=AGPL-3.0-1-ov-file";
+    };
+  };
+  schemes: HTTPS;
+  consumes: "application/json";
+  produces: "application/json";
+};
+
 enum BillingPeriod {
   MONTHLY = 0;
   QUARTERLY = 1;

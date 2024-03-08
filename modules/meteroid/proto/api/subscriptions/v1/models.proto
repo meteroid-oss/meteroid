@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.api.subscriptions.v1;
 
+option go_package = "./";
+
 import "common/v1/date.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/shared/v1/shared.proto";
@@ -32,7 +34,6 @@ message Subscription {
   string customer_id = 3;
   string plan_version_id = 4;
   uint32 version = 5;
-  // string price_point_id = 5;
   meteroid.common.v1.Date billing_start_date = 6;
   meteroid.common.v1.Date billing_end_date = 7;
   int32 net_terms = 8;
