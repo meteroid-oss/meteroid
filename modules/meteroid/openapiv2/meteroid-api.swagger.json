@@ -1,0 +1,551 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "Meteroid API",
+    "version": "1.0",
+    "contact": {
+      "name": "Meteroid",
+      "url": "https://github.com/meteroid-oss/meteroid",
+      "email": "gaspard@meteroid.com"
+    },
+    "license": {
+      "name": "AGPL-3.0 license",
+      "url": "https://github.com/meteroid-oss/meteroid/?tab=AGPL-3.0-1-ov-file"
+    }
+  },
+  "tags": [
+    {
+      "name": "subscription"
+    }
+  ],
+  "schemes": [
+    "https"
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/subscriptions": {
+      "get": {
+        "summary": "List subscriptions.",
+        "operationId": "listSubscriptions",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/v1ListSubscriptionsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "planId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "customerId",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "pagination.limit",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "pagination.offset",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "subscription"
+        ]
+      },
+      "post": {
+        "summary": "Create a subscription.",
+        "operationId": "createSubscription",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/v1CreateSubscriptionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "description": "Create subscription request",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateSubscriptionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "subscription"
+        ]
+      }
+    },
+    "/v1/subscriptions/{subscriptionId}": {
+      "get": {
+        "summary": "Get subscription details",
+        "operationId": "getSubscriptionDetails",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/v1GetSubscriptionDetailsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "subscription"
+        ]
+      },
+      "post": {
+        "summary": "Cancel subscription.",
+        "operationId": "cancelSubscription",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/v1CancelSubscriptionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SubscriptionsServiceCancelSubscriptionBody"
+            }
+          }
+        ],
+        "tags": [
+          "subscription"
+        ]
+      }
+    },
+    "/v1/subscriptions/{subscriptionId}/apply-slots-delta": {
+      "post": {
+        "summary": "Apply slots delta.",
+        "operationId": "applySlotsDelta",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "$ref": "#/definitions/v1ApplySlotsDeltaResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SubscriptionsServiceApplySlotsDeltaBody"
+            }
+          }
+        ],
+        "tags": [
+          "subscription"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "CancelSubscriptionRequestEffectiveAt": {
+      "type": "string",
+      "enum": [
+        "BillingPeriodEnd"
+      ],
+      "default": "BillingPeriodEnd"
+    },
+    "SubscriptionParametersSubscriptionParameter": {
+      "type": "object",
+      "properties": {
+        "componentId": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "uint64"
+        }
+      }
+    },
+    "SubscriptionsServiceApplySlotsDeltaBody": {
+      "type": "object",
+      "properties": {
+        "priceComponentId": {
+          "type": "string"
+        },
+        "delta": {
+          "type": "integer",
+          "format": "int32"
+        }
+      },
+      "description": "Apply slots delta request",
+      "title": "ApplySlotsDeltaRequest",
+      "required": [
+        "priceComponentId",
+        "delta"
+      ]
+    },
+    "SubscriptionsServiceCancelSubscriptionBody": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "effectiveAt": {
+          "$ref": "#/definitions/CancelSubscriptionRequestEffectiveAt"
+        }
+      },
+      "description": "Cancel subscription request",
+      "title": "CancelSubscriptionRequest",
+      "required": [
+        "effectiveAt"
+      ]
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "v1ApplySlotsDeltaResponse": {
+      "type": "object",
+      "properties": {
+        "activeSlots": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "description": "Apply slots delta response",
+      "title": "ApplySlotsDeltaResponse",
+      "required": [
+        "activeSlots"
+      ]
+    },
+    "v1BillingPeriod": {
+      "type": "string",
+      "enum": [
+        "MONTHLY",
+        "QUARTERLY",
+        "ANNUAL"
+      ],
+      "default": "MONTHLY"
+    },
+    "v1CancelSubscriptionResponse": {
+      "type": "object",
+      "properties": {
+        "subscription": {
+          "$ref": "#/definitions/v1Subscription"
+        }
+      },
+      "description": "Cancel subscription response",
+      "title": "CancelSubscriptionResponse",
+      "required": [
+        "subscription"
+      ]
+    },
+    "v1CreateSubscriptionRequest": {
+      "type": "object",
+      "properties": {
+        "customerId": {
+          "type": "string"
+        },
+        "planVersionId": {
+          "type": "string"
+        },
+        "billingStart": {
+          "$ref": "#/definitions/v1Date"
+        },
+        "billingEnd": {
+          "$ref": "#/definitions/v1Date"
+        },
+        "netTerms": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "billingDay": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "parameters": {
+          "$ref": "#/definitions/v1SubscriptionParameters"
+        }
+      },
+      "description": "Create subscription request",
+      "title": "CreateSubscriptionRequest",
+      "required": [
+        "customerId",
+        "planVersionId",
+        "billingStart",
+        "netTerms",
+        "billingDay"
+      ]
+    },
+    "v1CreateSubscriptionResponse": {
+      "type": "object",
+      "properties": {
+        "subscription": {
+          "$ref": "#/definitions/v1Subscription"
+        }
+      },
+      "description": "Create subscription response",
+      "title": "CreateSubscriptionResponse",
+      "required": [
+        "subscription"
+      ]
+    },
+    "v1Date": {
+      "type": "object",
+      "properties": {
+        "year": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "month": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "day": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "v1GetSubscriptionDetailsResponse": {
+      "type": "object",
+      "properties": {
+        "subscription": {
+          "$ref": "#/definitions/v1Subscription"
+        }
+      },
+      "description": "Get subscription details response",
+      "title": "GetSubscriptionDetailsResponse",
+      "required": [
+        "subscription"
+      ]
+    },
+    "v1ListSubscriptionsResponse": {
+      "type": "object",
+      "properties": {
+        "subscriptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Subscription"
+          }
+        },
+        "paginationMeta": {
+          "$ref": "#/definitions/v1PaginationResponse"
+        }
+      },
+      "description": "List subscriptions response",
+      "title": "ListSubscriptionsResponse",
+      "required": [
+        "subscriptions",
+        "paginationMeta"
+      ]
+    },
+    "v1Pagination": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "offset": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "v1PaginationResponse": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "offset": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "total": {
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "v1Subscription": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tenantId": {
+          "type": "string"
+        },
+        "customerId": {
+          "type": "string"
+        },
+        "planVersionId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "billingStartDate": {
+          "$ref": "#/definitions/v1Date"
+        },
+        "billingEndDate": {
+          "$ref": "#/definitions/v1Date"
+        },
+        "netTerms": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "customerName": {
+          "type": "string"
+        },
+        "planId": {
+          "type": "string"
+        },
+        "planName": {
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/definitions/v1SubscriptionParameters"
+        },
+        "status": {
+          "$ref": "#/definitions/v1SubscriptionStatus"
+        },
+        "canceledAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "v1SubscriptionParameters": {
+      "type": "object",
+      "properties": {
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/SubscriptionParametersSubscriptionParameter"
+          }
+        },
+        "committedBillingPeriod": {
+          "$ref": "#/definitions/v1BillingPeriod"
+        }
+      }
+    },
+    "v1SubscriptionStatus": {
+      "type": "string",
+      "enum": [
+        "PENDING",
+        "TRIAL",
+        "ACTIVE",
+        "CANCELED",
+        "ENDED"
+      ],
+      "default": "PENDING"
+    }
+  }
+}
