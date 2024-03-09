@@ -247,6 +247,16 @@ impl Event {
         )
     }
 
+    pub fn subscription_canceled(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::SubscriptionCanceled(TenantEventDataDetails {
+                tenant_id,
+                entity_id: subscription_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn user_created(actor: Option<Uuid>, user_id: Uuid) -> Self {
         Self::new(
             EventData::UserCreated(EventDataDetails { entity_id: user_id }),
@@ -272,6 +282,7 @@ pub enum EventData {
     PriceComponentRemoved(TenantEventDataDetails),
     ProductFamilyCreated(TenantEventDataDetails),
     SubscriptionCreated(TenantEventDataDetails),
+    SubscriptionCanceled(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
     UserCreated(EventDataDetails),
 }

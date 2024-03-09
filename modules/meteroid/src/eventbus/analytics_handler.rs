@@ -496,6 +496,66 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn subscription_canceled(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let conn = self.get_db_connection().await?;
+
+        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
+            .bind(
+                &conn,
+                &event_data_details.entity_id,
+                &event_data_details.tenant_id,
+            )
+            .one()
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        let canceled_at = subscription
+            .canceled_at
+            .map(|canceled_at| {
+                format!(
+                    "{}-{}-{}",
+                    canceled_at.year(),
+                    canceled_at.month(),
+                    canceled_at.day()
+                )
+            })
+            .unwrap_or("unknown".to_string());
+
+        let billing_end_date = subscription
+            .billing_end_date
+            .map(|canceled_at| {
+                format!(
+                    "{}-{}-{}",
+                    canceled_at.year(),
+                    canceled_at.month(),
+                    canceled_at.day()
+                )
+            })
+            .unwrap_or("unknown".to_string());
+
+        self.send_track(
+            "subscription-canceled".to_string(),
+            event.actor,
+            serde_json::json!({
+                "subscription_id": subscription.id,
+                "tenant_id": subscription.tenant_id,
+                "customer_id": subscription.customer_id,
+                "currency": subscription.currency,
+                "version": subscription.version,
+                "canceled_at": canceled_at,
+                "billing_end_date": billing_end_date,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn user_created(
         &self,
         event: &Event,
@@ -562,6 +622,9 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::SubscriptionCreated(details) => {
                 self.subscription_created(&event, details).await?
+            }
+            EventData::SubscriptionCanceled(details) => {
+                self.subscription_canceled(&event, details).await?
             }
             EventData::UserCreated(details) => self.user_created(&event, details).await?,
             _ => {

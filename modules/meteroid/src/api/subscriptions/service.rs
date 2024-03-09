@@ -553,6 +553,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         &self,
         request: Request<CancelSubscriptionRequest>,
     ) -> Result<Response<CancelSubscriptionResponse>, Status> {
+        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
         let subscription_id = parse_uuid!(inner.subscription_id)?;
@@ -609,6 +610,15 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         transaction.commit().await.map_err(|e| {
             SubscriptionApiError::DatabaseError("failed to commit transaction".to_string(), e)
         })?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::subscription_canceled(
+                actor,
+                subscription.id,
+                subscription.tenant_id,
+            ))
+            .await;
 
         let subscription = subscription_by_id(&connection, &subscription_id, &tenant_id).await?;
 
