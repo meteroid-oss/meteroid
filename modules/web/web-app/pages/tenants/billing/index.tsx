@@ -12,7 +12,6 @@ import {
   listProductFamilies,
 } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-
 export const Billing: FunctionComponent = () => {
   const families = useQuery(listProductFamilies)
 
@@ -99,10 +98,10 @@ export const FamilyCreationModalPage = () => {
           ctaButtonLabel="Create default" // TODO modal
           onClickCta={createDefault}
         >
-          <p className="text-scale-1100 text-sm">
+          <p className="text-muted-foreground text-sm">
             Create a Product Family to categorize and isolate your products and plans.
           </p>
-          <p className="text-scale-1100 text-sm">
+          <p className="text-muted-foreground text-sm">
             Product Families allow for complex multi-services setup. For most cases, a single
             default family is enough.
           </p>

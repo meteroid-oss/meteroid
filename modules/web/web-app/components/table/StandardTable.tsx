@@ -1,4 +1,4 @@
-import { Table } from '@md/ui'
+import { Table, TableCell, TableRow } from '@ui2/components'
 import { ColumnDef, OnChangeFn, PaginationState, Row, flexRender } from '@tanstack/react-table'
 import { ReactNode } from 'react'
 
@@ -41,14 +41,14 @@ export const StandardTable = <A extends object>({
 
 const standardRowRenderer = <A extends object>(row: Row<A>) => {
   return (
-    <Table.tr key={row.id}>
+    <TableRow key={row.id}>
       {row.getVisibleCells().map(cell => {
         return (
-          <Table.td key={cell.id}>
+          <TableCell key={cell.id}>
             {flexRender(cell.column.columnDef.cell, cell.getContext())}
-          </Table.td>
+          </TableCell>
         )
       })}
-    </Table.tr>
+    </TableRow>
   )
 }

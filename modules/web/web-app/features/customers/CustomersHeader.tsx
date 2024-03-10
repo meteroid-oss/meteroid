@@ -1,7 +1,8 @@
 import { colors, spaces } from '@md/foundation'
-import { PlusIcon, SearchIcon } from '@md/icons'
-import { Button, Flex, Input2 } from '@ui/components'
-import { RefreshCwIcon } from 'lucide-react'
+import { ChevronDownIcon, PlusIcon, SearchIcon } from '@md/icons'
+import { Button, InputWithIcon } from '@ui2/components'
+import { Flex } from '@ui2/components/legacy'
+import { LoaderIcon, RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
 import PageHeading from '@/components/atoms/PageHeading/PageHeading'
@@ -28,23 +29,22 @@ export const CustomersHeader: FunctionComponent<CustomersProps> = ({
       <Flex direction="row" align="center" justify="space-between">
         <PageHeading count={count}>Customers</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
-          <Button variant="tertiary">Import / Export</Button>
-          <Button variant="primary" onClick={() => setEditPanelVisible(true)}>
+          <Button variant="secondary">Import / Export</Button>
+          <Button variant="default" onClick={() => setEditPanelVisible(true)}>
             <PlusIcon size={10} fill={colors.white1} /> New customer
           </Button>
         </Flex>
       </Flex>
       <Flex direction="row" align="center" gap={spaces.space4}>
-        <Input2
+        <InputWithIcon
           placeholder="Search customers"
           icon={<SearchIcon size={16} />}
-          iconPosition="right"
           width="fit-content"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <Button variant="tertiary" loading={isLoading} onClick={refetch}>
-          <RefreshCwIcon size={14} />
+        <Button variant="alternative" onClick={refetch}>
+          {isLoading ? <LoaderIcon size={14} /> : <RefreshCwIcon size={14} />}
         </Button>
       </Flex>
     </Flex>

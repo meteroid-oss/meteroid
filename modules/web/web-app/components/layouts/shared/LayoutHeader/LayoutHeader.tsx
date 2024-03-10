@@ -16,13 +16,13 @@ export const LayoutHeader = ({
   return (
     <div
       className={`flex  items-center justify-between py-4 pr-5 pl-10 ${
-        headerBorder ? 'border-b border-scale-500' : ''
+        headerBorder ? 'border-b border-slate-500' : ''
       }`}
     >
       <div className="flex items-center text-sm">
         <TenantDropdown />
       </div>
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-1">
         {customHeaderComponents && customHeaderComponents}
         <HelpPopover />
         <StarGithub />

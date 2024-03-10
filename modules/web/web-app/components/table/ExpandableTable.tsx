@@ -1,4 +1,4 @@
-import { Table } from '@md/ui'
+import { Table, TableHead, TableRow, TableCell } from '@ui2/components'
 import {
   ColumnDef,
   OnChangeFn,
@@ -42,21 +42,21 @@ export const ExpandableTable = <A extends { isExpandable?: boolean }>({
     (row: Row<A>) => {
       return (
         <Fragment key={row.id}>
-          <Table.tr>
+          <TableRow>
             {row.getVisibleCells().map(cell => {
               return (
-                <Table.td key={cell.id}>
+                <TableCell key={cell.id}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </Table.td>
+                </TableCell>
               )
             })}
-          </Table.tr>
+          </TableRow>
           {row.getIsExpanded() && (
-            <Table.tr className="sub-row">
-              <Table.td colSpan={row.getVisibleCells().length}>
+            <TableRow className="sub-row">
+              <TableCell colSpan={row.getVisibleCells().length}>
                 {renderSubComponent({ row })}
-              </Table.td>
-            </Table.tr>
+              </TableCell>
+            </TableRow>
           )}
         </Fragment>
       )

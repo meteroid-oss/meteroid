@@ -9,6 +9,8 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
 import { generalStats, totalMrrChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
+import { Badge } from '@ui2/components'
+import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 
 const DottedBackground = styled('div', {
   maskImage: 'radial-gradient(rgb(0, 0, 0), transparent 62%)',
@@ -51,14 +53,14 @@ export const MrrChart = (props: MrrChartProps) => {
 
   return (
     <div>
-      <div className="py-2 flex flex-row gap-12">
+      <div className="py-4 flex flex-row gap-12">
         <div className="flex flex-col gap-2">
-          <div className="text-sm">Total MRR</div>
-          <div className="flex gap-2">
-            <span className="text-md">{formatCurrency(stats.data?.totalMrr?.valueCents)}</span>
-            <div className="text-xs flex h-fit text-green-1000 items-center bg-green-300 p-1">
-              <ArrowUp size={12} /> 11%
-            </div>
+          <div className="px-2 text-sm font-bold">MRR</div>
+          <div className="px-2">
+            <span className="text-2xl font-medium leading-6">
+              {formatCurrency(stats.data?.totalMrr?.valueCents)}
+            </span>
+            <span className="text-success text-sm font-semibold leading-4 ml-2">+11%</span>
           </div>
         </div>
         <div className="flex flex-col gap-2">
@@ -95,16 +97,6 @@ export const MrrChart = (props: MrrChartProps) => {
             data={series}
           />
         )}
-      </div>
-    </div>
-  )
-}
-
-function ChartNoData({ error }: { error?: boolean }) {
-  return (
-    <div className=" h-full w-full flex items-center justify-center ">
-      <div className="font-semibold text-sm text-center mb-4 bg-slate-100 rounded-xl p-4 z-10">
-        {error ? 'error' : 'no data'}
       </div>
     </div>
   )

@@ -31,15 +31,15 @@ const DemoContainer = ({ children }: { children: React.ReactNode }) => (
     <div
       className="
       p-3 px-5 
-      bg-scale-300 border border-scale-600 rounded flex gap-4 
+      bg-slate-300 border border-slate-600 rounded flex gap-4 
       justify-between
       items-center
       w-3/4
       "
     >
       <div>
-        <h4 className="text-scale-1200 text-base">Shall we nest some components?</h4>
-        <p className="text-scale-1100 text-sm">yea sure, go on then.</p>
+        <h4 className="text-slate-1200 text-base">Shall we nest some components?</h4>
+        <p className="text-muted-foreground text-sm">yea sure, go on then.</p>
       </div>
       <div className="relative">{children}</div>
     </div>

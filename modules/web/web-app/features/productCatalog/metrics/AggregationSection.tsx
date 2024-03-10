@@ -25,7 +25,9 @@ export const AggregationSection = ({ methods }: Props) => {
               className="max-w-sm"
               placeholder="Select an aggregation type"
             >
-              <SelectGroup className="text-sm text-slate-1100 py-2 pl-4">Standard</SelectGroup>
+              <SelectGroup className="text-sm text-muted-foreground py-2 pl-4">
+                Standard
+              </SelectGroup>
               <SelectItem value="COUNT">Count</SelectItem>
               <SelectItem value="COUNT_DISTINCT">Count Distinct</SelectItem>
               <SelectItem value="SUM">Sum</SelectItem>
@@ -33,7 +35,9 @@ export const AggregationSection = ({ methods }: Props) => {
               <SelectItem value="MIN">Min</SelectItem>
               <SelectItem value="MAX">Max</SelectItem>
               <SelectItem value="LATEST">Latest</SelectItem>
-              <SelectGroup className="text-sm text-slate-1100 py-2 pl-4">Advanced</SelectGroup>
+              <SelectGroup className="text-sm text-muted-foreground py-2 pl-4">
+                Advanced
+              </SelectGroup>
               <SelectItem value="COMPOUND" disabled badge={<Badge>Soon</Badge>}>
                 Compound
               </SelectItem>

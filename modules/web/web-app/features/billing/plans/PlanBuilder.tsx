@@ -211,9 +211,9 @@ const PlanBody = () => {
         }}
       >
         <div className="space-x-4 ">
-          <div className="flex items-center space-x-3 opacity-75 text-scale-1000 text-sm">
+          <div className="flex items-center space-x-3 opacity-75 text-slate-1000 text-sm">
             <AlertCircleIcon size={16} strokeWidth={2} />
-            <div className="text-scale-1000 w-full">This plan has no configured trial.</div>
+            <div className="text-slate-1000 w-full">This plan has no configured trial.</div>
           </div>
         </div>
       </PageSection>

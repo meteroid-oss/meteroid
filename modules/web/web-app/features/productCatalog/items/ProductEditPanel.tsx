@@ -98,7 +98,7 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
         }}
       >
         <Modal.Content>
-          <p className="py-4 text-sm text-scale-1100">
+          <p className="py-4 text-sm text-muted-foreground">
             There are unsaved changes. Are you sure you want to close the panel? Your changes will
             be lost.
           </p>

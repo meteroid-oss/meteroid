@@ -109,7 +109,7 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
           </div>
         </div>
       </div>
-      <div className="absolute top-0 right-3 text-scale-900 hover:text-scale-1200 hover:cursor-pointer">
+      <div className="absolute top-0 right-3 text-slate-900 hover:text-slate-1200 hover:cursor-pointer">
         <PencilIcon size={14} strokeWidth={2} />
       </div>
     </div>

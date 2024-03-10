@@ -139,10 +139,12 @@ const PerUnitForm = ({
         />
       </FormItem>
 
-      <div className="w-full border-b border-scale-600 pt-4"></div>
+      <div className="w-full border-b border-slate-600 pt-4"></div>
 
       <AccordionPanel
-        title={<div className="space-x-4 items-center flex pr-4 text-scale-1100">Adjustments</div>}
+        title={
+          <div className="space-x-4 items-center flex pr-4 text-muted-foreground">Adjustments</div>
+        }
         defaultOpen={false}
         triggerClassName="justify-normal"
       >

@@ -25,7 +25,7 @@ const SelectValue = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Value
     ref={ref}
-    className={cn('placeholder:text-scale-800', className)}
+    className={cn('placeholder:text-slate-800', className)}
     {...props}
   />
 ))
@@ -36,7 +36,7 @@ SelectValue.displayName = SelectPrimitive.Value.displayName
 //   <SelectPrimitive.Trigger
 //     ref={ref}
 //     className={cn(
-//       'flex h-10 w-full items-center justify-between rounded-md border dark:border-scale-700  dark:bg-gray-300 px-3 py-2 text-sm  data-[placeholder]:text-scale-800 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 focus:border-scale-900 focus:ring-scale-400',
+//       'flex h-10 w-full items-center justify-between rounded-md border dark:border-slate-700  dark:bg-gray-300 px-3 py-2 text-sm  data-[placeholder]:text-slate-800 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 focus:border-slate-900 focus:ring-slate-400',
 //       className
 //     )}
 //     {...props}

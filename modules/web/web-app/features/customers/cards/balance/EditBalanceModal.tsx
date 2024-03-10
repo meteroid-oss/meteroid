@@ -1,6 +1,7 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { FormItem, Input, Modal } from '@ui/components'
+import { Form, Modal, FormInput } from '@ui2/components'
+
 import { ComponentProps } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -37,6 +38,7 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
   })
 
   const onSubmit = async (data: z.infer<typeof balanceSchema>) => {
+    console.log('data', data)
     await patchCustomerMutation.mutateAsync({
       customer: {
         id: customer.id,
@@ -51,27 +53,19 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
   return (
     <Modal
       size="small"
-      header={<>Edit address</>}
+      header={<>Edit balance</>}
       {...props}
       onConfirm={() => methods.handleSubmit(onSubmit)()}
     >
       <Modal.Content>
-        <form>
-          <div className="py-4 w-full space-y-4">
-            <FormItem label="Balance" {...methods.withError('balanceValueCents')}>
-              <Input
-                className="max-w-xs"
-                type="number"
-                {...methods.register('balanceValueCents', {
-                  valueAsNumber: true,
-                })}
-              />
-            </FormItem>
-            <FormItem label="Currency" {...methods.withError('balanceCurrency')}>
-              <Input className="max-w-xs" {...methods.register('balanceCurrency')} />
-            </FormItem>
-          </div>
-        </form>
+        <Form {...methods}>
+          <form>
+            <div className="py-4 w-full space-y-4">
+              <FormInput label="Balance" name="balanceValueCents" type="number" />
+              <FormInput label="Currency" name="balanceCurrency" />
+            </div>
+          </form>
+        </Form>
       </Modal.Content>
     </Modal>
   )

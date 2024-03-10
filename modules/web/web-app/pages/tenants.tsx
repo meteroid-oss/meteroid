@@ -2,7 +2,6 @@ import { BadgeAlt, ButtonAlt } from '@ui/components'
 import { ChevronRightIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { StyledNavigationBar } from '@/components/layouts/TenantLayout/NavigationBar/NavigationBar.styled'
 import { FooterAccountDropdown } from '@/components/layouts/TenantLayout/NavigationBar/components/Footer/Footer'
 import Header from '@/components/layouts/TenantLayout/NavigationBar/components/Header'
 import { useQuery } from '@/lib/connectrpc'
@@ -13,10 +12,10 @@ export const Tenants: React.FC = () => {
 
   return (
     <div className="flex h-full">
-      <StyledNavigationBar>
+      <nav>
         <Header />
         <FooterAccountDropdown />
-      </StyledNavigationBar>
+      </nav>
       <div className="p-6 space-y-6 w-full">
         <div className="space-y-2">
           <h3 className="">Tenants</h3>

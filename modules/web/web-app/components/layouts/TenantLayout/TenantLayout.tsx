@@ -24,7 +24,7 @@ export const TenantPageLayout = ({
     <>
       {innerMenu && <InnerMenu title={title}>{innerMenu}</InnerMenu>}
 
-      <main className="flex flex-col flex-1 w-full h-full overflow-x-hidden">
+      <main className="flex flex-col flex-1 w-full h-full overflow-x-hidden ">
         {!hideHeader && <LayoutHeader />}
         <Container fullHeight>{children}</Container>
       </main>

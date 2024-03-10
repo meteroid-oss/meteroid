@@ -31,7 +31,7 @@ export const twModalStyles = {
       xxxlarge: `sm:align-middle sm:w-full max-w-7xl`,
     },
     overlay: `
-          z-40
+          z-50
           fixed
           bg-scale-300
           dark:bg-scale-100
@@ -43,7 +43,7 @@ export const twModalStyles = {
           data-open:animate-fade-in-overlay-bg
         `,
     scroll_overlay: `
-          z-40
+          z-50
           fixed
           inset-0
           grid

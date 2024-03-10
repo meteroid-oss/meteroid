@@ -35,13 +35,13 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
           title={
             <div className="space-x-4 items-center flex pr-4">
               <h3>Segmentation Matrix</h3>
-              <span className="text-xs text-scale-1100">optional</span>
+              <span className="text-xs text-muted-foreground">optional</span>
             </div>
           }
           defaultOpen={false}
         >
           <div className="space-y-6">
-            <div className="text-sm text-scale-1000 space-y-2">
+            <div className="text-sm text-slate-1000 space-y-2">
               <p>
                 Specify different pricing based on one or two dimensions. Values are fixed.
                 <br />

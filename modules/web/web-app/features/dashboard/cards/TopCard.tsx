@@ -1,5 +1,5 @@
 import { Skeleton } from '@ui/components'
-import { cn } from '@ui/lib'
+import { cn } from '@ui2/lib'
 import { UserRoundIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -17,10 +17,7 @@ interface TopCardProp {
 export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loading }) => {
   return (
     <div
-      className={cn(
-        'container overflow-y-auto h-[180px] w-[450px] min-w-[250px] border border-slate-500 !border-r-0  flex flex-col',
-        className
-      )}
+      className={cn(' overflow-y-auto h-[180px] w-[450px] min-w-[250px]  flex flex-col', className)}
     >
       <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
         {title}

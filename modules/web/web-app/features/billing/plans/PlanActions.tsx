@@ -116,7 +116,7 @@ export const PlanActions = () => {
 
   return isDraft ? (
     <>
-      <div className="text-scale-1100 text-xs  self-center">
+      <div className="text-muted-foreground text-xs  self-center">
         {wip ? 'Some components have not been saved' : ''}
       </div>
       <div className="flex ">

@@ -20,13 +20,13 @@ export const Default = (args: any) => (
   <Modal
     {...args}
     header={
-      <div className="flex items-center gap-2 text-scale-1200">
+      <div className="flex items-center gap-2 text-slate-1200">
         <div className="text-brand-700">
           <Link2Icon />
         </div>
         <div className="flex items-baseline gap-2">
           <h3>This is the title</h3>
-          <span className="text-xs text-scale-900">This is the title</span>
+          <span className="text-xs text-slate-900">This is the title</span>
         </div>
       </div>
     }

@@ -109,7 +109,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
               <ExternalIdInput methods={methods} />
             </FormItem>
           </div>
-          <div className="w-full border-b border-scale-800 "></div>
+          <div className="w-full border-b border-slate-800 "></div>
           <FormItem name="planType" label="Plan type" layout="horizontal">
             <PlanTypeFormItem methods={methods} />
           </FormItem>
@@ -217,8 +217,8 @@ interface PlanTypeCardProps {
 const PlanTypeCard: FC<PlanTypeCardProps> = ({ title, desc }) => (
   <>
     <div className="flex flex-col ">
-      <div className="text-sm font-medium text-scale-1100">{title}</div>
-      <div className="text-xs text-scale-900">{desc}</div>
+      <div className="text-sm font-medium text-muted-foreground">{title}</div>
+      <div className="text-xs text-slate-900">{desc}</div>
     </div>
   </>
 )

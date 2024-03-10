@@ -35,9 +35,9 @@ export const UnitConversionSection = ({ methods }: Props) => {
           <div className="space-y-2">
             <div className="space-x-4 items-center flex pr-4">
               <h3>Unit Conversion</h3>
-              <span className="text-xs text-scale-1100">optional</span>
+              <span className="text-xs text-muted-foreground">optional</span>
             </div>
-            <p className="text-sm text-scale-1000">
+            <p className="text-sm text-slate-1000">
               Optionaly define a conversion factor for the aggregated value, for example to convert
               Bytes to MB
             </p>

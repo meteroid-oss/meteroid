@@ -25,9 +25,11 @@ export const PriceComponentPanel: React.FC = () => {
       onCancel={() => navigate('..')}
     >
       <div className="px-2">
-        <div className="p-6 pt-0 text-sm text-scale-1100">Import from another plan (soon)</div>
+        <div className="p-6 pt-0 text-sm text-muted-foreground">
+          Import from another plan (soon)
+        </div>
 
-        <div className="pl-4 pb-2  text-sm font-semibold text-scale-1000">Standard models</div>
+        <div className="pl-4 pb-2  text-sm font-semibold text-slate-1000">Standard models</div>
         <Row
           to="rate"
           label="Subscription Rate"
@@ -46,7 +48,7 @@ export const PriceComponentPanel: React.FC = () => {
           description="Threshold-based pricing system where users pay based on the capacity they purchase, with overage charges for additional usage or upsell opportunities."
           icon={<ParkingMeterIcon size={14} />}
         />
-        <div className="pl-4 pt-6 pb-2  text-sm font-semibold text-scale-1000">
+        <div className="pl-4 pt-6 pb-2  text-sm font-semibold text-slate-1000">
           Pay-as-you-go models
         </div>
 
@@ -63,7 +65,7 @@ export const PriceComponentPanel: React.FC = () => {
           disabled
         />
 
-        <div className="pl-4 pt-6 pb-2 text-sm font-semibold text-scale-1000">
+        <div className="pl-4 pt-6 pb-2 text-sm font-semibold text-slate-1000">
           Additional charges
         </div>
         <Row
@@ -129,7 +131,7 @@ const Row: React.FC<RowProps> = ({ to, label, description, icon, disabled = fals
           )}
         </div>
 
-        <span className="text-sm text-scale-1000">{description}</span>
+        <span className="text-sm text-slate-1000">{description}</span>
       </div>
     </div>
   )

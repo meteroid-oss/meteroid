@@ -24,20 +24,20 @@ export const twButtonAltStyles = {
             focus-visible:outline-brand-600
           `,
       secondary: `
-            bg-scale-1200
-            text-scale-100 hover:text-scale-800
-            focus-visible:text-scale-600
+            bg-slate-1200
+            text-slate-100 hover:text-slate-800
+            focus-visible:text-slate-600
     
-            bordershadow-scale-1100 hover:bordershadow-scale-900
+            bordershadow-slate-1100 hover:bordershadow-slate-900
     
-            focus-visible:outline-scale-700
+            focus-visible:outline-slate-700
           `,
       default: `
-            text-scale-1200
-            bg-scale-100 hover:bg-scale-300
-            bordershadow-scale-600 hover:bordershadow-scale-700
-            dark:bordershadow-scale-700 hover:dark:bordershadow-scale-800
-            dark:bg-scale-500 dark:hover:bg-scale-600
+            text-slate-1200
+            bg-slate-100 hover:bg-slate-300
+            bordershadow-slate-600 hover:bordershadow-slate-700
+            dark:bordershadow-slate-700 hover:dark:bordershadow-slate-800
+            dark:bg-slate-500 dark:hover:bg-slate-600
             focus-visible:outline-brand-600
     
           `,
@@ -50,21 +50,21 @@ export const twButtonAltStyles = {
             focus-visible:outline-brand-600
           `,
       outline: `
-            text-scale-1200
+            text-slate-1200
             bg-transparent
-            bordershadow-scale-600 hover:bordershadow-scale-700
-            dark:bordershadow-scale-800 hover:dark:bordershadow-scale-900
-            focus-visible:outline-scale-700
+            bordershadow-slate-600 hover:bordershadow-slate-700
+            dark:bordershadow-slate-800 hover:dark:bordershadow-slate-900
+            focus-visible:outline-slate-700
             border
-            border-scale-700 hover:border-scale-900
+            border-slate-700 hover:border-slate-900
           `,
       dashed: `
-            text-scale-1200
+            text-slate-1200
             border
             border-dashed
-            border-scale-700 hover:border-scale-900
+            border-slate-700 hover:border-slate-900
             bg-transparent
-            focus-visible:outline-scale-700
+            focus-visible:outline-slate-700
           `,
       link: `
             text-brand-1100
@@ -74,13 +74,13 @@ export const twButtonAltStyles = {
             border-opacity-0
             bg-opacity-0 dark:bg-opacity-0
             shadow-none
-            focus-visible:outline-scale-700
+            focus-visible:outline-slate-700
           `,
       text: `
-            text-scale-1200
-            hover:bg-scale-500
+            text-slate-1200
+            hover:bg-slate-500
             shadow-none
-            focus-visible:outline-scale-700
+            focus-visible:outline-slate-700
           `,
       danger: `
             text-red-1100

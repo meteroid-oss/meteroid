@@ -16,7 +16,7 @@ export const PageSection: React.FC<PageSectionProps> = ({ children, header, clas
             <h2 className="text-xl font-semibold">{header.title}</h2>
             <div>{header.actions}</div>
           </div>
-          {header.subtitle && <div className="text-scale-900 text-sm">{header.subtitle}</div>}
+          {header.subtitle && <div className="text-slate-900 text-sm">{header.subtitle}</div>}
         </div>
       )}
       <div className="py-6">{children}</div>

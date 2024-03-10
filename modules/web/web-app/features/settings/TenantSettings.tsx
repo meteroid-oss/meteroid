@@ -9,7 +9,7 @@ import { UsersTab } from '@/features/settings/tabs/UsersTab'
 export const TenantSettings: FunctionComponent = () => {
   return (
     <>
-      <div className=" px-6 py-3 space-y-6 bg-scale-100 dark:bg-inherit w-full h-full overflow-x-hidden">
+      <div className=" px-6 py-3 space-y-6 bg-slate-100 dark:bg-inherit w-full h-full overflow-x-hidden">
         <div className="space-y-2">
           <div className="flex space-x-4 items-center pb-2">
             <h3>Tenant Settings</h3>

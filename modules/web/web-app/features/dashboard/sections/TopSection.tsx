@@ -8,7 +8,7 @@ export const TopSection = () => {
   const stats = useQuery(generalStats)
 
   return (
-    <div className="flex flex-row  flex-wrap md:flex-nowrap items-center  gap-1 ml-auto ">
+    <div className="flex flex-row  flex-wrap md:flex-nowrap items-center gap-4 ml-auto ">
       <StatCard
         title="Total net revenue"
         loading={!stats.isFetched}

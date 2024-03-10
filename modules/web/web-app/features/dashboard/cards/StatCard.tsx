@@ -1,5 +1,6 @@
 import { ButtonAlt, Skeleton } from '@ui/components'
 import { cn } from '@ui/lib'
+import { Card } from '@ui2/components'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -26,9 +27,9 @@ export const StatCard: React.FC<StatCardProp> = ({
   loading,
 }) => {
   return (
-    <div className="h-[120px] w-[450px] min-w-[250px] rounded-lg border border-slate-400 flex flex-col">
+    <Card className="h-[120px] w-[450px] min-w-[250px] flex flex-col">
       <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
-        <div className=" font-medium leading-none tracking-tight">{title}</div>
+        <div>{title}</div>
         {detailPath && (
           <Link to={detailPath}>
             <ButtonAlt type="text">
@@ -48,7 +49,7 @@ export const StatCard: React.FC<StatCardProp> = ({
         ) : (
           <>
             <div className="flex flex-row gap-4 items-baseline">
-              <div className="text-2xl">{value}</div>
+              <div className="text-2xl font-medium">{value}</div>
               {secondaryValue && (
                 <div className="text-xs text-slate-1000 self-baseline">{secondaryValue}</div>
               )}
@@ -57,7 +58,7 @@ export const StatCard: React.FC<StatCardProp> = ({
           </>
         )}
       </div>
-    </div>
+    </Card>
   )
 }
 
@@ -77,7 +78,7 @@ export const StatCardTrend = ({ value, percent, period, positiveIsGreen }: Trend
       className={cn(
         'text-xs',
         value === 0
-          ? 'text-scale-1100'
+          ? 'text-muted-foreground'
           : positiveIsGreen === value > 0
             ? 'text-green-900'
             : 'text-red-500'

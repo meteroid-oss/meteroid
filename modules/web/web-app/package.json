@@ -17,6 +17,7 @@
     "@md/foundation": "workspace:*",
     "@md/icons": "workspace:*",
     "@md/ui": "workspace:*",
+    "@md/ui2": "workspace:*",
     "@mobily/ts-belt": "^3.13.1",
     "@nivo/bar": "^0.84.0",
     "@nivo/core": "^0.84.0",

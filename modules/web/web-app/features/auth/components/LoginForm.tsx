@@ -1,6 +1,7 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Button, Flex, FormItem, Input } from '@ui/components'
+import { Button, FormItem, Input } from '@ui2/components'
+import { Flex } from '@ui/components'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'

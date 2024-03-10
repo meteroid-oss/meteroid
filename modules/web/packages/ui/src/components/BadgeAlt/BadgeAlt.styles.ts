@@ -32,7 +32,7 @@ export const twBadgeAltStyles = {
       bronze: `bg-bronze-200 text-bronze-1100 border border-bronze-700`,
       gray: `bg-gray-200 text-gray-1100 border border-gray-700`,
       mauve: `bg-mauve-200 text-mauve-1100 border border-mauve-700`,
-      slate: `bg-slate-200 text-slate-1100 border border-slate-700`,
+      slate: `bg-slate-200 text-muted-foreground border border-slate-700`,
       sage: `bg-sage-200 text-sage-1100 border border-sage-700`,
       olive: `bg-olive-200 text-olive-1100 border border-olive-700`,
       sand: `bg-sand-200 text-sand-1100 border border-sand-700`,

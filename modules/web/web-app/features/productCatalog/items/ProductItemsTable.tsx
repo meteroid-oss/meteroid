@@ -120,22 +120,22 @@ export const ProductItemsTable: FC<ProductItemsTableProps> = ({
 //   return (
 //     <>
 //       <div className="my-2 space-y-2 px-5">
-//         <h5 className="text-scale-1200 flex space-x-1">
+//         <h5 className="text-slate-1200 flex space-x-1">
 //           <DollarSignIcon size={16} />
 //           <span>Fixed charges</span>
 //         </h5>
-//         <div className="text-sm text-scale-1100">
+//         <div className="text-sm text-muted-foreground">
 //           {details.data?.charges.map((charge, idx) => (
 //             <div key={`charge-${idx}`} className="space-x-1 ml-5 flex">
 //               - <div>{charge.name}</div> <div>{charge.description}</div>
 //             </div>
 //           ))}
 //         </div>
-//         <h5 className="text-scale-1200 flex space-x-1">
+//         <h5 className="text-slate-1200 flex space-x-1">
 //           <GaugeIcon size={16} />
 //           <span>Metered charges</span>
 //         </h5>
-//         <div className="text-sm text-scale-900">
+//         <div className="text-sm text-slate-900">
 //           {details.data?.billableMetrics.map((charge, idx) => (
 //             <div key={`charge-${idx}`} className="space-x-1 ml-5 flex">
 //               <div>- {charge.name}</div> <div>{charge.description}</div>

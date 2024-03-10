@@ -97,8 +97,8 @@ export const MultiSelect = forwardRef<HTMLInputElement, Props>(
       const updatedPayload = allowDuplicateSelection
         ? [..._selected.concat([option.value])]
         : isActive
-        ? [...without(_selected, option.value)]
-        : [..._selected.concat([option.value])]
+          ? [...without(_selected, option.value)]
+          : [..._selected.concat([option.value])]
 
       // Payload must always include disabled options
       const compulsoryOptions = options.filter(option => option.disabled).map(option => option.name)
@@ -141,7 +141,7 @@ export const MultiSelect = forwardRef<HTMLInputElement, Props>(
                 <IconSearch size={14} />
                 <input
                   autoFocus
-                  className="w-72 bg-transparent text-sm placeholder-scale-1000 outline-none"
+                  className="w-72 bg-transparent text-sm placeholder-slate-1000 outline-none"
                   value={searchString}
                   placeholder={searchPlaceholder}
                   onKeyPress={onKeyPress}
@@ -214,8 +214,8 @@ export const MultiSelect = forwardRef<HTMLInputElement, Props>(
                       emptyMessage
                     ) : (
                       <div className="flex w-full items-center space-x-2">
-                        <IconAlertCircle strokeWidth={1.5} size={18} className="text-scale-1000" />
-                        <p className="text-sm text-scale-1000">No options available</p>
+                        <IconAlertCircle strokeWidth={1.5} size={18} className="text-slate-1000" />
+                        <p className="text-sm text-slate-1000">No options available</p>
                       </div>
                     )}
                   </div>
@@ -230,7 +230,7 @@ export const MultiSelect = forwardRef<HTMLInputElement, Props>(
                       emptyMessage
                     ) : (
                       <div className="flex w-full items-center space-x-2">
-                        <p className="text-sm text-scale-1000">No options found</p>
+                        <p className="text-sm text-slate-1000">No options found</p>
                       </div>
                     )}
                   </div>
@@ -262,7 +262,7 @@ export const MultiSelect = forwardRef<HTMLInputElement, Props>(
                 }
               })}
               <div className="absolute inset-y-0 right-0 pl-3 pr-2 flex space-x-1 items-center cursor-pointer ">
-                <IconChevronDown size={16} strokeWidth={2} className="text-scale-900" />
+                <IconChevronDown size={16} strokeWidth={2} className="text-slate-900" />
               </div>
             </div>
           </PopoverAlt>

@@ -90,7 +90,7 @@ export const twSidePanelStyles = {
           w-full
           h-px
           my-2
-          bg-scale-300 dark:bg-scale-500
+          bg-slate-300 dark:bg-slate-500
         `,
     overlay: `
           z-40

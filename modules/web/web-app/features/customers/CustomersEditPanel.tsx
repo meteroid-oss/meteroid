@@ -1,10 +1,20 @@
 import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Flex, FormItem, Input, Modal, SidePanel } from '@md/ui'
+import {
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  Input,
+  Separator,
+} from '@ui2/components'
+import { Flex } from '@ui2/components/legacy'
+import { Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { HelpCircleIcon } from 'lucide-react'
 import { useState } from 'react'
-
 
 import ConfirmationModal from '@/components/atoms/ConfirmationModal'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -14,6 +24,17 @@ import {
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { CustomerBillingConfig_Stripe_CollectionMethod } from '@/rpc/api/customers/v1/models_pb'
+import {
+  Button,
+  Form,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@ui2/components'
+import { useNavigate } from 'react-router-dom'
 
 interface CustomersEditPanelProps {
   visible: boolean
@@ -23,6 +44,8 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   const [isClosingPanel, setIsClosingPanel] = useState(false)
 
   const queryClient = useQueryClient()
+
+  const navigate = useNavigate()
 
   const createCustomerMut = useMutation(createCustomer, {
     onSuccess: async () => {
@@ -46,6 +69,112 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   // TODO try without the form, with onConfirm
   return (
     <>
+      <Sheet open={visible} onOpenChange={safeClosePanel}>
+        <SheetContent size={'large'}>
+          <Form {...methods}>
+            <form
+              onSubmit={methods.handleSubmit(async values => {
+                const res = await createCustomerMut.mutateAsync({
+                  name: values.companyName,
+                  alias: values.externalId,
+                  billingConfig: {
+                    billingConfigOneof: {
+                      case: 'stripe',
+                      value: {
+                        collectionMethod:
+                          CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
+                        customerId: values.stripeCustomerId,
+                      },
+                    },
+                  },
+                })
+                if (res.customer?.id) {
+                  navigate(`./${res.customer.id}`)
+                }
+              })}
+            >
+              <SheetHeader className="border-b border-border pb-3">
+                <SheetTitle>Create a new customer</SheetTitle>
+              </SheetHeader>
+              <div className="py-6">
+                <Flex direction="column" gap={spaces.space7}>
+                  <h2 className="text-lg font-semibold text-muted-foreground">
+                    Customer Information
+                  </h2>
+
+                  <FormField
+                    control={methods.control}
+                    name="companyName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Customer Name</FormLabel>
+                        <FormControl>
+                          <Input type="text" placeholder="ACME Inc" {...field} autoComplete="off" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={methods.control}
+                    name="primaryEmail"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Primary email</FormLabel>
+                        <FormControl>
+                          <Input type="text" {...field} autoComplete="off" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={methods.control}
+                    name="externalId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>External Customer ID</FormLabel>
+                        <FormControl>
+                          <Input type="text" {...field} autoComplete="off" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <Separator />
+
+                  <h2 className="text-lg font-semibold text-muted-foreground">Invoicing Method</h2>
+
+                  <SheetDescription>
+                    In this release, the only billing method available is via <b>Stripe Invoice</b>
+                  </SheetDescription>
+
+                  <FormField
+                    control={methods.control}
+                    name="stripeCustomerId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Stripe Customer ID</FormLabel>
+                        <FormControl>
+                          <Input type="text" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </Flex>
+              </div>
+              <SheetFooter>
+                <Button type="submit">Save changes</Button>
+              </SheetFooter>
+            </form>
+          </Form>
+        </SheetContent>
+      </Sheet>
+      {/* 
       <SidePanel
         size="large"
         key="TableEditor"
@@ -106,6 +235,9 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
           </Flex>
         </SidePanel.Content>
       </SidePanel>
+    
+    </> */}
+
       <ConfirmationModal
         visible={isClosingPanel}
         header="Confirm to close"
@@ -118,7 +250,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
         }}
       >
         <Modal.Content>
-          <p className="py-4 text-sm text-scale-1100">
+          <p className="py-4 text-sm text-muted-foreground">
             There are unsaved changes. Are you sure you want to close the panel? Your changes will
             be lost.
           </p>

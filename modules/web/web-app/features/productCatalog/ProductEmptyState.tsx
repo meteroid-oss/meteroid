@@ -51,11 +51,11 @@ const ProductEmptyState: FC<Props> = ({
                           <Tooltip.Arrow className="radix-tooltip-arrow" />
                           <div
                             className={[
-                              'rounded bg-scale-100 py-1 px-2 leading-none shadow',
-                              'border border-scale-200',
+                              'rounded bg-slate-100 py-1 px-2 leading-none shadow',
+                              'border border-slate-200',
                             ].join(' ')}
                           >
-                            <span className="text-xs text-scale-1200">{disabledMessage}</span>
+                            <span className="text-xs text-slate-1200">{disabledMessage}</span>
                           </div>
                         </Tooltip.Content>
                       </Tooltip.Portal>

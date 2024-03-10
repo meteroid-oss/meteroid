@@ -33,7 +33,7 @@ const FormFieldVertical = ({
 }: Omit<FormItemProps, 'layout'>) => (
   <Flex direction="column" gap={spaces.space2}>
     <Flex direction="row" justify="space-between" align="center">
-      <Label htmlFor={name} className="text-slate-1100">
+      <Label htmlFor={name} className="text-muted-foreground">
         {label} {!optional && <Error>*</Error>}
       </Label>
     </Flex>
@@ -48,7 +48,7 @@ const FormFieldVertical = ({
 const FormFieldHorizontal = ({ name, label, hint, children, error }: FormItemProps) => (
   <div className="text-sm grid gap-2 md:grid md:grid-cols-12">
     <div className="flex flex-col space-y-2 col-span-4">
-      <Label htmlFor={name} className="block text-scale-1100 text-sm">
+      <Label htmlFor={name} className="block text-muted-foreground text-sm">
         {label}
       </Label>
     </div>

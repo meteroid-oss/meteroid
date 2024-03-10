@@ -1,83 +1,100 @@
-import { ButtonAlt as Button, PopoverAlt as Popover } from '@md/ui'
-import {
-  HelpCircle as IconHelpCircle,
-  MessageCircle as IconMessageCircle,
-} from 'lucide-react'
+import { copyToClipboard } from '@/lib/helpers'
+import { Button, Popover, PopoverTrigger, PopoverContent, Textarea } from '@ui2/components'
+import { HelpCircle as IconHelpCircle, MessageCircle as IconMessageCircle } from 'lucide-react'
 import { FC } from 'react'
-import SVG from 'react-inlinesvg'
+import { toast } from 'sonner'
 
+const copyEmail = () => {
+  copyToClipboard('team@meteroid.com')
+  toast.success('Email copied to clipboard')
+}
 const HelpPopover: FC = () => {
   return (
-    <Popover
-      size="content"
-      align="end"
-      side="bottom"
-      sideOffset={8}
-      overlay={
-        <div className="my-4 w-96 space-y-4">
-          <div className="mb-4 space-y-2">
-            <div className="mb-4 px-5">
-              <h5 className="mb-2">Reach out to the team and community</h5>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant={'ghost'} size="sm" className="h-9">
+          <IconHelpCircle size={16} strokeWidth={1.5} className="mr-2" /> Help / Feedback
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-96">
+        <div className="mb-4 space-y-2 px-5">
+          <div className="mb-4 ">
+            <h5 className="mb-1">Quick feedback</h5>
+            <div className="flex flex-row gap-2 align-bottom">
+              <Textarea className="" />
+              <Button variant="secondary" size={'sm'} className="self-end">
+                Send
+              </Button>
             </div>
-            <div className="px-5">
-              <div
-                className="relative space-y-2 overflow-hidden rounded px-5 py-4 pb-12 shadow-md"
-                style={{ background: '#404EED' }}
+            <div className="text-xs">
+              or{' '}
+              <a
+                className="underline"
+                href="mailto:team@meteroid.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => copyEmail()}
               >
-                <a
-                  href="https://go.meteroid.com/discord"
-                  target="_blank"
-                  className="dark block cursor-pointer"
-                  rel="noreferrer"
-                >
-                  <img
-                    className="absolute left-0 top-0 opacity-50"
-                    src="/img/support/discord-bg-small.jpg"
-                    style={{ objectFit: 'cover' }}
-                    alt="discord illustration header"
-                  />
-                  <Button
-                    type="secondary"
-                    icon={<SVG src="/img/discord-icon.svg" className="h-4 w-4" />}
-                  >
-                    <span style={{ color: '#404EED' }}>Join us on Discord</span>
-                  </Button>
-                </a>
-              </div>
+                email us
+              </a>
             </div>
-            <div className="px-5">
-              <div className="relative space-y-2 overflow-hidden rounded px-5 py-4 pb-12 shadow-md">
-                <a
-                  href="https://github.com/meteroid-oss/meteroid/discussions"
-                  target="_blank"
-                  className="block cursor-pointer"
-                  rel="noreferrer"
+          </div>
+          <div></div>
+          <div className="mb-4 ">
+            <h5 className="mb-2">Reach out to the team and community</h5>
+          </div>
+          <div>
+            <div
+              className="relative space-y-2 overflow-hidden rounded px-5 py-4 pb-12 shadow-md h-[100px]"
+              style={{ background: '#404EED' }}
+            >
+              <a
+                href="https://go.meteroid.com/discord"
+                target="_blank"
+                className="dark block cursor-pointer"
+                rel="noreferrer"
+              >
+                <img
+                  className="absolute left-0 top-0 opacity-50"
+                  src="/img/support/discord-bg-small.jpg"
+                  style={{ objectFit: 'cover' }}
+                  alt="discord illustration header"
+                />
+
+                <Button hasIcon className="absolute left-3 top-3 opacity-80 bg-foreground">
+                  <span style={{ color: '#404EED' }}>Join us on Discord !</span>
+                </Button>
+              </a>
+            </div>
+          </div>
+          <div>
+            <div className="relative space-y-2 overflow-hidden rounded px-5 py-4 pb-12 shadow-md h-[100px]">
+              <a
+                href="https://github.com/meteroid-oss/meteroid/discussions"
+                target="_blank"
+                className="block cursor-pointer"
+                rel="noreferrer"
+              >
+                <img
+                  className="absolute left-0 top-0 opacity-50"
+                  src="/img/support/github-bg.jpg?v-1"
+                  style={{
+                    objectFit: 'cover',
+                  }}
+                  alt="discord illustration header"
+                />
+                <Button
+                  variant="secondary"
+                  hasIcon
+                  className="absolute left-3 top-3 opacity-80 dark:bg-secondary bg-foreground dark:text-secondary-foreground text-secondary"
                 >
-                  <img
-                    className="absolute left-0 top-0 opacity-50"
-                    src="/img/support/github-bg.jpg?v-1"
-                    style={{
-                      objectFit: 'cover',
-                    }}
-                    alt="discord illustration header"
-                  />
-                  <Button type="secondary" icon={<IconMessageCircle size={14} />}>
-                    GitHub Discussions
-                  </Button>
-                </a>
-              </div>
+                  <IconMessageCircle size={14} /> GitHub Discussions
+                </Button>
+              </a>
             </div>
           </div>
         </div>
-      }
-    >
-      <Button
-        as="span"
-        type="default"
-        icon={<IconHelpCircle size={16} strokeWidth={1.5} className="text-scale-1200" />}
-      >
-        Help / Feedback
-      </Button>
+      </PopoverContent>
     </Popover>
   )
 }

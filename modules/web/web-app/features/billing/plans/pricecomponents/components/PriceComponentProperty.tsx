@@ -16,11 +16,11 @@ export const PriceComponentProperty: React.FC<Props> = ({
   return (
     <div className={className}>
       <label className="flex">
-        <div className="flex flex-col text-sm text-slate-1100">
+        <div className="flex flex-col text-sm text-muted-foreground">
           <span>{label}</span>
         </div>
       </label>
-      <div className={cn('mt-1 text-scale-1200 text-sm', childrenClassNames)}>{children}</div>
+      <div className={cn('mt-1 text-slate-1200 text-sm', childrenClassNames)}>{children}</div>
     </div>
   )
 }

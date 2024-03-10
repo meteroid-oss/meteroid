@@ -110,22 +110,22 @@ export const ProductMetricsEditPanel = ({ visible, closePanel }: ProductMetricsE
                       },
                     }
                   : input.segmentationMatrix.double
-                  ? {
-                      case: 'double',
-                      value: input.segmentationMatrix.double,
-                    }
-                  : input.segmentationMatrix.linked
-                  ? {
-                      case: 'linked',
-                      value: {
-                        ...input.segmentationMatrix.linked,
-                        values: pipe(
-                          input.segmentationMatrix.linked.values,
-                          D.map(values => ({ values }))
-                        ),
-                      },
-                    }
-                  : undefined),
+                    ? {
+                        case: 'double',
+                        value: input.segmentationMatrix.double,
+                      }
+                    : input.segmentationMatrix.linked
+                      ? {
+                          case: 'linked',
+                          value: {
+                            ...input.segmentationMatrix.linked,
+                            values: pipe(
+                              input.segmentationMatrix.linked.values,
+                              D.map(values => ({ values }))
+                            ),
+                          },
+                        }
+                      : undefined),
             },
             usageGroupKey: input.usageGroupKey ?? undefined,
             familyExternalId,
@@ -192,13 +192,13 @@ export const ProductMetricsEditPanel = ({ visible, closePanel }: ProductMetricsE
             title={
               <div className="space-x-4 items-center flex pr-4">
                 <h3>Usage Group Key</h3>
-                <span className="text-xs text-scale-1100">optional</span>
+                <span className="text-xs text-muted-foreground">optional</span>
               </div>
             }
             defaultOpen={false}
           >
             <div className="space-y-6">
-              <div className="text-sm text-scale-1000 space-y-2">
+              <div className="text-sm text-slate-1000 space-y-2">
                 <p>
                   Specify a dimension to group items by in the invoice and usage endpoints.
                   <br />
@@ -238,7 +238,7 @@ export const ProductMetricsEditPanel = ({ visible, closePanel }: ProductMetricsE
         }}
       >
         <Modal.Content>
-          <p className="py-4 text-sm text-scale-1100">
+          <p className="py-4 text-sm text-muted-foreground">
             There are unsaved changes. Are you sure you want to close the panel? Your changes will
             be lost.
           </p>

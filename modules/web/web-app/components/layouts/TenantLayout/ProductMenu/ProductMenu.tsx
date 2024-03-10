@@ -38,7 +38,7 @@ export const ProductMenu: FC<ProductMenuProps> = ({ menu }) => {
                 </div>
               </div>
             </div>
-            {idx !== menu.length - 1 && <div className="h-px w-full bg-scale-500"></div>}
+            {idx !== menu.length - 1 && <div className="h-px w-full bg-slate-500"></div>}
           </div>
         ))}
       </Menu>

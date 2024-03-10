@@ -44,7 +44,7 @@ export const PlanOnboardingModal: FC = () => {
         <div className="w-2/3 text-center p-4">
           <div>
             <h2 className="text-lg font-semibold mb-4">Pick a base pricing model</h2>
-            <div className="text-sm text-scale-1100">
+            <div className="text-sm text-muted-foreground">
               You can add extra price components and addons afterward
             </div>
           </div>
@@ -78,9 +78,9 @@ export const PlanOnboardingModal: FC = () => {
           </div>
         </div>
         <div className="flex flex-col items-center">
-          <div className="flex-grow w-0.5 bg-scale-800 pt-2"></div>
+          <div className="flex-grow w-0.5 bg-slate-800 pt-2"></div>
           <div>or</div>
-          <div className="flex-grow w-0.5 bg-scale-800 pb-2"></div>
+          <div className="flex-grow w-0.5 bg-slate-800 pb-2"></div>
         </div>
         <div className="w-1/3 text-center h-3/4">
           <h2 className="text-lg font-semibold mb-4">Start from a template</h2>

@@ -8,7 +8,6 @@ import { getInvite } from '@/rpc/api/instance/v1/instance-InstanceService_connec
 import { User, UserRole } from '@/rpc/api/users/v1/models_pb'
 import { listUsers } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
-
 const userRoleMapping: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'Owner',
   [UserRole.MEMBER]: 'Member',
@@ -51,7 +50,9 @@ export const UsersTab = () => {
         header={<>Invite users</>}
       >
         <div className="p-8">
-          <Label className="mb-2 text-scale-1100">Send this invite link to your colleagues</Label>
+          <Label className="mb-2 text-muted-foreground">
+            Send this invite link to your colleagues
+          </Label>
           <Input readOnly copy={invite.isSuccess} value={inviteLink ?? 'loading...'} />
         </div>
       </Modal>

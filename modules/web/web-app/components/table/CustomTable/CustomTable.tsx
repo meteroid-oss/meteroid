@@ -1,6 +1,15 @@
 import { spaces } from '@md/foundation'
 import { ChevronUpIcon, ChevronDownIcon } from '@md/icons'
-import { Flex, Skeleton, Table } from '@md/ui'
+import {
+  Skeleton,
+  Table,
+  TableRow,
+  TableCell,
+  TableHeader,
+  TableHead,
+  TableBody,
+} from '@ui2/components'
+import { Flex } from '@ui2/components/legacy'
 import {
   ColumnDef,
   OnChangeFn,
@@ -89,34 +98,34 @@ export const CustomTable = <A extends object>({
       const skeletonColumnsArray = Array.from({ length: skeletonColumns })
 
       return skeletonRowsArray.map((_, rowIndex) => (
-        <Table.tr key={rowIndex}>
+        <TableRow key={rowIndex}>
           {skeletonColumnsArray.map((_, colIndex) => {
             const header = columns[colIndex].header
             const isEmpty = typeof header === 'function'
 
             return (
-              <Table.td key={colIndex}>
-                {header && !isEmpty ? <Skeleton height={16} width={100} /> : null}
-              </Table.td>
+              <TableCell key={colIndex}>
+                {header && !isEmpty ? <Skeleton className="h-[16px] w-[100px]" /> : null}
+              </TableCell>
             )
           })}
-        </Table.tr>
+        </TableRow>
       ))
     }
 
     if (data && rows.length === 0) {
       return (
-        <Table.tr>
-          <Table.td
+        <TableRow>
+          <TableCell
             colSpan={columns.length}
             className="h-14 whitespace-nowrap border-t p-4 text-sm leading-5 text-gray-300"
           >
             <div className="flex items-center space-x-3 opacity-75">
               <AlertCircleIcon size={16} strokeWidth={2} />
-              <p className="text-scale-1000">{emptyMessage}</p>
+              <p className="text-slate-1000">{emptyMessage}</p>
             </div>
-          </Table.td>
-        </Table.tr>
+          </TableCell>
+        </TableRow>
       )
     }
 
@@ -125,43 +134,46 @@ export const CustomTable = <A extends object>({
 
   return (
     <Flex direction="column" gap={spaces.space9}>
-      <Table
-        head={table.getFlatHeaders().map((header, headerIndex) => {
-          const sortType = header.column.getIsSorted()
-          const columnName = flexRender(header.column.columnDef.header, header.getContext())
-          const isEmpty = typeof columnName === 'object'
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const className: string | undefined = (header.column.columnDef as any).className
-          const rowSortable = sortable && header.column.getCanSort()
-          return (
-            <Table.th key={header.id} className={className}>
-              {header.isPlaceholder ? null : rowSortable && !isEmpty ? (
-                <div
-                  tabIndex={headerIndex}
-                  data-sort={sortType}
-                  className={rowSortable ? 'cursor-pointer select-none flex items-center' : ''}
-                  onClick={rowSortable ? header.column.getToggleSortingHandler() : undefined}
-                >
-                  <SortableIndicatorContainer>
-                    {sortType === 'asc' ? (
-                      <ChevronUpIcon size={14} data-type="chevron" />
-                    ) : sortType === 'desc' ? (
-                      <ChevronDownIcon size={14} data-type="chevron" />
-                    ) : (
-                      <SortableDefaultIndicator />
-                    )}
-                  </SortableIndicatorContainer>
+      <Table>
+        <TableHeader>
+          {table.getFlatHeaders().map((header, headerIndex) => {
+            const sortType = header.column.getIsSorted()
+            const columnName = flexRender(header.column.columnDef.header, header.getContext())
+            const isEmpty = typeof columnName === 'object'
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const className: string | undefined = (header.column.columnDef as any).className
+            const rowSortable = sortable && header.column.getCanSort()
+            return (
+              <TableHead key={header.id} className={className}>
+                {header.isPlaceholder ? null : rowSortable && !isEmpty ? (
+                  <div
+                    tabIndex={headerIndex}
+                    data-sort={sortType}
+                    className={rowSortable ? 'cursor-pointer select-none flex items-center' : ''}
+                    onClick={rowSortable ? header.column.getToggleSortingHandler() : undefined}
+                  >
+                    <SortableIndicatorContainer>
+                      {sortType === 'asc' ? (
+                        <ChevronUpIcon size={14} data-type="chevron" />
+                      ) : sortType === 'desc' ? (
+                        <ChevronDownIcon size={14} data-type="chevron" />
+                      ) : (
+                        <SortableDefaultIndicator />
+                      )}
+                    </SortableIndicatorContainer>
 
-                  {columnName}
-                </div>
-              ) : (
-                columnName
-              )}
-            </Table.th>
-          )
-        })}
-        body={tableBody}
-      />
+                    {columnName}
+                  </div>
+                ) : (
+                  columnName
+                )}
+              </TableHead>
+            )
+          })}
+        </TableHeader>
+        <TableBody>{tableBody}</TableBody>
+      </Table>
+
       <Pagination
         pagination={pagination}
         setPagination={setPagination}
