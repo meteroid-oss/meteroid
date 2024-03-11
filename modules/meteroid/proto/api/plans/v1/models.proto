@@ -90,6 +90,17 @@ message Plan {
   //  repeated Metadata metadata = 9;
 }
 
+message ListPlan {
+  string id = 1;
+  string name = 2;
+  string external_id = 3;
+  optional string description = 4;
+  PlanType plan_type = 5;
+  PlanStatus plan_status = 6;
+  string product_family_id = 7;
+  string product_family_name = 8;
+}
+
 message PlanDetails {
   Plan plan = 1;
   PlanVersion current_version = 2;

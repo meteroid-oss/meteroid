@@ -1,8 +1,17 @@
-import { Input, SelectContent, SelectItem, SelectRoot, SelectTrigger } from '@ui/components'
+import { A, D, F, pipe } from '@mobily/ts-belt'
+import {
+  Input,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectRoot,
+  SelectTrigger,
+} from '@ui/components'
 import { useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
-import { Plan } from '@/rpc/api/plans/v1/models_pb'
+import { Plan, ListPlan } from '@/rpc/api/plans/v1/models_pb'
 import { getPlanByExternalId, listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
@@ -55,20 +64,33 @@ const PlanItems = ({ search }: { search: string }) => {
       limit: 20,
       offset: 0,
     },
-    productFamilyExternalId: 'default',
     search: search.length > 0 ? search : undefined,
     orderBy: ListPlansRequest_SortBy.NAME_ASC,
   })
 
-  const plans = query.data?.plans || []
+  // const plans = query.data?.plans || []
+  const plansByFamily = pipe(
+    query.data?.plans,
+    F.defaultTo([] as ListPlan[]),
+    A.groupBy(p => p.productFamilyName)
+  )
 
   return (
     <>
-      {plans.map(p => (
-        <SelectItem key={p.externalId} value={p.externalId}>
-          {p.name}
-        </SelectItem>
-      ))}
+      {pipe(
+        plansByFamily,
+        D.toPairs,
+        A.map(([family, plans]) => (
+          <SelectGroup key={family}>
+            <SelectLabel className="SelectLabel">{family}</SelectLabel>
+            {plans?.map(p => (
+              <SelectItem key={p.externalId} value={p.externalId}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        ))
+      )}
     </>
   )
 }

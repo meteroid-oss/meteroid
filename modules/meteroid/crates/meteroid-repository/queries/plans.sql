@@ -251,7 +251,7 @@ WHERE
   tenant_id = :tenant_id
   AND external_id = :external_id;
 
---! list_plans (search?) : ListPlan
+--! list_plans (search?, product_family_external_id?) : ListPlan
 SELECT
   plan.id,
   plan.name,
@@ -259,13 +259,18 @@ SELECT
   plan.description,
   plan.status,
   plan.plan_type,
+  product_family.id as product_family_id,
+  product_family.name as product_family_name,
   COUNT(*) OVER() AS total_count
 FROM
   plan
   JOIN product_family ON plan.product_family_id = product_family.id
 WHERE
   plan.tenant_id = :tenant_id
-  AND product_family.external_id = :product_family_external_id
+  AND (
+    :product_family_external_id :: TEXT IS NULL
+        OR product_family.external_id = :product_family_external_id
+  )
   AND (
     :search :: TEXT IS NULL
         OR plan.name ILIKE '%' || :search || '%'
