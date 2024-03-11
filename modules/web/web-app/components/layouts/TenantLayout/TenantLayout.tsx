@@ -10,6 +10,7 @@ import InnerMenu from './components/InnerMenu'
 interface TenantLayoutProps {
   title: string
   isLoading?: boolean
+  familyPicker?: boolean
   innerMenu?: ReactNode
   hideHeader?: boolean
 }
@@ -19,13 +20,14 @@ export const TenantPageLayout = ({
   innerMenu,
   children,
   hideHeader = false,
+  familyPicker = false,
 }: PropsWithChildren<TenantLayoutProps>) => {
   return (
     <>
       {innerMenu && <InnerMenu title={title}>{innerMenu}</InnerMenu>}
 
-      <main className="flex flex-col flex-1 w-full h-full overflow-x-hidden ">
-        {!hideHeader && <LayoutHeader />}
+      <main className="flex flex-col flex-1 w-full max-w-[1620px] mx-auto h-full overflow-x-hidden ">
+        {!hideHeader && <LayoutHeader familyPicker={familyPicker} />}
         <Container fullHeight>{children}</Container>
       </main>
     </>

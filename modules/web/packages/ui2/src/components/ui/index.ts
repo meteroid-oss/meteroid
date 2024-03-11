@@ -31,5 +31,6 @@ export * from './textarea'
 export * from './toggle'
 export * from './tooltip'
 export * from './spinner'
+export * from './dot'
 
 export { cn } from '../../lib'

@@ -59,16 +59,16 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
           <form>
             <div className="py-4 w-full space-y-4">
               <h3 className="font-semibold">Customer details</h3>
-              <FormInput label="Name" name="name" direction="horizontal" />
-              <FormInput label="Alias" name="alias" direction="horizontal" />
-              <FormInput label="Email" name="email" direction="horizontal" type="email" />
+              <FormInput label="Name" name="name" layout="horizontal" />
+              <FormInput label="Alias" name="alias" layout="horizontal" />
+              <FormInput label="Email" name="email" layout="horizontal" type="email" />
               <FormInput
                 label="Invoicing email"
                 name="invoicingEmail"
-                direction="horizontal"
+                layout="horizontal"
                 type="email"
               />
-              <FormInput label="Phone" name="phone" direction="horizontal" type="tel" />
+              <FormInput label="Phone" name="phone" layout="horizontal" type="tel" />
             </div>
           </form>
         </Form>

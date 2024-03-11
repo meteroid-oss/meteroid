@@ -1,4 +1,4 @@
-import { cn } from '@ui/lib/cn'
+import { cn } from '@ui2/lib'
 
 export type Props = {
   className?: string

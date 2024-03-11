@@ -3,6 +3,7 @@ import { CaretSortIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix
 import * as SelectPrimitive from '@radix-ui/react-select'
 
 import { cn } from '@ui2/lib/utils'
+import { Button } from '@ui2/components'
 
 const Select = SelectPrimitive.Root
 
@@ -136,6 +137,34 @@ const SelectSeparator = React.forwardRef<
 ))
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName
 
+const SelectEmpty = () => {
+  return (
+    <SelectGroup>
+      <SelectLabel>No data</SelectLabel>
+    </SelectGroup>
+  )
+}
+SelectEmpty.displayName = 'SelectEmpty'
+
+interface SelectActionProps {
+  children: React.ReactNode
+  asChild?: boolean
+  onClick?: () => void
+  hasIcon?: boolean
+}
+const SelectAction = ({ children, hasIcon, onClick, asChild }: SelectActionProps) => {
+  return (
+    <SelectGroup>
+      <SelectLabel asChild>
+        <Button variant={'ghost'} size="full" hasIcon={hasIcon} asChild={asChild} onClick={onClick}>
+          {children}
+        </Button>
+      </SelectLabel>
+    </SelectGroup>
+  )
+}
+SelectAction.displayName = 'SelectAction'
+
 export {
   Select,
   SelectGroup,
@@ -147,4 +176,6 @@ export {
   SelectSeparator,
   SelectScrollUpButton,
   SelectScrollDownButton,
+  SelectEmpty,
+  SelectAction,
 }

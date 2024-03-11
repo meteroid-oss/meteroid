@@ -136,40 +136,42 @@ export const CustomTable = <A extends object>({
     <Flex direction="column" gap={spaces.space9}>
       <Table>
         <TableHeader>
-          {table.getFlatHeaders().map((header, headerIndex) => {
-            const sortType = header.column.getIsSorted()
-            const columnName = flexRender(header.column.columnDef.header, header.getContext())
-            const isEmpty = typeof columnName === 'object'
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const className: string | undefined = (header.column.columnDef as any).className
-            const rowSortable = sortable && header.column.getCanSort()
-            return (
-              <TableHead key={header.id} className={className}>
-                {header.isPlaceholder ? null : rowSortable && !isEmpty ? (
-                  <div
-                    tabIndex={headerIndex}
-                    data-sort={sortType}
-                    className={rowSortable ? 'cursor-pointer select-none flex items-center' : ''}
-                    onClick={rowSortable ? header.column.getToggleSortingHandler() : undefined}
-                  >
-                    <SortableIndicatorContainer>
-                      {sortType === 'asc' ? (
-                        <ChevronUpIcon size={14} data-type="chevron" />
-                      ) : sortType === 'desc' ? (
-                        <ChevronDownIcon size={14} data-type="chevron" />
-                      ) : (
-                        <SortableDefaultIndicator />
-                      )}
-                    </SortableIndicatorContainer>
+          <TableRow>
+            {table.getFlatHeaders().map((header, headerIndex) => {
+              const sortType = header.column.getIsSorted()
+              const columnName = flexRender(header.column.columnDef.header, header.getContext())
+              const isEmpty = typeof columnName === 'object'
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const className: string | undefined = (header.column.columnDef as any).className
+              const rowSortable = sortable && header.column.getCanSort()
+              return (
+                <TableHead key={header.id} className={className}>
+                  {header.isPlaceholder ? null : rowSortable && !isEmpty ? (
+                    <div
+                      tabIndex={headerIndex}
+                      data-sort={sortType}
+                      className={rowSortable ? 'cursor-pointer select-none flex items-center' : ''}
+                      onClick={rowSortable ? header.column.getToggleSortingHandler() : undefined}
+                    >
+                      <SortableIndicatorContainer>
+                        {sortType === 'asc' ? (
+                          <ChevronUpIcon size={14} data-type="chevron" />
+                        ) : sortType === 'desc' ? (
+                          <ChevronDownIcon size={14} data-type="chevron" />
+                        ) : (
+                          <SortableDefaultIndicator />
+                        )}
+                      </SortableIndicatorContainer>
 
-                    {columnName}
-                  </div>
-                ) : (
-                  columnName
-                )}
-              </TableHead>
-            )
-          })}
+                      {columnName}
+                    </div>
+                  ) : (
+                    columnName
+                  )}
+                </TableHead>
+              )
+            })}
+          </TableRow>
         </TableHeader>
         <TableBody>{tableBody}</TableBody>
       </Table>

@@ -1,14 +1,14 @@
 import { ColumnDef } from '@tanstack/react-table'
 import {
   FormItem,
-  SelectRoot,
+  Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
-  ButtonAlt,
+  Button,
   Input,
-} from '@ui/components'
+} from '@ui2/components'
 import { useAtom } from 'jotai'
 import { XIcon } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
@@ -64,22 +64,19 @@ export const CapacityForm = (props: FeeFormProps) => {
     <>
       <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
         <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
+          <div className="col-span-1 pr-5 border-r border-border space-y-4">
             <FormItem name="cadence" label="Cadence">
-              <SelectRoot
-                onValueChange={value => setCadence(value as Cadence)}
-                defaultValue="COMMITTED"
-              >
+              <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
                 <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent viewportClassName="lg:w-[180px] xl:w-[230px]">
+                <SelectContent className="lg:w-[180px] xl:w-[230px]">
                   <SelectItem value="COMMITTED">Term (variable)</SelectItem>
                   <SelectItem value="MONTHLY">Monthly</SelectItem>
                   <SelectItem value="QUARTERLY">Quarterly</SelectItem>
                   <SelectItem value="ANNUAL">Annual</SelectItem>
                 </SelectContent>
-              </SelectRoot>
+              </Select>
             </FormItem>
 
             <FormItem name="metric" label="Billable metric" {...methods.withError('metric')}>
@@ -170,9 +167,9 @@ const ThresholdTable = ({
         header: '',
         id: 'remove',
         cell: ({ row }) => (
-          <ButtonAlt type="link" onClick={() => removeThreshold(row.index)}>
+          <Button variant="link" onClick={() => removeThreshold(row.index)}>
             <XIcon size={12} />
-          </ButtonAlt>
+          </Button>
         ),
       },
     ]
@@ -181,9 +178,9 @@ const ThresholdTable = ({
   return (
     <>
       <SimpleTable columns={columns} data={fields} />
-      <ButtonAlt type="link" onClick={addThreshold}>
+      <Button variant="link" onClick={addThreshold}>
         + Add threshold
-      </ButtonAlt>
+      </Button>
     </>
   )
 }

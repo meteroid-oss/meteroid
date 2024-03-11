@@ -7,9 +7,7 @@ import { TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
-
-import { invoiceRoutes } from './invoices'
-import { subscriptionRoutes } from './subscriptions'
+import { Button } from '@ui2/components'
 
 export const tenantRoutes: RouteObject = {
   path: 'tenant/:tenantSlug',
@@ -30,12 +28,17 @@ export const tenantRoutes: RouteObject = {
     productCatalogRoutes,
     customersRoutes,
     billingRoutes,
-    invoiceRoutes,
-    subscriptionRoutes,
 
     {
       path: '*',
-      element: <>Not implemented</>,
+      element: (
+        <div className="items-center justify-center flex flex-col gap-2 w-full">
+          <div>Not implemented</div>
+          <Button onClick={() => window.history.back()} size="sm">
+            Back
+          </Button>
+        </div>
+      ),
     },
   ],
 }

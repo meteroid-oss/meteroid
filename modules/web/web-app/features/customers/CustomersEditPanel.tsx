@@ -16,7 +16,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { HelpCircleIcon } from 'lucide-react'
 import { useState } from 'react'
 
-import ConfirmationModal from '@/components/atoms/ConfirmationModal'
+import ConfirmationModal from '@/components/ConfirmationModal'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import {

@@ -4,6 +4,7 @@ interface Props {
   size?: number
   fill?: string
   stroke?: string
+  className?: string
 }
 
 export const ${variables.componentName.replace('Svg', '') + 'Icon'} = (props: Props) => {

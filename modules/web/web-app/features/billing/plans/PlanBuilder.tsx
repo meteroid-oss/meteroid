@@ -7,7 +7,7 @@ import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { PlanActions } from '@/features/billing/plans/PlanActions'

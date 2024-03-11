@@ -3,21 +3,18 @@ import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import { Loading } from '@/components/Loading'
 import { TenantPageLayout } from '@/components/layouts'
-import SidebarMenu from '@/components/organisms/SidebarMenu'
+import SidebarMenu from '@/components/SidebarMenu'
 import ProductEmptyState from '@/features/productCatalog/ProductEmptyState'
 import {
   createProductFamily,
   listProductFamilies,
 } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
+import { Dot } from '@ui2/components'
 
 export const Billing: FunctionComponent = () => {
-  const families = useQuery(listProductFamilies)
-
-  if (families.isLoading) return <Loading />
-  if (!families.data?.productFamilies?.length) return <FamilyCreationModalPage />
-  return <Navigate to={families.data?.productFamilies[0].externalId} />
+  return <Navigate to={'subscriptions'} />
 }
 
 export const BillingOutlet: FunctionComponent = () => {
@@ -28,27 +25,54 @@ export const BillingOutlet: FunctionComponent = () => {
         <SidebarMenu
           items={[
             {
-              label: 'Pricing items',
+              label: 'Subscriptions',
               items: [
                 {
-                  label: 'Packages',
-                  to: 'packages',
+                  label: 'Active',
+                  to: 'subscriptions',
                 },
                 {
-                  label: 'Plans',
-                  to: 'plans',
+                  label: (
+                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-success h-2" />
+                      <>Trials</>
+                    </span>
+                  ),
+                  to: 'subscriptions/trials',
                 },
                 {
-                  label: 'Add-ons',
-                  to: 'addons',
+                  label: (
+                    <span className="flex items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-warning h-2" />
+                      <>Past due</>
+                    </span>
+                  ),
+                  to: 'subscriptions/past-due',
                 },
                 {
-                  label: 'Credits',
-                  to: 'credits',
+                  label: 'Expired',
+                  to: 'subscriptions/expired',
                 },
                 {
-                  label: 'Coupons',
-                  to: 'coupons',
+                  label: 'Cancelled',
+                  to: 'subscriptions/cancelled',
+                },
+              ],
+            },
+            {
+              label: 'Invoicing',
+              items: [
+                {
+                  label: 'Invoices',
+                  to: 'invoices',
+                },
+                {
+                  label: 'Credit notes',
+                  to: 'credit-notes',
+                },
+                {
+                  label: 'Quotes',
+                  to: 'quotes',
                 },
               ],
             },
@@ -56,16 +80,8 @@ export const BillingOutlet: FunctionComponent = () => {
               label: 'Configuration',
               items: [
                 {
-                  label: 'Currencies',
-                  to: 'currencies',
-                },
-                {
-                  label: 'Custom Pricing units',
-                  to: 'units',
-                },
-                {
-                  label: 'Billing Frequencies',
-                  to: 'frequencies',
+                  label: 'Invoice configuration',
+                  to: 'invoice-config',
                 },
               ],
             },

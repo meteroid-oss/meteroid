@@ -1,5 +1,5 @@
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import { Property } from '@/components/molecules/Property'
+import { Property } from '@/components/Property'
 import { DetailedInvoice } from '@/rpc/api/invoices/v1/models_pb'
 
 interface Props {

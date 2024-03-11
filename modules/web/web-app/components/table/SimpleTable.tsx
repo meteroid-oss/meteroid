@@ -72,11 +72,13 @@ export const SimpleTable = <A extends object>({
         <TableRow>
           <TableCell
             colSpan={columns.length}
-            className="h-14 whitespace-nowrap text-sm leading-5 text-gray-800"
+            className="h-14 whitespace-nowrap text-sm leading-5 text-muted-foreground "
           >
-            <div className="flex items-center space-x-3 opacity-75">
-              <AlertCircleIcon size={16} strokeWidth={2} />
-              <div className="text-slate-1000 w-full">{emptyMessage}</div>
+            <div className=" h-full w-full flex flex-col gap-4 items-center justify-center ">
+              <div className="flex flex-row gap-2">
+                <AlertCircleIcon size={16} strokeWidth={2} />
+                <div className=" text-sm font-medium ">{emptyMessage}</div>
+              </div>
             </div>
           </TableCell>
         </TableRow>
@@ -92,10 +94,12 @@ export const SimpleTable = <A extends object>({
         className={cn(containerClassName, columns.length == 0 ? 'border-t border-border' : '')}
       >
         <TableHeader className={headTrClasses}>
-          {table.getFlatHeaders().map(header => {
-            const columnName = flexRender(header.column.columnDef.header, header.getContext())
-            return <TableHead key={header.id}>{columnName}</TableHead>
-          })}
+          <TableRow>
+            {table.getFlatHeaders().map(header => {
+              const columnName = flexRender(header.column.columnDef.header, header.getContext())
+              return <TableHead key={header.id}>{columnName}</TableHead>
+            })}
+          </TableRow>
         </TableHeader>
         <TableBody className={bodyClassName}>{tableBody}</TableBody>
       </Table>

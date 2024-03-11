@@ -43,6 +43,7 @@ const sheetVariants = cva(
       size: {
         vertical: '',
         small: 'w-full sm:min-w-[450px] sm:w-[450px] ',
+        medium: 'w-full sm:min-w-[580px] sm:w-[580px]',
         large: 'w-full sm:w-2/3 lg:w-1/2 sm:min-w-[580px]',
       },
     },

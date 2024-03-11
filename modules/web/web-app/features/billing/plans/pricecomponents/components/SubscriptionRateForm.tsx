@@ -1,13 +1,13 @@
 import { ColumnDef } from '@tanstack/react-table'
 import {
   FormItem,
-  SelectRoot,
+  Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
   SelectItem,
-  ButtonAlt,
-} from '@ui/components'
+  Button,
+} from '@ui2/components'
 import { useAtom } from 'jotai'
 import { useState, useEffect, useMemo } from 'react'
 import { useFieldArray } from 'react-hook-form'
@@ -37,6 +37,8 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
 
   const data = component?.data as SubscriptionRate | undefined
 
+  console.log('data', data)
+
   const methods = useZodForm({
     schema: SubscriptionRateSchema,
     defaultValues: data,
@@ -56,12 +58,9 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
     <>
       <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
         <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500">
+          <div className="col-span-1 pr-5 border-r border-border">
             <FormItem name="cadence" label="Cadence">
-              <SelectRoot
-                onValueChange={value => setCadence(value as Cadence)}
-                defaultValue="COMMITTED"
-              >
+              <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
                 <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -71,7 +70,7 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
                   <SelectItem value="QUARTERLY">Quarterly</SelectItem>
                   <SelectItem value="ANNUAL">Annual</SelectItem>
                 </SelectContent>
-              </SelectRoot>
+              </Select>
             </FormItem>
           </div>
           <div className="ml-4 col-span-2">
@@ -175,9 +174,9 @@ export const TermRateTable = ({
       emptyMessage={
         <div className="flex items-center justify-between pr-4">
           <div>No Billing terms are not set for this plan.</div>
-          <ButtonAlt type="text" onClick={() => navigate('./billing-terms')}>
+          <Button variant="ghost" onClick={() => navigate('./billing-terms')}>
             Configure
-          </ButtonAlt>
+          </Button>
         </div>
       }
     />

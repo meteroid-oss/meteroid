@@ -9655,8 +9655,8 @@ GROUP BY
         use futures::{StreamExt, TryStreamExt};
         #[derive(Debug)]
         pub struct TopRevenuePerCustomerParams<T1: cornucopia_async::StringSql> {
-            pub tenant_id: uuid::Uuid,
             pub currency: T1,
+            pub tenant_id: uuid::Uuid,
             pub limit: i64,
         }
         #[derive(Debug)]
@@ -10708,11 +10708,11 @@ GROUP BY
                 "SELECT c.id,
        c.name,
        COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
-       bi.currency
+       $1                                  AS currency
 FROM customer c
          LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
-WHERE c.tenant_id = $1
-  AND (bi.revenue_year IS NULL OR bi.currency = $2)
+WHERE c.tenant_id = $2
+  AND (bi.revenue_year IS NULL OR bi.currency = $1)
   AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
 ORDER BY total_revenue_cents DESC
 LIMIT $3",
@@ -10723,13 +10723,13 @@ LIMIT $3",
             pub fn bind<'a, C: GenericClient, T1: cornucopia_async::StringSql>(
                 &'a mut self,
                 client: &'a C,
-                tenant_id: &'a uuid::Uuid,
                 currency: &'a T1,
+                tenant_id: &'a uuid::Uuid,
                 limit: &'a i64,
             ) -> TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 3> {
                 TopRevenuePerCustomerQuery {
                     client,
-                    params: [tenant_id, currency, limit],
+                    params: [currency, tenant_id, limit],
                     stmt: &mut self.0,
                     extractor: |row| TopRevenuePerCustomerBorrowed {
                         id: row.get(0),
@@ -10754,7 +10754,7 @@ LIMIT $3",
                 client: &'a C,
                 params: &'a TopRevenuePerCustomerParams<T1>,
             ) -> TopRevenuePerCustomerQuery<'a, C, TopRevenuePerCustomer, 3> {
-                self.bind(client, &params.tenant_id, &params.currency, &params.limit)
+                self.bind(client, &params.currency, &params.tenant_id, &params.limit)
             }
         }
         pub fn insert_mrr_movement_log() -> InsertMrrMovementLogStmt {

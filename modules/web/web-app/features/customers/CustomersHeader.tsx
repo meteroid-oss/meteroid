@@ -1,11 +1,11 @@
 import { colors, spaces } from '@md/foundation'
-import { ChevronDownIcon, PlusIcon, SearchIcon } from '@md/icons'
+import { PlusIcon, SearchIcon } from '@md/icons'
 import { Button, InputWithIcon } from '@ui2/components'
 import { Flex } from '@ui2/components/legacy'
 import { LoaderIcon, RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 
-import PageHeading from '@/components/atoms/PageHeading/PageHeading'
+import PageHeading from '@/components/PageHeading/PageHeading'
 
 interface CustomersProps {
   count: number
@@ -29,8 +29,10 @@ export const CustomersHeader: FunctionComponent<CustomersProps> = ({
       <Flex direction="row" align="center" justify="space-between">
         <PageHeading count={count}>Customers</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
-          <Button variant="secondary">Import / Export</Button>
-          <Button variant="default" onClick={() => setEditPanelVisible(true)}>
+          <Button disabled variant="secondary">
+            Import / Export
+          </Button>
+          <Button hasIcon variant="default" onClick={() => setEditPanelVisible(true)}>
             <PlusIcon size={10} fill={colors.white1} /> New customer
           </Button>
         </Flex>

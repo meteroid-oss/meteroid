@@ -1,4 +1,4 @@
-import { Count, StyledPageHeading } from '@/components/atoms/PageHeading/PageHeading.styled'
+import { Count, StyledPageHeading } from '@/components/PageHeading/PageHeading.styled'
 
 import type { FunctionComponent, ReactNode } from 'react'
 

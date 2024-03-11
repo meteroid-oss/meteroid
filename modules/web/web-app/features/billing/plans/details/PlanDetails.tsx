@@ -4,7 +4,7 @@ import { LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
 import { Link } from 'react-router-dom'
 
-import { Property } from '@/components/molecules/Property'
+import { Property } from '@/components/Property'
 import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanVersion, PlanStatus, Plan } from '@/rpc/api/plans/v1/models_pb'

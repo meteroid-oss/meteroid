@@ -1,4 +1,4 @@
-import { ButtonAlt, Modal } from '@md/ui'
+import { Button, Modal } from '@ui2/components'
 import { FC } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -27,17 +27,13 @@ export const PlanOnboardingModal: FC = () => {
     <Modal
       layout="vertical"
       visible={true}
-      header={
-        <>
-          <>Quick start</>
-        </>
-      }
+      header={<h2 className="font-semibold">Quick start</h2>}
       size="xxlarge"
       onCancel={onSelectCancel}
       customFooter={
-        <ButtonAlt type="outline" onClick={onSelectCancel}>
+        <Button variant="ghost" onClick={onSelectCancel}>
           Skip to plan details
-        </ButtonAlt>
+        </Button>
       }
     >
       <div className="px-4 py-3 h-full flex flex-row">
@@ -45,7 +41,7 @@ export const PlanOnboardingModal: FC = () => {
           <div>
             <h2 className="text-lg font-semibold mb-4">Pick a base pricing model</h2>
             <div className="text-sm text-muted-foreground">
-              You can add extra price components and addons afterward
+              You can add additional price components and addons later
             </div>
           </div>
 
@@ -78,9 +74,9 @@ export const PlanOnboardingModal: FC = () => {
           </div>
         </div>
         <div className="flex flex-col items-center">
-          <div className="flex-grow w-0.5 bg-slate-800 pt-2"></div>
+          <div className="flex-grow w-0.5 bg-border pt-2"></div>
           <div>or</div>
-          <div className="flex-grow w-0.5 bg-slate-800 pb-2"></div>
+          <div className="flex-grow w-0.5 bg-border pb-2"></div>
         </div>
         <div className="w-1/3 text-center h-3/4">
           <h2 className="text-lg font-semibold mb-4">Start from a template</h2>
@@ -100,13 +96,13 @@ interface PricingModelCardProps {
 export const PricingModelCard = (props: PricingModelCardProps) => {
   return (
     <div
-      className="p-4 bg-gray-100 border rounded-md hover:border-brand-1000 hover:border-2 cursor-pointer"
+      className="p-4 bg-card text-card-foreground hover:bg-accent border rounded-md cursor-pointer"
       onClick={props.action}
     >
-      <h2 className="text-lg font-semibol d">{props.title}</h2>
+      <h2 className="text-lg font-semibold pb-2">{props.title}</h2>
       <div>{props.hero}</div>
       <div>
-        <span>{props.subtitle}</span>
+        <span className="text-sm">{props.subtitle}</span>
       </div>
     </div>
   )

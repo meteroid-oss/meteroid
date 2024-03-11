@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
-import ConfirmationModal from '@/components/atoms/ConfirmationModal'
+import ConfirmationModal from '@/components/ConfirmationModal'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
 import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'

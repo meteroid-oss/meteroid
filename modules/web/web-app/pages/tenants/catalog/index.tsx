@@ -1,9 +1,9 @@
 import { FunctionComponent } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import { Loading } from '@/components/Loading'
 import { TenantPageLayout } from '@/components/layouts'
-import SidebarMenu from '@/components/organisms/SidebarMenu'
+import SidebarMenu from '@/components/SidebarMenu'
 import { useQuery } from '@/lib/connectrpc'
 import { FamilyCreationModalPage } from '@/pages/tenants/billing'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
@@ -20,28 +20,48 @@ export const CatalogOutlet: FunctionComponent = () => {
   return (
     <TenantPageLayout
       title="Product Catalog"
+      familyPicker
       innerMenu={
         <SidebarMenu
           items={[
             {
-              label: 'Catalog',
+              label: 'Pricing',
+              items: [
+                {
+                  label: 'Plans',
+                  to: 'plans',
+                },
+                {
+                  label: 'Packages',
+                  to: 'packages',
+                },
+                {
+                  label: 'Add-ons',
+                  to: 'addons',
+                },
+                {
+                  label: 'Credits',
+                  to: 'credits',
+                },
+                {
+                  label: 'Coupons',
+                  to: 'coupons',
+                },
+              ],
+            },
+            {
+              label: 'Products',
               items: [
                 {
                   label: 'Product Items',
                   to: 'items',
                 },
                 {
-                  label: 'Data catalog (?)',
-                  to: 'data-catalog',
-                },
-                {
-                  label: 'Usage Metrics',
+                  label: 'Metrics',
                   to: 'metrics',
+                  // TODO USage / Cost tabs
                 },
-                {
-                  label: 'Cost Metrics',
-                  to: 'todo',
-                },
+
                 {
                   label: 'Features',
                   to: 'features',
@@ -52,8 +72,16 @@ export const CatalogOutlet: FunctionComponent = () => {
               label: 'Configuration',
               items: [
                 {
-                  label: 'Custom units',
+                  label: 'Currencies',
+                  to: 'currencies',
+                },
+                {
+                  label: 'Custom Pricing units',
                   to: 'units',
+                },
+                {
+                  label: 'Billing Frequencies',
+                  to: 'frequencies',
                 },
               ],
             },

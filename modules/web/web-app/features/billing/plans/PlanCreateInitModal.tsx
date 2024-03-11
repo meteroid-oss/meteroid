@@ -1,4 +1,4 @@
-import { Badge, Modal } from '@md/ui'
+import { Badge, Modal } from '@ui2/components'
 import { FC } from 'react'
 
 import { DetailsForm } from '@/features/billing/plans/create/details/DetailsForm'
@@ -22,7 +22,7 @@ export const PlanCreateInitModal: FC<Props> = ({ modalVisible, setModalVisible }
       visible={modalVisible}
       header={
         <>
-          <>Create a new plan in </>
+          <>Create a new plan in product family: </>
 
           <Badge variant="outline">{productFamily?.name}</Badge>
         </>

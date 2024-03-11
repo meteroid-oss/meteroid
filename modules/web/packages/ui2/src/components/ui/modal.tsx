@@ -116,7 +116,7 @@ const Modal = ({
         <Dialog.Overlay
           className="z-50
           fixed
-          bg-black/80
+          bg-black
           h-full w-full
           left-0
           top-0
@@ -139,7 +139,9 @@ const Modal = ({
             onEscapeKeyDown={props.onEscapeKeyDown}
           >
             {header && (
-              <div className=" space-y-1 py-3 px-4 sm:px-5 rounded-xl rounded-b-none">{header}</div>
+              <div className=" space-y-1 py-3 px-4 sm:px-5 rounded-xl rounded-b-none border-b border-border">
+                {header}
+              </div>
             )}
             {children}
             {!hideFooter && (

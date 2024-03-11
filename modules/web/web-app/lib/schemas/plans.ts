@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const createPlanSchema = z.object({
   planName: z.string().nonempty('Name is required').max(256),
-  description: z.string().max(2048),
+  description: z.string().max(2048).optional(),
   externalId: z
     .string()
     .nonempty('API Name is required')

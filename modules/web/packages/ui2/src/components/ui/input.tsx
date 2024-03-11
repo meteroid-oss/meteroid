@@ -37,7 +37,9 @@ const InputWithIcon = React.forwardRef<HTMLInputElement, InputWithIconProps>(
       >
         <Input ref={ref} {...props} />
         {icon && (
-          <span className="absolute top-1/2 transform -translate-y-1/2 right-6">{icon}</span>
+          <span className="absolute top-1/2 transform -translate-y-1/2 right-4 pointer-events-none">
+            {icon}
+          </span>
         )}
       </div>
     )

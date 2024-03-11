@@ -1,7 +1,7 @@
-import { ButtonAlt, Modal } from '@md/ui'
+import { Button, Modal } from '@ui2/components'
 import { FC, MouseEventHandler, useEffect, useState } from 'react'
 
-interface Props {
+export interface ConfirmationModalProps {
   visible: boolean
   danger?: boolean
   header: string | JSX.Element
@@ -13,7 +13,7 @@ interface Props {
   children?: React.ReactNode
 }
 
-const ConfirmationModal: FC<Props> = ({
+const ConfirmationModal: FC<ConfirmationModalProps> = ({
   visible = false,
   danger = false,
   header = '',
@@ -48,17 +48,16 @@ const ConfirmationModal: FC<Props> = ({
       onCancel={onSelectCancel}
       customFooter={
         <div className="flex justify-end w-full items-center space-x-3">
-          <ButtonAlt type="default" disabled={loading} onClick={onSelectCancel}>
+          <Button variant="secondary" disabled={loading} onClick={onSelectCancel}>
             Cancel
-          </ButtonAlt>
-          <ButtonAlt
-            type={danger ? 'danger' : 'primary'}
-            loading={loading}
+          </Button>
+          <Button
+            variant={danger ? 'destructive' : 'alternative'}
             disabled={loading}
             onClick={onConfirm}
           >
             {loading ? buttonLoadingLabel : buttonLabel}
-          </ButtonAlt>
+          </Button>
         </div>
       }
     >

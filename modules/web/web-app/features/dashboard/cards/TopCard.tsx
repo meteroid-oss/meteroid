@@ -14,10 +14,27 @@ interface TopCardProp {
   }[]
   className?: string
 }
+
+const colors = [
+  'bg-red-700',
+  'bg-purple-700',
+  'bg-slate-500',
+  'bg-indigo-700',
+  'bg-blue-700',
+  'bg-green-700',
+  'bg-yellow-700',
+]
+
+const getColor = (key: string) => {
+  // hash to get a proper random distribution
+  const hash = key.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)
+  return colors[hash % colors.length]
+}
+
 export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loading }) => {
   return (
     <div
-      className={cn(' overflow-y-auto h-[180px] w-[450px] min-w-[250px]  flex flex-col', className)}
+      className={cn(' overflow-y-auto h-[180px]  min-w-[250px] flex flex-col relative', className)}
     >
       <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
         {title}
@@ -41,19 +58,24 @@ export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loadi
                 {value.logo ? (
                   <img src={value.logo} alt={value.name} />
                 ) : (
-                  <div className="p-1.5 bg-slate-500 flex items-center justify-center rounded-sm">
+                  <div
+                    className={cn(
+                      'p-1.5 flex items-center justify-center rounded-sm text-alternative-foreground',
+                      getColor(value.name)
+                    )}
+                  >
                     <UserRoundIcon size={12} />
                   </div>
                 )}
 
                 {value.detailsPath ? (
                   <Link to={value.detailsPath}>
-                    <span className="underline decoration-slate-800 decoration-dashed underline-offset-4">
-                      {value.value}
+                    <span className="underline decoration-foreground decoration-dashed underline-offset-4">
+                      {value.name}
                     </span>
                   </Link>
                 ) : (
-                  <span className="underline decoration-slate-800 decoration-dashed underline-offset-4">
+                  <span className="underline decoration-foreground decoration-dashed underline-offset-4">
                     {value.name}
                   </span>
                 )}

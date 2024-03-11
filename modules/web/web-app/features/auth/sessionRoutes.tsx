@@ -2,7 +2,7 @@ import { jwtDecode } from 'jwt-decode'
 import { FC } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import { Loading } from '@/components/Loading'
 import { useSession } from '@/features/auth'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'

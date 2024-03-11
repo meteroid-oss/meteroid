@@ -8,7 +8,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@ui2/components'
-import { Check, ChevronDownIcon, PlusIcon } from 'lucide-react'
+import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useTenant } from '@/hooks/useTenant'
@@ -23,11 +23,11 @@ export const TenantDropdown = () => {
   return (
     <Popover>
       <PopoverTrigger>
-        <Button variant="secondary" className=" rounded-full">
+        <Button variant="special" className=" rounded-full">
           <div className="flex flex-row space-x-2 items-center ">
             <span className=" rounded-full p-1 bg-cyan-600" />
             <span>{tenant?.name}</span>
-            <ChevronDownIcon size="12" />
+            <ChevronsUpDownIcon size="10" />
           </div>
         </Button>
       </PopoverTrigger>
@@ -53,32 +53,5 @@ export const TenantDropdown = () => {
         </Command>
       </PopoverContent>
     </Popover>
-    // <Dropdown
-    //   side="bottom"
-    //   align="start"
-    //   overlay={
-    //     <>
-    //       {tenants
-    //         .sort((a, b) => a.name.localeCompare(b.name))
-    //         .map(tenant => (
-    //           <Link key={tenant.id} to={`/tenant/${tenant.slug}`}>
-    //             <Dropdown.Item>{tenant.name}</Dropdown.Item>
-    //           </Link>
-    //         ))}
-    //       <Popover.Separator />
-    //       <Link to="/tenants/new">
-    //         <Dropdown.Item icon={<PlusIcon size="12" />}>New tenant</Dropdown.Item>
-    //       </Link>
-    //     </>
-    //   }
-    // >
-    //   <Button as="span" type="text" size="small" className="border border-slate-700 rounded-full">
-    //     <div className="flex flex-row space-x-2 items-center ">
-    //       <span className=" rounded-full p-1 bg-cyan-600" />
-    //       <span>{tenant?.name}</span>
-    //       <ChevronDownIcon size="12" />
-    //     </div>
-    //   </Button>
-    // </Dropdown>
   )
 }
