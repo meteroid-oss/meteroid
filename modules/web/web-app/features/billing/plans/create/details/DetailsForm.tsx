@@ -11,6 +11,7 @@ import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { createPlanSchema } from '@/lib/schemas/plans'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { createDraftPlan } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { useTypedParams } from '@/utils/params'
 
 const nanoid = customAlphabet('1234567890abcdef', 5)
 
@@ -36,6 +37,7 @@ interface Props {
   onCancel: () => void
 }
 export const DetailsForm: FC<Props> = ({ onCancel }) => {
+  const { familyExternalId } = useTypedParams()
   const methods = useZodForm({
     schema: createPlanSchema,
     defaultValues: {
@@ -53,7 +55,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       description: data.description,
       externalId: data.externalId,
       planType: PlanType[data.planType],
-      productFamilyExternalId: 'default',
+      productFamilyExternalId: familyExternalId,
     })
     navigate(`${plan.plan?.plan?.externalId}/onboarding`)
   }
