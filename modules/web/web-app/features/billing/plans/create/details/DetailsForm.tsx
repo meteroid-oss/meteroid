@@ -128,7 +128,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
                 )}
               />
             </div>
-            <div className="w-full border-b border-slate-800 "></div>
+            <div className="w-full border-b border-border "></div>
             <GenericFormField
               name="planType"
               label="Plan type"

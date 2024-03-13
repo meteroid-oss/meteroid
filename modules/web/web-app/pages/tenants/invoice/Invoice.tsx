@@ -51,7 +51,7 @@ export const Invoice = () => {
               </div>
             </div>
             <div className="flex h-full gap-4">
-              <div className="flex flex-col gap-2 border-r border-slate-600 pr-4 w-80">
+              <div className="flex flex-col gap-2 border-r border-border pr-4 w-80">
                 <div className="text-4xl font-semibold text-right">{amountFormat(data)}</div>
               </div>
               <div className="flex-1 flex flex-col gap-2">

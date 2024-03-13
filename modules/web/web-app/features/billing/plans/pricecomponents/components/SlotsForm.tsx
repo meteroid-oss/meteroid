@@ -47,7 +47,7 @@ export const SlotsForm = (props: FeeFormProps) => {
     <>
       <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
         <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
+          <div className="col-span-1 pr-5 border-r border-border space-y-4">
             <FormItem name="cadence" label="Cadence">
               <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
                 <SelectTrigger className="lg:w-[180px] xl:w-[230px]">

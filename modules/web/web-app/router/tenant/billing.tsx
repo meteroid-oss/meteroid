@@ -3,7 +3,7 @@ import { RouteObject } from 'react-router-dom'
 import { NotImplemented } from '@/features/NotImplemented'
 import { Billing, BillingOutlet } from '@/pages/tenants/billing'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
-import { Subscriptions } from '@/pages/tenants/subscriptions'
+import { Subscriptions } from '@/pages/tenants/subscription'
 
 export const billingRoutes: RouteObject = {
   path: 'billing',

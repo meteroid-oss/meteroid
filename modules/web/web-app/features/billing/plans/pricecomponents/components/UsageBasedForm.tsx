@@ -162,7 +162,7 @@ const PerUnitForm = ({
         )}
       />
 
-      <div className="w-full border-b border-slate-600 pt-4"></div>
+      <div className="w-full border-b border-border pt-4"></div>
 
       <AccordionPanel
         title={

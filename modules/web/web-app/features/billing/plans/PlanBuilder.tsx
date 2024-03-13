@@ -41,7 +41,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
   return (
     <ScopeProvider atoms={[addedComponentsAtom, editedComponentsAtom]}>
       <div className="flex h-full w-full flex-col space-y-4">
-        <section className="flex justify-between pb-2 border-b border-slate-600">
+        <section className="flex justify-between pb-2 border-b border-border">
           <div className="flex space-x-2 flex-row items-center">
             <ChevronLeftIcon
               className="text-2xl font-semibold cursor-pointer"
@@ -211,9 +211,9 @@ const PlanBody = () => {
         }}
       >
         <div className="space-x-4 ">
-          <div className="flex items-center space-x-3 opacity-75 text-slate-1000 text-sm">
+          <div className="flex items-center space-x-3 opacity-75 text-muted-foreground text-sm">
             <AlertCircleIcon size={16} strokeWidth={2} />
-            <div className="text-slate-1000 w-full">This plan has no configured trial.</div>
+            <div className="text-muted-foreground w-full">This plan has no configured trial.</div>
           </div>
         </div>
       </PageSection>

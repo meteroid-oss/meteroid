@@ -110,7 +110,7 @@ interface PricingModelCardProps {
 export const PricingModelCard = (props: PricingModelCardProps) => {
   return (
     <div
-      className="p-4 bg-gray-100 border rounded-md hover:border-brand-1000 hover:border-2 cursor-pointer"
+      className="p-4 bg-card border rounded-md hover:border-brand-1000 hover:border-2 cursor-pointer"
       onClick={props.action}
     >
       <h2 className="text-lg font-semibol d">{props.title}</h2>

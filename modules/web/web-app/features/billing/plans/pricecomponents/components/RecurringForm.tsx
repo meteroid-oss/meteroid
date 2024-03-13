@@ -1,10 +1,4 @@
-import {
-  SelectItem,
-  SelectFormField,
-  InputFormField,
-  GenericFormField,
-  Form,
-} from '@md/ui'
+import { SelectItem, SelectFormField, InputFormField, GenericFormField, Form } from '@md/ui'
 import { useAtom } from 'jotai'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
@@ -31,7 +25,7 @@ export const RecurringForm = (props: FeeFormProps) => {
       <Form {...methods}>
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
+            <div className="col-span-1 pr-5 border-r border-border space-y-4">
               <SelectFormField
                 name="cadence"
                 label="Cadence"

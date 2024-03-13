@@ -1,6 +1,6 @@
 import { spaces } from '@md/foundation'
-import { Flex } from '@ui/components/legacy'
 import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { ChevronLeftIcon, LockIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -48,7 +48,7 @@ export const Customer = () => {
                   />
                   <h2 className="font-semibold">
                     {data.alias || data.name}
-                    <div className="text-sm font-light text-slate-500">{data.email}</div>
+                    <div className="text-sm font-light text-muted-foreground">{data.email}</div>
                   </h2>
                 </div>
                 {data.archivedAt && (

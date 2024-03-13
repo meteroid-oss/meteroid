@@ -20,7 +20,7 @@ export const PriceComponentProperty: React.FC<Props> = ({
           <span>{label}</span>
         </div>
       </label>
-      <div className={cn('mt-1 text-slate-1200 text-sm', childrenClassNames)}>{children}</div>
+      <div className={cn('mt-1 text-foreground text-sm', childrenClassNames)}>{children}</div>
     </div>
   )
 }

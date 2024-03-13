@@ -1,11 +1,12 @@
 import { colors, spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
-import { Button, Flex, Input2 } from '@ui/components'
+import { Button, InputWithIcon } from '@ui/components'
+import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 import { Link } from 'react-router-dom'
 
-import PageHeading from '@/components/atoms/PageHeading/PageHeading'
+import PageHeading from '@/components/PageHeading/PageHeading'
 
 interface SubscriptionsProps {
   count: number
@@ -31,15 +32,14 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
         </Flex>
       </Flex>
       <Flex direction="row" align="center" gap={spaces.space4}>
-        <Input2
+        <InputWithIcon
           placeholder="Search subscriptions"
           icon={<SearchIcon size={16} />}
-          iconPosition="right"
           width="fit-content"
           disabled
         />
-        <Button variant="tertiary" loading={isLoading} onClick={refetch}>
-          <RefreshCwIcon size={14} />
+        <Button variant="secondary" disabled={isLoading} onClick={refetch}>
+          <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
       </Flex>
     </Flex>

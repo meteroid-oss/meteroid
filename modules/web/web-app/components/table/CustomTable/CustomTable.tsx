@@ -110,11 +110,11 @@ export const CustomTable = <A extends object>({
         <TableRow>
           <TableCell
             colSpan={columns.length}
-            className="h-14 whitespace-nowrap border-t p-4 text-sm leading-5 text-gray-300"
+            className="h-14 whitespace-nowrap border-t p-4 text-sm leading-5 text-muted-foreground"
           >
             <div className="flex items-center space-x-3 opacity-75">
               <AlertCircleIcon size={16} strokeWidth={2} />
-              <p className="text-slate-1000">{emptyMessage}</p>
+              <p className="text-muted-foreground">{emptyMessage}</p>
             </div>
           </TableCell>
         </TableRow>

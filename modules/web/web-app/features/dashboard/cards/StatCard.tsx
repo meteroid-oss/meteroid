@@ -1,4 +1,4 @@
-import { Button, Skeleton , cn , Card } from '@md/ui'
+import { Button, Skeleton, cn, Card } from '@md/ui'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
@@ -49,7 +49,7 @@ export const StatCard: React.FC<StatCardProp> = ({
             <div className="flex flex-row gap-4 items-baseline">
               <div className="text-2xl font-medium">{value}</div>
               {secondaryValue && (
-                <div className="text-xs text-slate-1000 self-baseline">{secondaryValue}</div>
+                <div className="text-xs text-muted-foreground self-baseline">{secondaryValue}</div>
               )}
             </div>
             {trend && <StatCardTrend {...trend} />}

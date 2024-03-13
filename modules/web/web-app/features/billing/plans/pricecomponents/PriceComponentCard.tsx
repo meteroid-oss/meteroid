@@ -85,9 +85,9 @@ export const PriceComponentCard: React.FC<{
         <div className="flex flex-row items-center cursor-pointer w-full">
           <div className="mr-2">
             {isCollapsed ? (
-              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-slate-1000" />
+              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
             ) : (
-              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-slate-1000" />
+              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -120,14 +120,14 @@ export const PriceComponentCard: React.FC<{
           <div className="grid grid-cols-3 gap-x-6 mt-4">
             <PriceComponentProperty
               label="Pricing model"
-              className="col-span-1 border-r border-slate-600 pr-4"
+              className="col-span-1 border-r border-border pr-4"
             >
               <span>{priceElement?.pricingModel ?? priceElement?.feeType}</span>
             </PriceComponentProperty>
             {priceElement?.linkedItem && (
               <PriceComponentProperty
                 label={priceElement.linkedItem.type}
-                className="col-span-1 border-r border-slate-600 pr-4"
+                className="col-span-1 border-r border-border pr-4"
                 childrenClassNames="truncate"
               >
                 {/* <Link to={`/metrics/${price.metric.id}`} target="_blank" rel="noopener noreferrer">
@@ -140,14 +140,14 @@ export const PriceComponentCard: React.FC<{
             {priceElement?.fixedQuantity && (
               <PriceComponentProperty
                 label="Fixed quantity"
-                className="col-span-1 pr-4 border-r border-slate-600"
+                className="col-span-1 pr-4 border-r border-border"
               >
                 <span>{priceElement.fixedQuantity}</span>
               </PriceComponentProperty>
             )}
             <PriceComponentProperty
               label="Cadence"
-              className="col-span-1 border-r border-slate-600 last:border-none pr-4"
+              className="col-span-1 border-r border-border last:border-none pr-4"
             >
               <span>{priceElement?.cadence}</span>
             </PriceComponentProperty>
