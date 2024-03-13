@@ -1,6 +1,6 @@
 import { disableQuery } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Flex } from '@ui2/components/legacy'
+import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
 
 import { ProductEditPanel } from '@/features/productCatalog/items/ProductEditPanel'

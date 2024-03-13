@@ -1,6 +1,6 @@
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button, Modal } from '@ui2/components'
+import { Button, Modal } from '@md/ui'
 import { useAtom, useSetAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'

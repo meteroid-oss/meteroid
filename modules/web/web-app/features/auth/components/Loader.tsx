@@ -1,5 +1,5 @@
 import { spaces } from '@md/foundation'
-import { Skeleton } from '@ui2/components'
+import { Skeleton } from '@md/ui'
 import { Fragment } from 'react'
 
 export const Loader = () => (

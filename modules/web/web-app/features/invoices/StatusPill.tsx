@@ -1,4 +1,4 @@
-import { Badge } from '@ui2/components'
+import { Badge } from '@md/ui'
 import { match } from 'ts-pattern'
 
 import { InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'

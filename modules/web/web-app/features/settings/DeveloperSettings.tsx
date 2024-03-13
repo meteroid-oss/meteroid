@@ -13,7 +13,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-} from '@ui2/components'
+} from '@md/ui'
 import { nanoid } from 'nanoid'
 import { FunctionComponent, useState } from 'react'
 

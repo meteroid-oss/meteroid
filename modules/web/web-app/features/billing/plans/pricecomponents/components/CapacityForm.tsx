@@ -8,7 +8,7 @@ import {
   SelectItem,
   Button,
   Input,
-} from '@ui2/components'
+} from '@md/ui'
 import { useAtom } from 'jotai'
 import { XIcon } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'

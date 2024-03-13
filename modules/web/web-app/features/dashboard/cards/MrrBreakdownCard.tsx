@@ -1,10 +1,10 @@
-import { cn } from '@ui2/lib'
+import { cn } from '@md/ui'
 
 import { formatCurrency } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { MRRBreakdownScope } from '@/rpc/api/stats/v1/models_pb'
 import { mrrBreakdown } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
-import { Separator } from '@ui2/components'
+import { Separator } from '@md/ui'
 
 export const MrrBreakdownCard = () => {
   const breakdown = useQuery(mrrBreakdown, { scope: MRRBreakdownScope.THIS_MONTH }).data

@@ -1,6 +1,6 @@
-import { Button, Skeleton } from '@ui2/components'
-import { cn } from '@ui2/lib'
-import { Card } from '@ui2/components'
+import { Button, Skeleton } from '@md/ui'
+import { cn } from '@md/ui'
+import { Card } from '@md/ui'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 

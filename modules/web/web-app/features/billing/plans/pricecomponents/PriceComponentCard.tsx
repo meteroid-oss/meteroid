@@ -5,7 +5,7 @@ import {
 } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
-import { Button, TableCell } from '@ui2/components'
+import { Button, TableCell } from '@md/ui'
 import { useAtom } from 'jotai'
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { ReactNode, useCallback, useMemo, useState } from 'react'

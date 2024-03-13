@@ -5,7 +5,7 @@ import { TrialConversionSparkline } from '@/features/dashboard/charts/TrialConve
 import { formatRate } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { generalStats } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
-import { Card } from '@ui2/components'
+import { Card } from '@md/ui'
 
 export const DetailsSection = () => {
   const stats = useQuery(generalStats)

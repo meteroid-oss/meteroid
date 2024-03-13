@@ -1,5 +1,5 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Button, Switch } from '@ui2/components'
+import { Button, Switch } from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'

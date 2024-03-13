@@ -8,7 +8,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@ui2/components'
+} from '@md/ui'
 import { ChevronsUpDown, PlusIcon } from 'lucide-react'
 import { useQuery } from '@/lib/connectrpc'
 import { useTypedParams } from '@/lib/utils/params'

@@ -1,4 +1,4 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ui2/components'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { FunctionComponent } from 'react'
 
 import { CompanyTab } from '@/features/settings/tabs/CompanyTab'

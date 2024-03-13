@@ -13,8 +13,8 @@ import {
   SheetFooter,
   Button,
   Separator,
-} from '@ui2/components'
-import { Flex } from '@ui2/components/legacy'
+} from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 

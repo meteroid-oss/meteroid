@@ -1,7 +1,7 @@
 import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button, Input } from '@ui2/components'
-import { FormItem } from '@ui2/components/legacy'
+import { Button, Input } from '@md/ui'
+import { FormItem } from '@ui/components/legacy'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 

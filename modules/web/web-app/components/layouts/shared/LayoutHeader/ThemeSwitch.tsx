@@ -1,4 +1,4 @@
-import { Button } from '@ui2/components'
+import { Button } from '@md/ui'
 import { MoonIcon, SunIcon } from 'lucide-react'
 
 import { useTheme } from 'providers/ThemeProvider'

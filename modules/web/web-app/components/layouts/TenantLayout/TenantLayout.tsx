@@ -3,9 +3,9 @@ import { Outlet } from 'react-router-dom'
 
 import { LayoutHeader } from '../shared/LayoutHeader'
 
+import { ScrollArea } from '@md/ui'
 import { NavigationBar } from './NavigationBar/NavigationBar'
 import InnerMenu from './components/InnerMenu'
-import { ScrollArea } from '@ui2/index'
 
 interface TenantLayoutProps {
   title: string

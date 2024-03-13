@@ -1,5 +1,5 @@
 import { ColumnDef } from '@tanstack/react-table'
-import { Button, Card, Input, InputWithIcon, Label, Modal, Skeleton, Switch } from '@ui2/components'
+import { Button, Card, Input, InputWithIcon, Label, Modal, Skeleton, Switch } from '@md/ui'
 import { useMemo, useState } from 'react'
 
 import { SimpleTable } from '@/components/table/SimpleTable'

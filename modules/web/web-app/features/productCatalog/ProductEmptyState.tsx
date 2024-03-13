@@ -1,4 +1,4 @@
-import { Button } from '@ui2/components'
+import { Button } from '@md/ui'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { ExternalLinkIcon } from 'lucide-react'
 import { FC, ReactNode } from 'react'

@@ -1,4 +1,4 @@
-import { Button, Modal } from '@ui2/components'
+import { Button, Modal } from '@md/ui'
 import { FC, MouseEventHandler, useEffect, useState } from 'react'
 
 export interface ConfirmationModalProps {

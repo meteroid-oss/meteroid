@@ -1,5 +1,5 @@
 import { spaces } from '@md/foundation'
-import { Flex } from '@ui2/components/legacy'
+import { Flex } from '@ui/components/legacy'
 import { FunctionComponent, useState } from 'react'
 
 import { PlanCreateInitModal } from '@/features/billing/plans/PlanCreateInitModal'

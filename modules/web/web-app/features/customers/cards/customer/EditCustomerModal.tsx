@@ -1,6 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { Form, InputFormField, Modal } from '@ui2/components'
+import { Form, InputFormField, Modal } from '@md/ui'
 import { ComponentProps } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'

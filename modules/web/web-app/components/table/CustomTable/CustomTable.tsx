@@ -1,15 +1,7 @@
 import { spaces } from '@md/foundation'
 import { ChevronUpIcon, ChevronDownIcon } from '@md/icons'
-import {
-  Skeleton,
-  Table,
-  TableRow,
-  TableCell,
-  TableHeader,
-  TableHead,
-  TableBody,
-} from '@ui2/components'
-import { Flex } from '@ui2/components/legacy'
+import { Skeleton, Table, TableRow, TableCell, TableHeader, TableHead, TableBody } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import {
   ColumnDef,
   OnChangeFn,

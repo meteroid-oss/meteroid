@@ -1,4 +1,4 @@
-import { Button } from '@ui2/components'
+import { Button } from '@md/ui'
 import { ComponentProps, ReactNode } from 'react'
 
 type Props = ComponentProps<typeof Button> & {

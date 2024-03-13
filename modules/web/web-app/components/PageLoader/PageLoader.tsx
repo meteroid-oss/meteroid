@@ -1,5 +1,5 @@
 import { LogoSymbol, spaces } from '@md/foundation'
-import { Flex } from '@ui2/components/legacy'
+import { Flex } from '@ui/components/legacy'
 
 import { useTheme } from 'providers/ThemeProvider'
 

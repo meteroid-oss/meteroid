@@ -1,4 +1,4 @@
-import { Accordion, AccordionItem, AccordionTrigger, cn } from '@ui2/components'
+import { Accordion, AccordionItem, AccordionTrigger, cn } from '@md/ui'
 import { AccordionContent } from '@radix-ui/react-accordion'
 
 interface AccordionPanelProps {

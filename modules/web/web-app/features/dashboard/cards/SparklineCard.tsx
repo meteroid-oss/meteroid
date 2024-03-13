@@ -1,4 +1,4 @@
-import { cn } from '@ui2/lib'
+import { cn } from '@md/ui'
 
 interface SparklineCardProp {
   title: string

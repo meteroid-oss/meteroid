@@ -22,7 +22,6 @@
 
       // required to resolve trpc types in dev
       "@ui/*": ["../packages/ui/src/*"],
-      "@ui2/*": ["../packages/ui2/src/*"]
     },
     "typeRoots": [
       "./types"

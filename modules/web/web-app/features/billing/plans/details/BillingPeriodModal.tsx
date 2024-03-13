@@ -1,4 +1,4 @@
-import { Modal } from '@ui2/components'
+import { Modal } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { FC, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'

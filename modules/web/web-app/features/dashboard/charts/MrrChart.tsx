@@ -9,7 +9,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
 import { generalStats, totalMrrChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
-import { Badge } from '@ui2/components'
+import { Badge } from '@md/ui'
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 
 const DottedBackground = styled('div', {
@@ -60,7 +60,7 @@ export const MrrChart = (props: MrrChartProps) => {
             <span className="text-2xl font-medium leading-6">
               {formatCurrency(stats.data?.totalMrr?.valueCents)}
             </span>
-            <span className="text-success text-sm font-semibold leading-4 ml-2">+11%</span>
+            <span className="text-success text-sm font-semibold leading-4 ml-2">+0%</span>
           </div>
         </div>
         <div className="flex flex-col gap-2">

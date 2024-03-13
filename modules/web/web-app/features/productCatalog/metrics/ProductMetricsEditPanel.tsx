@@ -1,7 +1,7 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { ScrollArea } from '@ui2/components'
-import { Flex } from '@ui2/components/legacy'
+import { ScrollArea } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { D, pipe } from '@mobily/ts-belt'
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect } from 'react'
@@ -35,7 +35,7 @@ import {
   SheetHeader,
   SheetTitle,
   TextareaFormField,
-} from '@ui2/components'
+} from '@md/ui'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'

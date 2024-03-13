@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 
 import type { To } from 'react-router-dom'
 import type { FunctionComponent, ReactNode } from 'react'
-import { cn } from '@ui2/lib'
+import { cn } from '@md/ui'
 
 export interface ItemProps {
   label: string | ReactNode

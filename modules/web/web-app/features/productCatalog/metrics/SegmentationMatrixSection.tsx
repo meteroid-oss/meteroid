@@ -6,7 +6,7 @@ import {
   InputFormField,
   SelectFormField,
   SelectItem,
-} from '@ui2/components'
+} from '@md/ui'
 import { G, O, pipe } from '@mobily/ts-belt'
 import { ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { ChangeEventHandler, forwardRef, useEffect, useState } from 'react'

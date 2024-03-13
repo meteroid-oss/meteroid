@@ -1,7 +1,7 @@
 import { colors, spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
-import { Button, InputWithIcon } from '@ui2/components'
-import { Flex } from '@ui2/components/legacy'
+import { Button, InputWithIcon } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { LoaderIcon, RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
 

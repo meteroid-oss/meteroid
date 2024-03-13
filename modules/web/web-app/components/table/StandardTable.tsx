@@ -1,4 +1,4 @@
-import { Table, TableCell, TableRow } from '@ui2/components'
+import { Table, TableCell, TableRow } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState, Row, flexRender } from '@tanstack/react-table'
 import { ReactNode } from 'react'
 

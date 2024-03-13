@@ -1,4 +1,4 @@
-import { Button } from '@ui2/components'
+import { Button } from '@md/ui'
 import { GithubIcon } from 'lucide-react'
 
 export const StarGithub = () => {

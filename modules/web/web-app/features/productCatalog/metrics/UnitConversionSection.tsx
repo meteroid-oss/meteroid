@@ -7,14 +7,14 @@ import {
   InputFormField,
   SelectFormField,
   SelectItem,
-} from '@ui2/components'
+} from '@md/ui'
 import { useEffect, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 
 import { ControlledSelect } from '@/components/form'
 import { Methods } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
-import { FormDescription } from '@ui2/components'
+import { FormDescription } from '@md/ui'
 import { AccordionPanel } from '@/components/AccordionPanel'
 
 interface Props {

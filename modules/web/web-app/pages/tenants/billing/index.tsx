@@ -11,7 +11,7 @@ import {
   createProductFamily,
   listProductFamilies,
 } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
-import { Dot } from '@ui2/components'
+import { Dot } from '@md/ui'
 
 export const Billing: FunctionComponent = () => {
   return <Navigate to={'subscriptions'} />

@@ -11,7 +11,7 @@ import {
   Input,
   cn,
   Spinner,
-} from '@ui2/components'
+} from '@md/ui'
 import { customAlphabet } from 'nanoid'
 import { FC, useEffect } from 'react'
 import {

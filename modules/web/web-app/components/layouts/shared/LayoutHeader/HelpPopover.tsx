@@ -1,13 +1,5 @@
 import { copyToClipboard } from '@/lib/helpers'
-import {
-  Button,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  Textarea,
-  Separator,
-  cn,
-} from '@ui2/components'
+import { Button, Popover, PopoverTrigger, PopoverContent, Textarea, Separator, cn } from '@md/ui'
 import {
   HelpCircle as IconHelpCircle,
   MessageCircle as IconMessageCircle,

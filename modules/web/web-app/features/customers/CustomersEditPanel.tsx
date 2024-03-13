@@ -1,16 +1,8 @@
 import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import {
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  Input,
-  Separator,
-} from '@ui2/components'
-import { Flex } from '@ui2/components/legacy'
-import { Modal } from '@ui2/components'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage, Input, Separator } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
+import { Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
@@ -31,7 +23,7 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
-} from '@ui2/components'
+} from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
 interface CustomersEditPanelProps {

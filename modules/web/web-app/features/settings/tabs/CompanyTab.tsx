@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
-import { Button, Card, Form, InputFormField, Label } from '@ui2/components'
+import { Button, Card, Form, InputFormField, Label } from '@md/ui'
 
 const addressSchema = z.object({
   addressLine1: z.string().min(1),

@@ -1,4 +1,4 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from '@ui2/components'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@md/ui'
 
 import { onClick } from './Item.hooks'
 import { ItemLink } from './Item.styled'

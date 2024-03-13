@@ -17,7 +17,7 @@ import {
   JsonWriteStringOptions,
   MessageType,
 } from '@bufbuild/protobuf'
-import { Popover, PopoverContent, PopoverTrigger } from '@ui2/components'
+import { Popover, PopoverContent, PopoverTrigger } from '@md/ui'
 
 interface CustomersTableProps {
   data: Invoice[]

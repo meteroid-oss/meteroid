@@ -8,8 +8,8 @@ import {
   SelectTrigger,
   SelectContent,
   SelectValue,
-} from '@ui2/components'
-import { Flex } from '@ui2/components/legacy'
+} from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent } from 'react'
 
 import { CountInfo } from './Pagination.styled'

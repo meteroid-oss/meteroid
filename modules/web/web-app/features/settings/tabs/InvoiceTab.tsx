@@ -1,4 +1,4 @@
-import { Button, Card, Form, InputFormField, TextareaFormField, Label } from '@ui2/components'
+import { Button, Card, Form, InputFormField, TextareaFormField, Label } from '@md/ui'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'

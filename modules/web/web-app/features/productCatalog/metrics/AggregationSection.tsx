@@ -9,7 +9,7 @@ import {
   InputFormField,
   FormDescription,
   Separator,
-} from '@ui2/components'
+} from '@md/ui'
 
 interface Props {
   methods: Methods<schemas.billableMetrics.CreateBillableMetricSchema>

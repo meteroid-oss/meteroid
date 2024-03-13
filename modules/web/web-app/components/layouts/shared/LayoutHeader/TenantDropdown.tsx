@@ -7,7 +7,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from '@ui2/components'
+} from '@md/ui'
 import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 

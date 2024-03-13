@@ -1,5 +1,5 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Badge } from '@ui2/components'
+import { Badge } from '@md/ui'
 import { CopyIcon, LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
 import { Link } from 'react-router-dom'

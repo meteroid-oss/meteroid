@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
-import { Card, Checkbox, Separator } from '@ui2/components'
+import { Card, Checkbox, Separator } from '@md/ui'
 import { Heart } from 'lucide-react'
 
 export const Dashboard = () => {

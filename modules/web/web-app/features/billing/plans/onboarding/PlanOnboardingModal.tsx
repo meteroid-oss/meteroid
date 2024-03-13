@@ -1,4 +1,4 @@
-import { Button, Modal, cn } from '@ui2/components'
+import { Button, Modal, cn } from '@md/ui'
 import { FC, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 

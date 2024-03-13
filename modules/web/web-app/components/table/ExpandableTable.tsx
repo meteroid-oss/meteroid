@@ -1,4 +1,4 @@
-import { Table, TableHead, TableRow, TableCell } from '@ui2/components'
+import { Table, TableHead, TableRow, TableCell } from '@md/ui'
 import {
   ColumnDef,
   OnChangeFn,

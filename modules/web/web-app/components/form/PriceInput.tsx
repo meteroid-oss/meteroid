@@ -1,5 +1,5 @@
-import { InputProps, useFormField } from '@ui2/components'
-import { cn } from '@ui2/lib'
+import { InputProps, useFormField } from '@md/ui'
+import { cn } from '@md/ui'
 import React from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Control, FieldValues, UseControllerProps, useController } from 'react-hook-form'

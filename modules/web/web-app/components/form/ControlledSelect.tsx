@@ -1,4 +1,4 @@
-import { SelectContent, SelectTrigger, SelectValue } from '@ui2/components'
+import { SelectContent, SelectTrigger, SelectValue } from '@md/ui'
 import * as SelectPrimitive from '@radix-ui/react-select'
 import {
   useController,

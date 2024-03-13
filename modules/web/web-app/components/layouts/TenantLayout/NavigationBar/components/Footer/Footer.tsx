@@ -25,7 +25,7 @@ import {
   PopoverContent,
   DropdownMenuGroup,
   DropdownMenuItem,
-} from '@ui2/components'
+} from '@md/ui'
 import { onClick } from '@/components/layouts/TenantLayout/NavigationBar/components/Items/components/Item/Item.hooks'
 import { ItemLink } from '@/components/layouts/TenantLayout/NavigationBar/components/Items/components/Item/Item.styled'
 
@@ -37,7 +37,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@ui2/components'
+} from '@md/ui'
 
 const Footer: FunctionComponent = () => {
   return (

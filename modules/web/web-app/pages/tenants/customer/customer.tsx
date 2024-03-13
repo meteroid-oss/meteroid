@@ -1,6 +1,6 @@
 import { spaces } from '@md/foundation'
-import { Flex } from '@ui2/components/legacy'
-import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui2/components'
+import { Flex } from '@ui/components/legacy'
+import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { ChevronLeftIcon, LockIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'

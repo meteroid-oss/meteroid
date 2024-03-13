@@ -1,10 +1,4 @@
-import {
-  InputFormField,
-  GenericFormField,
-  SelectItem,
-  SelectFormField,
-  Form,
-} from '@ui2/components'
+import { InputFormField, GenericFormField, SelectItem, SelectFormField, Form } from '@md/ui'
 import { useAtom } from 'jotai'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'

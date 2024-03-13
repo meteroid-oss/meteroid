@@ -1,4 +1,4 @@
-import { Badge, Modal } from '@ui2/components'
+import { Badge, Modal } from '@md/ui'
 import { FC } from 'react'
 
 import { DetailsForm } from '@/features/billing/plans/create/details/DetailsForm'

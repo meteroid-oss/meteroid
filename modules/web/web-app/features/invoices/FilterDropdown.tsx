@@ -11,7 +11,7 @@ import {
   PopoverContent,
   PopoverTrigger,
   cn,
-} from '@ui2/components'
+} from '@md/ui'
 import { CheckIcon, XIcon, PlusIcon } from 'lucide-react'
 
 import { InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'

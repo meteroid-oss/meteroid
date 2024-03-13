@@ -1,2 +1,2 @@
 export * from './components'
-export { cn } from './lib'
+export { cn } from './lib/utils'

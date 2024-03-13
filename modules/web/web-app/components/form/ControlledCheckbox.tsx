@@ -1,4 +1,4 @@
-import { Checkbox } from '@ui2/components'
+import { Checkbox } from '@md/ui'
 import * as CheckboxPrimitive from '@radix-ui/react-checkbox'
 import {
   useController,

@@ -1,4 +1,4 @@
-import { Badge } from '@ui2/components'
+import { Badge } from '@md/ui'
 import {
   ActivityIcon,
   ArmchairIcon,
@@ -13,14 +13,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { useAddComponent } from '@/features/billing/plans/pricecomponents/utils'
 import { PriceComponentType } from '@/features/billing/plans/types'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  Button,
-} from '@ui2/components'
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Button } from '@md/ui'
 export const PriceComponentPanel: React.FC = () => {
   const navigate = useNavigate()
   return (

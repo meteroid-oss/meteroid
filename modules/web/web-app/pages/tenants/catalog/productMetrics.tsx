@@ -1,7 +1,7 @@
 import { disableQuery } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
-import { Flex } from '@ui2/components/legacy'
+import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
 
 import { ProductMetricsEditPanel } from '@/features/productCatalog/metrics/ProductMetricsEditPanel'

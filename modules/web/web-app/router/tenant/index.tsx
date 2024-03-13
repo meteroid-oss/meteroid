@@ -7,7 +7,7 @@ import { TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
-import { Button } from '@ui2/components'
+import { Button } from '@md/ui'
 import { NotImplemented } from '@/features/NotImplemented'
 import { growthRoutes } from 'router/tenant/growth'
 

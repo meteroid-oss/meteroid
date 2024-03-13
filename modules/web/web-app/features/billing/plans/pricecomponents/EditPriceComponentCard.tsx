@@ -4,7 +4,7 @@ import {
   createProtobufSafeUpdater,
 } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button } from '@ui2/components'
+import { Button } from '@md/ui'
 import { atom, useAtom, useSetAtom } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { focusAtom } from 'jotai-optics'
