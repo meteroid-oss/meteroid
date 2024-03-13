@@ -62,7 +62,10 @@ const ConfirmationModalProvider: FC<{ children: ReactNode }> = ({ children }) =>
       danger: options?.danger || true,
       children: options?.children || <DefaultModalContent message={content?.message} />,
       onSelectCancel: options?.onSelectCancel || hideModal,
-      onSelectConfirm: confirm,
+      onSelectConfirm: () => {
+        confirm()
+        hideModal()
+      },
       visible: true,
     })
   }

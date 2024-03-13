@@ -1,10 +1,10 @@
 import { spaces } from '@md/foundation'
-import { Flex, Skeleton } from '@ui/components'
+import { Flex } from '@ui2/components/legacy'
+import { Skeleton } from '@ui2/components'
 import { ChevronLeftIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { TenantPageLayout } from '@/components/layouts'
 import { StatusPill } from '@/features/invoices/StatusPill'
 import { amountFormat } from '@/features/invoices/amountFormat'
 import { CustomerCard } from '@/features/invoices/cards/CustomerCard'

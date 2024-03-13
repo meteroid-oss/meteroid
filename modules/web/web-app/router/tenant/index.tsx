@@ -8,6 +8,8 @@ import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
 import { Button } from '@ui2/components'
+import { NotImplemented } from '@/features/NotImplemented'
+import { growthRoutes } from 'router/tenant/growth'
 
 export const tenantRoutes: RouteObject = {
   path: 'tenant/:tenantSlug',
@@ -28,17 +30,10 @@ export const tenantRoutes: RouteObject = {
     productCatalogRoutes,
     customersRoutes,
     billingRoutes,
-
+    growthRoutes,
     {
       path: '*',
-      element: (
-        <div className="items-center justify-center flex flex-col gap-2 w-full">
-          <div>Not implemented</div>
-          <Button onClick={() => window.history.back()} size="sm">
-            Back
-          </Button>
-        </div>
-      ),
+      element: <NotImplemented />,
     },
   ],
 }

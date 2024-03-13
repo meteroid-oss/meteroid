@@ -1,5 +1,5 @@
-import { Alert } from '@ui/components'
-import { cn } from '@ui/lib'
+import { Alert } from '@ui2/components'
+import { cn } from '@ui2/lib'
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { Loader } from '@/features/auth/components/Loader'

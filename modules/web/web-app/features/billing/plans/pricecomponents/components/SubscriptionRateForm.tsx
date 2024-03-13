@@ -1,34 +1,35 @@
 import { ColumnDef } from '@tanstack/react-table'
 import {
+  Button,
   FormItem,
+  GenericFormField,
   Select,
-  SelectTrigger,
-  SelectValue,
   SelectContent,
   SelectItem,
-  Button,
+  SelectTrigger,
+  SelectValue,
 } from '@ui2/components'
 import { useAtom } from 'jotai'
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 
-import PriceInput from '@/components/form/PriceInput'
+import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
-  componentFeeAtom,
-  FeeFormProps,
   EditPriceComponentCard,
+  FeeFormProps,
+  componentFeeAtom,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
-import { useCurrency, useBillingPeriods } from '@/features/billing/plans/pricecomponents/utils'
-import { useZodForm, Methods } from '@/hooks/useZodForm'
+import { useBillingPeriods, useCurrency } from '@/features/billing/plans/pricecomponents/utils'
+import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { BillingPeriod } from '@/lib/mapping'
 import {
-  SubscriptionRateSchema,
-  SubscriptionRate,
   Cadence,
-  TermRate,
   SlotBasedSchema,
+  SubscriptionRate,
+  SubscriptionRateSchema,
+  TermRate,
 } from '@/lib/schemas/plans'
 
 export const SubscriptionRateForm = (props: FeeFormProps) => {
@@ -80,13 +81,14 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
               </FormItem>
             ) : (
               <>
-                <FormItem name="pricing.price" label="Price">
-                  <PriceInput
-                    {...methods.withControl('pricing.price')}
-                    currency={currency}
-                    className="max-w-xs"
-                  />
-                </FormItem>
+                <GenericFormField
+                  name="pricing.price"
+                  label="Price"
+                  control={methods.control}
+                  render={({ field }) => (
+                    <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+                  )}
+                />
               </>
             )}
           </div>

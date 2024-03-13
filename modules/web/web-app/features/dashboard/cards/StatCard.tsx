@@ -1,5 +1,5 @@
-import { ButtonAlt, Skeleton } from '@ui/components'
-import { cn } from '@ui/lib'
+import { Button, Skeleton } from '@ui2/components'
+import { cn } from '@ui2/lib'
 import { Card } from '@ui2/components'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -27,24 +27,24 @@ export const StatCard: React.FC<StatCardProp> = ({
   loading,
 }) => {
   return (
-    <Card className="h-[120px] w-[450px] min-w-[250px] flex flex-col">
+    <Card className="h-[120px] grow flex flex-col">
       <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
         <div>{title}</div>
         {detailPath && (
           <Link to={detailPath}>
-            <ButtonAlt type="text">
+            <Button variant="ghost">
               <span className="underline decoration-slate-700 decoration-dashed underline-offset-2">
                 View
               </span>
-            </ButtonAlt>
+            </Button>
           </Link>
         )}
       </div>
       <div className="px-6 pb-4">
         {loading ? (
           <div className="w-full flex items-end gap-4 pb-1">
-            <Skeleton containerClassName="w-full" width="100%" height="1.5rem" />
-            <Skeleton containerClassName="flex w-full items-end" width="50%" height="1rem" />
+            <Skeleton width="100%" height="1.5rem" />
+            <Skeleton width="50%" height="1rem" />
           </div>
         ) : (
           <>

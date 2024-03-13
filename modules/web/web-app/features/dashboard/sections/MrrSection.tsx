@@ -53,13 +53,13 @@ export const MrrSection = () => {
   return (
     <>
       <div className="pt-2 pb-2">
-        <div className="flex justify-between items-end">
+        <div className="flex justify-between items-end flex-wrap">
           <h3 className=" text-lg text-muted-foreground font-medium">Your overview</h3>
-          <div className="flex gap-1">
+          <div className="flex flex-row   gap-1">
             <DatePickerWithRange range={range} setRange={setRange} />
 
             <Select onValueChange={setProductFamily} value={productFamily}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="md:w-[180px]">
                 <SelectValue placeholder="All product lines" />
               </SelectTrigger>
               <SelectContent>
@@ -72,7 +72,7 @@ export const MrrSection = () => {
             </Select>
 
             <Select onValueChange={setPlan} value={plan}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="md:w-[180px]">
                 <SelectValue placeholder="All plans" />
               </SelectTrigger>
               <SelectContent>

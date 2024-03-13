@@ -1,28 +1,23 @@
-import { Tooltip, TooltipArrow, TooltipContent, TooltipPortal, TooltipTrigger } from '@md/ui'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@ui2/components'
 
 import { onClick } from './Item.hooks'
-import { ItemLink, StyledItem } from './Item.styled'
+import { ItemLink } from './Item.styled'
 import { NavigationItemType } from './Item.types'
 
 import type { FunctionComponent } from 'react'
 
 const Item: FunctionComponent<NavigationItemType> = ({ to, end, icon, label }) => {
   return (
-    <StyledItem>
+    <li className="w-full">
       <Tooltip delayDuration={0}>
         <TooltipTrigger style={{ width: '100%' }}>
-          <ItemLink to={to} end={end} onClick={onClick}>
+          <ItemLink to={to} end={end} onClick={onClick} unstable_viewTransition>
             {icon}
           </ItemLink>
         </TooltipTrigger>
-        <TooltipPortal>
-          <TooltipContent side="right">
-            <TooltipArrow />
-            {label}
-          </TooltipContent>
-        </TooltipPortal>
+        <TooltipContent side="right">{label}</TooltipContent>
       </Tooltip>
-    </StyledItem>
+    </li>
   )
 }
 

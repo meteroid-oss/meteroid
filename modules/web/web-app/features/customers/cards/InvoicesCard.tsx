@@ -1,6 +1,7 @@
 import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
-import { Flex, Skeleton } from '@ui/components'
+import { Skeleton } from '@ui2/components'
+import { Flex } from '@ui2/components/legacy'
 import { useState } from 'react'
 
 import { InvoicesTable } from '@/features/invoices'

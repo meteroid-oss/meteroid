@@ -1,6 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { Form, Modal, FormInput } from '@ui2/components'
+import { Form, Modal, InputFormField } from '@ui2/components'
 
 import { ComponentProps } from 'react'
 import { toast } from 'sonner'
@@ -61,8 +61,8 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
         <Form {...methods}>
           <form>
             <div className="py-4 w-full space-y-4">
-              <FormInput label="Balance" name="balanceValueCents" type="number" />
-              <FormInput label="Currency" name="balanceCurrency" />
+              <InputFormField label="Balance" name="balanceValueCents" type="number" />
+              <InputFormField label="Currency" name="balanceCurrency" />
             </div>
           </form>
         </Form>

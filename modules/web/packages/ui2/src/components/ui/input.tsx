@@ -27,7 +27,7 @@ export interface InputWithIconProps extends React.InputHTMLAttributes<HTMLInputE
 }
 
 const InputWithIcon = React.forwardRef<HTMLInputElement, InputWithIconProps>(
-  ({ containerClassName, icon, ...props }, ref) => {
+  ({ containerClassName, className, icon, ...props }, ref) => {
     return (
       <div
         className={cn('w-full relative', containerClassName)}
@@ -35,7 +35,7 @@ const InputWithIcon = React.forwardRef<HTMLInputElement, InputWithIconProps>(
           width: props.width,
         }}
       >
-        <Input ref={ref} {...props} />
+        <Input ref={ref} {...props} className={cn('pr-14', className)} />
         {icon && (
           <span className="absolute top-1/2 transform -translate-y-1/2 right-4 pointer-events-none">
             {icon}

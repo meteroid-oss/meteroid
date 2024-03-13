@@ -43,8 +43,8 @@ export const BillingOutlet: FunctionComponent = () => {
                 {
                   label: (
                     <span className="flex items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-warning h-2" />
-                      <>Past due</>
+                      <Dot className="text-destructive h-2" />
+                      <>At risk</>
                     </span>
                   ),
                   to: 'subscriptions/past-due',
@@ -67,12 +67,48 @@ export const BillingOutlet: FunctionComponent = () => {
                   to: 'invoices',
                 },
                 {
+                  label: (
+                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-muted-foreground h-2" />
+                      <>Drafts</>
+                    </span>
+                  ),
+                  to: 'subscriptions/trials',
+                },
+                {
+                  label: (
+                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-primary h-2" />
+                      <>Pending</>
+                    </span>
+                  ),
+                  to: 'subscriptions/trials',
+                },
+                {
+                  label: (
+                    <span className="flex items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-warning h-2" />
+                      <>Past due</>
+                    </span>
+                  ),
+                  to: 'subscriptions/past-due',
+                },
+                {
                   label: 'Credit notes',
                   to: 'credit-notes',
                 },
                 {
                   label: 'Quotes',
                   to: 'quotes',
+                },
+              ],
+            },
+            {
+              label: 'Cost center',
+              items: [
+                {
+                  label: 'Alerts',
+                  to: 'cost-alerts',
                 },
               ],
             },

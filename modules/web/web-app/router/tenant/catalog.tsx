@@ -7,9 +7,10 @@ import { BillingPeriodModal } from '@/features/billing/plans/details/BillingPeri
 import { Addons } from '@/pages/tenants/billing/addons'
 import { Plans } from '@/pages/tenants/billing/plans'
 import { CreatePriceComponent } from '@/pages/tenants/billing/plans/createPriceComponent'
-import { CreatePriceComponentFee } from '@/pages/tenants/billing/plans/createPriceComponentFee'
 import { PlanEdit } from '@/pages/tenants/billing/plans/edit'
 import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboarding'
+import { CreateBillableMetric } from '@/pages/tenants/catalog/createBillableMetric'
+import { NotImplemented } from '@/features/NotImplemented'
 
 export const productCatalogRoutes: RouteObject = {
   path: 'catalog',
@@ -33,6 +34,12 @@ export const productCatalogRoutes: RouteObject = {
         {
           path: 'metrics',
           element: <ProductMetrics />,
+          children: [
+            {
+              path: 'add-metric',
+              element: <CreateBillableMetric />,
+            },
+          ],
         },
         {
           path: 'plans',
@@ -49,10 +56,7 @@ export const productCatalogRoutes: RouteObject = {
                   path: 'add-component',
                   element: <CreatePriceComponent />,
                 },
-                {
-                  path: 'add-component/:feeType',
-                  element: <CreatePriceComponentFee />,
-                },
+
                 {
                   path: 'onboarding',
                   element: <PlanOnboardingComponent />,
@@ -60,6 +64,10 @@ export const productCatalogRoutes: RouteObject = {
                 {
                   path: 'billing-terms',
                   element: <BillingPeriodModal />,
+                },
+                {
+                  path: 'add-metric',
+                  element: <CreateBillableMetric />,
                 },
 
                 // TODO component/:priceComponentId
@@ -70,6 +78,10 @@ export const productCatalogRoutes: RouteObject = {
         {
           path: 'addons',
           element: <Addons />,
+        },
+        {
+          path: '*',
+          element: <NotImplemented />,
         },
       ],
     },

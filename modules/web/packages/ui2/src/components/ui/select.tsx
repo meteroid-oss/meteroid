@@ -3,7 +3,6 @@ import { CaretSortIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix
 import * as SelectPrimitive from '@radix-ui/react-select'
 
 import { cn } from '@ui2/lib/utils'
-import { Button } from '@ui2/components'
 
 const Select = SelectPrimitive.Root
 
@@ -105,8 +104,8 @@ SelectLabel.displayName = SelectPrimitive.Label.displayName
 
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & { badge?: React.ReactNode }
+>(({ className, children, badge, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
@@ -120,7 +119,16 @@ const SelectItem = React.forwardRef<
         <CheckIcon className="h-4 w-4" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    {badge ? (
+      <div className="flex w-full justify-between">
+        <div>
+          <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+        </div>
+        {badge}
+      </div>
+    ) : (
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    )}
   </SelectPrimitive.Item>
 ))
 SelectItem.displayName = SelectPrimitive.Item.displayName
@@ -146,25 +154,6 @@ const SelectEmpty = () => {
 }
 SelectEmpty.displayName = 'SelectEmpty'
 
-interface SelectActionProps {
-  children: React.ReactNode
-  asChild?: boolean
-  onClick?: () => void
-  hasIcon?: boolean
-}
-const SelectAction = ({ children, hasIcon, onClick, asChild }: SelectActionProps) => {
-  return (
-    <SelectGroup>
-      <SelectLabel asChild>
-        <Button variant={'ghost'} size="full" hasIcon={hasIcon} asChild={asChild} onClick={onClick}>
-          {children}
-        </Button>
-      </SelectLabel>
-    </SelectGroup>
-  )
-}
-SelectAction.displayName = 'SelectAction'
-
 export {
   Select,
   SelectGroup,
@@ -177,5 +166,4 @@ export {
   SelectScrollUpButton,
   SelectScrollDownButton,
   SelectEmpty,
-  SelectAction,
 }

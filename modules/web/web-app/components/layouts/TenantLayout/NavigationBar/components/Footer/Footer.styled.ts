@@ -20,8 +20,4 @@ export const AvatarTrigger = styled('li', {
   borderRadius: radius.radius3,
   backgroundColor: 'transparent',
   transition: 'background-color 0.2s ease-in-out',
-
-  '&:hover, &.active': {
-    backgroundColor: colors.mauve4,
-  },
 })

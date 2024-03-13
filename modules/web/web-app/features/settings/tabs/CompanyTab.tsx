@@ -1,7 +1,7 @@
-import { ButtonAlt, FormItem, Input } from '@ui/components'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
+import { Button, Card, Form, InputFormField, Label } from '@ui2/components'
 
 const addressSchema = z.object({
   addressLine1: z.string().min(1),
@@ -25,56 +25,87 @@ export const CompanyTab = () => {
 
   return (
     <div>
-      <div className="max-w-3xl space-y-2 px-10 py-6 mt-6 border border-slate-500 rounded-lg bg-white-100 dark:bg-white-200">
-        <div className="w-full space-y-4">
-          <FormItem label="Legal Company Name" layout="horizontal">
-            <Input
-              className="max-w-xs"
-              type="text"
-              placeholder="Company name"
-              {...methods.register('companyName')}
-            />
-          </FormItem>
-          <FormItem label="Email" layout="horizontal">
-            <Input
-              className="max-w-xs"
-              type="text"
-              placeholder="Email"
-              {...methods.register('email')}
-            />
-          </FormItem>
-          <FormItem label="Company Address" layout="horizontal">
-            <div className="space-y-2">
-              <Input
+      <Form {...methods}>
+        <form
+          onSubmit={methods.handleSubmit(async values => {
+            alert('Not implemented')
+          })}
+        >
+          <Card className="px-8 py-6">
+            <div className="w-full space-y-4">
+              <InputFormField
+                label="Legal Company Name"
+                name="companyName"
+                layout="horizontal"
+                className="max-w-xs"
                 type="text"
-                placeholder="Address Line 1"
-                {...methods.register('address.addressLine1')}
+                placeholder="Company name"
+                control={methods.control}
               />
-              <Input
+
+              <InputFormField
+                label="Email"
+                layout="horizontal"
+                className="max-w-xs"
                 type="text"
-                placeholder="Address Line 2"
-                {...methods.register('address.addressLine2')}
+                placeholder="Email"
+                control={methods.control}
+                name="email"
               />
-              <div className="grid grid-cols-2 gap-2">
-                <Input type="text" placeholder="City" {...methods.register('address.city')} />
-                <Input type="text" placeholder="State" {...methods.register('address.state')} />
-                <Input type="text" placeholder="Zip" {...methods.register('address.zip')} />
-                <Input type="text" placeholder="Country" {...methods.register('address.country')} />
+
+              <div className="space-y-0 grid gap-2 md:grid md:grid-cols-12">
+                <Label className="col-span-4 text-muted-foreground">Company Address</Label>
+                <div className="col-span-4 space-y-3">
+                  <div className="space-y-3">
+                    <InputFormField
+                      placeholder="Address Line 1"
+                      control={methods.control}
+                      name="address.addressLine1"
+                    />
+                    <InputFormField
+                      placeholder="Address Line 2"
+                      control={methods.control}
+                      name="address.addressLine2"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <InputFormField
+                      placeholder="City"
+                      control={methods.control}
+                      name="address.city"
+                    />
+                    <InputFormField
+                      placeholder="State"
+                      control={methods.control}
+                      name="address.state"
+                    />
+                    <InputFormField
+                      placeholder="Zip"
+                      control={methods.control}
+                      name="address.zip"
+                    />
+                    <InputFormField
+                      placeholder="Country"
+                      control={methods.control}
+                      name="address.country"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-          </FormItem>
-        </div>
 
-        <div className="w-full flex justify-end pt-6">
-          <small>Not implemented</small>
-          <ButtonAlt type="default" className="!rounded-r-none">
-            Cancel
-          </ButtonAlt>
-          <ButtonAlt className="!rounded-l-none" disabled={!methods.formState.isValid}>
-            Save
-          </ButtonAlt>
-        </div>
-      </div>
+            <div className="w-full flex justify-end items-center pt-6">
+              <small className="text-muted-foreground">Not implemented</small>
+              <Button variant="ghost" className="!rounded-r-none" size="sm">
+                Cancel
+              </Button>
+              <Button className="!rounded-l-none" size="sm" disabled={!methods.formState.isValid}>
+                Save
+              </Button>
+            </div>
+          </Card>
+        </form>
+      </Form>
     </div>
   )
 }

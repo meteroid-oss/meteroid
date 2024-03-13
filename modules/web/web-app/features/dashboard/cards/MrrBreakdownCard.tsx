@@ -1,4 +1,4 @@
-import { cn } from '@ui/lib'
+import { cn } from '@ui2/lib'
 
 import { formatCurrency } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
@@ -11,7 +11,7 @@ export const MrrBreakdownCard = () => {
     ?.mmrBreakdown
 
   return (
-    <div className="max-w-[50%] relative h-[180px] w-[50%] min-w-[250px] py-4 px-2 ">
+    <div className="max-w-[50%] relative h-[180px] w-[50%] py-4 px-2 ">
       <div className="text-sm font-semibold leading-none tracking-tight">MRR Breakdown</div>
       <div className="pt-5">
         <div className="h-[90px]">

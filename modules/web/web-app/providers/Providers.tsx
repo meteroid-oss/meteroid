@@ -1,4 +1,4 @@
-import { TooltipProvider } from '@md/ui'
+import { TooltipProvider } from '@ui2/components'
 import { Outlet } from 'react-router-dom'
 
 import { ThemeProvider } from 'providers/ThemeProvider'

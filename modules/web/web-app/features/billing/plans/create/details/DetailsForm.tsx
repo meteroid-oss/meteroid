@@ -2,8 +2,8 @@ import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Form,
-  FormInput,
-  FormTextarea,
+  InputFormField,
+  TextareaFormField,
   Label,
   RadioGroup,
   RadioGroupItem,
@@ -91,7 +91,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       <form onSubmit={methods.handleSubmit(onSubmit)}>
         <section className="space-y-4">
           <div className="space-y-6 py-2">
-            <FormInput
+            <InputFormField
               name="planName"
               label="Name"
               layout="horizontal"
@@ -102,7 +102,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
             {/* TODO */}
             <div className="hidden">
               <div className="w-full border-b "></div>
-              <FormTextarea
+              <TextareaFormField
                 name="description"
                 label="Description"
                 control={methods.control}

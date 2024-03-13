@@ -1,7 +1,7 @@
 import { disableQuery } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
-import { Flex } from '@ui/components'
+import { Flex } from '@ui2/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
 
 import { ProductMetricsEditPanel } from '@/features/productCatalog/metrics/ProductMetricsEditPanel'
@@ -10,9 +10,10 @@ import { BillableMetricTable } from '@/features/productCatalog/metrics/ProductMe
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
+import { Outlet, useNavigate } from 'react-router-dom'
 
 export const ProductMetrics: FunctionComponent = () => {
-  const [editPanelVisible, setEditPanelVisible] = useState(false)
+  const navigate = useNavigate()
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
@@ -37,7 +38,7 @@ export const ProductMetrics: FunctionComponent = () => {
     <Fragment>
       <Flex direction="column" gap={spaces.space9}>
         <ProductMetricsPageHeader
-          setEditPanelVisible={setEditPanelVisible}
+          setEditPanelVisible={() => navigate('add-metric')}
           isLoading={isLoading}
           refetch={refetch}
         />
@@ -48,10 +49,7 @@ export const ProductMetrics: FunctionComponent = () => {
           setPagination={setPagination}
         />
       </Flex>
-      <ProductMetricsEditPanel
-        visible={editPanelVisible}
-        closePanel={() => setEditPanelVisible(false)}
-      />
+      <Outlet />
     </Fragment>
   )
 }

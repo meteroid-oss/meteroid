@@ -2,7 +2,6 @@ import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import {
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -11,9 +10,8 @@ import {
   Separator,
 } from '@ui2/components'
 import { Flex } from '@ui2/components/legacy'
-import { Modal } from '@md/ui'
+import { Modal } from '@ui2/components'
 import { useQueryClient } from '@tanstack/react-query'
-import { HelpCircleIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
@@ -70,7 +68,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   return (
     <>
       <Sheet open={visible} onOpenChange={safeClosePanel}>
-        <SheetContent size={'large'}>
+        <SheetContent size={'medium'}>
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(async values => {
@@ -174,69 +172,6 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
           </Form>
         </SheetContent>
       </Sheet>
-      {/* 
-      <SidePanel
-        size="large"
-        key="TableEditor"
-        visible={visible}
-        header={<SidePanel.HeaderTitle>Create a new customer</SidePanel.HeaderTitle>}
-        className={`transition-all duration-100 ease-in `}
-        onCancel={safeClosePanel}
-        onConfirm={methods.handleSubmit(async values => {
-          await createCustomerMut.mutateAsync({
-            name: values.companyName,
-            alias: values.externalId,
-            billingConfig: {
-              billingConfigOneof: {
-                case: 'stripe',
-                value: {
-                  collectionMethod:
-                    CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
-                  customerId: values.stripeCustomerId,
-                },
-              },
-            },
-          })
-          methods.reset()
-          closePanel()
-        })}
-        onInteractOutside={event => {
-          const isToast = (event.target as Element)?.closest('#toast')
-          if (isToast) {
-            event.preventDefault()
-          }
-        }}
-      >
-        <SidePanel.Content>
-          <Flex direction="column" gap={spaces.space7}>
-            <FormItem name="name" label="Customer Name" {...methods.withError('companyName')}>
-              <Input type="text" placeholder="ACME Inc" {...methods.register('companyName')} />
-            </FormItem>
-
-            <FormItem name="name" label="Primary email" {...methods.withError('primaryEmail')}>
-              <Input type="text" {...methods.register('primaryEmail')} />
-            </FormItem>
-
-            <FormItem name="name" label="External ID" optional {...methods.withError('externalId')}>
-              <Input type="text" {...methods.register('externalId')} />
-            </FormItem>
-
-            <span className="border p-3 text-xs text-slate-900 border-slate-600 rounded-md">
-              <HelpCircleIcon size={14} className="inline-block mr-2" />
-              In this release, the only invoicing method available is Stripe Invoice
-            </span>
-            <FormItem
-              name="name"
-              label="Stripe Customer ID"
-              {...methods.withError('stripeCustomerId')}
-            >
-              <Input type="text" {...methods.register('stripeCustomerId')} />
-            </FormItem>
-          </Flex>
-        </SidePanel.Content>
-      </SidePanel>
-    
-    </> */}
 
       <ConfirmationModal
         visible={isClosingPanel}

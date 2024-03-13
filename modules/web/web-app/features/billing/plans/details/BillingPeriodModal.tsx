@@ -1,4 +1,4 @@
-import { Modal } from '@md/ui'
+import { Modal } from '@ui2/components'
 import { ColumnDef } from '@tanstack/react-table'
 import { FC, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -83,7 +83,7 @@ export const BillingPeriodModal: FC = () => {
       }
     >
       <div className="px-6">
-        <div className="p-4 text-sm text-slate-1000 flex flex-col">
+        <div className="p-4 text-sm text-muted-foreground flex flex-col">
           <span>Select the terms which will be available for your customers to pick from.</span>
           <span>You can define different prices based on these terms.</span>
         </div>

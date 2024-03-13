@@ -5,7 +5,7 @@ import {
   Input,
   Modal,
   Form,
-  FormInput,
+  InputFormField,
   Sheet,
   SheetContent,
   SheetHeader,
@@ -76,8 +76,18 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
                 <Separator />
               </SheetHeader>
               <Flex direction="column" gap={spaces.space7}>
-                <FormInput name="name" label="Product Name" type="text" placeholder="ACME Inc" />
-                <FormInput name="description" label="Description" type="text" placeholder="desc" />
+                <InputFormField
+                  name="name"
+                  label="Product Name"
+                  type="text"
+                  placeholder="ACME Inc"
+                />
+                <InputFormField
+                  name="description"
+                  label="Description"
+                  type="text"
+                  placeholder="desc"
+                />
               </Flex>
 
               <SheetFooter className="py-2">

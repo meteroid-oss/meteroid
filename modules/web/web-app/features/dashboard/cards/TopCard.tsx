@@ -1,4 +1,4 @@
-import { Skeleton } from '@ui/components'
+import { Skeleton } from '@ui2/components'
 import { cn } from '@ui2/lib'
 import { UserRoundIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -33,18 +33,16 @@ const getColor = (key: string) => {
 
 export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loading }) => {
   return (
-    <div
-      className={cn(' overflow-y-auto h-[180px]  min-w-[250px] flex flex-col relative', className)}
-    >
+    <div className={cn(' overflow-y-auto h-[180px]  grow flex flex-col relative', className)}>
       <div className="text-sm font-semibold flex flex-row px-6 py-4 items-baseline w-full justify-between flex-grow">
         {title}
       </div>
-      <div className="px-6 pb-4 space-y-3">
+      <div className="px-6 pb-4 space-y-3 relative">
         {loading ? (
           [1, 2, 3].map((_, index) => (
             <div key={index} className="flex flex-row gap-4 items-baseline text-xs justify-between">
-              <Skeleton containerClassName="w-[40%]" width="100%" height="1.2rem" />
-              <Skeleton containerClassName="w-full" width="100%" height="1.2rem" />
+              <Skeleton className="w-[40%]" height="1.2rem" />
+              <Skeleton className="grow" height="1.2rem" />
             </div>
           ))
         ) : !values?.length ? (

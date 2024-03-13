@@ -1,4 +1,4 @@
-import { Pill } from '@ui/components'
+import { Badge } from '@ui2/components'
 import { match } from 'ts-pattern'
 
 import { InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
@@ -9,8 +9,8 @@ interface Props {
 
 export const StatusPill = ({ status }: Props) =>
   match(status)
-    .with(InvoiceStatus.VOID, () => <Pill color="neutral">Void</Pill>)
-    .with(InvoiceStatus.PENDING, () => <Pill color="warning">Pending</Pill>)
-    .with(InvoiceStatus.FINALIZED, () => <Pill color="success">Finalized</Pill>)
-    .with(InvoiceStatus.DRAFT, () => <Pill color="blue">Draft</Pill>)
-    .otherwise(() => <Pill color="danger">Unknown</Pill>)
+    .with(InvoiceStatus.VOID, () => <Badge variant="secondary">Void</Badge>)
+    .with(InvoiceStatus.PENDING, () => <Badge variant="warning">Pending</Badge>)
+    .with(InvoiceStatus.FINALIZED, () => <Badge variant="success">Finalized</Badge>)
+    .with(InvoiceStatus.DRAFT, () => <Badge variant="alternative">Draft</Badge>)
+    .otherwise(() => <Badge variant="destructive">Unknown</Badge>)

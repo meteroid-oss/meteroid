@@ -1,6 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { Form, Modal, FormCheckbox, FormInput } from '@ui2/components'
+import { Form, Modal, CheckboxFormField, InputFormField } from '@ui2/components'
 import { ComponentProps } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -64,15 +64,15 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
           <form>
             <div className="py-4 w-full space-y-4">
               <h3 className="font-semibold">Billing address</h3>
-              <FormInput label="Line 1" name="billing_address.line1" {...inputProps} />
-              <FormInput label="Line 2" name="billing_address.line2" {...inputProps} />
-              <FormInput label="City" name="billing_address.city" {...inputProps} />
-              <FormInput label="Country" name="billing_address.country" {...inputProps} />
-              <FormInput label="State" name="billing_address.state" {...inputProps} />
-              <FormInput label="Zip Code" name="billing_address.zipcode" {...inputProps} />
+              <InputFormField label="Line 1" name="billing_address.line1" {...inputProps} />
+              <InputFormField label="Line 2" name="billing_address.line2" {...inputProps} />
+              <InputFormField label="City" name="billing_address.city" {...inputProps} />
+              <InputFormField label="Country" name="billing_address.country" {...inputProps} />
+              <InputFormField label="State" name="billing_address.state" {...inputProps} />
+              <InputFormField label="Zip Code" name="billing_address.zipcode" {...inputProps} />
 
               <h3 className="font-semibold">Shipping address</h3>
-              <FormCheckbox
+              <CheckboxFormField
                 name="shipping_address.sameAsBilling"
                 label="Same as billing address"
                 variant="card"
@@ -81,16 +81,32 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
 
               {sameShippingAddress || (
                 <>
-                  <FormInput label="Line 1" name="shipping_address.address.line1" {...inputProps} />
-                  <FormInput label="Line 2" name="shipping_address.address.line2" {...inputProps} />
-                  <FormInput label="City" name="shipping_address.address.city" {...inputProps} />
-                  <FormInput
+                  <InputFormField
+                    label="Line 1"
+                    name="shipping_address.address.line1"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="Line 2"
+                    name="shipping_address.address.line2"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="City"
+                    name="shipping_address.address.city"
+                    {...inputProps}
+                  />
+                  <InputFormField
                     label="Country"
                     name="shipping_address.address.country"
                     {...inputProps}
                   />
-                  <FormInput label="State" name="shipping_address.address.state" {...inputProps} />
-                  <FormInput
+                  <InputFormField
+                    label="State"
+                    name="shipping_address.address.state"
+                    {...inputProps}
+                  />
+                  <InputFormField
                     label="Zip Code"
                     name="shipping_address.address.zipcode"
                     {...inputProps}

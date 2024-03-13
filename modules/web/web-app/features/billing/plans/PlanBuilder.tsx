@@ -1,7 +1,7 @@
 import { useMutation, createConnectQueryKey, disableQuery } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
-import { ButtonAlt, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui2/components'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
@@ -167,9 +167,9 @@ const SubscriptionsTab = () => {
   return (
     <div>
       <div className="flex py-2 justify-end">
-        <ButtonAlt type="secondary" onClick={quickCreateSubscription}>
+        <Button variant="secondary" onClick={quickCreateSubscription}>
           + New subscription
-        </ButtonAlt>
+        </Button>
       </div>
 
       <SimpleTable

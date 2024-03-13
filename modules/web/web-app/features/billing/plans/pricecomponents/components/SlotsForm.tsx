@@ -1,20 +1,21 @@
 import {
   FormItem,
-  SelectItem,
-  Input,
+  GenericFormField,
+  InputFormField,
+  Select,
   SelectContent,
-  SelectRoot,
+  SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@ui/components'
+} from '@ui2/components'
 import { useAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 
-import PriceInput from '@/components/form/PriceInput'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import {
-  componentFeeAtom,
-  FeeFormProps,
   EditPriceComponentCard,
+  FeeFormProps,
+  componentFeeAtom,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { TermRateTable } from '@/features/billing/plans/pricecomponents/components/SubscriptionRateForm'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
@@ -48,7 +49,7 @@ export const SlotsForm = (props: FeeFormProps) => {
         <div className="grid grid-cols-3 gap-2">
           <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
             <FormItem name="cadence" label="Cadence">
-              <SelectRoot onValueChange={value => setCadence(value as Cadence)} value={cadence}>
+              <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
                 <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
                   <SelectValue />
                 </SelectTrigger>
@@ -58,19 +59,15 @@ export const SlotsForm = (props: FeeFormProps) => {
                   <SelectItem value="QUARTERLY">Quarterly</SelectItem>
                   <SelectItem value="ANNUAL">Annual</SelectItem>
                 </SelectContent>
-              </SelectRoot>
+              </Select>
             </FormItem>
-            <FormItem
+
+            <InputFormField
               name="slotUnit.name"
               label="Slot unit"
-              {...methods.withError('slotUnit.name')}
-            >
-              <Input
-                {...methods.register('slotUnit.name')}
-                {...methods.withError('slotUnit.name')}
-                className="max-w-xs"
-              />
-            </FormItem>
+              control={methods.control}
+              className="max-w-xs"
+            />
           </div>
           <div className="ml-4 col-span-2 space-y-4">
             {cadence === 'COMMITTED' ? (
@@ -79,17 +76,14 @@ export const SlotsForm = (props: FeeFormProps) => {
               </FormItem>
             ) : (
               <>
-                <FormItem
+                <GenericFormField
                   name="pricing.price"
                   label="Price"
-                  {...methods.withError('pricing.price')}
-                >
-                  <PriceInput
-                    {...methods.withControl('pricing.price')}
-                    currency={currency}
-                    className="max-w-xs"
-                  />
-                </FormItem>
+                  control={methods.control}
+                  render={({ field }) => (
+                    <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+                  )}
+                />
               </>
             )}
           </div>

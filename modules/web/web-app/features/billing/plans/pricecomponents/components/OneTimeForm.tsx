@@ -1,4 +1,10 @@
-import { FormInput, GenericFormField, SelectItem, FormSelect, Form } from '@ui2/components'
+import {
+  InputFormField,
+  GenericFormField,
+  SelectItem,
+  SelectFormField,
+  Form,
+} from '@ui2/components'
 import { useAtom } from 'jotai'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
@@ -28,7 +34,7 @@ export const OneTimeForm = (props: FeeFormProps) => {
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border">
-              <FormSelect
+              <SelectFormField
                 control={methods.control}
                 className="lg:w-[180px] xl:w-[230px]"
                 name="pricing.billingType"
@@ -36,10 +42,10 @@ export const OneTimeForm = (props: FeeFormProps) => {
               >
                 <SelectItem value="ADVANCE">Paid upfront (advance)</SelectItem>
                 <SelectItem value="ARREAR">Postpaid (arrear)</SelectItem>
-              </FormSelect>
+              </SelectFormField>
             </div>
             <div className="ml-4 col-span-2 space-y-4">
-              <FormInput
+              <InputFormField
                 name="pricing.quantity"
                 label="Quantity"
                 type="number"

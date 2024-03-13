@@ -13,12 +13,6 @@ export const NAVIGATION_ITEMS: NavigationItemType[] = [
   },
 
   {
-    label: 'Customers',
-    to: 'customers',
-    icon: <CustomersIcon size={20} />,
-  },
-
-  {
     label: 'Product catalog', // metrics
     to: 'catalog',
     icon: <Catalog2Icon size={18} />,
@@ -27,6 +21,11 @@ export const NAVIGATION_ITEMS: NavigationItemType[] = [
     label: 'Billing',
     to: 'billing',
     icon: <BillingIcon size={22} className="ml-[-2px]" />,
+  },
+  {
+    label: 'Customers',
+    to: 'customers',
+    icon: <CustomersIcon size={20} />,
     divider: true,
   },
   {

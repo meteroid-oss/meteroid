@@ -1,5 +1,5 @@
 import { spaces } from '@md/foundation'
-import { Flex } from '@ui/components'
+import { Flex } from '@ui2/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
 
 import { TenantPageLayout } from '@/components/layouts'

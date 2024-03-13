@@ -13,7 +13,7 @@ export const Catalog: FunctionComponent = () => {
 
   if (families.isLoading) return <Loading />
   if (!families.data?.productFamilies?.length) return <FamilyCreationModalPage />
-  return <Navigate to={families.data?.productFamilies[0].externalId} />
+  return <Navigate to={`${families.data?.productFamilies[0].externalId}/plans`} />
 }
 
 export const CatalogOutlet: FunctionComponent = () => {
@@ -42,6 +42,7 @@ export const CatalogOutlet: FunctionComponent = () => {
                 {
                   label: 'Credits',
                   to: 'credits',
+                  disabled: true,
                 },
                 {
                   label: 'Coupons',
@@ -65,6 +66,7 @@ export const CatalogOutlet: FunctionComponent = () => {
                 {
                   label: 'Features',
                   to: 'features',
+                  disabled: true,
                 },
               ],
             },

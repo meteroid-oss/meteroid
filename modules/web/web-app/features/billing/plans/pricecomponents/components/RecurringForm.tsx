@@ -1,8 +1,8 @@
 import {
   FormItem,
   SelectItem,
-  FormSelect,
-  FormInput,
+  SelectFormField,
+  InputFormField,
   GenericFormField,
   Form,
 } from '@ui2/components'
@@ -34,7 +34,7 @@ export const RecurringForm = (props: FeeFormProps) => {
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
-              <FormSelect
+              <SelectFormField
                 name="cadence"
                 label="Cadence"
                 control={methods.control}
@@ -43,8 +43,8 @@ export const RecurringForm = (props: FeeFormProps) => {
                 <SelectItem value="MONTHLY">Monthly</SelectItem>
                 <SelectItem value="QUARTERLY">Quarterly</SelectItem>
                 <SelectItem value="ANNUAL">Annual</SelectItem>
-              </FormSelect>
-              <FormSelect
+              </SelectFormField>
+              <SelectFormField
                 name="fee.billingType"
                 label="Billing type"
                 control={methods.control}
@@ -52,10 +52,10 @@ export const RecurringForm = (props: FeeFormProps) => {
               >
                 <SelectItem value="ADVANCE">Paid upfront (advance)</SelectItem>
                 <SelectItem value="ARREAR">Postpaid (arrear)</SelectItem>
-              </FormSelect>
+              </SelectFormField>
             </div>
             <div className="ml-4 col-span-2 space-y-4">
-              <FormInput
+              <InputFormField
                 name="fee.quantity"
                 label="Quantity"
                 type="number"

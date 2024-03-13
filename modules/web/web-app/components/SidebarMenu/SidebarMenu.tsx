@@ -1,5 +1,5 @@
 import Group from './components/Group'
-import { ItemProps } from './components/Item'
+import Item, { ItemProps } from './components/Item'
 
 import type { FunctionComponent } from 'react'
 
@@ -7,18 +7,24 @@ export interface MenuProps {
   items: MenuItemsProps[]
 }
 
-export interface MenuItemsProps {
-  label: string
-  items: ItemProps[]
-}
+export type MenuItemsProps =
+  | {
+      label: string
+      items: ItemProps[]
+    }
+  | ItemProps
 
 const SidebarMenuComponent: FunctionComponent<MenuProps> = ({ items }) => {
   return (
     <div className="flex flex-col space-y-8 overflow-y-auto">
       <nav className="px-4">
-        {items.map(({ label, items }, index) => (
-          <Group key={index} label={label} items={items} />
-        ))}
+        {items.map(({ ...props }, index) =>
+          'items' in props ? (
+            <Group key={index} label={props.label} items={props.items} />
+          ) : (
+            <Item key={index} {...props} />
+          )
+        )}
       </nav>
     </div>
   )

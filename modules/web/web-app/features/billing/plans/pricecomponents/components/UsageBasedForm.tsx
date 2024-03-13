@@ -1,15 +1,13 @@
 import { ColumnDef } from '@tanstack/react-table'
 import {
-  FormItem,
-  FormSelect,
-  FormInput,
+  SelectFormField,
+  InputFormField,
   GenericFormField,
   Button,
   Input,
   SelectItem,
   Form,
-  SelectGroup,
-  SelectAction,
+  ComboboxFormField,
 } from '@ui2/components'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
@@ -18,7 +16,6 @@ import { useFieldArray, useWatch } from 'react-hook-form'
 import { match } from 'ts-pattern'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
-import { ControlledSelect } from '@/components/form'
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
@@ -37,8 +34,7 @@ import {
 } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import { SelectLabel } from '@ui/components'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 // type UsagePricingModelType = "per_unit" | "tiered" | "volume" | "package"
 
@@ -51,6 +47,7 @@ const models: [UsagePricingModelType, string][] = [
 
 export const UsageBasedForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
+  const navigate = useNavigate()
 
   const methods = useZodForm({
     schema: UsageBasedSchema,
@@ -81,28 +78,27 @@ export const UsageBasedForm = (props: FeeFormProps) => {
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
-              <FormSelect
+              <ComboboxFormField
                 name="metric.id"
-                label="Billable metricz"
+                label="Billable metric"
                 control={methods.control}
                 placeholder="Select a metric"
-                className="max-w-[280px]"
-                empty={!metricsOptions.length}
-              >
-                {metricsOptions.map(option => (
-                  <SelectItem value={option.value} key={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-                <SelectAction asChild>
-                  <Link to="new-metric">
+                options={metricsOptions}
+                // empty={!metricsOptions.length}
+                action={
+                  <Button
+                    hasIcon
+                    variant={'ghost'}
+                    size="full"
+                    onClick={() => navigate('add-metric')}
+                  >
                     <PlusIcon size={12} /> New metric
-                  </Link>
-                </SelectAction>
-              </FormSelect>
+                  </Button>
+                }
+              />
             </div>
             <div className="ml-4 col-span-2 space-y-4">
-              <FormSelect
+              <SelectFormField
                 name="model.model"
                 label="Pricing model"
                 placeholder="Select a model"
@@ -115,7 +111,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
                     {label}
                   </SelectItem>
                 ))}
-              </FormSelect>
+              </SelectFormField>
               <UsageBasedDataForm methods={methods} />
             </div>
           </div>
@@ -207,7 +203,7 @@ const PackageForm = ({
   const currency = useCurrency()
   return (
     <>
-      <FormInput
+      <InputFormField
         name="model.data.blockSize"
         label="Block size"
         type="number"

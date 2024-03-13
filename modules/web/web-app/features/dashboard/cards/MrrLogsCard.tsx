@@ -9,7 +9,7 @@ export const MrrLogsCard = () => {
   const logs = useQuery(mrrLog, {}).data
 
   return (
-    <div className="max-w-[50%] relative h-[180px] w-[50%] min-w-[250px] py-4 px-2 ">
+    <div className="max-w-[50%] relative h-[180px] w-[50%]  py-4 px-2 ">
       <div className="text-sm font-semibold leading-none tracking-tight">MRR Movement Logs</div>
       <div className="pt-5 h-full">
         <div className="h-full container overflow-y-auto">

@@ -1,6 +1,11 @@
 import { SettingsIcon } from '@md/icons'
-import { Dropdown } from '@md/ui'
-import { LogOutIcon, TerminalIcon, UserCircle2Icon } from 'lucide-react'
+import {
+  Building2Icon,
+  BuildingIcon,
+  LogOutIcon,
+  TerminalIcon,
+  UserCircle2Icon,
+} from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useTheme } from 'providers/ThemeProvider'
@@ -10,7 +15,29 @@ import Item from '../Items/components/Item/Item'
 
 import { AvatarTrigger, StyledFooter } from './Footer.styled'
 
-import type { FunctionComponent } from 'react'
+import type { FunctionComponent, ReactNode } from 'react'
+import {
+  TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+} from '@ui2/components'
+import { onClick } from '@/components/layouts/TenantLayout/NavigationBar/components/Items/components/Item/Item.hooks'
+import { ItemLink } from '@/components/layouts/TenantLayout/NavigationBar/components/Items/components/Item/Item.styled'
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@ui2/components'
 
 const Footer: FunctionComponent = () => {
   return (
@@ -24,57 +51,95 @@ const Footer: FunctionComponent = () => {
   )
 }
 
-export const FooterAccountDropdown: FunctionComponent = () => {
-  const { isDarkMode, setDarkMode } = useTheme()
-
+const UserPreferenceTooltip = ({ children }: { children: ReactNode }) => {
   return (
-    <Dropdown
-      side="right"
-      align="start"
-      className="mb-2"
-      overlay={
-        <div className="pl-4">
-          <Link to="/account/me">
-            <Dropdown.Item
-              key="header"
-              icon={<SettingsIcon size={14} />}
-              className="hover:bg-slate-500"
-            >
-              Account Preferences
-            </Dropdown.Item>
-          </Link>
-          <Dropdown.Separator />
-          <Dropdown.Label>Theme</Dropdown.Label>
-          <Dropdown.RadioGroup
-            key="theme"
-            value={isDarkMode ? 'dark' : 'light'}
-            onChange={e => setDarkMode(e === 'dark')}
-          >
-            <Dropdown.Radio value="dark" className="hover:bg-slate-500">
-              Dark
-            </Dropdown.Radio>
-            <Dropdown.Radio value="light" className="hover:bg-slate-500">
-              Light
-            </Dropdown.Radio>
-          </Dropdown.RadioGroup>
-          <Dropdown.Separator />
-          <Link to="/logout">
-            <Dropdown.Item
-              key="logout"
-              icon={<LogOutIcon size={14} />}
-              className="hover:bg-slate-500"
-            >
-              Logout
-            </Dropdown.Item>
-          </Link>
-        </div>
-      }
-    >
-      <AvatarTrigger>
-        <UserCircle2Icon size={20} className="my-1 cursor-pointer" />
-      </AvatarTrigger>
-    </Dropdown>
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger style={{ width: '100%' }}>{children}</TooltipTrigger>
+      <TooltipContent side="right">Account Settings</TooltipContent>
+    </Tooltip>
   )
+}
+
+export const FooterAccountDropdown: FunctionComponent = () => {
+  return (
+    <li className="w-full">
+      <DropdownMenu>
+        <UserPreferenceTooltip>
+          <DropdownMenuTrigger asChild>
+            <AvatarTrigger>
+              <UserCircle2Icon size={20} className="my-1 cursor-pointer" />
+            </AvatarTrigger>
+          </DropdownMenuTrigger>
+        </UserPreferenceTooltip>
+        <DropdownMenuContent className="w-56" side="right" align="end" sideOffset={12}>
+          <DropdownMenuGroup>
+            <Link to="/account/me">
+              <DropdownMenuItem className="flex gap-2">
+                <SettingsIcon size={14} /> Account Preferences
+              </DropdownMenuItem>
+            </Link>
+
+            <DropdownMenuSeparator />
+
+            <Link to="/logout">
+              <DropdownMenuItem className="flex gap-2">
+                <LogOutIcon size={14} /> Logout
+              </DropdownMenuItem>
+            </Link>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </li>
+  )
+
+  // return (
+  //   <Dropdown
+  //     side="right"
+  //     align="start"
+  //     className="mb-2"
+  //     overlay={
+  //       <div className="pl-4">
+  //         <Link to="/account/me">
+  //           <Dropdown.Item
+  //             key="header"
+  //             icon={<SettingsIcon size={14} />}
+  //             className="hover:bg-slate-500"
+  //           >
+  //             Account Preferences
+  //           </Dropdown.Item>
+  //         </Link>
+  //         <Dropdown.Separator />
+  //         <Dropdown.Label>Theme</Dropdown.Label>
+  //         <Dropdown.RadioGroup
+  //           key="theme"
+  //           value={isDarkMode ? 'dark' : 'light'}
+  //           onChange={e => setDarkMode(e === 'dark')}
+  //         >
+  //           <Dropdown.Radio value="dark" className="hover:bg-slate-500">
+  //             Dark
+  //           </Dropdown.Radio>
+  //           <Dropdown.Radio value="light" className="hover:bg-slate-500">
+  //             Light
+  //           </Dropdown.Radio>
+  //         </Dropdown.RadioGroup>
+  //         <Dropdown.Separator />
+  //         <Link to="/logout">
+  //           <Dropdown.Item
+  //             key="logout"
+  //             icon={<LogOutIcon size={14} />}
+  //             className="hover:bg-slate-500"
+  //           >
+  //             Logout
+  //           </Dropdown.Item>
+  //         </Link>
+  //       </div>
+  //     }
+  //   >
+  //     <AvatarTrigger>
+  //       <UserCircle2Icon size={20} className="my-1 cursor-pointer" />
+  //     </AvatarTrigger>
+  //   </Dropdown>
+  // )
 }
 
 export default Footer

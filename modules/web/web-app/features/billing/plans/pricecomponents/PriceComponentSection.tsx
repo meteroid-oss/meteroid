@@ -1,5 +1,5 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Button } from '@ui2/components'
+import { Button, Switch } from '@ui2/components'
 import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -18,6 +18,12 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
 import { PriceComponent } from '@/lib/schemas/plans'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import {
+  CapacityDesignCard,
+  RateDesignCard,
+  SlotsDesignCard,
+  UsageBasedDesignCard,
+} from '@/features/billing/plans/onboarding/PricingModelDesignCards'
 
 // TODO Provider
 // also TODO, save the state instead of the id ?

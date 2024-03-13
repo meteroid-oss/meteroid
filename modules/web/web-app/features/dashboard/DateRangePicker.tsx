@@ -1,7 +1,7 @@
 'use client'
 
 import { Button, Calendar, Popover, PopoverContent, PopoverTrigger } from '@ui2/components'
-import { cn } from '@ui/lib'
+import { cn } from '@ui2/lib'
 import { format } from 'date-fns'
 import { Calendar as CalendarIcon } from 'lucide-react'
 import * as React from 'react'
@@ -24,7 +24,7 @@ export function DatePickerWithRange({
             id="date"
             variant="outline"
             className={cn(
-              'w-[250px] justify-start text-left font-normal rounded-md',
+              'w-[150px] md:w-[250px] justify-start text-left font-normal rounded-md overflow-hidden',
               !range && 'text-muted-foreground'
             )}
           >
