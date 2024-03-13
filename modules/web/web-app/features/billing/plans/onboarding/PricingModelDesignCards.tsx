@@ -1,5 +1,5 @@
 import { Input, Slider, Switch, cn } from '@md/ui'
-import React, { ReactNode } from 'react'
+import { ReactNode, useState, useId } from 'react'
 
 const HeroBase = ({
   title,
@@ -36,7 +36,7 @@ interface PeriodPickerProps {
   className?: string
 }
 const PeriodPicker = ({ isAnnual, setIsAnnual, className }: PeriodPickerProps) => {
-  const id = React.useId()
+  const id = useId()
 
   return (
     <div className={cn('flex flex-row justify-center text-xs gap-1 items-center', className)}>
@@ -70,7 +70,7 @@ interface CapacitySlidersProps {
 const CapacitySliders = ({ steps, onHover, selectedIdx }: CapacitySlidersProps) => {
   return (
     <ol role="list" className="flex items-center justify-center">
-      <li key={'before'} className="pr-4 relative">
+      <li key="before" className="pr-4 relative">
         <CapacitySlidersLine />
       </li>
       {steps.map((step, stepIdx) => (
@@ -100,7 +100,7 @@ const CapacitySliders = ({ steps, onHover, selectedIdx }: CapacitySlidersProps) 
           </>
         </li>
       ))}
-      <li key={'before'} className="pr-4 relative">
+      <li key="before" className="pr-4 relative">
         <CapacitySlidersLine />
       </li>
     </ol>
@@ -116,7 +116,7 @@ const DesignCard = ({ children }: { children: React.ReactNode }) => {
 }
 
 export const CapacityDesignCard = () => {
-  const [hovered, setHovered] = React.useState<number | undefined>()
+  const [hovered, setHovered] = useState<number | undefined>()
 
   const options = [
     ['0', '1.000', '1K'],
@@ -146,7 +146,7 @@ export const CapacityDesignCard = () => {
 export const RateDesignCard = () => {
   const defaultIsAnnual = false
 
-  const [isAnnual, setIsAnnual] = React.useState(defaultIsAnnual)
+  const [isAnnual, setIsAnnual] = useState(defaultIsAnnual)
 
   const options = ['$150/month', '$1.440/year']
   const optionSelected = options[Number(isAnnual)]
@@ -174,7 +174,7 @@ interface UsageSliderProps {
 }
 
 const UsageSlider = ({ baseValue, maxValue, unit, unitPrice, label }: UsageSliderProps) => {
-  const [sliderValue, setSliderValue] = React.useState([baseValue])
+  const [sliderValue, setSliderValue] = useState([baseValue])
 
   return (
     <div className="grid grid-cols-12 gap-2 text-xs justify-center items-center whitespace-nowrap w-full px-3">
@@ -231,7 +231,7 @@ export const UsageBasedDesignCard = () => {
 }
 
 const SlotField = ({ price }: { price: number }) => {
-  const [value, setValue] = React.useState(10)
+  const [value, setValue] = useState(10)
 
   return (
     <>
@@ -259,7 +259,7 @@ const SlotField = ({ price }: { price: number }) => {
 export const SlotsDesignCard = () => {
   const defaultIsAnnual = false
 
-  const [isAnnual, setIsAnnual] = React.useState(defaultIsAnnual)
+  const [isAnnual, setIsAnnual] = useState(defaultIsAnnual)
 
   const options = [['$15/user/month'], ['$12/user/month', 'billed annualy']]
   const optionSelected = options[Number(isAnnual)]

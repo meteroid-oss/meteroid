@@ -1,8 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import {
-  FormItem,
-  Input,
   Modal,
   Form,
   InputFormField,
@@ -14,8 +12,8 @@ import {
   Button,
   Separator,
 } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { useQueryClient } from '@tanstack/react-query'
+import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
@@ -62,7 +60,7 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
   return (
     <>
       <Sheet key="TableEditor" open={visible} onOpenChange={safeClosePanel}>
-        <SheetContent size={'small'}>
+        <SheetContent size="small">
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(async values => {

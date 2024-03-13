@@ -1,9 +1,7 @@
-import { D, F, G } from '@mobily/ts-belt'
 import {
   Button,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   Command,
   CommandItem,
   CommandList,
@@ -12,10 +10,11 @@ import {
   PopoverTrigger,
   cn,
 } from '@md/ui'
+import { D, G } from '@mobily/ts-belt'
 import { CheckIcon, XIcon, PlusIcon } from 'lucide-react'
+import { useState } from 'react'
 
 import { InvoiceStatus } from '@/rpc/api/invoices/v1/models_pb'
-import React from 'react'
 
 interface Props {
   setStatus: (search: InvoiceStatus | undefined) => void
@@ -23,7 +22,7 @@ interface Props {
 }
 
 export const FilterDropdown = ({ status, setStatus }: Props) => {
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpen] = useState(false)
 
   const statuses = D.toPairs(InvoiceStatus).filter(([_, status]) => G.isNumber(status))
 

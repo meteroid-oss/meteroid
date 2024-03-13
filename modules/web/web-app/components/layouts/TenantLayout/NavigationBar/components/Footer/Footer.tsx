@@ -1,14 +1,22 @@
 import { SettingsIcon } from '@md/icons'
 import {
-  Building2Icon,
-  BuildingIcon,
+  TooltipTrigger,
+  Tooltip,
+  TooltipContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger} from '@md/ui'
+import {
   LogOutIcon,
   TerminalIcon,
   UserCircle2Icon,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { useTheme } from 'providers/ThemeProvider'
 
 import { StyledItems as Items } from '../Items/Items.styled'
 import Item from '../Items/components/Item/Item'
@@ -16,28 +24,8 @@ import Item from '../Items/components/Item/Item'
 import { AvatarTrigger, StyledFooter } from './Footer.styled'
 
 import type { FunctionComponent, ReactNode } from 'react'
-import {
-  TooltipTrigger,
-  Tooltip,
-  TooltipContent,
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-} from '@md/ui'
-import { onClick } from '@/components/layouts/TenantLayout/NavigationBar/components/Items/components/Item/Item.hooks'
-import { ItemLink } from '@/components/layouts/TenantLayout/NavigationBar/components/Items/components/Item/Item.styled'
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@md/ui'
+
 
 const Footer: FunctionComponent = () => {
   return (

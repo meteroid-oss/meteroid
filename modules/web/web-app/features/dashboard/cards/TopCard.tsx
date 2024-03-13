@@ -1,5 +1,4 @@
-import { Skeleton } from '@md/ui'
-import { cn } from '@md/ui'
+import { Skeleton , cn } from '@md/ui'
 import { UserRoundIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 

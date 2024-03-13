@@ -1,5 +1,4 @@
 import {
-  FormItem,
   SelectItem,
   SelectFormField,
   InputFormField,
@@ -8,7 +7,6 @@ import {
 } from '@md/ui'
 import { useAtom } from 'jotai'
 
-import { ControlledSelect } from '@/components/form'
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import {
   componentFeeAtom,

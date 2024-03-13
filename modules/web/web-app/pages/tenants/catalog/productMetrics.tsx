@@ -3,14 +3,14 @@ import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
 import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
+import { Outlet, useNavigate } from 'react-router-dom'
 
-import { ProductMetricsEditPanel } from '@/features/productCatalog/metrics/ProductMetricsEditPanel'
 import { ProductMetricsPageHeader } from '@/features/productCatalog/metrics/ProductMetricsPageHeader'
 import { BillableMetricTable } from '@/features/productCatalog/metrics/ProductMetricsTable'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import { Outlet, useNavigate } from 'react-router-dom'
+
 
 export const ProductMetrics: FunctionComponent = () => {
   const navigate = useNavigate()

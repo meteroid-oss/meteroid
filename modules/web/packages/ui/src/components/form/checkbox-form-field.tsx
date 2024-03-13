@@ -1,7 +1,11 @@
-import { Checkbox, cn } from '..'
-import { FormField, FormItem, FormControl, FormLabel, FormMessage } from './form'
-import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
 import { VariantProps, cva } from 'class-variance-authority'
+import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
+
+import { cn } from '@ui/lib'
+
+import { Checkbox } from '..'
+
+import { FormField, FormItem, FormControl, FormLabel, FormMessage } from './form'
 
 interface CheckboxFieldProps<
   TFieldValues extends FieldValues,

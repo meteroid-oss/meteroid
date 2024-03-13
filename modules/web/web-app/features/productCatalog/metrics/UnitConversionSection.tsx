@@ -1,21 +1,16 @@
 import {
   Checkbox,
-  CheckboxFormField,
-  FormItem,
   FormLabel,
-  Input,
   InputFormField,
   SelectFormField,
   SelectItem,
-} from '@md/ui'
+ FormDescription } from '@md/ui'
 import { useEffect, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 
-import { ControlledSelect } from '@/components/form'
+import { AccordionPanel } from '@/components/AccordionPanel'
 import { Methods } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
-import { FormDescription } from '@md/ui'
-import { AccordionPanel } from '@/components/AccordionPanel'
 
 interface Props {
   methods: Methods<schemas.billableMetrics.CreateBillableMetricSchema>

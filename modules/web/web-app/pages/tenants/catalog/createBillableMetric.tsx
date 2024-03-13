@@ -1,6 +1,6 @@
 import { FunctionComponent } from 'react'
-
 import { useNavigate } from 'react-router-dom'
+
 import { ProductMetricsEditPanel } from '@/features/productCatalog/metrics/ProductMetricsEditPanel'
 
 export const CreateBillableMetric: FunctionComponent = () => {

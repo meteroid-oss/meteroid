@@ -1,7 +1,6 @@
 import { spaces } from '@md/foundation'
 import { ChevronUpIcon, ChevronDownIcon } from '@md/icons'
 import { Skeleton, Table, TableRow, TableCell, TableHeader, TableHead, TableBody } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import {
   ColumnDef,
   OnChangeFn,
@@ -15,6 +14,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table'
+import { Flex } from '@ui/components/legacy'
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo, useState } from 'react'
 

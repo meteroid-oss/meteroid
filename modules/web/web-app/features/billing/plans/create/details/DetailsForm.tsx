@@ -12,6 +12,7 @@ import {
   cn,
   Spinner,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { customAlphabet } from 'nanoid'
 import { FC, useEffect } from 'react'
 import {
@@ -30,7 +31,6 @@ import { createPlanSchema } from '@/lib/schemas/plans'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { createDraftPlan, listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import { useQueryClient } from '@tanstack/react-query'
 
 const nanoid = customAlphabet('1234567890abcdef', 5)
 

@@ -1,10 +1,9 @@
 import { spaces } from '@md/foundation'
-import { Skeleton, Table, TableRow, TableCell, TableHeader, TableBody, TableHead } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
+import { Skeleton, Table, TableRow, TableCell, TableHeader, TableBody, TableHead , cn } from '@md/ui'
 import { ColumnDef, Row, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { Flex } from '@ui/components/legacy'
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
-import { cn } from '@md/ui'
 
 interface SimpleTableProps<A> {
   columns: ColumnDef<A>[]

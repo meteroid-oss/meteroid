@@ -1,9 +1,9 @@
-import * as React from 'react'
 import { ChevronLeftIcon, ChevronRightIcon } from '@radix-ui/react-icons'
+import * as React from 'react'
 import { DayPicker } from 'react-day-picker'
 
-import { cn } from '@ui/lib'
 import { buttonVariants } from '@ui/components/ui/button'
+import { cn } from '@ui/lib'
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>
 
@@ -51,7 +51,9 @@ function Calendar({ className, classNames, showOutsideDays = true, ...props }: C
         ...classNames,
       }}
       components={{
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         IconLeft: ({ ...props }) => <ChevronLeftIcon className="h-4 w-4" />,
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         IconRight: ({ ...props }) => <ChevronRightIcon className="h-4 w-4" />,
       }}
       {...props}

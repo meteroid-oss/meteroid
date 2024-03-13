@@ -1,9 +1,9 @@
 import { format } from 'date-fns'
 
+import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDateFromGrpc } from '@/lib/mapping'
 import { mrrLog } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
-import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 
 export const MrrLogsCard = () => {
   const logs = useQuery(mrrLog, {}).data

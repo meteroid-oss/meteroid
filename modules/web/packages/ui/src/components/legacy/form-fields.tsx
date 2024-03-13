@@ -1,7 +1,8 @@
+import { spaces } from '@md/foundation'
 import * as React from 'react'
 
-import { spaces } from '@md/foundation'
 import { Label } from '@ui/components/ui/label'
+
 import { Flex } from './flex'
 
 /**

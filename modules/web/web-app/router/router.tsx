@@ -1,12 +1,12 @@
 import { createBrowserRouter } from 'react-router-dom'
 
+import { NotImplemented } from '@/features/NotImplemented'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
 import { Root } from '@/pages/root'
 import { Providers } from 'providers/Providers'
 import { anonymousRoutes } from 'router/anonymous'
 import { tenantRoutes } from 'router/tenant'
-import { NotImplemented } from '@/features/NotImplemented'
 
 const router = createBrowserRouter(
   [

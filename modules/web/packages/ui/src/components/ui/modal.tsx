@@ -1,10 +1,11 @@
 import * as Dialog from '@radix-ui/react-dialog'
+import { VariantProps, cva } from 'class-variance-authority'
 import { useEffect, useState } from 'react'
+
+import { cn } from '@ui/lib'
 
 import { Button } from './button'
 import { Spinner } from './spinner'
-import { cn } from '../../lib'
-import { VariantProps, cva } from 'class-variance-authority'
 
 const variants = cva(
   'relative bg-popover my-4 border rounded-xl shadow-xl data-open:animate-overlay-show data-closed:animate-overlay-hide',
@@ -53,7 +54,6 @@ interface Props {
   onConfirm?: () => void
   confirmText?: string
   footerBackground?: boolean
-  variant?: 'danger' | 'warning' | 'success'
   visible: boolean
   className?: string
   triggerElement?: React.ReactNode
@@ -64,14 +64,11 @@ const Modal = ({
   children,
   customFooter = undefined,
   hideFooter = false,
-  alignFooter = 'left',
-  layout = 'horizontal',
   loading = false,
   cancelText = 'Cancel',
   onConfirm = () => {},
   onCancel = () => {},
   confirmText = 'Confirm',
-  variant = 'success',
   visible = false,
   className = '',
   triggerElement,
@@ -89,10 +86,10 @@ const Modal = ({
     customFooter
   ) : (
     <div className="flex w-full space-x-2 justify-end">
-      <Button variant="secondary" onClick={onCancel} disabled={loading} size={'sm'}>
+      <Button variant="secondary" onClick={onCancel} disabled={loading} size="sm">
         {cancelText}
       </Button>
-      <Button onClick={onConfirm} disabled={loading} hasIcon={loading} size={'sm'}>
+      <Button onClick={onConfirm} disabled={loading} hasIcon={loading} size="sm">
         {loading && <Spinner />}
         {confirmText}
       </Button>
@@ -155,7 +152,7 @@ const Modal = ({
 }
 
 function Content({ children }: { children: React.ReactNode }) {
-  return <div className={'px-5'}>{children}</div>
+  return <div className="px-5">{children}</div>
 }
 
 function Separator() {

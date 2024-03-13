@@ -1,4 +1,3 @@
-import { ColumnDef } from '@tanstack/react-table'
 import {
   SelectFormField,
   InputFormField,
@@ -9,10 +8,12 @@ import {
   Form,
   ComboboxFormField,
 } from '@md/ui'
+import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
+import { useNavigate } from 'react-router-dom'
 import { match } from 'ts-pattern'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
@@ -34,7 +35,6 @@ import {
 } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import { Link, useNavigate } from 'react-router-dom'
 
 // type UsagePricingModelType = "per_unit" | "tiered" | "volume" | "package"
 
@@ -88,7 +88,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
                 action={
                   <Button
                     hasIcon
-                    variant={'ghost'}
+                    variant="ghost"
                     size="full"
                     onClick={() => navigate('add-metric')}
                   >

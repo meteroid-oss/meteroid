@@ -1,10 +1,11 @@
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
 import { Button, Modal } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { useAtom, useSetAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import ConfirmationModal from '@/components/ConfirmationModal'
 import {
   addedComponentsAtom,
   editedComponentsAtom,
@@ -19,7 +20,6 @@ import {
   publishPlanVersion,
   listPlans,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import ConfirmationModal from '@/components/ConfirmationModal'
 
 export const PlanActions = () => {
   const [addedComponents] = useAtom(addedComponentsAtom)

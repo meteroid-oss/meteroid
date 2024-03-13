@@ -1,20 +1,6 @@
 import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { FormControl, FormField, FormItem, FormLabel, FormMessage, Input, Separator } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
-import { Modal } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-
-import ConfirmationModal from '@/components/ConfirmationModal'
-import { useZodForm } from '@/hooks/useZodForm'
-import { schemas } from '@/lib/schemas'
-import {
-  createCustomer,
-  listCustomers,
-} from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { CustomerBillingConfig_Stripe_CollectionMethod } from '@/rpc/api/customers/v1/models_pb'
-import {
+import { FormControl, FormField, FormItem, FormLabel, FormMessage, Input, Separator , Modal ,
   Button,
   Form,
   Sheet,
@@ -24,7 +10,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { Flex } from '@ui/components/legacy'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+import ConfirmationModal from '@/components/ConfirmationModal'
+import { useZodForm } from '@/hooks/useZodForm'
+import { schemas } from '@/lib/schemas'
+import {
+  createCustomer,
+  listCustomers,
+} from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { CustomerBillingConfig_Stripe_CollectionMethod } from '@/rpc/api/customers/v1/models_pb'
 
 interface CustomersEditPanelProps {
   visible: boolean
@@ -60,7 +58,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   return (
     <>
       <Sheet open={visible} onOpenChange={safeClosePanel}>
-        <SheetContent size={'medium'}>
+        <SheetContent size="medium">
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(async values => {

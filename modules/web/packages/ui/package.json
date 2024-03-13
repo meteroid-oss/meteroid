@@ -97,6 +97,7 @@
   "private": true,
   "scripts": {
     "ui:add": "pnpm dlx shadcn-ui@latest add",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   }
 }

@@ -1,7 +1,9 @@
-import { Input } from '..'
-import { destructuredFormProps } from './utils'
-import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
 import { FieldValues, FieldPath, UseControllerProps, Control, PathValue } from 'react-hook-form'
+
+import { Input } from '..'
+
+import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
+import { destructuredFormProps } from './utils'
 
 interface Transformer<T> {
   fromInput: (value: string) => T

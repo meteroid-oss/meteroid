@@ -1,4 +1,4 @@
-import { colors, radius, spaces } from '@md/foundation'
+import { radius, spaces } from '@md/foundation'
 import { styled } from '@stitches/react'
 
 export const StyledFooter = styled('footer', {

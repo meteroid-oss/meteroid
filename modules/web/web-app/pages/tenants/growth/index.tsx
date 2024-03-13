@@ -1,11 +1,11 @@
 import { FunctionComponent } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import { TenantPageLayout } from '@/components/layouts'
 import SidebarMenu from '@/components/SidebarMenu'
+import { TenantPageLayout } from '@/components/layouts'
 
 export const Growth: FunctionComponent = () => {
-  return <Navigate to={'goals'} />
+  return <Navigate to="goals" />
 }
 
 export const GrowthOutlet: FunctionComponent = () => {

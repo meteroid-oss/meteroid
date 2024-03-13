@@ -1,8 +1,10 @@
-import * as Select from '../ui/select'
-import { destructuredFormProps } from './utils'
-import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
-import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
 import { SelectProps } from '@radix-ui/react-select'
+import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
+
+import * as Select from '../ui/select'
+
+import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
+import { destructuredFormProps } from './utils'
 
 type SelectFormFieldProps<T extends FieldValues, TName extends FieldPath<T>> = Omit<
   SelectProps,

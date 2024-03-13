@@ -1,4 +1,4 @@
-import { Badge } from '@md/ui'
+import { Badge , Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Button } from '@md/ui'
 import {
   ActivityIcon,
   ArmchairIcon,
@@ -13,12 +13,11 @@ import { useNavigate } from 'react-router-dom'
 
 import { useAddComponent } from '@/features/billing/plans/pricecomponents/utils'
 import { PriceComponentType } from '@/features/billing/plans/types'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Button } from '@md/ui'
 export const PriceComponentPanel: React.FC = () => {
   const navigate = useNavigate()
   return (
     <Sheet open={true} onOpenChange={() => navigate('..')}>
-      <SheetContent size={'medium'}>
+      <SheetContent size="medium">
         <SheetHeader className="border-b border-border pb-3 mb-3">
           <SheetTitle>Pick a pricing model</SheetTitle>
           <SheetDescription>Add a new price component to your plan</SheetDescription>

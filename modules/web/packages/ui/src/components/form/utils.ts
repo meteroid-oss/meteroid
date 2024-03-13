@@ -1,11 +1,13 @@
-import { GenericFormFieldProps } from './generic-form-field'
 import { HTMLAttributes } from 'react'
 import { FieldPath, FieldValues } from 'react-hook-form'
+
+import { GenericFormFieldProps } from './generic-form-field'
 
 export const destructuredFormProps = <
   TFieldValues extends FieldValues,
   TName extends FieldPath<TFieldValues>,
-  A extends HTMLAttributes<any>,
+  T,
+  A extends HTMLAttributes<T>,
 >({
   label,
   name,

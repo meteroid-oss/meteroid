@@ -1,20 +1,19 @@
-import { useQuery, useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { Dot } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import { Loading } from '@/components/Loading'
-import { TenantPageLayout } from '@/components/layouts'
 import SidebarMenu from '@/components/SidebarMenu'
+import { TenantPageLayout } from '@/components/layouts'
 import ProductEmptyState from '@/features/productCatalog/ProductEmptyState'
 import {
   createProductFamily,
   listProductFamilies,
 } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
-import { Dot } from '@md/ui'
 
 export const Billing: FunctionComponent = () => {
-  return <Navigate to={'subscriptions'} />
+  return <Navigate to="subscriptions" />
 }
 
 export const BillingOutlet: FunctionComponent = () => {

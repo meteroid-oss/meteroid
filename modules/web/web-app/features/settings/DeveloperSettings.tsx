@@ -1,12 +1,9 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   AlertDescription,
   AlertTitle,
   Button,
-  FormDescription,
-  Input,
   InputWithIcon,
   Skeleton,
   Tabs,
@@ -14,18 +11,19 @@ import {
   TabsList,
   TabsTrigger,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { CheckIcon, CopyIcon, PlusIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { FunctionComponent, useState } from 'react'
+import { toast } from 'sonner'
 
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
 import {
   listApiTokens,
   createApiToken as createApiTokenMutation,
 } from '@/rpc/api/apitokens/v1/apitokens-ApiTokensService_connectquery'
-import { CheckIcon, CopyIcon, PlusIcon } from 'lucide-react'
-import { copyToClipboard } from '@/lib/helpers'
-import { toast } from 'sonner'
 
 interface ApiToken {
   id: string
@@ -87,7 +85,7 @@ export const DeveloperSettings: FunctionComponent = () => {
               {loading && (
                 <>
                   <Alert variant="default">
-                    <Skeleton height={20} width={'100%'} />
+                    <Skeleton height={20} width="100%" />
                   </Alert>
                 </>
               )}

@@ -1,4 +1,4 @@
-import { colors, spaces } from '@md/foundation'
+import { spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
 import { Button, InputWithIcon } from '@md/ui'
 import { Flex } from '@ui/components/legacy'

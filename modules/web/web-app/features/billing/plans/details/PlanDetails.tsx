@@ -3,15 +3,15 @@ import { Badge } from '@md/ui'
 import { CopyIcon, LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { Property } from '@/components/Property'
 import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
+import { mapBillingPeriodFromGrpc } from '@/lib/mapping'
 import { PlanVersion, PlanStatus, Plan } from '@/rpc/api/plans/v1/models_pb'
 import { getLastPublishedPlanVersion } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { mapBillingPeriodFromGrpc } from '@/lib/mapping'
-import { copyToClipboard } from '@/lib/helpers'
-import { toast } from 'sonner'
 
 const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
   switch (status) {

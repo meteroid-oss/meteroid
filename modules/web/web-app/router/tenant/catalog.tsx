@@ -1,16 +1,16 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
-import { Catalog, CatalogOutlet } from '@/pages/tenants/catalog'
-import { ProductItems } from '@/pages/tenants/catalog/productItems'
-import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
+import { NotImplemented } from '@/features/NotImplemented'
 import { BillingPeriodModal } from '@/features/billing/plans/details/BillingPeriodModal'
 import { Addons } from '@/pages/tenants/billing/addons'
 import { Plans } from '@/pages/tenants/billing/plans'
 import { CreatePriceComponent } from '@/pages/tenants/billing/plans/createPriceComponent'
 import { PlanEdit } from '@/pages/tenants/billing/plans/edit'
 import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboarding'
+import { Catalog, CatalogOutlet } from '@/pages/tenants/catalog'
 import { CreateBillableMetric } from '@/pages/tenants/catalog/createBillableMetric'
-import { NotImplemented } from '@/features/NotImplemented'
+import { ProductItems } from '@/pages/tenants/catalog/productItems'
+import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
 
 export const productCatalogRoutes: RouteObject = {
   path: 'catalog',

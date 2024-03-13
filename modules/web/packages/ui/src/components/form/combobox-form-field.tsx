@@ -1,9 +1,9 @@
-import { zodResolver } from '@hookform/resolvers/zod'
 import { CaretSortIcon, CheckIcon } from '@radix-ui/react-icons'
-import { Control, ControllerProps, FieldPath, FieldValues, useForm } from 'react-hook-form'
-import { z } from 'zod'
+import { useState } from 'react'
+import { Control, ControllerProps, FieldPath, FieldValues } from 'react-hook-form'
 
-import { cn } from '..'
+import { cn } from '@ui/lib'
+
 import { Button } from '../ui/button'
 import {
   Command,
@@ -13,19 +13,10 @@ import {
   CommandItem,
   CommandSeparator,
 } from '../ui/command'
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from './form'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 import { genericFormFieldVariants as genVariants } from './generic-form-field'
-import React from 'react'
 
 interface FormComboboxProps<TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>>
   extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
@@ -59,7 +50,7 @@ export function ComboboxFormField<
   unit = '...',
   ...props
 }: FormComboboxProps<TFieldValues, TName>) {
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpen] = useState(false)
 
   return (
     <FormField

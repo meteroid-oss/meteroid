@@ -1,4 +1,3 @@
-import { ColumnDef } from '@tanstack/react-table'
 import {
   FormItem,
   Select,
@@ -8,13 +7,16 @@ import {
   SelectItem,
   Button,
   Input,
+  ComboboxFormField,
+  Form,
 } from '@md/ui'
+import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
-import { XIcon } from 'lucide-react'
+import { PlusIcon, XIcon } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
+import { useNavigate } from 'react-router-dom'
 
-import { ControlledSelect } from '@/components/form'
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
@@ -29,9 +31,12 @@ import { CapacitySchema, Capacity, Cadence, Threshold } from '@/lib/schemas/plan
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
+
 export const CapacityForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
   const currency = useCurrency()
+
+  const navigate = useNavigate()
 
   const methods = useZodForm({
     schema: CapacitySchema,
@@ -62,46 +67,53 @@ export const CapacityForm = (props: FeeFormProps) => {
 
   return (
     <>
-      <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-border space-y-4">
-            <FormItem name="cadence" label="Cadence">
-              <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
-                <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="lg:w-[180px] xl:w-[230px]">
-                  <SelectItem value="COMMITTED">Term (variable)</SelectItem>
-                  <SelectItem value="MONTHLY">Monthly</SelectItem>
-                  <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                  <SelectItem value="ANNUAL">Annual</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormItem>
+      <Form {...methods}>
+        <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-1 pr-5 border-r border-border space-y-4">
+              <FormItem name="cadence" label="Cadence">
+                <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
+                  <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="lg:w-[180px] xl:w-[230px]">
+                    <SelectItem value="COMMITTED">Term (variable)</SelectItem>
+                    <SelectItem value="MONTHLY">Monthly</SelectItem>
+                    <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                    <SelectItem value="ANNUAL">Annual</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormItem>
 
-            <FormItem name="metric" label="Billable metric" {...methods.withError('metric')}>
-              <ControlledSelect
-                {...methods.withControl('metric.id')}
+              <ComboboxFormField
+                name="metric.id"
+                label="Billable metric"
+                control={methods.control}
                 placeholder="Select a metric"
-                className="lg:w-[180px] xl:w-[230px]"
-              >
-                {metricsOptions.map(option => (
-                  <SelectItem value={option.value} key={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </ControlledSelect>
-            </FormItem>
+                options={metricsOptions}
+                // empty={!metricsOptions.length}
+                action={
+                  <Button
+                    hasIcon
+                    variant="ghost"
+                    size="full"
+                    onClick={() => navigate('add-metric')}
+                  >
+                    <PlusIcon size={12} /> New metric
+                  </Button>
+                }
+              />
+            </div>
+            <div className="ml-4 col-span-2">
+              {cadence === 'COMMITTED' ? (
+                <>Not implemented</> // TODO use column grouping so that we have sub-tds for each term, only for the fixed fee
+              ) : (
+                <ThresholdTable methods={methods} currency={currency} />
+              )}
+            </div>
           </div>
-          <div className="ml-4 col-span-2">
-            {cadence === 'COMMITTED' ? (
-              <>Not implemented</> // TODO use column grouping so that we have sub-tds for each term, only for the fixed fee
-            ) : (
-              <ThresholdTable methods={methods} currency={currency} />
-            )}
-          </div>
-        </div>
-      </EditPriceComponentCard>
+        </EditPriceComponentCard>
+      </Form>
     </>
   )
 }

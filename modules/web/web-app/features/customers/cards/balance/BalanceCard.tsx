@@ -1,7 +1,7 @@
 import { ComponentProps, useState } from 'react'
 
-import { PageSection } from '@/components/layouts/shared/PageSection'
 import { Property } from '@/components/Property'
+import { PageSection } from '@/components/layouts/shared/PageSection'
 import { CardAction } from '@/features/customers/cards/CardAction'
 import { EditBalanceModal } from '@/features/customers/cards/balance/EditBalanceModal'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'

@@ -1,4 +1,3 @@
-import { copyToClipboard } from '@/lib/helpers'
 import { Button, Popover, PopoverTrigger, PopoverContent, Textarea, Separator, cn } from '@md/ui'
 import {
   HelpCircle as IconHelpCircle,
@@ -7,7 +6,9 @@ import {
 } from 'lucide-react'
 import { FC, useState } from 'react'
 import { toast } from 'sonner'
+
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 const copyEmail = () => {
@@ -50,7 +51,7 @@ const HelpPopover: FC = () => {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant={'ghost'} size="sm" className="h-9">
+        <Button variant="ghost" size="sm" className="h-9">
           <IconHelpCircle size={16} strokeWidth={1.5} className="mr-2" /> Help / Feedback
         </Button>
       </PopoverTrigger>
@@ -72,7 +73,7 @@ const HelpPopover: FC = () => {
                 <span className="text-xs text-muted-foreground">{feedback.length}/1000</span>
                 <Button
                   variant="secondary"
-                  size={'sm'}
+                  size="sm"
                   className="self-end"
                   disabled={!feedback.length}
                   onClick={() => sendFeedback(feedback, user.data?.user, () => setFeedback(''))}

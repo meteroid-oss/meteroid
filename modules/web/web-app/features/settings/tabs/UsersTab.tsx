@@ -1,15 +1,15 @@
+import { Button, Card, InputWithIcon, Label, Modal, Skeleton } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
-import { Button, Card, Input, InputWithIcon, Label, Modal, Skeleton, Switch } from '@md/ui'
+import { CopyIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { toast } from 'sonner'
 
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
 import { getInvite } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { User, UserRole } from '@/rpc/api/users/v1/models_pb'
 import { listUsers } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { CopyIcon } from 'lucide-react'
-import { copyToClipboard } from '@/lib/helpers'
-import { toast } from 'sonner'
 
 const userRoleMapping: Record<UserRole, string> = {
   [UserRole.ADMIN]: 'Owner',
@@ -71,7 +71,7 @@ export const UsersTab = () => {
               onClick={() => copyToClipboard(inviteLink, () => toast.success('Copied !'))}
             />
           ) : (
-            <Skeleton height={'2rem'} width="100%" />
+            <Skeleton height="2rem" width="100%" />
           )}
         </div>
       </Modal>

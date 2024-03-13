@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import {
   Button,
   Command,
@@ -10,6 +9,8 @@ import {
   PopoverTrigger,
 } from '@md/ui'
 import { ChevronsUpDown, PlusIcon } from 'lucide-react'
+import { Link } from 'react-router-dom'
+
 import { useQuery } from '@/lib/connectrpc'
 import { useTypedParams } from '@/lib/utils/params'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'

@@ -1,9 +1,9 @@
+import FamilyPicker from '@/components/FamilyPicker'
 import { StarGithub } from '@/components/layouts/shared/LayoutHeader/StarGithub'
 
 import HelpPopover from './HelpPopover'
 import { TenantDropdown } from './TenantDropdown'
 import { ThemeSwitch } from './ThemeSwitch'
-import FamilyPicker from '@/components/FamilyPicker'
 
 interface LayoutHeaderProps {
   customHeaderComponents?: React.ReactNode

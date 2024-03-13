@@ -3,9 +3,9 @@ import {
   createConnectQueryKey,
   useMutation,
 } from '@connectrpc/connect-query'
+import { Button, TableCell } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
-import { Button, TableCell } from '@md/ui'
 import { useAtom } from 'jotai'
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { ReactNode, useCallback, useMemo, useState } from 'react'
@@ -75,8 +75,6 @@ export const PriceComponentCard: React.FC<{
   const editComponent = () => {
     setEditedComponents(prev => [...prev, component.id])
   }
-
-  const computedPrice = useMemo(() => {}, [])
 
   return (
     <div

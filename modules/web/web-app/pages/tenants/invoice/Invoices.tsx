@@ -2,7 +2,6 @@ import { spaces } from '@md/foundation'
 import { Flex } from '@ui/components/legacy'
 import { Fragment, useState } from 'react'
 
-import { TenantPageLayout } from '@/components/layouts'
 import { InvoicesHeader, InvoicesTable } from '@/features/invoices'
 import { InvoicesSearch } from '@/features/invoices/types'
 import useDebounce from '@/hooks/useDebounce'

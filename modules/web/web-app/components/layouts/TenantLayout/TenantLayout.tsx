@@ -1,9 +1,9 @@
+import { ScrollArea } from '@md/ui'
 import { PropsWithChildren, ReactNode } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { LayoutHeader } from '../shared/LayoutHeader'
 
-import { ScrollArea } from '@md/ui'
 import { NavigationBar } from './NavigationBar/NavigationBar'
 import InnerMenu from './components/InnerMenu'
 

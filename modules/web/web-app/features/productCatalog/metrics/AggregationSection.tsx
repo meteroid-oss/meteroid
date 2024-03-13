@@ -1,7 +1,3 @@
-import { useWatch } from 'react-hook-form'
-
-import { Methods } from '@/hooks/useZodForm'
-import { schemas } from '@/lib/schemas'
 import {
   Badge,
   SelectFormField,
@@ -10,6 +6,10 @@ import {
   FormDescription,
   Separator,
 } from '@md/ui'
+import { useWatch } from 'react-hook-form'
+
+import { Methods } from '@/hooks/useZodForm'
+import { schemas } from '@/lib/schemas'
 
 interface Props {
   methods: Methods<schemas.billableMetrics.CreateBillableMetricSchema>

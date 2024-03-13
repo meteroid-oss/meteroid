@@ -1,3 +1,5 @@
+import { Card } from '@md/ui'
+
 import { SparklineCard } from '@/features/dashboard/cards/SparklineCard'
 import { TopRevenueByCustomers } from '@/features/dashboard/cards/TopRevenueByCustomer'
 import { SignupsSparkline } from '@/features/dashboard/charts/SignupsSparkline'
@@ -5,7 +7,6 @@ import { TrialConversionSparkline } from '@/features/dashboard/charts/TrialConve
 import { formatRate } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { generalStats } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
-import { Card } from '@md/ui'
 
 export const DetailsSection = () => {
   const stats = useQuery(generalStats)

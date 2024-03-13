@@ -1,9 +1,9 @@
-import { Navigate, RouteObject } from 'react-router-dom'
+import { RouteObject } from 'react-router-dom'
 
+import { NotImplemented } from '@/features/NotImplemented'
 import { Billing, BillingOutlet } from '@/pages/tenants/billing'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { Subscriptions } from '@/pages/tenants/subscriptions'
-import { NotImplemented } from '@/features/NotImplemented'
 
 export const billingRoutes: RouteObject = {
   path: 'billing',

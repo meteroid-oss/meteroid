@@ -1,7 +1,5 @@
-import { InputProps, useFormField } from '@md/ui'
-import { cn } from '@md/ui'
-import React from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { InputProps, useFormField, cn } from '@md/ui'
+import { useEffect, useMemo, useState, forwardRef } from 'react'
 import { Control, FieldValues, UseControllerProps, useController } from 'react-hook-form'
 
 type BaseProps = {
@@ -129,7 +127,7 @@ const PriceInput = <T extends FieldValues>({
 
 type UncontrolledProps = Omit<InputProps, 'name' | 'defaultValue'> & Omit<BaseProps, 'control'>
 
-export const UncontrolledPriceInput = React.forwardRef<HTMLInputElement, UncontrolledProps>(
+export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledProps>(
   (
     {
       currency,

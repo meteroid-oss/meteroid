@@ -51,6 +51,7 @@
     "generate:graph": "depcruise . --include-only \"^(apps|packages)\" --do-not-follow \"(node_modules|dist|build|.js)\" --collapse 2 --config -T dot | dot -T svg -Grankdir=TD > .github/assets/monorepo-graph.svg",
     "kill:ports": "kill-port --port 5173,8000",
     "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
     "prepare": "cd ../.. && husky install modules/web/.husky",
     "serve:db": "docker compose --profile dev -f docker/develop/docker-compose.yml up"
   },

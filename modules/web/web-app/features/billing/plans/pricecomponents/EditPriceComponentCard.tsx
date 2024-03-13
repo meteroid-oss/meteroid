@@ -3,8 +3,8 @@ import {
   useMutation,
   createProtobufSafeUpdater,
 } from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { atom, useAtom, useSetAtom } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { focusAtom } from 'jotai-optics'
@@ -33,7 +33,6 @@ import {
   editPriceComponent as editPriceComponentMutation,
   listPriceComponents as listPriceComponentsQuery,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
-import { CreatePriceComponentRequest } from '@/rpc/api/pricecomponents/v1/pricecomponents_pb'
 
 interface CreatePriceComponentProps {
   createRef: string

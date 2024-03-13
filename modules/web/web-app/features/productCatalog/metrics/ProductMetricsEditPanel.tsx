@@ -1,10 +1,26 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { ScrollArea } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
+import {
+  ScrollArea,
+  Button,
+  Form,
+  FormDescription,
+  InputFormField,
+  Separator,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  TextareaFormField,
+} from '@md/ui'
 import { D, pipe } from '@mobily/ts-belt'
 import { useQueryClient } from '@tanstack/react-query'
+import { Flex } from '@ui/components/legacy'
 import { useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
@@ -22,31 +38,13 @@ import {
   Aggregation_UnitConversion_UnitConversionRounding,
 } from '@/rpc/api/billablemetrics/v1/models_pb'
 import { useTypedParams } from '@/utils/params'
-import {
-  Button,
-  Form,
-  FormDescription,
-  InputFormField,
-  Separator,
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-  TextareaFormField,
-} from '@md/ui'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
-import { useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
-
-interface ProductMetricsEditPanelProps {}
 
 // TODO https://doc.getlago.com/docs/guide/billable-metrics/dimensions
 // Add Dimension matrix ()
 // One is fixed => allow custom pricing
 // The other is dynamic (group key) => only for invoice
-export const ProductMetricsEditPanel = ({}: ProductMetricsEditPanelProps) => {
+export const ProductMetricsEditPanel = () => {
   const queryClient = useQueryClient()
 
   const createBillableMetricMut = useMutation(createBillableMetric, {
@@ -160,7 +158,7 @@ export const ProductMetricsEditPanel = ({}: ProductMetricsEditPanelProps) => {
   return (
     <>
       <Sheet open={true} onOpenChange={safeClosePanel}>
-        <SheetContent size={'medium'}>
+        <SheetContent size="medium">
           <Form {...methods}>
             <form onSubmit={methods.handleSubmit(submit)} className="relative h-full flex flex-col">
               <SheetHeader className="border-b border-border pb-3 mb-3">

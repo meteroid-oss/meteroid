@@ -1,7 +1,9 @@
-import { Textarea } from '..'
-import { destructuredFormProps } from './utils'
-import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
 import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
+
+import { Textarea } from '..'
+
+import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
+import { destructuredFormProps } from './utils'
 
 interface TextareaFieldProps<
   TFieldValues extends FieldValues,

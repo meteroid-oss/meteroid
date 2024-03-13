@@ -1,7 +1,7 @@
+import { Button, Card, Form, InputFormField, Label } from '@md/ui'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
-import { Button, Card, Form, InputFormField, Label } from '@md/ui'
 
 const addressSchema = z.object({
   addressLine1: z.string().min(1),
@@ -27,7 +27,7 @@ export const CompanyTab = () => {
     <div>
       <Form {...methods}>
         <form
-          onSubmit={methods.handleSubmit(async values => {
+          onSubmit={methods.handleSubmit(async _values => {
             alert('Not implemented')
           })}
         >

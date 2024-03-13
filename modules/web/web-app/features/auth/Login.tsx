@@ -1,5 +1,4 @@
-import { Alert } from '@md/ui'
-import { cn } from '@md/ui'
+import { Alert , cn } from '@md/ui'
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { Loader } from '@/features/auth/components/Loader'

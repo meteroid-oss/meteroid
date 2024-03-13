@@ -1,8 +1,8 @@
+import { cn } from '@md/ui'
 import { NavLink } from 'react-router-dom'
 
-import type { To } from 'react-router-dom'
 import type { FunctionComponent, ReactNode } from 'react'
-import { cn } from '@md/ui'
+import type { To } from 'react-router-dom'
 
 export interface ItemProps {
   label: string | ReactNode

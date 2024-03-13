@@ -2,18 +2,14 @@ import { Button, Modal, cn } from '@md/ui'
 import { FC, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { useAddComponent } from '@/features/billing/plans/pricecomponents/utils'
-import CapacityPricingModelSVG from '@/features/billing/plans/svg/capacity-pricing-model.svg?react'
-import FixedPricingModelSVG from '@/features/billing/plans/svg/fixed-pricing-model.svg?react'
-import PayAsYouGoPricingModelSVG from '@/features/billing/plans/svg/pay-as-you-go-pricing-model.svg?react'
-import SlotsPricingModelSVG from '@/features/billing/plans/svg/slots-pricing-model.svg?react'
-import { PriceComponentType } from '@/features/billing/plans/types'
 import {
   RateDesignCard,
   SlotsDesignCard,
   CapacityDesignCard,
   UsageBasedDesignCard,
 } from '@/features/billing/plans/onboarding/PricingModelDesignCards'
+import { useAddComponent } from '@/features/billing/plans/pricecomponents/utils'
+import { PriceComponentType } from '@/features/billing/plans/types'
 
 export const PlanOnboardingModal: FC = () => {
   const onSelectCancel = () => {

@@ -1,7 +1,7 @@
 import { useMutation, createConnectQueryKey, disableQuery } from '@connectrpc/connect-query'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
-import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'

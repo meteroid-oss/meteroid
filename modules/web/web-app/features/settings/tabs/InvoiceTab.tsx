@@ -1,4 +1,4 @@
-import { Button, Card, Form, InputFormField, TextareaFormField, Label } from '@md/ui'
+import { Button, Card, Form, InputFormField, TextareaFormField } from '@md/ui'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
@@ -20,7 +20,7 @@ export const InvoiceTab = () => {
     <>
       <Form {...methods}>
         <form
-          onSubmit={methods.handleSubmit(async values => {
+          onSubmit={methods.handleSubmit(async _values => {
             alert('Not implemented')
           })}
         >
@@ -103,7 +103,7 @@ export const LogoForm = () => {
   return (
     <Form {...methods}>
       <form
-        onSubmit={methods.handleSubmit(async values => {
+        onSubmit={methods.handleSubmit(async _values => {
           alert('Not implemented')
         })}
       >

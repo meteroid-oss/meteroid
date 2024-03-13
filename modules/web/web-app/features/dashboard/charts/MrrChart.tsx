@@ -2,15 +2,13 @@ import { colors } from '@md/foundation'
 import { linearGradientDef } from '@nivo/core'
 import { ResponsiveLine } from '@nivo/line'
 import { styled } from '@stitches/react'
-import { ArrowUp } from 'lucide-react'
 
+import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { formatCurrency } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
 import { generalStats, totalMrrChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
-import { Badge } from '@md/ui'
-import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 
 const DottedBackground = styled('div', {
   maskImage: 'radial-gradient(rgb(0, 0, 0), transparent 62%)',
