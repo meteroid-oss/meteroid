@@ -60,8 +60,13 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
         <Form {...methods}>
           <form>
             <div className="py-4 w-full space-y-4">
-              <InputFormField label="Balance" name="balanceValueCents" type="number" />
-              <InputFormField label="Currency" name="balanceCurrency" />
+              <InputFormField
+                label="Balance"
+                name="balanceValueCents"
+                type="number"
+                control={methods.control}
+              />
+              <InputFormField label="Currency" name="balanceCurrency" control={methods.control} />
             </div>
           </form>
         </Form>

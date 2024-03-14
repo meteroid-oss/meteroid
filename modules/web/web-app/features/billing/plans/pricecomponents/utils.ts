@@ -207,11 +207,12 @@ export const useCurrency = () => {
   return plan?.planDetails?.currentVersion?.currency ?? 'USD' // TODO
 }
 
-export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY'): string => {
+export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {
   return match(cadence)
     .with('ANNUAL', () => 'Annual')
     .with('MONTHLY', () => 'Monthly')
     .with('QUARTERLY', () => 'Quarterly')
+    .with('COMMITTED', () => 'Committed')
     .exhaustive()
 }
 
