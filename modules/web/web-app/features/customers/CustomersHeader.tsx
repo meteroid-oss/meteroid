@@ -45,7 +45,7 @@ export const CustomersHeader: FunctionComponent<CustomersProps> = ({
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
-        <Button variant="alternative" onClick={refetch}>
+        <Button variant="primary" onClick={refetch}>
           {isLoading ? <LoaderIcon size={14} /> : <RefreshCwIcon size={14} />}
         </Button>
       </Flex>

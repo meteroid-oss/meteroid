@@ -25,7 +25,7 @@ export const ProductItemsHeader: FunctionComponent<ProductItemsHeaderProps> = ({
       <Flex direction="row" align="center" justify="space-between">
         <PageHeading>{heading}</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
-          <Button hasIcon variant="alternative" onClick={() => setEditPanelVisible(true)} size="sm">
+          <Button hasIcon variant="primary" onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> New product
           </Button>
         </Flex>

@@ -1,4 +1,12 @@
-import { Badge , Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, Button } from '@md/ui'
+import {
+  Badge,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  Button,
+} from '@md/ui'
 import {
   ActivityIcon,
   ArmchairIcon,
@@ -116,7 +124,7 @@ const Row: React.FC<RowProps> = ({ to, label, description, icon, disabled = fals
       onClick={disabled ? undefined : onClick}
       className={disabled ? disabledClassName : standardClassName}
     >
-      <div className="flex items-center justify-center w-6 h-6  rounded-full mr-4 group-hover:text-primary group-hover:bg-transparent">
+      <div className="flex items-center justify-center w-6 h-6  rounded-full mr-4 group-hover:text-brand group-hover:bg-transparent">
         {icon}
       </div>
       <div className="flex flex-col w-full">

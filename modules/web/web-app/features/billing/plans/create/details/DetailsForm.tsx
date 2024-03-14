@@ -140,7 +140,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
             <Button variant="secondary" onClick={onCancel}>
               Cancel
             </Button>
-            <Button variant="alternative" type="submit" disabled={!methods.formState.isValid}>
+            <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
               {createPlan.isPending ? (
                 <>
                   <Spinner /> Loading...

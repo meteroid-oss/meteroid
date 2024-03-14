@@ -28,11 +28,15 @@ export const TenantPageLayout = ({
     <>
       {innerMenu && <InnerMenu title={title}>{innerMenu}</InnerMenu>}
 
-      <main className="flex flex-col flex-1 w-full max-w-[1620px] mx-auto h-full overflow-x-hidden ">
+      <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">
         {!hideHeader && (
-          <LayoutHeader familyPicker={familyPicker} title={displayTitle ? title : undefined} />
+          <div className="px-4">
+            <LayoutHeader familyPicker={familyPicker} title={displayTitle ? title : undefined} />
+          </div>
         )}
-        <ScrollArea className="relative px-10 py-8">{children}</ScrollArea>
+        <ScrollArea className="relative py-8 px-4">
+          <div>{children}</div>
+        </ScrollArea>
       </main>
     </>
   )

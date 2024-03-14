@@ -77,7 +77,7 @@ export const BillingOutlet: FunctionComponent = () => {
                 {
                   label: (
                     <span className="flex  items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-primary h-2" />
+                      <Dot className="text-brand h-2" />
                       <>Pending</>
                     </span>
                   ),

@@ -16,7 +16,7 @@ export const PlansHeader: FunctionComponent<PlansHeaderProps> = ({ setEditPanelV
       <Flex direction="row" align="center" justify="space-between">
         <PageHeading>Plans</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
-          <Button variant="alternative" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
+          <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> New plan
           </Button>
         </Flex>

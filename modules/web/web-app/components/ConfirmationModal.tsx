@@ -52,7 +52,7 @@ const ConfirmationModal: FC<ConfirmationModalProps> = ({
             Cancel
           </Button>
           <Button
-            variant={danger ? 'destructive' : 'alternative'}
+            variant={danger ? 'destructive' : 'primary'}
             disabled={loading}
             onClick={onConfirm}
           >

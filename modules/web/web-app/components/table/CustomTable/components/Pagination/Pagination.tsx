@@ -73,7 +73,7 @@ const Pagination: FunctionComponent<PaginationProps> = ({
                   ) : (
                     <Button
                       size="sm"
-                      variant={page === currentPage ? 'alternative' : 'secondary'}
+                      variant={page === currentPage ? 'primary' : 'secondary'}
                       title={`Page ${page}`}
                       onClick={() => setPagination({ ...pagination, pageIndex: Number(page) - 1 })}
                     >

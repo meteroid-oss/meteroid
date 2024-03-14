@@ -12,20 +12,20 @@ const HeroBase = ({
 }) => {
   return (
     <div className="flex items-end justify-center  ">
-      <div className="border-l border-t border-alternative p-4 shadow-lg rounded-tl-lg w-[15%]  h-[70px]"></div>
-      <div className="border-t border-x border-alternative group-hover:border-primary p-2 shadow-lg rounded-lg rounded-b-none w-[50%] h-[100px] ">
+      <div className="border-l border-t border-primary p-4 shadow-lg rounded-tl-lg w-[15%]  h-[70px]"></div>
+      <div className="border-t border-x border-primary group-hover:border-brand p-2 shadow-lg rounded-lg rounded-b-none w-[50%] h-[100px] ">
         <p className="text-center font-bold  mb-2">{title}</p>
 
         {items.map((item, index) => (
           <p
-            className={cn('text-center font-medium text-xs mb-2', active && 'text-primary')}
+            className={cn('text-center font-medium text-xs mb-2', active && 'text-brand')}
             key={index}
           >
             {item}
           </p>
         ))}
       </div>
-      <div className="border-r border-t border-alternative p-4 shadow-lg rounded-tr-lg max-w-[15%] grow h-[70px]"></div>
+      <div className="border-r border-t border-primary p-4 shadow-lg rounded-tr-lg max-w-[15%] grow h-[70px]"></div>
     </div>
   )
 }
@@ -42,7 +42,7 @@ const PeriodPicker = ({ isAnnual, setIsAnnual, className }: PeriodPickerProps) =
     <div className={cn('flex flex-row justify-center text-xs gap-1 items-center', className)}>
       <Switch
         id={id}
-        thumbClassName="h-3 w-3 group-hover:ring-1 group-hover:ring-primary"
+        thumbClassName="h-3 w-3 group-hover:ring-1 group-hover:ring-brand"
         className="h-4 w-8  "
         checked={isAnnual}
         onCheckedChange={setIsAnnual}
@@ -78,7 +78,7 @@ const CapacitySliders = ({ steps, onHover, selectedIdx }: CapacitySlidersProps) 
           key={stepIdx}
           className={cn(
             stepIdx !== steps.length - 1 ? 'pr-8 sm:pr-12 xl:pr-14' : '',
-            'relative hover:text-primary'
+            'relative hover:text-brand'
           )}
           onMouseEnter={() => onHover(stepIdx)}
           onMouseLeave={() => onHover(undefined)}
@@ -89,8 +89,8 @@ const CapacitySliders = ({ steps, onHover, selectedIdx }: CapacitySlidersProps) 
               className={cn(
                 'relative flex h-2.5 w-2.5 items-center justify-center rounded-full',
                 stepIdx !== selectedIdx
-                  ? 'border-2 border-foreground bg-background hover:bg-primary hover:border-primary'
-                  : 'bg-foreground hover:bg-primary group-hover:ring-1 group-hover:ring-primary'
+                  ? 'border-2 border-foreground bg-background hover:bg-brand hover:border-brand'
+                  : 'bg-foreground hover:bg-brand group-hover:ring-1 group-hover:ring-brand'
               )}
             >
               <span className=" text-xs font-medium absolute -rotate-45 -inset-y-9 inset-x-1 flex text-end place-self-end py-2">
@@ -186,7 +186,7 @@ const UsageSlider = ({ baseValue, maxValue, unit, unitPrice, label }: UsageSlide
           max={maxValue}
           step={1}
           className="w-full "
-          thumbClassName="group-hover:ring-1 group-hover:ring-primary "
+          thumbClassName="group-hover:ring-1 group-hover:ring-brand "
           tabIndex={-1}
         />
       </span>
@@ -245,7 +245,7 @@ const SlotField = ({ price }: { price: number }) => {
           max={20}
           value={value}
           onChange={e => setValue(Number(e.target.value))}
-          className="h-6 px-1 w-[60px] font-medium group-hover:ring-1 group-hover:ring-primary"
+          className="h-6 px-1 w-[60px] font-medium group-hover:ring-1 group-hover:ring-brand"
           tabIndex={-1}
         />
         <span className="col-span-3 text-xs ">

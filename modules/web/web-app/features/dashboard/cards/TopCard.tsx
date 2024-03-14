@@ -1,4 +1,4 @@
-import { Skeleton , cn } from '@md/ui'
+import { Skeleton, cn } from '@md/ui'
 import { UserRoundIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -57,7 +57,7 @@ export const TopCard: React.FC<TopCardProp> = ({ title, values, className, loadi
                 ) : (
                   <div
                     className={cn(
-                      'p-1.5 flex items-center justify-center rounded-sm text-alternative-foreground',
+                      'p-1.5 flex items-center justify-center rounded-sm text-primary-foreground',
                       getColor(value.name)
                     )}
                   >

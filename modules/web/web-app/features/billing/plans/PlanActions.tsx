@@ -133,7 +133,7 @@ export const PlanActions = () => {
           Discard draft
         </Button>
         <Button
-          variant="alternative"
+          variant="primary"
           className="font-bold py-1.5 !rounded-l-none"
           disabled={wip || isBusy}
           onClick={publishPlan}

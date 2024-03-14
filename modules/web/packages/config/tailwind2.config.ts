@@ -24,9 +24,9 @@ export default {
         ring: 'hsl(var(--ring) / <alpha-value>)',
         background: 'hsl(var(--background) / <alpha-value>)',
         foreground: 'hsl(var(--foreground) / <alpha-value>)',
-        primary: {
-          DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
-          foreground: 'hsl(var(--primary-foreground) / <alpha-value>)',
+        brand: {
+          DEFAULT: 'hsl(var(--brand) / <alpha-value>)',
+          foreground: 'hsl(var(--brand-foreground) / <alpha-value>)',
         },
         secondary: {
           DEFAULT: 'hsl(var(--secondary) / <alpha-value>)',

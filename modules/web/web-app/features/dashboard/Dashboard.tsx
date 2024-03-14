@@ -27,7 +27,7 @@ export const Dashboard = () => {
 
   return (
     <>
-      <div className="h-full max-w-screen-xl xl:mx-auto self-center space-y-6 relative">
+      <div className="h-full  xl:mx-auto self-center space-y-6 relative">
         <div>
           <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Joe</h1>
           <span className="text-md font-medium text-muted-foreground">{date}</span>

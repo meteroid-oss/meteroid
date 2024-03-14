@@ -53,7 +53,6 @@ export const FilterDropdown = ({ status, setStatus }: Props) => {
       <PopoverContent useTriggerWidth className="p-0" side="bottom" align="start">
         <Command>
           <CommandList>
-            <CommandEmpty>No results found.</CommandEmpty>
             <CommandGroup>
               {statuses.map(([key, statusOption]) => (
                 <CommandItem

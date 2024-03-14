@@ -20,7 +20,7 @@ export const LayoutHeader = ({
 }: LayoutHeaderProps) => {
   return (
     <div
-      className={`flex  items-center justify-between py-4 pr-5 pl-10 ${
+      className={`flex  items-center justify-between py-4 ${
         headerBorder ? 'border-b border-border' : ''
       }`}
     >

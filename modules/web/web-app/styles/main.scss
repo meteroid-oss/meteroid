@@ -10,10 +10,10 @@
       --card-foreground: 240 10% 3.9%;
       --popover: 0 0% 100%;
       --popover-foreground: 240 10% 3.9%;
-      --primary: 142.1 76.2% 36.3%;
-      --primary-foreground: 355.7 100% 97.3%;
-      --alternative: 240 15% 5%;
-      --alternative-foreground: 0 0% 90%;
+      --brand: 142.1 76.2% 36.3%;
+      --brand-foreground: 355.7 100% 97.3%;
+      --primary: 240 15% 5%;
+      --primary-foreground: 0 0% 90%;
       --secondary: 240 4.8% 95.9%;
       --secondary-foreground: 240 5.9% 10%;
       --muted:  20 20% 97%;//240 4.8% 95.9%;
@@ -44,10 +44,11 @@
       --card-foreground: 0 0% 95%;
       --popover: 240 15% 5%;
       --popover-foreground: 0 0% 95%;
-      --primary: 211 95% 63%;
-      --primary-foreground: 144.9 80.4% 10%;
-      --alternative: 0 0% 90%;
-      --alternative-foreground: 240 15% 5%;
+      // TODO rename primary into brand and alternative into primary
+      --brand: 211 95% 63%;
+      --brand-foreground: 144.9 80.4% 10%;
+      --primary: 0 0% 90%;
+      --primary-foreground: 240 15% 5%;
       --secondary: 233 11% 17%;
       --secondary-foreground: 0 0% 98%;
       --muted: 0 0% 15%;
@@ -63,7 +64,7 @@
       --warning-foreground: 48 96% 89%;
 
       --border: 240 3.7% 15.9%;
-      --input: 240 3.7% 15.9%;
+      --input: 240 3.7% 15.9%; 
       --ring: 211 95% 63%;
     }
   }
@@ -80,7 +81,7 @@
 
 
 @layer utilities {
-  .btn-primary {
+  .btn-brand {
     @apply inline-block rounded border border-green-500 bg-green-500 py-1 px-3 text-sm;
     color: #fff !important;
     font-weight: 600;
@@ -88,7 +89,7 @@
     text-align: center;
   }
 
-  .btn-primary-hover {
+  .btn-brand-hover {
     @apply bg-green-600;
     cursor: pointer;
   }
@@ -219,11 +220,11 @@ input.form-control,
 
 
 input[type='submit'] {
-  @apply btn-primary;
+  @apply btn-brand;
 }
 
 input[type='submit']:hover {
-  @apply btn-primary-hover;
+  @apply btn-brand-hover;
 }
 
 input::placeholder {
@@ -342,3 +343,4 @@ div[data-radix-portal]:not(.portal--toast) {
 .table-container--borderless tbody tr:last-child td {
   border-bottom: none;
 }
+

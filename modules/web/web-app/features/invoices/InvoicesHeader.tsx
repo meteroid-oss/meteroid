@@ -34,7 +34,7 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
           <Button variant="secondary" disabled size="sm">
             Import / Export
           </Button>
-          <Button variant="alternative" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
+          <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> New invoice
           </Button>
         </Flex>

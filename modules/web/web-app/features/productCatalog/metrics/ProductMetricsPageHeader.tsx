@@ -23,7 +23,7 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
       <Flex direction="row" align="center" justify="space-between">
         <PageHeading>Metrics</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
-          <Button variant="alternative" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
+          <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> New metric
           </Button>
         </Flex>

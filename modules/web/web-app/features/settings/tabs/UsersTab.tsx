@@ -65,7 +65,7 @@ export const UsersTab = () => {
             <InputWithIcon
               value={inviteLink}
               readOnly
-              icon={<CopyIcon className="group-hover:text-primary" />}
+              icon={<CopyIcon className="group-hover:text-brand" />}
               className="cursor-pointer"
               containerClassName="group"
               onClick={() => copyToClipboard(inviteLink, () => toast.success('Copied !'))}

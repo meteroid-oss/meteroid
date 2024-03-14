@@ -116,7 +116,7 @@ export const PricingModelCard = (props: PricingModelCardProps) => {
     <div
       className={cn(
         'p-4 bg-card text-card-foreground hover:bg-accent border rounded-md cursor-pointer group',
-        props.selected ? 'border-primary' : ''
+        props.selected ? 'border-brand' : ''
       )}
       onClick={props.action}
       onKeyUp={key => key.key === 'Enter' && props.action()}

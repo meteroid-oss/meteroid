@@ -18,7 +18,7 @@ const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
     case PlanStatus.ACTIVE:
       return <Badge variant="default">Active</Badge>
     case PlanStatus.DRAFT:
-      return <Badge variant="alternative">Draft</Badge>
+      return <Badge variant="primary">Draft</Badge>
     case PlanStatus.ARCHIVED:
       return <Badge variant="warning">Archived</Badge>
     default:
@@ -47,7 +47,7 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
       label: 'API Handle',
       value: (
         <span
-          className="inline-flex items-center gap-2 cursor-pointer hover:text-primary"
+          className="inline-flex items-center gap-2 cursor-pointer hover:text-brand"
           onClick={() =>
             copyToClipboard(plan.externalId, () => toast.success('Copied to clipboard'))
           }

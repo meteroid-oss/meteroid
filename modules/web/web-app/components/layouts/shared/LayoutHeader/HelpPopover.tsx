@@ -1,15 +1,22 @@
 import { Button, Popover, PopoverTrigger, PopoverContent, Textarea, Separator, cn } from '@md/ui'
 import {
+  Heart,
+  HeartHandshakeIcon,
   HelpCircle as IconHelpCircle,
   MessageCircle as IconMessageCircle,
+  MessageSquareIcon,
   SendHorizonalIcon,
 } from 'lucide-react'
-import { FC, useState } from 'react'
+import { FC, useEffect, useRef, useState, memo } from 'react'
 import { toast } from 'sonner'
 
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+import { atom, useAtom } from 'jotai'
+import { EmptyLogo } from '@/components/EmptyLogo'
+import { atomWithStorage } from 'jotai/utils'
+import { SyncStringStorage } from 'jotai/vanilla/utils/atomWithStorage'
 
 const copyEmail = () => {
   copyToClipboard('team@meteroid.com')
@@ -44,6 +51,73 @@ const sendFeedback = async (
   }
 }
 
+const showedFeedbackAtom = atomWithStorage<Date | null>('ui_ShowedLoveFeedback', null, undefined, {
+  getOnInit: true,
+})
+
+const FeebackTrigger = memo(() => {
+  const [messageVisible, setMessageVisible] = useState(false)
+  const hideTimerRef = useRef<NodeJS.Timeout | number | null>(null)
+
+  const [showedFeedback, setShowedFeedback] = useAtom(showedFeedbackAtom)
+
+  const showMessage = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+    }
+    setMessageVisible(true)
+    setShowedFeedback(new Date())
+  }
+
+  const hideMessage = () => {
+    // Reset the timer to hide the message after a delay when not hovering
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current)
+    }
+    hideTimerRef.current = setTimeout(() => {
+      setMessageVisible(false)
+    }, 10000) // Adjust the delay as needed
+  }
+
+  useEffect(() => {
+    // if feedback message was displayed in the last 24 hours, don't show the message
+    if (
+      showedFeedback &&
+      new Date().getTime() - new Date(showedFeedback).getTime() < 1000 * 60 * 60 * 24
+    ) {
+      return
+    }
+
+    // Initial timer to show the message
+    const showTimer = setTimeout(() => {
+      showMessage()
+      hideMessage()
+    }, 30000)
+
+    // Cleanup on component unmount or before re-running the effect
+    return () => {
+      clearTimeout(showTimer)
+      hideTimerRef.current !== null && clearTimeout(hideTimerRef.current)
+    }
+  }, [])
+
+  return (
+    <div className="flex items-center px-3" onMouseEnter={showMessage} onMouseLeave={hideMessage}>
+      <MessageSquareIcon size={16} strokeWidth={1.5} className="" />
+      <div
+        className={cn(
+          'transition-all ease-out duration-1000 max-w-0 overflow-hidden whitespace-nowrap inline-block',
+          messageVisible ? 'max-w-[230px]' : ''
+        )}
+      >
+        <span className="flex items-center gap-1 ml-2">
+          We would <Heart size="12" fill="red" strokeWidth={0} className="" /> your feedback !
+        </span>
+      </div>
+    </div>
+  )
+})
+
 const HelpPopover: FC = () => {
   const [feedback, setFeedback] = useState('')
   const user = useQuery(me)
@@ -51,16 +125,22 @@ const HelpPopover: FC = () => {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-9">
-          <IconHelpCircle size={16} strokeWidth={1.5} className="mr-2" /> Help / Feedback
+        <Button variant="ghost" className="h-9 px-0" size="sm">
+          <FeebackTrigger />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-96">
         <div className="mb-4 space-y-2 px-5">
+          <p className="text-xs text-muted-foreground py-2 grow">
+            <span> Meteroid is built with the community.</span>
+            <br />
+            <span> Let us know what you need ! </span>
+          </p>
           <div className="mb-4 ">
             <h5 className="mb-1" tabIndex={0}>
               Quick feedback
             </h5>
+
             <div className="flex flex-row gap-2 align-bottom">
               <Textarea
                 placeholder="I'd love to see..."
