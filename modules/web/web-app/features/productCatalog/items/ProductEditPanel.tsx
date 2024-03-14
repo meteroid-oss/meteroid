@@ -79,12 +79,14 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
                   label="Product Name"
                   type="text"
                   placeholder="ACME Inc"
+                  control={methods.control}
                 />
                 <InputFormField
                   name="description"
                   label="Description"
                   type="text"
                   placeholder="desc"
+                  control={methods.control}
                 />
               </Flex>
 

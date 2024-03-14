@@ -80,6 +80,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
       data: {
         pricing: {
           rates: [],
+          cadence: 'COMMITTED',
         },
       },
     },
@@ -100,6 +101,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
         },
         pricing: {
           rates: [],
+          cadence: 'COMMITTED',
         },
       },
     },
@@ -115,6 +117,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
         metric: {},
         pricing: {
           thresholds: [],
+          cadence: 'COMMITTED',
         },
       },
     },

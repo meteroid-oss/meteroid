@@ -4,7 +4,9 @@ use cornucopia_async::Params;
 use deadpool_postgres::{Object, Pool};
 
 use meteroid_repository as db;
-use meteroid_repository::stats::{GetMrrBreakdown, GetMrrBreakdownParams, QueryTotalMrrByPlanParams, QueryTotalMrrParams};
+use meteroid_repository::stats::{
+    GetMrrBreakdown, GetMrrBreakdownParams, QueryTotalMrrByPlanParams, QueryTotalMrrParams,
+};
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -717,26 +719,11 @@ impl StatsService for PgStatsService {
 
         match breakdown {
             None => Ok(MRRBreakdown {
-                new_business: CountAndValue {
-                    count: 0,
-                    value: 0,
-                },
-                expansion: CountAndValue {
-                    count: 0,
-                    value: 0,
-                },
-                contraction: CountAndValue {
-                    count: 0,
-                    value: 0,
-                },
-                churn: CountAndValue {
-                    count: 0,
-                    value: 0,
-                },
-                reactivation: CountAndValue {
-                    count: 0,
-                    value: 0,
-                },
+                new_business: CountAndValue { count: 0, value: 0 },
+                expansion: CountAndValue { count: 0, value: 0 },
+                contraction: CountAndValue { count: 0, value: 0 },
+                churn: CountAndValue { count: 0, value: 0 },
+                reactivation: CountAndValue { count: 0, value: 0 },
                 net_new_mrr: 0,
                 total_net_mrr: 0,
             }),
@@ -763,10 +750,8 @@ impl StatsService for PgStatsService {
                 },
                 net_new_mrr: breakdown.net_new_mrr,
                 total_net_mrr: 0,
-            })
+            }),
         }
-
-
     }
 
     async fn mrr_log(&self, request: MrrLogRequest) -> Result<MrrLogResponse, StatServiceError> {

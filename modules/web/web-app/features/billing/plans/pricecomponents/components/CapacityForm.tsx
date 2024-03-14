@@ -1,19 +1,15 @@
 import {
-  FormItem,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
   SelectItem,
   Button,
   Input,
   ComboboxFormField,
   Form,
+  SelectFormField,
 } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 
@@ -27,10 +23,9 @@ import {
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm, Methods } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { CapacitySchema, Capacity, Cadence, Threshold } from '@/lib/schemas/plans'
+import { CapacitySchema, Capacity, Threshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
-
 
 export const CapacityForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
@@ -45,7 +40,8 @@ export const CapacityForm = (props: FeeFormProps) => {
 
   // TODO add cadence to capacity. This is the committed cadence, amount & overage is still monthly
   // also TODO, it needs to be picked from the db in edit (same for slots / rate)
-  const [cadence, setCadence] = useState<Cadence | 'COMMITTED'>('COMMITTED')
+
+  const cadence = useWatch({ control: methods.control, name: 'pricing.cadence' })
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
 
@@ -62,28 +58,26 @@ export const CapacityForm = (props: FeeFormProps) => {
     return metrics.data.billableMetrics.map(metric => ({ label: metric.name, value: metric.id }))
   }, [metrics])
 
-  console.log('errors', methods.formState.errors)
-  console.log('values', methods.getValues())
-
   return (
     <>
       <Form {...methods}>
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
-              <FormItem name="cadence" label="Cadence">
-                <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
-                  <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="lg:w-[180px] xl:w-[230px]">
-                    <SelectItem value="COMMITTED">Term (variable)</SelectItem>
-                    <SelectItem value="MONTHLY">Monthly</SelectItem>
-                    <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                    <SelectItem value="ANNUAL">Annual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormItem>
+              <SelectFormField
+                name="pricing.cadence"
+                label="Cadence"
+                control={methods.control}
+                className="lg:w-[180px] xl:w-[230px]"
+                onValueChange={value =>
+                  value === 'COMMITTED' && methods.unregister('pricing.cadence')
+                }
+              >
+                <SelectItem value="COMMITTED">Committed</SelectItem>
+                <SelectItem value="MONTHLY">Monthly</SelectItem>
+                <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                <SelectItem value="ANNUAL">Annual</SelectItem>
+              </SelectFormField>
 
               <ComboboxFormField
                 name="metric.id"

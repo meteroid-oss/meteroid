@@ -11,6 +11,7 @@ import {
   Input,
   cn,
   Spinner,
+  FormDescription,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { customAlphabet } from 'nanoid'
@@ -114,25 +115,21 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
                 name="externalId"
                 label="Code"
                 layout="horizontal"
-                // hint={ TODO
-                //   <>
-                //     Use this reference to uniquely identify the plan when&nbsp;
-                //     <a className="underline" href="#">
-                //       using the API
-                //     </a>
-                //     .
-                //   </>
-                // }
+                control={methods.control}
                 render={({ field, className }) => (
                   <ExternalIdInput methods={methods} field={field} className={className} />
                 )}
               />
+              <FormDescription>
+                Use this reference to uniquely identify the plan when using the API.
+              </FormDescription>
             </div>
             <div className="w-full border-b border-border "></div>
             <GenericFormField
               name="planType"
               label="Plan type"
               layout="horizontal"
+              control={methods.control}
               render={({ className, field }) => (
                 <PlanTypeFormItem methods={methods} field={field} className={className} />
               )}

@@ -1,17 +1,14 @@
 import {
   Button,
-  FormItem,
+  Form,
   GenericFormField,
-  Select,
-  SelectContent,
+  SelectFormField,
   SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray } from 'react-hook-form'
+import { useFieldArray, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 
 import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
@@ -25,7 +22,6 @@ import { useBillingPeriods, useCurrency } from '@/features/billing/plans/priceco
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { BillingPeriod } from '@/lib/mapping'
 import {
-  Cadence,
   SlotBasedSchema,
   SubscriptionRate,
   SubscriptionRateSchema,
@@ -45,40 +41,31 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
     defaultValues: data,
   })
 
-  const [cadence, setCadence] = useState<Cadence | 'COMMITTED'>(
-    data && 'cadence' in data.pricing ? data.pricing.cadence : 'COMMITTED'
-  )
-
-  useEffect(() => {
-    if (cadence === 'COMMITTED') {
-      methods.unregister('pricing.cadence')
-    } else methods.setValue('pricing.cadence', cadence)
-  }, [cadence, methods])
+  const cadence = useWatch({ control: methods.control, name: 'pricing.cadence' })
 
   return (
-    <>
+    <Form {...methods}>
       <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
         <div className="grid grid-cols-3 gap-2">
           <div className="col-span-1 pr-5 border-r border-border">
-            <FormItem name="cadence" label="Cadence">
-              <Select onValueChange={value => setCadence(value as Cadence)} value={cadence}>
-                <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="COMMITTED">Term (variable)</SelectItem>
-                  <SelectItem value="MONTHLY">Monthly</SelectItem>
-                  <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                  <SelectItem value="ANNUAL">Annual</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormItem>
+            <SelectFormField
+              name="pricing.cadence"
+              label="Cadence"
+              control={methods.control}
+              className="lg:w-[180px] xl:w-[230px]"
+              onValueChange={value =>
+                value === 'COMMITTED' && methods.unregister('pricing.cadence')
+              }
+            >
+              <SelectItem value="COMMITTED">Committed</SelectItem>
+              <SelectItem value="MONTHLY">Monthly</SelectItem>
+              <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+              <SelectItem value="ANNUAL">Annual</SelectItem>
+            </SelectFormField>
           </div>
           <div className="ml-4 col-span-2">
             {cadence === 'COMMITTED' ? (
-              <FormItem name="pricing.price" label="Price">
-                <TermRateTable methods={methods} currency={currency} />
-              </FormItem>
+              <TermRateTable methods={methods} currency={currency} />
             ) : (
               <>
                 <GenericFormField
@@ -94,7 +81,7 @@ export const SubscriptionRateForm = (props: FeeFormProps) => {
           </div>
         </div>
       </EditPriceComponentCard>
-    </>
+    </Form>
   )
 }
 

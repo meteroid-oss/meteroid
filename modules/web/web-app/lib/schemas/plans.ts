@@ -135,6 +135,7 @@ export type TermRate = z.infer<typeof TermRateSchema>
 
 const TermBasedSchema = z.object({
   rates: z.array(TermRateSchema),
+  cadence: z.literal('COMMITTED').default('COMMITTED'),
 })
 export type TermBased = z.infer<typeof TermBasedSchema>
 
@@ -187,6 +188,7 @@ const TermBasedCapacitySchema = z.object({
       thresholds: z.array(ThresholdSchema),
     })
   ),
+  cadence: z.literal('COMMITTED').default('COMMITTED'),
 })
 export type TermBasedCapacity = z.infer<typeof TermBasedCapacitySchema>
 
