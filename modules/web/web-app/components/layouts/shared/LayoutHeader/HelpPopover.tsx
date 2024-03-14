@@ -1,22 +1,18 @@
-import { Button, Popover, PopoverTrigger, PopoverContent, Textarea, Separator, cn } from '@md/ui'
+import { Button, Popover, PopoverContent, PopoverTrigger, Separator, Textarea, cn } from '@md/ui'
+import { useAtom } from 'jotai'
+import { atomWithStorage } from 'jotai/utils'
 import {
   Heart,
-  HeartHandshakeIcon,
-  HelpCircle as IconHelpCircle,
   MessageCircle as IconMessageCircle,
   MessageSquareIcon,
   SendHorizonalIcon,
 } from 'lucide-react'
-import { FC, useEffect, useRef, useState, memo } from 'react'
+import { FC, memo, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { atom, useAtom } from 'jotai'
-import { EmptyLogo } from '@/components/EmptyLogo'
-import { atomWithStorage } from 'jotai/utils'
-import { SyncStringStorage } from 'jotai/vanilla/utils/atomWithStorage'
 
 const copyEmail = () => {
   copyToClipboard('team@meteroid.com')

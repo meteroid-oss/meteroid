@@ -1,6 +1,5 @@
 import {
   Button,
-  CommandEmpty,
   CommandGroup,
   Command,
   CommandItem,
