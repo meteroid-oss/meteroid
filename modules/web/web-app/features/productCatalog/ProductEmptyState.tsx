@@ -1,4 +1,4 @@
-import { ButtonAlt as Button } from '@md/ui'
+import { Button } from '@md/ui'
 import * as Tooltip from '@radix-ui/react-tooltip'
 import { ExternalLinkIcon } from 'lucide-react'
 import { FC, ReactNode } from 'react'
@@ -41,7 +41,7 @@ const ProductEmptyState: FC<Props> = ({
                 {ctaButtonLabel && onClickCta && (
                   <Tooltip.Root delayDuration={0}>
                     <Tooltip.Trigger>
-                      <Button type="primary" onClick={onClickCta} disabled={disabled}>
+                      <Button variant="secondary" onClick={onClickCta} disabled={disabled}>
                         {ctaButtonLabel}
                       </Button>
                     </Tooltip.Trigger>
@@ -51,11 +51,11 @@ const ProductEmptyState: FC<Props> = ({
                           <Tooltip.Arrow className="radix-tooltip-arrow" />
                           <div
                             className={[
-                              'rounded bg-scale-100 py-1 px-2 leading-none shadow',
-                              'border border-scale-200',
+                              'rounded bg-card py-1 px-2 leading-none shadow',
+                              'border border-border',
                             ].join(' ')}
                           >
-                            <span className="text-xs text-scale-1200">{disabledMessage}</span>
+                            <span className="text-xs text-foreground">{disabledMessage}</span>
                           </div>
                         </Tooltip.Content>
                       </Tooltip.Portal>
@@ -63,7 +63,8 @@ const ProductEmptyState: FC<Props> = ({
                   </Tooltip.Root>
                 )}
                 {infoButtonUrl && infoButtonLabel ? (
-                  <Button type="default" icon={<ExternalLinkIcon size={14} strokeWidth={1.5} />}>
+                  <Button variant="secondary" hasIcon>
+                    <ExternalLinkIcon size={14} strokeWidth={1.5} />
                     <a target="_blank" href={infoButtonUrl} rel="noreferrer">
                       {infoButtonLabel}
                     </a>

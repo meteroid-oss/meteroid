@@ -1,10 +1,22 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Flex, FormItem, Input, Modal, SidePanel } from '@md/ui'
+import {
+  Modal,
+  Form,
+  InputFormField,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+  Button,
+  Separator,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
-import ConfirmationModal from '@/components/atoms/ConfirmationModal'
+import ConfirmationModal from '@/components/ConfirmationModal'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import {
@@ -47,45 +59,44 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
   // TODO try without the form, with onConfirm
   return (
     <>
-      <SidePanel
-        size="large"
-        key="TableEditor"
-        visible={visible}
-        header={<SidePanel.HeaderTitle>Create a new product item</SidePanel.HeaderTitle>}
-        className={`transition-all duration-100 ease-in `}
-        onCancel={safeClosePanel}
-        onConfirm={methods.handleSubmit(async values => {
-          await createProductMut.mutateAsync(values)
-          methods.reset()
-          closePanel()
-        })}
-        onInteractOutside={event => {
-          const isToast = (event.target as Element)?.closest('#toast')
-          if (isToast) {
-            event.preventDefault()
-          }
-        }}
-      >
-        <SidePanel.Content>
-          <Flex direction="column" gap={spaces.space7}>
-            <FormItem
-              name="name"
-              label="Product Name"
-              error={methods.formState.errors.name?.message}
+      <Sheet key="TableEditor" open={visible} onOpenChange={safeClosePanel}>
+        <SheetContent size="small">
+          <Form {...methods}>
+            <form
+              onSubmit={methods.handleSubmit(async values => {
+                await createProductMut.mutateAsync(values)
+                methods.reset()
+                closePanel()
+              })}
             >
-              <Input type="text" placeholder="ACME Inc" {...methods.register('name')} />
-            </FormItem>
+              <SheetHeader className="pb-2">
+                <SheetTitle>Create a new product item</SheetTitle>
+                <Separator />
+              </SheetHeader>
+              <Flex direction="column" gap={spaces.space7}>
+                <InputFormField
+                  name="name"
+                  label="Product Name"
+                  type="text"
+                  placeholder="ACME Inc"
+                  control={methods.control}
+                />
+                <InputFormField
+                  name="description"
+                  label="Description"
+                  type="text"
+                  placeholder="desc"
+                  control={methods.control}
+                />
+              </Flex>
 
-            <FormItem
-              name="description"
-              label="Description"
-              error={methods.formState.errors.description?.message}
-            >
-              <Input type="text" placeholder="desc" {...methods.register('description')} />
-            </FormItem>
-          </Flex>
-        </SidePanel.Content>
-      </SidePanel>
+              <SheetFooter className="py-2">
+                <Button type="submit">Create</Button>
+              </SheetFooter>
+            </form>
+          </Form>
+        </SheetContent>
+      </Sheet>
       <ConfirmationModal
         visible={isClosingPanel}
         header="Confirm to close"
@@ -98,7 +109,7 @@ export const ProductEditPanel = ({ visible, closePanel }: ProductEditPanelProps)
         }}
       >
         <Modal.Content>
-          <p className="py-4 text-sm text-scale-1100">
+          <p className="py-4 text-sm text-muted-foreground">
             There are unsaved changes. Are you sure you want to close the panel? Your changes will
             be lost.
           </p>

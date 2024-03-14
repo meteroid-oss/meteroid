@@ -80,6 +80,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
       data: {
         pricing: {
           rates: [],
+          cadence: 'COMMITTED',
         },
       },
     },
@@ -100,6 +101,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
         },
         pricing: {
           rates: [],
+          cadence: 'COMMITTED',
         },
       },
     },
@@ -115,6 +117,7 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
         metric: {},
         pricing: {
           thresholds: [],
+          cadence: 'COMMITTED',
         },
       },
     },
@@ -204,11 +207,12 @@ export const useCurrency = () => {
   return plan?.planDetails?.currentVersion?.currency ?? 'USD' // TODO
 }
 
-export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY'): string => {
+export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {
   return match(cadence)
     .with('ANNUAL', () => 'Annual')
     .with('MONTHLY', () => 'Monthly')
     .with('QUARTERLY', () => 'Quarterly')
+    .with('COMMITTED', () => 'Committed')
     .exhaustive()
 }
 

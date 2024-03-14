@@ -1,8 +1,8 @@
 import dayjs from 'dayjs'
 import { ComponentProps, useState } from 'react'
 
+import { Property } from '@/components/Property'
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import { Property } from '@/components/molecules/Property'
 import { CardAction } from '@/features/customers/cards/CardAction'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'

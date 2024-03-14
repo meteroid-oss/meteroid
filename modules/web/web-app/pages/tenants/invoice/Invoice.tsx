@@ -1,12 +1,12 @@
 import { spaces } from '@md/foundation'
-import { Flex, Skeleton } from '@ui/components'
+import { Skeleton } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { ChevronLeftIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { TenantPageLayout } from '@/components/layouts'
 import { StatusPill } from '@/features/invoices/StatusPill'
-import { amountFormat } from "@/features/invoices/amountFormat";
+import { amountFormat } from '@/features/invoices/amountFormat'
 import { CustomerCard } from '@/features/invoices/cards/CustomerCard'
 import { InvoiceCard } from '@/features/invoices/cards/InvoiceCard'
 import { SubscriptionCard } from '@/features/invoices/cards/SubscriptionCard'
@@ -30,41 +30,39 @@ export const Invoice = () => {
 
   return (
     <Fragment>
-      <TenantPageLayout title="Invoice">
-        <Flex direction="column" gap={spaces.space9} fullHeight>
-          {isLoading || !data ? (
-            <>
-              <Skeleton height={16} width={50} />
-              <Skeleton height={44} />
-            </>
-          ) : (
-            <>
-              <div className="flex justify-between">
-                <div className="flex gap-2 items-center text-2xl">
-                  <ChevronLeftIcon
-                    className="font-semibold cursor-pointer"
-                    onClick={() => navigate('..')}
-                  />
-                  <h2 className="font-semibold">{data.id}</h2>
-                </div>
-                <div className="text-sm">
-                  <StatusPill status={data.status} />
-                </div>
+      <Flex direction="column" gap={spaces.space9} fullHeight>
+        {isLoading || !data ? (
+          <>
+            <Skeleton height={16} width={50} />
+            <Skeleton height={44} />
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between">
+              <div className="flex gap-2 items-center text-2xl">
+                <ChevronLeftIcon
+                  className="font-semibold cursor-pointer"
+                  onClick={() => navigate('..')}
+                />
+                <h2 className="font-semibold">{data.id}</h2>
               </div>
-              <div className="flex h-full gap-4">
-                <div className="flex flex-col gap-2 border-r border-slate-600 pr-4 w-80">
-                  <div className="text-4xl font-semibold text-right">{amountFormat(data)}</div>
-                </div>
-                <div className="flex-1 flex flex-col gap-2">
-                  <InvoiceCard invoice={data} />
-                  <CustomerCard invoice={data} />
-                  <SubscriptionCard invoice={data} />
-                </div>
+              <div className="text-sm">
+                <StatusPill status={data.status} />
               </div>
-            </>
-          )}
-        </Flex>
-      </TenantPageLayout>
+            </div>
+            <div className="flex h-full gap-4">
+              <div className="flex flex-col gap-2 border-r border-border pr-4 w-80">
+                <div className="text-4xl font-semibold text-right">{amountFormat(data)}</div>
+              </div>
+              <div className="flex-1 flex flex-col gap-2">
+                <InvoiceCard invoice={data} />
+                <CustomerCard invoice={data} />
+                <SubscriptionCard invoice={data} />
+              </div>
+            </div>
+          </>
+        )}
+      </Flex>
     </Fragment>
   )
 }

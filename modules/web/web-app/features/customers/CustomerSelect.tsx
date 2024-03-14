@@ -1,4 +1,4 @@
-import { SelectRoot, SelectTrigger, SelectContent, SelectItem, Input } from '@ui/components'
+import { Select, SelectTrigger, SelectContent, SelectItem, Input } from '@ui/components'
 import { useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
@@ -33,7 +33,7 @@ export const CustomerSelect = ({ value, onChange }: Props) => {
   const customer = getCustomerQuery.data
 
   return (
-    <SelectRoot value={value} onValueChange={onValueChange}>
+    <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger className="w-[180px]">{customer ? customer.name : 'Choose one'}</SelectTrigger>
       <SelectContent>
         <Input
@@ -45,7 +45,7 @@ export const CustomerSelect = ({ value, onChange }: Props) => {
         />
         <CustomerItems search={search} />
       </SelectContent>
-    </SelectRoot>
+    </Select>
   )
 }
 

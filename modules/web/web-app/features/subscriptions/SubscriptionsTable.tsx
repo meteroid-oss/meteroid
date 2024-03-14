@@ -1,5 +1,5 @@
 import { ColumnDef, OnChangeFn, PaginationState, Row } from '@tanstack/react-table'
-import { Pill } from '@ui/components'
+import { Badge } from '@ui/components'
 import { format } from 'date-fns'
 import { useMemo } from 'react'
 
@@ -56,7 +56,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
             row.original.billingEndDate ? (
               format(mapDateFromGrpc(row.original.billingEndDate), 'dd/MM/yyyy')
             ) : (
-              <Pill color="success">Active</Pill>
+              <Badge variant="success">Active</Badge>
             ),
           enableSorting: false,
         },

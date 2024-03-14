@@ -1,24 +1,19 @@
-import { useQuery, useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { Dot } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import SidebarMenu from '@/components/SidebarMenu'
 import { TenantPageLayout } from '@/components/layouts'
-import SidebarMenu from '@/components/organisms/SidebarMenu'
 import ProductEmptyState from '@/features/productCatalog/ProductEmptyState'
 import {
   createProductFamily,
   listProductFamilies,
 } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-
 export const Billing: FunctionComponent = () => {
-  const families = useQuery(listProductFamilies)
-
-  if (families.isLoading) return <Loading />
-  if (!families.data?.productFamilies?.length) return <FamilyCreationModalPage />
-  return <Navigate to={families.data?.productFamilies[0].externalId} />
+  return <Navigate to="subscriptions" />
 }
 
 export const BillingOutlet: FunctionComponent = () => {
@@ -29,27 +24,90 @@ export const BillingOutlet: FunctionComponent = () => {
         <SidebarMenu
           items={[
             {
-              label: 'Pricing items',
+              label: 'Subscriptions',
               items: [
                 {
-                  label: 'Packages',
-                  to: 'packages',
+                  label: 'Active',
+                  to: 'subscriptions',
                 },
                 {
-                  label: 'Plans',
-                  to: 'plans',
+                  label: (
+                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-success h-2" />
+                      <>Trials</>
+                    </span>
+                  ),
+                  to: 'subscriptions/trials',
                 },
                 {
-                  label: 'Add-ons',
-                  to: 'addons',
+                  label: (
+                    <span className="flex items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-destructive h-2" />
+                      <>At risk</>
+                    </span>
+                  ),
+                  to: 'subscriptions/past-due',
                 },
                 {
-                  label: 'Credits',
-                  to: 'credits',
+                  label: 'Expired',
+                  to: 'subscriptions/expired',
                 },
                 {
-                  label: 'Coupons',
-                  to: 'coupons',
+                  label: 'Cancelled',
+                  to: 'subscriptions/cancelled',
+                },
+              ],
+            },
+            {
+              label: 'Invoicing',
+              items: [
+                {
+                  label: 'Invoices',
+                  to: 'invoices',
+                },
+                {
+                  label: (
+                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-muted-foreground h-2" />
+                      <>Drafts</>
+                    </span>
+                  ),
+                  to: 'subscriptions/trials',
+                },
+                {
+                  label: (
+                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-brand h-2" />
+                      <>Pending</>
+                    </span>
+                  ),
+                  to: 'subscriptions/trials',
+                },
+                {
+                  label: (
+                    <span className="flex items-center gap-2 pl-2 my-[-2px]">
+                      <Dot className="text-warning h-2" />
+                      <>Past due</>
+                    </span>
+                  ),
+                  to: 'subscriptions/past-due',
+                },
+                {
+                  label: 'Credit notes',
+                  to: 'credit-notes',
+                },
+                {
+                  label: 'Quotes',
+                  to: 'quotes',
+                },
+              ],
+            },
+            {
+              label: 'Cost center',
+              items: [
+                {
+                  label: 'Alerts',
+                  to: 'cost-alerts',
                 },
               ],
             },
@@ -57,16 +115,8 @@ export const BillingOutlet: FunctionComponent = () => {
               label: 'Configuration',
               items: [
                 {
-                  label: 'Currencies',
-                  to: 'currencies',
-                },
-                {
-                  label: 'Custom Pricing units',
-                  to: 'units',
-                },
-                {
-                  label: 'Billing Frequencies',
-                  to: 'frequencies',
+                  label: 'Invoice configuration',
+                  to: 'invoice-config',
                 },
               ],
             },
@@ -99,10 +149,10 @@ export const FamilyCreationModalPage = () => {
           ctaButtonLabel="Create default" // TODO modal
           onClickCta={createDefault}
         >
-          <p className="text-scale-1100 text-sm">
+          <p className="text-muted-foreground text-sm">
             Create a Product Family to categorize and isolate your products and plans.
           </p>
-          <p className="text-scale-1100 text-sm">
+          <p className="text-muted-foreground text-sm">
             Product Families allow for complex multi-services setup. For most cases, a single
             default family is enough.
           </p>

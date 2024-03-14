@@ -2,10 +2,6 @@ import { radius, spaces } from '@md/foundation'
 import { keyframes, styled } from '@stitches/react'
 import { NavLink } from 'react-router-dom'
 
-export const StyledItem = styled('li', {
-  width: '100%',
-})
-
 const ActiveStateKeyframe = keyframes({
   '0%': {
     transform: 'translateX(-4px)',

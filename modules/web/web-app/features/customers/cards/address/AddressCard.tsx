@@ -35,13 +35,13 @@ export const AddressCard = ({ customer, className }: Props) => {
     >
       <div className="flex text-sm">
         <div className="basis-2/4 flex flex-col gap-2">
-          <span className="text-neutral-500">Billing address</span>
+          <span className="text-muted-foreground">Billing address</span>
           {customer.billingAddress && <AddressLines address={customer.billingAddress} />}
         </div>
         <div className="basis-2/4 flex flex-col gap-2">
-          <span className="text-neutral-500">Shipping address</span>
+          <span className="text-muted-foreground">Shipping address</span>
           {customer.shippingAddress?.sameAsBilling ? (
-            <span className="text-neutral-500 italic">Same as billing address</span>
+            <span className="text-muted-foreground italic">Same as billing address</span>
           ) : (
             <AddressLines address={customer.shippingAddress?.address || {}} />
           )}

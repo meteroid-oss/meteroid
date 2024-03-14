@@ -1,11 +1,25 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  InputWithIcon,
+  Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Alert, ButtonAlt, Input, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
+import { CheckIcon, CopyIcon, PlusIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import { FunctionComponent, useState } from 'react'
+import { toast } from 'sonner'
 
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
 import {
   listApiTokens,
   createApiToken as createApiTokenMutation,
@@ -20,6 +34,8 @@ export const DeveloperSettings: FunctionComponent = () => {
   const queryClient = useQueryClient()
 
   const [displayed, setDisplayed] = useState<ApiToken>()
+  const [loading, setLoading] = useState(false)
+
   const createTokenMut = useMutation(createApiTokenMutation, {
     onSuccess: async res => {
       await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listApiTokens) })
@@ -29,22 +45,25 @@ export const DeveloperSettings: FunctionComponent = () => {
         apiKey: res.apiKey,
       })
     },
+    onSettled() {
+      setTimeout(() => {
+        setLoading(false)
+      }, 500)
+    },
   })
 
   const tokens = useQuery(listApiTokens)
 
-  const createApiToken = async () =>
+  const createApiToken = async () => {
+    setLoading(true)
     createTokenMut.mutateAsync({
       name: `token-${nanoid(3)}`,
     })
+  }
 
   return (
     <>
-      <div className="p-6 space-y-6 w-full">
-        <div className="space-y-2">
-          <h3 className="">Developer Settings</h3>
-          <div className="border-b border-slate-400" />
-        </div>
+      <div className="space-y-6 w-full border-t ">
         <Tabs defaultValue="api-keys" className="w-full">
           <TabsList className="w-full justify-start">
             <TabsTrigger value="api-keys">Api keys</TabsTrigger>
@@ -52,22 +71,47 @@ export const DeveloperSettings: FunctionComponent = () => {
             <TabsTrigger value="events">Event Debugger</TabsTrigger>
           </TabsList>
           <TabsContent value="api-keys">
+            <h1 className="text-lg py-4 font-semibold">Api keys</h1>
+            <p className="text-sm text-muted-foreground">
+              Create an API key to access our API. We recommand using a different key in each
+              service.
+            </p>
             <div className="flex max-w-xl justify-end p-2">
-              <ButtonAlt onClick={() => createApiToken()}>+ Create api token</ButtonAlt>
+              <Button hasIcon onClick={() => createApiToken()} size="sm">
+                <PlusIcon size={12} /> Create api token
+              </Button>
             </div>
             <div className="space-y-4 max-w-xl">
-              {displayed && (
+              {loading && (
+                <>
+                  <Alert variant="default">
+                    <Skeleton height={20} width="100%" />
+                  </Alert>
+                </>
+              )}
+              {!loading && displayed && (
                 <div>
                   <Alert variant="success">
-                    <div>
+                    <CheckIcon size={16} />
+                    <AlertTitle className="pb-2 pt-1">Success !</AlertTitle>
+                    <AlertDescription className="text-foreground">
                       <div>
                         This is your api key. Copy it and store it securely, it will not be
                         displayed again
                       </div>
                       <div>
-                        <Input value={displayed.apiKey} readOnly copy />
+                        <InputWithIcon
+                          value={displayed.apiKey}
+                          readOnly
+                          icon={<CopyIcon className="group-hover:text-success" />}
+                          className="cursor-pointer"
+                          containerClassName="group"
+                          onClick={() =>
+                            copyToClipboard(displayed.apiKey, () => toast.success('Copied !'))
+                          }
+                        />
                       </div>
-                    </div>
+                    </AlertDescription>
                   </Alert>
                 </div>
               )}
@@ -78,14 +122,16 @@ export const DeveloperSettings: FunctionComponent = () => {
                     columns={[]}
                     data={[]}
                     emptyMessage="No Api Key"
-                    containerClassName="max-w-xl"
+                    containerClassName="max-w-xl max-h-xl"
                   />
                 )}
                 {tokens.data?.apiTokens?.map(token => (
-                  <li key={token.id} className="w-xl border border-slate-800 rounded-xl p-4">
+                  <li key={token.id} className="w-xl border border-border rounded-xl p-4">
                     <h3 className="font-semibold">{token.name}</h3>
-                    <div className="text-sm font-semibold">Key: {token.hint}********</div>
-                    <div className="text-sm">Created by: {token.createdBy} (todo resolve)</div>
+                    <div className="text-sm font-semibold">Hint: {token.hint}</div>
+                    <div className="text-sm text-muted-foreground">
+                      Created by: {token.createdBy} (todo resolve)
+                    </div>
                   </li>
                 ))}
               </ul>

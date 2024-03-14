@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const createPlanSchema = z.object({
   planName: z.string().nonempty('Name is required').max(256),
-  description: z.string().max(2048),
+  description: z.string().max(2048).optional(),
   externalId: z
     .string()
     .nonempty('API Name is required')
@@ -135,6 +135,7 @@ export type TermRate = z.infer<typeof TermRateSchema>
 
 const TermBasedSchema = z.object({
   rates: z.array(TermRateSchema),
+  cadence: z.literal('COMMITTED').default('COMMITTED'),
 })
 export type TermBased = z.infer<typeof TermBasedSchema>
 
@@ -187,6 +188,7 @@ const TermBasedCapacitySchema = z.object({
       thresholds: z.array(ThresholdSchema),
     })
   ),
+  cadence: z.literal('COMMITTED').default('COMMITTED'),
 })
 export type TermBasedCapacity = z.infer<typeof TermBasedCapacitySchema>
 

@@ -1,8 +1,7 @@
 import { spaces } from '@md/foundation'
-import { Flex } from '@ui/components'
-import { Fragment, useState } from 'react'
+import { Flex } from '@ui/components/legacy'
+import { useState } from 'react'
 
-import { TenantPageLayout } from '@/components/layouts'
 import { SubscriptionsHeader, SubscriptionsTable } from '@/features/subscriptions'
 import { useQuery } from '@/lib/connectrpc'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
@@ -35,19 +34,15 @@ export const Subscriptions = () => {
   }
 
   return (
-    <Fragment>
-      <TenantPageLayout title="Subscriptions">
-        <Flex direction="column" gap={spaces.space9}>
-          <SubscriptionsHeader count={count} isLoading={isLoading} refetch={refetch} />
-          <SubscriptionsTable
-            data={data}
-            totalCount={count}
-            pagination={pagination}
-            setPagination={setPagination}
-            isLoading={isLoading}
-          />
-        </Flex>
-      </TenantPageLayout>
-    </Fragment>
+    <Flex direction="column" gap={spaces.space9}>
+      <SubscriptionsHeader count={count} isLoading={isLoading} refetch={refetch} />
+      <SubscriptionsTable
+        data={data}
+        totalCount={count}
+        pagination={pagination}
+        setPagination={setPagination}
+        isLoading={isLoading}
+      />
+    </Flex>
   )
 }

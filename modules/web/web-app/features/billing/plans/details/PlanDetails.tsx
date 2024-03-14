@@ -1,23 +1,26 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { BadgeAlt } from '@ui/components'
-import { LinkIcon, PencilIcon } from 'lucide-react'
+import { Badge } from '@md/ui'
+import { CopyIcon, LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
-import { Property } from '@/components/molecules/Property'
+import { Property } from '@/components/Property'
 import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
+import { copyToClipboard } from '@/lib/helpers'
+import { mapBillingPeriodFromGrpc } from '@/lib/mapping'
 import { PlanVersion, PlanStatus, Plan } from '@/rpc/api/plans/v1/models_pb'
 import { getLastPublishedPlanVersion } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
   switch (status) {
     case PlanStatus.ACTIVE:
-      return <BadgeAlt color="green">Active</BadgeAlt>
+      return <Badge variant="default">Active</Badge>
     case PlanStatus.DRAFT:
-      return <BadgeAlt color="blue">Draft</BadgeAlt>
+      return <Badge variant="primary">Draft</Badge>
     case PlanStatus.ARCHIVED:
-      return <BadgeAlt color="gray">Archived</BadgeAlt>
+      return <Badge variant="warning">Archived</Badge>
     default:
       return null
   }
@@ -40,7 +43,20 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
     version.isDraft
       ? { label: 'Status', value: getStatusBadge(PlanStatus.DRAFT) || 'N/A' }
       : { label: 'Status', value: getStatusBadge(plan.planStatus) || 'N/A' },
-    { label: 'External ID', value: plan.externalId },
+    {
+      label: 'API Handle',
+      value: (
+        <span
+          className="inline-flex items-center gap-2 cursor-pointer hover:text-brand"
+          onClick={() =>
+            copyToClipboard(plan.externalId, () => toast.success('Copied to clipboard'))
+          }
+        >
+          {plan.externalId}
+          <CopyIcon size={14} strokeWidth={2} className="ml-1" />
+        </span>
+      ),
+    },
     lastPublishedVersion && version.isDraft
       ? {
           label: 'Version',
@@ -82,9 +98,9 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
           {!overview?.billingPeriods?.length
             ? '_'
             : overview?.billingPeriods?.map(period => (
-                <BadgeAlt key={period} color="gray">
-                  {period}
-                </BadgeAlt>
+                <Badge key={period} variant="secondary" className="p-1 mr-1 font-medium">
+                  {mapBillingPeriodFromGrpc(period)}
+                </Badge>
               ))}
         </>
       ),
@@ -109,7 +125,7 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
           </div>
         </div>
       </div>
-      <div className="absolute top-0 right-3 text-scale-900 hover:text-scale-1200 hover:cursor-pointer">
+      <div className="absolute top-0 right-3 text-muted-foreground hover:text-foreground hover:cursor-pointer">
         <PencilIcon size={14} strokeWidth={2} />
       </div>
     </div>

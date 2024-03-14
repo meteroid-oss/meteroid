@@ -5,7 +5,7 @@ import {
   SelectGroup,
   SelectItem,
   SelectLabel,
-  SelectRoot,
+  Select,
   SelectTrigger,
 } from '@ui/components'
 import { useState } from 'react'
@@ -39,7 +39,7 @@ export const PlanSelect = ({ value, onChange }: Props) => {
   const plan = getPlanQuery.data
 
   return (
-    <SelectRoot value={value} onValueChange={onValueChange}>
+    <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger className="w-[180px]">
         {plan?.planDetails?.plan?.name ?? 'Choose one'}
       </SelectTrigger>
@@ -54,7 +54,7 @@ export const PlanSelect = ({ value, onChange }: Props) => {
         />
         <PlanItems search={search} />
       </SelectContent>
-    </SelectRoot>
+    </Select>
   )
 }
 

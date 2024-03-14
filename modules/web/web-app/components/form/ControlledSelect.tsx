@@ -34,7 +34,7 @@ export const ControlledSelect = <T extends FieldValues>({
       <SelectTrigger ref={field.ref} className={props.className}>
         <SelectValue placeholder={props.placeholder} />
       </SelectTrigger>
-      <SelectContent viewportClassName={props.className}>{children}</SelectContent>
+      <SelectContent className={props.className}>{children}</SelectContent>
     </SelectPrimitive.Root>
   )
 }

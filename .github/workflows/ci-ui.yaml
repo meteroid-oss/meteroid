@@ -9,9 +9,9 @@ on:
     branches:
       - main
     paths:
-      - '.github/workflows/ci-ui.yaml'
-      - 'modules/meteroid/proto/**'
-      - 'modules/web/**'
+      - ".github/workflows/ci-ui.yaml"
+      - "modules/meteroid/proto/**"
+      - "modules/web/**"
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -21,6 +21,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     name: Lint
+    env:
+      TURBO_TELEMETRY_DISABLED: true
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v3
@@ -29,9 +31,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20' 
-          cache: 'pnpm'
-          cache-dependency-path: 'modules/web/pnpm-lock.yaml'
+          node-version: "20"
+          cache: "pnpm"
+          cache-dependency-path: "modules/web/pnpm-lock.yaml"
       - name: Install dependencies
         run: pnpm install --prefix modules/web
       - name: Run lint

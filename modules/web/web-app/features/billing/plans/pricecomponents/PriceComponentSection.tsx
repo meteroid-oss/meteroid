@@ -1,5 +1,5 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { ButtonAlt } from '@ui/components'
+import { Button } from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -56,29 +56,27 @@ export const PriceComponentSection = () => {
         subtitle: 'The price components for your plan in your main currency',
         actions: isDraft ? (
           <>
-            <ButtonAlt
-              type="outline"
+            <Button
+              variant="outline"
               onClick={() => {
                 navigate('./add-component')
               }}
               className="py-1.5  "
             >
               + Add a price component
-            </ButtonAlt>
+            </Button>
           </>
         ) : null,
       }}
     >
       <div className="grid gap-y-4">
-        {priceComponents?.map(priceComponent => (
-          <>
-            {isDraft && editedComponens?.find(id => id === priceComponent.id) ? (
-              <EditPriceComponent component={priceComponent} key={priceComponent.id} />
-            ) : (
-              <PriceComponentCard component={priceComponent} key={priceComponent.id} />
-            )}
-          </>
-        ))}
+        {priceComponents?.map(priceComponent =>
+          isDraft && editedComponens?.find(id => id === priceComponent.id) ? (
+            <EditPriceComponent component={priceComponent} key={priceComponent.id} />
+          ) : (
+            <PriceComponentCard component={priceComponent} key={priceComponent.id} />
+          )
+        )}
         {isDraft &&
           addedComponents?.map(({ ref, component }) => (
             <CreatePriceComponent component={component} createRef={ref} key={ref} />

@@ -5,7 +5,7 @@ use deadpool_postgres::{Object, Pool};
 
 use meteroid_repository as db;
 use meteroid_repository::stats::{
-    GetMrrBreakdownParams, QueryTotalMrrByPlanParams, QueryTotalMrrParams,
+    GetMrrBreakdown, GetMrrBreakdownParams, QueryTotalMrrByPlanParams, QueryTotalMrrParams,
 };
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
@@ -520,8 +520,8 @@ impl StatsService for PgStatsService {
         let data = db::stats::top_revenue_per_customer()
             .bind(
                 &conn,
-                &request.tenant_id,
                 &currency,
+                &request.tenant_id,
                 &(request.limit as i64),
             )
             .all()
@@ -710,36 +710,48 @@ impl StatsService for PgStatsService {
                     end_date,
                 },
             )
-            .one()
+            .opt()
             .await
-            .map_err(|_| {
+            .map_err(|e| {
+                log::error!("Failed to query mrr breakdown : {}", e);
                 StatServiceError::InternalServerError("Failed to query mrr breakdown".to_string())
             })?;
 
-        Ok(MRRBreakdown {
-            new_business: CountAndValue {
-                count: breakdown.new_business_count,
-                value: breakdown.new_business_mrr,
-            },
-            expansion: CountAndValue {
-                count: breakdown.expansion_count,
-                value: breakdown.expansion_mrr,
-            },
-            contraction: CountAndValue {
-                count: breakdown.contraction_count,
-                value: breakdown.contraction_mrr,
-            },
-            churn: CountAndValue {
-                count: breakdown.churn_count,
-                value: breakdown.churn_mrr,
-            },
-            reactivation: CountAndValue {
-                count: breakdown.reactivation_count,
-                value: breakdown.reactivation_mrr,
-            },
-            net_new_mrr: breakdown.net_new_mrr,
-            total_net_mrr: 0,
-        })
+        match breakdown {
+            None => Ok(MRRBreakdown {
+                new_business: CountAndValue { count: 0, value: 0 },
+                expansion: CountAndValue { count: 0, value: 0 },
+                contraction: CountAndValue { count: 0, value: 0 },
+                churn: CountAndValue { count: 0, value: 0 },
+                reactivation: CountAndValue { count: 0, value: 0 },
+                net_new_mrr: 0,
+                total_net_mrr: 0,
+            }),
+            Some(breakdown) => Ok(MRRBreakdown {
+                new_business: CountAndValue {
+                    count: breakdown.new_business_count,
+                    value: breakdown.new_business_mrr,
+                },
+                expansion: CountAndValue {
+                    count: breakdown.expansion_count,
+                    value: breakdown.expansion_mrr,
+                },
+                contraction: CountAndValue {
+                    count: breakdown.contraction_count,
+                    value: breakdown.contraction_mrr,
+                },
+                churn: CountAndValue {
+                    count: breakdown.churn_count,
+                    value: breakdown.churn_mrr,
+                },
+                reactivation: CountAndValue {
+                    count: breakdown.reactivation_count,
+                    value: breakdown.reactivation_mrr,
+                },
+                net_new_mrr: breakdown.net_new_mrr,
+                total_net_mrr: 0,
+            }),
+        }
     }
 
     async fn mrr_log(&self, request: MrrLogRequest) -> Result<MrrLogResponse, StatServiceError> {

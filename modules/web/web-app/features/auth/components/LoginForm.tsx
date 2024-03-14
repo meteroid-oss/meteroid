@@ -1,6 +1,7 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Button, Flex, FormItem, Input } from '@ui/components'
+import { Button, Form, InputFormField } from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
@@ -42,28 +43,32 @@ export const LoginForm = () => {
   }
 
   return (
-    <form onSubmit={methods.handleSubmit(onSubmit)}>
-      <Flex direction="column" gap={spaces.space7}>
-        <FormItem name="email" label="Email" error={methods.formState.errors.email?.message}>
-          <Input
-            type="text"
+    <Form {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)}>
+        <Flex direction="column" gap={spaces.space7}>
+          <InputFormField
+            name="email"
+            label="Email"
+            control={methods.control}
             placeholder="john@acme.com"
-            {...methods.register('email')}
             id="login-email"
           />
-        </FormItem>
-        <FormItem
-          name="password"
-          label="Password"
-          error={methods.formState.errors.password?.message}
-        >
-          <Input type="password" {...methods.register('password')} id="login-password" />
-        </FormItem>
-        <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
-          Login
-        </Button>
-        {error && <div className="text-base">{error}</div>}
-      </Flex>
-    </form>
+
+          <InputFormField
+            name="password"
+            label="Password"
+            control={methods.control}
+            placeholder="Password"
+            type="password"
+            id="login-password"
+          />
+
+          <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
+            Login
+          </Button>
+          {error && <div className="text-base">{error}</div>}
+        </Flex>
+      </form>
+    </Form>
   )
 }

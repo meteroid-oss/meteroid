@@ -1,13 +1,13 @@
 import { useMutation, createConnectQueryKey, disableQuery } from '@connectrpc/connect-query'
+import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
-import { ButtonAlt, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
 import { ReactNode, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { PlanActions } from '@/features/billing/plans/PlanActions'
@@ -41,7 +41,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
   return (
     <ScopeProvider atoms={[addedComponentsAtom, editedComponentsAtom]}>
       <div className="flex h-full w-full flex-col space-y-4">
-        <section className="flex justify-between pb-2 border-b border-slate-600">
+        <section className="flex justify-between pb-2 border-b border-border">
           <div className="flex space-x-2 flex-row items-center">
             <ChevronLeftIcon
               className="text-2xl font-semibold cursor-pointer"
@@ -167,9 +167,9 @@ const SubscriptionsTab = () => {
   return (
     <div>
       <div className="flex py-2 justify-end">
-        <ButtonAlt type="secondary" onClick={quickCreateSubscription}>
+        <Button variant="secondary" onClick={quickCreateSubscription}>
           + New subscription
-        </ButtonAlt>
+        </Button>
       </div>
 
       <SimpleTable
@@ -211,9 +211,9 @@ const PlanBody = () => {
         }}
       >
         <div className="space-x-4 ">
-          <div className="flex items-center space-x-3 opacity-75 text-scale-1000 text-sm">
+          <div className="flex items-center space-x-3 opacity-75 text-muted-foreground text-sm">
             <AlertCircleIcon size={16} strokeWidth={2} />
-            <div className="text-scale-1000 w-full">This plan has no configured trial.</div>
+            <div className="text-muted-foreground w-full">This plan has no configured trial.</div>
           </div>
         </div>
       </PageSection>

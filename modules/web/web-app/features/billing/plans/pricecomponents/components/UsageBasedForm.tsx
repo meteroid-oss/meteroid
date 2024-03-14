@@ -1,14 +1,23 @@
+import {
+  SelectFormField,
+  InputFormField,
+  GenericFormField,
+  Button,
+  Input,
+  SelectItem,
+  Form,
+  ComboboxFormField,
+} from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
-import { FormItem, SelectItem, ButtonAlt, Input } from '@ui/components'
 import { useAtom } from 'jotai'
-import { XIcon } from 'lucide-react'
+import { PlusIcon, XIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
+import { useNavigate } from 'react-router-dom'
 import { match } from 'ts-pattern'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
-import { ControlledSelect } from '@/components/form'
-import PriceInput from '@/components/form/PriceInput'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
   componentFeeAtom,
@@ -38,6 +47,7 @@ const models: [UsagePricingModelType, string][] = [
 
 export const UsageBasedForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
+  const navigate = useNavigate()
 
   const methods = useZodForm({
     schema: UsageBasedSchema,
@@ -64,41 +74,49 @@ export const UsageBasedForm = (props: FeeFormProps) => {
 
   return (
     <>
-      <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
-            <FormItem name="metric" label="Billable metric" {...methods.withError('metric')}>
-              <ControlledSelect
-                {...methods.withControl('metric.id')}
+      <Form {...methods}>
+        <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-1 pr-5 border-r border-border space-y-4">
+              <ComboboxFormField
+                name="metric.id"
+                label="Billable metric"
+                control={methods.control}
                 placeholder="Select a metric"
-                className="max-w-[280px]"
-              >
-                {metricsOptions.map(option => (
-                  <SelectItem value={option.value} key={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </ControlledSelect>
-            </FormItem>
-          </div>
-          <div className="ml-4 col-span-2 space-y-4">
-            <FormItem name="metric" label="Pricing model" {...methods.withError('metric')}>
-              <ControlledSelect
-                {...methods.withControl('model.model')}
-                placeholder="Select a metric"
+                options={metricsOptions}
+                // empty={!metricsOptions.length}
+                action={
+                  <Button
+                    hasIcon
+                    variant="ghost"
+                    size="full"
+                    onClick={() => navigate('add-metric')}
+                  >
+                    <PlusIcon size={12} /> New metric
+                  </Button>
+                }
+              />
+            </div>
+            <div className="ml-4 col-span-2 space-y-4">
+              <SelectFormField
+                name="model.model"
+                label="Pricing model"
+                placeholder="Select a model"
                 className="max-w-[320px]"
+                empty={models.length === 0}
+                control={methods.control}
               >
                 {models.map(([option, label]) => (
                   <SelectItem value={option} key={option}>
                     {label}
                   </SelectItem>
                 ))}
-              </ControlledSelect>
-            </FormItem>
-            <UsageBasedDataForm methods={methods} />
+              </SelectFormField>
+              <UsageBasedDataForm methods={methods} />
+            </div>
           </div>
-        </div>
-      </EditPriceComponentCard>
+        </EditPriceComponentCard>
+      </Form>
     </>
   )
 }
@@ -130,19 +148,26 @@ const PerUnitForm = ({
 
   return (
     <>
-      <FormItem name="model.data.unitPrice" label="Price per unit">
-        <PriceInput
-          {...methods.withControl('model.data.unitPrice')}
-          currency={currency}
-          precision={8}
-          className="max-w-xs"
-        />
-      </FormItem>
+      <GenericFormField
+        control={methods.control}
+        name="model.data.unitPrice"
+        label="Price per unit"
+        render={({ field }) => (
+          <UncontrolledPriceInput
+            {...field}
+            currency={currency}
+            className="max-w-xs"
+            precision={8}
+          />
+        )}
+      />
 
-      <div className="w-full border-b border-scale-600 pt-4"></div>
+      <div className="w-full border-b border-border pt-4"></div>
 
       <AccordionPanel
-        title={<div className="space-x-4 items-center flex pr-4 text-scale-1100">Adjustments</div>}
+        title={
+          <div className="space-x-4 items-center flex pr-4 text-muted-foreground">Adjustments</div>
+        }
         defaultOpen={false}
         triggerClassName="justify-normal"
       >
@@ -178,26 +203,28 @@ const PackageForm = ({
   const currency = useCurrency()
   return (
     <>
-      <FormItem name="model.data.blockSize" label="Block size">
-        <Input
-          type="number"
-          {...methods.register(`model.data.blockSize`, {
-            valueAsNumber: true,
-          })}
-          className="max-w-xs"
-          {...methods.withError(`model.data.blockSize`)}
-        />
-      </FormItem>
+      <InputFormField
+        name="model.data.blockSize"
+        label="Block size"
+        type="number"
+        step={1}
+        className="max-w-xs"
+        control={methods.control}
+      />
 
-      <FormItem name="model.data.unitPrice" label="Price per block">
-        <PriceInput
-          {...methods.withControl('model.data.blockPrice')}
-          {...methods.withError('model.data.blockPrice')}
-          currency={currency}
-          precision={8}
-          className="max-w-xs"
-        />
-      </FormItem>
+      <GenericFormField
+        control={methods.control}
+        name="model.data.blockPrice"
+        label="Price per block"
+        render={({ field }) => (
+          <UncontrolledPriceInput
+            {...field}
+            currency={currency}
+            className="max-w-xs"
+            precision={8}
+          />
+        )}
+      />
     </>
   )
 }
@@ -264,12 +291,18 @@ const TierTable = ({
       {
         header: 'Per unit',
         cell: ({ row }) => (
-          <PriceInput
-            {...methods.withControl(`model.data.rows.${row.index}.unitPrice`)}
-            {...methods.withError(`model.data.rows.${row.index}.unitPrice`)}
-            currency={currency}
-            showCurrency={false}
-            precision={8}
+          <GenericFormField
+            control={methods.control}
+            name={`model.data.rows.${row.index}.unitPrice`}
+            render={({ field }) => (
+              <UncontrolledPriceInput
+                {...field}
+                currency={currency}
+                showCurrency={false}
+                className="max-w-xs"
+                precision={8}
+              />
+            )}
           />
         ),
       },
@@ -277,9 +310,9 @@ const TierTable = ({
         header: '',
         id: 'remove',
         cell: ({ row }) => (
-          <ButtonAlt type="link" onClick={() => removeTier(row.index)}>
+          <Button variant="link" size="icon" onClick={() => removeTier(row.index)}>
             <XIcon size={12} />
-          </ButtonAlt>
+          </Button>
         ),
       },
     ]
@@ -288,9 +321,9 @@ const TierTable = ({
   return (
     <>
       <SimpleTable columns={columns} data={fields} />
-      <ButtonAlt type="link" onClick={addTier}>
+      <Button variant="link" onClick={addTier}>
         + Add tier
-      </ButtonAlt>
+      </Button>
     </>
   )
 }

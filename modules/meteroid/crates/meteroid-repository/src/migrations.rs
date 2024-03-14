@@ -20,6 +20,7 @@ where
     C: AsyncMigrate + Send,
 {
     let migration_report = embedded::migrations::runner()
+        .set_abort_divergent(false) // TODO
         .run_async(client)
         .await
         .change_context(MigrationError)

@@ -1,12 +1,10 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Form, Modal, CheckboxFormField, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckboxFormItem, FormItem, Input, Modal } from '@ui/components'
 import { ComponentProps } from 'react'
-import { FieldPath } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { ControlledCheckbox } from '@/components/form/ControlledCheckbox'
 import { addressesSchema } from '@/features/customers/cards/address/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
@@ -42,14 +40,6 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
   })
   const sameShippingAddress = methods.watch('shipping_address.sameAsBilling')
 
-  const withItem = (label: string, name: FieldPath<z.TypeOf<typeof addressesSchema>>) => {
-    return (
-      <FormItem label={label} layout="horizontal" {...methods.withError(name)}>
-        <Input className="max-w-xs" {...methods.register(name)} />
-      </FormItem>
-    )
-  }
-
   const onSubmit = async (data: z.infer<typeof addressesSchema>) => {
     await patchCustomerMutation.mutateAsync({
       customer: {
@@ -62,43 +52,70 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
     props.onCancel?.()
     methods.reset()
   }
+  const inputProps = {
+    control: methods.control,
+    direction: 'horizontal' as const,
+  }
 
   return (
     <Modal header={<>Edit address</>} {...props} onConfirm={() => methods.handleSubmit(onSubmit)()}>
       <Modal.Content>
-        <form>
-          <div className="py-4 w-full space-y-4">
-            <h3 className="font-semibold">Billing address</h3>
-            {withItem('Line 1', 'billing_address.line1')}
-            {withItem('Line 2', 'billing_address.line2')}
-            {withItem('City', 'billing_address.city')}
-            {withItem('Country', 'billing_address.country')}
-            {withItem('State', 'billing_address.state')}
-            {withItem('Zip Code', 'billing_address.zipcode')}
+        <Form {...methods}>
+          <form>
+            <div className="py-4 w-full space-y-4">
+              <h3 className="font-semibold">Billing address</h3>
+              <InputFormField label="Line 1" name="billing_address.line1" {...inputProps} />
+              <InputFormField label="Line 2" name="billing_address.line2" {...inputProps} />
+              <InputFormField label="City" name="billing_address.city" {...inputProps} />
+              <InputFormField label="Country" name="billing_address.country" {...inputProps} />
+              <InputFormField label="State" name="billing_address.state" {...inputProps} />
+              <InputFormField label="Zip Code" name="billing_address.zipcode" {...inputProps} />
 
-            <h3 className="font-semibold">Shipping address</h3>
-            <CheckboxFormItem
-              name="shipping_address.sameAsBilling"
-              label="Same as billing address"
-            >
-              <ControlledCheckbox
-                {...methods.withControl(`shipping_address.sameAsBilling`)}
-                id="shipping_address.sameAsBilling"
+              <h3 className="font-semibold">Shipping address</h3>
+              <CheckboxFormField
+                name="shipping_address.sameAsBilling"
+                label="Same as billing address"
+                variant="card"
+                control={methods.control}
               />
-            </CheckboxFormItem>
 
-            {sameShippingAddress || (
-              <>
-                {withItem('Line 1', 'shipping_address.address.line1')}
-                {withItem('Line 2', 'shipping_address.address.line2')}
-                {withItem('City', 'shipping_address.address.city')}
-                {withItem('Country', 'shipping_address.address.country')}
-                {withItem('State', 'shipping_address.address.state')}
-                {withItem('Zip Code', 'shipping_address.address.zipcode')}
-              </>
-            )}
-          </div>
-        </form>
+              {sameShippingAddress || (
+                <>
+                  <InputFormField
+                    label="Line 1"
+                    name="shipping_address.address.line1"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="Line 2"
+                    name="shipping_address.address.line2"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="City"
+                    name="shipping_address.address.city"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="Country"
+                    name="shipping_address.address.country"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="State"
+                    name="shipping_address.address.state"
+                    {...inputProps}
+                  />
+                  <InputFormField
+                    label="Zip Code"
+                    name="shipping_address.address.zipcode"
+                    {...inputProps}
+                  />
+                </>
+              )}
+            </div>
+          </form>
+        </Form>
       </Modal.Content>
     </Modal>
   )

@@ -1,5 +1,5 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Select, SelectItem } from '@ui/components'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue , Card, Separator } from '@md/ui'
 import { subYears } from 'date-fns'
 import { useMemo } from 'react'
 import * as React from 'react'
@@ -26,16 +26,16 @@ export const MrrSection = () => {
   )
   const [range, setRange] = React.useState<DateRange | undefined>(defaultRange)
 
-  const [productFamily, setProductFamily] = React.useState<string>(ALL)
+  const [productFamily, setProductFamily] = React.useState<string>()
 
   // TODO multiselect https://github.com/mxkaske/mxkaske.dev/blob/main/components/craft/fancy-box.tsx
-  const [plan, setPlan] = React.useState<string>(ALL)
+  const [plan, setPlan] = React.useState<string>()
 
   const productFamilies = useQuery(listProductFamilies)
 
   const plans = useQuery(
     listPlans,
-    productFamily !== ALL
+    productFamily
       ? {
           orderBy: ListPlansRequest_SortBy.NAME_ASC,
           productFamilyExternalId: productFamily,
@@ -51,41 +51,53 @@ export const MrrSection = () => {
 
   return (
     <>
-      <div className="pt-2 pb-2 border-b border-slate-400">
-        <div className="flex justify-between">
-          <h3 className=" text-lg">Your overview</h3>
-          <div className="flex gap-1">
+      <div className="pt-2 pb-2">
+        <div className="flex justify-between items-end flex-wrap">
+          <h3 className=" text-lg text-muted-foreground font-medium">Your overview</h3>
+          <div className="flex flex-row   gap-1">
             <DatePickerWithRange range={range} setRange={setRange} />
+
             <Select onValueChange={setProductFamily} value={productFamily}>
-              <SelectItem value="_all">All product lines</SelectItem>
-              {productFamilies.data?.productFamilies.map(pf => (
-                <SelectItem key={pf.externalId} value={pf.externalId}>
-                  {pf.name}
-                </SelectItem>
-              ))}
+              <SelectTrigger className="md:w-[180px]">
+                <SelectValue placeholder="All product lines" />
+              </SelectTrigger>
+              <SelectContent>
+                {productFamilies.data?.productFamilies.map(pf => (
+                  <SelectItem key={pf.externalId} value={pf.externalId}>
+                    {pf.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
+
             <Select onValueChange={setPlan} value={plan}>
-              <SelectItem value="_all">All plans</SelectItem>
-              {plans.data?.plans.map(p => (
-                <SelectItem key={p.externalId} value={p.externalId}>
-                  {p.name}
-                </SelectItem>
-              ))}
+              <SelectTrigger className="md:w-[180px]">
+                <SelectValue placeholder="All plans" />
+              </SelectTrigger>
+              <SelectContent>
+                {plans.data?.plans.map(p => (
+                  <SelectItem key={p.externalId} value={p.externalId}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
         </div>
       </div>
-      <div>
+      <Card className="p-6">
         <MrrChart
           from={range?.from ?? defaultRange.from}
           to={range?.to ?? defaultRange.to}
-          plansId={plan !== ALL ? [plan] : []}
+          plansId={plan ? [plan] : []}
         />
-      </div>
-      <div className="w-full flex flex-row">
-        <MrrBreakdownCard />
-        <MrrLogsCard />
-      </div>
+        <Separator className="m-2" />
+        <div className="w-full flex flex-row h-[180px] relative">
+          <MrrBreakdownCard />
+          <Separator orientation="vertical" className="m-2" />
+          <MrrLogsCard />
+        </div>
+      </Card>
     </>
   )
 }

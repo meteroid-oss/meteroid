@@ -1,6 +1,15 @@
 import { spaces } from '@md/foundation'
 import { ChevronLeftIcon, ChevronRightIcon } from '@md/icons'
-import { Button, Flex, Select, SelectItem, Skeleton } from '@md/ui'
+import {
+  Button,
+  Select,
+  SelectItem,
+  Skeleton,
+  SelectTrigger,
+  SelectContent,
+  SelectValue,
+} from '@md/ui'
+import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent } from 'react'
 
 import { CountInfo } from './Pagination.styled'
@@ -51,8 +60,8 @@ const Pagination: FunctionComponent<PaginationProps> = ({
                 onClick={handlePreviousPage}
                 disabled={!canPreviousPage}
                 title="Previous Page"
-                size="small"
-                variant="tertiary"
+                size="sm"
+                variant="secondary"
               >
                 <ChevronLeftIcon size={16} />
               </Button>
@@ -63,8 +72,8 @@ const Pagination: FunctionComponent<PaginationProps> = ({
                     <span>{page}</span>
                   ) : (
                     <Button
-                      size="small"
-                      variant={page === currentPage ? 'primary' : 'tertiary'}
+                      size="sm"
+                      variant={page === currentPage ? 'primary' : 'secondary'}
                       title={`Page ${page}`}
                       onClick={() => setPagination({ ...pagination, pageIndex: Number(page) - 1 })}
                     >
@@ -78,8 +87,8 @@ const Pagination: FunctionComponent<PaginationProps> = ({
                 onClick={handleNextPage}
                 disabled={!canNextPage}
                 title="Next Page"
-                size="small"
-                variant="tertiary"
+                size="sm"
+                variant="secondary"
               >
                 <ChevronRightIcon size={16} />
               </Button>
@@ -91,18 +100,21 @@ const Pagination: FunctionComponent<PaginationProps> = ({
               </CountInfo>
 
               <Select
-                value={String(pageSize)}
+                value={[10, 25, 50, 100].includes(pageSize) ? String(pageSize) : undefined}
                 onValueChange={value =>
                   setPagination({ ...pagination, pageSize: Number(value), pageIndex: 0 })
                 }
-                placeholder="Select page limit"
-                size="small"
               >
-                {[10, 25, 50, 100].map(pageSize => (
-                  <SelectItem key={pageSize} value={String(pageSize)}>
-                    Show {pageSize}
-                  </SelectItem>
-                ))}
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select page limit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 25, 50, 100].map(pageSize => (
+                    <SelectItem key={pageSize} value={String(pageSize)}>
+                      Show {pageSize}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </Flex>
           </Fragment>

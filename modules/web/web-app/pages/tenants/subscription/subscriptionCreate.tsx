@@ -1,7 +1,7 @@
 import { Label } from '@ui/components'
 import { Fragment, useState } from 'react'
 
-import PageHeading from '@/components/atoms/PageHeading/PageHeading'
+import PageHeading from '@/components/PageHeading/PageHeading'
 import { TenantPageLayout } from '@/components/layouts'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { PlanSelect } from '@/features/billing/plans/PlanSelect'

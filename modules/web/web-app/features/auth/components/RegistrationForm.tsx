@@ -1,7 +1,7 @@
 import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
+import { Button, Input } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Button, Flex, FormItem, Input } from '@ui/components'
+import { FormItem } from '@ui/components/legacy'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -44,7 +44,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
 
   return (
     <form onSubmit={methods.handleSubmit(onSubmit)}>
-      <Flex direction="column" gap={spaces.space7}>
+      <div className="flex flex-col gap-7">
         <FormItem name="email" label="Email" error={methods.formState.errors.email?.message}>
           <Input
             id="register-email"
@@ -63,7 +63,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
         <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
           Create my account
         </Button>
-      </Flex>
+      </div>
     </form>
   )
 }

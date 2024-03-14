@@ -1,6 +1,7 @@
 import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
-import { Flex, Skeleton } from '@ui/components'
+import { Skeleton } from '@ui/components'
+import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
 import { SubscriptionsTable } from '@/features/subscriptions/SubscriptionsTable'

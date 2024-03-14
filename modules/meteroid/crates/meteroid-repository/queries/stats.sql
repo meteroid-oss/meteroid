@@ -3,7 +3,7 @@
 SELECT c.id,
        c.name,
        COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
-       bi.currency
+       :currency                                  AS currency
 FROM customer c
          LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
 WHERE c.tenant_id = :tenant_id
