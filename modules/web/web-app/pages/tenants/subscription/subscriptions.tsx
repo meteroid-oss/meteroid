@@ -1,6 +1,6 @@
 import { spaces } from '@md/foundation'
 import { Flex } from '@ui/components'
-import { Fragment, FunctionComponent, useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { SubscriptionsHeader, SubscriptionsTable } from '@/features/subscriptions'
@@ -9,9 +9,7 @@ import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-Subs
 
 import type { PaginationState } from '@tanstack/react-table'
 
-export const Subscriptions: FunctionComponent = () => {
-  const [, setEditPanelVisible] = useState(false)
-
+export const Subscriptions = () => {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
@@ -40,12 +38,7 @@ export const Subscriptions: FunctionComponent = () => {
     <Fragment>
       <TenantPageLayout title="Subscriptions">
         <Flex direction="column" gap={spaces.space9}>
-          <SubscriptionsHeader
-            count={count}
-            setEditPanelVisible={setEditPanelVisible}
-            isLoading={isLoading}
-            refetch={refetch}
-          />
+          <SubscriptionsHeader count={count} isLoading={isLoading} refetch={refetch} />
           <SubscriptionsTable
             data={data}
             totalCount={count}

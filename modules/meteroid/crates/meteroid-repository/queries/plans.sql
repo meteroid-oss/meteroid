@@ -251,7 +251,7 @@ WHERE
   tenant_id = :tenant_id
   AND external_id = :external_id;
 
---! list_plans (search?) : ListPlan
+--! list_plans (search?, product_family_external_id?) : ListPlan
 SELECT
   plan.id,
   plan.name,
@@ -259,6 +259,8 @@ SELECT
   plan.description,
   plan.status,
   plan.plan_type,
+  product_family.id as product_family_id,
+  product_family.name as product_family_name,
   COUNT(*) OVER() AS total_count
 FROM
   plan
@@ -266,10 +268,14 @@ FROM
 WHERE
   plan.tenant_id = :tenant_id
   AND (
-    :search :: TEXT IS NULL
-    OR to_tsvector('english', plan.name || ' ' || plan.external_id) @@ to_tsquery('english', :search)
+    :product_family_external_id :: TEXT IS NULL
+        OR product_family.external_id = :product_family_external_id
   )
-  AND product_family.external_id = :product_family_external_id
+  AND (
+    :search :: TEXT IS NULL
+        OR plan.name ILIKE '%' || :search || '%'
+        OR plan.external_id ILIKE '%' || :search || '%'
+  )
 ORDER BY
   CASE
     WHEN :order_by = 'DATE_DESC' THEN plan.id

@@ -1,5 +1,5 @@
 pub mod plans {
-    use meteroid_grpc::meteroid::api::plans::v1::Plan;
+    use meteroid_grpc::meteroid::api::plans::v1::{ListPlan, Plan};
     use meteroid_repository::plans::{ListPlan as DbListPlans, Plan as DbPlan};
 
     fn status_db_to_server(
@@ -48,14 +48,16 @@ pub mod plans {
         }
     }
 
-    pub fn list_db_to_server(plan: DbListPlans) -> Plan {
-        Plan {
+    pub fn list_db_to_server(plan: DbListPlans) -> ListPlan {
+        ListPlan {
             id: plan.id.to_string(),
             name: plan.name,
             external_id: plan.external_id,
             description: plan.description,
             plan_type: type_db_to_server(plan.plan_type).into(),
             plan_status: status_db_to_server(plan.status).into(),
+            product_family_id: plan.product_family_id.to_string(),
+            product_family_name: plan.product_family_name,
         }
     }
 

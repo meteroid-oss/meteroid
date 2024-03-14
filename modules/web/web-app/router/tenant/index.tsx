@@ -4,12 +4,12 @@ import { TenantLayoutOutlet } from '@/components/layouts'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
 import { TenantSettings } from '@/pages/tenants/settings'
-import { Subscriptions } from '@/pages/tenants/subscription/subscriptions'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
 
 import { invoiceRoutes } from './invoices'
+import { subscriptionRoutes } from './subscriptions'
 
 export const tenantRoutes: RouteObject = {
   path: 'tenant/:tenantSlug',
@@ -18,10 +18,6 @@ export const tenantRoutes: RouteObject = {
     {
       index: true,
       element: <Dashboard />,
-    },
-    {
-      path: 'subscriptions',
-      element: <Subscriptions />,
     },
     {
       path: 'settings',
@@ -35,6 +31,7 @@ export const tenantRoutes: RouteObject = {
     customersRoutes,
     billingRoutes,
     invoiceRoutes,
+    subscriptionRoutes,
 
     {
       path: '*',
