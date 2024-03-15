@@ -68,7 +68,6 @@ const PlanItems = ({ search }: { search: string }) => {
     orderBy: ListPlansRequest_SortBy.NAME_ASC,
   })
 
-  // const plans = query.data?.plans || []
   const plansByFamily = pipe(
     query.data?.plans,
     F.defaultTo([] as ListPlan[]),
