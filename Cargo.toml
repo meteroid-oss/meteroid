@@ -23,7 +23,9 @@ members = [
   "crates/common-utils",
   "crates/distributed-lock",
   # extra
-  "extra/generator"
+  "extra/generator",
+  "extra/diesel_models",
+  "extra/meteroid_store",
 ]
 
 [workspace.package]
@@ -165,6 +167,7 @@ common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }
 metering = { path = "modules/metering" }
+diesel-models = { path = "extra/diesel_models" }
 
 
 # temporary profile while dropping async_stripe

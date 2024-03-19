@@ -1,0 +1,35 @@
+use crate::errors;
+use crate::errors::db_error_to_store;
+use crate::store::Store;
+use crate::{domain, StoreResult};
+use diesel_async::AsyncConnection;
+use error_stack::ResultExt;
+
+#[async_trait::async_trait]
+pub trait CustomersInterface {
+    async fn insert_customer_batch(
+        &self,
+        batch: Vec<domain::CustomerNew>,
+    ) -> StoreResult<Vec<domain::Customer>>;
+}
+
+#[async_trait::async_trait]
+impl CustomersInterface for Store {
+    async fn insert_customer_batch(
+        &self,
+        batch: Vec<domain::CustomerNew>,
+    ) -> StoreResult<Vec<domain::Customer>> {
+        let mut conn = self.get_conn().await?;
+
+        let insertable_batch: Vec<diesel_models::customers::CustomerNew> =
+            batch.into_iter().map(|c| c.into()).collect();
+
+        let res =
+            diesel_models::customers::Customer::insert_customer_batch(&mut conn, insertable_batch)
+                .await
+                .map_err(db_error_to_store)
+                .map(|v| v.into_iter().map(Into::into).collect())?;
+
+        Ok(res)
+    }
+}
