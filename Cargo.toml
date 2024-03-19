@@ -23,7 +23,9 @@ members = [
   "crates/common-utils",
   "crates/distributed-lock",
   # extra
-  "extra/generator"
+  "extra/generator",
+  "extra/diesel_models",
+  "extra/meteroid_store",
 ]
 
 [workspace.package]
@@ -41,8 +43,8 @@ backon = "0.4.1"
 base62 = "2.0.2"
 base64 = "0.22.0"
 blake3 = "1.5.0"
-build-info = "0.0.36"
-build-info-build = "0.0.36"
+build-info = "0.0.35"
+build-info-build = "0.0.35"
 bytes = "1.5.0"
 cached = "0.49.2"
 chrono = { version = "0.4.31", default-features = false }
@@ -165,3 +167,4 @@ common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }
 metering = { path = "modules/metering" }
+diesel-models = { path = "extra/diesel_models" }
