@@ -1,73 +1,88 @@
-import { Button, Label } from '@ui/components'
+import { Button, Form, GenericFormField } from '@ui/components'
 import { useAtom } from 'jotai'
 import { useWizard } from 'react-use-wizard'
+import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SubscribablePlanVersionSelect } from '@/features/billing/plans/SubscribablePlanVersionSelect'
 import { PriceComponentOverview } from '@/features/billing/plans/pricecomponents/PriceComponentOverview'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { useZodForm } from '@/hooks/useZodForm'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
 
 export const StepPlanAndCustomer = () => {
   const { nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
+  const methods = useZodForm({
+    schema: schema,
+    defaultValues: state,
+  })
+  const [customerId, planVersionId] = methods.watch(['customerId', 'planVersionId'])
+
+  const onSubmit = async (data: z.infer<typeof schema>) => {
+    setState({
+      ...state,
+      ...data,
+    })
+    nextStep()
+  }
 
   return (
-    <>
-      <PageSection
-        className="fadeIn"
-        header={{
-          title: 'Plan & Customer',
-          subtitle: 'Choose the owner of the subscription',
-        }}
-      >
-        <div className="flex flex-col gap-2">
-          <Label className="flex items-center gap-3">
-            <div className="w-[6em]">Plan</div>
-            <SubscribablePlanVersionSelect
-              value={state.planVersionId}
-              onChange={v =>
-                setState({
-                  ...state,
-                  planVersionId: v,
-                })
-              }
+    <Form {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)}>
+        <PageSection
+          className="fadeIn"
+          header={{
+            title: 'Plan & Customer',
+            subtitle: 'Choose the owner of the subscription',
+          }}
+        >
+          <div className="flex flex-col gap-4 max-w-xl">
+            <GenericFormField
+              control={methods.control}
+              layout="horizontal"
+              label="Plan"
+              name="planVersionId"
+              render={({ field }) => (
+                <SubscribablePlanVersionSelect value={field.value} onChange={field.onChange} />
+              )}
             />
-          </Label>
-
-          <Label className="flex items-center gap-3">
-            <div className="w-[6em]">Customer</div>
-            <CustomerSelect
-              value={state.customerId}
-              onChange={v =>
-                setState({
-                  ...state,
-                  customerId: v,
-                })
-              }
+            <GenericFormField
+              control={methods.control}
+              layout="horizontal"
+              label="Customer"
+              name="customerId"
+              render={({ field }) => (
+                <CustomerSelect value={field.value} onChange={field.onChange} />
+              )}
             />
-          </Label>
-        </div>
-      </PageSection>
-      {state.planVersionId && state.customerId && (
-        <>
-          <PageSection
-            className="fadeIn"
-            header={{
-              title: 'Pricing',
-              subtitle: 'All price components of the selected plan',
-            }}
-          >
-            <PriceComponentOverview planVersionId={state.planVersionId} />
-          </PageSection>
-
-          <div className="flex gap-2 justify-end">
-            <Button onClick={nextStep} variant="primary">
-              Next
-            </Button>
           </div>
-        </>
-      )}
-    </>
+        </PageSection>
+        {planVersionId && customerId && (
+          <>
+            <PageSection
+              className="fadeIn"
+              header={{
+                title: 'Pricing',
+                subtitle: 'All price components of the selected plan',
+              }}
+            >
+              <PriceComponentOverview planVersionId={planVersionId} />
+            </PageSection>
+
+            <div className="flex gap-2 justify-end">
+              <Button type="submit" variant="primary">
+                Next
+              </Button>
+            </div>
+          </>
+        )}
+      </form>
+    </Form>
   )
 }
+
+const schema = z.object({
+  planVersionId: z.string(),
+  customerId: z.string(),
+})
