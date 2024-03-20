@@ -5902,6 +5902,123 @@ WHERE id = $2 ",
             }
         }
         #[derive(Debug, Clone, PartialEq)]
+        pub struct ListSubscribablePlanVersion {
+            pub plan_id: uuid::Uuid,
+            pub id: uuid::Uuid,
+            pub plan_name: String,
+            pub version: i32,
+            pub created_by: uuid::Uuid,
+            pub trial_duration_days: Option<i32>,
+            pub trial_fallback_plan_id: Option<uuid::Uuid>,
+            pub period_start_day: Option<i16>,
+            pub net_terms: i32,
+            pub currency: String,
+            pub product_family_id: uuid::Uuid,
+            pub product_family_name: String,
+        }
+        pub struct ListSubscribablePlanVersionBorrowed<'a> {
+            pub plan_id: uuid::Uuid,
+            pub id: uuid::Uuid,
+            pub plan_name: &'a str,
+            pub version: i32,
+            pub created_by: uuid::Uuid,
+            pub trial_duration_days: Option<i32>,
+            pub trial_fallback_plan_id: Option<uuid::Uuid>,
+            pub period_start_day: Option<i16>,
+            pub net_terms: i32,
+            pub currency: &'a str,
+            pub product_family_id: uuid::Uuid,
+            pub product_family_name: &'a str,
+        }
+        impl<'a> From<ListSubscribablePlanVersionBorrowed<'a>> for ListSubscribablePlanVersion {
+            fn from(
+                ListSubscribablePlanVersionBorrowed {
+                    plan_id,
+                    id,
+                    plan_name,
+                    version,
+                    created_by,
+                    trial_duration_days,
+                    trial_fallback_plan_id,
+                    period_start_day,
+                    net_terms,
+                    currency,
+                    product_family_id,
+                    product_family_name,
+                }: ListSubscribablePlanVersionBorrowed<'a>,
+            ) -> Self {
+                Self {
+                    plan_id,
+                    id,
+                    plan_name: plan_name.into(),
+                    version,
+                    created_by,
+                    trial_duration_days,
+                    trial_fallback_plan_id,
+                    period_start_day,
+                    net_terms,
+                    currency: currency.into(),
+                    product_family_id,
+                    product_family_name: product_family_name.into(),
+                }
+            }
+        }
+        pub struct ListSubscribablePlanVersionQuery<'a, C: GenericClient, T, const N: usize> {
+            client: &'a C,
+            params: [&'a (dyn postgres_types::ToSql + Sync); N],
+            stmt: &'a mut cornucopia_async::private::Stmt,
+            extractor: fn(&tokio_postgres::Row) -> ListSubscribablePlanVersionBorrowed,
+            mapper: fn(ListSubscribablePlanVersionBorrowed) -> T,
+        }
+        impl<'a, C, T: 'a, const N: usize> ListSubscribablePlanVersionQuery<'a, C, T, N>
+        where
+            C: GenericClient,
+        {
+            pub fn map<R>(
+                self,
+                mapper: fn(ListSubscribablePlanVersionBorrowed) -> R,
+            ) -> ListSubscribablePlanVersionQuery<'a, C, R, N> {
+                ListSubscribablePlanVersionQuery {
+                    client: self.client,
+                    params: self.params,
+                    stmt: self.stmt,
+                    extractor: self.extractor,
+                    mapper,
+                }
+            }
+            pub async fn one(self) -> Result<T, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let row = self.client.query_one(stmt, &self.params).await?;
+                Ok((self.mapper)((self.extractor)(&row)))
+            }
+            pub async fn all(self) -> Result<Vec<T>, tokio_postgres::Error> {
+                self.iter().await?.try_collect().await
+            }
+            pub async fn opt(self) -> Result<Option<T>, tokio_postgres::Error> {
+                let stmt = self.stmt.prepare(self.client).await?;
+                Ok(self
+                    .client
+                    .query_opt(stmt, &self.params)
+                    .await?
+                    .map(|row| (self.mapper)((self.extractor)(&row))))
+            }
+            pub async fn iter(
+                self,
+            ) -> Result<
+                impl futures::Stream<Item = Result<T, tokio_postgres::Error>> + 'a,
+                tokio_postgres::Error,
+            > {
+                let stmt = self.stmt.prepare(self.client).await?;
+                let it = self
+                    .client
+                    .query_raw(stmt, cornucopia_async::private::slice_iter(&self.params))
+                    .await?
+                    .map(move |res| res.map(|row| (self.mapper)((self.extractor)(&row))))
+                    .into_stream();
+                Ok(it)
+            }
+        }
+        #[derive(Debug, Clone, PartialEq)]
         pub struct PlanOverview {
             pub id: uuid::Uuid,
             pub name: String,
@@ -6872,6 +6989,65 @@ LIMIT
                     &params.limit,
                     &params.offset,
                 )
+            }
+        }
+        pub fn list_subscribable_plan_version() -> ListSubscribablePlanVersionStmt {
+            ListSubscribablePlanVersionStmt(cornucopia_async::private::Stmt::new(
+                "SELECT
+    DISTINCT ON(plan_version.plan_id)
+    plan_version.plan_id,
+    plan_version.id,
+    plan.name as plan_name,
+    plan_version.version,
+    plan_version.created_by,
+    plan_version.trial_duration_days,
+    plan_version.trial_fallback_plan_id,
+    plan_version.period_start_day,
+    plan_version.net_terms,
+    plan_version.currency,
+    product_family.id as product_family_id,
+    product_family.name as product_family_name
+FROM
+    plan_version
+JOIN
+    plan ON plan_version.plan_id = plan.id
+JOIN
+    product_family ON plan.product_family_id = product_family.id
+WHERE
+    NOT plan_version.is_draft_version
+    AND plan_version.tenant_id = $1
+ORDER BY
+    plan_version.plan_id, plan_version.version DESC, plan_version.created_at DESC",
+            ))
+        }
+        pub struct ListSubscribablePlanVersionStmt(cornucopia_async::private::Stmt);
+        impl ListSubscribablePlanVersionStmt {
+            pub fn bind<'a, C: GenericClient>(
+                &'a mut self,
+                client: &'a C,
+                tenant_id: &'a uuid::Uuid,
+            ) -> ListSubscribablePlanVersionQuery<'a, C, ListSubscribablePlanVersion, 1>
+            {
+                ListSubscribablePlanVersionQuery {
+                    client,
+                    params: [tenant_id],
+                    stmt: &mut self.0,
+                    extractor: |row| ListSubscribablePlanVersionBorrowed {
+                        plan_id: row.get(0),
+                        id: row.get(1),
+                        plan_name: row.get(2),
+                        version: row.get(3),
+                        created_by: row.get(4),
+                        trial_duration_days: row.get(5),
+                        trial_fallback_plan_id: row.get(6),
+                        period_start_day: row.get(7),
+                        net_terms: row.get(8),
+                        currency: row.get(9),
+                        product_family_id: row.get(10),
+                        product_family_name: row.get(11),
+                    },
+                    mapper: |it| <ListSubscribablePlanVersion>::from(it),
+                }
             }
         }
         pub fn last_plan_version() -> LastPlanVersionStmt {

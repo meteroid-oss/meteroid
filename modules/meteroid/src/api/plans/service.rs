@@ -9,7 +9,8 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     GetPlanOverviewByExternalIdRequest, GetPlanOverviewByExternalIdResponse,
     GetPlanParametersRequest, GetPlanParametersResponse, GetPlanVersionByIdRequest,
     GetPlanVersionByIdResponse, ListPlanVersionByIdRequest, ListPlanVersionByIdResponse,
-    ListPlansRequest, ListPlansResponse, PlanDetails, PublishPlanVersionRequest,
+    ListPlansRequest, ListPlansResponse, ListSubscribablePlanVersionRequest,
+    ListSubscribablePlanVersionResponse, PlanDetails, PublishPlanVersionRequest,
     PublishPlanVersionResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
     UpdatePublishedPlanOverviewRequest, UpdatePublishedPlanOverviewResponse,
 };
@@ -193,6 +194,30 @@ impl PlansService for PlanServiceComponents {
                 .map(mapping::plans::list_db_to_server)
                 .collect(),
             pagination_meta: req.pagination.into_response(total as u32),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn list_subscribable_plan_version(
+        &self,
+        request: Request<ListSubscribablePlanVersionRequest>,
+    ) -> Result<Response<ListSubscribablePlanVersionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let connection = self.get_connection().await?;
+
+        let plan_versions = db::plans::list_subscribable_plan_version()
+            .bind(&connection, &tenant_id)
+            .all()
+            .await
+            .map_err(|e| PlanApiError::DatabaseError("unable to list plans".to_string(), e))?;
+
+        let response = ListSubscribablePlanVersionResponse {
+            plan_versions: plan_versions
+                .into_iter()
+                .map(mapping::plans::list_subscribable_db_to_server)
+                .collect(),
         };
 
         Ok(Response::new(response))

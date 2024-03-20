@@ -17,10 +17,8 @@ import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
-import { getPlanByExternalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import {
   createSubscription,
   listSubscriptions,
@@ -40,25 +38,14 @@ export const StepSettings = () => {
       queryClient.invalidateQueries({ queryKey: [listSubscriptions.service.typeName] })
     },
   })
-  const getPlanQuery = useQuery(
-    getPlanByExternalId,
-    {
-      externalId: state.planExternalId ?? '',
-    },
-    { enabled: Boolean(state.planExternalId) }
-  )
 
   const onSubmit = async (data: z.infer<typeof schema>) => {
     setState({
       ...state,
       ...data,
     })
-    if (!getPlanQuery.data?.planDetails?.currentVersion?.id) {
-      toast.error(`We can't find the plan version id`)
-      return
-    }
     await createSubscriptionMutation.mutateAsync({
-      planVersionId: getPlanQuery.data.planDetails.currentVersion.id,
+      planVersionId: state.planVersionId,
       customerId: state.customerId,
       billingStart: mapDate(data.fromDate),
       billingEnd: data.toDate && mapDate(data.toDate),

@@ -2,29 +2,16 @@ import { PriceComponentCard } from '@/features/billing/plans/pricecomponents/Pri
 import { useQuery } from '@/lib/connectrpc'
 import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
 import { PriceComponent } from '@/lib/schemas/plans'
-import { Plan } from '@/rpc/api/plans/v1/models_pb'
-import { getPlanByExternalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 
-export const PriceComponentOverview = ({
-  planExternalId,
-}: {
-  planExternalId: Plan['externalId']
-}) => {
-  const getPlanQuery = useQuery(
-    getPlanByExternalId,
-    {
-      externalId: planExternalId ?? '',
-    },
-    { enabled: Boolean(planExternalId) }
-  )
-
+export const PriceComponentOverview = ({ planVersionId }: { planVersionId: PlanVersion['id'] }) => {
   const priceComponents = useQuery(
     listPriceComponents,
     {
-      planVersionId: getPlanQuery?.data?.planDetails?.currentVersion?.id ?? '',
+      planVersionId: planVersionId ?? '',
     },
-    { enabled: Boolean(getPlanQuery?.data?.planDetails?.currentVersion?.id) }
+    { enabled: Boolean(planVersionId) }
   )?.data?.components?.map(
     c =>
       ({

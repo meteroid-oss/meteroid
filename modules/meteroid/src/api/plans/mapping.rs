@@ -1,6 +1,9 @@
 pub mod plans {
-    use meteroid_grpc::meteroid::api::plans::v1::{ListPlan, Plan};
-    use meteroid_repository::plans::{ListPlan as DbListPlans, Plan as DbPlan};
+    use meteroid_grpc::meteroid::api::plans::v1::{ListPlan, ListSubscribablePlanVersion, Plan};
+    use meteroid_repository::plans::{
+        ListPlan as DbListPlans, ListSubscribablePlanVersion as DbListSubscribablePlanVersion,
+        Plan as DbPlan,
+    };
 
     fn status_db_to_server(
         e: meteroid_repository::PlanStatusEnum,
@@ -56,6 +59,25 @@ pub mod plans {
             description: plan.description,
             plan_type: type_db_to_server(plan.plan_type).into(),
             plan_status: status_db_to_server(plan.status).into(),
+            product_family_id: plan.product_family_id.to_string(),
+            product_family_name: plan.product_family_name,
+        }
+    }
+
+    pub fn list_subscribable_db_to_server(
+        plan: DbListSubscribablePlanVersion,
+    ) -> ListSubscribablePlanVersion {
+        ListSubscribablePlanVersion {
+            plan_id: plan.plan_id.to_string(),
+            id: plan.id.to_string(),
+            plan_name: plan.plan_name,
+            version: plan.version,
+            created_by: plan.created_by.to_string(),
+            trial_duration_days: plan.trial_duration_days,
+            trial_fallback_plan_id: plan.trial_fallback_plan_id.map(|id| id.to_string()),
+            period_start_day: plan.period_start_day.map(|d| d as i32),
+            net_terms: plan.net_terms,
+            currency: plan.currency,
             product_family_id: plan.product_family_id.to_string(),
             product_family_name: plan.product_family_name,
         }

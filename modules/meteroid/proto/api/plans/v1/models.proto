@@ -72,6 +72,21 @@ message ListPlanVersion {
   string currency = 6;
 }
 
+message ListSubscribablePlanVersion {
+  string plan_id = 1;
+  string id = 2;
+  string plan_name = 3;
+  int32 version = 4;
+  string created_by = 5;
+  optional int32 trial_duration_days = 6;
+  optional string trial_fallback_plan_id = 7;
+  optional int32 period_start_day = 8;
+  int32 net_terms = 9;
+  string currency = 10;
+  string product_family_id = 11;
+  string product_family_name = 12;
+}
+
 message Metadata {
   string key = 1;
   string value = 2;
