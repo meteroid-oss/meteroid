@@ -1,15 +1,9 @@
-
-
-
 use uuid::Uuid;
 
-
-use diesel::{Identifiable, Queryable};
 use crate::enums::OrganizationUserRole;
+use diesel::{Identifiable, Insertable, Queryable};
 
-
-
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Queryable, Debug, Identifiable, Insertable)]
 #[diesel(primary_key(user_id, organization_id))]
 #[diesel(table_name = crate::schema::organization_member)]
 pub struct OrganizationMember {

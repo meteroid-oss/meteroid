@@ -17,8 +17,8 @@ impl TenantNew {
         query
             .get_result(conn)
             .await
-            .into_db_result()
             .attach_printable("Error while inserting tenant")
+            .into_db_result()
     }
 
     // if sync mode, we keep all repositories sync and distrib to async conn pool in service
@@ -47,7 +47,7 @@ impl Tenant {
         query
             .first(conn)
             .await
-            .into_db_result()
             .attach_printable("Error while finding tenant by id")
+            .into_db_result()
     }
 }

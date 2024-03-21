@@ -26,8 +26,9 @@ pub mod webhooks;
 
 use diesel_async::pooled_connection::deadpool::Object;
 
+use crate::errors::DatabaseErrorContainer;
 use diesel_async::AsyncPgConnection;
 
-pub type DbResult<T> = error_stack::Result<T, errors::DatabaseError>;
+pub type DbResult<T> = Result<T, DatabaseErrorContainer>;
 
 pub type PgConn = Object<AsyncPgConnection>;

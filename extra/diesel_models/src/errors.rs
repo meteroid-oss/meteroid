@@ -1,7 +1,17 @@
+use crate::DbResult;
 use diesel::result::Error as DieselError;
 use error_stack::{IntoReport, Report, ResultExt};
+use std::error::Error;
 
-pub type DatabaseResult<T> = error_stack::Result<T, DatabaseError>;
+pub struct DatabaseErrorContainer {
+    pub error: error_stack::Report<DatabaseError>,
+}
+
+impl From<Report<DatabaseError>> for DatabaseErrorContainer {
+    fn from(error: Report<DatabaseError>) -> Self {
+        Self { error }
+    }
+}
 
 #[derive(Copy, Clone, Debug, thiserror::Error)]
 pub enum DatabaseError {
@@ -33,22 +43,53 @@ impl From<&diesel::result::Error> for DatabaseError {
         }
     }
 }
+impl From<diesel::result::Error> for DatabaseErrorContainer {
+    fn from(error: diesel::result::Error) -> Self {
+        let db_error = DatabaseError::from(&error);
+        DatabaseErrorContainer {
+            error: Report::from(error).change_context(db_error),
+        }
+    }
+}
 
 pub trait IntoDbResult: Sized {
     type Ok;
-    fn into_db_result(self) -> DatabaseResult<Self::Ok>;
+    fn into_db_result(self) -> DbResult<Self::Ok>;
 }
 
 impl<T> IntoDbResult for Result<T, DieselError> {
     type Ok = T;
-
-    fn into_db_result(self) -> DatabaseResult<T> {
+    fn into_db_result(self) -> DbResult<T> {
         match self {
             Ok(value) => Ok(value),
             Err(err) => {
                 let db_err = DatabaseError::from(&err);
-                Err(Report::from(err)).change_context(db_err)
+                Err(Report::from(err).change_context(db_err)).map_err(DatabaseErrorContainer::from)
             }
         }
+    }
+}
+
+impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
+    type Ok = T;
+    fn into_db_result(self) -> DbResult<T> {
+        match self {
+            Ok(value) => Ok(value),
+            Err(err) => {
+                let db_err = DatabaseError::from(err.current_context());
+                Err(Report::from(err).change_context(db_err)).map_err(DatabaseErrorContainer::from)
+            }
+        }
+    }
+}
+
+impl<E> From<DatabaseErrorContainer> for error_stack::Report<E>
+where
+    E: Send + Sync + std::error::Error + 'static,
+    E: From<DatabaseError>,
+{
+    fn from(container: DatabaseErrorContainer) -> Self {
+        let new_error: E = (*container.error.current_context()).into();
+        container.error.change_context(new_error)
     }
 }

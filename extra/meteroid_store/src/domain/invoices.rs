@@ -1,17 +1,12 @@
-use crate::enums::{
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use diesel_models::enums::{
     InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
 };
-use chrono::offset::Utc;
-use chrono::DateTime;
-use chrono::NaiveDate;
-use chrono::NaiveDateTime;
-use diesel::sql_types::Nullable;
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel_models::invoices::Invoice as DieselInvoice;
+use o2o::o2o;
 use uuid::Uuid;
-
-// TODO harmonize DateTime<utc> / NaiveDateTime
-#[derive(Queryable, Debug, Identifiable)]
-#[diesel(table_name = crate::schema::invoice)]
+#[derive(Debug, o2o)]
+#[from_owned(DieselInvoice)]
 pub struct Invoice {
     pub id: Uuid,
     pub status: InvoiceStatusEnum,
@@ -39,12 +34,14 @@ pub struct Invoice {
     pub finalized_at: Option<NaiveDateTime>,
 }
 
-#[derive(Insertable, Debug)]
-#[diesel(table_name = crate::schema::invoice)]
+#[derive(Debug, o2o)]
+#[owned_into(DieselInvoice)]
+#[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct InvoiceNew {
-    pub id: Uuid,
     pub status: InvoiceStatusEnum,
     pub external_status: Option<InvoiceExternalStatusEnum>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
     pub subscription_id: Uuid,

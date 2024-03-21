@@ -1,15 +1,9 @@
-
-
-
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use diesel::{Identifiable, Insertable, Queryable};
 
-use diesel::{Identifiable, Queryable};
-
-
-
-#[derive(Queryable, Debug)]
+#[derive(Queryable, Debug, Insertable)]
 #[diesel(table_name = crate::schema::slot_transaction)]
 pub struct SlotTransaction {
     pub id: Uuid,

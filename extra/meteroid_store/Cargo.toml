@@ -9,23 +9,17 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { version = "0.4.26", features = ["serde"] }
-diesel = { version = "2.1.0", features = ["postgres", "uuid", "serde_json"] }
-diesel-async = { version = "0.4.1", features = ["postgres", "deadpool"] }
-diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
-diesel_migrations = "2"
-#deadpool-diesel = { version = "0.5.0", features = ["postgres"] }
-#deadpool-postgres.workspace = true
-uuid = { version = "1.4", features = ["fast-rng", "v4", "v7", "serde"] }
-dotenvy = "0.15"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-bigdecimal = "0.4.3"
-o2o = "0.4.1"
-
-##
+chrono.workspace = true
+diesel.workspace = true
+diesel-async.workspace = true
+uuid.workspace = true
+dotenvy.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+bigdecimal.workspace = true
+o2o.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
 diesel-models.workspace = true

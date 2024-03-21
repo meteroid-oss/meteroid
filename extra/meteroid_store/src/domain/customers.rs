@@ -26,8 +26,8 @@ pub struct Customer {
 
 #[derive(Clone, Debug, o2o)]
 #[owned_into(diesel_models::customers::CustomerNew)]
+#[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct CustomerNew {
-    pub id: Uuid,
     pub name: String,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
@@ -40,4 +40,5 @@ pub struct CustomerNew {
     pub balance_currency: String,
     pub billing_address: Option<serde_json::Value>, // TODO avoid json
     pub shipping_address: Option<serde_json::Value>,
+    pub created_at: Option<NaiveDateTime>,
 }
