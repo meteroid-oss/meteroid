@@ -21,7 +21,7 @@ pub struct Plan {
     pub status: PlanStatusEnum,
 }
 
-#[derive(Debug, Insertable)]
+#[derive(Debug, Default, Insertable)]
 #[diesel(table_name = crate::schema::plan)]
 pub struct PlanNew {
     pub id: Uuid,
@@ -31,6 +31,7 @@ pub struct PlanNew {
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
     pub external_id: String,
+
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
 }

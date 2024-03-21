@@ -42,6 +42,8 @@ pub struct CustomerNew {
     pub balance_currency: String,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
+    // for seed
+    pub created_at: Option<NaiveDateTime>,
 }
 
 #[derive(AsChangeset, Debug)]

@@ -18,8 +18,8 @@ impl CustomerNew {
         query
             .get_result(conn)
             .await
-            .into_db_result()
             .attach_printable("Error while inserting customer")
+            .into_db_result()
     }
 }
 
@@ -37,7 +37,7 @@ impl Customer {
         query
             .get_results(conn)
             .await
-            .into_db_result()
             .attach_printable("Error while inserting customer batch")
+            .into_db_result()
     }
 }

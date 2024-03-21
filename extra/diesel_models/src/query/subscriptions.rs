@@ -18,7 +18,27 @@ impl SubscriptionNew {
         query
             .get_result(conn)
             .await
-            .into_db_result()
             .attach_printable("Error while inserting subscription")
+            .into_db_result()
+    }
+}
+
+impl Subscription {
+    pub async fn insert_subscription_batch(
+        conn: &mut PgConn,
+        batch: Vec<SubscriptionNew>,
+    ) -> DbResult<Vec<Subscription>> {
+        use crate::schema::subscription::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(subscription).values(&batch);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while inserting subscription batch")
+            .into_db_result()
     }
 }

@@ -18,7 +18,7 @@ impl PlanNew {
         query
             .get_result(conn)
             .await
-            .into_db_result()
             .attach_printable("Error while inserting plan")
+            .into_db_result()
     }
 }

@@ -24,7 +24,7 @@ pub struct PlanVersion {
     pub billing_periods: Vec<Option<BillingPeriodEnum>>,
 }
 
-#[derive(Debug, Insertable)]
+#[derive(Debug, Insertable, Default)]
 #[diesel(table_name = crate::schema::plan_version)]
 pub struct PlanVersionNew {
     pub id: Uuid,

@@ -1,5 +1,4 @@
 use crate::errors;
-use crate::errors::db_error_to_store;
 use crate::store::Store;
 use crate::{domain, StoreResult};
 use diesel_async::AsyncConnection;
@@ -24,12 +23,9 @@ impl CustomersInterface for Store {
         let insertable_batch: Vec<diesel_models::customers::CustomerNew> =
             batch.into_iter().map(|c| c.into()).collect();
 
-        let res =
-            diesel_models::customers::Customer::insert_customer_batch(&mut conn, insertable_batch)
-                .await
-                .map_err(db_error_to_store)
-                .map(|v| v.into_iter().map(Into::into).collect())?;
-
-        Ok(res)
+        diesel_models::customers::Customer::insert_customer_batch(&mut conn, insertable_batch)
+            .await
+            .map_err(Into::into)
+            .map(|v| v.into_iter().map(Into::into).collect())
     }
 }

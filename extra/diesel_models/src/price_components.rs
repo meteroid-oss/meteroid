@@ -13,7 +13,7 @@ pub struct PriceComponent {
     pub billable_metric_id: Option<Uuid>,
 }
 
-#[derive(Debug, Insertable)]
+#[derive(Debug, Default, Insertable)]
 #[diesel(table_name = crate::schema::price_component)]
 pub struct PriceComponentNew {
     pub id: Uuid,
