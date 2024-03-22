@@ -318,6 +318,34 @@ ORDER BY
 LIMIT
   :limit OFFSET :offset;
 
+--: ListSubscribablePlanVersion(trial_duration_days?, trial_fallback_plan_id?, period_start_day?)
+--! list_subscribable_plan_version : ListSubscribablePlanVersion
+SELECT
+    DISTINCT ON(plan_version.plan_id)
+    plan_version.plan_id,
+    plan_version.id,
+    plan.name as plan_name,
+    plan_version.version,
+    plan_version.created_by,
+    plan_version.trial_duration_days,
+    plan_version.trial_fallback_plan_id,
+    plan_version.period_start_day,
+    plan_version.net_terms,
+    plan_version.currency,
+    product_family.id as product_family_id,
+    product_family.name as product_family_name
+FROM
+    plan_version
+JOIN
+    plan ON plan_version.plan_id = plan.id
+JOIN
+    product_family ON plan.product_family_id = product_family.id
+WHERE
+    NOT plan_version.is_draft_version
+    AND plan_version.tenant_id = :tenant_id
+ORDER BY
+    plan_version.plan_id, plan_version.version DESC, plan_version.created_at DESC;
+
 --! last_plan_version(is_draft?) : PlanVersion
 SELECT
     id,

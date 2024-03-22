@@ -17,7 +17,7 @@ const formFieldVariants = cva('', {
   variants: {
     layout: {
       vertical: '',
-      horizontal: 'space-y-0 grid gap-2 md:grid md:grid-cols-12',
+      horizontal: 'space-y-0 grid gap-2 md:grid md:grid-cols-12 items-center',
     },
   },
 })
