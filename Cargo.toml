@@ -86,7 +86,7 @@ rand = "0.8.5"
 rdkafka = "0.36.0"
 reqwest = { version = "0.11.22", default-features = false }
 reqwest-middleware = "0.2.4"
-reqwest-retry = "0.3.0"
+reqwest-retry = "0.4.0"
 regex = "1"
 ring = "0.17.4"
 rust_decimal = "1.32.0"
