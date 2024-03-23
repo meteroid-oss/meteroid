@@ -19,6 +19,7 @@
     }
   ],
   "schemes": [
+    "http",
     "https"
   ],
   "consumes": [
@@ -547,5 +548,23 @@
       ],
       "default": "PENDING"
     }
-  }
+  },
+  "securityDefinitions": {
+    "ApiKeyAuth": {
+      "type": "apiKey",
+      "name": "x-api-key",
+      "in": "header"
+    },
+    "BearerAuth": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header"
+    }
+  },
+  "security": [
+    {
+      "ApiKeyAuth": [],
+      "BearerAuth": []
+    }
+  ]
 }

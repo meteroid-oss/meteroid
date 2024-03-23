@@ -19,6 +19,22 @@ types:
 managed:
   enabled: true
 plugins:
+  # generates proto messages
+  - plugin: buf.build/protocolbuffers/go:v1.31.0
+    out: modules/meteroid/gateway
+    #opt:
+    #  - paths=source_relative
+  # generates go client/server stubs
+  - plugin: buf.build/grpc/go:v1.3.0
+    out: modules/meteroid/gateway
+    #opt:
+    #  - paths=source_relative
+  # generates gateway related code
+  - plugin: buf.build/grpc-ecosystem/gateway:v2.16.2
+    out: modules/meteroid/gateway
+    #opt:
+    #  - paths=source_relative
+  # generates openapi spec
   - plugin: buf.build/grpc-ecosystem/openapiv2:v2.19.1
     out: modules/meteroid/openapiv2
     opt:

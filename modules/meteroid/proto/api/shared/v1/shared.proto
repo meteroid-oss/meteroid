@@ -22,9 +22,37 @@ option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
       url: "https://github.com/meteroid-oss/meteroid/?tab=AGPL-3.0-1-ov-file";
     };
   };
-  schemes: HTTPS;
+  schemes: [HTTP, HTTPS];
   consumes: "application/json";
   produces: "application/json";
+  security_definitions: {
+    security: {
+      key: "ApiKeyAuth";
+      value: {
+        type: TYPE_API_KEY;
+        in: IN_HEADER;
+        name: "x-api-key";
+      }
+    }
+    security: {
+      key: "BearerAuth";
+      value: {
+        type: TYPE_API_KEY;
+        in: IN_HEADER;
+        name: "Authorization";
+      }
+    }
+  }
+  security: {
+    security_requirement: {
+      key: "ApiKeyAuth"
+      value: {}
+    }
+    security_requirement: {
+      key: "BearerAuth"
+      value: {}
+    }
+  }
 };
 
 enum BillingPeriod {
