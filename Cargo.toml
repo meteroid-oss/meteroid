@@ -29,7 +29,7 @@ members = [
 [workspace.package]
 license = "AGPL-3.0-only"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.77"
 repository = "https://github.com/meteroid-oss/meteroid"
 
 [workspace.dependencies]
@@ -165,11 +165,3 @@ common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }
 metering = { path = "modules/metering" }
-
-
-# temporary profile while dropping async_stripe
-[profile.temp]
-inherits = "release"
-opt-level = 0
-lto = "off"
-codegen-units = 256
