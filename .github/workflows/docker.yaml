@@ -95,7 +95,7 @@ jobs:
             MOLD_ARCH=${{ matrix.mold_arch }}
             PROTO_ARCH=${{ matrix.proto_arch }}
             GRPC_HEALTH_PROBE_ARCH=${{ matrix.grpc_health_probe_arch }}
-            PROFILE=temp
+            PROFILE=release
             CI=${{ env.CI }}
           push: true
           tags: |
