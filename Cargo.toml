@@ -128,7 +128,7 @@ tracing = "0.1.39"
 tracing-log = "0.2.0"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.17", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
-tracing-opentelemetry = { version = "0.22.0" }
+tracing-opentelemetry = { version = "0.23.0" }
 init-tracing-opentelemetry = { version = "0.16.0", features = ["tracing_subscriber_ext"] }
 opentelemetry = { version = "0.21.0", features = ["metrics", "trace", "logs"] }
 opentelemetry_sdk = { version = "0.21.0", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
