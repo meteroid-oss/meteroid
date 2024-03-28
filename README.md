@@ -64,7 +64,6 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 
 <br/>
 
-<div align="center" flex>
 
 
 > [!WARNING]
