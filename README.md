@@ -66,12 +66,6 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 
 
 
-> [!WARNING]
->
-> Meteroid is in **ALPHA**, and is to be considered unstable.
->
-> We are working fulltime on a stable release.
-
 
 ## How It Works
 
@@ -84,6 +78,7 @@ Our platform simplifies the creation, scaling and maintenance of complex billing
 <img
 src="assets/meteroid-schema-4.webp"
 alt="Meteroid Schema"
+width="640"
 />
 
 
@@ -103,9 +98,14 @@ Our focus on Product-Led Growth (PLG) reflects our commitment to creating produc
 This approach, combined with our open philosophy, guides us toward creating a more inclusive, sustainable future for the SaaS industries.
 
 
-
-
 ## Developer Guide
+
+> [!WARNING]
+>
+> Meteroid is in **ALPHA**, and is to be considered unstable.
+>
+> We are working fulltime on a stable release.
+
 
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
 
