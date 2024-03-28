@@ -39,10 +39,6 @@
 </p>
 
 
-<h4 align="center">
-  Open-source alternative to Chargebee, Metronome, Orb, Stripe Billing, made for growth, scale and extensibility !
-</h4>
-
 <div>
 <span>
 
