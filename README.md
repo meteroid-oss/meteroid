@@ -26,7 +26,7 @@
   <a href="CODE_OF_CONDUCT.md">
     <img src="https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg" alt="Code of conduct">
   </a>
-  <a href="LICENSE.md">
+  <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-AGPL%20V3-blue" alt="AGPL V3">
   </a>
   <a href="https://go.meteroid.com/discord?utm_source=github">
@@ -62,6 +62,9 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
   <img src="assets/meteroid-banner.png" alt="Meteroid Billing Infrastructure Banner" width="640" >
 </p>
 
+<a href="https://meteroid.com/talk-to-us">
+  Talk to us !
+</a>
 <br/>
 
 
@@ -75,11 +78,13 @@ This data fuels the Meteroid billing engine, applying your custom pricing models
 Our platform simplifies the creation, scaling and maintenance of complex billing models, automates invoice generation, and provides *clear, actionable insights* for achieving your KPIs.
 
 
+<p align="center">
 <img
 src="assets/meteroid-schema-4.webp"
 alt="Meteroid Schema"
 width="640"
 />
+</p>
 
 
 ## For whom ?
