@@ -46,7 +46,7 @@ build-info-build = "0.0.36"
 bytes = "1.5.0"
 cached = "0.49.2"
 chrono = { version = "0.4.31", default-features = false }
-chrono-tz = { version = "0.8.5" }
+chrono-tz = { version = "0.9.0" }
 chacha20poly1305 = "0.10.1"
 # cornucopia is on 0.10.x
 deadpool-postgres = "0.12.1"
