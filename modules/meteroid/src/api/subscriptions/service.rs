@@ -1,6 +1,3 @@
-
-
-
 use tonic::{Request, Response, Status};
 
 
@@ -16,24 +13,13 @@ use meteroid_grpc::meteroid::api::subscriptions::v1_2::{
     UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
-
 use meteroid_store::domain;
-use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
+use meteroid_store::repositories::subscriptions::{CancellationEffectiveAt, SubscriptionSlotsInterface};
 use meteroid_store::repositories::{SubscriptionInterface};
-
 
 use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::api::subscriptions::{mapping, SubscriptionServiceComponents};
 use crate::api::utils::{parse_uuid, parse_uuid_opt};
-// use crate::compute::clients::subscription::SubscriptionClient;
-// use crate::compute::fees::shared::CadenceExtractor;
-// use crate::compute::fees::ComputeInvoiceLine;
-
-
-
-
-
-
 
 use crate::parse_uuid;
 
@@ -187,8 +173,30 @@ impl SubscriptionService for SubscriptionServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn cancel_subscription(
         &self,
-        _request: Request<CancelSubscriptionRequest>,
+        request: Request<CancelSubscriptionRequest>,
     ) -> Result<Response<CancelSubscriptionResponse>, Status> {
-        todo!()
+        let tenant_id = request.tenant()?;
+        let actor = request.actor()?;
+        let inner = request.into_inner();
+
+
+        let subscription = self.store.cancel_subscription(
+            parse_uuid!(inner.subscription_id)?,
+            inner.reason,
+            CancellationEffectiveAt::EndOfBillingPeriod,
+            domain::TenantContext {
+                tenant_id,
+                actor,
+            },
+        ).await.map_err(|err| {
+            SubscriptionApiError::StoreError(
+                "Failed to cancel subscription".to_string(),
+                err,
+            )
+        })?;
+
+        mapping::subscriptions::domain_to_proto(subscription)
+            .map(|s| Response::new(CancelSubscriptionResponse { subscription: Some(s) }))
+            .map_err(Into::<Status>::into)
     }
 }

@@ -59,7 +59,7 @@ pub trait SubscriptionInterface {
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
-    ) -> StoreResult<()>;
+    ) -> StoreResult<domain::Subscription>;
 
     async fn list_subscriptions(
         &self,
@@ -154,7 +154,6 @@ impl SubscriptionSlotsInterface for Store {
         _slots: i32,
     ) -> StoreResult<i32> {
         todo!()
-
         /*
         sequenceDiagram
             participant User
@@ -451,8 +450,8 @@ impl SubscriptionInterface for Store {
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
-    ) -> StoreResult<()> {
-        self.transaction(|conn| {
+    ) -> StoreResult<domain::Subscription> {
+        let db_subscription = self.transaction(|conn| {
             async move {
                 let subscription: SubscriptionDetails = self
                     .get_subscription_details(context.tenant_id, subscription_id)
@@ -479,6 +478,15 @@ impl SubscriptionInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
+
+                let res = diesel_models::subscriptions::Subscription::get_subscription_by_id(
+                    conn,
+                    &context.tenant_id,
+                    &subscription_id,
+                )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
                 let mrr = subscription.mrr_cents;
 
                 let event = diesel_models::subscription_events::SubscriptionEvent {
@@ -495,13 +503,18 @@ impl SubscriptionInterface for Store {
                 event
                     .insert(conn)
                     .await
-                    .map_err(Into::<Report<StoreError>>::into)
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(res)
             }
                 .scope_boxed()
         })
             .await?;
 
-        Ok(())
+        let subscription: domain::Subscription = db_subscription.into();
+
+
+        Ok(subscription)
     }
 
     async fn list_subscriptions(

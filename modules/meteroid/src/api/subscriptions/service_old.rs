@@ -1,3 +1,12 @@
+/*
+
+
+Kept for reference until the EventBus is implemented in the service, and the Slot transaction is implemented
+
+
+ */
+
+
 // use cornucopia_async::{GenericClient, Params};
 // use time::Time;
 // use tonic::{Request, Response, Status};

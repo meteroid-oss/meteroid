@@ -58,37 +58,6 @@ pub struct Paginated<T> {
     offset: i64,
 }
 
-//
-// impl<'a, T: Query + 'a> Paginated<T> {
-//     pub fn per_page(self, per_page: i64) -> Self {
-//         Paginated {
-//             per_page,
-//             offset: (self.page - 1) * per_page,
-//             ..self
-//         }
-//     }
-//
-//     pub async fn load_and_count_pages<U>(
-//         self,
-//         conn: &mut AsyncPgConnection,
-//     ) -> QueryResult<PaginatedVec<U>>
-//         where
-//             Self: LoadQuery<'a, AsyncPgConnection, (U, i64)>,
-//             U: Send,
-//     {
-//         let per_page = self.per_page;
-//         let results = self.load::<(U, i64)>(conn).await?;
-//         let total = results.get(0).map(|x| x.1).unwrap_or(0);
-//         let records = results.into_iter().map(|x| x.0).collect();
-//         let total_pages = (total as f64 / per_page as f64).ceil() as i64;
-//         Ok(PaginatedVec {
-//             items: records,
-//             total_pages: total_pages as u32,
-//             total_results: total as u64,
-//         })
-//     }
-// }
-//
 
 impl<T> Paginated<T> {
     pub fn per_page(self, per_page: u32) -> Self {
@@ -105,11 +74,11 @@ impl<T> Paginated<T> {
     pub fn load_and_count_pages<'a, U>(
         self,
         conn: &'a mut AsyncPgConnection,
-    ) -> impl std::future::Future<Output = QueryResult<PaginatedVec<U>>> + Send + 'a
-    where
-        Self: LoadQuery<'a, AsyncPgConnection, (U, i64)> + 'a,
-        U: Send + 'a,
-        T: 'a,
+    ) -> impl std::future::Future<Output=QueryResult<PaginatedVec<U>>> + Send + 'a
+        where
+            Self: LoadQuery<'a, AsyncPgConnection, (U, i64)> + 'a,
+            U: Send + 'a,
+            T: 'a,
     {
         // Ignore those linting errors. `get(0)` cannot be replaced with `first()`.
         #![allow(clippy::get_first)]
@@ -142,8 +111,8 @@ impl<T> diesel::RunQueryDsl<PgConnection> for Paginated<T> {}
 impl<T> diesel::RunQueryDsl<AsyncPgConnection> for Paginated<T> {}
 
 impl<T> QueryFragment<Pg> for Paginated<T>
-where
-    T: QueryFragment<Pg>,
+    where
+        T: QueryFragment<Pg>,
 {
     fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Pg>) -> QueryResult<()> {
         out.push_sql("SELECT *, COUNT(*) OVER () FROM (");

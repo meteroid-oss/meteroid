@@ -152,15 +152,9 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
             inserted.subscription_id,
             mrr_delta_cents,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
 }
 
-// to calculate the mrr :
-// either the component has a fixed mrr. Then we use that.
-// or the component has a unit_mrr and unit_id, and we can the fetch the quantity from the unit transaction table.
-// Alternatively, we consider that subscription.mrr is always up to date, and we just process the unit transaction logs every day.
-// => actually there's no mrr change until there is a finalized invoice, so no cron needed.
-// we can just use the subscription events as projected mrr changes.

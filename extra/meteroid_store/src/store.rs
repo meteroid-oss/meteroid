@@ -17,21 +17,8 @@ pub struct Store {
 }
 
 pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
-    // let db_url = format!(
-    //     "postgres://{}:{}@{}:{}/{}",
-    //     database.username,
-    //     database.password.peek(),
-    //     database.host,
-    //     database.port,
-    //     database.dbname
-    // );
     let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(db_url);
     let builder = Pool::builder(manager);
-    // .max_size(database.pool_size)
-    // .min_idle(database.min_idle)
-    // .queue_strategy(database.queue_strategy.into())
-    // .connection_timeout(std::time::Duration::from_secs(database.connection_timeout))
-    // .max_lifetime(database.max_lifetime.map(std::time::Duration::from_secs))
 
     builder
         .build()
@@ -60,14 +47,14 @@ impl Store {
             .attach_printable("Failed to get a connection from the pool")
     }
     pub(crate) async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
-    where
-        F: for<'r> FnOnce(
+        where
+            F: for<'r> FnOnce(
                 &'r mut PgConn,
             )
                 -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
             + Send
             + 'a,
-        R: Send + 'a,
+            R: Send + 'a,
     {
         let mut conn = self.get_conn().await?;
 
@@ -79,14 +66,14 @@ impl Store {
         conn: &mut PgConn,
         callback: F,
     ) -> StoreResult<R>
-    where
-        F: for<'r> FnOnce(
+        where
+            F: for<'r> FnOnce(
                 &'r mut PgConn,
             )
                 -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
             + Send
             + 'a,
-        R: Send + 'a,
+            R: Send + 'a,
     {
         let result = conn
             .transaction(|conn| {
@@ -94,7 +81,7 @@ impl Store {
                     let res = callback(conn);
                     res.await.map_err(StoreError::TransactionStoreError)
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await?;
 

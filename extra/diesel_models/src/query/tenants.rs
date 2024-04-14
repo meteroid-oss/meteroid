@@ -20,20 +20,6 @@ impl TenantNew {
             .attach_printable("Error while inserting tenant")
             .into_db_result()
     }
-
-    // if sync mode, we keep all repositories sync and distrib to async conn pool in service
-    // pub fn insert<C>(&self, conn: &mut C) -> DbResult<Tenant>
-    //     where
-    //         C: diesel::Connection,
-    // {
-    //     use diesel::prelude::*;
-    //
-    //     let query = diesel::insert_into(tenant::table).values(self);
-    //     query
-    //         .get_result(conn)
-    //         .into_db_result()
-    //         .attach_printable("Error while inserting tenant")
-    // }
 }
 
 impl Tenant {

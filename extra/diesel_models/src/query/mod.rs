@@ -19,10 +19,3 @@ pub mod subscriptions;
 pub mod tenants;
 pub mod users;
 
-// diesel reexports. Used to avoid importing the QueryDSL
-// mod diesel_reexports {
-//     pub use diesel::{
-//         dsl::exists, pg::Pg, result::Error, sql_types, BoolExpressionMethods, BoxableExpression,
-//         ExpressionMethods, IntoSql, JoinOnDsl, NullableExpressionMethods, QueryDsl
-//     };
-// }
