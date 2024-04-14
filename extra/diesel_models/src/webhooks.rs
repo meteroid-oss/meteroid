@@ -3,7 +3,7 @@ use chrono::offset::Utc;
 use chrono::DateTime;
 use chrono::NaiveDateTime;
 
-use diesel::{Queryable};
+use diesel::Queryable;
 use uuid::Uuid;
 
 #[derive(Queryable, Debug)]

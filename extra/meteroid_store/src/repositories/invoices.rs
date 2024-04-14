@@ -152,9 +152,8 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
             inserted.subscription_id,
             mrr_delta_cents,
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
 }
-

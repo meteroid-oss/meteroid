@@ -10,7 +10,6 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 
-
 mod error;
 mod mapping;
 mod service;

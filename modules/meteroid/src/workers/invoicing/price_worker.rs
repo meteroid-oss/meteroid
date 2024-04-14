@@ -18,7 +18,6 @@ use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::{future::join_all, stream::StreamExt};
 
-
 use meteroid_store::Store;
 use tokio::sync::Semaphore;
 
@@ -48,14 +47,14 @@ impl AsyncRunnable for PriceWorker {
             get_store().clone(),
             MeteringClient::get().clone(),
         )
-            .timed(|res, elapsed| record_call("price", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in price worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        .timed(|res, elapsed| record_call("price", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in price worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -129,7 +128,7 @@ pub async fn price_worker(
                         &connection,
                         store.clone(),
                     )
-                        .await;
+                    .await;
                     if let Err(e) = result {
                         // TODO this will retry, but we need to track/alert
                         log::error!("Failed to process invoice with id {} : {}", &invoice.id, e)

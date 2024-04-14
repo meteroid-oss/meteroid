@@ -43,7 +43,8 @@ pub async fn start_meteroid_with_port(
 
     let pool = meteroid_repository::create_pool(&config.database_url);
 
-    let _store = meteroid_store::Store::new(config.database_url.clone()).expect("Could not create store");
+    let _store =
+        meteroid_store::Store::new(config.database_url.clone()).expect("Could not create store");
 
     populate_postgres(pool.clone(), seed_level).await;
 
@@ -108,7 +109,7 @@ pub async fn start_meteroid(
         postgres_connection_string,
         seed_level,
     )
-        .await
+    .await
 }
 
 // TODO check if that replaces terminate_meteroid

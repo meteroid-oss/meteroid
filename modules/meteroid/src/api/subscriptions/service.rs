@@ -1,8 +1,6 @@
 use tonic::{Request, Response, Status};
 
-
 use common_grpc::middleware::server::auth::RequestExt;
-
 
 use meteroid_grpc::meteroid::api::subscriptions::v1_2::subscription_service_server::SubscriptionService;
 
@@ -14,8 +12,10 @@ use meteroid_grpc::meteroid::api::subscriptions::v1_2::{
 };
 
 use meteroid_store::domain;
-use meteroid_store::repositories::subscriptions::{CancellationEffectiveAt, SubscriptionSlotsInterface};
-use meteroid_store::repositories::{SubscriptionInterface};
+use meteroid_store::repositories::subscriptions::{
+    CancellationEffectiveAt, SubscriptionSlotsInterface,
+};
+use meteroid_store::repositories::SubscriptionInterface;
 
 use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::api::subscriptions::{mapping, SubscriptionServiceComponents};
@@ -179,24 +179,25 @@ impl SubscriptionService for SubscriptionServiceComponents {
         let actor = request.actor()?;
         let inner = request.into_inner();
 
-
-        let subscription = self.store.cancel_subscription(
-            parse_uuid!(inner.subscription_id)?,
-            inner.reason,
-            CancellationEffectiveAt::EndOfBillingPeriod,
-            domain::TenantContext {
-                tenant_id,
-                actor,
-            },
-        ).await.map_err(|err| {
-            SubscriptionApiError::StoreError(
-                "Failed to cancel subscription".to_string(),
-                err,
+        let subscription = self
+            .store
+            .cancel_subscription(
+                parse_uuid!(inner.subscription_id)?,
+                inner.reason,
+                CancellationEffectiveAt::EndOfBillingPeriod,
+                domain::TenantContext { tenant_id, actor },
             )
-        })?;
+            .await
+            .map_err(|err| {
+                SubscriptionApiError::StoreError("Failed to cancel subscription".to_string(), err)
+            })?;
 
         mapping::subscriptions::domain_to_proto(subscription)
-            .map(|s| Response::new(CancelSubscriptionResponse { subscription: Some(s) }))
+            .map(|s| {
+                Response::new(CancelSubscriptionResponse {
+                    subscription: Some(s),
+                })
+            })
             .map_err(Into::<Status>::into)
     }
 }

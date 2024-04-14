@@ -1,5 +1,5 @@
 use chrono::{Datelike, Days, NaiveDate};
-use error_stack::{ResultExt};
+use error_stack::ResultExt;
 use fake::Fake;
 use meteroid_store::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum, PlanStatusEnum,
@@ -18,7 +18,6 @@ use meteroid_store::Store;
 use fake::faker::company::en::CompanyName;
 use fake::faker::internet::en::SafeEmail;
 
-
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
@@ -29,9 +28,7 @@ use crate::compute::InvoiceEngine;
 
 use chrono::Utc;
 
-
 use nanoid::nanoid;
-
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -75,7 +72,6 @@ pub async fn run(
         .change_context(SeederError::TempError)?;
 
     log::info!("Created product family '{}'", &product_family.name);
-
 
     let mut created_plans = vec![];
 

@@ -37,7 +37,7 @@ pub struct CursorPaginationRequest {
 }
 
 impl Into<diesel_models::extend::cursor_pagination::CursorPaginationRequest>
-for CursorPaginationRequest
+    for CursorPaginationRequest
 {
     fn into(self) -> diesel_models::extend::cursor_pagination::CursorPaginationRequest {
         diesel_models::extend::cursor_pagination::CursorPaginationRequest {
@@ -54,7 +54,7 @@ pub struct CursorPaginatedVec<T> {
 }
 
 impl<T> Into<CursorPaginatedVec<T>>
-for diesel_models::extend::cursor_pagination::CursorPaginatedVec<T>
+    for diesel_models::extend::cursor_pagination::CursorPaginatedVec<T>
 {
     fn into(self) -> CursorPaginatedVec<T> {
         CursorPaginatedVec {

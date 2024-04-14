@@ -12,7 +12,7 @@ use time::Date;
 
 use crate::eventbus::{Event, EventBus, EventBusStatic};
 use meteroid_repository::subscriptions::SubscriptionToInvoice;
-use meteroid_store::domain::enums::{BillingPeriodEnum};
+use meteroid_store::domain::enums::BillingPeriodEnum;
 
 const BATCH_SIZE: usize = 100;
 

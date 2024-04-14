@@ -38,14 +38,14 @@ impl AsyncRunnable for FinalizeWorker {
             eventbus.clone(),
             get_store().clone(),
         )
-            .timed(|res, elapsed| record_call("finalize", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in finalize worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        .timed(|res, elapsed| record_call("finalize", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in finalize worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -118,7 +118,7 @@ pub async fn finalize_worker(
                         &connection,
                         store,
                     )
-                        .await;
+                    .await;
 
                     if result.is_ok() {
                         result = db::invoices::update_invoice_status()

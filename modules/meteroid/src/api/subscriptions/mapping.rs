@@ -1,7 +1,6 @@
 pub mod subscriptions {
     use chrono::{NaiveDate, NaiveDateTime};
 
-
     use meteroid_store::domain;
 
     use crate::services::subscription::ext::DbSubscriptionExt;
@@ -11,7 +10,6 @@ pub mod subscriptions {
     use crate::api::shared::conversions::*;
 
     use meteroid_grpc::meteroid::api::subscriptions::v1_2 as proto2;
-
 
     pub(crate) fn domain_to_proto(
         s: meteroid_store::domain::Subscription,
@@ -267,7 +265,6 @@ mod price_components {
         }
     }
 
-
     fn subscription_component_new_internal_from_grpc(
         component: api::SubscriptionComponentNewInternal,
     ) -> Result<domain::SubscriptionComponentNewInternal> {
@@ -286,7 +283,6 @@ mod price_components {
             is_override: false,
         })
     }
-
 
     pub fn subscription_component_to_grpc(
         component: &domain::SubscriptionComponent,
@@ -406,7 +402,6 @@ mod price_components {
             flat_cap: tier.flat_cap.map(|cap| cap.as_proto()),
         }
     }
-
 
     pub fn subscription_fee_from_grpc(
         grpc_fee: &Option<api::SubscriptionFee>,

@@ -6,7 +6,6 @@ use crate::compute::errors::ComputeError;
 
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 
-
 #[async_trait::async_trait]
 pub trait SlotClient {
     async fn fetch_slots(

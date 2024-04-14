@@ -12,7 +12,7 @@ use common_utils::decimal::ToCent;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use diesel_models::errors::DatabaseErrorContainer;
-use error_stack::{Report};
+use error_stack::Report;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -219,8 +219,8 @@ impl SubscriptionInterface for Store {
                     .map(|c| c.subscription.plan_version_id)
                     .collect::<Vec<_>>(),
             )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         // map the price compoennts thanks to .try_into
         let price_components_by_plan_version: HashMap<Uuid, Vec<domain::PriceComponent>> =
@@ -342,8 +342,8 @@ impl SubscriptionInterface for Store {
             &tenant_id,
             &subscription_id,
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: domain::Subscription = db_subscription.into();
 
@@ -353,11 +353,11 @@ impl SubscriptionInterface for Store {
                 &tenant_id,
                 &subscription_id,
             )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|s| s.into())
-                .collect();
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
 
         let subscription_components: Vec<domain::SubscriptionComponent> =
             diesel_models::subscription_components::SubscriptionComponent::list_subscription_components_by_subscription(
@@ -382,11 +382,11 @@ impl SubscriptionInterface for Store {
                 &metric_ids,
                 &subscription.tenant_id,
             )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|m| m.into())
-                .collect();
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|m| m.into())
+            .collect();
 
         Ok(domain::SubscriptionDetails {
             id: subscription.id,
@@ -451,68 +451,67 @@ impl SubscriptionInterface for Store {
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
     ) -> StoreResult<domain::Subscription> {
-        let db_subscription = self.transaction(|conn| {
-            async move {
-                let subscription: SubscriptionDetails = self
-                    .get_subscription_details(context.tenant_id, subscription_id)
-                    .await?;
+        let db_subscription = self
+            .transaction(|conn| {
+                async move {
+                    let subscription: SubscriptionDetails = self
+                        .get_subscription_details(context.tenant_id, subscription_id)
+                        .await?;
 
-                let now = chrono::Utc::now().naive_utc();
+                    let now = chrono::Utc::now().naive_utc();
 
-                let billing_end_date: NaiveDate = match effective_at {
-                    CancellationEffectiveAt::EndOfBillingPeriod => subscription
-                        .calculate_cancellable_end_of_period_date(now.date())
-                        .ok_or(Report::from(StoreError::CancellationError))?,
-                };
+                    let billing_end_date: NaiveDate = match effective_at {
+                        CancellationEffectiveAt::EndOfBillingPeriod => subscription
+                            .calculate_cancellable_end_of_period_date(now.date())
+                            .ok_or(Report::from(StoreError::CancellationError))?,
+                    };
 
-                diesel_models::subscriptions::Subscription::cancel_subscription(
-                    conn,
-                    diesel_models::subscriptions::CancelSubscriptionParams {
-                        subscription_id: subscription_id.clone(),
-                        tenant_id: context.tenant_id,
-                        billing_end_date,
-                        canceled_at: now,
-                        reason,
-                    },
-                )
+                    diesel_models::subscriptions::Subscription::cancel_subscription(
+                        conn,
+                        diesel_models::subscriptions::CancelSubscriptionParams {
+                            subscription_id: subscription_id.clone(),
+                            tenant_id: context.tenant_id,
+                            billing_end_date,
+                            canceled_at: now,
+                            reason,
+                        },
+                    )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-
-                let res = diesel_models::subscriptions::Subscription::get_subscription_by_id(
-                    conn,
-                    &context.tenant_id,
-                    &subscription_id,
-                )
+                    let res = diesel_models::subscriptions::Subscription::get_subscription_by_id(
+                        conn,
+                        &context.tenant_id,
+                        &subscription_id,
+                    )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let mrr = subscription.mrr_cents;
+                    let mrr = subscription.mrr_cents;
 
-                let event = diesel_models::subscription_events::SubscriptionEvent {
-                    id: Uuid::now_v7(),
-                    subscription_id,
-                    event_type: SubscriptionEventType::Cancelled.into(),
-                    details: None, // TODO reason etc
-                    created_at: chrono::Utc::now().naive_utc(),
-                    mrr_delta: Some(-(mrr as i64)),
-                    bi_mrr_movement_log_id: None,
-                    applies_to: billing_end_date,
-                };
+                    let event = diesel_models::subscription_events::SubscriptionEvent {
+                        id: Uuid::now_v7(),
+                        subscription_id,
+                        event_type: SubscriptionEventType::Cancelled.into(),
+                        details: None, // TODO reason etc
+                        created_at: chrono::Utc::now().naive_utc(),
+                        mrr_delta: Some(-(mrr as i64)),
+                        bi_mrr_movement_log_id: None,
+                        applies_to: billing_end_date,
+                    };
 
-                event
-                    .insert(conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    event
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(res)
-            }
+                    Ok(res)
+                }
                 .scope_boxed()
-        })
+            })
             .await?;
 
         let subscription: domain::Subscription = db_subscription.into();
-
 
         Ok(subscription)
     }
@@ -533,8 +532,8 @@ impl SubscriptionInterface for Store {
             plan_id,
             pagination.into(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Subscription> = PaginatedVec {
             items: db_subscriptions

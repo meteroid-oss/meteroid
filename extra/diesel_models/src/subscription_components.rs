@@ -29,4 +29,3 @@ pub struct SubscriptionComponentNew {
     // pub mrr_value: Option<Decimal>,
     pub fee: serde_json::Value,
 }
-

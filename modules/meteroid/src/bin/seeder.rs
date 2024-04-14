@@ -1,8 +1,6 @@
 use std::env;
 
-
 use tokio::signal;
-
 
 use common_logging::init::init_regular_logging;
 use error_stack::ResultExt;
