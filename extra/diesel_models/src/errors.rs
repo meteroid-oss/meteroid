@@ -1,7 +1,6 @@
 use crate::DbResult;
 use diesel::result::Error as DieselError;
-use error_stack::{IntoReport, Report, ResultExt};
-use std::error::Error;
+use error_stack::{Report};
 
 pub struct DatabaseErrorContainer {
     pub error: error_stack::Report<DatabaseError>,
@@ -43,6 +42,7 @@ impl From<&diesel::result::Error> for DatabaseError {
         }
     }
 }
+
 impl From<diesel::result::Error> for DatabaseErrorContainer {
     fn from(error: diesel::result::Error) -> Self {
         let db_error = DatabaseError::from(&error);
@@ -84,9 +84,9 @@ impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
 }
 
 impl<E> From<DatabaseErrorContainer> for error_stack::Report<E>
-where
-    E: Send + Sync + std::error::Error + 'static,
-    E: From<DatabaseError>,
+    where
+        E: Send + Sync + std::error::Error + 'static,
+        E: From<DatabaseError>,
 {
     fn from(container: DatabaseErrorContainer) -> Self {
         let new_error: E = (*container.error.current_context()).into();

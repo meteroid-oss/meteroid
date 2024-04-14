@@ -1,4 +1,5 @@
-use crate::compute::fees::shared::NaiveDateExt;
+use common_utils::date::NaiveDateExt;
+
 use chrono::{Datelike, Months, NaiveDate};
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 

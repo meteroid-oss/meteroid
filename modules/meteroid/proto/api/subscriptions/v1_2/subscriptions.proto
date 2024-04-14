@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package meteroid.api.subscriptions.v1_2;
+
+
+import "api/subscriptions/v1_2/models.proto";
+
+
+message CreateSubscriptionsRequest {
+  repeated CreateSubscription subscriptions = 1;
+}
+
+message CreateSubscriptionsResponse {
+  repeated CreatedSubscription subscriptions = 1;
+}
+
+message GetSubscriptionDetailsRequest {
+  string subscription_id = 1;
+}
+
+message GetSubscriptionDetailsResponse {
+  SubscriptionDetails subscription = 1;
+}
+
+
+
+message CancelSubscriptionRequest {
+  string subscription_id = 1;
+  optional string reason = 2;
+  string effective_at = 3;
+}
+
+message CancelSubscriptionResponse {
+  Subscription subscription = 1;
+}
+
+
+message PaginationRequest {
+  uint32 page = 1;
+  uint32 per_page = 2;
+}
+
+message PaginationResponse {
+  uint32 total_pages = 1;
+  uint64 total_items = 2;
+}
+
+message ListSubscriptionsRequest {
+  optional string customer_id = 1;
+  optional string plan_id = 2;
+  PaginationRequest pagination = 3;
+}
+
+message ListSubscriptionsResponse {
+  repeated Subscription subscriptions = 1;
+  PaginationResponse pagination = 2;
+}
+
+
+message UpdateSlotsRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+  int32 delta = 3;
+}
+
+message UpdateSlotsResponse {
+  uint32 current_value = 1;
+}
+
+message GetSlotsValueRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+}
+
+message GetSlotsValueResponse {
+  uint32 current_value = 1;
+  // uint32 next_period_value = 2; // TODO
+}
+
+
+// Service definition
+service SubscriptionService {
+  rpc CreateSubscriptions(CreateSubscriptionsRequest) returns (CreateSubscriptionsResponse);
+  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (SubscriptionDetails);
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
+  rpc UpdateSlots(UpdateSlotsRequest) returns (UpdateSlotsResponse);
+  rpc GetSlotsValue(GetSlotsValueRequest) returns (GetSlotsValueResponse);
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
+}

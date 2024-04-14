@@ -1,8 +1,5 @@
-use crate::errors;
 use crate::store::Store;
 use crate::{domain, StoreResult};
-use diesel_async::AsyncConnection;
-use error_stack::ResultExt;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {

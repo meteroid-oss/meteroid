@@ -1,5 +1,5 @@
 use crate::domain::Tenant;
-use crate::errors;
+
 use crate::store::Store;
 use crate::{domain, StoreResult};
 use uuid::Uuid;

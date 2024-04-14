@@ -1,8 +1,8 @@
 use crate::api_tokens::{ApiToken, ApiTokenNew};
 use crate::errors::IntoDbResult;
-use crate::schema::api_token;
-use crate::{errors, DbResult, PgConn};
-use diesel::associations::HasTable;
+
+use crate::{DbResult, PgConn};
+
 use diesel::debug_query;
 use error_stack::ResultExt;
 

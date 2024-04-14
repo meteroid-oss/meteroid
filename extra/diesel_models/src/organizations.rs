@@ -5,6 +5,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::organization)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Organization {
     pub id: Uuid,
     pub name: String,
@@ -16,6 +17,7 @@ pub struct Organization {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::organization)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OrganizationNew {
     pub name: String,
     pub slug: String,

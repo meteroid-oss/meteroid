@@ -2,6 +2,7 @@ pub mod domain;
 pub mod errors;
 pub mod repositories;
 pub mod store;
+pub mod utils;
 
 pub use store::Store;
 

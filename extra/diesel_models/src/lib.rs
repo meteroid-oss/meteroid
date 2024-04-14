@@ -20,6 +20,10 @@ pub mod schedules;
 pub mod schema;
 pub mod slot_transactions;
 pub mod subscriptions;
+
+pub mod extend;
+pub mod subscription_components;
+pub mod subscription_events;
 pub mod tenants;
 pub mod users;
 pub mod webhooks;

@@ -1,11 +1,11 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::schema::customer;
-use diesel::prelude::*;
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
-#[derive(Clone, Debug, Identifiable, Queryable)]
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
+
+#[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::customer)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Customer {
     pub id: Uuid,
     pub name: String,
@@ -28,6 +28,7 @@ pub struct Customer {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::customer)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerNew {
     pub id: Uuid,
     pub name: String,

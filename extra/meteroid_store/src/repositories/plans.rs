@@ -1,12 +1,10 @@
-use crate::errors;
 use crate::store::Store;
 use crate::{domain, StoreResult};
-use diesel::sql_types::{Array, Nullable};
+
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
-use diesel_models::enums::BillingPeriodEnum;
-use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
-use o2o::traits::IntoExisting;
+
+use crate::errors::StoreError;
 
 #[async_trait::async_trait]
 pub trait PlansInterface {
@@ -27,17 +25,26 @@ impl PlansInterface for Store {
         conn.transaction(|conn| {
             async move {
                 let plan_to_insert: diesel_models::plans::PlanNew = plan.into();
-                let inserted: domain::Plan = plan_to_insert.insert(conn).await.map(Into::into)?;
+                let inserted: domain::Plan = plan_to_insert
+                    .insert(conn)
+                    .await
+                    .map(Into::into)
+                    .map_err(|err| StoreError::DatabaseError(err.error))?;
                 let plan_version_to_insert: diesel_models::plan_versions::PlanVersionNew =
                     domain::PlanVersionNew {
+                        tenant_id: inserted.tenant_id,
                         internal: version,
                         plan_id: inserted.id,
                         version: 0,
+                        created_by: inserted.created_by,
                     }
                     .into();
 
-                let inserted_plan_version_new: domain::PlanVersion =
-                    plan_version_to_insert.insert(conn).await.map(Into::into)?;
+                let inserted_plan_version_new: domain::PlanVersion = plan_version_to_insert
+                    .insert(conn)
+                    .await
+                    .map(Into::into)
+                    .map_err(|err| StoreError::DatabaseError(err.error))?;
 
                 // insert price component as batch, etc
                 let inserted_price_components =
@@ -47,19 +54,23 @@ impl PlansInterface for Store {
                             .into_iter()
                             .map(|p| {
                                 domain::PriceComponentNew {
-                                    internal: p,
                                     plan_version_id: inserted_plan_version_new.id,
+                                    name: p.name,
+                                    product_item_id: p.product_item_id,
+                                    fee: p.fee,
                                 }
-                                .into()
+                                .try_into()
                             })
-                            .collect(),
+                            .collect::<Result<Vec<_>, _>>()?,
                     )
-                    .await?
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?
                     .into_iter()
-                    .map(Into::into)
-                    .collect();
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|err| StoreError::TransactionStoreError(err))?;
 
-                Ok::<_, DatabaseErrorContainer>(domain::FullPlan {
+                Ok::<_, StoreError>(domain::FullPlan {
                     price_components: inserted_price_components,
                     plan: inserted,
                     version: inserted_plan_version_new,

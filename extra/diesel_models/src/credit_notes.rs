@@ -1,15 +1,12 @@
-
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-
-use diesel::{Identifiable, Queryable};
 use crate::enums::CreditNoteStatus;
-
-
+use diesel::{Identifiable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::credit_note)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CreditNote {
     pub id: Uuid,
     pub created_at: NaiveDateTime,

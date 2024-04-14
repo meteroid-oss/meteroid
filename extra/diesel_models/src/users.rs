@@ -1,10 +1,11 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Insertable, Queryable};
 
 #[derive(Queryable, Debug)]
 #[diesel(table_name = crate::schema::user)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct User {
     pub id: Uuid,
     pub email: String,
@@ -15,6 +16,7 @@ pub struct User {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::user)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct UserNew {
     pub email: String,
     pub password_hash: Option<String>,

@@ -1,7 +1,7 @@
 use crate::configs::{InvoicingConfig, ProviderConfig, ProviderConfigNew};
 use crate::errors::IntoDbResult;
-use crate::{errors, DbResult, PgConn};
-use diesel::associations::HasTable;
+use crate::{DbResult, PgConn};
+
 use diesel::debug_query;
 use error_stack::ResultExt;
 

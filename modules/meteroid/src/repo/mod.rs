@@ -1,5 +1,6 @@
 use crate::config::Config;
 use deadpool_postgres::Pool;
+use meteroid_store::Store;
 use std::sync::OnceLock;
 
 pub mod errors;
@@ -11,5 +12,14 @@ pub fn get_pool() -> &'static Pool {
     POOL.get_or_init(|| {
         let config = Config::get();
         common_repository::create_pool(&config.database_url)
+    })
+}
+
+static STORE: OnceLock<Store> = OnceLock::new();
+
+pub fn get_store() -> &'static Store {
+    crate::repo::STORE.get_or_init(|| {
+        let config = Config::get();
+        Store::new(config.database_url.clone()).expect("Failed to initialize store")
     })
 }

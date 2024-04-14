@@ -4,6 +4,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::price_component)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PriceComponent {
     pub id: Uuid,
     pub name: String,
@@ -15,6 +16,7 @@ pub struct PriceComponent {
 
 #[derive(Debug, Default, Insertable)]
 #[diesel(table_name = crate::schema::price_component)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PriceComponentNew {
     pub id: Uuid,
     pub name: String,

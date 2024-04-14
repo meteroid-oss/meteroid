@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::organization_members::OrganizationMember;
-use crate::schema::organization_member;
-use crate::{errors, DbResult, PgConn};
-use diesel::associations::HasTable;
+
+use crate::{DbResult, PgConn};
+
 use diesel::debug_query;
 use error_stack::ResultExt;
 

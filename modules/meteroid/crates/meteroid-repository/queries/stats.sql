@@ -198,7 +198,7 @@ WHERE revenue_date BETWEEN :start_date AND :end_date
   AND tenant_id = :tenant_id
 ;
 
---! get_last_mrr_movements (before?, after?)
+--! get_last_mrr_movements (before?, after?): (credit_note_id?)
 SELECT bi.id,
        bi.movement_type,
        bi.net_mrr_change,
@@ -278,7 +278,7 @@ SELECT COUNT(*) AS total
 FROM subscription
 WHERE tenant_id = :tenant_id
   AND now() >= activated_at
-  AND now() <= billing_end_date;
+  AND (billing_end_date IS NULL OR now() <= billing_end_date);
 
 --! query_pending_invoices
 WITH tenant_currency AS (
@@ -315,13 +315,13 @@ SELECT
 FROM
     converted_invoices;
 
---! daily_new_signups_30_days
-WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 29)) AS date),
+--! daily_new_signups_90_days
+WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 89)) AS date),
      daily_signups AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
                        WHERE tenant_id = :tenant_id
-                         AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+                         AND created_at >= CURRENT_DATE - INTERVAL '90 days'
                        GROUP BY signup_date)
 SELECT ds.date                                                                        as signup_date,
        COALESCE(d.daily_signups, 0)                                                   AS daily_signups,
@@ -331,18 +331,18 @@ FROM date_series ds
 ORDER BY ds.date;
 
 
---! new_signups_trend_30_days
+--! new_signups_trend_90_days
 WITH signup_counts AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
                        WHERE tenant_id = :tenant_id
-                         AND created_at >= CURRENT_DATE - INTERVAL '60 days'
+                         AND created_at >= CURRENT_DATE - INTERVAL '180 days'
                        GROUP BY signup_date)
-SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '30 days'),
-                0)::bigint                                                                                    AS total_last_30_days,
-       COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '30 days' AND
-                                                 signup_date > CURRENT_DATE - INTERVAL '60 days'),
-                0)::bigint                                                                                    AS total_previous_30_days
+SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '90 days'),
+                0)::bigint                                                                                    AS total_last_90_days,
+       COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '90 days' AND
+                                                 signup_date > CURRENT_DATE - INTERVAL '180 days'),
+                0)::bigint                                                                                    AS total_previous_90_days
 FROM signup_counts;
 
 --! get_all_time_trial_conversion_rate

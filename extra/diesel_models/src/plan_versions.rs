@@ -2,11 +2,12 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::BillingPeriodEnum;
-use diesel::sql_types::{Array, Nullable};
+
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::plan_version)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PlanVersion {
     pub id: Uuid,
     pub is_draft_version: bool,
@@ -26,6 +27,7 @@ pub struct PlanVersion {
 
 #[derive(Debug, Insertable, Default)]
 #[diesel(table_name = crate::schema::plan_version)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PlanVersionNew {
     pub id: Uuid,
     pub is_draft_version: bool,

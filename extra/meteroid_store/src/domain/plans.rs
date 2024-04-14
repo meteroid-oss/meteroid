@@ -2,9 +2,9 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
-use diesel_models::enums::{BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
+use super::enums::{BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
 
-use o2o::traits::IntoExisting;
+use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
 
 // not mapped automatically, as we include multiple entities like the plan_version and the price components
 #[derive(Debug, o2o)]
@@ -17,7 +17,9 @@ pub struct PlanNew {
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
     pub external_id: String,
+    #[into(~.into())]
     pub plan_type: PlanTypeEnum,
+    #[into(~.into())]
     pub status: PlanStatusEnum,
 }
 
@@ -27,9 +29,7 @@ pub struct FullPlanNew {
     pub price_components: Vec<PriceComponentNewInternal>,
 }
 
-#[derive(Debug, o2o)]
-#[owned_into_existing(diesel_models::plan_versions::PlanVersionNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()}, version: {0})]
+#[derive(Debug)]
 pub struct PlanVersionNewInternal {
     pub is_draft_version: bool,
     pub trial_duration_days: Option<i32>,
@@ -38,35 +38,41 @@ pub struct PlanVersionNewInternal {
     pub net_terms: i32,
     pub currency: String,
     pub billing_cycles: Option<i32>,
-    #[into(~.into_iter().map(|v| Some(v)).collect())]
     pub billing_periods: Vec<BillingPeriodEnum>,
 }
 
-#[derive(Debug, o2o)]
-#[owned_into(diesel_models::plan_versions::PlanVersionNew)]
+#[derive(Debug)]
 pub struct PlanVersionNew {
     pub plan_id: Uuid,
-    pub version: i32, // TODO check if it doesn't get overridden by the ghost
-    #[parent]
+    pub created_by: Uuid,
+    pub version: i32,
+    pub tenant_id: Uuid,
     pub internal: PlanVersionNewInternal,
 }
 
-#[derive(Debug, o2o)]
-#[owned_into_existing(diesel_models::price_components::PriceComponentNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
-pub struct PriceComponentNewInternal {
-    pub name: String,
-    pub fee: serde_json::Value,
-    pub product_item_id: Option<Uuid>,
-    pub billable_metric_id: Option<Uuid>,
-}
-
-#[derive(Debug, o2o)]
-#[owned_into(diesel_models::price_components::PriceComponentNew)]
-pub struct PriceComponentNew {
-    pub plan_version_id: Uuid,
-    #[parent]
-    pub internal: PriceComponentNewInternal,
+impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
+    fn into(self) -> diesel_models::plan_versions::PlanVersionNew {
+        diesel_models::plan_versions::PlanVersionNew {
+            id: Uuid::now_v7(),
+            plan_id: self.plan_id,
+            created_by: self.created_by,
+            version: self.version,
+            tenant_id: self.tenant_id,
+            is_draft_version: self.internal.is_draft_version,
+            trial_duration_days: self.internal.trial_duration_days,
+            trial_fallback_plan_id: self.internal.trial_fallback_plan_id,
+            period_start_day: self.internal.period_start_day,
+            net_terms: self.internal.net_terms,
+            currency: self.internal.currency,
+            billing_cycles: self.internal.billing_cycles,
+            billing_periods: self
+                .internal
+                .billing_periods
+                .into_iter()
+                .map(|v| Some(v.into()))
+                .collect::<Vec<_>>(),
+        }
+    }
 }
 
 #[derive(Debug, o2o)]
@@ -80,7 +86,9 @@ pub struct Plan {
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
     pub external_id: String,
+    #[from(~.into())]
     pub plan_type: PlanTypeEnum,
+    #[from(~.into())]
     pub status: PlanStatusEnum,
 }
 
@@ -100,19 +108,8 @@ pub struct PlanVersion {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    #[from(~.into_iter().filter_map(|v| v).collect())]
+    #[from(~.into_iter().filter_map(| v | v).map(| v | v.into()).collect::< Vec < _ >> ())]
     pub billing_periods: Vec<BillingPeriodEnum>,
-}
-
-#[derive(Debug, o2o)]
-#[from_owned(diesel_models::price_components::PriceComponent)]
-pub struct PriceComponent {
-    pub id: Uuid,
-    pub name: String,
-    pub fee: serde_json::Value,
-    pub plan_version_id: Uuid,
-    pub product_item_id: Option<Uuid>,
-    pub billable_metric_id: Option<Uuid>,
 }
 
 pub struct FullPlan {

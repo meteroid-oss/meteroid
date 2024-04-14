@@ -10,10 +10,12 @@ use common_grpc::middleware::common::filters as common_filters;
 use common_grpc::middleware::server as common_middleware;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
+use meteroid_store::Store;
 
 use crate::api;
 use crate::api::cors::cors;
-use crate::compute::InvoiceEngine;
+use crate::compute2::clients::usage::MeteringUsageClient;
+use crate::compute2::InvoiceEngine;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::eventbus::{Event, EventBus};
@@ -24,6 +26,7 @@ use super::super::config::Config;
 pub async fn start_api_server(
     config: Config,
     pool: Pool,
+    store: Store,
     provider_config_repo: Arc<dyn ProviderConfigRepo>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
@@ -47,9 +50,16 @@ pub async fn start_api_server(
     let query_service_client = UsageQueryServiceClient::new(metering_layered_channel.clone());
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
-    let compute_service = Arc::new(InvoiceEngine::new(query_service_client));
+    let compute_service = Arc::new(InvoiceEngine::new(
+        Arc::new(MeteringUsageClient::new(query_service_client)),
+        Arc::new(store.clone()),
+    ));
 
     let eventbus: Arc<dyn EventBus<Event>> = Arc::new(crate::eventbus::memory::InMemory::new());
+
+    // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel
+    // the pools are incompatible, without some refacto
+    // let store = meteroid_store::Store::from_pool(pool.clone());
 
     eventbus
         .subscribe(Arc::new(WebhookHandler::new(
@@ -127,7 +137,7 @@ pub async fn start_api_server(
             config.jwt_secret.clone(),
         ))
         .add_service(api::subscriptions::service(
-            pool.clone(),
+            store.clone(),
             compute_service,
             eventbus.clone(),
         ))

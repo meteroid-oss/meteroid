@@ -1,15 +1,9 @@
-
-
-
-
-use uuid::Uuid;
-use chrono::DateTime;
-use chrono::offset::Utc;
-use diesel::{Identifiable, Queryable};
-use diesel::sql_types::{Bpchar, Nullable};
 use crate::enums::FangTaskState;
-
-
+use chrono::offset::Utc;
+use chrono::DateTime;
+use diesel::sql_types::{Bpchar, Nullable};
+use diesel::{Identifiable, Queryable};
+use uuid::Uuid;
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::fang_tasks)]

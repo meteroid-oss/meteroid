@@ -1,8 +1,8 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::{PlanVersion, PlanVersionNew};
-use crate::schema::plan_version;
-use crate::{errors, DbResult, PgConn};
-use diesel::associations::HasTable;
+
+use crate::{DbResult, PgConn};
+
 use diesel::debug_query;
 use error_stack::ResultExt;
 

@@ -42,7 +42,7 @@ export const MrrChart = (props: MrrChartProps) => {
       id: s.code,
       data: s.data.map(d => ({
         x: d.x,
-        y: Number(d.data?.netNewMrr ?? 0),
+        y: Number(d.data?.totalNetMrr ?? 0),
         key: d.x,
       })),
     })) ?? []
@@ -93,6 +93,28 @@ export const MrrChart = (props: MrrChartProps) => {
             colors={[theme.isDarkMode ? '#8b8a74' : '#513ceb']}
             lineWidth={1}
             data={series}
+            xScale={{
+              type: 'time', // Set the x-axis scale to 'time'
+              format: '%Y-%m-%d', // Specify the date format
+              precision: 'day', // Set the precision to 'day'
+              nice: true, // Enable the 'nice' feature
+            }}
+            axisLeft={{
+              legend: 'MRR',
+              legendOffset: -40,
+              legendPosition: 'middle',
+              tickSize: 5,
+              tickPadding: 5,
+              tickRotation: 0,
+              format: (value: number) => formatCurrency(value),
+            }}
+            axisBottom={{
+              format: '%b %d',
+              tickValues: 'every 1 day',
+              tickSize: 5,
+              tickPadding: 5,
+              tickRotation: 0,
+            }}
           />
         )}
       </div>

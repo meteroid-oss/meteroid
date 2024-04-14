@@ -42,12 +42,13 @@ export const Dashboard = () => {
                 <span className="text-sm">Configure your pricing</span>
               </div>
               <div>
-                <Checkbox disabled className="rounded-full" /> <span className="text-sm">???</span>
+                <Checkbox disabled className="rounded-full" />{' '}
+                <span className="text-sm">Integrate</span>
               </div>
 
               <div>
                 <Checkbox disabled className="rounded-full" />{' '}
-                <span className="text-sm">Profit !</span>
+                <span className="text-sm">Follow your growth strategy</span>
               </div>
             </div>
           </div>

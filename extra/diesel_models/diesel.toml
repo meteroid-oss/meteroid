@@ -7,6 +7,6 @@ dir = "migrations"
 
 [print_schema]
 file = "src/schema.rs"
-import_types = ["diesel::sql_types::*", "crate::domains::models::enums::*"]
+#import_types = ["diesel::sql_types::*", "crate::domains::models::enums::*"]
 custom_type_derives = ["diesel::query_builder::QueryId"]
-generate_missing_sql_type_definitions = false
+#generate_missing_sql_type_definitions = false

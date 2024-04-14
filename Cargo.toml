@@ -25,8 +25,7 @@ members = [
     # extra
     "extra/generator",
     "extra/diesel_models",
-    "extra/meteroid_store",
-    #  "extra/seeder",
+    "extra/meteroid_store"
 ]
 
 [workspace.package]
@@ -57,7 +56,7 @@ cornucopia = { version = "0.9" }
 cornucopia_async = { version = "0.6.0", default-features = false }
 deadpool-postgres = "0.12.1"
 diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
-diesel-async = { version = "0.4.1", features = ["postgres", "deadpool"] }
+diesel-async = { version = "0.3.2", features = ["postgres", "deadpool"] } # avoid updating while waiting for https://github.com/weiznich/diesel_async/issues/103. This impacts PlanVersion and WebhookOutEndpoint
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
@@ -76,6 +75,7 @@ http-types = "2.12.0"
 humantime = { version = "2.1.0" }
 hyper = { version = "0.14.27", default-features = false }
 init-tracing-opentelemetry = { version = "0.16.0", features = ["tracing_subscriber_ext"] }
+itertools = "0.12.1"
 jsonwebtoken = "9.2.0"
 lazy_static = "1"
 log = "0.4.20"
@@ -122,6 +122,7 @@ serde_yaml = "0.9.30"
 sha2 = "0.10.8"
 shellexpand = "3.1.0"
 syn = "2.0.52"
+tap = "1.0.1"
 testcontainers = "0.15.0"
 testcontainers-modules = { version = "0.3.2", default-features = false }
 thiserror = "1.0.49"
@@ -152,6 +153,11 @@ typetag = "0.2.13"
 url = "2.4.1"
 uuid = "1.4.1"
 uuid7 = "0.7.2"
+ndarray = "0.15.6"
+ndarray-interp = "0.4.1"
+rand_distr = "0.4.3"
+fake = "2.9.2"
+rand_chacha = "0.3.1"
 
 
 # TODO prefix it all

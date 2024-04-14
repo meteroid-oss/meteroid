@@ -22,6 +22,7 @@ pub struct MeteroidSetup {
     pub channel: Channel,
     pub config: Config,
     pub pool: Pool,
+    pub store: meteroid_store::Store,
 }
 
 pub async fn start_meteroid_with_port(
@@ -42,6 +43,8 @@ pub async fn start_meteroid_with_port(
 
     let pool = meteroid_repository::create_pool(&config.database_url);
 
+    let _store = meteroid_store::Store::new(config.database_url.clone()).expect("Could not create store");
+
     populate_postgres(pool.clone(), seed_level).await;
 
     let token = CancellationToken::new();
@@ -52,9 +55,16 @@ pub async fn start_meteroid_with_port(
         crypt_key: config.secrets_crypt_key.clone(),
     });
 
+    let store =
+        meteroid_store::Store::new(config.database_url.clone()).expect("Could not create store");
+
     log::info!("Starting gRPC server {}", config.listen_addr);
-    let private_server =
-        meteroid::api::server::start_api_server(config.clone(), pool.clone(), provider_config_repo);
+    let private_server = meteroid::api::server::start_api_server(
+        config.clone(),
+        pool.clone(),
+        store.clone(),
+        provider_config_repo,
+    );
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
@@ -81,6 +91,7 @@ pub async fn start_meteroid_with_port(
         channel: channel,
         config: config.clone(),
         pool: pool,
+        store: store,
     }
 }
 
@@ -97,7 +108,7 @@ pub async fn start_meteroid(
         postgres_connection_string,
         seed_level,
     )
-    .await
+        .await
 }
 
 // TODO check if that replaces terminate_meteroid

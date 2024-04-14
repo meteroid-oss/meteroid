@@ -50,6 +50,18 @@ pub mod sql_types {
     pub struct PlanTypeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "SubscriptionEventType"))]
+    pub struct SubscriptionEventType;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "SubscriptionFeeBillingPeriod"))]
+    pub struct SubscriptionFeeBillingPeriod;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "TenantEnvironmentEnum"))]
+    pub struct TenantEnvironmentEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "UnitConversionRoundingEnum"))]
     pub struct UnitConversionRoundingEnum;
 
@@ -382,7 +394,7 @@ diesel::table! {
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
-        product_family_id -> Nullable<Uuid>,
+        product_family_id -> Uuid,
     }
 }
 
@@ -464,18 +476,53 @@ diesel::table! {
         plan_version_id -> Uuid,
         created_at -> Timestamp,
         created_by -> Uuid,
-        input_parameters -> Nullable<Jsonb>,
-        effective_billing_period -> BillingPeriodEnum,
         net_terms -> Int4,
         invoice_memo -> Nullable<Text>,
         invoice_threshold -> Nullable<Numeric>,
         activated_at -> Nullable<Timestamp>,
         canceled_at -> Nullable<Timestamp>,
         cancellation_reason -> Nullable<Text>,
+        #[max_length = 3]
+        currency -> Varchar,
+        mrr_cents -> Int8,
     }
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionFeeBillingPeriod;
+
+    subscription_component (id) {
+        id -> Uuid,
+        name -> Text,
+        subscription_id -> Uuid,
+        price_component_id -> Nullable<Uuid>,
+        product_item_id -> Nullable<Uuid>,
+        period -> SubscriptionFeeBillingPeriod,
+        fee -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionEventType;
+
+    subscription_event (id) {
+        id -> Uuid,
+        mrr_delta -> Nullable<Int8>,
+        event_type -> SubscriptionEventType,
+        applies_to -> Date,
+        subscription_id -> Uuid,
+        bi_mrr_movement_log_id -> Nullable<Uuid>,
+        details -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::TenantEnvironmentEnum;
+
     tenant (id) {
         id -> Uuid,
         name -> Text,
@@ -485,6 +532,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         organization_id -> Uuid,
         currency -> Text,
+        environment -> TenantEnvironmentEnum,
     }
 }
 
@@ -575,6 +623,11 @@ diesel::joinable!(slot_transaction -> subscription (subscription_id));
 diesel::joinable!(subscription -> customer (customer_id));
 diesel::joinable!(subscription -> plan_version (plan_version_id));
 diesel::joinable!(subscription -> tenant (tenant_id));
+diesel::joinable!(subscription_component -> price_component (price_component_id));
+diesel::joinable!(subscription_component -> product (product_item_id));
+diesel::joinable!(subscription_component -> subscription (subscription_id));
+diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log_id));
+diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
 diesel::joinable!(webhook_in_event -> provider_config (provider_config_id));
 diesel::joinable!(webhook_out_endpoint -> tenant (tenant_id));
@@ -606,6 +659,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     schedule,
     slot_transaction,
     subscription,
+    subscription_component,
+    subscription_event,
     tenant,
     user,
     webhook_in_event,

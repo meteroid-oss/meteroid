@@ -2,6 +2,7 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 
+use crate::domain::enums::TenantEnvironmentEnum;
 use diesel_models::tenants::Tenant as DieselTenant;
 use diesel_models::tenants::TenantNew as DieselTenantNew;
 
@@ -17,6 +18,8 @@ pub struct Tenant {
     pub archived_at: Option<NaiveDateTime>,
     pub organization_id: Uuid,
     pub currency: String,
+    #[map(~.into())]
+    pub environment: TenantEnvironmentEnum,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -27,4 +30,6 @@ pub struct TenantNew {
     pub slug: String,
     pub organization_id: Uuid,
     pub currency: String,
+    #[into(~.map(|x| x.into()))]
+    pub environment: Option<TenantEnvironmentEnum>,
 }

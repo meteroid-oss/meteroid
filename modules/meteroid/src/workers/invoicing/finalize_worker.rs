@@ -3,14 +3,16 @@ use std::sync::Arc;
 use common_repository::Pool;
 use meteroid_repository as db;
 
-use crate::{compute::InvoiceEngine, errors};
+use crate::{compute2::InvoiceEngine, errors};
 
+use crate::compute2::clients::usage::MeteringUsageClient;
 use crate::eventbus::{Event, EventBus, EventBusStatic};
-use crate::repo::get_pool;
+use crate::repo::{get_pool, get_store};
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::{future::join_all, stream::StreamExt};
+use meteroid_store::Store;
 use tokio::sync::Semaphore;
 
 use crate::workers::clients::metering::MeteringClient;
@@ -34,6 +36,7 @@ impl AsyncRunnable for FinalizeWorker {
             get_pool().clone(),
             MeteringClient::get().clone(),
             eventbus.clone(),
+            get_store().clone(),
         )
         .timed(|res, elapsed| record_call("finalize", res, elapsed))
         .await
@@ -64,6 +67,7 @@ pub async fn finalize_worker(
     db_pool: Pool,
     metering_client: MeteringClient,
     eventbus: Arc<dyn EventBus<Event>>,
+    store: Store,
 ) -> Result<(), errors::WorkerError> {
     let connection = db_pool
         .get()
@@ -81,7 +85,10 @@ pub async fn finalize_worker(
     let mut invoices_stream = Box::pin(invoices_iter);
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
 
-    let compute_service = Arc::new(InvoiceEngine::new(metering_client.queries));
+    let compute_service = Arc::new(InvoiceEngine::new(
+        Arc::new(MeteringUsageClient::new(metering_client.queries)),
+        Arc::new(store.clone()),
+    ));
 
     let mut tasks = Vec::new();
     // TODO optimize (semaphore + parallelism)
@@ -94,6 +101,7 @@ pub async fn finalize_worker(
         match invoice_res {
             Ok(invoice) => {
                 let compute_service_clone: Arc<InvoiceEngine> = compute_service.clone();
+                let store = store.clone();
 
                 let connection = db_pool
                     .get()
@@ -108,6 +116,7 @@ pub async fn finalize_worker(
                         &invoice,
                         &compute_service_clone,
                         &connection,
+                        store,
                     )
                     .await;
 

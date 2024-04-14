@@ -7,15 +7,19 @@ use std::sync::Arc;
 use common_repository::Pool;
 use meteroid_repository as db;
 
-use crate::{compute::InvoiceEngine, errors};
+use crate::{compute2::InvoiceEngine, errors};
 
-use crate::repo::get_pool;
+use crate::compute2::clients::usage::MeteringUsageClient;
+use crate::repo::{get_pool, get_store};
 use crate::workers::clients::metering::MeteringClient;
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::{future::join_all, stream::StreamExt};
+
+
+use meteroid_store::Store;
 use tokio::sync::Semaphore;
 
 use super::shared;
@@ -39,15 +43,19 @@ pub struct PriceWorker;
 impl AsyncRunnable for PriceWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        price_worker(get_pool().clone(), MeteringClient::get().clone())
-            .timed(|res, elapsed| record_call("price", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in price worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        price_worker(
+            get_pool().clone(),
+            get_store().clone(),
+            MeteringClient::get().clone(),
+        )
+        .timed(|res, elapsed| record_call("price", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in price worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -67,6 +75,7 @@ impl AsyncRunnable for PriceWorker {
 #[tracing::instrument(skip_all)]
 pub async fn price_worker(
     db_pool: Pool,
+    store: Store,
     metering_client: MeteringClient,
 ) -> Result<(), errors::WorkerError> {
     // fetch all invoice not finalized/voided and not updated since > 1h
@@ -79,7 +88,12 @@ pub async fn price_worker(
     let mut outdated_invoices_query = db::invoices::get_outdated_invoices();
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
 
-    let compute_service = Arc::new(InvoiceEngine::new(metering_client.queries));
+    let query_service_client = metering_client.queries;
+
+    let compute_service = Arc::new(InvoiceEngine::new(
+        Arc::new(MeteringUsageClient::new(query_service_client)),
+        Arc::new(store.clone()),
+    ));
 
     let invoices_iter = outdated_invoices_query
         .bind(&connection)
@@ -100,6 +114,7 @@ pub async fn price_worker(
         match invoice_res {
             Ok(invoice) => {
                 let compute_service_clone: Arc<InvoiceEngine> = compute_service.clone();
+                let store = store.clone();
 
                 let connection = db_pool
                     .get()
@@ -112,6 +127,7 @@ pub async fn price_worker(
                         &invoice,
                         &compute_service_clone,
                         &connection,
+                        store.clone(),
                     )
                     .await;
                     if let Err(e) = result {

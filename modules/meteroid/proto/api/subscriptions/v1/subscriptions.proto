@@ -10,12 +10,12 @@ import "api/subscriptions/v1/models.proto";
 message ListSubscriptionsRequest {
   optional string plan_id = 1;
   optional string customer_id = 2;
-  meteroid.common.v1.Pagination pagination = 3;
+  meteroid.common.v1.PagePagination pagination = 3;
 }
 
 message ListSubscriptionsResponse {
   repeated Subscription subscriptions = 1;
-  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+  meteroid.common.v1.PagePaginationResponse pagination_meta = 2;
 }
 
 message CreateSubscriptionRequest {

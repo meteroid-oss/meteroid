@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod api;
-pub mod compute;
+// pub mod compute;
+mod compute2;
 pub mod config;
 pub mod constants;
 pub mod crypt;
@@ -12,6 +13,7 @@ pub mod eventbus;
 pub mod mapping;
 pub mod models;
 pub mod repo;
+pub mod seeder;
 pub mod services;
 pub mod webhook;
 pub mod webhook_in_api;

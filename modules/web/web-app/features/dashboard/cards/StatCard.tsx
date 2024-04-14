@@ -64,11 +64,13 @@ export const StatCardTrend = ({ value, percent, period, positiveIsGreen }: Trend
   const formattedTrend = useMemo(() => {
     const formattedValue = new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: 'USD',
+      currency: 'EUR', // TODO
       minimumFractionDigits: 2,
     }).format(Math.abs(value))
 
-    return `${value >= 0 ? '+ ' : '- '}${formattedValue} (${percent}%) ${period}`
+    const sign = value >= 0 ? '+' : '-'
+
+    return `${sign} ${formattedValue} (${sign}${percent.toFixed(1)}%) ${period}`
   }, [value, percent, period])
 
   return (
@@ -78,7 +80,7 @@ export const StatCardTrend = ({ value, percent, period, positiveIsGreen }: Trend
         value === 0
           ? 'text-muted-foreground'
           : positiveIsGreen === value > 0
-            ? 'text-green-900'
+            ? 'text-success'
             : 'text-red-500'
       )}
     >

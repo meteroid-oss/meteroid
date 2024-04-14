@@ -122,6 +122,40 @@ pub enum PlanTypeEnum {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug)]
+#[ExistingTypePath = "crate::schema::sql_types::SubscriptionFeeBillingPeriod"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum SubscriptionFeeBillingPeriod {
+    OneTime,
+    Monthly,
+    Quarterly,
+    Annual,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[ExistingTypePath = "crate::schema::sql_types::SubscriptionEventType"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum SubscriptionEventType {
+    Created,
+    Activated,
+    Switch,
+    Cancelled,
+    Reactivated,
+    Updated,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::TenantEnvironmentEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum TenantEnvironmentEnum {
+    Production,
+    Staging,
+    Qa,
+    Development,
+    Sandbox,
+    Demo,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug)]
 #[ExistingTypePath = "crate::schema::sql_types::UnitConversionRoundingEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum UnitConversionRoundingEnum {

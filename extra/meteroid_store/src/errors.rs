@@ -1,11 +1,8 @@
 // use diesel_models::errors::DatabaseError;
 
-use crate::StoreResult;
-use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
-use diesel_models::DbResult;
-use error_stack::{Report, ResultExt};
+use diesel::result::Error;
 
-pub type StorageResult<T> = error_stack::Result<T, StoreError>;
+use diesel_models::errors::DatabaseError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -21,8 +18,22 @@ pub enum StoreError {
         entity: &'static str,
         key: Option<String>,
     },
+    #[error("Invalid Argument: {0}")]
+    InvalidArgument(String),
     #[error("Timed out while trying to connect to the database")]
     DatabaseConnectionError,
+    #[error("Invalid decimal value")]
+    InvalidDecimal,
+    #[error("Failed to cancel subscription")]
+    CancellationError,
+    #[error("Failed to insert subscription")]
+    InsertError,
+    #[error("Transaction error: {0:?}")]
+    TransactionStoreError(error_stack::Report<StoreError>),
+    #[error("Failed to process price components: {0}")]
+    InvalidPriceComponents(String),
+    #[error("Failed to serialize/deserialize data: {0}")]
+    SerdeError(String, #[source] serde_json::Error),
 }
 
 impl From<DatabaseError> for StoreError {
@@ -38,5 +49,11 @@ impl From<DatabaseError> for StoreError {
             },
             _ => StoreError::DatabaseError(error_stack::report!(err)),
         }
+    }
+}
+
+impl From<diesel::result::Error> for StoreError {
+    fn from(value: Error) -> Self {
+        DatabaseError::from(&value).into()
     }
 }

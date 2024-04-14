@@ -1,10 +1,11 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Insertable, Queryable};
 
 #[derive(Queryable, Debug, Insertable)]
 #[diesel(table_name = crate::schema::slot_transaction)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SlotTransaction {
     pub id: Uuid,
     pub price_component_id: Uuid,

@@ -2,11 +2,12 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
-use diesel::sql_types::Nullable;
+
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::billable_metric)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetric {
     pub id: Uuid,
     pub name: String,
@@ -28,6 +29,7 @@ pub struct BillableMetric {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::billable_metric)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetricNew {
     pub id: Uuid,
     pub name: String,

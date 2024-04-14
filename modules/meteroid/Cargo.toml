@@ -88,6 +88,14 @@ jsonwebtoken.workspace = true
 once_cell.workspace = true
 tower-layer.workspace = true
 fastrand = { workspace = true }
+meteroid-store.workspace = true
+ndarray.workspace = true
+ndarray-interp.workspace = true
+rand_distr.workspace = true
+rand.workspace = true
+fake.workspace = true
+rand_chacha.workspace = true
+
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -108,3 +116,7 @@ path = "src/bin/server.rs"
 [[bin]]
 name = "meteroid-scheduler"
 path = "src/bin/scheduler.rs"
+
+[[bin]]
+name = "meteroid-seeder"
+path = "src/bin/seeder.rs"

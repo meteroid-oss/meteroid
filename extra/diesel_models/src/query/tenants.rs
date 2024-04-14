@@ -1,7 +1,7 @@
 use crate::errors::IntoDbResult;
 use crate::tenants::{Tenant, TenantNew};
-use crate::{errors, DbResult, PgConn};
-use diesel::associations::HasTable;
+use crate::{DbResult, PgConn};
+
 use diesel::debug_query;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;

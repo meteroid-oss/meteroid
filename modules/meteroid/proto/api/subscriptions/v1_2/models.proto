@@ -1,0 +1,244 @@
+syntax = "proto3";
+
+import "api/shared/v1/shared.proto";
+
+
+package meteroid.api.subscriptions.v1_2;
+
+enum SubscriptionStatus {
+  PENDING = 0;
+  TRIAL = 1;
+  ACTIVE = 2;
+  CANCELED = 3;
+  ENDED = 4;
+}
+
+message Subscription {
+  string id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  optional string customer_alias = 4;
+  int32 billing_day = 5;
+  string tenant_id = 6;
+  string currency = 7;
+  optional string trial_start_date = 8;
+  string billing_start_date = 9;
+  optional string billing_end_date = 10;
+  string plan_id = 11;
+  string plan_name = 12;
+  string plan_version_id = 13;
+  uint32 version = 14;
+  string created_at = 15;
+  string created_by = 16;
+  uint32 net_terms = 17;
+  optional string invoice_memo = 18;
+  optional string invoice_threshold = 19;
+  optional string activated_at = 20;
+  optional string canceled_at = 21;
+  optional string cancellation_reason = 22;
+  uint64 mrr_cents = 23;
+  SubscriptionStatus status = 24;
+  // TODO accrued (total up until now ? ) + due (next billing cycle) + last X months of revenue for a graph ?
+}
+
+message SubscriptionDetails {
+  Subscription subscription = 1;
+  repeated Schedule schedules = 2;
+  repeated SubscriptionComponent price_components = 3;
+  repeated BillableMetric metrics = 4;
+}
+
+// TODO replace by subscription
+message CreatedSubscription {
+  string id = 1;
+  string customer_id = 2;
+  int32 billing_day = 3;
+  string tenant_id = 4;
+  string currency = 5;
+  optional string trial_start_date = 6;
+  string billing_start_date = 7;
+  optional string billing_end_date = 8;
+  string plan_version_id = 9;
+  string created_at = 10;
+  string created_by = 11;
+  int32 net_terms = 12;
+  optional string invoice_memo = 13;
+  optional string invoice_threshold = 14;
+  optional string activated_at = 15;
+  int64 mrr_cents = 18;
+}
+
+message CreateSubscription {
+  string tenant_id = 1;
+  string plan_version_id = 2;
+  string customer_id = 3;
+  string currency = 4;
+  optional string trial_start_date = 5;
+  string billing_start_date = 6;
+  optional string billing_end_date = 7;
+  int32 billing_day = 8;
+  string created_by = 9;
+  int32 net_terms = 10;
+  optional string invoice_memo = 11;
+  optional string invoice_threshold = 12;
+  optional string activated_at = 13;
+
+  CreateSubscriptionComponents components = 14;
+
+
+}
+
+message CreateSubscriptionComponents {
+
+  repeated ComponentParameterization parameterized_components = 18;
+  repeated ComponentOverride overridden_components = 19;
+  repeated ExtraComponent extra_components = 20;
+  repeated string remove_components = 21;
+
+
+  message ComponentParameterization {
+    string component_id = 1;
+    ComponentParameters parameters = 2;
+
+    message ComponentParameters {
+      optional uint32 initial_slot_count = 1;
+      optional meteroid.api.shared.v1.BillingPeriod billing_period = 2;
+      optional uint64 committed_capacity = 3;
+    }
+  }
+
+  message ComponentOverride {
+    string component_id = 1;
+    SubscriptionComponentNewInternal component = 2;
+  }
+
+  message ExtraComponent {
+    SubscriptionComponentNewInternal component = 1;
+  }
+
+}
+
+
+
+
+message BillableMetric {
+  string id = 1;
+  string alias = 2;
+  string name = 3;
+}
+
+
+message SubscriptionComponent {
+  string id = 1;
+  optional string price_component_id = 2;
+  optional string product_item_id = 3;
+  string subscription_id = 4;
+  string name = 5;
+  SubscriptionFeeBillingPeriod period = 6;
+  SubscriptionFee fee = 7;
+  bool is_override = 8;
+}
+
+
+message SubscriptionComponentNewInternal {
+  optional string price_component_id = 1;
+  optional string product_item_id = 2;
+  string name = 3;
+  SubscriptionFeeBillingPeriod period = 4;
+  SubscriptionFee fee = 5;
+}
+
+enum SubscriptionFeeBillingPeriod {
+  ONE_TIME = 0;
+  MONTHLY = 1;
+  QUARTERLY = 2;
+  YEARLY = 3;
+}
+
+message RatePricing {
+  string rate = 1;
+}
+
+message OneTimePricing {
+  string rate = 1;
+  uint32 quantity = 2;
+  string total = 3;
+}
+
+enum BillingType {
+  ARREAR = 0;
+  ADVANCE = 1;
+}
+
+message ExtraRecurringPricing {
+  string rate = 1;
+  uint32 quantity = 2;
+  string total = 3;
+  BillingType billing_type = 4;
+}
+
+message CapacityPricing {
+  string rate = 1;
+  uint64 included = 2;
+  string overage_rate = 3;
+  string metric_id = 4;
+}
+
+message UsagePricing {
+  string metric_id = 1;
+  oneof model {
+    string per_unit = 2;
+    TierPricing tiered = 3;
+    TierPricing volume = 4;
+    PackagePricing package = 5;
+  }
+}
+
+message PackagePricing {
+  uint64 block_size = 1;
+  string rate = 2;
+}
+
+message TierPricing {
+  repeated TierRow tiers = 1;
+}
+
+message TierRow {
+  uint64 first_unit = 1;
+  string rate = 2;
+  optional string flat_fee = 3;
+  optional string flat_cap = 4;
+}
+
+message SlotPricing {
+  string unit = 1;
+  string unit_rate = 2;
+  optional uint32 min_slots = 3;
+  optional uint32 max_slots = 4;
+  uint32 initial_slots = 5;
+}
+
+message SubscriptionFee {
+  oneof fee {
+    RatePricing rate = 1;
+    OneTimePricing one_time = 2;
+    ExtraRecurringPricing recurring = 3;
+    CapacityPricing capacity = 4;
+    SlotPricing slot = 5;
+    UsagePricing usage = 6;
+  }
+}
+
+// TODO probably drop & just link to the shared one
+message Schedule {
+  string id = 1;
+  meteroid.api.shared.v1.BillingPeriod billing_period = 2;
+  string plan_version_id = 3;
+  string ramps = 4;
+}
+
+message ScheduleNew {
+  meteroid.api.shared.v1.BillingPeriod billing_period = 1;
+  string plan_version_id = 2;
+  string ramps = 3;
+}

@@ -5,13 +5,14 @@ use chrono::offset::Utc;
 use chrono::DateTime;
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
-use diesel::sql_types::Nullable;
+
 use diesel::{Identifiable, Insertable, Queryable};
 use uuid::Uuid;
 
 // TODO harmonize DateTime<utc> / NaiveDateTime
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::invoice)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Invoice {
     pub id: Uuid,
     pub status: InvoiceStatusEnum,
