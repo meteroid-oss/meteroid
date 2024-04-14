@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use meteroid_store::domain::*;
 
-use crate::compute2::clients::slots::SlotClient;
-use crate::compute2::engine::shared::{only_positive, ToCents};
+use crate::compute::clients::slots::SlotClient;
+use crate::compute::engine::shared::{only_positive, ToCents};
 use crate::models::{InvoiceLine, InvoiceLinePeriod};
 
 use super::super::clients::usage::UsageClient;

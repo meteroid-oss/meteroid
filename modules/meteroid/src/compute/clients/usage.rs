@@ -4,8 +4,8 @@ use chrono::{NaiveDate, Timelike};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use crate::compute2::errors::ComputeError;
-use crate::compute2::Period;
+use crate::compute::errors::ComputeError;
+use crate::compute::Period;
 use common_grpc::middleware::client::LayeredClientService;
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;

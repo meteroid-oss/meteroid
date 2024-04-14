@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::compute2::errors::ComputeError;
+use crate::compute::errors::ComputeError;
 
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 

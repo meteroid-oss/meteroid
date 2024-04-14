@@ -7,9 +7,9 @@ use std::sync::Arc;
 use common_repository::Pool;
 use meteroid_repository as db;
 
-use crate::{compute2::InvoiceEngine, errors};
+use crate::{compute::InvoiceEngine, errors};
 
-use crate::compute2::clients::usage::MeteringUsageClient;
+use crate::compute::clients::usage::MeteringUsageClient;
 use crate::repo::{get_pool, get_store};
 use crate::workers::clients::metering::MeteringClient;
 use crate::workers::metrics::record_call;
@@ -48,14 +48,14 @@ impl AsyncRunnable for PriceWorker {
             get_store().clone(),
             MeteringClient::get().clone(),
         )
-        .timed(|res, elapsed| record_call("price", res, elapsed))
-        .await
-        .map_err(|err| {
-            log::error!("Error in price worker: {}", err);
-            FangError {
-                description: err.to_string(),
-            }
-        })
+            .timed(|res, elapsed| record_call("price", res, elapsed))
+            .await
+            .map_err(|err| {
+                log::error!("Error in price worker: {}", err);
+                FangError {
+                    description: err.to_string(),
+                }
+            })
     }
 
     fn uniq(&self) -> bool {
@@ -129,7 +129,7 @@ pub async fn price_worker(
                         &connection,
                         store.clone(),
                     )
-                    .await;
+                        .await;
                     if let Err(e) = result {
                         // TODO this will retry, but we need to track/alert
                         log::error!("Failed to process invoice with id {} : {}", &invoice.id, e)

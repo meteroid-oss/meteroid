@@ -1,7 +1,7 @@
 pub mod adapters;
 pub mod api;
 // pub mod compute;
-mod compute2;
+mod compute;
 pub mod config;
 pub mod constants;
 pub mod crypt;

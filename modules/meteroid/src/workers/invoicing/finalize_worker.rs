@@ -3,9 +3,9 @@ use std::sync::Arc;
 use common_repository::Pool;
 use meteroid_repository as db;
 
-use crate::{compute2::InvoiceEngine, errors};
+use crate::{compute::InvoiceEngine, errors};
 
-use crate::compute2::clients::usage::MeteringUsageClient;
+use crate::compute::clients::usage::MeteringUsageClient;
 use crate::eventbus::{Event, EventBus, EventBusStatic};
 use crate::repo::{get_pool, get_store};
 use common_utils::timed::TimedExt;
@@ -38,14 +38,14 @@ impl AsyncRunnable for FinalizeWorker {
             eventbus.clone(),
             get_store().clone(),
         )
-        .timed(|res, elapsed| record_call("finalize", res, elapsed))
-        .await
-        .map_err(|err| {
-            log::error!("Error in finalize worker: {}", err);
-            FangError {
-                description: err.to_string(),
-            }
-        })
+            .timed(|res, elapsed| record_call("finalize", res, elapsed))
+            .await
+            .map_err(|err| {
+                log::error!("Error in finalize worker: {}", err);
+                FangError {
+                    description: err.to_string(),
+                }
+            })
     }
 
     fn uniq(&self) -> bool {
@@ -118,7 +118,7 @@ pub async fn finalize_worker(
                         &connection,
                         store,
                     )
-                    .await;
+                        .await;
 
                     if result.is_ok() {
                         result = db::invoices::update_invoice_status()

@@ -22,10 +22,10 @@ use fake::faker::internet::en::SafeEmail;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
-use crate::compute2::calculate_period_range;
-use crate::compute2::clients::slots::MockSlotClient;
-use crate::compute2::clients::usage::MockUsageClient;
-use crate::compute2::InvoiceEngine;
+use crate::compute::calculate_period_range;
+use crate::compute::clients::slots::MockSlotClient;
+use crate::compute::clients::usage::MockUsageClient;
+use crate::compute::InvoiceEngine;
 
 use chrono::Utc;
 

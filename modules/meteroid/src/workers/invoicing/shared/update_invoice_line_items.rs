@@ -3,7 +3,7 @@ use common_repository::Client;
 use cornucopia_async::Params;
 use meteroid_repository as db;
 
-use crate::{compute2::InvoiceEngine, errors};
+use crate::{compute::InvoiceEngine, errors};
 
 use error_stack::{Result, ResultExt};
 
@@ -54,5 +54,5 @@ fn convert_time_to_chrono(time_date: time::Date) -> Result<NaiveDate, errors::Wo
         time_date.month() as u32,
         time_date.day() as u32,
     )
-    .ok_or(errors::WorkerError::InvalidInput.into())
+        .ok_or(errors::WorkerError::InvalidInput.into())
 }

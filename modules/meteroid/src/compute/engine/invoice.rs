@@ -6,11 +6,11 @@ use chrono::NaiveDate;
 use meteroid_store::domain::enums::SubscriptionFeeBillingPeriod;
 use meteroid_store::domain::*;
 
-use crate::compute2::clients::slots::SlotClient;
-use crate::compute2::clients::usage::UsageClient;
-use crate::compute2::engine::component::ComponentEngine;
-use crate::compute2::errors::ComputeError;
-use crate::compute2::ComponentPeriods;
+use crate::compute::clients::slots::SlotClient;
+use crate::compute::clients::usage::UsageClient;
+use crate::compute::engine::component::ComponentEngine;
+use crate::compute::errors::ComputeError;
+use crate::compute::ComponentPeriods;
 use crate::models::InvoiceLine;
 
 use super::period::calculate_component_period;

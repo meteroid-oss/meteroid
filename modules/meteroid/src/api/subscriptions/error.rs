@@ -16,7 +16,7 @@ pub enum SubscriptionApiError {
 
     #[error("Calculation error: {0}")]
     #[code(Internal)]
-    CalculationError(String, #[source] crate::compute2::ComputeError),
+    CalculationError(String, #[source] crate::compute::ComputeError),
 
     #[error("Failed to retrieve the subscription details: {0}")]
     #[code(Internal)]

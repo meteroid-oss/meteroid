@@ -14,8 +14,8 @@ use meteroid_store::Store;
 
 use crate::api;
 use crate::api::cors::cors;
-use crate::compute2::clients::usage::MeteringUsageClient;
-use crate::compute2::InvoiceEngine;
+use crate::compute::clients::usage::MeteringUsageClient;
+use crate::compute::InvoiceEngine;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::eventbus::{Event, EventBus};
