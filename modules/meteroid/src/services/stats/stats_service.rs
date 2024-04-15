@@ -5,7 +5,7 @@ use deadpool_postgres::{Object, Pool};
 
 use meteroid_repository as db;
 use meteroid_repository::stats::{
-    GetMrrBreakdown, GetMrrBreakdownParams, QueryTotalMrrByPlanParams, QueryTotalMrrParams,
+    GetMrrBreakdownParams, QueryTotalMrrByPlanParams, QueryTotalMrrParams,
 };
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
