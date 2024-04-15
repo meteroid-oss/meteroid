@@ -31,9 +31,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider_config_repo: Arc<dyn ProviderConfigRepo> =
         Arc::new(ProviderConfigRepoCornucopia::get().clone());
 
+    // this creates a new pool, as it is incompatible with the one for cornucopia.
+    let store = meteroid_store::Store::new(config.database_url.clone())?;
+
     let private_server = meteroid::api::server::start_api_server(
         config.clone(),
         pool.clone(),
+        store,
         provider_config_repo.clone(),
     );
 
