@@ -15,7 +15,7 @@ use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceC
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
 use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_client::SchedulesServiceClient;
-use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_client::SubscriptionsServiceClient;
+use meteroid_grpc::meteroid::api::subscriptions::v1_2::subscriptions_service_client::SubscriptionsServiceClient;
 use meteroid_grpc::meteroid::api::tenants::v1::tenants_service_client::TenantsServiceClient;
 use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceClient;
 use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_client::WebhooksServiceClient;

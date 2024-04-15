@@ -83,7 +83,7 @@ async fn test_metering_e2e() {
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
     )
-    .await;
+        .await;
 
     let jwt_auth = meteroid_it::svc_auth::login(meteroid_setup.channel.clone()).await;
 
@@ -314,8 +314,8 @@ async fn test_metering_e2e() {
         &tenant_id,
         &created_metric.billable_metric.unwrap().id,
     )
-    .split(".")
-    .collect::<Vec<&str>>()[1]
+        .split(".")
+        .collect::<Vec<&str>>()[1]
         .to_string();
 
     //sleep
@@ -416,26 +416,34 @@ async fn test_metering_e2e() {
     let subscription = meteroid_clients
         .subscriptions
         .create_subscription(Request::new(
-            meteroid_grpc::meteroid::api::subscriptions::v1::CreateSubscriptionRequest {
-                plan_version_id: plan_version_id.clone(),
-                billing_start: Some(common_grpc::meteroid::common::v1::Date {
-                    year: period_1_start.year(),
-                    month: period_1_start.month(),
-                    day: period_1_start.day(),
-                }),
-                billing_end: None,
-                net_terms: 0,
-                billing_day: billing_day,
-                customer_id: customer_1.clone(),
-                parameters: Some(api::subscriptions::v1::SubscriptionParameters {
-                    parameters: vec![
-                        api::subscriptions::v1::subscription_parameters::SubscriptionParameter {
-                            component_id: price_component.id.clone(),
-                            value: 100,
-                        },
-                    ],
-                    committed_billing_period: None,
-                }),
+            api::subscriptions::v1_2::CreateSubscriptionRequest {
+                subscription: Some(
+                    api::subscriptions::v1_2::CreateSubscription {
+                        plan_version_id: plan_version_id.clone(),
+                        billing_start_date: period_1_start.to_string(),
+                        billing_end_date: None,
+                        net_terms: 0,
+                        invoice_memo: None,
+                        invoice_threshold: None,
+                        billing_day,
+                        customer_id: customer_1.clone(),
+                        currency: "USD".to_string(),
+                        trial_start_date: None,
+                        components: Some(api::subscriptions::v1_2::CreateSubscriptionComponents {
+                            parameterized_components: vec![
+                                api::subscriptions::v1_2::create_subscription_components::ComponentParameterization {
+                                    component_id: price_component.id.clone(),
+                                    initial_slot_count: Some(100),
+                                    billing_period: None,
+                                    committed_capacity: None,
+                                }
+                            ],
+                            overridden_components: vec![],
+                            extra_components: vec![],
+                            remove_components: vec![],
+                        }),
+                    },
+                )
             },
         ))
         .await
@@ -459,7 +467,7 @@ async fn test_metering_e2e() {
         subscription_id: Uuid::from_str(&subscription.id).unwrap(),
         plan_version_id: Uuid::from_str(&plan_version_id).unwrap(),
         currency: subscription.currency.clone(),
-        days_until_due: subscription.net_terms,
+        days_until_due: subscription.net_terms as i32,
         line_items: serde_json::Value::Null,
         amount_cents: Some(100),
     };
@@ -489,8 +497,8 @@ async fn test_metering_e2e() {
         eventbus.deref(),
         chrono_to_date(now.date_naive()).unwrap(),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let db_invoices = fetch_invoices(&conn, tenant_uuid.clone()).await;
 
@@ -532,8 +540,8 @@ async fn test_metering_e2e() {
         meteroid_setup.store.clone(),
         metering_client.clone(),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let invoice_p2 = meteroid_repository::invoices::invoice_by_id()
         .bind(&conn, &invoice_p2.id)
@@ -577,8 +585,8 @@ async fn test_metering_e2e() {
     meteroid::workers::invoicing::pending_status_worker::pending_worker(
         &meteroid_setup.pool.clone(),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let db_invoices = fetch_invoices(&conn, tenant_uuid.clone()).await;
     assert_eq!(
@@ -597,8 +605,8 @@ async fn test_metering_e2e() {
         eventbus.clone(),
         meteroid_setup.store.clone(),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 
     let db_invoices = fetch_invoices(&conn, tenant_uuid.clone()).await;
     assert_eq!(

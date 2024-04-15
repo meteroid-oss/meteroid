@@ -21,6 +21,24 @@ macro_rules! parse_uuid {
     };
 }
 
+// let's do a parse_uuid_opt
+pub fn parse_uuid_opt(
+    uuid: &Option<String>,
+    resource_name: &str,
+) -> Result<Option<uuid::Uuid>, Status> {
+    match uuid {
+        Some(uuid_str) if !uuid_str.is_empty() => {
+            uuid::Uuid::parse_str(uuid_str).map(Some).map_err(|e| {
+                Status::invalid_argument(format!(
+                    "Failed to parse UUID at {}: {}",
+                    resource_name, e
+                ))
+            })
+        }
+        _ => Ok(None),
+    }
+}
+
 pub mod rng {
     pub const BASE62_ALPHABET: [char; 62] = [
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',

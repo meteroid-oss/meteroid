@@ -219,8 +219,8 @@ impl SubscriptionInterface for Store {
                     .map(|c| c.subscription.plan_version_id)
                     .collect::<Vec<_>>(),
             )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         // map the price compoennts thanks to .try_into
         let price_components_by_plan_version: HashMap<Uuid, Vec<domain::PriceComponent>> =
@@ -342,8 +342,8 @@ impl SubscriptionInterface for Store {
             &tenant_id,
             &subscription_id,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: domain::Subscription = db_subscription.into();
 
@@ -353,11 +353,11 @@ impl SubscriptionInterface for Store {
                 &tenant_id,
                 &subscription_id,
             )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|s| s.into())
-            .collect();
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.into())
+                .collect();
 
         let subscription_components: Vec<domain::SubscriptionComponent> =
             diesel_models::subscription_components::SubscriptionComponent::list_subscription_components_by_subscription(
@@ -382,11 +382,11 @@ impl SubscriptionInterface for Store {
                 &metric_ids,
                 &subscription.tenant_id,
             )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|m| m.into())
-            .collect();
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|m| m.into())
+                .collect();
 
         Ok(domain::SubscriptionDetails {
             id: subscription.id,
@@ -476,16 +476,16 @@ impl SubscriptionInterface for Store {
                             reason,
                         },
                     )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     let res = diesel_models::subscriptions::Subscription::get_subscription_by_id(
                         conn,
                         &context.tenant_id,
                         &subscription_id,
                     )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     let mrr = subscription.mrr_cents;
 
@@ -507,7 +507,7 @@ impl SubscriptionInterface for Store {
 
                     Ok(res)
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await?;
 
@@ -532,8 +532,8 @@ impl SubscriptionInterface for Store {
             plan_id,
             pagination.into(),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Subscription> = PaginatedVec {
             items: db_subscriptions
@@ -571,6 +571,10 @@ fn process_create_subscription_components(
 
     let mut processed_components = Vec::new();
     let mut removed_components = Vec::new();
+
+
+    // TODO should we add a quick_param or something to not require the component id when creating subscription without complex parameterization ?
+    // basically a top level params with period, initial slots, committed capacity, that can be overriden at the component level
 
     let all_ids = parameterized_components
         .iter()

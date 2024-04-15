@@ -89,6 +89,13 @@ once_cell.workspace = true
 tower-layer.workspace = true
 fastrand = { workspace = true }
 meteroid-store.workspace = true
+ndarray.workspace = true
+ndarray-interp.workspace = true
+rand_distr.workspace = true
+rand.workspace = true
+fake.workspace = true
+rand_chacha.workspace = true
+
 
 [dev-dependencies]
 rstest = { workspace = true }
