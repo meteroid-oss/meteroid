@@ -1,4 +1,7 @@
+// use diesel_models::errors::DatabaseError;
+
 use diesel::result::Error;
+
 use diesel_models::errors::DatabaseError;
 
 #[derive(Debug, thiserror::Error)]
@@ -20,12 +23,16 @@ pub enum StoreError {
     DatabaseConnectionError,
     #[error("Invalid decimal value")]
     InvalidDecimal,
+    #[error("Failed to cancel subscription")]
+    CancellationError,
+    #[error("Failed to insert subscription")]
+    InsertError,
+    #[error("Transaction error: {0:?}")]
+    TransactionStoreError(error_stack::Report<StoreError>),
     #[error("Failed to process price components: {0}")]
     InvalidPriceComponents(String),
     #[error("Failed to serialize/deserialize data: {0}")]
     SerdeError(String, #[source] serde_json::Error),
-    #[error("Transaction error: {0:?}")]
-    TransactionStoreError(error_stack::Report<StoreError>),
 }
 
 impl From<DatabaseError> for StoreError {
