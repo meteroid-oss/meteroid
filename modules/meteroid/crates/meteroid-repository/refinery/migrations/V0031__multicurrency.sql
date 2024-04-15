@@ -136,6 +136,7 @@ BEGIN
 
     net_revenue_cents_usd := -NEW.refunded_amount_cents / historical_rate_record.rate;
 
+    -- TODO plan_version_id is optional in invoice
     INSERT INTO bi_revenue_daily (tenant_id, plan_version_id, currency, revenue_date, net_revenue_cents, historical_rate_id, net_revenue_cents_usd)
     VALUES (NEW.tenant_id, NEW.plan_version_id, NEW.currency, DATE_TRUNC('day', NEW.finalized_at), -NEW.refunded_amount_cents, historical_rate_record.id, net_revenue_cents_usd)
     ON CONFLICT (tenant_id, plan_version_id, currency, revenue_date) DO UPDATE
