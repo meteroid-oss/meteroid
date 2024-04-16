@@ -1,0 +1,34 @@
+[package]
+name = "meteroid-store"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono.workspace = true
+diesel.workspace = true
+diesel-async.workspace = true
+uuid = { workspace = true, features = ["serde"] }
+dotenvy.workspace = true
+tracing.workspace = true
+tracing-log = { workspace = true }
+tracing-subscriber.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+o2o.workspace = true
+error-stack.workspace = true
+thiserror.workspace = true
+diesel-models.workspace = true
+async-trait.workspace = true
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+common-utils = { workspace = true, features = ["decimal"] }
+itertools.workspace = true
+
+
+[dev-dependencies]
+rstest = { workspace = true }

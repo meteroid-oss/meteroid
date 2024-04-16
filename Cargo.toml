@@ -7,7 +7,7 @@ members = [
     "modules/meteroid/crates/meteroid-repository",
     "modules/meteroid/crates/stripe-client",
     "modules/meteroid/crates/diesel-models",
-    #    "modules/meteroid/crates/meteroid-store",
+    "modules/meteroid/crates/meteroid-store",
     # metering
     "modules/metering",
     "modules/metering/crates/metering-grpc",
@@ -178,4 +178,4 @@ distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }
 metering = { path = "modules/metering" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
-#meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
+meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
