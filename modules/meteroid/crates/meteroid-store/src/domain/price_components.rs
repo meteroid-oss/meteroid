@@ -33,6 +33,7 @@ impl TryInto<PriceComponent> for diesel_models::price_components::PriceComponent
     }
 }
 
+
 #[derive(Debug, Clone)]
 pub struct PriceComponentNew {
     pub name: String,
@@ -55,8 +56,7 @@ impl TryInto<diesel_models::price_components::PriceComponentNew> for PriceCompon
         let json_fee = serde_json::to_value(&self.fee)
             .map_err(|e| {
                 StoreError::SerdeError("Failed to serialize price component fee".to_string(), e)
-            })
-            .unwrap();
+            })?;
 
         Ok(diesel_models::price_components::PriceComponentNew {
             id: Uuid::now_v7(),

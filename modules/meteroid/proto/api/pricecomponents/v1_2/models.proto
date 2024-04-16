@@ -89,7 +89,7 @@ message Fee {
     REMOVE_AT_END_OF_PERIOD = 0;
   }
 
-  oneof type {
+  oneof fee_type {
     RateFee rate = 1;
     SlotFee slot = 2;
     CapacityFee capacity = 3;

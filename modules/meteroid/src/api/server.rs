@@ -118,7 +118,7 @@ pub async fn start_api_server(
         .add_service(api::tenants::service(pool.clone(), provider_config_repo))
         .add_service(api::apitokens::service(pool.clone(), eventbus.clone()))
         .add_service(api::pricecomponents::service(
-            pool.clone(),
+            store.clone(),
             eventbus.clone(),
         ))
         .add_service(api::plans::service(pool.clone(), eventbus.clone()))

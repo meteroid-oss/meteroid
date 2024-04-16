@@ -8,7 +8,7 @@ use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 use common_grpc::middleware::common::auth::TENANT_SLUG_HEADER;
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
-use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
+use meteroid_grpc::meteroid::api::components::v1_2::price_components_service_client::PriceComponentsServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_client::InstanceServiceClient;
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;

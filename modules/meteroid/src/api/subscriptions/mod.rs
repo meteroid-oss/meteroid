@@ -12,6 +12,9 @@ use std::sync::Arc;
 
 mod error;
 mod mapping;
+
+pub use mapping::ext;
+
 mod service;
 
 pub struct SubscriptionServiceComponents {

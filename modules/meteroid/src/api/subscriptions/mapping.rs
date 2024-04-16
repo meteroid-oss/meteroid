@@ -566,3 +566,8 @@ mod price_components {
         }
     }
 }
+
+
+pub mod ext {
+    pub use super::price_components::{usage_pricing_model_from_grpc, usage_pricing_model_to_grpc, billing_type_from_grpc, billing_type_to_grpc};
+}

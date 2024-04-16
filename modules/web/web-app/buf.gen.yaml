@@ -7,12 +7,14 @@ types:
     - meteroid.api.instance.v1.InstanceService
     - meteroid.api.invoices.v1.InvoicesService
     - meteroid.api.plans.v1.PlansService
+    - meteroid.api.components.v1_2.PriceComponentsService
     - meteroid.api.components.v1.PriceComponentsService
     - meteroid.api.productfamilies.v1.ProductFamiliesService
     - meteroid.api.products.v1.ProductsService
     - meteroid.api.schedules.v1.SchedulesService
     - meteroid.api.stats.v1.StatsService
     - meteroid.api.subscriptions.v1.SubscriptionsService
+    - meteroid.api.subscriptions.v1_2.SubscriptionsService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
 plugins:

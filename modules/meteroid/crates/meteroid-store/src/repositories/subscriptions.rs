@@ -327,6 +327,10 @@ impl SubscriptionInterface for Store {
             Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
         }.scope_boxed()).await?;
 
+
+        // TODO create invoice ? in the sequence flow I guess it only happens after the payment is confirmed
+
+
         Ok(inserted_subscriptions)
     }
 

@@ -5,6 +5,7 @@ pub mod tenants;
 
 pub mod product_families;
 pub mod subscriptions;
+pub mod price_components;
 
 pub use customers::CustomersInterface;
 pub use invoices::InvoiceInterface;

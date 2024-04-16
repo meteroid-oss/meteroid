@@ -357,41 +357,29 @@ async fn test_metering_e2e() {
         .price_components
         .clone()
         .create_price_component(tonic::Request::new(
-            api::components::v1::CreatePriceComponentRequest {
+            api::components::v1_2::CreatePriceComponentRequest {
                 plan_version_id: plan_version_id.clone(),
                 name: "Capacity".to_string(),
-                fee_type: Some(api::components::v1::fee::Type {
-                    fee: Some(api::components::v1::fee::r#type::Fee::Capacity(
-                        api::components::v1::fee::Capacity {
-                            metric: Some(BillableMetric {
-                                id: metric_id.clone(),
-                                name: "unused".to_string(),
-                            }),
-                            pricing: Some(api::components::v1::fee::capacity::CapacityPricing {
-                                pricing: Some(api::components::v1::fee::capacity::capacity_pricing::Pricing::Single(
-                                    api::components::v1::fee::capacity::capacity_pricing::SingleTerm {
-                                        thresholds: vec![
-                                            api::components::v1::fee::capacity::capacity_pricing::Threshold {
-                                                included_amount: 100,
-                                                price: Some(Decimal::new(1200, 2).into()),
-                                                per_unit_overage: Some(
-                                                    Decimal::new(5, 2).into(), // 0.05 / unit
-                                                ),
-                                            },
-                                            api::components::v1::fee::capacity::capacity_pricing::Threshold {
-                                                included_amount: 1000,
-                                                price: Some(Decimal::new(8200, 2).into()),
-                                                per_unit_overage: Some(
-                                                    Decimal::new(4, 2).into(), // 0.04 / unit
-                                                ),
-                                            },
-                                        ],
-                                    },
-                                )),
-                            }),
+                fee: Some(api::components::v1_2::Fee {
+                    fee_type: Some(api::components::v1_2::fee::FeeType::Capacity(
+                        api::components::v1_2::fee::CapacityFee {
+                            metric_id: metric_id.to_string(),
+                            thresholds: vec![
+                                api::components::v1_2::fee::capacity_fee::CapacityThreshold {
+                                    included_amount: 100,
+                                    price: Decimal::new(1200, 2).to_string(),
+                                    per_unit_overage: Decimal::new(5, 2).to_string(),
+                                },
+                                api::components::v1_2::fee::capacity_fee::CapacityThreshold {
+                                    included_amount: 1000,
+                                    price: Decimal::new(8200, 2).to_string(),
+                                    per_unit_overage: Decimal::new(4, 2).to_string(),
+                                },
+                            ],
                         },
                     )),
                 }),
+
                 product_item_id: None,
             },
         ))

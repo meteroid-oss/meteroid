@@ -21,3 +21,4 @@ pub mod subscriptions;
 pub mod tenants;
 pub mod users;
 pub mod webhooksout;
+mod domain_mapping;

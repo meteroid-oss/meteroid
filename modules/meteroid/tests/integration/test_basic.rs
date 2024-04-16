@@ -91,17 +91,14 @@ async fn test_main() {
         .price_components
         .clone()
         .create_price_component(tonic::Request::new(
-            api::components::v1::CreatePriceComponentRequest {
+            api::components::v1_2::CreatePriceComponentRequest {
                 plan_version_id: plan_version.clone().id,
                 name: "One Time".to_string(),
-                fee_type: Some(api::components::v1::fee::Type {
-                    fee: Some(api::components::v1::fee::r#type::Fee::OneTime(
-                        api::components::v1::fee::OneTime {
-                            pricing: Some(api::components::v1::fee::FixedFeePricing {
-                                unit_price: Some(Decimal::new(10, 2).into()),
-                                quantity: 100,
-                                billing_type: api::components::v1::fee::BillingType::Advance as i32,
-                            }),
+                fee: Some(api::components::v1_2::Fee {
+                    fee_type: Some(api::components::v1_2::fee::FeeType::OneTime(
+                        api::components::v1_2::fee::OneTimeFee {
+                            unit_price: Decimal::new(100, 2).to_string(),
+                            quantity: 1,
                         },
                     )),
                 }),
@@ -159,16 +156,6 @@ async fn test_main() {
                     billing_day: 1,
                     customer_id: customer.id.clone(),
                     currency: "USD".to_string(),
-                    components: Some(api::subscriptions::v1_2::CreateSubscriptionComponents {
-                        parameterized_components: vec![
-                            api::subscriptions::v1_2::create_subscription_components::ComponentParameterization {
-                                component_id: price_component.id.clone(),
-                                initial_slot_count: Some(10),
-                                ..Default::default()
-                            }
-                        ],
-                        ..Default::default()
-                    }),
                     ..Default::default()
                 })
             },
