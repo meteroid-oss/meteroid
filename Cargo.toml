@@ -1,31 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-    # meteroid
-    "modules/meteroid",
-    "modules/meteroid/crates/meteroid-grpc",
-    "modules/meteroid/crates/meteroid-repository",
-    "modules/meteroid/crates/stripe-client",
-    "modules/meteroid/crates/diesel-models",
-    "modules/meteroid/crates/meteroid-store",
-    # metering
-    "modules/metering",
-    "modules/metering/crates/metering-grpc",
-    # shared
-    "crates/kafka",
-    "crates/common-build-info",
-    "crates/common-config",
-    "crates/common-domain",
-    "crates/common-grpc",
-    "crates/common-grpc-error-as-tonic-macros",
-    "crates/common-grpc-error-as-tonic-macros-impl",
-    "crates/common-logging",
-    "crates/cornucopia-build",
-    "crates/common-repository",
-    "crates/common-utils",
-    "crates/distributed-lock",
-    # extra
-    "extra/generator",
+  # meteroid
+  "modules/meteroid",
+  "modules/meteroid/crates/meteroid-grpc",
+  "modules/meteroid/crates/meteroid-repository",
+  "modules/meteroid/crates/stripe-client",
+  "modules/meteroid/crates/diesel-models",
+  "modules/meteroid/crates/meteroid-store",
+  # metering
+  "modules/metering",
+  "modules/metering/crates/metering-grpc",
+  # shared
+  "crates/kafka",
+  "crates/common-build-info",
+  "crates/common-config",
+  "crates/common-domain",
+  "crates/common-grpc",
+  "crates/common-grpc-error-as-tonic-macros",
+  "crates/common-grpc-error-as-tonic-macros-impl",
+  "crates/common-logging",
+  "crates/cornucopia-build",
+  "crates/common-repository",
+  "crates/common-utils",
+  "crates/distributed-lock",
+  # extra
+  "extra/generator",
 ]
 
 [workspace.package]
@@ -104,9 +104,9 @@ rdkafka = "0.36.0"
 redis = { version = "0.25.0", default-features = false }
 refinery = { version = "0.8.11", default-features = false }
 regex = "1"
-reqwest = { version = "0.11.22", default-features = false }
-reqwest-middleware = "0.2.4"
-reqwest-retry = "0.4.0"
+reqwest = { version = "0.12.3", default-features = false }
+reqwest-middleware = "0.3.0"
+reqwest-retry = "0.5.0"
 ring = "0.17.4"
 rstest = "0.18.2"
 rust_decimal = "1.32.0"

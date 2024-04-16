@@ -28,8 +28,8 @@ log.workspace = true
 nanoid.workspace = true
 prost-types.workspace = true
 prost.workspace = true
-reqwest = { workspace = true, features = ["default"] }
-reqwest-middleware = { workspace = true }
+reqwest = { workspace = true, features = ["default", "json"] }
+reqwest-middleware = { workspace = true, features = ["json"] }
 reqwest-retry = { workspace = true }
 segment.workspace = true
 serde_json.workspace = true
