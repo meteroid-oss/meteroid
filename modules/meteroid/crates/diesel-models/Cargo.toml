@@ -1,0 +1,29 @@
+[package]
+name = "diesel-models"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+chrono.workspace = true
+diesel.workspace = true
+deadpool-postgres.workspace = true
+diesel-derive-enum.workspace = true
+diesel-async.workspace = true
+uuid = { workspace = true, features = ["serde"] }
+dotenvy.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+error-stack.workspace = true
+thiserror.workspace = true
+log.workspace = true
+common-utils.workspace = true
+rust_decimal = { workspace = true, features = ["db-diesel2-postgres", "serde_json"] }
+tap.workspace = true
+itertools.workspace = true
