@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package meteroid.api.stats.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+import "common/v1/date.proto";
+
+message BreakdownStat {
+  int64 count = 1;
+  int64 value = 2;
+}
+
+enum TrendScope {
+  TREND_24H = 0;
+  TREND_7D = 1;
+  TREND_30D = 2;
+  TREND_90D = 3;
+  TREND_1Y = 4;
+  TREND_2Y = 5;
+}
+
+message Trend {
+  int64 current = 1;
+  int64 change_amount = 2;
+  float change_percent = 3;
+  bool positive_is_good = 4;
+  TrendScope scope = 5;
+}
+
+enum MRRBreakdownScope {
+  THIS_WEEK = 0;
+  THIS_MONTH = 1;
+  THIS_QUARTER = 2;
+  THIS_YEAR = 3;
+  LAST_WEEK = 4;
+  LAST_MONTH = 5;
+  LAST_QUARTER = 6;
+  LAST_YEAR = 7;
+}
+
+enum MRRMovementType {
+  NEW_BUSINESS = 0;
+  EXPANSION = 1;
+  CONTRACTION = 2;
+  CHURN = 3;
+  REACTIVATION = 4;
+}
+
+message MRRBreakdown {
+  BreakdownStat new_business = 1;
+  BreakdownStat expansion = 2;
+  BreakdownStat contraction = 3;
+  BreakdownStat churn = 4;
+  BreakdownStat reactivation = 5;
+  int64 net_new_mrr = 6;
+  int64 total_net_mrr = 7;
+}
+
+message Period {
+  google.protobuf.Timestamp start_date = 1;
+  google.protobuf.Timestamp end_date = 2;
+}
+
+message SignupSeries {
+  string name = 1;
+  string code = 2;
+  repeated DataPoint data = 3;
+
+  message DataPoint {
+    string x = 1;
+    int64 total = 2;
+    int64 delta = 3;
+  }
+}
+
+message MrrChartSeries {
+  string name = 1;
+  string code = 2;
+  optional Plan plan = 3;
+  repeated DataPoint data = 4;
+
+  message DataPoint {
+    string x = 1;
+    MRRBreakdown data = 2;
+  }
+
+  message Plan {
+    string id = 1;
+    string name = 2;
+  }
+}
+
+message TrialConversionSeries {
+  string name = 1;
+  string code = 2;
+  repeated DataPoint data = 3;
+
+  message DataPoint {
+    string x = 1;
+    float conversion_rate = 2;
+    int64 conversions = 4;
+  }
+}
+
+message TrialConversionMetaDataPoint {
+  string x = 1;
+  int64 total_trials = 3;
+}
+
+
+message RevenueByCustomer {
+  string customer_name = 1;
+  string customer_id = 2;
+  int64 revenue = 3;
+}
+
+message MrrLogEntry {
+  google.protobuf.Timestamp created_at = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  string subscription_id = 4;
+  string plan_name = 5;
+  string description = 6;
+  MRRMovementType mrr_type = 7;
+  common.v1.Date applies_to = 8;
+
+}

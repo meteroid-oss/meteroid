@@ -457,6 +457,7 @@ async fn test_metering_e2e() {
         tenant_id: tenant_uuid.clone(),
         customer_id: Uuid::from_str(&customer_1).unwrap(),
         subscription_id: Uuid::from_str(&subscription.id).unwrap(),
+        plan_version_id: Uuid::from_str(&plan_version_id).unwrap(),
         currency: subscription.currency.clone(),
         days_until_due: subscription.net_terms,
         line_items: serde_json::Value::Null,
@@ -624,6 +625,7 @@ async fn fetch_invoices<C: GenericClient>(conn: &C, tenant_id: Uuid) -> Vec<List
         offset: 0,
         status: None,
         order_by: "DATE_ASC",
+        customer_id: None,
         search,
     };
 

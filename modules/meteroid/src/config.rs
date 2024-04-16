@@ -29,6 +29,9 @@ pub struct Config {
     #[envconfig(from = "INVOICING_WEBHOOK_LISTEN_ADDRESS")]
     pub invoicing_webhook_addr: SocketAddr,
 
+    #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
+    pub openexchangerates_api_key: Option<String>,
+
     #[envconfig(nested = true)]
     pub common: CommonConfig,
 

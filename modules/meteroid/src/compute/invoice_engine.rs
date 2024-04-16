@@ -42,12 +42,14 @@ impl InvoiceEngine {
         // this allows to fetch the subscription as part of a transaction
         db_client: &C,
         subscription_id: &Uuid,
+        tenant_id: &Uuid,
         invoice_date: &NaiveDate,
     ) -> Result<InvoiceLines> {
         // Fetch subscription price point details
         let sub = SubscriptionClient::fetch_subscription_details(
             db_client,
             subscription_id,
+            tenant_id,
             invoice_date,
         )
         .await?;

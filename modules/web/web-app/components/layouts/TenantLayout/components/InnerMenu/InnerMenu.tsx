@@ -1,5 +1,3 @@
-import { Header, HeaderTitle, StyledInnerMenu } from './InnerMenu.styled'
-
 import type { FunctionComponent, ReactNode } from 'react'
 
 interface InnerMenuProps {
@@ -9,13 +7,13 @@ interface InnerMenuProps {
 
 const InnerMenu: FunctionComponent<InnerMenuProps> = ({ title, children }) => {
   return (
-    <StyledInnerMenu>
-      <Header>
-        <HeaderTitle>{title}</HeaderTitle>
-      </Header>
+    <aside className="flex flex-col w-[250px] border-r border-border bg-muted dark:bg-card">
+      <header className="pt-6 pb-3 pl-4">
+        <h2 className="text-lg font-medium leading-none">{title}</h2>
+      </header>
 
       {children}
-    </StyledInnerMenu>
+    </aside>
   )
 }
 

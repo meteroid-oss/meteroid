@@ -1,8 +1,7 @@
-import { FormItem, SelectItem, Input } from '@ui/components'
+import { InputFormField, GenericFormField, SelectItem, SelectFormField, Form } from '@md/ui'
 import { useAtom } from 'jotai'
 
-import { ControlledSelect } from '@/components/form'
-import PriceInput from '@/components/form/PriceInput'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import {
   componentFeeAtom,
   FeeFormProps,
@@ -25,48 +24,42 @@ export const OneTimeForm = (props: FeeFormProps) => {
 
   return (
     <>
-      <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500">
-            <FormItem name="pricing.billingType" label="Billing type">
-              <ControlledSelect
-                {...methods.withControl('pricing.billingType')}
+      <Form {...methods}>
+        <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-1 pr-5 border-r border-border">
+              <SelectFormField
+                control={methods.control}
                 className="lg:w-[180px] xl:w-[230px]"
+                name="pricing.billingType"
+                label="Billing type"
               >
                 <SelectItem value="ADVANCE">Paid upfront (advance)</SelectItem>
                 <SelectItem value="ARREAR">Postpaid (arrear)</SelectItem>
-              </ControlledSelect>
-            </FormItem>
-          </div>
-          <div className="ml-4 col-span-2 space-y-4">
-            <FormItem
-              name="pricing.quantity"
-              label="Quantity"
-              {...methods.withError('pricing.quantity')}
-            >
-              <Input
-                {...methods.register('pricing.quantity', {
-                  valueAsNumber: true,
-                })}
+              </SelectFormField>
+            </div>
+            <div className="ml-4 col-span-2 space-y-4">
+              <InputFormField
+                name="pricing.quantity"
+                label="Quantity"
                 type="number"
                 step={1}
                 className="max-w-xs"
+                control={methods.control}
               />
-            </FormItem>
-            <FormItem
-              name="pricing.unitPrice"
-              label="Price per unit"
-              {...methods.withError('pricing.unitPrice')}
-            >
-              <PriceInput
-                {...methods.withControl('pricing.unitPrice')}
-                currency={currency}
-                className="max-w-xs"
+
+              <GenericFormField
+                name="pricing.unitPrice"
+                label="Price per unit"
+                control={methods.control}
+                render={({ field }) => (
+                  <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+                )}
               />
-            </FormItem>
+            </div>
           </div>
-        </div>
-      </EditPriceComponentCard>
+        </EditPriceComponentCard>
+      </Form>
     </>
   )
 }

@@ -17,6 +17,8 @@ use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
+use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
+use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
 
 struct TestContext<'a> {
@@ -183,6 +185,70 @@ async fn test_subscription_create() {
         db_invoice.subscription_id.to_string(),
         subscription.subscription.clone().unwrap().id
     );
+
+    // teardown
+    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+}
+
+#[tokio::test]
+async fn test_subscription_cancel() {
+    let docker = Cli::default();
+    let TestContext {
+        setup,
+        clients,
+        _container,
+    } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
+    let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
+    let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
+    let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
+
+    let now = chrono::offset::Local::now().date_naive();
+
+    let subscription = clients
+        .subscriptions
+        .clone()
+        .create_subscription(tonic::Request::new(
+            api::subscriptions::v1::CreateSubscriptionRequest {
+                customer_id: customer_id.clone(),
+                plan_version_id: plan_version_id.clone(),
+                billing_start: Some(now.into()),
+                billing_end: None,
+                net_terms: 0,
+                billing_day: 1,
+                parameters: Some(api::subscriptions::v1::SubscriptionParameters {
+                    parameters: vec![
+                        api::subscriptions::v1::subscription_parameters::SubscriptionParameter {
+                            component_id: component_id.clone(),
+                            value: 10,
+                        },
+                    ],
+                    committed_billing_period: Some(0),
+                }),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let result_subscription = clients
+        .subscriptions
+        .clone()
+        .cancel_subscription(tonic::Request::new(
+            api::subscriptions::v1::CancelSubscriptionRequest {
+                subscription_id: subscription.subscription.clone().unwrap().id.clone(),
+                reason: Some("test".to_string()),
+                effective_at: EffectiveAt::BillingPeriodEnd as i32,
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .subscription
+        .unwrap();
+
+    // check DB state
+    assert_eq!(result_subscription.status(), SubscriptionStatus::Pending);
+    assert!(result_subscription.canceled_at.is_some());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

@@ -8,7 +8,7 @@ updates:
     open-pull-requests-limit: 10
     ignore:
       - dependency-name: "*"
-        update-types: ["version-update:semver-patch"]
+        update-types: [ "version-update:semver-patch" ]
         # wait for https://github.com/davidB/tracing-opentelemetry-instrumentation-sdk/issues/122
       - dependency-name: "tonic-tracing-opentelemetry"
         # wait for tonic : https://github.com/hyperium/tonic/issues/1579
@@ -25,6 +25,10 @@ updates:
           - "tonic-web"
           - "tonic-reflection"
           - "tonic-build"
+      build-info:
+        patterns:
+          - "build-info"
+          - "build-info-build"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

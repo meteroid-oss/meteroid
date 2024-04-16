@@ -1,7 +1,7 @@
 import { colors, spaces } from '@md/foundation'
 import { styled } from '@stitches/react'
 
-import { NAVIGATION_BAR_WIDTH } from '../../NavigationBar.data'
+const NAVIGATION_BAR_WIDTH = 55
 
 export const StyledItems = styled('ul', {
   maxWidth: NAVIGATION_BAR_WIDTH,

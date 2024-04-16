@@ -1,7 +1,13 @@
-import { Badge, FormItem, Input, SelectGroup, SelectItem, SidePanel } from '@md/ui'
+import {
+  Badge,
+  SelectFormField,
+  SelectItem,
+  InputFormField,
+  FormDescription,
+  Separator,
+} from '@md/ui'
 import { useWatch } from 'react-hook-form'
 
-import { ControlledSelect } from '@/components/form'
 import { Methods } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 
@@ -12,42 +18,40 @@ interface Props {
 export const AggregationSection = ({ methods }: Props) => {
   return (
     <>
-      <SidePanel.Separator />
-      <SidePanel.Content>
+      <section>
         <div className="space-y-6 py-6">
-          <FormItem
-            name="aggregationType"
+          <SelectFormField
+            name="aggregation.aggregationType"
             label="Aggregation type"
-            error={methods.formState.errors.aggregation?.aggregationType?.message}
+            control={methods.control}
+            placeholder="Select an aggregation type"
+            className="max-w-xs"
           >
-            <ControlledSelect
-              {...methods.withControl('aggregation.aggregationType')}
-              className="max-w-sm"
-              placeholder="Select an aggregation type"
+            <SelectItem value="COUNT">Count</SelectItem>
+            <SelectItem value="COUNT_DISTINCT">Count Distinct</SelectItem>
+            <SelectItem value="SUM">Sum</SelectItem>
+            <SelectItem value="MEAN">Mean</SelectItem>
+            <SelectItem value="MIN">Min</SelectItem>
+            <SelectItem value="MAX">Max</SelectItem>
+            <SelectItem value="LATEST">Latest</SelectItem>
+            <Separator />
+            <SelectItem value="COMPOUND" disabled badge={<Badge variant="secondary">soon</Badge>}>
+              Compound
+            </SelectItem>
+            <SelectItem
+              value="UNIQUE_PERSISTENT"
+              disabled
+              badge={<Badge variant="secondary">soon</Badge>}
             >
-              <SelectGroup className="text-sm text-slate-1100 py-2 pl-4">Standard</SelectGroup>
-              <SelectItem value="COUNT">Count</SelectItem>
-              <SelectItem value="COUNT_DISTINCT">Count Distinct</SelectItem>
-              <SelectItem value="SUM">Sum</SelectItem>
-              <SelectItem value="MEAN">Mean</SelectItem>
-              <SelectItem value="MIN">Min</SelectItem>
-              <SelectItem value="MAX">Max</SelectItem>
-              <SelectItem value="LATEST">Latest</SelectItem>
-              <SelectGroup className="text-sm text-slate-1100 py-2 pl-4">Advanced</SelectGroup>
-              <SelectItem value="COMPOUND" disabled badge={<Badge>Soon</Badge>}>
-                Compound
-              </SelectItem>
-              <SelectItem value="UNIQUE_PERSISTENT" disabled badge={<Badge>Soon</Badge>}>
-                Unique (persistent)
-              </SelectItem>
-              <SelectItem value="GAUGE" disabled badge={<Badge>Soon</Badge>}>
-                Gauge
-              </SelectItem>
-            </ControlledSelect>
-          </FormItem>
+              Unique (persistent)
+            </SelectItem>
+            <SelectItem value="GAUGE" disabled badge={<Badge variant="secondary">soon</Badge>}>
+              Gauge
+            </SelectItem>
+          </SelectFormField>
           <AggregationData methods={methods} />
         </div>
-      </SidePanel.Content>
+      </section>
     </>
   )
 }
@@ -64,18 +68,16 @@ const AggregationData = ({ methods }: AggregationDataProps) => {
   return (
     <>
       {aggregationType && aggregationType !== 'COUNT' && (
-        <FormItem
-          name="aggregation.aggregationKey"
-          label="Aggregation key"
-          error={methods.formState.errors.aggregation?.aggregationKey?.message}
-          hint="This property must be passed in the event dimensions"
-        >
-          <Input
-            type="text"
+        <div className="space-y-2">
+          <InputFormField
+            name="aggregation.aggregationKey"
             placeholder="some_property"
-            {...methods.register('aggregation.aggregationKey')}
+            label="Aggregation key"
+            control={methods.control}
+            className="max-w-xs"
           />
-        </FormItem>
+          <FormDescription>This property must be passed in the event dimensions</FormDescription>
+        </div>
       )}
     </>
   )

@@ -139,10 +139,9 @@ fn subscription_to_draft(
         .change_context(errors::WorkerError::InvalidInput)?;
     let billing_day = subscription.billing_day as u32;
 
-    let effective_billing_period =
-        crate::api::services::shared::mapping::period::billing_period_to_server(
-            &subscription.effective_billing_period,
-        );
+    let effective_billing_period = crate::api::shared::mapping::period::billing_period_to_server(
+        &subscription.effective_billing_period,
+    );
 
     let period_idx = crate::compute::period::calculate_period_idx(
         billing_start_date,
@@ -169,6 +168,7 @@ fn subscription_to_draft(
         tenant_id: subscription.tenant_id,
         customer_id: subscription.customer_id,
         subscription_id: subscription.subscription_id,
+        plan_version_id: subscription.plan_version_id,
         currency: subscription.currency.clone(),
         days_until_due: subscription.net_terms,
         line_items: serde_json::Value::Null,

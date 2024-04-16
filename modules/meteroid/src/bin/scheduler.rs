@@ -17,6 +17,7 @@ use meteroid::workers::invoicing::finalize_worker::FinalizeWorker;
 use meteroid::workers::invoicing::issue_worker::IssueWorker;
 use meteroid::workers::invoicing::pending_status_worker::PendingStatusWorker;
 use meteroid::workers::invoicing::price_worker::PriceWorker;
+use meteroid::workers::misc::currency_rates_worker::CurrencyRatesWorker;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (Box::new(PriceWorker), LockKey::InvoicingPrice),
             (Box::new(FinalizeWorker), LockKey::InvoicingFinalize),
             (Box::new(IssueWorker), LockKey::InvoicingIssue),
+            (Box::new(CurrencyRatesWorker), LockKey::CurrencyRates),
         ],
         config,
         pool,

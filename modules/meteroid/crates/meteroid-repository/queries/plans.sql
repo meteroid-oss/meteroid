@@ -251,7 +251,7 @@ WHERE
   tenant_id = :tenant_id
   AND external_id = :external_id;
 
---! list_plans (search?) : ListPlan
+--! list_plans (search?, product_family_external_id?) : ListPlan
 SELECT
   plan.id,
   plan.name,
@@ -259,6 +259,8 @@ SELECT
   plan.description,
   plan.status,
   plan.plan_type,
+  product_family.id as product_family_id,
+  product_family.name as product_family_name,
   COUNT(*) OVER() AS total_count
 FROM
   plan
@@ -266,10 +268,14 @@ FROM
 WHERE
   plan.tenant_id = :tenant_id
   AND (
-    :search :: TEXT IS NULL
-    OR to_tsvector('english', plan.name || ' ' || plan.external_id) @@ to_tsquery('english', :search)
+    :product_family_external_id :: TEXT IS NULL
+        OR product_family.external_id = :product_family_external_id
   )
-  AND product_family.external_id = :product_family_external_id
+  AND (
+    :search :: TEXT IS NULL
+        OR plan.name ILIKE '%' || :search || '%'
+        OR plan.external_id ILIKE '%' || :search || '%'
+  )
 ORDER BY
   CASE
     WHEN :order_by = 'DATE_DESC' THEN plan.id
@@ -311,6 +317,34 @@ ORDER BY
   plan_version.version DESC
 LIMIT
   :limit OFFSET :offset;
+
+--: ListSubscribablePlanVersion(trial_duration_days?, trial_fallback_plan_id?, period_start_day?)
+--! list_subscribable_plan_version : ListSubscribablePlanVersion
+SELECT
+    DISTINCT ON(plan_version.plan_id)
+    plan_version.plan_id,
+    plan_version.id,
+    plan.name as plan_name,
+    plan_version.version,
+    plan_version.created_by,
+    plan_version.trial_duration_days,
+    plan_version.trial_fallback_plan_id,
+    plan_version.period_start_day,
+    plan_version.net_terms,
+    plan_version.currency,
+    product_family.id as product_family_id,
+    product_family.name as product_family_name
+FROM
+    plan_version
+JOIN
+    plan ON plan_version.plan_id = plan.id
+JOIN
+    product_family ON plan.product_family_id = product_family.id
+WHERE
+    NOT plan_version.is_draft_version
+    AND plan_version.tenant_id = :tenant_id
+ORDER BY
+    plan_version.plan_id, plan_version.version DESC, plan_version.created_at DESC;
 
 --! last_plan_version(is_draft?) : PlanVersion
 SELECT

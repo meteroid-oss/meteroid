@@ -1,6 +1,6 @@
 import { Navigate } from 'react-router-dom'
 
-import { Loading } from '@/components/atoms/Loading'
+import { Loading } from '@/components/Loading'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
 import { listTenants } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'

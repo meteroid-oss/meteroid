@@ -6,7 +6,15 @@ import "common/v1/date.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/shared/v1/shared.proto";
 import "api/schedules/v1/models.proto";
+import "google/protobuf/timestamp.proto";
 
+enum SubscriptionStatus {
+  PENDING = 0;
+  TRIAL = 1;
+  ACTIVE = 2;
+  CANCELED = 3;
+  ENDED = 4;
+}
 
 message SubscriptionParameters {
   repeated SubscriptionParameter parameters = 1;
@@ -30,8 +38,11 @@ message Subscription {
   int32 net_terms = 8;
   string currency = 9;
   string customer_name = 10;
-
-  SubscriptionParameters parameters = 11;
+  string plan_id = 11;
+  string plan_name = 12;
+  SubscriptionParameters parameters = 13;
+  SubscriptionStatus status = 14;
+  google.protobuf.Timestamp canceled_at = 15;
 }
 
 

@@ -1,1 +1,1 @@
-export * from './cn'
+export { cn } from './utils'

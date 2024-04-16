@@ -1,1 +1,0 @@
-export const TENANT_LAYOUT_INNER_MENU_WIDTH = 250

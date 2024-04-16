@@ -14,10 +14,7 @@ import type { Message, PartialMessage, PlainMessage } from '@bufbuild/protobuf'
 import type { Interceptor, ConnectError, Transport } from '@connectrpc/connect'
 import type { UseQueryResult } from '@tanstack/react-query'
 
-const loggingInterceptorSkipError = [
-  'AbortError: The user aborted a request.',
-  'DOMException: The user aborted a request.',
-]
+const loggingInterceptorSkipError = ['AbortError:', 'DOMException:']
 export const loggingInterceptor: Interceptor = next => async req => {
   try {
     const result = await next(req)
@@ -27,25 +24,23 @@ export const loggingInterceptor: Interceptor = next => async req => {
     const error = e
     const errorStr = String(e)
 
-    if (!loggingInterceptorSkipError.includes(errorStr)) {
+    // only error if it doesn't start with the strings in the array
+    if (!loggingInterceptorSkipError.some(s => errorStr.startsWith(s))) {
       console.error(`🚨 to ${req.method.name} `, req.message, error)
     }
+
     throw error
   }
 }
 
-const errorInterceptorSkipError = [
-  'TypeError: Failed to fetch',
-  'AbortError: The user aborted a request.',
-  'DOMException: The user aborted a request.',
-]
+const errorInterceptorSkipError = ['TypeError:', 'AbortError:', 'DOMException:']
 export const errorInterceptor: Interceptor = next => async req => {
   try {
     return await next(req)
   } catch (e) {
     const errorStr = String(e)
 
-    if (!errorInterceptorSkipError.includes(errorStr)) {
+    if (!errorInterceptorSkipError.some(s => errorStr.startsWith(s))) {
       toast.error(errorStr)
     }
     throw e

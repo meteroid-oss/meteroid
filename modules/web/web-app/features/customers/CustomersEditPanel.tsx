@@ -1,12 +1,21 @@
 import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Flex, FormItem, Input, Modal, SidePanel } from '@md/ui'
+import { FormControl, FormField, FormItem, FormLabel, FormMessage, Input, Separator , Modal ,
+  Button,
+  Form,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { HelpCircleIcon } from 'lucide-react'
+import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
-
-import ConfirmationModal from '@/components/atoms/ConfirmationModal'
+import ConfirmationModal from '@/components/ConfirmationModal'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import {
@@ -23,6 +32,8 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   const [isClosingPanel, setIsClosingPanel] = useState(false)
 
   const queryClient = useQueryClient()
+
+  const navigate = useNavigate()
 
   const createCustomerMut = useMutation(createCustomer, {
     onSuccess: async () => {
@@ -46,66 +57,112 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   // TODO try without the form, with onConfirm
   return (
     <>
-      <SidePanel
-        size="large"
-        key="TableEditor"
-        visible={visible}
-        header={<SidePanel.HeaderTitle>Create a new customer</SidePanel.HeaderTitle>}
-        className={`transition-all duration-100 ease-in `}
-        onCancel={safeClosePanel}
-        onConfirm={methods.handleSubmit(async values => {
-          await createCustomerMut.mutateAsync({
-            name: values.companyName,
-            alias: values.externalId,
-            billingConfig: {
-              billingConfigOneof: {
-                case: 'stripe',
-                value: {
-                  collectionMethod:
-                    CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
-                  customerId: values.stripeCustomerId,
-                },
-              },
-            },
-          })
-          methods.reset()
-          closePanel()
-        })}
-        onInteractOutside={event => {
-          const isToast = (event.target as Element)?.closest('#toast')
-          if (isToast) {
-            event.preventDefault()
-          }
-        }}
-      >
-        <SidePanel.Content>
-          <Flex direction="column" gap={spaces.space7}>
-            <FormItem name="name" label="Customer Name" {...methods.withError('companyName')}>
-              <Input type="text" placeholder="ACME Inc" {...methods.register('companyName')} />
-            </FormItem>
-
-            <FormItem name="name" label="Primary email" {...methods.withError('primaryEmail')}>
-              <Input type="text" {...methods.register('primaryEmail')} />
-            </FormItem>
-
-            <FormItem name="name" label="External ID" optional {...methods.withError('externalId')}>
-              <Input type="text" {...methods.register('externalId')} />
-            </FormItem>
-
-            <span className="border p-3 text-xs text-slate-900 border-slate-600 rounded-md">
-              <HelpCircleIcon size={14} className="inline-block mr-2" />
-              In this release, the only invoicing method available is Stripe Invoice
-            </span>
-            <FormItem
-              name="name"
-              label="Stripe Customer ID"
-              {...methods.withError('stripeCustomerId')}
+      <Sheet open={visible} onOpenChange={safeClosePanel}>
+        <SheetContent size="medium">
+          <Form {...methods}>
+            <form
+              onSubmit={methods.handleSubmit(async values => {
+                const res = await createCustomerMut.mutateAsync({
+                  name: values.companyName,
+                  alias: values.externalId,
+                  billingConfig: {
+                    billingConfigOneof: {
+                      case: 'stripe',
+                      value: {
+                        collectionMethod:
+                          CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
+                        customerId: values.stripeCustomerId,
+                      },
+                    },
+                  },
+                })
+                if (res.customer?.id) {
+                  navigate(`./${res.customer.id}`)
+                }
+              })}
             >
-              <Input type="text" {...methods.register('stripeCustomerId')} />
-            </FormItem>
-          </Flex>
-        </SidePanel.Content>
-      </SidePanel>
+              <SheetHeader className="border-b border-border pb-3">
+                <SheetTitle>Create a new customer</SheetTitle>
+              </SheetHeader>
+              <div className="py-6">
+                <Flex direction="column" gap={spaces.space7}>
+                  <h2 className="text-lg font-semibold text-muted-foreground">
+                    Customer Information
+                  </h2>
+
+                  <FormField
+                    control={methods.control}
+                    name="companyName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Customer Name</FormLabel>
+                        <FormControl>
+                          <Input type="text" placeholder="ACME Inc" {...field} autoComplete="off" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={methods.control}
+                    name="primaryEmail"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Primary email</FormLabel>
+                        <FormControl>
+                          <Input type="text" {...field} autoComplete="off" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={methods.control}
+                    name="externalId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>External Customer ID</FormLabel>
+                        <FormControl>
+                          <Input type="text" {...field} autoComplete="off" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <Separator />
+
+                  <h2 className="text-lg font-semibold text-muted-foreground">Invoicing Method</h2>
+
+                  <SheetDescription>
+                    In this release, the only billing method available is via <b>Stripe Invoice</b>
+                  </SheetDescription>
+
+                  <FormField
+                    control={methods.control}
+                    name="stripeCustomerId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Stripe Customer ID</FormLabel>
+                        <FormControl>
+                          <Input type="text" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </Flex>
+              </div>
+              <SheetFooter>
+                <Button type="submit">Save changes</Button>
+              </SheetFooter>
+            </form>
+          </Form>
+        </SheetContent>
+      </Sheet>
+
       <ConfirmationModal
         visible={isClosingPanel}
         header="Confirm to close"
@@ -118,7 +175,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
         }}
       >
         <Modal.Content>
-          <p className="py-4 text-sm text-scale-1100">
+          <p className="py-4 text-sm text-muted-foreground">
             There are unsaved changes. Are you sure you want to close the panel? Your changes will
             be lost.
           </p>

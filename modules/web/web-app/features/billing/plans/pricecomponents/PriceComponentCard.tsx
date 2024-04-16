@@ -3,9 +3,9 @@ import {
   createConnectQueryKey,
   useMutation,
 } from '@connectrpc/connect-query'
+import { Button, TableCell } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
-import { ButtonAlt, Table } from '@ui/components'
 import { useAtom } from 'jotai'
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { ReactNode, useCallback, useMemo, useState } from 'react'
@@ -37,14 +37,10 @@ import {
   removePriceComponent,
   listPriceComponents,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
-
-// TODO lagging ts
+import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
 export const PriceComponentCard: React.FC<{
   component: PriceComponent
-  // invoicingPricingUnit: PricingUnit
-  // priceOverride?: PriceDataDiff;
-  // priceOverrideDisplayAttributes?: PriceOverrideDisplayAttributes;
 }> = ({ component }) => {
   const [isCollapsed, setIsCollapsed] = useState(true)
 
@@ -70,8 +66,10 @@ export const PriceComponentCard: React.FC<{
     },
   })
 
+  const showConfirmationModal = useConfirmationModal()
+
   const removeComponent = async () => {
-    deleteComponentMutation.mutate({ priceComponentId: component.id })
+    showConfirmationModal(() => deleteComponentMutation.mutate({ priceComponentId: component.id }))
   }
 
   const editComponent = () => {
@@ -80,16 +78,16 @@ export const PriceComponentCard: React.FC<{
 
   return (
     <div
-      className="flex flex-col grow px-4 py-4 border border-slate-500 shadow-sm rounded-lg max-w-4xl group"
+      className="flex flex-col grow px-4 py-4 border border-border shadow-sm rounded-lg max-w-4xl group bg-card"
       key={component.id}
     >
-      <div className="mt-0.5 flex flex-row" onClick={() => setIsCollapsed(!isCollapsed)}>
+      <div className="mt-0.5 flex flex-row min-h-9" onClick={() => setIsCollapsed(!isCollapsed)}>
         <div className="flex flex-row items-center cursor-pointer w-full">
           <div className="mr-2">
             {isCollapsed ? (
-              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-slate-1000" />
+              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
             ) : (
-              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-slate-1000" />
+              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-muted-foreground" />
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -98,16 +96,22 @@ export const PriceComponentCard: React.FC<{
         </div>
         {isDraft && (
           <div className="align-end hidden group-hover:flex">
-            <ButtonAlt
-              type="danger"
-              className=" !rounded-r-none bg-transparent"
+            <Button
+              variant="ghost"
+              className=" !rounded-r-none bg-transparent text-destructive hover:text-destructive"
               onClick={removeComponent}
+              size="icon"
             >
               <Trash2Icon size={12} strokeWidth={2} />
-            </ButtonAlt>
-            <ButtonAlt type="text" className=" !rounded-l-none" onClick={editComponent}>
+            </Button>
+            <Button
+              variant="ghost"
+              className=" !rounded-l-none"
+              onClick={editComponent}
+              size="icon"
+            >
               <PencilIcon size={12} strokeWidth={2} />
-            </ButtonAlt>
+            </Button>
           </div>
         )}
       </div>
@@ -116,14 +120,14 @@ export const PriceComponentCard: React.FC<{
           <div className="grid grid-cols-3 gap-x-6 mt-4">
             <PriceComponentProperty
               label="Pricing model"
-              className="col-span-1 border-r border-slate-600 pr-4"
+              className="col-span-1 border-r border-border pr-4"
             >
               <span>{priceElement?.pricingModel ?? priceElement?.feeType}</span>
             </PriceComponentProperty>
             {priceElement?.linkedItem && (
               <PriceComponentProperty
                 label={priceElement.linkedItem.type}
-                className="col-span-1 border-r border-slate-600 pr-4"
+                className="col-span-1 border-r border-border pr-4"
                 childrenClassNames="truncate"
               >
                 {/* <Link to={`/metrics/${price.metric.id}`} target="_blank" rel="noopener noreferrer">
@@ -136,14 +140,14 @@ export const PriceComponentCard: React.FC<{
             {priceElement?.fixedQuantity && (
               <PriceComponentProperty
                 label="Fixed quantity"
-                className="col-span-1 pr-4 border-r border-slate-600"
+                className="col-span-1 pr-4 border-r border-border"
               >
                 <span>{priceElement.fixedQuantity}</span>
               </PriceComponentProperty>
             )}
             <PriceComponentProperty
               label="Cadence"
-              className="col-span-1 border-r border-slate-600 last:border-none pr-4"
+              className="col-span-1 border-r border-border last:border-none pr-4"
             >
               <span>{priceElement?.cadence}</span>
             </PriceComponentProperty>
@@ -174,9 +178,9 @@ const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
       .exhaustive()
 
   return match<FeeType, PriceElement | undefined>(feeType ?? undefined)
-    .with({ fee: 'rate' }, () => ({
+    .with({ fee: 'rate' }, ({ data }) => ({
       feeType: 'Rate',
-      cadence: 'Committed term',
+      cadence: 'cadence' in data.pricing ? mapCadence(data.pricing.cadence) : 'Committed',
     }))
     .with({ fee: 'slot_based' }, ({ data }) => ({
       feeType: 'Slot-based',
@@ -397,7 +401,7 @@ const renderCommittedCapacity = (capacity: Capacity) => {
                   row.index === 0 || data[row.index].term !== data[row.index - 1].term
 
                 if (isFirstRowInGroup) {
-                  return <Table.td>{value}</Table.td>
+                  return <TableCell>{value}</TableCell>
                 }
                 return null
               },

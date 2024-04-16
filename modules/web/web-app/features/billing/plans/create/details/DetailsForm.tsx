@@ -1,8 +1,28 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { ButtonAlt, FormItem, Input, Label, RadioGroup, RadioGroupItem, Textarea } from '@md/ui'
+import {
+  Button,
+  Form,
+  InputFormField,
+  TextareaFormField,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
+  GenericFormField,
+  Input,
+  cn,
+  Spinner,
+  FormDescription,
+} from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { customAlphabet } from 'nanoid'
 import { FC, useEffect } from 'react'
-import { useController, useWatch } from 'react-hook-form'
+import {
+  ControllerRenderProps,
+  FieldPath,
+  FieldValues,
+  useController,
+  useWatch,
+} from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -10,7 +30,8 @@ import { useProductFamily } from '@/hooks/useProductFamily'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { createPlanSchema } from '@/lib/schemas/plans'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
-import { createDraftPlan } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { createDraftPlan, listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { useTypedParams } from '@/utils/params'
 
 const nanoid = customAlphabet('1234567890abcdef', 5)
 
@@ -36,16 +57,24 @@ interface Props {
   onCancel: () => void
 }
 export const DetailsForm: FC<Props> = ({ onCancel }) => {
+  const { familyExternalId } = useTypedParams()
   const methods = useZodForm({
     schema: createPlanSchema,
     defaultValues: {
       planType: 'STANDARD',
     },
   })
+  const queryClient = useQueryClient()
 
-  const createPlan = useMutation(createDraftPlan)
+  const createPlan = useMutation(createDraftPlan, {
+    onSuccess: async () => {
+      queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+    },
+  })
 
   const navigate = useNavigate()
+
+  useProductFamily
 
   const onSubmit = async (data: z.infer<typeof createPlanSchema>) => {
     const plan = await createPlan.mutateAsync({
@@ -53,84 +82,92 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       description: data.description,
       externalId: data.externalId,
       planType: PlanType[data.planType],
+      productFamilyExternalId: familyExternalId,
     })
     navigate(`${plan.plan?.plan?.externalId}/onboarding`)
   }
 
-  useEffect(() => {
-    console.log(methods.getValues)
-  }, [methods])
-
   return (
-    <form onSubmit={methods.handleSubmit(onSubmit)}>
-      <section className="space-y-4">
-        <div className="space-y-6 pt-2">
-          <FormItem
-            name="name"
-            label="Name"
-            layout="horizontal"
-            error={methods.formState.errors.planName?.message}
-          >
-            <Input type="text" placeholder="Plan name" {...methods.register('planName')} />
-          </FormItem>
-          {/* TODO */}
-          <div className="hidden">
-            <div className="w-full border-b "></div>
-            <FormItem
-              name="name"
-              label="Description"
-              error={methods.formState.errors.description?.message}
+    <Form {...methods}>
+      <form onSubmit={methods.handleSubmit(onSubmit)}>
+        <section className="space-y-4">
+          <div className="space-y-6 py-2">
+            <InputFormField
+              name="planName"
+              label="Name"
               layout="horizontal"
-            >
-              <Textarea
+              control={methods.control}
+              type="text"
+              placeholder="Plan name"
+            />
+            {/* TODO */}
+            <div className="hidden">
+              <div className="w-full border-b "></div>
+              <TextareaFormField
+                name="description"
+                label="Description"
+                control={methods.control}
                 placeholder="This plan gives access to ..."
-                {...methods.register('description')}
+                layout="horizontal"
               />
-            </FormItem>
-            <div className="w-full border-b "></div>
-            <FormItem
-              name="name"
-              label="Code"
-              error={methods.formState.errors.externalId?.message}
+              <div className="w-full border-b "></div>
+              <GenericFormField
+                name="externalId"
+                label="Code"
+                layout="horizontal"
+                control={methods.control}
+                render={({ field, className }) => (
+                  <ExternalIdInput methods={methods} field={field} className={className} />
+                )}
+              />
+              <FormDescription>
+                Use this reference to uniquely identify the plan when using the API.
+              </FormDescription>
+            </div>
+            <div className="w-full border-b border-border "></div>
+            <GenericFormField
+              name="planType"
+              label="Plan type"
               layout="horizontal"
-              hint={
-                <>
-                  Use this reference to uniquely identify the plan when&nbsp;
-                  <a className="underline" href="#">
-                    using the API
-                  </a>
-                  .
-                </>
-              }
-            >
-              <ExternalIdInput methods={methods} />
-            </FormItem>
+              control={methods.control}
+              render={({ className, field }) => (
+                <PlanTypeFormItem methods={methods} field={field} className={className} />
+              )}
+            />
           </div>
-          <div className="w-full border-b border-scale-800 "></div>
-          <FormItem name="planType" label="Plan type" layout="horizontal">
-            <PlanTypeFormItem methods={methods} />
-          </FormItem>
-        </div>
 
-        <div className="flex justify-end w-full items-center space-x-3">
-          <ButtonAlt type="default" onClick={onCancel}>
-            Cancel
-          </ButtonAlt>
-          <ButtonAlt
-            type="primary"
-            htmlType="submit"
-            loading={createPlan.isPending}
-            disabled={!methods.formState.isValid}
-          >
-            {createPlan.isPending ? 'loading' : 'Configure'}
-          </ButtonAlt>
-        </div>
-      </section>
-    </form>
+          <div className="flex justify-end w-full items-center space-x-3">
+            <Button variant="secondary" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
+              {createPlan.isPending ? (
+                <>
+                  <Spinner /> Loading...
+                </>
+              ) : (
+                'Configure'
+              )}
+            </Button>
+          </div>
+        </section>
+      </form>
+    </Form>
   )
 }
 
-const ExternalIdInput = ({ methods }: { methods: Methods<typeof createPlanSchema> }) => {
+const ExternalIdInput = <
+  TFieldValues extends FieldValues = FieldValues,
+  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
+>({
+  methods,
+  field,
+  className,
+}: {
+  field: ControllerRenderProps<TFieldValues, TName>
+  methods: Methods<typeof createPlanSchema>
+  className: string
+}) => {
   const planName = useWatch({ control: methods.control, name: 'planName' })
   const { productFamily } = useProductFamily()
 
@@ -150,13 +187,23 @@ const ExternalIdInput = ({ methods }: { methods: Methods<typeof createPlanSchema
     <Input
       type="text"
       placeholder="external_id"
-      {...methods.register('externalId')}
-      className="rounded-r-none border-r-0"
+      {...field}
+      className={cn('rounded-r-none border-r-0', className)}
     />
   )
 }
 
-const PlanTypeFormItem = ({ methods }: { methods: Methods<typeof createPlanSchema> }) => {
+const PlanTypeFormItem = <
+  TFieldValues extends FieldValues = FieldValues,
+  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
+>({
+  methods,
+  className,
+}: {
+  field: ControllerRenderProps<TFieldValues, TName>
+  methods: Methods<typeof createPlanSchema>
+  className: string
+}) => {
   const { field } = useController({ name: 'planType', control: methods.control })
   return (
     <RadioGroup
@@ -164,8 +211,9 @@ const PlanTypeFormItem = ({ methods }: { methods: Methods<typeof createPlanSchem
       name={field.name}
       onValueChange={field.onChange}
       value={field.value}
+      className={className}
     >
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-4">
         <RadioGroupItem value="STANDARD" id="r2" />
         <Label htmlFor="r2">
           <PlanTypeCard
@@ -179,21 +227,21 @@ const PlanTypeFormItem = ({ methods }: { methods: Methods<typeof createPlanSchem
           />
         </Label>
       </div>
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-4">
         <RadioGroupItem value="FREE" id="r1" disabled />
         <Label htmlFor="r1">
           <PlanTypeCard
-            title="Free / Freemium"
+            title="Free / Freemium (disabled)"
             desc="Free plans can be subscribed to without payment information."
           />
         </Label>
       </div>
 
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center space-x-4">
         <RadioGroupItem value="CUSTOM" id="r3" disabled />
         <Label htmlFor="r3">
           <PlanTypeCard
-            title="Custom"
+            title="Custom (disabled)"
             desc={
               <>
                 Custom plans allows to generate quotes and to be extended per customer or customer
@@ -214,8 +262,8 @@ interface PlanTypeCardProps {
 const PlanTypeCard: FC<PlanTypeCardProps> = ({ title, desc }) => (
   <>
     <div className="flex flex-col ">
-      <div className="text-sm font-medium text-scale-1100">{title}</div>
-      <div className="text-xs text-scale-900">{desc}</div>
+      <div className="text-sm font-medium text-foreground">{title}</div>
+      <div className="text-xs text-muted-foreground">{desc}</div>
     </div>
   </>
 )

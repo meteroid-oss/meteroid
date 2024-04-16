@@ -83,7 +83,7 @@ export const BillingPeriodModal: FC = () => {
       }
     >
       <div className="px-6">
-        <div className="p-4 text-sm text-slate-1000 flex flex-col">
+        <div className="p-4 text-sm text-muted-foreground flex flex-col">
           <span>Select the terms which will be available for your customers to pick from.</span>
           <span>You can define different prices based on these terms.</span>
         </div>
@@ -110,7 +110,7 @@ interface PricingModelCardProps {
 export const PricingModelCard = (props: PricingModelCardProps) => {
   return (
     <div
-      className="p-4 bg-gray-100 border rounded-md hover:border-brand-1000 hover:border-2 cursor-pointer"
+      className="p-4 bg-card border rounded-md hover:border-brand-1000 hover:border-2 cursor-pointer"
       onClick={props.action}
     >
       <h2 className="text-lg font-semibol d">{props.title}</h2>

@@ -4,9 +4,9 @@
   "exclude": ["dist", "build", "node_modules"],
   "compilerOptions": {
     "types": ["node"],
-    "baseUrl": ".",
+    "baseUrl": "src",
     "paths": {
-      "@ui/*": ["./src/*"]
+      "@ui/*": ["*"]
     }
   }
 }

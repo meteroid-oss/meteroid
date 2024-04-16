@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::api::services::utils::uuid_gen;
+use crate::api::utils::uuid_gen;
 use crate::config::Config;
 use crate::repo::get_pool;
 
@@ -58,9 +58,18 @@ impl EventBusStatic {
                 .await;
 
                 if config.analytics.enabled {
+                    let country = match crate::eventbus::analytics_handler::get_geoip().await {
+                        Ok(geoip) => Some(geoip.country),
+                        Err(err) => {
+                            log::warn!("Failed to obtain data for analytics: {}", err);
+                            None
+                        }
+                    };
+
                     bus.subscribe(Arc::new(analytics_handler::AnalyticsHandler::new(
                         config.analytics.clone(),
                         pool.clone(),
+                        country,
                     )))
                     .await;
                 } else {
@@ -129,11 +138,10 @@ impl Event {
         )
     }
 
-    pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+    pub fn instance_inited(actor: Uuid, organization_id: Uuid) -> Self {
         Self::new(
-            EventData::SubscriptionCreated(TenantEventDataDetails {
-                tenant_id,
-                entity_id: subscription_id,
+            EventData::InstanceInited(EventDataDetails {
+                entity_id: organization_id,
             }),
             Some(actor),
         )
@@ -158,19 +166,125 @@ impl Event {
             None,
         )
     }
+
+    pub fn plan_created_draft(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PlanCreatedDraft(TenantEventDataDetails {
+                tenant_id,
+                entity_id: plan_version_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn plan_published_version(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PlanPublishedVersion(TenantEventDataDetails {
+                tenant_id,
+                entity_id: plan_version_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn plan_discarded_version(actor: Uuid, plan_version_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PlanDiscardedVersion(TenantEventDataDetails {
+                tenant_id,
+                entity_id: plan_version_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn price_component_created(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: price_component_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn price_component_edited(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentEdited(TenantEventDataDetails {
+                tenant_id,
+                entity_id: price_component_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn price_component_removed(actor: Uuid, price_component_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::PriceComponentRemoved(TenantEventDataDetails {
+                tenant_id,
+                entity_id: price_component_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn product_family_created(actor: Uuid, product_family_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::ProductFamilyCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: product_family_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn subscription_created(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::SubscriptionCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: subscription_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn subscription_canceled(actor: Uuid, subscription_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::SubscriptionCanceled(TenantEventDataDetails {
+                tenant_id,
+                entity_id: subscription_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn user_created(actor: Option<Uuid>, user_id: Uuid) -> Self {
+        Self::new(
+            EventData::UserCreated(EventDataDetails { entity_id: user_id }),
+            actor,
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum EventData {
     ApiTokenCreated(EventDataDetails),
     BillableMetricCreated(TenantEventDataDetails),
-    OrganizationCreated(EventDataDetails),
-    TenantCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
     CustomerPatched(TenantEventDataDetails),
-    SubscriptionCreated(TenantEventDataDetails),
+    InstanceInited(EventDataDetails),
     InvoiceCreated(TenantEventDataDetails),
     InvoiceFinalized(TenantEventDataDetails),
+    PlanCreatedDraft(TenantEventDataDetails),
+    PlanPublishedVersion(TenantEventDataDetails),
+    PlanDiscardedVersion(TenantEventDataDetails),
+    PriceComponentCreated(TenantEventDataDetails),
+    PriceComponentEdited(TenantEventDataDetails),
+    PriceComponentRemoved(TenantEventDataDetails),
+    ProductFamilyCreated(TenantEventDataDetails),
+    SubscriptionCreated(TenantEventDataDetails),
+    SubscriptionCanceled(TenantEventDataDetails),
+    TenantCreated(TenantEventDataDetails),
+    UserCreated(EventDataDetails),
 }
 
 #[derive(Debug, Clone)]

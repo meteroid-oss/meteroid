@@ -1,25 +1,23 @@
 import {
-  FormItem,
+  Form,
+  GenericFormField,
+  InputFormField,
+  SelectFormField,
   SelectItem,
-  Input,
-  SelectContent,
-  SelectRoot,
-  SelectTrigger,
-  SelectValue,
-} from '@ui/components'
+} from '@md/ui'
 import { useAtom } from 'jotai'
-import { useEffect, useState } from 'react'
+import { useWatch } from 'react-hook-form'
 
-import PriceInput from '@/components/form/PriceInput'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import {
-  componentFeeAtom,
-  FeeFormProps,
   EditPriceComponentCard,
+  FeeFormProps,
+  componentFeeAtom,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { TermRateTable } from '@/features/billing/plans/pricecomponents/components/SubscriptionRateForm'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { Cadence, SlotBased, SlotBasedSchema } from '@/lib/schemas/plans'
+import { SlotBased, SlotBasedSchema } from '@/lib/schemas/plans'
 
 export const SlotsForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
@@ -32,72 +30,53 @@ export const SlotsForm = (props: FeeFormProps) => {
     defaultValues: data,
   })
 
-  const [cadence, setCadence] = useState<Cadence | 'COMMITTED'>(
-    data && 'cadence' in data.pricing ? data.pricing.cadence : 'COMMITTED'
-  )
-
-  useEffect(() => {
-    if (cadence === 'COMMITTED') {
-      methods.unregister('pricing.cadence')
-    } else methods.setValue('pricing.cadence', cadence)
-  }, [cadence, methods])
+  const cadence = useWatch({ control: methods.control, name: 'pricing.cadence' })
 
   return (
-    <>
+    <Form {...methods}>
       <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
         <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
-            <FormItem name="cadence" label="Cadence">
-              <SelectRoot
-                onValueChange={value => setCadence(value as Cadence)}
-                defaultValue={cadence}
-              >
-                <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="COMMITTED">Term (variable)</SelectItem>
-                  <SelectItem value="MONTHLY">Monthly</SelectItem>
-                  <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                  <SelectItem value="ANNUAL">Annual</SelectItem>
-                </SelectContent>
-              </SelectRoot>
-            </FormItem>
-            <FormItem
+          <div className="col-span-1 pr-5 border-r border-border space-y-4">
+            <SelectFormField
+              name="pricing.cadence"
+              label="Cadence"
+              control={methods.control}
+              className="lg:w-[180px] xl:w-[230px]"
+              onValueChange={value =>
+                value === 'COMMITTED' && methods.unregister('pricing.cadence')
+              }
+            >
+              <SelectItem value="COMMITTED">Committed</SelectItem>
+              <SelectItem value="MONTHLY">Monthly</SelectItem>
+              <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+              <SelectItem value="ANNUAL">Annual</SelectItem>
+            </SelectFormField>
+
+            <InputFormField
               name="slotUnit.name"
               label="Slot unit"
-              {...methods.withError('slotUnit.name')}
-            >
-              <Input
-                {...methods.register('slotUnit.name')}
-                {...methods.withError('slotUnit.name')}
-                className="max-w-xs"
-              />
-            </FormItem>
+              control={methods.control}
+              className="max-w-xs"
+            />
           </div>
           <div className="ml-4 col-span-2 space-y-4">
             {cadence === 'COMMITTED' ? (
-              <FormItem name="pricing.price" label="Price">
-                <TermRateTable methods={methods} currency={currency} />
-              </FormItem>
+              <TermRateTable methods={methods} currency={currency} />
             ) : (
               <>
-                <FormItem
+                <GenericFormField
                   name="pricing.price"
                   label="Price"
-                  {...methods.withError('pricing.price')}
-                >
-                  <PriceInput
-                    {...methods.withControl('pricing.price')}
-                    currency={currency}
-                    className="max-w-xs"
-                  />
-                </FormItem>
+                  control={methods.control}
+                  render={({ field }) => (
+                    <UncontrolledPriceInput {...field} currency={currency} className="max-w-xs" />
+                  )}
+                />
               </>
             )}
           </div>
         </div>
       </EditPriceComponentCard>
-    </>
+    </Form>
   )
 }

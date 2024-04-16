@@ -1,19 +1,20 @@
 version: v1
 types:
-    include:
-        - meteroid.api.apitokens.v1.ApiTokensService
-        - meteroid.api.billablemetrics.v1.BillableMetricsService
-        - meteroid.api.customers.v1.CustomersService
-        - meteroid.api.instance.v1.InstanceService
-        - meteroid.api.invoices.v1.InvoicesService
-        - meteroid.api.plans.v1.PlansService
-        - meteroid.api.components.v1.PriceComponentsService
-        - meteroid.api.productfamilies.v1.ProductFamiliesService
-        - meteroid.api.products.v1.ProductsService
-        - meteroid.api.schedules.v1.SchedulesService
-        - meteroid.api.subscriptions.v1.SubscriptionsService
-        - meteroid.api.tenants.v1.TenantsService
-        - meteroid.api.users.v1.UsersService
+  include:
+    - meteroid.api.apitokens.v1.ApiTokensService
+    - meteroid.api.billablemetrics.v1.BillableMetricsService
+    - meteroid.api.customers.v1.CustomersService
+    - meteroid.api.instance.v1.InstanceService
+    - meteroid.api.invoices.v1.InvoicesService
+    - meteroid.api.plans.v1.PlansService
+    - meteroid.api.components.v1.PriceComponentsService
+    - meteroid.api.productfamilies.v1.ProductFamiliesService
+    - meteroid.api.products.v1.ProductsService
+    - meteroid.api.schedules.v1.SchedulesService
+    - meteroid.api.stats.v1.StatsService
+    - meteroid.api.subscriptions.v1.SubscriptionsService
+    - meteroid.api.tenants.v1.TenantsService
+    - meteroid.api.users.v1.UsersService
 plugins:
   - plugin: buf.build/bufbuild/es:v1.7.1
     opt:

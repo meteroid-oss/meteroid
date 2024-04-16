@@ -3,8 +3,8 @@ import {
   useMutation,
   createProtobufSafeUpdater,
 } from '@connectrpc/connect-query'
+import { Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ButtonAlt } from '@ui/components'
 import { atom, useAtom, useSetAtom } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { focusAtom } from 'jotai-optics'
@@ -74,7 +74,12 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
     console.log('validated', validated)
     if (!overview?.planVersionId) return
 
-    createPriceComponent.mutate({ ...data, planVersionId: overview.planVersionId })
+    createPriceComponent.mutate({
+      planVersionId: overview.planVersionId,
+      // productItemId: undefined, // TODO
+      name: data.name,
+      feeType: mapFeeType(data.fee),
+    })
   }
 
   return (
@@ -213,7 +218,7 @@ export const EditPriceComponentCard = ({ cancel, submit, children }: EditPriceCo
   const [feeType] = useAtom(componentFeeTypeAtom)
 
   return (
-    <div className="flex flex-col grow px-4 py-4 bg-slate-100 border border-slate-400  shadow-md rounded-lg max-w-4xl">
+    <div className="flex flex-col grow px-4 py-4 bg-popover border border-accent  shadow-md rounded-lg max-w-4xl">
       <div className="flex flex-row justify-between">
         <div className="mt-0.5 flex flex-row items-center ">
           <div
@@ -221,29 +226,35 @@ export const EditPriceComponentCard = ({ cancel, submit, children }: EditPriceCo
             onClick={() => setIsCollapsed(!isCollapsed)}
           >
             {isCollapsed ? (
-              <ChevronRightIcon className="w-5 l-5 text-accent-1 group-hover:text-slate-1000" />
+              <ChevronRightIcon className="w-5 l-5 text-accent-foreground" />
             ) : (
-              <ChevronDownIcon className="w-5 l-5 text-accent-1 group-hover:text-slate-1000" />
+              <ChevronDownIcon className="w-5 l-5 text-accent-foreground" />
             )}
           </div>
           <div className="flex items-center gap-2 ">
             <EditableComponentName />
-            <span className="text-sm pl-4 text-slate-1000">
+            <span className="text-sm pl-4 text-muted-foreground">
               {feeType && <>({feeTypeToHuman(feeType)})</>}
             </span>
           </div>
         </div>
         <div className="flex flex-row items-center">
-          <ButtonAlt
-            type="danger"
-            className="font-bold py-1.5 !rounded-r-none bg-transparent"
+          <Button
+            variant="ghost"
+            className="font-bold py-1.5 !rounded-r-none bg-transparent "
+            size="icon"
             onClick={cancel}
           >
             <XIcon size={16} strokeWidth={2} />
-          </ButtonAlt>
-          <ButtonAlt type="link" className="font-bold py-1.5 !rounded-l-none" onClick={submit}>
+          </Button>
+          <Button
+            variant="ghost"
+            className="font-bold py-1.5 !rounded-l-none text-success hover:text-success"
+            onClick={submit}
+            size="icon"
+          >
             <CheckIcon size={16} strokeWidth={2} />
-          </ButtonAlt>
+          </Button>
         </div>
       </div>
       <div className="flex flex-col grow px-7">
@@ -263,7 +274,7 @@ const EditableComponentName = () => {
     <div className="flex flex-row items-center">
       {isEditing ? (
         <input
-          className="py-1 px-1 text-base block w-full shadow-sm rounded-md ml-1 border-slate-300"
+          className="bg-input py-1 px-1 text-base block w-full shadow-sm rounded-md ml-1 border-border"
           value={name}
           autoFocus
           onChange={e => setName(e.target.value)}
@@ -282,148 +293,3 @@ const EditableComponentName = () => {
     </div>
   )
 }
-
-// const _renderGraduatedPrice = ({
-//   price,
-//   config,
-//   onPriceChange,
-//   showValidation,
-// }: {
-//   price: PriceWithPhaseOrder
-//   config: GraduatedPriceModelConfig
-//   onPriceChange: (price: PriceWithPhaseOrder) => void
-//   showValidation?: boolean
-// }) => {
-//   const addTier = () => {
-//     const tiers = [...config.tiers]
-//     const penultimateLastUnit = parseFloat(tiers[tiers.length - 2].last_unit || '0')
-//     tiers.splice(-1, 0, {
-//       first_unit: penultimateLastUnit.toString(),
-//       last_unit: (penultimateLastUnit + 1).toString(),
-//       unit_amount: '',
-//     })
-//     if (parseFloat(tiers[tiers.length - 1].first_unit) !== penultimateLastUnit + 2) {
-//       tiers[tiers.length - 1].first_unit = (penultimateLastUnit + 1).toString()
-//     }
-//     onPriceChange({
-//       ...price,
-//       config: {
-//         ...config,
-//         tiers,
-//       },
-//     })
-//   }
-
-//   const removeTier = (idx: number) => {
-//     const tiers = [...config.tiers.filter(tier => tier !== config.tiers[idx])]
-//     onPriceChange({
-//       ...price,
-//       config: {
-//         ...config,
-//         tiers,
-//       },
-//     })
-//   }
-
-//   return _renderFormInput(
-//     'Tier pricing structure',
-//     <InputTable
-//       overrideHasInteracted={showValidation}
-//       headers={['First unit', 'Last unit', 'Per unit']}
-//       unremovableIndices={[0, config.tiers.length - 1]}
-//       tiers={config.tiers.map((tier, idx) => {
-//         const onFirstUnitChange = (firstUnit: string, idx: number) => {
-//           if (firstUnit === '' || POSITIVE_NUMERIC_REGEX.test(firstUnit)) {
-//             const updatedTiers = [...config.tiers]
-//             updatedTiers[idx].first_unit = firstUnit
-//             const lastUnit = updatedTiers[idx].last_unit
-//             if (lastUnit !== null && parseFloat(lastUnit) <= parseFloat(firstUnit)) {
-//               onLastUnitChange((parseFloat(firstUnit) + 1).toString(), idx)
-//             }
-//             onPriceChange({
-//               ...price,
-//               config: {
-//                 ...config,
-//                 tiers: updatedTiers,
-//               },
-//             })
-//           }
-//         }
-
-//         const onLastUnitChange = (lastUnit: string, idx: number) => {
-//           if (lastUnit === '' || POSITIVE_NUMERIC_REGEX.test(lastUnit)) {
-//             const updatedTiers = [...config.tiers]
-//             updatedTiers[idx].last_unit = lastUnit
-//             if (
-//               updatedTiers.length > idx + 1 &&
-//               parseFloat(updatedTiers[idx + 1].first_unit) <= parseFloat(lastUnit)
-//             ) {
-//               onFirstUnitChange(parseFloat(lastUnit).toString(), idx + 1)
-//             }
-//             onPriceChange({
-//               ...price,
-//               config: {
-//                 ...config,
-//                 tiers: updatedTiers,
-//               },
-//             })
-//           }
-//         }
-
-//         const onUnitAmountChange = (unitAmount: string) => {
-//           if (unitAmount === '' || POSITIVE_NUMERIC_REGEX.test(unitAmount)) {
-//             const updatedTiers = [...config.tiers]
-//             updatedTiers[idx].unit_amount = unitAmount
-//             onPriceChange({
-//               ...price,
-//               config: {
-//                 ...config,
-//                 tiers: updatedTiers,
-//               },
-//             })
-//           }
-//         }
-//         const values: InputTableCellProps[] = [
-//           {
-//             value: tier.first_unit,
-//             onChange: (value: string) => onFirstUnitChange(value, idx),
-//             type: 'text',
-//             disabled: idx === 0,
-//             errorMessage:
-//               (idx > 0 &&
-//                 config.tiers[idx - 1].last_unit !== null &&
-//                 parseFloat(tier.first_unit) !==
-//                   parseFloat(config.tiers[idx - 1].last_unit || '0')) ||
-//               tier.first_unit === ''
-//                 ? ''
-//                 : null,
-//           },
-//           {
-//             value:
-//               idx !== config.tiers.length - 1 && tier.last_unit !== null ? tier.last_unit : '∞',
-//             onChange: (value: string) => onLastUnitChange(value, idx),
-//             type: 'text',
-//             disabled: idx === config.tiers.length - 1,
-//             errorMessage:
-//               idx !== config.tiers.length - 1 &&
-//               ((tier.last_unit && parseFloat(tier.first_unit) >= parseFloat(tier.last_unit)) ||
-//                 tier.last_unit === '')
-//                 ? ''
-//                 : null,
-//           },
-//           {
-//             value: tier.unit_amount,
-//             pricingUnit: price.pricing_unit,
-//             onChange: onUnitAmountChange,
-//             type: 'price',
-//             disabled: false,
-//             errorMessage: tier.unit_amount === '' ? '' : null,
-//           },
-//         ]
-//         return values
-//       })}
-//       addTier={addTier}
-//       removeTier={removeTier}
-//     />
-//   )
-// }

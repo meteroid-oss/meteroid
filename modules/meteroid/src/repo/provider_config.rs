@@ -6,7 +6,7 @@ use common_repository::Pool;
 use cornucopia_async::Params;
 use meteroid_repository as db;
 
-use crate::api::services::utils::uuid_gen;
+use crate::api::utils::uuid_gen;
 use error_stack::{Result, ResultExt};
 use secrecy::{ExposeSecret, SecretString};
 use uuid::Uuid;

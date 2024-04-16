@@ -36,6 +36,7 @@ const mapTermFee = (pricing: grpc.Fee_TermFeePricing): api.TermFeePricing => {
         price: rate.price?.value ?? '0',
         term: mapCadence(rate.term) ?? 'MONTHLY',
       })),
+      cadence: 'COMMITTED',
     }))
     .with({ case: 'single' }, ({ value }) => {
       return {
@@ -63,6 +64,7 @@ const mapCapacityPricing = (pricing: grpc.Fee_Capacity_CapacityPricing): api.Cap
           perUnitOverage: threshold.perUnitOverage?.value ?? '0',
         })),
       })),
+      cadence: 'COMMITTED',
     }))
     .with({ case: 'single' }, ({ value }) => {
       return {

@@ -1,20 +1,18 @@
-import { ColumnDef } from '@tanstack/react-table'
 import {
-  FormItem,
-  SelectRoot,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
   SelectItem,
-  ButtonAlt,
+  Button,
   Input,
-} from '@ui/components'
+  ComboboxFormField,
+  Form,
+  SelectFormField,
+} from '@md/ui'
+import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
-import { XIcon } from 'lucide-react'
-import { useState, useEffect, useMemo } from 'react'
+import { PlusIcon, XIcon } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
+import { useNavigate } from 'react-router-dom'
 
-import { ControlledSelect } from '@/components/form'
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
@@ -25,13 +23,15 @@ import {
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm, Methods } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { CapacitySchema, Capacity, Cadence, Threshold } from '@/lib/schemas/plans'
+import { CapacitySchema, Capacity, Threshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 export const CapacityForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
   const currency = useCurrency()
+
+  const navigate = useNavigate()
 
   const methods = useZodForm({
     schema: CapacitySchema,
@@ -40,7 +40,8 @@ export const CapacityForm = (props: FeeFormProps) => {
 
   // TODO add cadence to capacity. This is the committed cadence, amount & overage is still monthly
   // also TODO, it needs to be picked from the db in edit (same for slots / rate)
-  const [cadence, setCadence] = useState<Cadence | 'COMMITTED'>('COMMITTED')
+
+  const cadence = useWatch({ control: methods.control, name: 'pricing.cadence' })
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
 
@@ -57,54 +58,56 @@ export const CapacityForm = (props: FeeFormProps) => {
     return metrics.data.billableMetrics.map(metric => ({ label: metric.name, value: metric.id }))
   }, [metrics])
 
-  console.log('errors', methods.formState.errors)
-  console.log('values', methods.getValues())
-
   return (
     <>
-      <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-1 pr-5 border-r border-slate-500 space-y-4">
-            <FormItem name="cadence" label="Cadence">
-              <SelectRoot
-                onValueChange={value => setCadence(value as Cadence)}
-                defaultValue="COMMITTED"
-              >
-                <SelectTrigger className="lg:w-[180px] xl:w-[230px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent viewportClassName="lg:w-[180px] xl:w-[230px]">
-                  <SelectItem value="COMMITTED">Term (variable)</SelectItem>
-                  <SelectItem value="MONTHLY">Monthly</SelectItem>
-                  <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                  <SelectItem value="ANNUAL">Annual</SelectItem>
-                </SelectContent>
-              </SelectRoot>
-            </FormItem>
-
-            <FormItem name="metric" label="Billable metric" {...methods.withError('metric')}>
-              <ControlledSelect
-                {...methods.withControl('metric.id')}
-                placeholder="Select a metric"
+      <Form {...methods}>
+        <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-1 pr-5 border-r border-border space-y-4">
+              <SelectFormField
+                name="pricing.cadence"
+                label="Cadence"
+                control={methods.control}
                 className="lg:w-[180px] xl:w-[230px]"
+                onValueChange={value =>
+                  value === 'COMMITTED' && methods.unregister('pricing.cadence')
+                }
               >
-                {metricsOptions.map(option => (
-                  <SelectItem value={option.value} key={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </ControlledSelect>
-            </FormItem>
+                <SelectItem value="COMMITTED">Committed</SelectItem>
+                <SelectItem value="MONTHLY">Monthly</SelectItem>
+                <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+                <SelectItem value="ANNUAL">Annual</SelectItem>
+              </SelectFormField>
+
+              <ComboboxFormField
+                name="metric.id"
+                label="Billable metric"
+                control={methods.control}
+                placeholder="Select a metric"
+                options={metricsOptions}
+                // empty={!metricsOptions.length}
+                action={
+                  <Button
+                    hasIcon
+                    variant="ghost"
+                    size="full"
+                    onClick={() => navigate('add-metric')}
+                  >
+                    <PlusIcon size={12} /> New metric
+                  </Button>
+                }
+              />
+            </div>
+            <div className="ml-4 col-span-2">
+              {cadence === 'COMMITTED' ? (
+                <>Not implemented</> // TODO use column grouping so that we have sub-tds for each term, only for the fixed fee
+              ) : (
+                <ThresholdTable methods={methods} currency={currency} />
+              )}
+            </div>
           </div>
-          <div className="ml-4 col-span-2">
-            {cadence === 'COMMITTED' ? (
-              <>Not implemented</> // TODO use column grouping so that we have sub-tds for each term, only for the fixed fee
-            ) : (
-              <ThresholdTable methods={methods} currency={currency} />
-            )}
-          </div>
-        </div>
-      </EditPriceComponentCard>
+        </EditPriceComponentCard>
+      </Form>
     </>
   )
 }
@@ -170,9 +173,9 @@ const ThresholdTable = ({
         header: '',
         id: 'remove',
         cell: ({ row }) => (
-          <ButtonAlt type="link" onClick={() => removeThreshold(row.index)}>
+          <Button variant="link" onClick={() => removeThreshold(row.index)}>
             <XIcon size={12} />
-          </ButtonAlt>
+          </Button>
         ),
       },
     ]
@@ -181,9 +184,9 @@ const ThresholdTable = ({
   return (
     <>
       <SimpleTable columns={columns} data={fields} />
-      <ButtonAlt type="link" onClick={addThreshold}>
+      <Button variant="link" onClick={addThreshold}>
         + Add threshold
-      </ButtonAlt>
+      </Button>
     </>
   )
 }

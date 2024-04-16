@@ -3,17 +3,41 @@
 --: DetailedInvoice(days_until_due?, amount_cents?, updated_at?, last_issue_attempt_at?,last_issue_error?)
 
 --! create_invoice (amount_cents?) : Invoice
-INSERT INTO invoice (id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id,
-                     currency, days_until_due, line_items, amount_cents)
-VALUES (:id, :status, :invoicing_provider, :invoice_date, :tenant_id, :customer_id, :subscription_id,
-        :currency, :days_until_due, :line_items, :amount_cents)
-RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, currency, days_until_due, line_items, amount_cents, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
+INSERT INTO invoice (id,
+                     status,
+                     invoicing_provider,
+                     invoice_date,
+                     tenant_id,
+                     customer_id,
+                     subscription_id,
+                     plan_version_id,
+                     currency,
+                     days_until_due,
+                     line_items,
+                     amount_cents,
+                     finalized_at)
+VALUES (:id,
+        :status::"InvoiceStatusEnum",
+        :invoicing_provider,
+        :invoice_date,
+        :tenant_id,
+        :customer_id,
+        :subscription_id,
+        :plan_version_id,
+        :currency,
+        :days_until_due,
+        :line_items,
+        :amount_cents,
+        CASE WHEN :status::"InvoiceStatusEnum" = 'FINALIZED' THEN NOW() else null END
+       )
+RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, plan_version_id, currency, days_until_due, line_items, amount_cents, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
 
 
 --! update_invoice_status
 UPDATE invoice
-SET status     = :status,
-    updated_at = NOW()
+SET status     = :status::"InvoiceStatusEnum",
+    updated_at = NOW(),
+    finalized_at = CASE WHEN :status::"InvoiceStatusEnum" = 'FINALIZED' THEN NOW() ELSE finalized_at END
 WHERE id = :id
   AND status NOT IN ('FINALIZED', 'VOID');
 
@@ -42,10 +66,11 @@ SET status             = COALESCE(:status, status),
     days_until_due     = COALESCE(:days_until_due, days_until_due),
     line_items         = COALESCE(:line_items, line_items),
     amount_cents       = COALESCE(:amount_cents, amount_cents),
-    updated_at         = NOW()
+    updated_at         = NOW(),
+    finalized_at = CASE WHEN :status::"InvoiceStatusEnum" = 'FINALIZED' THEN NOW() ELSE finalized_at END
 WHERE id = :id
   AND status NOT IN ('FINALIZED', 'VOID')
-RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, currency, days_until_due, line_items, amount_cents, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
+RETURNING id, status, invoicing_provider, invoice_date, tenant_id, customer_id, subscription_id, plan_version_id, currency, days_until_due, line_items, amount_cents, issued, issue_attempts,last_issue_attempt_at,last_issue_error;
 
 -- Update the invoices with 'DRAFT' status where the end date has passed but the grace period is not over (or won't be in the next 5 minutes)
 --! update_pending_finalization_invoices
@@ -68,6 +93,7 @@ SELECT invoice.id,
        invoice.tenant_id,
        invoice.customer_id,
        invoice.subscription_id,
+       invoice.plan_version_id,
        invoice.currency,
        invoice.days_until_due,
        invoice.line_items,
@@ -91,6 +117,7 @@ SELECT invoice.id,
        invoice.tenant_id,
        invoice.customer_id,
        invoice.subscription_id,
+       invoice.plan_version_id,
        invoice.currency,
        invoice.days_until_due,
        invoice.line_items,
@@ -119,6 +146,7 @@ SELECT id,
        tenant_id,
        customer_id,
        subscription_id,
+       plan_version_id,
        currency,
        days_until_due,
        line_items,
@@ -132,7 +160,7 @@ WHERE status = 'FINALIZED'
   AND issued = false
   AND issue_attempts < :issue_max_attempts;
 
---! list_tenant_invoices (search?, status?) : ListInvoice
+--! list_tenant_invoices (search?, status?, customer_id?) : ListInvoice
 SELECT invoice.id,
        invoice.status,
        invoice.invoicing_provider,
@@ -143,13 +171,14 @@ SELECT invoice.id,
        invoice.currency,
        invoice.days_until_due,
        invoice.amount_cents,
-       customer.name   AS customer_name,
-       COUNT(*) OVER() AS total_count
+       customer.name    AS customer_name,
+       COUNT(*) OVER () AS total_count
 FROM invoice
          JOIN customer ON customer_id = customer.id
 WHERE invoice.tenant_id = :tenant_id
   AND (:status :: "InvoiceStatusEnum" IS NULL OR invoice.status = :status)
   AND (:search :: TEXT IS NULL OR customer.name ILIKE '%' || :search || '%')
+  AND (:customer_id :: UUID IS NULL OR customer_id = :customer_id)
 ORDER BY CASE
              WHEN :order_by = 'DATE_DESC' THEN invoice.created_at
              END DESC,
@@ -194,6 +223,7 @@ SELECT id,
        tenant_id,
        customer_id,
        subscription_id,
+       plan_version_id,
        currency,
        days_until_due,
        line_items,
@@ -226,9 +256,9 @@ SELECT invoice.id,
        plan.external_id     AS plan_external_id,
        plan_version.version AS plan_version
 FROM invoice
-  JOIN customer     ON customer_id = customer.id 
-  JOIN subscription ON subscription_id = subscription.id 
-  JOIN plan_version ON subscription.plan_version_id = plan_version.id 
-  JOIN plan         ON plan_version.plan_id = plan.id 
+         JOIN customer ON customer_id = customer.id
+         JOIN subscription ON subscription_id = subscription.id
+         JOIN plan_version ON subscription.plan_version_id = plan_version.id
+         JOIN plan ON plan_version.plan_id = plan.id
 WHERE invoice.id = :id
   AND invoice.tenant_id = :tenant_id;

@@ -36,14 +36,14 @@ message ListPlansRequest {
     NAME_DESC = 2;
     NAME_ASC = 3;
   }
-  string product_family_external_id = 1;
+  optional string product_family_external_id = 1;
   SortBy order_by = 2;
   optional string search = 3;
   meteroid.common.v1.Pagination pagination = 4;
 }
 
 message ListPlansResponse {
-  repeated Plan plans = 1;
+  repeated ListPlan plans = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
@@ -65,6 +65,14 @@ message ListPlanVersionByIdRequest {
 message ListPlanVersionByIdResponse {
   repeated ListPlanVersion plan_versions = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+// Request and response messages for ListSubscribablePlansVersions RPC
+message ListSubscribablePlanVersionRequest {
+}
+
+message ListSubscribablePlanVersionResponse {
+  repeated ListSubscribablePlanVersion plan_versions = 1;
 }
 
 // Request and response messages for CopyVersionToDraft RPC
@@ -160,6 +168,7 @@ service PlansService {
   rpc ListPlanVersionById(ListPlanVersionByIdRequest) returns (ListPlanVersionByIdResponse) {}
   rpc CopyVersionToDraft(CopyVersionToDraftRequest) returns (CopyVersionToDraftResponse) {}
   rpc PublishPlanVersion(PublishPlanVersionRequest) returns (PublishPlanVersionResponse) {}
+  rpc ListSubscribablePlanVersion(ListSubscribablePlanVersionRequest) returns (ListSubscribablePlanVersionResponse) {}
 
   rpc GetLastPublishedPlanVersion(GetLastPublishedPlanVersionRequest) returns (GetLastPublishedPlanVersionResponse) {}
   rpc DiscardDraftVersion(DiscardDraftVersionRequest) returns (DiscardDraftVersionResponse) {}

@@ -87,10 +87,10 @@ async fn test_webhook_out_handler() {
     )
     .await;
 
-    let mut endpoint_server1 = mockito::Server::new();
+    let mut endpoint_server1 = mockito::Server::new_async().await;
     let endpoint_url1 = endpoint_server1.url();
 
-    let mut endpoint_server2 = mockito::Server::new();
+    let mut endpoint_server2 = mockito::Server::new_async().await;
     let endpoint_url2 = endpoint_server2.url();
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;

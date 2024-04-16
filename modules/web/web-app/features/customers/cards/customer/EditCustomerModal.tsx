@@ -1,8 +1,7 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Form, InputFormField, Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { FormItem, Input, Modal } from '@ui/components'
 import { ComponentProps } from 'react'
-import { FieldPath } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -34,14 +33,6 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
     defaultValues: customer,
   })
 
-  const withItem = (label: string, name: FieldPath<z.TypeOf<typeof customerSchema>>) => {
-    return (
-      <FormItem label={label} layout="horizontal" {...methods.withError(name)}>
-        <Input className="max-w-xs" {...methods.register(name)} />
-      </FormItem>
-    )
-  }
-
   const onSubmit = async (data: z.infer<typeof customerSchema>) => {
     await patchCustomerMutation.mutateAsync({
       customer: {
@@ -64,16 +55,46 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
       onConfirm={() => methods.handleSubmit(onSubmit)()}
     >
       <Modal.Content>
-        <form>
-          <div className="py-4 w-full space-y-4">
-            <h3 className="font-semibold">Billing address</h3>
-            {withItem('Name', 'name')}
-            {withItem('Alias', 'alias')}
-            {withItem('Email', 'email')}
-            {withItem('Invoicing email', 'invoicingEmail')}
-            {withItem('Phone', 'phone')}
-          </div>
-        </form>
+        <Form {...methods}>
+          <form>
+            <div className="py-4 w-full space-y-4">
+              <h3 className="font-semibold">Customer details</h3>
+              <InputFormField
+                control={methods.control}
+                label="Name"
+                name="name"
+                layout="horizontal"
+              />
+              <InputFormField
+                control={methods.control}
+                label="Alias"
+                name="alias"
+                layout="horizontal"
+              />
+              <InputFormField
+                control={methods.control}
+                label="Email"
+                name="email"
+                layout="horizontal"
+                type="email"
+              />
+              <InputFormField
+                control={methods.control}
+                label="Invoicing email"
+                name="invoicingEmail"
+                layout="horizontal"
+                type="email"
+              />
+              <InputFormField
+                control={methods.control}
+                label="Phone"
+                name="phone"
+                layout="horizontal"
+                type="tel"
+              />
+            </div>
+          </form>
+        </Form>
       </Modal.Content>
     </Modal>
   )

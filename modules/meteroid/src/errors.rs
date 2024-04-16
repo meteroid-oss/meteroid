@@ -70,6 +70,8 @@ pub enum WorkerError {
     ProviderError,
     #[error("Metering error")]
     MeteringError,
+    #[error("Failed to update currency rates")]
+    CurrencyRatesUpdateError,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]

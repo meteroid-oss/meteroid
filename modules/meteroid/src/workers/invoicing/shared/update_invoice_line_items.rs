@@ -16,7 +16,12 @@ pub async fn update_invoice_line_items(
     let invoice_date = convert_time_to_chrono(invoice_data.invoice_date)?;
 
     let invoice_lines = compute_service
-        .calculate_invoice_lines(db_client, &invoice_data.subscription_id, &invoice_date)
+        .calculate_invoice_lines(
+            db_client,
+            &invoice_data.subscription_id,
+            &invoice_data.tenant_id,
+            &invoice_date,
+        )
         .await
         .map_err(|e| {
             error!("Failed to calculate invoice lines: {}", e);

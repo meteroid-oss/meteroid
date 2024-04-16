@@ -1,10 +1,11 @@
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { Button, Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ButtonAlt } from '@ui/components'
 import { useAtom, useSetAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import ConfirmationModal from '@/components/ConfirmationModal'
 import {
   addedComponentsAtom,
   editedComponentsAtom,
@@ -24,6 +25,7 @@ export const PlanActions = () => {
   const [addedComponents] = useAtom(addedComponentsAtom)
   const [editedComponents] = useAtom(editedComponentsAtom)
   const [isBusy, setIsBusy] = useState(false)
+  const [isConfirmOpen, setConfirmOpen] = useState(false)
   const queryClient = useQueryClient()
 
   const wip = addedComponents.length > 0 || editedComponents.length > 0
@@ -59,14 +61,16 @@ export const PlanActions = () => {
 
   const discardDraftMutation = useMutation(discardDraftVersion, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
-      resetAtoms()
+      queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
     },
   })
 
+  const confirmDiscardDraft = () => {
+    setConfirmOpen(true)
+  }
+
   const discardDraft = async () => {
-    const ok = window.confirm('Are you sure you want to discard this draft?')
-    if (!ok || !overview) return
+    if (!overview) return
     setIsBusy(true)
 
     await discardDraftMutation.mutateAsync({
@@ -116,28 +120,51 @@ export const PlanActions = () => {
 
   return isDraft ? (
     <>
-      <div className="text-scale-1100 text-xs  self-center">
+      <div className="text-muted-foreground text-xs  self-center">
         {wip ? 'Some components have not been saved' : ''}
       </div>
       <div className="flex ">
-        <ButtonAlt type="warning" className=" py-1.5 !rounded-r-none" onClick={discardDraft}>
+        <Button
+          variant="destructiveGhost"
+          className=" py-1.5 !rounded-r-none"
+          onClick={confirmDiscardDraft}
+          size="sm"
+        >
           Discard draft
-        </ButtonAlt>
-        <ButtonAlt
-          type="secondary"
+        </Button>
+        <Button
+          variant="primary"
           className="font-bold py-1.5 !rounded-l-none"
           disabled={wip || isBusy}
           onClick={publishPlan}
+          size="sm"
         >
           Publish version
-        </ButtonAlt>
+        </Button>
       </div>
+      <ConfirmationModal
+        visible={isConfirmOpen}
+        danger
+        header="Confirm to discard draft"
+        buttonLabel="Confirm"
+        onSelectCancel={() => setConfirmOpen(false)}
+        onSelectConfirm={() => {
+          discardDraft()
+          setConfirmOpen(false)
+        }}
+      >
+        <Modal.Content>
+          <p className="py-4 text-sm text-muted-foreground">
+            Are you sure you want to discard this draft? Your changes will be lost.
+          </p>
+        </Modal.Content>
+      </ConfirmationModal>
     </>
   ) : (
     <>
-      <ButtonAlt type="link" className=" py-1.5 !rounded-r-none" onClick={copyToDraft}>
+      <Button variant="link" className=" py-1.5 !rounded-r-none" onClick={copyToDraft}>
         Draft New Version
-      </ButtonAlt>
+      </Button>
     </>
   )
 }
