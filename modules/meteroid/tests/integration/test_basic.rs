@@ -1,6 +1,6 @@
+use meteroid::api::shared::conversions::ProtoConv;
 use rust_decimal::Decimal;
 use testcontainers::clients::Cli;
-use meteroid::api::shared::conversions::ProtoConv;
 
 use crate::helpers;
 use crate::meteroid_it;
@@ -87,16 +87,16 @@ async fn test_main() {
 
     let plan_version = plan.current_version.unwrap();
 
-    let price_component = clients
+    let _price_component = clients
         .price_components
         .clone()
         .create_price_component(tonic::Request::new(
-            api::components::v1_2::CreatePriceComponentRequest {
+            api::components::v1::CreatePriceComponentRequest {
                 plan_version_id: plan_version.clone().id,
                 name: "One Time".to_string(),
-                fee: Some(api::components::v1_2::Fee {
-                    fee_type: Some(api::components::v1_2::fee::FeeType::OneTime(
-                        api::components::v1_2::fee::OneTimeFee {
+                fee: Some(api::components::v1::Fee {
+                    fee_type: Some(api::components::v1::fee::FeeType::OneTime(
+                        api::components::v1::fee::OneTimeFee {
                             unit_price: Decimal::new(100, 2).to_string(),
                             quantity: 1,
                         },
@@ -149,15 +149,15 @@ async fn test_main() {
         .subscriptions
         .clone()
         .create_subscription(tonic::Request::new(
-            api::subscriptions::v1_2::CreateSubscriptionRequest {
-                subscription: Some(api::subscriptions::v1_2::CreateSubscription {
+            api::subscriptions::v1::CreateSubscriptionRequest {
+                subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version.clone().id,
                     billing_start_date: now.as_proto(),
                     billing_day: 1,
                     customer_id: customer.id.clone(),
                     currency: "USD".to_string(),
                     ..Default::default()
-                })
+                }),
             },
         ))
         .await

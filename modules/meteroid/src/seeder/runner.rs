@@ -30,10 +30,10 @@ use chrono::Utc;
 
 use nanoid::nanoid;
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use meteroid_store::domain::TenantContext;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub async fn run(
     store: Store,
@@ -204,8 +204,7 @@ pub async fn run(
 
         log::info!("Creating subscription for plan '{}'", plan.name);
 
-        let mut billing_end_date = None;
-
+        let billing_end_date = None;
 
         let subscription = store_domain::SubscriptionNew {
             customer_id: customer.id,
@@ -303,7 +302,6 @@ pub async fn run(
         .await
         .change_context(SeederError::TempError)?;
 
-
     let created_plan_hashmap = created_plans
         .into_iter()
         .map(|plan| (plan.version.id, plan))
@@ -330,16 +328,19 @@ pub async fn run(
 
         log::info!("price_components '{}'", plan.price_components.len());
 
-
-        let churn_rate = scenario.plans.iter().find(|p| p.name == plan.plan.name).and_then(|c| c.churn_rate);
-
+        let churn_rate = scenario
+            .plans
+            .iter()
+            .find(|p| p.name == plan.plan.name)
+            .and_then(|c| c.churn_rate);
 
         // Add some variations (cancellations, reactivations, upgrades, downgrades, switch, trial conversions TODO)
-// CHURN START
+        // CHURN START
         match churn_rate {
             Some(churn_rate) => {
                 if plan.plan.plan_type != PlanTypeEnum::Free {
-                    let months_since_start = (now.year() - subscription.billing_start_date.year()) * 12
+                    let months_since_start = (now.year() - subscription.billing_start_date.year())
+                        * 12
                         + now.month() as i32
                         - subscription.billing_start_date.month() as i32;
 
@@ -347,19 +348,21 @@ pub async fn run(
 
                     if rng.gen::<f64>() < churn_probability {
                         let end_month = rng.gen_range(0..=months_since_start);
-                        let end_date =
-                            subscription.billing_start_date + chrono::Duration::days(end_month as i64 * 30);
+                        let end_date = subscription.billing_start_date
+                            + chrono::Duration::days(end_month as i64 * 30);
 
                         if end_date < now {
-                            store.cancel_subscription(
-                                subscription.id,
-                                Some("Not used anymore".to_string()),
-                                CancellationEffectiveAt::Date(end_date),
-                                TenantContext {
-                                    tenant_id: tenant.id,
-                                    actor: user_id,
-                                },
-                            ).await
+                            store
+                                .cancel_subscription(
+                                    subscription.id,
+                                    Some("Not used anymore".to_string()),
+                                    CancellationEffectiveAt::Date(end_date),
+                                    TenantContext {
+                                        tenant_id: tenant.id,
+                                        actor: user_id,
+                                    },
+                                )
+                                .await
                                 .change_context(SeederError::TempError)?;
                         }
                     }
@@ -368,7 +371,6 @@ pub async fn run(
             None => {}
         }
         // CHURN END
-
 
         // create the invoices for the whole subscription lifecycle
 

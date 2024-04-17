@@ -1,25 +1,20 @@
-use cornucopia_async::Params;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::components::v1_2::{
+use meteroid_grpc::meteroid::api::components::v1::{
     price_components_service_server::PriceComponentsService, CreatePriceComponentRequest,
     CreatePriceComponentResponse, EditPriceComponentRequest, EditPriceComponentResponse,
     EmptyResponse, ListPriceComponentRequest, ListPriceComponentResponse,
     RemovePriceComponentRequest,
 };
-use meteroid_repository as db;
+
 use meteroid_store::repositories::price_components::PriceComponentInterface;
-use meteroid_store::repositories::SubscriptionInterface;
 
 use crate::api::pricecomponents::error::PriceComponentApiError;
-use crate::eventbus::Event;
-use crate::{
-    api::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
 use crate::api::shared::conversions::ProtoConv;
+use crate::eventbus::Event;
+use crate::{api::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, PriceComponentServiceComponents};
 
@@ -34,19 +29,16 @@ impl PriceComponentsService for PriceComponentServiceComponents {
 
         let req = request.into_inner();
 
-
-        let domain_components = self.store.list_price_components(
-            parse_uuid!(&req.plan_version_id)?,
-            tenant_id,
-        )
+        let domain_components = self
+            .store
+            .list_price_components(parse_uuid!(&req.plan_version_id)?, tenant_id)
             .await
             .map_err(|err| {
                 PriceComponentApiError::StoreError(
                     "Failed to list price components".to_string(),
                     Box::new(err.into_error()),
                 )
-            })?
-            ;
+            })?;
 
         let components = domain_components
             .into_iter()
@@ -104,9 +96,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-
         let component = mapping::components::edit_api_to_domain(req.clone())?;
-
 
         let component = self
             .store

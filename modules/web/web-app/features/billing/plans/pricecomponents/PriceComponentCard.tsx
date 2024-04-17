@@ -1,24 +1,24 @@
 import {
-  createProtobufSafeUpdater,
   createConnectQueryKey,
+  createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Button, TableCell } from '@md/ui'
+import { Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { ReactNode, useCallback, useMemo, useState } from 'react'
-import { match, P } from 'ts-pattern'
+import { P, match } from 'ts-pattern'
 
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { PriceComponentProperty } from '@/features/billing/plans/pricecomponents/components/PriceComponentProperty'
 import {
   editedComponentsAtom,
   formatPrice,
-  useIsDraftVersion,
   mapCadence,
   useCurrency,
+  useIsDraftVersion,
   usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
@@ -26,16 +26,16 @@ import {
   CapacityFee,
   FeeType,
   PriceComponent,
-  SlotFee,
   RateFee,
+  SlotFee,
+  TieredAndVolumeRow,
   UsageFee,
   UsagePricingModel,
-  TieredAndVolumeRow,
 } from '@/lib/schemas/plans'
 import { getBillableMetric } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import {
-  removePriceComponent,
   listPriceComponents,
+  removePriceComponent,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 

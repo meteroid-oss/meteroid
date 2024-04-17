@@ -2,7 +2,7 @@ use crate::compute::InvoiceEngine;
 
 use crate::eventbus::{Event, EventBus};
 
-use meteroid_grpc::meteroid::api::subscriptions::v1_2::subscriptions_service_server::SubscriptionsServiceServer;
+use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsServiceServer;
 
 use meteroid_store::Store;
 use std::error::Error;

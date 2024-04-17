@@ -1,13 +1,13 @@
+import { ScrollArea } from '@ui/components'
+import { cn } from '@ui/lib'
 import { format } from 'date-fns'
+import { Link } from 'react-router-dom'
 
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDateFromGrpc } from '@/lib/mapping'
-import { mrrLog } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { MRRMovementType } from '@/rpc/api/stats/v1/models_pb'
-import { Badge, ScrollArea } from '@ui/components'
-import { cn } from '@ui/lib'
-import { Link } from 'react-router-dom'
+import { mrrLog } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
 const mrrTypeTolabel: Record<MRRMovementType, string> = {
   [MRRMovementType.NEW_BUSINESS]: '(new)',

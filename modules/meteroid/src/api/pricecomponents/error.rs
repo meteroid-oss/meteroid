@@ -1,5 +1,5 @@
-use std::error::Error;
 use deadpool_postgres::tokio_postgres;
+use std::error::Error;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
@@ -24,10 +24,7 @@ pub enum PriceComponentApiError {
 
     #[error("Store error: {0}")]
     #[code(Internal)]
-    StoreError(
-        String,
-        #[source] Box<dyn Error>,
-    ),
+    StoreError(String, #[source] Box<dyn Error>),
 }
 
 impl Into<PriceComponentApiError> for error_stack::Report<meteroid_store::errors::StoreError> {

@@ -27,7 +27,6 @@ impl PriceComponentNew {
     }
 }
 
-
 // TODO check tenants in all methods
 impl PriceComponent {
     pub async fn insert(
@@ -49,7 +48,6 @@ impl PriceComponent {
             .into_db_result()
     }
 
-
     pub async fn insert_batch(
         conn: &mut PgConn,
         price_components: Vec<PriceComponentNew>,
@@ -69,14 +67,13 @@ impl PriceComponent {
             .into_db_result()
     }
 
-
     pub async fn list_by_plan_version_id(
         conn: &mut PgConn,
         tenant_id_param: uuid::Uuid,
         plan_version_id_param: uuid::Uuid,
     ) -> DbResult<Vec<PriceComponent>> {
-        use crate::schema::price_component::dsl::*;
         use crate::schema::plan_version::dsl as plan_version_dsl;
+        use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
         let query = price_component
@@ -123,8 +120,8 @@ impl PriceComponent {
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
     ) -> DbResult<Option<PriceComponent>> {
-        use crate::schema::price_component::dsl::*;
         use crate::schema::plan_version::dsl as plan_version_dsl;
+        use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
         let plan_version_with_id_in_tenant = plan_version_dsl::plan_version
@@ -134,9 +131,7 @@ impl PriceComponent {
 
         let query = diesel::update(price_component)
             .filter(id.eq(self.id))
-            .filter(
-                plan_version_id.eq_any(plan_version_with_id_in_tenant),
-            )
+            .filter(plan_version_id.eq_any(plan_version_with_id_in_tenant))
             .set(self);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -145,9 +140,7 @@ impl PriceComponent {
             .get_result(conn)
             .await
             .optional()
-            .tap_err(|e| {
-                log::error!("Error while updating price component: {:?}", e)
-            })
+            .tap_err(|e| log::error!("Error while updating price component: {:?}", e))
             .attach_printable("Error while updating price component")
             .into_db_result()
     }
@@ -157,8 +150,8 @@ impl PriceComponent {
         component_id: uuid::Uuid,
         tenant_id: uuid::Uuid,
     ) -> DbResult<()> {
-        use crate::schema::price_component::dsl::*;
         use crate::schema::plan_version::dsl as plan_version_dsl;
+        use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
         // check the tenant (https://github.com/diesel-rs/diesel/issues/1478)
@@ -169,18 +162,14 @@ impl PriceComponent {
 
         let query = diesel::delete(price_component)
             .filter(id.eq(component_id))
-            .filter(
-                plan_version_id.eq_any(plan_version_with_id_in_tenant),
-            );
+            .filter(plan_version_id.eq_any(plan_version_with_id_in_tenant));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
             .execute(conn)
             .await
-            .tap_err(|e| {
-                log::error!("Error while deleting price component: {:?}", e)
-            })
+            .tap_err(|e| log::error!("Error while deleting price component: {:?}", e))
             .attach_printable("Error while deleting price component")
             .into_db_result()?;
 

@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use diesel::{Identifiable, Insertable, Queryable, AsChangeset, Selectable};
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, AsChangeset, Selectable)]
 #[diesel(table_name = crate::schema::price_component)]

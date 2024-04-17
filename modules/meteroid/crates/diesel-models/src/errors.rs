@@ -84,9 +84,9 @@ impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
 }
 
 impl<E> From<DatabaseErrorContainer> for error_stack::Report<E>
-    where
-        E: Send + Sync + std::error::Error + 'static,
-        E: From<DatabaseError>,
+where
+    E: Send + Sync + std::error::Error + 'static,
+    E: From<DatabaseError>,
 {
     fn from(container: DatabaseErrorContainer) -> Self {
         let new_error: E = (container.error.current_context().clone()).into();

@@ -14,6 +14,7 @@ import { useMemo } from 'react'
 import * as React from 'react'
 import { DateRange } from 'react-day-picker'
 
+import { SimpleTable } from '@/components/table/SimpleTable'
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
 import { MrrBreakdownCard } from '@/features/dashboard/cards/MrrBreakdownCard'
 import { MrrLogsCard } from '@/features/dashboard/cards/MrrLogsCard'
@@ -22,7 +23,6 @@ import { useQuery } from '@/lib/connectrpc'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
-import { SimpleTable } from '@/components/table/SimpleTable'
 
 const ALL = '_all'
 
@@ -65,12 +65,12 @@ export const MrrReport = () => {
         <div className="flex justify-between items-end flex-wrap pb-4">
           <h3 className="text-lg text-foreground font-medium">Monthly Recurring Revenue</h3>
           <div>
-            <Button variant={'primary'}>Save chart</Button>
+            <Button variant="primary">Save chart</Button>
           </div>
         </div>
         <div className="flex justify-between items-end flex-wrap">
           <div>
-            <Button variant={'link'} className="p-0">
+            <Button variant="link" className="p-0">
               Filter
             </Button>
           </div>
@@ -122,7 +122,7 @@ export const MrrReport = () => {
       <div className="pt-4 pb-2 flex justify-between items-end flex-wrap">
         <h3 className="text-lg text-foreground font-medium">Table data</h3>
         <div>
-          <Button variant={'link'}>Export</Button>
+          <Button variant="link">Export</Button>
         </div>
       </div>
       <Card className="p-4">

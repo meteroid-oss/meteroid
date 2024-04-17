@@ -1,11 +1,11 @@
-import { Button, Form, GenericFormField, SelectFormField, SelectItem } from '@md/ui'
+import { Button, Form } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray, useWatch } from 'react-hook-form'
+import { useFieldArray } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 
-import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
+import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
   EditPriceComponentCard,
@@ -15,7 +15,7 @@ import {
 import { useBillingPeriods, useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { BillingPeriod } from '@/lib/mapping'
-import { SlotFeeSchema, RateFee, RateFeeSchema, TermRate } from '@/lib/schemas/plans'
+import { RateFee, RateFeeSchema, SlotFeeSchema, TermRate } from '@/lib/schemas/plans'
 
 export const SubscriptionRateForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)

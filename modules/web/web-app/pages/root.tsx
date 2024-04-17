@@ -30,9 +30,10 @@ export const Root: React.FC = () => {
     return <Loading />
   }
 
-  if (tenantsQuery.data?.tenants?.length === 1) {
+  // TODO localstorage for last accessed tenant
+  if (tenantsQuery.data?.tenants?.length) {
     return <Navigate to={`/tenant/${tenantsQuery.data.tenants[0].slug}`} />
   }
 
-  return <Navigate to="/tenants" />
+  return <Navigate to="/tenants/new" />
 }

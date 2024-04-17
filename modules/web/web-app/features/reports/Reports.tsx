@@ -1,8 +1,9 @@
+import { ScrollArea, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
+import { useState } from 'react'
+
 import SidebarMenu from '@/components/SidebarMenu'
 import { TenantPageLayout } from '@/components/layouts'
 import { MrrReport } from '@/features/reports/charts/MrrReport'
-import { Button, ScrollArea, Tabs, TabsContent, TabsList, TabsTrigger } from '@ui/components'
-import { useState } from 'react'
 export const Reports = () => {
   return (
     <TenantPageLayout title="Reports " displayTitle={true}>

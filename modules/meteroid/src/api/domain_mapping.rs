@@ -1,8 +1,7 @@
 // shared mappers between grpc and meteroid-store domain
 
-use meteroid_store::domain;
 use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
-
+use meteroid_store::domain;
 
 pub(crate) mod billing_period {
     use super::*;

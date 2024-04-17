@@ -30,7 +30,7 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::{
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     Aggregation, CreateBillableMetricRequest, SegmentationMatrix,
 };
-use meteroid_grpc::meteroid::api::components::v1::fee::BillableMetric;
+
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_repository::invoices::ListInvoice;
 
@@ -83,7 +83,7 @@ async fn test_metering_e2e() {
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
     )
-        .await;
+    .await;
 
     let jwt_auth = meteroid_it::svc_auth::login(meteroid_setup.channel.clone()).await;
 
@@ -314,8 +314,8 @@ async fn test_metering_e2e() {
         &tenant_id,
         &created_metric.billable_metric.unwrap().id,
     )
-        .split(".")
-        .collect::<Vec<&str>>()[1]
+    .split(".")
+    .collect::<Vec<&str>>()[1]
         .to_string();
 
     //sleep
@@ -357,20 +357,20 @@ async fn test_metering_e2e() {
         .price_components
         .clone()
         .create_price_component(tonic::Request::new(
-            api::components::v1_2::CreatePriceComponentRequest {
+            api::components::v1::CreatePriceComponentRequest {
                 plan_version_id: plan_version_id.clone(),
                 name: "Capacity".to_string(),
-                fee: Some(api::components::v1_2::Fee {
-                    fee_type: Some(api::components::v1_2::fee::FeeType::Capacity(
-                        api::components::v1_2::fee::CapacityFee {
+                fee: Some(api::components::v1::Fee {
+                    fee_type: Some(api::components::v1::fee::FeeType::Capacity(
+                        api::components::v1::fee::CapacityFee {
                             metric_id: metric_id.to_string(),
                             thresholds: vec![
-                                api::components::v1_2::fee::capacity_fee::CapacityThreshold {
+                                api::components::v1::fee::capacity_fee::CapacityThreshold {
                                     included_amount: 100,
                                     price: Decimal::new(1200, 2).to_string(),
                                     per_unit_overage: Decimal::new(5, 2).to_string(),
                                 },
-                                api::components::v1_2::fee::capacity_fee::CapacityThreshold {
+                                api::components::v1::fee::capacity_fee::CapacityThreshold {
                                     included_amount: 1000,
                                     price: Decimal::new(8200, 2).to_string(),
                                     per_unit_overage: Decimal::new(4, 2).to_string(),
@@ -404,9 +404,9 @@ async fn test_metering_e2e() {
     let subscription = meteroid_clients
         .subscriptions
         .create_subscription(Request::new(
-            api::subscriptions::v1_2::CreateSubscriptionRequest {
+            api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(
-                    api::subscriptions::v1_2::CreateSubscription {
+                    api::subscriptions::v1::CreateSubscription {
                         plan_version_id: plan_version_id.clone(),
                         billing_start_date: period_1_start.to_string(),
                         billing_end_date: None,
@@ -417,9 +417,9 @@ async fn test_metering_e2e() {
                         customer_id: customer_1.clone(),
                         currency: "USD".to_string(),
                         trial_start_date: None,
-                        components: Some(api::subscriptions::v1_2::CreateSubscriptionComponents {
+                        components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                             parameterized_components: vec![
-                                api::subscriptions::v1_2::create_subscription_components::ComponentParameterization {
+                                api::subscriptions::v1::create_subscription_components::ComponentParameterization {
                                     component_id: price_component.id.clone(),
                                     initial_slot_count: Some(100),
                                     billing_period: None,
@@ -485,8 +485,8 @@ async fn test_metering_e2e() {
         eventbus.deref(),
         chrono_to_date(now.date_naive()).unwrap(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let db_invoices = fetch_invoices(&conn, tenant_uuid.clone()).await;
 
@@ -528,8 +528,8 @@ async fn test_metering_e2e() {
         meteroid_setup.store.clone(),
         metering_client.clone(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let invoice_p2 = meteroid_repository::invoices::invoice_by_id()
         .bind(&conn, &invoice_p2.id)
@@ -573,8 +573,8 @@ async fn test_metering_e2e() {
     meteroid::workers::invoicing::pending_status_worker::pending_worker(
         &meteroid_setup.pool.clone(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let db_invoices = fetch_invoices(&conn, tenant_uuid.clone()).await;
     assert_eq!(
@@ -593,8 +593,8 @@ async fn test_metering_e2e() {
         eventbus.clone(),
         meteroid_setup.store.clone(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let db_invoices = fetch_invoices(&conn, tenant_uuid.clone()).await;
     assert_eq!(

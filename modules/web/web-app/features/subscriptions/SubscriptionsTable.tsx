@@ -1,115 +1,116 @@
-import { ColumnDef, OnChangeFn, PaginationState, Row } from '@tanstack/react-table'
-import { Badge } from '@ui/components'
-import { format } from 'date-fns'
-import { useMemo } from 'react'
+import {ColumnDef, OnChangeFn, PaginationState, Row} from '@tanstack/react-table'
+import {Badge} from '@ui/components'
+import {format} from 'date-fns'
+import {useMemo} from 'react'
 
-import { StandardTable } from '@/components/table/StandardTable'
-import { mapDateFromGrpc, mapDateFromGrpcv2 } from '@/lib/mapping'
-import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1_2/models_pb'
+import {StandardTable} from '@/components/table/StandardTable'
+import {formatCurrency} from '@/features/dashboard/utils'
+import {mapDateFromGrpcv2} from '@/lib/mapping'
+import {Subscription, SubscriptionStatus} from '@/rpc/api/subscriptions/v1/models_pb'
 
-import type { FunctionComponent, ReactNode } from 'react'
-import { formatCurrency } from '@/features/dashboard/utils'
+import type {FunctionComponent, ReactNode} from 'react'
 
 interface SubscriptionsTableProps {
-  data: Subscription[]
-  pagination: PaginationState
-  setPagination: OnChangeFn<PaginationState>
-  totalCount: number
-  isLoading?: boolean
-  hideCustomer?: boolean
-  hidePlan?: boolean
+    data: Subscription[]
+    pagination: PaginationState
+    setPagination: OnChangeFn<PaginationState>
+    totalCount: number
+    isLoading?: boolean
+    hideCustomer?: boolean
+    hidePlan?: boolean
 }
 
 export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
-  data,
-  pagination,
-  setPagination,
-  totalCount,
-  isLoading,
-  hideCustomer = false,
-  hidePlan = false,
-}) => {
-  const columns = useMemo<ColumnDef<Subscription>[]>(
-    () =>
-      [
-        {
-          header: 'Customer',
-          accessorKey: 'customerName',
-        },
-        {
-          header: 'Plan',
-          accessorKey: 'planName',
-        },
+                                                                                   data,
+                                                                                   pagination,
+                                                                                   setPagination,
+                                                                                   totalCount,
+                                                                                   isLoading,
+                                                                                   hideCustomer = false,
+                                                                                   hidePlan = false,
+                                                                               }) => {
+    const columns = useMemo<ColumnDef<Subscription>[]>(
+        () =>
+            [
+                {
+                    header: 'Customer',
+                    accessorKey: 'customerName',
+                },
+                {
+                    header: 'Plan',
+                    accessorKey: 'planName',
+                },
 
-        {
-          header: 'Version',
-          accessorKey: 'version',
-          enableSorting: false,
-        },
-        {
-          header: 'MRR',
-          accessorKey: 'mrrCents',
-          accessorFn: (cell: Subscription) =>
-            cell.mrrCents > 0 ? formatCurrency(cell.mrrCents) : null,
-        },
-        {
-          header: 'Start date',
-          accessorFn: (cell: Subscription) =>
-            cell.billingStartDate
-              ? format(mapDateFromGrpcv2(cell.billingStartDate), 'dd/MM/yyyy')
-              : '',
-          enableSorting: false,
-        },
-        {
-          header: 'End date',
-          cell: ({ row }: { row: Row<Subscription> }) =>
-            row.original.billingEndDate
-              ? format(mapDateFromGrpcv2(row.original.billingEndDate), 'dd/MM/yyyy')
-              : null,
-          enableSorting: false,
-        },
+                {
+                    header: 'Version',
+                    accessorKey: 'version',
+                    enableSorting: false,
+                },
+                {
+                    header: 'MRR',
+                    accessorKey: 'mrrCents',
+                    accessorFn: (cell: Subscription) =>
+                        cell.mrrCents > 0 ? formatCurrency(cell.mrrCents) : null,
+                },
+                {
+                    header: 'Start date',
+                    accessorFn: (cell: Subscription) =>
+                        cell.billingStartDate
+                            ? format(mapDateFromGrpcv2(cell.billingStartDate), 'dd/MM/yyyy')
+                            : '',
+                    enableSorting: false,
+                },
+                {
+                    header: 'End date',
+                    cell: ({row}: { row: Row<Subscription> }) =>
+                        row.original.billingEndDate
+                            ? format(mapDateFromGrpcv2(row.original.billingEndDate), 'dd/MM/yyyy')
+                            : null,
+                    enableSorting: false,
+                },
 
-        {
-          header: 'Status',
-          cell: ({ row }: { row: Row<Subscription> }) => formatStatus(row.original.status),
-        },
-        {
-          header: 'Currency',
-          accessorKey: 'currency',
-          enableSorting: false,
-        },
-      ]
-        .filter(col => !hideCustomer || col.header !== 'Customer')
-        .filter(col => !hidePlan || col.header !== 'Plan'),
+                {
+                    header: 'Status',
+                    cell: ({row}: { row: Row<Subscription> }) => formatStatus(row.original.status),
+                },
+                {
+                    header: 'Currency',
+                    accessorKey: 'currency',
+                    enableSorting: false,
+                },
+            ]
+                .filter(col => !hideCustomer || col.header !== 'Customer')
+                .filter(col => !hidePlan || col.header !== 'Plan'),
 
-    [hideCustomer]
-  )
+        [hideCustomer]
+    )
 
-  return (
-    <StandardTable
-      columns={columns}
-      data={data}
-      sortable={true}
-      pagination={pagination}
-      setPagination={setPagination}
-      totalCount={totalCount}
-      isLoading={isLoading}
-    />
-  )
+    return (
+        <StandardTable
+            columns={columns}
+            data={data}
+            sortable={true}
+            pagination={pagination}
+            setPagination={setPagination}
+            totalCount={totalCount}
+            isLoading={isLoading}
+        />
+    )
 }
+
 function formatStatus(status: SubscriptionStatus): ReactNode {
-  switch (status) {
-    case SubscriptionStatus.ACTIVE:
-      return <Badge variant="success">Active</Badge>
-    case SubscriptionStatus.CANCELED:
-      return <Badge variant="secondary">Canceled</Badge>
-    case SubscriptionStatus.ENDED:
-      return <Badge variant="secondary">Ended</Badge>
-    case SubscriptionStatus.PENDING:
-      return <Badge variant="warning">Pending</Badge>
-    case SubscriptionStatus.TRIAL:
-      return <Badge variant="outline">Trial</Badge>
-    default:
-      return 'Unknown'
-  }
+    switch (status) {
+        case SubscriptionStatus.ACTIVE:
+            return <Badge variant="success">Active</Badge>
+        case SubscriptionStatus.CANCELED:
+            return <Badge variant="secondary">Canceled</Badge>
+        case SubscriptionStatus.ENDED:
+            return <Badge variant="secondary">Ended</Badge>
+        case SubscriptionStatus.PENDING:
+            return <Badge variant="warning">Pending</Badge>
+        case SubscriptionStatus.TRIAL:
+            return <Badge variant="outline">Trial</Badge>
+        default:
+            return 'Unknown'
+    }
 }

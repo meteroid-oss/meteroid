@@ -1,6 +1,7 @@
+import { format, parseISO } from 'date-fns'
+
 import { BillingPeriod as BillingPeriodMessage } from '@/rpc/api/shared/v1/shared_pb'
 import { Date as DateMessage } from '@/rpc/common/v1/date_pb'
-import { format, parseISO } from 'date-fns'
 
 export const mapDate = (date: Date): DateMessage => {
   return new DateMessage({

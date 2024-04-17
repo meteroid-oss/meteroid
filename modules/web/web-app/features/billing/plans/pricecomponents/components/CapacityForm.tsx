@@ -1,4 +1,4 @@
-import { SelectItem, Button, Input, ComboboxFormField, Form, SelectFormField } from '@md/ui'
+import { Button, ComboboxFormField, Form, Input } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
@@ -9,14 +9,14 @@ import { useNavigate } from 'react-router-dom'
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
-  componentFeeAtom,
-  FeeFormProps,
   EditPriceComponentCard,
+  FeeFormProps,
+  componentFeeAtom,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
-import { useZodForm, Methods } from '@/hooks/useZodForm'
+import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { CapacityFeeSchema, CapacityFee, CapacityThreshold } from '@/lib/schemas/plans'
+import { CapacityFee, CapacityFeeSchema, CapacityThreshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 

@@ -3,9 +3,9 @@ pub mod invoices;
 pub mod plans;
 pub mod tenants;
 
+pub mod price_components;
 pub mod product_families;
 pub mod subscriptions;
-pub mod price_components;
 
 pub use customers::CustomersInterface;
 pub use invoices::InvoiceInterface;

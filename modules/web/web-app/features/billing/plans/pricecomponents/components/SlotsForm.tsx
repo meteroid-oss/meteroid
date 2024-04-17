@@ -1,8 +1,6 @@
-import { Form, GenericFormField, InputFormField, SelectFormField, SelectItem } from '@md/ui'
+import { Form, InputFormField } from '@md/ui'
 import { useAtom } from 'jotai'
-import { useWatch } from 'react-hook-form'
 
-import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import {
   EditPriceComponentCard,
   FeeFormProps,

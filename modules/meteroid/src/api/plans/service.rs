@@ -19,7 +19,7 @@ use meteroid_repository as db;
 use meteroid_repository::Params;
 
 use crate::api::plans::error::PlanApiError;
-use crate::api::pricecomponents;
+
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
 use crate::eventbus::Event;
@@ -588,7 +588,10 @@ impl PlansService for PlanServiceComponents {
         Ok(Response::new(response))
     }
 
-    async fn get_plan_parameters(&self, request: Request<GetPlanParametersRequest>) -> Result<Response<GetPlanParametersResponse>, Status> {
+    async fn get_plan_parameters(
+        &self,
+        _request: Request<GetPlanParametersRequest>,
+    ) -> Result<Response<GetPlanParametersResponse>, Status> {
         todo!()
     }
 

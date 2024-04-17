@@ -2,9 +2,15 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 
-use meteroid_grpc::meteroid::api::subscriptions::v1_2::subscriptions_service_server::SubscriptionsService;
+use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
-use meteroid_grpc::meteroid::api::subscriptions::v1_2::{CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest, CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse, GetSlotsValueRequest, GetSlotsValueResponse, ListSubscriptionsRequest, ListSubscriptionsResponse, PaginationResponse, SubscriptionDetails, UpdateSlotsRequest, UpdateSlotsResponse};
+use meteroid_grpc::meteroid::api::subscriptions::v1::{
+    CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest,
+    CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse,
+    GetSlotsValueRequest, GetSlotsValueResponse, ListSubscriptionsRequest,
+    ListSubscriptionsResponse, PaginationResponse, SubscriptionDetails, UpdateSlotsRequest,
+    UpdateSlotsResponse,
+};
 
 use meteroid_store::domain;
 use meteroid_store::repositories::subscriptions::{
@@ -20,15 +26,23 @@ use crate::parse_uuid;
 
 #[tonic::async_trait]
 impl SubscriptionsService for SubscriptionServiceComponents {
-    async fn create_subscription(&self, request: Request<CreateSubscriptionRequest>) -> Result<Response<CreateSubscriptionResponse>, Status> {
+    async fn create_subscription(
+        &self,
+        request: Request<CreateSubscriptionRequest>,
+    ) -> Result<Response<CreateSubscriptionResponse>, Status> {
         let tenant_id = request.tenant()?;
         let actor = request.actor()?;
 
         let inner = request.into_inner();
 
-        let subscription = inner.subscription.ok_or(SubscriptionApiError::InvalidArgument("No subscription provided".to_string()))?;
+        let subscription = inner
+            .subscription
+            .ok_or(SubscriptionApiError::InvalidArgument(
+                "No subscription provided".to_string(),
+            ))?;
 
-        let subscription = mapping::subscriptions::create_proto_to_domain(subscription, &tenant_id, &actor)?;
+        let subscription =
+            mapping::subscriptions::create_proto_to_domain(subscription, &tenant_id, &actor)?;
 
         let created = self
             .store
@@ -79,7 +93,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
     async fn get_subscription_details(
         &self,
         request: Request<
-            meteroid_grpc::meteroid::api::subscriptions::v1_2::GetSubscriptionDetailsRequest,
+            meteroid_grpc::meteroid::api::subscriptions::v1::GetSubscriptionDetailsRequest,
         >,
     ) -> Result<Response<SubscriptionDetails>, Status> {
         let tenant_id = request.tenant()?;
@@ -122,11 +136,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
-        let subscriptions: Vec<meteroid_grpc::meteroid::api::subscriptions::v1_2::Subscription> =
-            res.items
-                .into_iter()
-                .map(|c| mapping::subscriptions::domain_to_proto(c))
-                .collect::<Result<Vec<_>, _>>()?;
+        let subscriptions: Vec<meteroid_grpc::meteroid::api::subscriptions::v1::Subscription> = res
+            .items
+            .into_iter()
+            .map(|c| mapping::subscriptions::domain_to_proto(c))
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Response::new(ListSubscriptionsResponse {
             subscriptions,
@@ -207,7 +221,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             )
             .await
             .map_err(|err| {
-                SubscriptionApiError::StoreError("Failed to cancel subscription".to_string(), Box::new(err.into_error()))
+                SubscriptionApiError::StoreError(
+                    "Failed to cancel subscription".to_string(),
+                    Box::new(err.into_error()),
+                )
             })?;
 
         mapping::subscriptions::domain_to_proto(subscription)

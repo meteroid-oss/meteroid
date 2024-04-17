@@ -23,7 +23,7 @@ use deadpool_postgres::Pool;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
-use meteroid_grpc::meteroid::api::subscriptions::v1_2::SubscriptionStatus;
+use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_repository as db;
 use meteroid_repository::{InvoiceExternalStatusEnum, InvoicingProviderEnum};
 use stripe_client::webhook::event_type;
@@ -70,7 +70,7 @@ impl WebhookAdapter for Stripe {
             &sig,
             secret,
         )
-            .change_context(errors::AdapterWebhookError::SignatureVerificationFailed)?;
+        .change_context(errors::AdapterWebhookError::SignatureVerificationFailed)?;
         Ok(true)
     }
 

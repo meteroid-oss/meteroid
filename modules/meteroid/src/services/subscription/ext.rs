@@ -1,7 +1,7 @@
 use crate::datetime::{chrono_utc_now, DateExt, TimeExt};
 use crate::mapping::MappingError;
 use chrono::{NaiveDateTime, NaiveTime};
-use meteroid_grpc::meteroid::api::subscriptions::v1_2::SubscriptionStatus;
+use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_repository::subscriptions::{Subscription, SubscriptionList};
 use time::PrimitiveDateTime;
 
@@ -258,7 +258,7 @@ mod tests {
             billing_start_date,
             billing_end_date,
         )
-            .unwrap();
+        .unwrap();
 
         assert_eq!(status, expected_status);
     }

@@ -1,15 +1,15 @@
-import { InputFormField, GenericFormField, SelectItem, SelectFormField, Form } from '@md/ui'
+import { Form, GenericFormField, InputFormField } from '@md/ui'
 import { useAtom } from 'jotai'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import {
-  componentFeeAtom,
-  FeeFormProps,
   EditPriceComponentCard,
+  FeeFormProps,
+  componentFeeAtom,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { OneTimeFeeSchema, OneTimeFee } from '@/lib/schemas/plans'
+import { OneTimeFee, OneTimeFeeSchema } from '@/lib/schemas/plans'
 
 export const OneTimeForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)

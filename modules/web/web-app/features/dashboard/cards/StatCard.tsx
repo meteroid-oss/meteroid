@@ -1,7 +1,8 @@
-import { formatCurrency } from '@/features/dashboard/utils'
 import { Button, Skeleton, cn, Card } from '@md/ui'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
+
+import { formatCurrency } from '@/features/dashboard/utils'
 
 export interface TrendProp {
   value: number

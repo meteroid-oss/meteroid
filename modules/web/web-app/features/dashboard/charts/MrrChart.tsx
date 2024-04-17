@@ -1,24 +1,19 @@
 import { colors } from '@md/foundation'
 import { linearGradientDef } from '@nivo/core'
-import {
-  ComputedDatum,
-  ComputedSerie,
-  CustomLayerProps,
-  LineSvgProps,
-  ResponsiveLine,
-} from '@nivo/line'
+import { ComputedSerie, LineSvgProps, ResponsiveLine } from '@nivo/line'
 import { styled } from '@stitches/react'
+import { useMemo, useRef, useState } from 'react'
 
+import { MrrColorCircle, MrrColorCircleColors } from '@/features/dashboard/cards/MrrBreakdownCard'
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
+import { MrrCrosshair } from '@/features/dashboard/charts/MrrCrosshair'
+import { ActiveSerieLayer } from '@/features/dashboard/charts/utils'
 import { formatCurrency } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
+import { MRRBreakdown } from '@/rpc/api/stats/v1/models_pb'
 import { generalStats, totalMrrChart } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 import { useTheme } from 'providers/ThemeProvider'
-import { useMemo, useRef, useState } from 'react'
-import { ChartInterval, Crosshair } from '@/features/dashboard/charts/Crosshair'
-import { MRRBreakdown } from '@/rpc/api/stats/v1/models_pb'
-import { MrrColorCircle, MrrColorCircleColors } from '@/features/dashboard/cards/MrrBreakdownCard'
 
 const DottedBackground = styled('div', {
   maskImage: 'radial-gradient(rgb(0, 0, 0), transparent 62%)',
@@ -38,20 +33,20 @@ interface MrrChartProps {
   to: Date
 }
 
-const commonChartProperties: LineSvgProps = {
+const commonChartProps: LineSvgProps = {
   data: [],
   lineWidth: 1,
   animate: false,
-  enableGridX: false,
-  enableGridY: false,
   axisLeft: null,
   axisBottom: null,
-  enableSlices: false,
   enableCrosshair: false,
+  enableGridX: false,
+  enableGridY: false,
+  enableSlices: false,
   enablePoints: false,
-  //theme: chartTheme,
   colors: { datum: 'color' },
 }
+
 export const MrrChart = (props: MrrChartProps) => {
   const theme = useTheme()
 
@@ -95,7 +90,6 @@ export const MrrChart = (props: MrrChartProps) => {
   )
 
   const renderTooltipAdditionalData = (data: { breakdown: MRRBreakdown }) => {
-    console.log('data', data)
     return (
       <div className="flex flex-col gap-2 text-muted-foreground text-xs border-t border-border pt-3">
         <Item label="Net New MRR" value={formatCurrency(data.breakdown.netNewMrr)} />
@@ -155,8 +149,8 @@ export const MrrChart = (props: MrrChartProps) => {
       return { min: 0, max: 0 }
     }
 
-    let max = Math.max(...numbers)
-    let min = Math.min(...numbers)
+    const max = Math.max(...numbers)
+    const min = Math.min(...numbers)
 
     return {
       min,
@@ -191,31 +185,30 @@ export const MrrChart = (props: MrrChartProps) => {
       </div>
       <div className="h-[220px] relative" ref={containerRef}>
         <div className="h-0 w-0">{!isEmpty && <DottedBackground />}</div>
-        <Crosshair
+        <MrrCrosshair
           serie={serie}
-          interval={ChartInterval.All}
+          interval="All"
           containerRef={containerRef}
           tooltip={{
             format: 'currency',
             labels: {
               total_mrr: 'Total MRR',
             },
-            render: d => renderTooltipAdditionalData(d as any),
+            render: d =>
+              renderTooltipAdditionalData(
+                d as {
+                  breakdown: MRRBreakdown
+                }
+              ),
           }}
         />
         {isEmpty ? (
           <ChartNoData error={!!chartData.error} />
         ) : (
           <ResponsiveLine
-            enableGridX={false}
-            enableCrosshair={false}
-            enablePoints={false}
-            enableGridY={false}
-            enableArea={true}
-            useMesh
+            {...commonChartProps}
             areaOpacity={0.3}
             //   curve="monotoneX"
-
             defs={[
               linearGradientDef('gradientA', [
                 { offset: 0, color: 'inherit' },
@@ -224,93 +217,18 @@ export const MrrChart = (props: MrrChartProps) => {
             ]}
             fill={[{ match: '*', id: 'gradientA' }]}
             colors={[theme.isDarkMode ? '#8b8a74' : '#513ceb']}
-            lineWidth={1}
             data={data}
             xScale={{
-              type: 'time', // Set the x-axis scale to 'time'
-              format: '%Y-%m-%d', // Specify the date format
-              precision: 'day', // Set the precision to 'day'
-              nice: true, // Enable the 'nice' feature
+              type: 'time',
+              format: '%Y-%m-%d',
+              precision: 'day',
+              nice: true,
             }}
             yScale={{ type: 'linear', min: min, max: max }}
-            layers={[
-              'lines',
-              props => (
-                <FindNearestSeriesToPointer {...props} setSerie={setSerie} /> //chartWidth={width}
-              ),
-            ]}
+            layers={['lines', props => <ActiveSerieLayer {...props} setSerie={setSerie} />]}
           />
         )}
       </div>
     </div>
-  )
-}
-
-interface FindNearestPointProps extends CustomLayerProps {
-  //chartWidth: number
-  setSerie: React.Dispatch<React.SetStateAction<ComputedSerie[]>>
-}
-
-export const FindNearestSeriesToPointer: React.FC<FindNearestPointProps> = ({
-  series,
-  setSerie,
-  innerHeight,
-  //chartWidth,
-  innerWidth,
-}: FindNearestPointProps) => {
-  const layerRef = useRef<SVGRectElement>(null)
-  const padding = 16
-
-  // This is responsible for showing the Crosshair at the right point on the X axis
-  function findNearestSeriesToPointer(
-    event: React.PointerEvent<SVGRectElement> | React.MouseEvent
-  ): ComputedSerie[] {
-    const layerBounds = layerRef.current!.getBoundingClientRect()
-    const xOffset = event.clientX - layerBounds.x - padding / 2
-
-    return series.map(serie => {
-      const data = serie.data.reduce((prev, curr) => {
-        return Math.abs((curr.position.x as number) - xOffset) <
-          Math.abs((prev.position.x as number) - xOffset)
-          ? curr
-          : prev
-      }, serie.data?.[0] as ComputedDatum)
-
-      serie.data = [data]
-      return serie
-    })
-  }
-
-  // on mouse down we need to set the comparison point
-  function handlePointerDown(event: React.PointerEvent<SVGRectElement>) {
-    layerRef.current!.setPointerCapture(event.pointerId)
-  }
-
-  // on mouse down we need to set the comparison point
-  function handlePointerUp(event: React.PointerEvent<SVGRectElement>) {
-    layerRef.current!.releasePointerCapture(event.pointerId)
-  }
-
-  function handlePointerMove(event: React.PointerEvent<SVGRectElement>) {
-    return setSerie(findNearestSeriesToPointer(event))
-  }
-
-  function handlePointerLeave() {
-    setSerie(null as any)
-  }
-
-  return (
-    <g transform={`translate(-${padding / 2},0)`}>
-      <rect
-        ref={layerRef}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerLeave}
-        width={innerWidth + padding} // smaller buffer to make it easier to see latest point
-        height={innerHeight}
-        fillOpacity={0}
-      />
-    </g>
   )
 }
