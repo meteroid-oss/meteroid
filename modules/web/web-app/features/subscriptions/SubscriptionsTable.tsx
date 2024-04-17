@@ -4,10 +4,11 @@ import { format } from 'date-fns'
 import { useMemo } from 'react'
 
 import { StandardTable } from '@/components/table/StandardTable'
-import { mapDateFromGrpc } from '@/lib/mapping'
-import { Subscription } from '@/rpc/api/subscriptions/v1/models_pb'
+import { mapDateFromGrpc, mapDateFromGrpcv2 } from '@/lib/mapping'
+import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1_2/models_pb'
 
-import type { FunctionComponent } from 'react'
+import type { FunctionComponent, ReactNode } from 'react'
+import { formatCurrency } from '@/features/dashboard/utils'
 
 interface SubscriptionsTableProps {
   data: Subscription[]
@@ -16,6 +17,7 @@ interface SubscriptionsTableProps {
   totalCount: number
   isLoading?: boolean
   hideCustomer?: boolean
+  hidePlan?: boolean
 }
 
 export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
@@ -25,6 +27,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   totalCount,
   isLoading,
   hideCustomer = false,
+  hidePlan = false,
 }) => {
   const columns = useMemo<ColumnDef<Subscription>[]>(
     () =>
@@ -37,35 +40,48 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           header: 'Plan',
           accessorKey: 'planName',
         },
+
         {
           header: 'Version',
           accessorKey: 'version',
           enableSorting: false,
         },
         {
+          header: 'MRR',
+          accessorKey: 'mrrCents',
+          accessorFn: (cell: Subscription) =>
+            cell.mrrCents > 0 ? formatCurrency(cell.mrrCents) : null,
+        },
+        {
           header: 'Start date',
           accessorFn: (cell: Subscription) =>
             cell.billingStartDate
-              ? format(mapDateFromGrpc(cell.billingStartDate), 'dd/MM/yyyy')
+              ? format(mapDateFromGrpcv2(cell.billingStartDate), 'dd/MM/yyyy')
               : '',
           enableSorting: false,
         },
         {
           header: 'End date',
           cell: ({ row }: { row: Row<Subscription> }) =>
-            row.original.billingEndDate ? (
-              format(mapDateFromGrpc(row.original.billingEndDate), 'dd/MM/yyyy')
-            ) : (
-              <Badge variant="success">Active</Badge>
-            ),
+            row.original.billingEndDate
+              ? format(mapDateFromGrpcv2(row.original.billingEndDate), 'dd/MM/yyyy')
+              : null,
           enableSorting: false,
+        },
+
+        {
+          header: 'Status',
+          cell: ({ row }: { row: Row<Subscription> }) => formatStatus(row.original.status),
         },
         {
           header: 'Currency',
           accessorKey: 'currency',
           enableSorting: false,
         },
-      ].filter(col => !hideCustomer || col.header !== 'Customer'),
+      ]
+        .filter(col => !hideCustomer || col.header !== 'Customer')
+        .filter(col => !hidePlan || col.header !== 'Plan'),
+
     [hideCustomer]
   )
 
@@ -80,4 +96,20 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
       isLoading={isLoading}
     />
   )
+}
+function formatStatus(status: SubscriptionStatus): ReactNode {
+  switch (status) {
+    case SubscriptionStatus.ACTIVE:
+      return <Badge variant="success">Active</Badge>
+    case SubscriptionStatus.CANCELED:
+      return <Badge variant="secondary">Canceled</Badge>
+    case SubscriptionStatus.ENDED:
+      return <Badge variant="secondary">Ended</Badge>
+    case SubscriptionStatus.PENDING:
+      return <Badge variant="warning">Pending</Badge>
+    case SubscriptionStatus.TRIAL:
+      return <Badge variant="outline">Trial</Badge>
+    default:
+      return 'Unknown'
+  }
 }

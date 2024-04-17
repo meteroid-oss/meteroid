@@ -1,10 +1,10 @@
 import { useMutation, createConnectQueryKey, disableQuery } from '@connectrpc/connect-query'
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ColumnDef } from '@tanstack/react-table'
+import { ColumnDef, PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
-import { ReactNode, useMemo } from 'react'
+import { ReactNode, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
@@ -21,13 +21,15 @@ import {
   usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
-import { mapBillingPeriod, mapDate } from '@/lib/mapping'
+import { mapBillingPeriod, mapDate, mapDatev2 } from '@/lib/mapping'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import {
   createSubscription,
   listSubscriptions,
-} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+} from '@/rpc/api/subscriptions/v1_2/subscriptions-SubscriptionsService_connectquery'
+import { toast } from 'sonner'
+import { SubscriptionsTable } from '@/features/subscriptions'
 
 interface Props {
   children?: ReactNode
@@ -61,6 +63,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                 <TabsTrigger value="overview">Details</TabsTrigger>
                 <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
                 <TabsTrigger value="alerts">Alerts</TabsTrigger>
+                <TabsTrigger value="versions">Versions</TabsTrigger>
               </TabsList>
               <TabsContent value="overview">
                 <PlanBody />
@@ -70,6 +73,9 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
               </TabsContent>
               <TabsContent value="alerts">
                 <>Alerts are not implemented yet</>
+              </TabsContent>
+              <TabsContent value="versions">
+                <>No UI yet</>
               </TabsContent>
             </Tabs>
           </>
@@ -90,6 +96,11 @@ const SubscriptionsTab = () => {
 
   const queryClient = useQueryClient()
 
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 15,
+  })
+
   const createSubscriptionMutation = useMutation(createSubscription, {
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -98,84 +109,38 @@ const SubscriptionsTab = () => {
     },
   })
 
-  const { data: subscriptions } = useQuery(
+  const subscriptionsQuery = useQuery(
     listSubscriptions,
     overview
       ? {
           planId: overview.planId,
+          pagination: {
+            perPage: pagination.pageSize,
+            page: pagination.pageIndex,
+          },
         }
       : disableQuery
   )
 
-  // temporary
-  const { data: customers } = useQuery(listCustomers, {
-    pagination: {
-      limit: 1,
-      offset: 0,
-    },
-    sortBy: ListCustomerRequest_SortBy.NAME_ASC,
-  })
-
-  const subscriptionsData = subscriptions?.subscriptions?.map(subscription => ({
-    name: subscription.customerName,
-    version: subscription.version,
-    accrued: '$0',
-  }))
-
-  const customer = customers?.customers?.find(a => a.name === 'Comodo')
-
-  const quickCreateSubscription = async () => {
-    await createSubscriptionMutation.mutateAsync({
-      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
-      planVersionId: overview?.planVersionId!,
-      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
-      customerId: customer?.id!,
-      billingDay: 1,
-      billingStart: mapDate(new Date()),
-      netTerms: 0,
-      parameters: {
-        committedBillingPeriod: mapBillingPeriod('MONTHLY'),
-        parameters: [
-          {
-            componentId: '3b083801-c77c-4488-848e-a185f0f0a8be',
-            value: BigInt(3),
-          },
-        ],
-      },
-    })
-  }
-  // end temporaary
-
-  const columns = useMemo<ColumnDef<SubscriptionTableData>[]>(
-    () => [
-      {
-        header: 'Name',
-        accessorKey: 'name',
-      },
-      {
-        header: 'Version',
-        accessorKey: 'version',
-      },
-      {
-        header: 'Accrued',
-        accessorKey: 'accrued',
-      },
-    ],
-    []
-  )
+  const data = subscriptionsQuery.data?.subscriptions ?? []
+  const count = Number(subscriptionsQuery.data?.pagination?.totalItems ?? 0)
+  const isLoading = subscriptionsQuery.isLoading
 
   return (
     <div>
       <div className="flex py-2 justify-end">
-        <Button variant="secondary" onClick={quickCreateSubscription}>
+        <Button variant="secondary" onClick={() => toast('Unimplemented')}>
           + New subscription
         </Button>
       </div>
 
-      <SimpleTable
-        columns={columns}
-        data={subscriptionsData ?? []}
-        emptyMessage="No subscription"
+      <SubscriptionsTable
+        data={data}
+        totalCount={count}
+        pagination={pagination}
+        setPagination={setPagination}
+        isLoading={isLoading}
+        hidePlan
       />
     </div>
   )

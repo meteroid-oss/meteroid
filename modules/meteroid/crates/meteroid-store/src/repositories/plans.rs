@@ -38,7 +38,7 @@ impl PlansInterface for Store {
                         version: 0,
                         created_by: inserted.created_by,
                     }
-                    .into();
+                        .into();
 
                 let inserted_plan_version_new: domain::PlanVersion = plan_version_to_insert
                     .insert(conn)
@@ -59,16 +59,16 @@ impl PlansInterface for Store {
                                     product_item_id: p.product_item_id,
                                     fee: p.fee,
                                 }
-                                .try_into()
+                                    .try_into()
                             })
                             .collect::<Result<Vec<_>, _>>()?,
                     )
-                    .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(|err| StoreError::TransactionStoreError(err))?;
+                        .await
+                        .map_err(|err| StoreError::DatabaseError(err.error))?
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|err| StoreError::TransactionStoreError(err))?;
 
                 Ok::<_, StoreError>(domain::FullPlan {
                     price_components: inserted_price_components,
@@ -76,9 +76,9 @@ impl PlansInterface for Store {
                     version: inserted_plan_version_new,
                 })
             }
-            .scope_boxed()
+                .scope_boxed()
         })
-        .await
-        .map_err(Into::into)
+            .await
+            .map_err(Into::into)
     }
 }

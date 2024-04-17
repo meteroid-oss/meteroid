@@ -108,6 +108,7 @@ export const BillingOutlet: FunctionComponent = () => {
                 {
                   label: 'Alerts',
                   to: 'cost-alerts',
+                  soon: true,
                 },
               ],
             },

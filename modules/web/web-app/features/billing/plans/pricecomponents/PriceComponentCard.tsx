@@ -23,12 +23,12 @@ import {
 } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
-  Capacity,
+  CapacityFee,
   FeeType,
   PriceComponent,
-  SlotBased,
-  SubscriptionRate,
-  UsageBased,
+  SlotFee,
+  RateFee,
+  UsageFee,
   UsagePricingModel,
   TieredAndVolumeRow,
 } from '@/lib/schemas/plans'
@@ -168,54 +168,53 @@ interface PriceElement {
   cadence: string
   pricingModel?: string
 }
+
 const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
-  const mapUsageModel = (model: UsagePricingModel['model']): string =>
+  const mapUsageModel = (model: UsagePricingModel): string =>
     match(model)
-      .with('tiered', () => 'Tiered')
-      .with('volume', () => 'Volume')
-      .with('package', () => 'Package')
-      .with('per_unit', () => 'Per Unit')
+      .with({ model: 'tiered' }, () => 'Tiered')
+      .with({ model: 'volume' }, () => 'Volume')
+      .with({ model: 'package' }, () => 'Package')
+      .with({ model: 'per_unit' }, () => 'Per Unit')
       .exhaustive()
 
   return match<FeeType, PriceElement | undefined>(feeType ?? undefined)
     .with({ fee: 'rate' }, ({ data }) => ({
       feeType: 'Rate',
-      cadence: 'cadence' in data.pricing ? mapCadence(data.pricing.cadence) : 'Committed',
+      cadence: mapCadence(data.rates[0].term),
     }))
-    .with({ fee: 'slot_based' }, ({ data }) => ({
+    .with({ fee: 'slot' }, ({ data }) => ({
       feeType: 'Slot-based',
-      linkedItem: { type: 'Unit type', item: data.slotUnit?.name },
-      cadence: 'cadence' in data.pricing ? mapCadence(data.pricing.cadence) : 'Committed',
+      linkedItem: { type: 'Unit type', item: data.slotUnitName },
+      cadence: mapCadence(data.rates[0].term),
     }))
     .with({ fee: 'capacity' }, ({ data }) => ({
       feeType: 'Committed capacity',
       linkedItem: {
         type: 'Billable Metric',
-        item: <DisplayBillableMetric metricId={data.metric.id} />,
-      },
-      cadence: 'thresholds' in data.pricing ? 'Monthly' : 'Committed',
-    }))
-    .with({ fee: 'one_time' }, ({ data }) => ({
-      feeType: 'Fixed fee',
-      cadence: `One-time ${data.pricing.billingType === 'ADVANCE' ? '' : '(Postpaid)'}`,
-      fixedQuantity: data.pricing.quantity,
-    }))
-    .with({ fee: 'recurring' }, ({ data }) => ({
-      feeType: 'Fixed fee',
-      cadence: `${mapCadence(data.cadence)} ${
-        data.fee.billingType === 'ADVANCE' ? '' : '(Postpaid)'
-      }`,
-      fixedQuantity: data.fee.quantity,
-    }))
-    .with({ fee: 'usage_based' }, ({ data }) => ({
-      feeType: mapUsageModel(data.model.model),
-      linkedItem: {
-        type: 'Billable Metric',
-        item: <DisplayBillableMetric metricId={data.metric.id} />,
+        item: <DisplayBillableMetric metricId={data.metricId} />,
       },
       cadence: 'Monthly',
     }))
-    .otherwise(() => undefined)
+    .with({ fee: 'oneTime' }, ({ data }) => ({
+      feeType: 'Fixed fee',
+      cadence: `One-time ${data.quantity > 1 ? `(x${data.quantity})` : ''}`,
+    }))
+    .with({ fee: 'extraRecurring' }, ({ data }) => ({
+      feeType: 'Fixed fee',
+      cadence: `${data.term ? mapCadence(data.term) : 'Monthly'} ${
+        data.quantity > 1 ? `(x${data.quantity})` : ''
+      } ${data.billingType === 'ADVANCE' ? '' : '(Postpaid)'}`,
+    }))
+    .with({ fee: 'usage' }, ({ data }) => ({
+      feeType: mapUsageModel(data.model),
+      linkedItem: {
+        type: 'Billable Metric',
+        item: <DisplayBillableMetric metricId={data.metricId} />,
+      },
+      cadence: 'Monthly',
+    }))
+    .exhaustive()
 }
 
 const DisplayBillableMetric = ({ metricId }: { metricId: string }) => {
@@ -237,7 +236,7 @@ const renderPricingDetails = (feeType: FeeType): ReactNode | undefined => {
   console.log('feeType', feeType)
   return match<FeeType, ReactNode>(feeType ?? undefined)
     .with({ fee: 'rate' }, ({ data }) => renderRate(data))
-    .with({ fee: 'one_time' }, ({ data }) => (
+    .with({ fee: 'oneTime' }, ({ data }) => (
       <SimpleTable
         columns={[
           {
@@ -245,10 +244,10 @@ const renderPricingDetails = (feeType: FeeType): ReactNode | undefined => {
             cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
           },
         ]}
-        data={[data.pricing]}
+        data={[data]}
       />
     ))
-    .with({ fee: 'recurring' }, ({ data }) => (
+    .with({ fee: 'extraRecurring' }, ({ data }) => (
       <SimpleTable
         columns={[
           {
@@ -256,72 +255,51 @@ const renderPricingDetails = (feeType: FeeType): ReactNode | undefined => {
             cell: ({ row }) => <DisplayPrice price={row.original.unitPrice} />,
           },
         ]}
-        data={[data.fee]}
+        data={[data]}
       />
     ))
     .with({ fee: 'capacity' }, ({ data }) => renderCommittedCapacity(data))
-    .with({ fee: 'slot_based' }, ({ data }) => renderSlotBased(data))
-    .with({ fee: 'usage_based' }, ({ data }) => renderUsageBased(data))
+    .with({ fee: 'slot' }, ({ data }) => renderSlotBased(data))
+    .with({ fee: 'usage' }, ({ data }) => renderUsageBased(data))
     .exhaustive()
 }
 
-const renderRate = (rate: SubscriptionRate) => {
-  return match(rate.pricing)
-    .with({ rates: P.array() }, ({ rates }) => (
-      <SimpleTable
-        columns={[
-          {
-            header: 'Term',
-            accessorKey: 'term',
-          },
-          { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.price} /> },
-        ]}
-        data={rates}
-      />
-    ))
-    .with({ price: P.any }, ({ price }) => (
-      <SimpleTable
-        columns={[
-          { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.price} /> },
-        ]}
-        data={[{ price }]}
-      />
-    ))
-    .exhaustive()
+const renderRate = (rate: RateFee) => {
+  return (
+    <SimpleTable
+      columns={[
+        {
+          header: 'Term',
+          accessorKey: 'term',
+        },
+        { header: 'Price', cell: ({ row }) => <DisplayPrice price={row.original.price} /> },
+      ]}
+      data={rate.rates}
+    />
+  )
 }
 
-const renderSlotBased = (rate: SlotBased) => {
-  return match(rate.pricing)
-    .with({ rates: P.array() }, ({ rates }) => (
-      <SimpleTable
-        columns={[
-          {
-            header: 'Term',
-            accessorKey: 'term',
-          },
-          {
-            header: 'Price per slot',
-            cell: ({ row }) => <DisplayPrice price={row.original.price} />,
-          },
-        ]}
-        data={rates}
-      />
-    ))
-    .with({ price: P.any }, ({ price }) => (
-      <SimpleTable
-        columns={[
-          {
-            header: 'Price per slot',
-            cell: ({ row }) => <DisplayPrice price={row.original.price} />,
-          },
-        ]}
-        data={[{ price }]}
-      />
-    ))
-    .exhaustive()
+const renderSlotBased = (rate: SlotFee) => {
+  return (
+    <SimpleTable
+      columns={[
+        {
+          header: 'Term',
+          accessorKey: 'term',
+        },
+        {
+          header: 'Price per slot',
+          cell: ({ row }) => <DisplayPrice price={row.original.price} />,
+        },
+      ]}
+      data={rate.rates}
+    />
+  )
 }
 
-const renderUsageBased = (rate: UsageBased) => {
+type TieredAndVolumeRowDisplay = TieredAndVolumeRow & { lastUnit?: bigint }
+
+const renderUsageBased = (rate: UsageFee) => {
   return match(rate.model)
     .with({ model: 'per_unit' }, ({ data }) => (
       <SimpleTable
@@ -340,7 +318,7 @@ const renderUsageBased = (rate: UsageBased) => {
           { header: 'Block size', accessorKey: 'blockSize' },
           {
             header: 'Block price',
-            cell: ({ row }) => <DisplayPrice price={row.original.blockPrice} />,
+            cell: ({ row }) => <DisplayPrice price={row.original.packagePrice} />,
           },
         ]}
         data={[data]}
@@ -350,7 +328,13 @@ const renderUsageBased = (rate: UsageBased) => {
       const hasFlatFee = data.rows.some(row => row.flatFee != null)
       const hasFlatCap = data.rows.some(row => row.flatCap != null)
 
-      const columns: ColumnDef<TieredAndVolumeRow>[] = [
+      const zipWithLastUnit = (rows: TieredAndVolumeRow[]): TieredAndVolumeRowDisplay[] =>
+        rows.map((row, idx) => ({
+          ...row,
+          lastUnit: idx < rows.length - 1 ? rows[idx + 1].firstUnit : undefined,
+        }))
+
+      const columns: ColumnDef<TieredAndVolumeRowDisplay>[] = [
         { header: 'First unit', accessorKey: 'firstUnit' },
         { header: 'Last unit', accessorFn: row => row.lastUnit ?? '∞' },
         {
@@ -362,7 +346,7 @@ const renderUsageBased = (rate: UsageBased) => {
               {
                 header: 'Flat fee',
                 cell: ({ row }) => <DisplayPrice price={row.original.flatFee ?? '0'} />,
-              } as ColumnDef<TieredAndVolumeRow>,
+              } as ColumnDef<TieredAndVolumeRowDisplay>,
             ]
           : []),
         ...(hasFlatCap
@@ -370,63 +354,25 @@ const renderUsageBased = (rate: UsageBased) => {
               {
                 header: 'Flat cap',
                 cell: ({ row }) => <DisplayPrice price={row.original.flatCap ?? '0'} />,
-              } as ColumnDef<TieredAndVolumeRow>,
+              } as ColumnDef<TieredAndVolumeRowDisplay>,
             ]
           : []),
       ]
 
-      return <SimpleTable columns={columns} data={data.rows} />
+      return <SimpleTable columns={columns} data={zipWithLastUnit(data.rows)} />
     })
     .exhaustive()
 }
 
-const renderCommittedCapacity = (capacity: Capacity) => {
-  return match(capacity.pricing)
-    .with({ rates: P.array() }, ({ rates }) => {
-      const data = rates.flatMap(rate =>
-        rate.thresholds.map(threshold => ({ ...threshold, term: rate.term }))
-      )
-
-      return (
-        <SimpleTable
-          columns={[
-            {
-              header: 'Term',
-              accessorKey: 'term',
-              // TODO improve
-              cell: ({ row, getValue }) => {
-                const value = getValue() as ReactNode
-                // Determine if this is the first row in the group
-                const isFirstRowInGroup =
-                  row.index === 0 || data[row.index].term !== data[row.index - 1].term
-
-                if (isFirstRowInGroup) {
-                  return <TableCell>{value}</TableCell>
-                }
-                return null
-              },
-            },
-            { header: 'Included Amount', accessorKey: 'includedAmount' },
-            { header: 'Price', accessorKey: 'price' },
-            { header: 'Per Unit Overage', accessorKey: 'perUnitOverage' },
-          ]}
-          data={rates.flatMap(rate =>
-            rate.thresholds
-              .sort((a, b) => a.includedAmount - b.includedAmount)
-              .map(threshold => ({ ...threshold, term: rate.term }))
-          )}
-        />
-      )
-    })
-    .with({ thresholds: P.array() }, ({ thresholds }) => (
-      <SimpleTable
-        columns={[
-          { header: 'Included Amount', accessorKey: 'includedAmount' },
-          { header: 'Price', accessorKey: 'price' },
-          { header: 'Per Unit Overage', accessorKey: 'perUnitOverage' },
-        ]}
-        data={thresholds}
-      />
-    ))
-    .exhaustive()
+const renderCommittedCapacity = (capacity: CapacityFee) => {
+  return (
+    <SimpleTable
+      columns={[
+        { header: 'Included Amount', accessorKey: 'includedAmount' },
+        { header: 'Price', accessorKey: 'price' },
+        { header: 'Per Unit Overage', accessorKey: 'perUnitOverage' },
+      ]}
+      data={capacity.thresholds}
+    />
+  )
 }

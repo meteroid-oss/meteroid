@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { SubscriptionsHeader, SubscriptionsTable } from '@/features/subscriptions'
 import { useQuery } from '@/lib/connectrpc'
-import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { listSubscriptions } from '@/rpc/api/subscriptions/v1_2/subscriptions-SubscriptionsService_connectquery'
 
 import type { PaginationState } from '@tanstack/react-table'
 
@@ -18,15 +18,15 @@ export const Subscriptions = () => {
     listSubscriptions,
     {
       pagination: {
-        limit: pagination.pageSize,
-        offset: pagination.pageIndex * pagination.pageSize,
+        perPage: pagination.pageSize,
+        page: pagination.pageIndex,
       },
     },
     {}
   )
 
   const data = subscriptionsQuery.data?.subscriptions ?? []
-  const count = subscriptionsQuery.data?.paginationMeta?.total ?? 0
+  const count = Number(subscriptionsQuery.data?.pagination?.totalItems ?? 0)
   const isLoading = subscriptionsQuery.isLoading
 
   const refetch = () => {

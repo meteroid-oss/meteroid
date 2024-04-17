@@ -12,6 +12,7 @@ pub mod eventbus;
 pub mod mapping;
 pub mod models;
 pub mod repo;
+pub mod seeder;
 pub mod services;
 pub mod webhook;
 pub mod webhook_in_api;

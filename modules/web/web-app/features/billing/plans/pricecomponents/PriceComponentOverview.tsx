@@ -3,7 +3,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
 import { PriceComponent } from '@/lib/schemas/plans'
 import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { listPriceComponents } from '@/rpc/api/pricecomponents/v1_2/pricecomponents-PriceComponentsService_connectquery'
 
 export const PriceComponentOverview = ({ planVersionId }: { planVersionId: PlanVersion['id'] }) => {
   const priceComponents = useQuery(
@@ -17,8 +17,8 @@ export const PriceComponentOverview = ({ planVersionId }: { planVersionId: PlanV
       ({
         id: c.id,
         name: c.name,
-        productItem: c.productItem,
-        fee: c.feeType ? mapFeeType(c.feeType) : undefined,
+        fee: c.fee ? mapFeeType(c.fee.feeType) : undefined,
+        productItemId: c.productItemId,
       }) as PriceComponent
   )
 

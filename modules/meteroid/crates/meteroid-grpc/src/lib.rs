@@ -58,6 +58,10 @@ pub mod meteroid {
             pub mod v1 {
                 include_proto_serde!("meteroid.api.components.v1");
             }
+
+            pub mod v1_2 {
+                tonic::include_proto!("meteroid.api.components.v1_2");
+            }
         }
 
         pub mod schedules {
@@ -81,6 +85,10 @@ pub mod meteroid {
         pub mod subscriptions {
             pub mod v1 {
                 include_proto_serde!("meteroid.api.subscriptions.v1");
+            }
+
+            pub mod v1_2 {
+                tonic::include_proto!("meteroid.api.subscriptions.v1_2");
             }
         }
 

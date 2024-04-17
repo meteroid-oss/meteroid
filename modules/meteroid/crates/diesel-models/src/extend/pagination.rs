@@ -39,7 +39,7 @@ impl<T> Paginate for T {
             query: self,
             per_page,
             page: page.page as i64,
-            offset: (page.page as i64 - 1) * per_page,
+            offset: page.page as i64 * per_page,
         }
     }
 
@@ -62,7 +62,7 @@ impl<T> Paginated<T> {
     pub fn per_page(self, per_page: u32) -> Self {
         Paginated {
             per_page: per_page as i64,
-            offset: (self.page - 1) * (per_page as i64),
+            offset: self.page.max(0) * (per_page as i64),
             ..self
         }
     }
@@ -73,11 +73,11 @@ impl<T> Paginated<T> {
     pub fn load_and_count_pages<'a, U>(
         self,
         conn: &'a mut AsyncPgConnection,
-    ) -> impl std::future::Future<Output = QueryResult<PaginatedVec<U>>> + Send + 'a
-    where
-        Self: LoadQuery<'a, AsyncPgConnection, (U, i64)> + 'a,
-        U: Send + 'a,
-        T: 'a,
+    ) -> impl std::future::Future<Output=QueryResult<PaginatedVec<U>>> + Send + 'a
+        where
+            Self: LoadQuery<'a, AsyncPgConnection, (U, i64)> + 'a,
+            U: Send + 'a,
+            T: 'a,
     {
         // Ignore those linting errors. `get(0)` cannot be replaced with `first()`.
         #![allow(clippy::get_first)]
@@ -110,8 +110,8 @@ impl<T> diesel::RunQueryDsl<PgConnection> for Paginated<T> {}
 impl<T> diesel::RunQueryDsl<AsyncPgConnection> for Paginated<T> {}
 
 impl<T> QueryFragment<Pg> for Paginated<T>
-where
-    T: QueryFragment<Pg>,
+    where
+        T: QueryFragment<Pg>,
 {
     fn walk_ast<'b>(&'b self, mut out: AstPass<'_, 'b, Pg>) -> QueryResult<()> {
         out.push_sql("SELECT *, COUNT(*) OVER () FROM (");
