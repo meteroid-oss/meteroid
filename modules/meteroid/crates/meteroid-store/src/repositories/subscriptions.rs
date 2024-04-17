@@ -22,6 +22,7 @@ use itertools::Itertools;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
+    Date(NaiveDate),
 }
 
 #[async_trait::async_trait]
@@ -74,35 +75,39 @@ pub trait SubscriptionInterface {
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 
 fn calculate_mrr_for_new_component(component: &domain::SubscriptionComponentNewInternal) -> i64 {
-    let mut mrr_cents = 0;
+    let mut total_cents = 0;
 
     let period_as_months = component.period.as_months() as i64;
 
     match &component.fee {
         SubscriptionFee::Rate { rate } => {
-            mrr_cents = rate.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = rate.to_cents().unwrap_or(0);
         }
         SubscriptionFee::Recurring { quantity, rate, .. } => {
             let total = rate * Decimal::from(*quantity);
-            mrr_cents = total.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = total.to_cents().unwrap_or(0);
         }
         SubscriptionFee::Capacity { rate, .. } => {
-            mrr_cents = rate.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = rate.to_cents().unwrap_or(0);
         }
         SubscriptionFee::Slot {
             initial_slots,
             unit_rate,
             ..
         } => {
-            mrr_cents =
-                (*initial_slots as i64) * unit_rate.to_cents().unwrap_or(0) * period_as_months;
+            total_cents =
+                (*initial_slots as i64) * unit_rate.to_cents().unwrap_or(0);
         }
         SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => {
             // doesn't count as mrr
         }
     }
 
-    mrr_cents
+    let mrr = total_cents / period_as_months;
+
+    let mrr_monthly = Decimal::from(total_cents) / Decimal::from(period_as_months);
+
+    return mrr_monthly.to_i64().unwrap_or(0);
 }
 
 #[async_trait::async_trait]
@@ -468,6 +473,7 @@ impl SubscriptionInterface for Store {
                         CancellationEffectiveAt::EndOfBillingPeriod => subscription
                             .calculate_cancellable_end_of_period_date(now.date())
                             .ok_or(Report::from(StoreError::CancellationError))?,
+                        CancellationEffectiveAt::Date(date) => date,
                     };
 
                     diesel_models::subscriptions::Subscription::cancel_subscription(

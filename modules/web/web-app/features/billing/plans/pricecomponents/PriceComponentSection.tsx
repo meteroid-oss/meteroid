@@ -17,7 +17,7 @@ import {
 import { useQuery } from '@/lib/connectrpc'
 import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
 import { PriceComponent } from '@/lib/schemas/plans'
-import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+import { listPriceComponents } from '@/rpc/api/pricecomponents/v1_2/pricecomponents-PriceComponentsService_connectquery'
 
 // TODO Provider
 // also TODO, save the state instead of the id ?
@@ -44,8 +44,8 @@ export const PriceComponentSection = () => {
       ({
         id: c.id,
         name: c.name,
-        productItem: c.productItem,
-        fee: c.feeType ? mapFeeType(c.feeType) : undefined,
+        fee: c.fee ? mapFeeType(c.fee.feeType) : undefined,
+        productItemId: c.productItemId,
       }) as PriceComponent
   )
 

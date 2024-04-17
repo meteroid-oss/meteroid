@@ -1,32 +1,10 @@
 import { PlainMessage } from '@bufbuild/protobuf'
 import { match, P } from 'ts-pattern'
 
-import * as grpc from '@/rpc/api/pricecomponents/v1/models_pb'
+import * as grpc from '@/rpc/api/pricecomponents/v1_2/models_pb'
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 import * as api from '../schemas/plans'
-
-// function mapDiscount(discount: StandardDiscount): GrpcStandardDiscount | undefined {
-//   if ('amount' in discount) {
-//     return {
-//       discountType: {
-//         case: 'amount',
-//         amount: { valueInCents: discount.amount },
-//       },
-//     }
-//   } else {
-//     return {
-//       discountType: {
-//         case: 'percent',
-//         percent: { percentage: { value: discount.percentage } },
-//       },
-//     }
-//   }
-// }
-
-// function mapPercentDiscount(discount: PercentDiscount): Discount_Percent | undefined {
-//   return { percentage: { value: discount.percentage } }
-// }
 
 export const mapCadence = (cadence: api.Cadence): BillingPeriod => {
   return match(cadence)
@@ -36,224 +14,162 @@ export const mapCadence = (cadence: api.Cadence): BillingPeriod => {
     .exhaustive()
 }
 
-const mapTermFee = (pricing: api.TermFeePricing): grpc.Fee_TermFeePricing => {
-  // const discount = termRate.discount ? mapPercentDiscount(termRate.discount) : undefined
-  const plain = match<api.TermFeePricing, PlainMessage<grpc.Fee_TermFeePricing>>(pricing)
-    .with({ rates: P.array() }, ({ rates }) => ({
-      pricing: {
-        case: 'termBased' as const,
-        value: {
-          rates: rates.map(rate => ({
-            price: { value: rate.price },
-            term: mapCadence(rate.term),
-          })),
-        },
-      },
-    }))
-    .with({ cadence: P.any, price: P.any }, ({ cadence, price }) => ({
-      pricing: {
-        case: 'single' as const,
-        value: {
-          price: { value: price },
-          cadence: mapCadence(cadence),
-        },
-      },
-    }))
-    .exhaustive()
-
-  return new grpc.Fee_TermFeePricing(plain)
-}
-
-const mapCapacityPricing = (pricing: api.CapacityPricing): grpc.Fee_Capacity_CapacityPricing => {
-  // const discount = termRate.discount ? mapPercentDiscount(termRate.discount) : undefined
-  const plain = match<api.CapacityPricing, PlainMessage<grpc.Fee_Capacity_CapacityPricing>>(pricing)
-    .with({ rates: P.array() }, ({ rates }) => ({
-      pricing: {
-        case: 'termBased' as const,
-        value: {
-          rates: rates.map(rate => ({
-            thresholds: rate.thresholds.map(threshold => ({
-              includedAmount: BigInt(threshold.includedAmount),
-              price: { value: threshold.price },
-              perUnitOverage: { value: threshold.perUnitOverage },
-            })),
-            term: mapCadence(rate.term),
-          })),
-        },
-      },
-    }))
-    .with({ thresholds: P.array() }, ({ thresholds }) => {
-      return {
-        pricing: {
-          case: 'single' as const,
-          value: {
-            thresholds: thresholds.map(threshold => ({
-              includedAmount: BigInt(threshold.includedAmount),
-              price: { value: threshold.price },
-              perUnitOverage: { value: threshold.perUnitOverage },
-            })),
-          },
-        },
-      }
-    })
-    .exhaustive()
-
-  return new grpc.Fee_Capacity_CapacityPricing(plain)
-}
-
-const mapRate = (rate: api.SubscriptionRate): PlainMessage<grpc.Fee_SubscriptionRate> => {
-  return {
-    pricing: mapTermFee(rate.pricing),
+const mapRateFee = (fee: api.RateFee): grpc.Fee_RateFee => {
+  let data: PlainMessage<grpc.Fee_RateFee> = {
+    rates: fee.rates.map(rate => ({
+      term: mapCadence(rate.term),
+      price: rate.price,
+    })),
   }
+
+  return new grpc.Fee_RateFee(data)
 }
 
-const mapCapacity = (capacity: api.Capacity): PlainMessage<grpc.Fee_Capacity> => {
-  return {
-    metric: {
-      id: capacity.metric.id,
-      name: capacity.metric.name ?? 'N/A', // TODO
-    },
-    pricing: mapCapacityPricing(capacity.pricing),
+const mapSlotFee = (fee: api.SlotFee): grpc.Fee_SlotFee => {
+  let data: PlainMessage<grpc.Fee_SlotFee> = {
+    rates: fee.rates.map(rate => ({
+      term: mapCadence(rate.term),
+      price: rate.price,
+    })),
+    slotUnitName: fee.slotUnitName,
+    upgradePolicy: grpc.Fee_UpgradePolicy[fee.upgradePolicy],
+    downgradePolicy: grpc.Fee_DowngradePolicy[fee.downgradePolicy],
+    minimumCount: fee.minimumCount,
+    quota: fee.quota,
   }
+
+  return new grpc.Fee_SlotFee(data)
 }
 
-const mapFixedFee = (fee: api.FixedFeePricing): PlainMessage<grpc.Fee_FixedFeePricing> => {
-  return {
-    billingType: match(fee.billingType)
-      .with('ARREAR' as const, () => grpc.Fee_BillingType.ARREAR)
-      .with('ADVANCE' as const, () => grpc.Fee_BillingType.ADVANCE)
-      .exhaustive(),
-    quantity: fee.quantity,
-    unitPrice: { value: fee.unitPrice },
+const mapCapacityFee = (fee: api.CapacityFee): grpc.Fee_CapacityFee => {
+  let data: PlainMessage<grpc.Fee_CapacityFee> = {
+    metricId: fee.metricId,
+    thresholds: fee.thresholds.map(threshold => ({
+      includedAmount: BigInt(threshold.includedAmount),
+      price: threshold.price,
+      perUnitOverage: threshold.perUnitOverage,
+    })),
   }
+
+  return new grpc.Fee_CapacityFee(data)
 }
 
-const mapRecurringCharge = (
-  charge: api.RecurringFixedFee
-): PlainMessage<grpc.Fee_RecurringFixedFee> => {
-  return {
-    fee: mapFixedFee(charge.fee),
-    cadence: mapCadence(charge.cadence),
-  }
-}
+const mapUsageFee = (fee: api.UsageFee): grpc.UsageFee => {
+  let model: grpc.UsageFee['model']
 
-const mapOneTimeFee = (charge: api.OneTimeFee): PlainMessage<grpc.Fee_OneTime> => {
-  return { pricing: mapFixedFee(charge.pricing) }
-}
-
-const mapSlotBasedCharge = (charge: api.SlotBased): PlainMessage<grpc.Fee_SlotBased> => {
-  return {
-    pricing: mapTermFee(charge.pricing),
-    slotUnit: charge.slotUnit,
-    upgradePolicy: grpc.Fee_SlotBased_UpgradePolicy[charge.upgradePolicy],
-    downgradePolicy: grpc.Fee_SlotBased_DowngradePolicy[charge.downgradePolicy],
-    minimumCount: charge.minimumCount,
-    quota: charge.quota,
-  }
-}
-
-const mapUsageBasedCharge = (charge: api.UsageBased): PlainMessage<grpc.Fee_UsageBased> => {
-  let model: PlainMessage<grpc.UsagePricing_Model> | undefined
-
-  switch (charge.model.model) {
+  switch (fee.model.model) {
     case 'per_unit':
       model = {
-        model: {
-          case: 'perUnit',
-          value: {
-            unitPrice: { value: charge.model.data.unitPrice },
-          },
-        },
+        case: 'perUnit',
+        value: fee.model.data.unitPrice,
       }
       break
     case 'package':
+      let data: PlainMessage<grpc.UsageFee_Package> = {
+        blockSize: BigInt(fee.model.data.blockSize),
+        packagePrice: fee.model.data.packagePrice,
+      }
       model = {
-        model: {
-          case: 'package',
-          value: {
-            blockSize: charge.model.data.blockSize,
-            blockPrice: { value: charge.model.data.blockPrice },
-          },
-        },
+        case: 'package',
+        value: new grpc.UsageFee_Package(data),
       }
       break
     case 'tiered':
     case 'volume': {
-      const rows = charge.model.data.rows.map(tier => ({
-        firstUnit: tier.firstUnit,
-        lastUnit: tier.lastUnit,
-        unitPrice: { value: tier.unitPrice },
-        flatFee: tier.flatFee ? { value: tier.flatFee } : undefined,
-        flatCap: tier.flatCap ? { value: tier.flatCap } : undefined,
-      }))
+      const rows: PlainMessage<grpc.UsageFee_TieredAndVolume_TierRow>[] = fee.model.data.rows.map(
+        tier => ({
+          firstUnit: BigInt(tier.firstUnit),
+          unitPrice: tier.unitPrice,
+          flatFee: tier.flatFee,
+          flatCap: tier.flatCap,
+        })
+      )
 
-      const blockSize = charge.model.data.blockSize?.blockSize
-        ? { blockSize: charge.model.data.blockSize.blockSize }
-        : undefined
+      const blockSize = fee.model.data.blockSize ? BigInt(fee.model.data.blockSize) : undefined
 
-      if (charge.model.model === 'tiered') {
-        model = {
-          model: {
-            case: 'tiered',
-            value: {
-              rows,
-              blockSize,
-            },
-          },
-        }
-      } else {
-        model = {
-          model: {
-            case: 'volume',
-            value: {
-              rows,
-              blockSize,
-            },
-          },
-        }
+      let data: PlainMessage<grpc.UsageFee_TieredAndVolume> = {
+        rows: rows.map(row => new grpc.UsageFee_TieredAndVolume_TierRow(row)),
+        blockSize,
+      }
+
+      model = {
+        case: fee.model.model,
+        value: new grpc.UsageFee_TieredAndVolume(data),
       }
       break
     }
   }
 
-  return {
-    metric: {
-      id: charge.metric.id,
-      name: charge.metric.name ?? 'N/A', // TODO
-    },
+  let data: PlainMessage<grpc.UsageFee> = {
+    metricId: fee.metricId,
     model: model,
   }
+
+  return new grpc.UsageFee(data)
 }
 
-export const mapFeeType = (feeType: api.FeeType): grpc.Fee_Type => {
-  const mappedFeeType: PlainMessage<grpc.Fee_Type>['fee'] = match<
-    api.FeeType,
-    PlainMessage<grpc.Fee_Type>['fee']
-  >(feeType)
-    .with({ fee: 'rate' }, ({ data }) => ({ case: 'rate' as const, value: mapRate(data) }))
-    .with({ fee: 'usage_based' }, ({ data }) => ({
-      case: 'usageBased' as const,
-      value: mapUsageBasedCharge(data),
+const mapExtraRecurringFee = (fee: api.ExtraRecurringFee): grpc.Fee_ExtraRecurringFee => {
+  let data: PlainMessage<grpc.Fee_ExtraRecurringFee> = {
+    unitPrice: fee.unitPrice,
+    quantity: fee.quantity,
+    billingType: grpc.Fee_BillingType[fee.billingType],
+    term: fee.term ? mapCadence(fee.term) : undefined,
+  }
+
+  return new grpc.Fee_ExtraRecurringFee(data)
+}
+
+const mapOneTimeFee = (fee: api.OneTimeFee): grpc.Fee_OneTimeFee => {
+  let data: PlainMessage<grpc.Fee_OneTimeFee> = {
+    unitPrice: fee.unitPrice,
+    quantity: fee.quantity,
+  }
+
+  return new grpc.Fee_OneTimeFee(data)
+}
+
+export const mapFee = (feeType: api.FeeType): grpc.Fee => {
+  const mappedFeeType: grpc.Fee['feeType'] = match<api.FeeType, grpc.Fee['feeType']>(feeType)
+    .with({ fee: 'rate' }, ({ data }) => ({
+      case: 'rate',
+      value: mapRateFee(data),
     }))
-    .with({ fee: 'slot_based' }, ({ data }) => ({
-      case: 'slotBased' as const,
-      value: mapSlotBasedCharge(data),
+    .with({ fee: 'slot' }, ({ data }) => ({
+      case: 'slot',
+      value: mapSlotFee(data),
     }))
     .with({ fee: 'capacity' }, ({ data }) => ({
-      case: 'capacity' as const,
-      value: mapCapacity(data),
+      case: 'capacity',
+      value: mapCapacityFee(data),
     }))
-    .with({ fee: 'recurring' }, ({ data }) => ({
-      case: 'recurring' as const,
-      value: mapRecurringCharge(data),
+    .with({ fee: 'usage' }, ({ data }) => ({
+      case: 'usage',
+      value: mapUsageFee(data),
     }))
-    .with({ fee: 'one_time' }, ({ data }) => ({
-      case: 'oneTime' as const,
+    .with({ fee: 'extraRecurring' }, ({ data }) => ({
+      case: 'extraRecurring',
+      value: mapExtraRecurringFee(data),
+    }))
+    .with({ fee: 'oneTime' }, ({ data }) => ({
+      case: 'oneTime',
       value: mapOneTimeFee(data),
     }))
     .exhaustive()
 
-  return new grpc.Fee_Type({ fee: mappedFeeType })
+  let fee: PlainMessage<grpc.Fee> = {
+    feeType: mappedFeeType,
+  }
+
+  return new grpc.Fee(fee)
 }
 
-//////////////////////
+export const mapPriceComponent = (
+  priceComponent: api.PriceComponent
+): PlainMessage<grpc.PriceComponent> => {
+  return {
+    id: priceComponent.id,
+    name: priceComponent.name,
+    fee: mapFee(priceComponent.fee),
+    productItemId: priceComponent.productItemId,
+  }
+}

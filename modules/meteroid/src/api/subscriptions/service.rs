@@ -115,7 +115,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 customer_id,
                 plan_id,
                 domain::PaginationRequest {
-                    page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(1),
+                    page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(0),
                     per_page: inner.pagination.as_ref().map(|p| p.per_page),
                 },
             )

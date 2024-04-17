@@ -9,6 +9,7 @@ import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
 import { growthRoutes } from 'router/tenant/growth'
+import { ReportsPage } from '@/pages/tenants/reports'
 
 export const tenantRoutes: RouteObject = {
   path: 'tenant/:tenantSlug',
@@ -30,6 +31,10 @@ export const tenantRoutes: RouteObject = {
     customersRoutes,
     billingRoutes,
     growthRoutes,
+    {
+      path: 'reports',
+      element: <ReportsPage />,
+    },
     {
       path: '*',
       element: <NotImplemented />,

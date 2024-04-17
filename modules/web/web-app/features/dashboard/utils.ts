@@ -2,11 +2,13 @@ import { TrendProp } from '@/features/dashboard/cards/StatCard'
 import { TrendScope, Trend } from '@/rpc/api/stats/v1/models_pb'
 
 export const formatCurrency = (value?: number | bigint) => {
+  let not_cents = Number(value) / 100
+
   return value !== undefined
     ? new Intl.NumberFormat('en-UK', {
         style: 'currency',
         currency: 'EUR',
-      }).format(value)
+      }).format(not_cents)
     : 'No data'
 }
 

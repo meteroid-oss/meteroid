@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { SubscriptionsTable } from '@/features/subscriptions/SubscriptionsTable'
 import { useQuery } from '@/lib/connectrpc'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
-import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { listSubscriptions } from '@/rpc/api/subscriptions/v1_2/subscriptions-SubscriptionsService_connectquery'
 
 type Props = {
   customer: Customer
@@ -21,8 +21,8 @@ export const SubscriptionsCard = ({ customer }: Props) => {
 
   const invoicesQuery = useQuery(listSubscriptions, {
     pagination: {
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex * pagination.pageSize,
+      perPage: pagination.pageSize,
+      page: pagination.pageIndex,
     },
     customerId: customer.id,
   })
@@ -35,7 +35,7 @@ export const SubscriptionsCard = ({ customer }: Props) => {
   ) : (
     <SubscriptionsTable
       data={invoicesQuery.data?.subscriptions || []}
-      totalCount={invoicesQuery.data?.paginationMeta?.total || 0}
+      totalCount={Number(invoicesQuery.data?.pagination?.totalItems || 0)}
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}

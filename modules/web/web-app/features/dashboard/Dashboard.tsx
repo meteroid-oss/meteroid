@@ -29,7 +29,7 @@ export const Dashboard = () => {
     <>
       <div className="h-full  xl:mx-auto self-center space-y-6 relative">
         <div>
-          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Joe</h1>
+          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Gaspard</h1>
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />
@@ -42,12 +42,13 @@ export const Dashboard = () => {
                 <span className="text-sm">Configure your pricing</span>
               </div>
               <div>
-                <Checkbox disabled className="rounded-full" /> <span className="text-sm">???</span>
+                <Checkbox disabled className="rounded-full" />{' '}
+                <span className="text-sm">Integrate with your product</span>
               </div>
 
               <div>
                 <Checkbox disabled className="rounded-full" />{' '}
-                <span className="text-sm">Profit !</span>
+                <span className="text-sm">Setup your first growth opportunities</span>
               </div>
             </div>
           </div>
