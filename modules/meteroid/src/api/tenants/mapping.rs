@@ -1,13 +1,25 @@
 pub mod tenants {
+    use meteroid_grpc::meteroid::api::tenants::v1::CreateTenantRequest;
     use meteroid_grpc::meteroid::api::tenants::v1::Tenant;
-    use meteroid_repository::tenants::Tenant as DbTenant;
+    use meteroid_store::domain;
+    use uuid::Uuid;
 
-    pub fn db_to_server(db_model: DbTenant) -> Tenant {
+    pub fn domain_to_server(tenant: domain::Tenant) -> Tenant {
         Tenant {
-            id: db_model.id.to_string(),
-            name: db_model.name,
-            slug: db_model.slug,
-            currency: db_model.currency,
+            id: tenant.id.to_string(),
+            name: tenant.name,
+            slug: tenant.slug,
+            currency: tenant.currency,
+        }
+    }
+
+    pub fn create_req_to_domain(req: CreateTenantRequest, user_id: Uuid) -> domain::UserTenantNew {
+        domain::UserTenantNew {
+            name: req.name,
+            currency: req.currency,
+            slug: req.slug,
+            user_id,
+            environment: None, // todo add to the api
         }
     }
 }

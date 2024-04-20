@@ -115,7 +115,7 @@ pub async fn start_api_server(
             metering_service,
         ))
         .add_service(api::customers::service(pool.clone(), eventbus.clone()))
-        .add_service(api::tenants::service(pool.clone(), provider_config_repo))
+        .add_service(api::tenants::service(store.clone(), provider_config_repo))
         .add_service(api::apitokens::service(pool.clone(), eventbus.clone()))
         .add_service(api::pricecomponents::service(
             store.clone(),

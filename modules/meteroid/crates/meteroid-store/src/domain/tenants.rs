@@ -33,3 +33,12 @@ pub struct TenantNew {
     #[into(~.map(|x| x.into()))]
     pub environment: Option<TenantEnvironmentEnum>,
 }
+
+#[derive(Clone, Debug)]
+pub struct UserTenantNew {
+    pub name: String,
+    pub slug: String,
+    pub user_id: Uuid,
+    pub currency: String,
+    pub environment: Option<TenantEnvironmentEnum>,
+}
