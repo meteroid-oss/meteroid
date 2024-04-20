@@ -1,4 +1,3 @@
-use meteroid_repository as db;
 use tonic::{Request, Response, Status};
 
 use crate::{
@@ -11,7 +10,6 @@ use meteroid_grpc::meteroid::api::apitokens::v1::{
     api_tokens_service_server::ApiTokensService, CreateApiTokenRequest, CreateApiTokenResponse,
     GetApiTokenByIdRequest, GetApiTokenByIdResponse, ListApiTokensRequest, ListApiTokensResponse,
 };
-use meteroid_repository::Params;
 use nanoid::nanoid;
 
 use crate::api::apitokens::error::ApiTokenApiError;
@@ -22,6 +20,8 @@ use argon2::{
     Argon2,
 };
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_store::domain;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 
 #[tonic::async_trait]
 impl ApiTokensService for ApiTokensServiceComponents {
@@ -30,21 +30,22 @@ impl ApiTokensService for ApiTokensServiceComponents {
         &self,
         request: Request<ListApiTokensRequest>,
     ) -> Result<Response<ListApiTokensResponse>, Status> {
-        let connection = self.get_connection().await?;
-
         let tenant_id = &request.tenant()?;
 
-        let api_tokens: Vec<db::api_tokens::ApiToken> = db::api_tokens::list_api_tokens()
-            .bind(&connection, tenant_id)
-            .all()
+        let domain_api_tokens: Vec<domain::api_tokens::ApiToken> = self
+            .store
+            .find_api_tokens_by_tenant_id(tenant_id)
             .await
             .map_err(|e| {
-                ApiTokenApiError::DatabaseError("unable to list api tokens".to_string(), e)
+                ApiTokenApiError::StoreError(
+                    "unable to list api tokens".to_string(),
+                    Box::new(e.into_error()),
+                )
             })?;
 
-        let result = api_tokens
+        let result = domain_api_tokens
             .into_iter()
-            .map(mapping::api_token::db_to_server)
+            .map(mapping::api_token::domain_to_api)
             .collect();
 
         Ok(Response::new(ListApiTokensResponse { api_tokens: result }))
@@ -55,10 +56,9 @@ impl ApiTokensService for ApiTokensServiceComponents {
         &self,
         request: Request<CreateApiTokenRequest>,
     ) -> Result<Response<CreateApiTokenResponse>, Status> {
-        let tenant_id = request.tenant()?;
         let actor = request.actor()?;
+        let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
         // TODO
         // api key is ex: ${pv for private key ?? pb for publishable key}_${tenant.env}_ + random
@@ -96,21 +96,23 @@ impl ApiTokensService for ApiTokensServiceComponents {
             &id_part[id_part.len() - 4..]
         );
 
-        let params = db::api_tokens::CreateApiTokenParams {
-            id,
-            name: req.name,
-            hint,
-            hash: api_key_hash,
-            tenant_id,
-            created_by: actor,
-        };
-
-        let res = db::api_tokens::create_api_token()
-            .params(&connection, &params)
-            .one()
+        let res = self
+            .store
+            .insert_api_token(domain::ApiTokenNew {
+                id: id,
+                name: req.name,
+                created_at: chrono::Utc::now().naive_utc(),
+                created_by: actor,
+                tenant_id,
+                hash: api_key_hash,
+                hint,
+            })
             .await
             .map_err(|e| {
-                ApiTokenApiError::DatabaseError("Unable to create api token".to_string(), e)
+                ApiTokenApiError::StoreError(
+                    "Unable to create api token".to_string(),
+                    Box::new(e.into_error()),
+                )
             })?;
 
         let _ = self
@@ -120,8 +122,9 @@ impl ApiTokensService for ApiTokensServiceComponents {
 
         let response = CreateApiTokenResponse {
             api_key,
-            details: Some(mapping::api_token::db_to_server(res)),
+            details: Some(mapping::api_token::domain_to_api(res)),
         };
+
         Ok(Response::new(response))
     }
 
@@ -131,14 +134,16 @@ impl ApiTokensService for ApiTokensServiceComponents {
         request: Request<GetApiTokenByIdRequest>,
     ) -> Result<Response<GetApiTokenByIdResponse>, Status> {
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        let result: db::api_tokens::GetApiTokenById = db::api_tokens::get_api_token_by_id()
-            .bind(&connection, &parse_uuid!(&req.id)?)
-            .one()
+        let result = self
+            .store
+            .get_api_token_by_id(&parse_uuid!(&req.id)?)
             .await
             .map_err(|e| {
-                ApiTokenApiError::DatabaseError("Unable to get api token by hash".to_string(), e)
+                ApiTokenApiError::StoreError(
+                    "Unable to get api token by hash".to_string(),
+                    Box::new(e.into_error()),
+                )
             })?;
 
         Ok(Response::new(GetApiTokenByIdResponse {

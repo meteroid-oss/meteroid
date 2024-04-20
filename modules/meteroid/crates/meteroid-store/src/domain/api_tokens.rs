@@ -1,12 +1,11 @@
 use chrono::NaiveDateTime;
+use o2o::o2o;
 use uuid::Uuid;
 
-use diesel::{Identifiable, Insertable, Queryable};
-
-#[derive(Debug, Queryable, Identifiable)]
-#[diesel(table_name = crate::schema::api_token)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ApiToken {
+#[derive(Debug, o2o)]
+#[from_owned(diesel_models::api_tokens::ApiTokenNew)]
+#[owned_into(diesel_models::api_tokens::ApiTokenNew)]
+pub struct ApiTokenNew {
     pub id: Uuid,
     pub name: String,
     pub created_at: NaiveDateTime,
@@ -16,10 +15,10 @@ pub struct ApiToken {
     pub hint: String,
 }
 
-#[derive(Debug, Insertable)]
-#[diesel(table_name = crate::schema::api_token)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ApiTokenNew {
+#[derive(Debug, o2o)]
+#[from_owned(diesel_models::api_tokens::ApiToken)]
+#[owned_into(diesel_models::api_tokens::ApiToken)]
+pub struct ApiToken {
     pub id: Uuid,
     pub name: String,
     pub created_at: NaiveDateTime,
