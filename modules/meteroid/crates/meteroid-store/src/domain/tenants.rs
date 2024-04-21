@@ -25,7 +25,7 @@ pub struct Tenant {
 #[derive(Clone, Debug, o2o)]
 #[owned_into(DieselTenantNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
-pub struct TenantNew {
+pub struct OrgTenantNew {
     pub name: String,
     pub slug: String,
     pub organization_id: Uuid,
@@ -41,4 +41,10 @@ pub struct UserTenantNew {
     pub user_id: Uuid,
     pub currency: String,
     pub environment: Option<TenantEnvironmentEnum>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TenantNew {
+    ForOrg(OrgTenantNew),
+    ForUser(UserTenantNew),
 }

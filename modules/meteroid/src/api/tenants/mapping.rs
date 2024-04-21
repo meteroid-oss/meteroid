@@ -13,14 +13,14 @@ pub mod tenants {
         }
     }
 
-    pub fn create_req_to_domain(req: CreateTenantRequest, user_id: Uuid) -> domain::UserTenantNew {
-        domain::UserTenantNew {
+    pub fn create_req_to_domain(req: CreateTenantRequest, user_id: Uuid) -> domain::TenantNew {
+        domain::TenantNew::ForUser(domain::UserTenantNew {
             name: req.name,
             currency: req.currency,
             slug: req.slug,
             user_id,
             environment: None, // todo add to the api
-        }
+        })
     }
 }
 

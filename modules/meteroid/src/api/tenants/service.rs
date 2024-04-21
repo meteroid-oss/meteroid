@@ -89,7 +89,7 @@ impl TenantsService for TenantServiceComponents {
 
         let res = self
             .store
-            .insert_user_tenant(req)
+            .insert_tenant(req)
             .await
             .map(mapping::tenants::domain_to_server)
             .map_err(Into::<TenantApiError>::into)?;

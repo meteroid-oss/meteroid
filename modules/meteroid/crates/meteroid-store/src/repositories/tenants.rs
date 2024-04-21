@@ -1,4 +1,4 @@
-use crate::domain::Tenant;
+use crate::domain::{OrgTenantNew, Tenant, TenantNew};
 use error_stack::Report;
 
 use crate::store::Store;
@@ -9,10 +9,6 @@ use uuid::Uuid;
 #[async_trait::async_trait]
 pub trait TenantInterface {
     async fn insert_tenant(&self, tenant: domain::TenantNew) -> StoreResult<domain::Tenant>;
-    async fn insert_user_tenant(
-        &self,
-        tenant: domain::UserTenantNew,
-    ) -> StoreResult<domain::Tenant>;
     async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<domain::Tenant>;
     async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<domain::Tenant>>;
 }
@@ -22,32 +18,23 @@ impl TenantInterface for Store {
     async fn insert_tenant(&self, tenant: domain::TenantNew) -> StoreResult<domain::Tenant> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_tenant: diesel_models::tenants::TenantNew = tenant.into();
+        let insertable_tenant: diesel_models::tenants::TenantNew = match tenant {
+            TenantNew::ForOrg(tenant_new) => tenant_new.into(),
+            TenantNew::ForUser(tenant_new) => {
+                let org = Organization::by_user_id(&mut conn, tenant_new.user_id)
+                    .await
+                    .map_err(Into::<Report<errors::StoreError>>::into)?;
 
-        insertable_tenant
-            .insert(&mut conn)
-            .await
-            .map_err(Into::into)
-            .map(Into::into)
-    }
+                let org_tenant = OrgTenantNew {
+                    organization_id: org.id,
+                    name: tenant_new.name,
+                    slug: tenant_new.slug,
+                    currency: tenant_new.currency,
+                    environment: tenant_new.environment,
+                };
 
-    async fn insert_user_tenant(
-        &self,
-        tenant: domain::UserTenantNew,
-    ) -> StoreResult<domain::Tenant> {
-        let mut conn = self.get_conn().await?;
-
-        let org = Organization::by_user_id(&mut conn, tenant.user_id)
-            .await
-            .map_err(Into::<Report<errors::StoreError>>::into)?;
-
-        let insertable_tenant = diesel_models::tenants::TenantNew {
-            id: Uuid::now_v7(),
-            organization_id: org.id,
-            name: tenant.name,
-            slug: tenant.slug,
-            currency: tenant.currency,
-            environment: tenant.environment.map(Into::into),
+                org_tenant.into()
+            }
         };
 
         insertable_tenant

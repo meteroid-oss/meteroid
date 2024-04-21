@@ -52,13 +52,15 @@ pub async fn run(
     };
 
     let tenant = store
-        .insert_tenant(store_domain::TenantNew {
-            name: scenario.tenant.name,
-            slug: scenario.tenant.slug,
-            organization_id: organization_id.clone(),
-            currency: scenario.tenant.currency,
-            environment: Some(TenantEnvironmentEnum::Sandbox),
-        })
+        .insert_tenant(store_domain::TenantNew::ForOrg(
+            store_domain::OrgTenantNew {
+                name: scenario.tenant.name,
+                slug: scenario.tenant.slug,
+                organization_id: organization_id.clone(),
+                currency: scenario.tenant.currency,
+                environment: Some(TenantEnvironmentEnum::Sandbox),
+            },
+        ))
         .await
         .change_context(SeederError::TempError)?;
 
