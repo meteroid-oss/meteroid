@@ -9,10 +9,13 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+argon2 = { workspace = true }
+base62.workspace = true
 chrono.workspace = true
 diesel.workspace = true
 diesel-async.workspace = true
 uuid = { workspace = true, features = ["serde"] }
+nanoid.workspace = true
 dotenvy.workspace = true
 tracing.workspace = true
 tracing-log = { workspace = true }
