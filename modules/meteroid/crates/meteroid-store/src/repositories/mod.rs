@@ -10,8 +10,8 @@ pub mod invoices;
 pub mod plans;
 pub mod tenants;
 
-pub mod configs;
 pub mod api_tokens;
+pub mod configs;
 pub mod price_components;
 pub mod product_families;
 pub mod subscriptions;
