@@ -14,6 +14,7 @@ pub type PgConn = Object<AsyncPgConnection>;
 #[derive(Clone)]
 pub struct Store {
     pub pool: PgPool,
+    pub crypt_key: secrecy::SecretString,
 }
 
 pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
@@ -28,14 +29,10 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
 }
 
 impl Store {
-    pub fn from_pool(pool: PgPool) -> Self {
-        Store { pool }
-    }
-
-    pub fn new(database_url: String) -> StoreResult<Self> {
+    pub fn new(database_url: String, crypt_key: secrecy::SecretString) -> StoreResult<Self> {
         let pool: PgPool = diesel_make_pg_pool(database_url)?;
 
-        Ok(Store { pool })
+        Ok(Store { pool, crypt_key })
     }
 
     pub async fn get_conn(&self) -> StoreResult<PgConn> {

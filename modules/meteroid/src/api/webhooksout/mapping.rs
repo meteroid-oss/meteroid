@@ -3,6 +3,7 @@ pub mod endpoint {
     use crate::api::webhooksout::mapping::event_type;
     use meteroid_grpc::meteroid::api::webhooks::out::v1::WebhookEndpoint as WebhookEndpointProto;
     use meteroid_repository::webhook_out_endpoints::WebhookOutEndpoint as WebhookEndpointDb;
+    use meteroid_store::crypt;
     use secrecy::{ExposeSecret, SecretString};
     use tonic::Status;
 
@@ -10,8 +11,12 @@ pub mod endpoint {
         endpoint: &WebhookEndpointDb,
         crypt_key: &SecretString,
     ) -> Result<WebhookEndpointProto, Status> {
-        let secret = crate::crypt::decrypt(crypt_key, endpoint.secret.as_str())
-            .map_err(|x| x.current_context().clone())?;
+        let secret = crypt::decrypt(crypt_key, endpoint.secret.as_str()).map_err(|x| {
+            Status::new(
+                tonic::Code::Internal,
+                x.current_context().clone().to_string(),
+            )
+        })?;
 
         let endpoint = WebhookEndpointProto {
             id: endpoint.id.to_string(),

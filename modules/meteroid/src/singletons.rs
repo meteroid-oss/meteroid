@@ -3,9 +3,6 @@ use deadpool_postgres::Pool;
 use meteroid_store::Store;
 use std::sync::OnceLock;
 
-pub mod errors;
-pub mod provider_config;
-
 static POOL: OnceLock<Pool> = OnceLock::new();
 
 pub fn get_pool() -> &'static Pool {
@@ -18,8 +15,12 @@ pub fn get_pool() -> &'static Pool {
 static STORE: OnceLock<Store> = OnceLock::new();
 
 pub fn get_store() -> &'static Store {
-    crate::repo::STORE.get_or_init(|| {
+    STORE.get_or_init(|| {
         let config = Config::get();
-        Store::new(config.database_url.clone()).expect("Failed to initialize store")
+        Store::new(
+            config.database_url.clone(),
+            config.secrets_crypt_key.clone(),
+        )
+        .expect("Failed to initialize store")
     })
 }

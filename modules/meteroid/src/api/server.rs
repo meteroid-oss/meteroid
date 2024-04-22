@@ -19,7 +19,6 @@ use crate::compute::InvoiceEngine;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::webhook_handler::WebhookHandler;
 use crate::eventbus::{Event, EventBus};
-use crate::repo::provider_config::ProviderConfigRepo;
 
 use super::super::config::Config;
 
@@ -27,7 +26,6 @@ pub async fn start_api_server(
     config: Config,
     pool: Pool,
     store: Store,
-    provider_config_repo: Arc<dyn ProviderConfigRepo>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
         "Starting Billing API grpc server on port {}",
@@ -115,7 +113,7 @@ pub async fn start_api_server(
             metering_service,
         ))
         .add_service(api::customers::service(pool.clone(), eventbus.clone()))
-        .add_service(api::tenants::service(pool.clone(), provider_config_repo))
+        .add_service(api::tenants::service(store.clone()))
         .add_service(api::apitokens::service(store.clone(), eventbus.clone()))
         .add_service(api::pricecomponents::service(
             store.clone(),

@@ -12,11 +12,7 @@ use object_store::ObjectStore;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::{
-    adapters::types::WebhookAdapter,
-    errors,
-    repo::provider_config::{model::InvoicingProvider, ProviderConfigRepo},
-};
+use crate::{adapters::types::WebhookAdapter, errors};
 use crate::{
     adapters::{stripe::Stripe, types::ParsedRequest},
     encoding,
@@ -25,11 +21,15 @@ use cornucopia_async::Params;
 use meteroid_repository as db;
 
 use error_stack::{bail, Result, ResultExt};
+use meteroid_store::domain::enums::InvoicingProviderEnum;
+use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::Store;
+use secrecy::SecretString;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState {
     pub object_store: Arc<dyn ObjectStore>,
-    pub provider_config_repo: Arc<dyn ProviderConfigRepo>,
+    pub store: Store,
     pub db_pool: Pool,
     pub stripe_adapter: Arc<Stripe>,
 }
@@ -39,11 +39,11 @@ pub async fn serve(
     object_store_client: Arc<dyn ObjectStore>,
     db_pool: Pool,
     stripe_adapter: Arc<Stripe>,
-    provider_config_repo: Arc<dyn ProviderConfigRepo>,
+    store: Store,
 ) {
     let app_state = AppState {
         object_store: object_store_client.clone(),
-        provider_config_repo: provider_config_repo.clone(),
+        store,
         db_pool: db_pool.clone(),
         stripe_adapter: stripe_adapter.clone(),
     };
@@ -94,7 +94,7 @@ async fn handler(
     );
 
     let provider = match provider_str.as_str() {
-        "stripe" => InvoicingProvider::Stripe,
+        "stripe" => InvoicingProviderEnum::Stripe,
         // add other providers here
         _ => bail!(errors::AdapterWebhookError::UnknownProvider(provider_str)),
     };
@@ -107,8 +107,8 @@ async fn handler(
 
     // - get webhook from storage (db, optional redis cache)
     let provider_config = app_state
-        .provider_config_repo
-        .get_config_by_provider_and_tenant(provider.clone(), tenant_id)
+        .store
+        .find_provider_config(provider.clone(), tenant_id)
         .await
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
@@ -149,7 +149,7 @@ async fn handler(
 
     // - get adapter
     let adapter = match provider {
-        InvoicingProvider::Stripe => app_state.stripe_adapter,
+        InvoicingProviderEnum::Stripe => app_state.stripe_adapter,
     };
 
     // - decode body
@@ -174,9 +174,7 @@ async fn handler(
     adapter
         .verify_webhook(
             &parsed_request,
-            &provider_config
-                .webhook_secret
-                .ok_or(errors::AdapterWebhookError::SignatureNotFound)?,
+            &SecretString::new(provider_config.webhook_security.secret),
         )
         .await?;
     // TODO save errors in webhook_events db

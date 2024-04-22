@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::api::utils::uuid_gen;
 use crate::config::Config;
-use crate::repo::get_pool;
+use crate::singletons;
 
 pub mod analytics_handler;
 pub mod memory;
@@ -39,7 +39,7 @@ impl EventBusStatic {
         CONFIG
             .get_or_init(|| async {
                 let config = Config::get();
-                let pool = get_pool();
+                let pool = singletons::get_pool();
 
                 let bus: Arc<dyn EventBus<Event>> = Arc::new(memory::InMemory::new());
 

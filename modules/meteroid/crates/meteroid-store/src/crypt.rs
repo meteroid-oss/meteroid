@@ -4,7 +4,6 @@ use chacha20poly1305::{
 };
 use error_stack::{Result, ResultExt};
 use secrecy::{ExposeSecret, SecretString};
-use tonic::Status;
 
 const NONCE_SIZE: usize = 12;
 
@@ -20,13 +19,7 @@ pub enum EncryptionError {
     DecryptError,
 }
 
-impl From<EncryptionError> for Status {
-    fn from(error: EncryptionError) -> Self {
-        Status::new(tonic::Code::Internal, error.to_string())
-    }
-}
-
-pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<SecretString, EncryptionError> {
+pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<String, EncryptionError> {
     let cipher = ChaCha20Poly1305::new_from_slice(crypt_key.expose_secret().as_bytes())
         .change_context(EncryptionError::InvalidKey)?;
 
@@ -36,7 +29,7 @@ pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<SecretString, En
         .encrypt(nonce, value.as_bytes())
         .map_err(|_| EncryptionError::EncryptError)?;
 
-    Ok(SecretString::new(hex::encode(ciphertext)))
+    Ok(hex::encode(ciphertext))
 }
 
 pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, EncryptionError> {
@@ -90,9 +83,9 @@ mod tests {
 
             let encrypted = super::encrypt(&key, raw_str).unwrap();
 
-            assert_eq!(encrypted.expose_secret().as_str(), encrypted_str);
+            assert_eq!(encrypted.as_str(), encrypted_str);
 
-            let decrypted = super::decrypt(&key, encrypted.expose_secret().as_str()).unwrap();
+            let decrypted = super::decrypt(&key, encrypted.as_str()).unwrap();
 
             assert_eq!(decrypted.expose_secret().as_str(), raw_str);
         }

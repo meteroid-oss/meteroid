@@ -64,7 +64,9 @@ impl<T> IntoDbResult for Result<T, DieselError> {
             Ok(value) => Ok(value),
             Err(err) => {
                 let db_err = DatabaseError::from(&err);
-                Err(Report::from(err).change_context(db_err)).map_err(DatabaseErrorContainer::from)
+                Err(DatabaseErrorContainer::from(
+                    Report::from(err).change_context(db_err),
+                ))
             }
         }
     }
@@ -77,7 +79,7 @@ impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
             Ok(value) => Ok(value),
             Err(err) => {
                 let db_err = DatabaseError::from(err.current_context());
-                Err(Report::from(err).change_context(db_err)).map_err(DatabaseErrorContainer::from)
+                Err(DatabaseErrorContainer::from(err.change_context(db_err)))
             }
         }
     }

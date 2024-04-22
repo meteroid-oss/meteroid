@@ -20,6 +20,7 @@ pub mod tenants;
 
 pub mod api_tokens;
 pub mod billable_metrics;
+pub mod configs;
 pub mod enums;
 pub mod misc;
 pub mod product_families;

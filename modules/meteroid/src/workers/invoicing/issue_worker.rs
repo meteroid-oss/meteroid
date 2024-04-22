@@ -1,10 +1,7 @@
 use crate::adapters::stripe::Stripe;
 use crate::adapters::types::InvoicingAdapter;
-use crate::errors;
-use crate::repo::get_pool;
-use crate::repo::provider_config::model::InvoicingProvider;
-use crate::repo::provider_config::{ProviderConfigRepo, ProviderConfigRepoCornucopia};
 use crate::workers::metrics::record_call;
+use crate::{errors, singletons};
 use common_utils::timed::TimedExt;
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
@@ -13,6 +10,9 @@ use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Ser
 use meteroid_repository as db;
 use meteroid_repository::invoices::UpdateInvoiceIssueErrorParams;
 use meteroid_repository::InvoicingProviderEnum;
+use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::Store;
+use secrecy::SecretString;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
@@ -24,9 +24,9 @@ impl AsyncRunnable for IssueWorker {
     #[tracing::instrument(skip(self, _queue))]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         issue_worker(
-            get_pool(),
+            singletons::get_pool(),
             Stripe::get(),
-            ProviderConfigRepoCornucopia::get() as &dyn ProviderConfigRepo,
+            singletons::get_store(),
         )
         .timed(|res, elapsed| record_call("issue", res, elapsed))
         .await
@@ -56,7 +56,7 @@ impl AsyncRunnable for IssueWorker {
 async fn issue_worker(
     pool: &Pool,
     stripe_adapter: &Stripe,
-    provider_config_repo: &dyn ProviderConfigRepo,
+    store: &Store,
 ) -> Result<(), errors::WorkerError> {
     // fetch all invoices with issue=false and send to stripe
 
@@ -75,7 +75,7 @@ async fn issue_worker(
         .change_context(errors::WorkerError::DatabaseError)?;
 
     for invoice in invoices {
-        let result = issue_invoice(&invoice, stripe_adapter, provider_config_repo).await;
+        let result = issue_invoice(&invoice, stripe_adapter, store, pool).await;
 
         let connection = pool
             .get()
@@ -117,12 +117,11 @@ async fn issue_worker(
 async fn issue_invoice(
     invoice: &db::invoices::Invoice,
     stripe_adapter: &Stripe,
-    provider_config_repo: &dyn ProviderConfigRepo,
+    store: &Store,
+    pool: &Pool,
 ) -> Result<(), errors::WorkerError> {
     match invoice.invoicing_provider {
         InvoicingProviderEnum::STRIPE => {
-            let pool = get_pool();
-
             let conn = pool
                 .get()
                 .await
@@ -137,15 +136,18 @@ async fn issue_invoice(
             let customer = crate::api::customers::mapping::customer::db_to_server(customer)
                 .change_context(errors::WorkerError::DatabaseError)?;
 
-            let api_key = provider_config_repo
-                .get_config_by_provider_and_tenant(InvoicingProvider::Stripe, invoice.tenant_id)
+            let api_key = store
+                .find_provider_config(
+                    meteroid_store::domain::enums::InvoicingProviderEnum::Stripe,
+                    invoice.tenant_id,
+                )
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?
-                .api_key
-                .ok_or(errors::WorkerError::ProviderError)?;
+                .api_security
+                .api_key;
 
             stripe_adapter
-                .send_invoice(invoice, &customer, api_key)
+                .send_invoice(invoice, &customer, SecretString::new(api_key))
                 .await
                 .change_context(errors::WorkerError::ProviderError)?;
 

@@ -7,10 +7,9 @@ use std::sync::Arc;
 use common_repository::Pool;
 use meteroid_repository as db;
 
-use crate::{compute::InvoiceEngine, errors};
+use crate::{compute::InvoiceEngine, errors, singletons};
 
 use crate::compute::clients::usage::MeteringUsageClient;
-use crate::repo::{get_pool, get_store};
 use crate::workers::clients::metering::MeteringClient;
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
@@ -43,8 +42,8 @@ impl AsyncRunnable for PriceWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         price_worker(
-            get_pool().clone(),
-            get_store().clone(),
+            singletons::get_pool().clone(),
+            singletons::get_store().clone(),
             MeteringClient::get().clone(),
         )
         .timed(|res, elapsed| record_call("price", res, elapsed))
