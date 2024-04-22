@@ -1,27 +1,18 @@
 use tonic::{Request, Response, Status};
 
-use crate::{
-    api::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
-
-use super::{mapping, ApiTokensServiceComponents};
+use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::apitokens::v1::{
     api_tokens_service_server::ApiTokensService, CreateApiTokenRequest, CreateApiTokenResponse,
     GetApiTokenByIdRequest, GetApiTokenByIdResponse, ListApiTokensRequest, ListApiTokensResponse,
 };
-use nanoid::nanoid;
-
-use crate::api::apitokens::error::ApiTokenApiError;
-use crate::api::utils::rng::BASE62_ALPHABET;
-use crate::eventbus::Event;
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
-    Argon2,
-};
-use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+
+use crate::api::apitokens::error::ApiTokenApiError;
+use crate::eventbus::Event;
+use crate::{api::utils::parse_uuid, parse_uuid};
+
+use super::{mapping, ApiTokensServiceComponents};
 
 #[tonic::async_trait]
 impl ApiTokensService for ApiTokensServiceComponents {
@@ -60,52 +51,12 @@ impl ApiTokensService for ApiTokensServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        // TODO
-        // api key is ex: ${pv for private key ?? pb for publishable key}_${tenant.env}_ + random
-        let prefix = "pv_sand_";
-
-        let id = uuid_gen::v7();
-
-        // encode in base62. Identifier is added to the api key, and used to retrieve the hash.
-        let id_part = base62::encode(id.as_u128());
-
-        // Generate the api key
-        let api_key_random = nanoid!(28, &BASE62_ALPHABET);
-        let api_key = format!("{}{}/{}", &prefix, &api_key_random, &id_part);
-
-        // Generate the hash that we will store in db
-        let argon2 = Argon2::new(
-            argon2::Algorithm::Argon2id,
-            argon2::Version::V0x13,
-            argon2::Params::new(5 * 1024, 1, 1, None).unwrap(),
-        );
-        let salt = SaltString::generate(&mut OsRng);
-        let api_key_hash = argon2
-            .hash_password(&api_key_random.as_bytes(), &salt)
-            .map_err(|e| {
-                log::error!("Unable to hash api key: {}", e);
-                ApiTokenApiError::PasswordHashError("unable to hash api key".to_string())
-            })?
-            .to_string();
-
-        // generate a hint that will also be stored
-        let hint = format!(
-            "{}{}...{}",
-            &prefix,
-            &api_key_random[..4],
-            &id_part[id_part.len() - 4..]
-        );
-
-        let res = self
+        let (api_key, res) = self
             .store
             .insert_api_token(domain::ApiTokenNew {
-                id: id,
                 name: req.name,
-                created_at: chrono::Utc::now().naive_utc(),
                 created_by: actor,
                 tenant_id,
-                hash: api_key_hash,
-                hint,
             })
             .await
             .map_err(|e| {
