@@ -3,11 +3,10 @@ use std::sync::Arc;
 use common_repository::Pool;
 use meteroid_repository as db;
 
-use crate::{compute::InvoiceEngine, errors};
+use crate::{compute::InvoiceEngine, errors, singletons};
 
 use crate::compute::clients::usage::MeteringUsageClient;
 use crate::eventbus::{Event, EventBus, EventBusStatic};
-use crate::repo::{get_pool, get_store};
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
@@ -33,10 +32,10 @@ impl AsyncRunnable for FinalizeWorker {
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         let eventbus = EventBusStatic::get().await;
         finalize_worker(
-            get_pool().clone(),
+            singletons::get_pool().clone(),
             MeteringClient::get().clone(),
             eventbus.clone(),
-            get_store().clone(),
+            singletons::get_store().clone(),
         )
         .timed(|res, elapsed| record_call("finalize", res, elapsed))
         .await

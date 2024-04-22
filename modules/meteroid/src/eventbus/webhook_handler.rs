@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::api::utils::uuid_gen;
 use meteroid_repository::webhook_out_events::CreateEventParams;
+use meteroid_store::crypt;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
@@ -465,7 +466,7 @@ async fn get_active_endpoints_by_tenant(
         .into_iter()
         .filter_map(|e| {
             if e.enabled {
-                let secret = crate::crypt::decrypt(crypt_key, e.secret.as_str()).ok()?;
+                let secret = crypt::decrypt(crypt_key, e.secret.as_str()).ok()?;
 
                 Some(Endpoint {
                     id: e.id,

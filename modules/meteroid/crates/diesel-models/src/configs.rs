@@ -29,6 +29,7 @@ pub struct ProviderConfig {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::provider_config)]
 pub struct ProviderConfigNew {
+    pub id: Uuid,
     pub tenant_id: Uuid,
     pub invoicing_provider: InvoicingProviderEnum,
     pub enabled: bool,

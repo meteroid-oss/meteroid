@@ -6,6 +6,7 @@ pub mod price_components;
 pub mod tenants;
 
 pub mod billable_metrics;
+pub mod configs;
 pub mod enums;
 pub mod misc;
 pub mod product_families;

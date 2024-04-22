@@ -1,5 +1,5 @@
 use crate::workers::metrics::record_call;
-use crate::{errors, repo::get_pool};
+use crate::{errors, singletons};
 use common_utils::timed::*;
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
@@ -25,7 +25,7 @@ pub struct DraftWorker;
 impl AsyncRunnable for DraftWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = get_pool();
+        let pool = singletons::get_pool();
         let eventbus = EventBusStatic::get().await;
 
         draft_worker(

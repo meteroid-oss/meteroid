@@ -20,9 +20,13 @@ async fn main() -> error_stack::Result<(), SeederError> {
     init_regular_logging();
     let _exit = signal::ctrl_c();
 
-    let store =
-        Store::new(env::var("DATABASE_URL").change_context(SeederError::InitializationError)?)
-            .change_context(SeederError::InitializationError)?;
+    let crypt_key = secrecy::SecretString::new("00000000000000000000000000000000".into());
+
+    let store = Store::new(
+        env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
+        crypt_key,
+    )
+    .change_context(SeederError::InitializationError)?;
 
     let organization_id = uuid::uuid!("018dfa06-2e9b-7c70-a6a9-7a9e4dc7ce70");
     let user_id = uuid::uuid!("018dfa06-2e9c-74b8-a6ea-247967b75a63");

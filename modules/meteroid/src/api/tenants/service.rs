@@ -1,17 +1,16 @@
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::tenants::v1::{
     tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
     ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest,
     CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest,
     ListTenantsResponse,
 };
+use meteroid_store::repositories::configs::ConfigsInterface;
 use meteroid_store::repositories::TenantInterface;
 
 use crate::api::tenants::error::TenantApiError;
-use crate::repo::provider_config::model::InvoicingProvider;
 use crate::{api::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, TenantServiceComponents};
@@ -105,42 +104,17 @@ impl TenantsService for TenantServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let billing_config = req
-            .billing_config
-            .clone()
-            .ok_or(TenantApiError::MissingArgument(
-                "billing_config".to_string(),
-            ))?
-            .billing_config_oneof
-            .ok_or(TenantApiError::MissingArgument(
-                "billing_config_oneof".to_string(),
-            ))?;
+        let cfg = mapping::provider_configs::create_req_server_to_domain(req, tenant_id)?;
 
-        match billing_config {
-            BillingConfigOneof::Stripe(stripe) => {
-                let wh_secret = secrecy::SecretString::new(stripe.webhook_secret);
-                let api_secret = secrecy::SecretString::new(stripe.api_secret);
+        let res = self
+            .store
+            .insert_provider_config(cfg)
+            .await
+            .map(mapping::provider_configs::domain_to_server)
+            .map_err(Into::<TenantApiError>::into)?;
 
-                let cfg = self
-                    .provider_config_repo
-                    .create_provider_config(
-                        InvoicingProvider::Stripe,
-                        tenant_id,
-                        api_secret,
-                        wh_secret,
-                    )
-                    .await
-                    .map_err(|e| {
-                        TenantApiError::DownstreamApiError(
-                            "failed to create tenant billing_config".to_string(),
-                            Box::new(e.into_error()),
-                        )
-                    })?;
-
-                Ok(Response::new(ConfigureTenantBillingResponse {
-                    billing_config: mapping::provider_configs::db_to_server(cfg),
-                }))
-            }
-        }
+        Ok(Response::new(ConfigureTenantBillingResponse {
+            billing_config: Some(res),
+        }))
     }
 }

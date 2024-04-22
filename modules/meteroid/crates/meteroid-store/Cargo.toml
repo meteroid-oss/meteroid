@@ -28,7 +28,9 @@ rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
 common-utils = { workspace = true, features = ["decimal"] }
 itertools.workspace = true
-
+secrecy = { workspace = true, features = ["default", "serde"] }
+chacha20poly1305 = { workspace = true }
+hex = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

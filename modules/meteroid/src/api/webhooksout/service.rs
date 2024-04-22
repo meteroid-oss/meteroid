@@ -1,5 +1,4 @@
 use cornucopia_async::Params;
-use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
@@ -12,6 +11,7 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
 use meteroid_repository::webhook_out_endpoints::CreateEndpointParams;
 use meteroid_repository::webhook_out_events::ListEventsParams;
 use meteroid_repository::WebhookOutEventTypeEnum;
+use meteroid_store::crypt;
 
 use crate::api::utils::parse_uuid;
 use crate::api::utils::{uuid_gen, webhook_security, PaginationExt};
@@ -39,15 +39,15 @@ impl WebhooksService for WebhooksServiceComponents {
             .map_err(|e| WebhookApiError::InvalidArgument(format!("Invalid URL: {}", e)))?;
 
         let secret_raw = webhook_security::gen();
-        let secret = crate::crypt::encrypt(&self.crypt_key, secret_raw.as_str())
-            .map_err(|x| x.current_context().clone())?;
+        let secret = crypt::encrypt(&self.crypt_key, secret_raw.as_str())
+            .map_err(|x| Status::internal(x.current_context().clone().to_string()))?;
 
         let params = CreateEndpointParams {
             id: uuid_gen::v7(),
             tenant_id,
             url: req.url,
             description: req.description,
-            secret: secret.expose_secret().to_string(),
+            secret,
             events_to_listen: event_types,
             enabled: true,
         };

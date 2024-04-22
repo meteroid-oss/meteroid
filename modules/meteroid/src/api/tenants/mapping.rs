@@ -25,23 +25,57 @@ pub mod tenants {
 }
 
 pub mod provider_configs {
-    use crate::repo::provider_config::model::RepoProviderConfig;
-    use meteroid_grpc::meteroid::api::tenants::v1::TenantBillingConfiguration;
-    use secrecy::ExposeSecret;
+    use crate::api::tenants::error::TenantApiError;
+    use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::BillingConfigOneof;
+    use meteroid_grpc::meteroid::api::tenants::v1::{
+        ConfigureTenantBillingRequest, TenantBillingConfiguration,
+    };
+    use meteroid_store::domain::configs::{
+        ApiSecurity, ProviderConfig, ProviderConfigNew, WebhookSecurity,
+    };
+    use meteroid_store::domain::enums::InvoicingProviderEnum;
+    use uuid::Uuid;
 
-    pub fn db_to_server(db_model: RepoProviderConfig) -> Option<TenantBillingConfiguration> {
-        let api_key = db_model.api_key?.expose_secret().to_string();
-        let webhook_secret = db_model.webhook_secret?.expose_secret().to_string();
+    pub fn domain_to_server(db_model: ProviderConfig) -> TenantBillingConfiguration {
+        TenantBillingConfiguration {
+            billing_config_oneof: Some(BillingConfigOneof::Stripe(
+                meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::Stripe {
+                    api_secret: db_model.api_security.api_key,
+                    webhook_secret: db_model.webhook_security.secret,
+                },
+            )),
+        }
+    }
 
-        Some(TenantBillingConfiguration {
-            billing_config_oneof: Some(
-                meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::BillingConfigOneof::Stripe(
-                    meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::Stripe {
-                        api_secret: api_key,
-                        webhook_secret,
-                    },
-                ),
-            ),
-        })
+    pub fn create_req_server_to_domain(
+        req: ConfigureTenantBillingRequest,
+        tenant_id: Uuid,
+    ) -> Result<ProviderConfigNew, TenantApiError> {
+        let billing_config = req
+            .billing_config
+            .clone()
+            .ok_or(TenantApiError::MissingArgument(
+                "billing_config".to_string(),
+            ))?
+            .billing_config_oneof
+            .ok_or(TenantApiError::MissingArgument(
+                "billing_config_oneof".to_string(),
+            ))?;
+
+        let cfg = match billing_config {
+            BillingConfigOneof::Stripe(stripe) => ProviderConfigNew {
+                tenant_id,
+                invoicing_provider: InvoicingProviderEnum::Stripe,
+                enabled: true,
+                webhook_security: WebhookSecurity {
+                    secret: stripe.webhook_secret,
+                },
+                api_security: ApiSecurity {
+                    api_key: stripe.api_secret,
+                },
+            },
+        };
+
+        Ok(cfg)
     }
 }

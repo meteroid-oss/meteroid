@@ -33,6 +33,8 @@ pub enum StoreError {
     InvalidPriceComponents(String),
     #[error("Failed to serialize/deserialize data: {0}")]
     SerdeError(String, #[source] serde_json::Error),
+    #[error("Failed to encrypt/decrypt data")]
+    CryptError(String),
 }
 
 impl From<DatabaseError> for StoreError {
