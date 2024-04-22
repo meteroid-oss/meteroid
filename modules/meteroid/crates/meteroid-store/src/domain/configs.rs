@@ -12,41 +12,9 @@ pub struct WebhookSecurity {
     pub secret: String,
 }
 
-impl WebhookSecurity {
-    pub fn encrypted(&self, key: &SecretString) -> StoreResult<WebhookSecurity> {
-        let encrypted = crate::crypt::encrypt(key, self.secret.as_str())
-            .change_context(StoreError::CryptError("encryption error".into()))?;
-        Ok(WebhookSecurity { secret: encrypted })
-    }
-
-    pub fn decrypted(&self, key: &SecretString) -> StoreResult<WebhookSecurity> {
-        let decrypted = crate::crypt::decrypt(key, self.secret.as_str())
-            .change_context(StoreError::CryptError("decryption error".into()))?;
-        Ok(WebhookSecurity {
-            secret: decrypted.expose_secret().clone(),
-        })
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiSecurity {
     pub api_key: String,
-}
-
-impl ApiSecurity {
-    pub fn encrypted(&self, key: &SecretString) -> StoreResult<ApiSecurity> {
-        let crypted = crate::crypt::encrypt(key, self.api_key.as_str())
-            .change_context(StoreError::CryptError("encryption error".into()))?;
-        Ok(ApiSecurity { api_key: crypted })
-    }
-
-    pub fn decrypted(&self, key: &SecretString) -> StoreResult<ApiSecurity> {
-        let decrypted = crate::crypt::decrypt(key, self.api_key.as_str())
-            .change_context(StoreError::CryptError("decryption error".into()))?;
-        Ok(ApiSecurity {
-            api_key: decrypted.expose_secret().clone(),
-        })
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -61,15 +29,45 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub fn decrypted(&self, key: &SecretString) -> StoreResult<ProviderConfig> {
+    pub fn from_row(
+        key: &SecretString,
+        row: diesel_models::configs::ProviderConfig,
+    ) -> StoreResult<ProviderConfig> {
+        let enc_wh_sec: WebhookSecurity =
+            serde_json::from_value(row.webhook_security).map_err(|e| {
+                StoreError::SerdeError("Failed to deserialize webhook_security".to_string(), e)
+            })?;
+
+        let enc_api_sec: ApiSecurity = serde_json::from_value(row.api_security).map_err(|e| {
+            StoreError::SerdeError("Failed to deserialize api_security".to_string(), e)
+        })?;
+
+        let wh_sec = WebhookSecurity {
+            secret: crate::crypt::decrypt(key, enc_wh_sec.secret.as_str())
+                .change_context(StoreError::CryptError(
+                    "webhook_security decryption error".into(),
+                ))?
+                .expose_secret()
+                .clone(),
+        };
+
+        let api_sec = ApiSecurity {
+            api_key: crate::crypt::decrypt(key, enc_api_sec.api_key.as_str())
+                .change_context(StoreError::CryptError(
+                    "api_security decryption error".into(),
+                ))?
+                .expose_secret()
+                .clone(),
+        };
+
         Ok(ProviderConfig {
-            api_security: self.api_security.decrypted(key)?,
-            webhook_security: self.webhook_security.decrypted(key)?,
-            tenant_id: self.tenant_id,
-            invoicing_provider: self.invoicing_provider.clone(),
-            enabled: self.enabled,
-            id: self.id,
-            created_at: self.created_at,
+            id: row.id,
+            created_at: row.created_at,
+            tenant_id: row.tenant_id,
+            invoicing_provider: row.invoicing_provider.into(),
+            enabled: row.enabled,
+            webhook_security: wh_sec,
+            api_security: api_sec,
         })
     }
 }
@@ -84,61 +82,37 @@ pub struct ProviderConfigNew {
 }
 
 impl ProviderConfigNew {
-    pub fn encrypted(&self, key: &SecretString) -> StoreResult<ProviderConfigNew> {
-        Ok(ProviderConfigNew {
-            api_security: self.api_security.encrypted(key)?,
-            webhook_security: self.webhook_security.encrypted(key)?,
-            tenant_id: self.tenant_id,
-            invoicing_provider: self.invoicing_provider.clone(),
-            enabled: self.enabled,
-        })
-    }
-}
+    pub fn domain_to_row(
+        key: &SecretString,
+        domain: &ProviderConfigNew,
+    ) -> StoreResult<diesel_models::configs::ProviderConfigNew> {
+        let wh_sec_enc = WebhookSecurity {
+            secret: crate::crypt::encrypt(key, domain.webhook_security.secret.as_str())
+                .change_context(StoreError::CryptError(
+                    "webhook_security encryption error".into(),
+                ))?,
+        };
 
-impl TryInto<diesel_models::configs::ProviderConfigNew> for ProviderConfigNew {
-    type Error = StoreError;
+        let api_sec_enc = ApiSecurity {
+            api_key: crate::crypt::encrypt(key, domain.api_security.api_key.as_str())
+                .change_context(StoreError::CryptError(
+                    "api_security encryption error".into(),
+                ))?,
+        };
 
-    fn try_into(self) -> Result<diesel_models::configs::ProviderConfigNew, StoreError> {
-        let wh_sec = serde_json::to_value(&self.webhook_security).map_err(|e| {
+        let wh_sec = serde_json::to_value(&wh_sec_enc).map_err(|e| {
             StoreError::SerdeError("Failed to serialize webhook_security".to_string(), e)
         })?;
 
-        let api_sec = serde_json::to_value(&self.api_security).map_err(|e| {
+        let api_sec = serde_json::to_value(&api_sec_enc).map_err(|e| {
             StoreError::SerdeError("Failed to serialize api_security".to_string(), e)
         })?;
 
         Ok(diesel_models::configs::ProviderConfigNew {
             id: Uuid::now_v7(),
-            tenant_id: self.tenant_id,
-            invoicing_provider: self.invoicing_provider.into(),
-            enabled: self.enabled,
-            webhook_security: wh_sec,
-            api_security: api_sec,
-        })
-    }
-}
-
-impl TryFrom<diesel_models::configs::ProviderConfig> for ProviderConfig {
-    type Error = StoreError;
-
-    fn try_from(
-        value: diesel_models::configs::ProviderConfig,
-    ) -> Result<ProviderConfig, StoreError> {
-        let wh_sec: WebhookSecurity =
-            serde_json::from_value(value.webhook_security).map_err(|e| {
-                StoreError::SerdeError("Failed to deserialize webhook_security".to_string(), e)
-            })?;
-
-        let api_sec: ApiSecurity = serde_json::from_value(value.api_security).map_err(|e| {
-            StoreError::SerdeError("Failed to deserialize api_security".to_string(), e)
-        })?;
-
-        Ok(ProviderConfig {
-            id: value.id,
-            created_at: value.created_at,
-            tenant_id: value.tenant_id,
-            invoicing_provider: value.invoicing_provider.into(),
-            enabled: value.enabled,
+            tenant_id: domain.tenant_id,
+            invoicing_provider: domain.invoicing_provider.clone().into(),
+            enabled: domain.enabled,
             webhook_security: wh_sec,
             api_security: api_sec,
         })

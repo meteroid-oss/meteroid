@@ -26,18 +26,16 @@ impl ConfigsInterface for Store {
         &self,
         config: ProviderConfigNew,
     ) -> StoreResult<ProviderConfig> {
-        let insertable: diesel_models::configs::ProviderConfigNew =
-            config.encrypted(&self.crypt_key)?.try_into()?;
+        let insertable = ProviderConfigNew::domain_to_row(&self.crypt_key, &config)?;
 
         let mut conn = self.get_conn().await?;
 
-        let enc: ProviderConfig = insertable
+        let row = insertable
             .insert(&mut conn)
             .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .try_into()?;
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-        enc.decrypted(&self.crypt_key)
+        ProviderConfig::from_row(&self.crypt_key, row)
     }
 
     async fn find_provider_config(
@@ -47,15 +45,14 @@ impl ConfigsInterface for Store {
     ) -> StoreResult<ProviderConfig> {
         let mut conn = self.get_conn().await?;
 
-        let enc: ProviderConfig = diesel_models::configs::ProviderConfig::find_provider_config(
+        let row = diesel_models::configs::ProviderConfig::find_provider_config(
             &mut conn,
             tenant_id,
             provider.into(),
         )
         .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .try_into()?;
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        enc.decrypted(&self.crypt_key)
+        ProviderConfig::from_row(&self.crypt_key, row)
     }
 }
