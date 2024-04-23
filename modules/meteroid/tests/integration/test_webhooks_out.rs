@@ -70,6 +70,22 @@ async fn test_webhook_endpoint_out() {
 
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0], created);
+
+    // events
+    let events = clients
+        .webhooks_out
+        .clone()
+        .list_webhook_events(api::webhooks::out::v1::ListWebhookEventsRequest {
+            order_by: api::webhooks::out::v1::list_webhook_events_request::SortBy::DateDesc as i32,
+            endpoint_id: created.id,
+            pagination: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .events;
+    assert_eq!(events.len(), 0);
+
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
 }
