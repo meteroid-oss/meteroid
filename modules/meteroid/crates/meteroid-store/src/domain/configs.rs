@@ -82,19 +82,19 @@ pub struct ProviderConfigNew {
 }
 
 impl ProviderConfigNew {
-    pub fn domain_to_row(
+    pub fn to_row(
+        &self,
         key: &SecretString,
-        domain: &ProviderConfigNew,
     ) -> StoreResult<diesel_models::configs::ProviderConfigNew> {
         let wh_sec_enc = WebhookSecurity {
-            secret: crate::crypt::encrypt(key, domain.webhook_security.secret.as_str())
+            secret: crate::crypt::encrypt(key, self.webhook_security.secret.as_str())
                 .change_context(StoreError::CryptError(
                     "webhook_security encryption error".into(),
                 ))?,
         };
 
         let api_sec_enc = ApiSecurity {
-            api_key: crate::crypt::encrypt(key, domain.api_security.api_key.as_str())
+            api_key: crate::crypt::encrypt(key, self.api_security.api_key.as_str())
                 .change_context(StoreError::CryptError(
                     "api_security encryption error".into(),
                 ))?,
@@ -110,9 +110,9 @@ impl ProviderConfigNew {
 
         Ok(diesel_models::configs::ProviderConfigNew {
             id: Uuid::now_v7(),
-            tenant_id: domain.tenant_id,
-            invoicing_provider: domain.invoicing_provider.clone().into(),
-            enabled: domain.enabled,
+            tenant_id: self.tenant_id,
+            invoicing_provider: self.invoicing_provider.clone().into(),
+            enabled: self.enabled,
             webhook_security: wh_sec,
             api_security: api_sec,
         })

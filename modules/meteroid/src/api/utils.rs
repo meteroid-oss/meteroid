@@ -39,22 +39,6 @@ pub fn parse_uuid_opt(
     }
 }
 
-pub mod webhook_security {
-    use base64::Engine;
-
-    const KEY_SIZE: usize = 24;
-    const PREFIX: &str = "whsec_";
-
-    pub fn gen() -> String {
-        let key: Vec<u8> = std::iter::repeat_with(|| fastrand::u8(..))
-            .take(KEY_SIZE)
-            .collect();
-        let encoded = base64::prelude::BASE64_STANDARD.encode(&key);
-
-        format!("{}{}", PREFIX, encoded)
-    }
-}
-
 pub trait PaginationExt {
     fn limit(&self) -> i64;
     fn limit_or(&self, default: u32) -> i64;

@@ -42,7 +42,7 @@ async fn test_webhook_endpoint_out() {
         .webhooks_out
         .clone()
         .create_webhook_endpoint(api::webhooks::out::v1::CreateWebhookEndpointRequest {
-            url: "https://example.com".to_string(),
+            url: "https://example.com/".to_string(),
             description: Some("Test".to_string()),
             events_to_listen: events_to_listen.clone(),
         })
@@ -52,7 +52,7 @@ async fn test_webhook_endpoint_out() {
         .endpoint
         .unwrap();
 
-    assert_eq!(created.url.as_str(), "https://example.com");
+    assert_eq!(created.url.as_str(), "https://example.com/");
     assert_eq!(created.description, Some("Test".to_string()));
     assert_eq!(created.events_to_listen, events_to_listen.clone());
     assert!(created.enabled);

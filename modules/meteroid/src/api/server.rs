@@ -139,10 +139,7 @@ pub async fn start_api_server(
             compute_service,
             eventbus.clone(),
         ))
-        .add_service(api::webhooksout::service(
-            pool.clone(),
-            config.secrets_crypt_key.clone(),
-        ))
+        .add_service(api::webhooksout::service(store.clone()))
         .add_service(api::internal::service(pool.clone()))
         .serve(config.listen_addr)
         .await?;
