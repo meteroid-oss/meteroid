@@ -22,11 +22,11 @@ use crate::api::plans::error::PlanApiError;
 
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
-use crate::eventbus::Event;
 use crate::{
     api::utils::{parse_uuid, uuid_gen},
     parse_uuid,
 };
+use common_eventbus::Event;
 
 use super::{mapping, PlanServiceComponents};
 

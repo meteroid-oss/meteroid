@@ -1,6 +1,6 @@
 use crate::compute::InvoiceEngine;
 
-use crate::eventbus::{Event, EventBus};
+use common_eventbus::{Event, EventBus};
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsServiceServer;
 

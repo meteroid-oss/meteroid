@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use deadpool_postgres::Pool;
@@ -49,6 +50,7 @@ pub async fn start_meteroid_with_port(
     let store = meteroid_store::Store::new(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
+        Arc::new(meteroid::eventbus::memory::InMemory::new()),
     )
     .expect("Could not create store");
 

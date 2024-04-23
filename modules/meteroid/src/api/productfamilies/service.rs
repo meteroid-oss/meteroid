@@ -11,7 +11,7 @@ use meteroid_repository as db;
 
 use crate::api::productfamilies::error::ProductFamilyApiError;
 use crate::api::utils::uuid_gen;
-use crate::eventbus::Event;
+use common_eventbus::Event;
 
 use super::{mapping, ProductFamilyServiceComponents};
 

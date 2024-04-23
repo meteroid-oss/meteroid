@@ -16,10 +16,10 @@ use crate::metering_it;
 use crate::{helpers, meteroid_it};
 
 use crate::meteroid_it::eventbus::NoopEventBus;
+use common_eventbus::EventBus;
 use metering::utils::datetime_to_timestamp;
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::db::get_connection;
-use meteroid::eventbus::EventBus;
 use meteroid::mapping::common::chrono_to_date;
 use meteroid::models::{InvoiceLine, InvoiceLinePeriod};
 use meteroid_grpc::meteroid::api;
@@ -477,7 +477,7 @@ async fn test_metering_e2e() {
         ]
     );
 
-    let eventbus: Arc<dyn EventBus<meteroid::eventbus::Event>> = Arc::new(NoopEventBus::new());
+    let eventbus: Arc<dyn EventBus<common_eventbus::Event>> = Arc::new(NoopEventBus::new());
 
     // DRAFT WORKER
     meteroid::workers::invoicing::draft_worker::draft_worker(

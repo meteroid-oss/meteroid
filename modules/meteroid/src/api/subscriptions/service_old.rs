@@ -6,7 +6,6 @@ Kept for reference until the EventBus is implemented in the service, and the Slo
 
  */
 
-
 // use cornucopia_async::{GenericClient, Params};
 // use time::Time;
 // use tonic::{Request, Response, Status};
@@ -36,7 +35,7 @@ Kept for reference until the EventBus is implemented in the service, and the Slo
 // // use crate::compute::fees::shared::CadenceExtractor;
 // // use crate::compute::fees::ComputeInvoiceLine;
 // use crate::compute::period;
-// use crate::eventbus::Event;
+// use common_eventbus::Event;
 // use crate::mapping::common::{chrono_to_date, chrono_to_datetime};
 // use crate::models::InvoiceLine;
 // use crate::{parse_uuid, parse_uuid_opt};

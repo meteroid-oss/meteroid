@@ -1,0 +1,15 @@
+[package]
+name = "common-eventbus"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true, features = ["v4", "v7"] }
+uuid7 = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+

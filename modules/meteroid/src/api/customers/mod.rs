@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use common_eventbus::{Event, EventBus};
 use deadpool_postgres::{Object, Transaction};
 use tonic::Status;
 
@@ -7,7 +8,6 @@ use meteroid_grpc::meteroid::api::customers::v1::customers_service_server::Custo
 use meteroid_repository::Pool;
 
 use crate::db::{get_connection, get_transaction};
-use crate::eventbus::{Event, EventBus};
 
 pub mod error;
 pub mod mapping;

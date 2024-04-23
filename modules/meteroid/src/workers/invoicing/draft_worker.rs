@@ -10,7 +10,8 @@ use meteroid_repository as db;
 use std::ops::Deref;
 use time::Date;
 
-use crate::eventbus::{Event, EventBus, EventBusStatic};
+use crate::eventbus::EventBusStatic;
+use common_eventbus::{Event, EventBus};
 use meteroid_repository::subscriptions::SubscriptionToInvoice;
 use meteroid_store::domain::enums::BillingPeriodEnum;
 

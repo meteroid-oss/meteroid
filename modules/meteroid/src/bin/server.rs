@@ -7,7 +7,7 @@ use common_logging::init::init_telemetry;
 use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
 use meteroid::singletons::get_pool;
-use meteroid::webhook_in_api;
+use meteroid::{eventbus, webhook_in_api};
 use meteroid_repository::migrations;
 
 #[tokio::main]
@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = meteroid_store::Store::new(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
+        Arc::new(eventbus::memory::InMemory::new()),
     )?;
 
     let private_server =

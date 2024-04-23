@@ -6,7 +6,8 @@ use meteroid_repository as db;
 use crate::{compute::InvoiceEngine, errors, singletons};
 
 use crate::compute::clients::usage::MeteringUsageClient;
-use crate::eventbus::{Event, EventBus, EventBusStatic};
+use crate::eventbus::EventBusStatic;
+use common_eventbus::{Event, EventBus};
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};

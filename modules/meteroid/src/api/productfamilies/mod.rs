@@ -7,7 +7,7 @@ use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_
 use meteroid_repository::Pool;
 
 use crate::db::{get_connection, get_transaction};
-use crate::eventbus::{Event, EventBus};
+use common_eventbus::{Event, EventBus};
 
 mod error;
 mod mapping;

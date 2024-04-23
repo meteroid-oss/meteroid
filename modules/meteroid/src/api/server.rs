@@ -18,7 +18,6 @@ use crate::compute::clients::usage::MeteringUsageClient;
 use crate::compute::InvoiceEngine;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::webhook_handler::WebhookHandler;
-use crate::eventbus::{Event, EventBus};
 
 use super::super::config::Config;
 
@@ -53,13 +52,12 @@ pub async fn start_api_server(
         Arc::new(store.clone()),
     ));
 
-    let eventbus: Arc<dyn EventBus<Event>> = Arc::new(crate::eventbus::memory::InMemory::new());
-
     // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel
     // the pools are incompatible, without some refacto
     // let store = meteroid_store::Store::from_pool(pool.clone());
 
-    eventbus
+    store
+        .eventbus
         .subscribe(Arc::new(WebhookHandler::new(
             pool.clone(),
             config.secrets_crypt_key.clone(),
@@ -76,7 +74,8 @@ pub async fn start_api_server(
             }
         };
 
-        eventbus
+        store
+            .eventbus
             .subscribe(Arc::new(AnalyticsHandler::new(
                 config.analytics.clone(),
                 pool.clone(),
@@ -109,35 +108,38 @@ pub async fn start_api_server(
         .add_service(reflection_service)
         .add_service(api::billablemetrics::service(
             pool.clone(),
-            eventbus.clone(),
+            store.eventbus.clone(),
             metering_service,
         ))
-        .add_service(api::customers::service(pool.clone(), eventbus.clone()))
+        .add_service(api::customers::service(
+            pool.clone(),
+            store.eventbus.clone(),
+        ))
         .add_service(api::tenants::service(store.clone()))
-        .add_service(api::apitokens::service(store.clone(), eventbus.clone()))
+        .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(
             store.clone(),
-            eventbus.clone(),
+            store.eventbus.clone(),
         ))
-        .add_service(api::plans::service(pool.clone(), eventbus.clone()))
+        .add_service(api::plans::service(pool.clone(), store.eventbus.clone()))
         .add_service(api::schedules::service(pool.clone()))
         .add_service(api::productitems::service(pool.clone()))
         .add_service(api::productfamilies::service(
             pool.clone(),
-            eventbus.clone(),
+            store.eventbus.clone(),
         ))
-        .add_service(api::instance::service(pool.clone(), eventbus.clone()))
+        .add_service(api::instance::service(pool.clone(), store.eventbus.clone()))
         .add_service(api::invoices::service(pool.clone()))
         .add_service(api::stats::service(pool.clone()))
         .add_service(api::users::service(
             pool.clone(),
-            eventbus.clone(),
+            store.eventbus.clone(),
             config.jwt_secret.clone(),
         ))
         .add_service(api::subscriptions::service(
             store.clone(),
             compute_service,
-            eventbus.clone(),
+            store.eventbus.clone(),
         ))
         .add_service(api::webhooksout::service(
             pool.clone(),

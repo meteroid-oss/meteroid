@@ -4,7 +4,7 @@ use meteroid_grpc::meteroid::api::components::v1::price_components_service_serve
 
 use meteroid_store::Store;
 
-use crate::eventbus::{Event, EventBus};
+use common_eventbus::{Event, EventBus};
 
 mod error;
 pub(crate) mod ext;

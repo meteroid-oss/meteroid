@@ -2,9 +2,9 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 use crate::meteroid_it::eventbus::NoopEventBus;
+use common_eventbus::EventBus;
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
-use meteroid::eventbus::EventBus;
 use meteroid::workers::invoicing::draft_worker::draft_worker;
 use meteroid_repository::invoices::ListInvoice;
 use meteroid_repository::InvoiceStatusEnum;
@@ -31,7 +31,7 @@ async fn test_draft_worker() {
 
     let worker_run_date = date!(2023 - 11 - 04);
 
-    let eventbus: Arc<dyn EventBus<meteroid::eventbus::Event>> = Arc::new(NoopEventBus::new());
+    let eventbus: Arc<dyn EventBus<common_eventbus::Event>> = Arc::new(NoopEventBus::new());
 
     draft_worker(&pool, eventbus.deref(), worker_run_date.clone())
         .await

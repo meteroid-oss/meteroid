@@ -1,3 +1,4 @@
+use common_eventbus::Event;
 use cornucopia_async::Params;
 use tonic::{Request, Response, Status};
 
@@ -13,7 +14,6 @@ use meteroid_repository as db;
 use crate::api::customers::error::CustomerApiError;
 use crate::api::utils::PaginationExt;
 use crate::api::utils::{parse_uuid, uuid_gen};
-use crate::eventbus::Event;
 
 use super::{mapping, CustomerServiceComponents};
 

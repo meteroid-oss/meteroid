@@ -21,8 +21,8 @@ use meteroid_repository::{OrganizationUserRole, Params};
 
 use crate::api::users::error::UserApiError;
 use crate::api::utils::uuid_gen;
-use crate::eventbus::Event;
 use crate::{api::utils::parse_uuid, parse_uuid};
+use common_eventbus::Event;
 
 use super::{mapping, UsersServiceComponents};
 

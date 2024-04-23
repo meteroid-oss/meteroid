@@ -1,7 +1,8 @@
 use crate::config::Config;
+use crate::eventbus;
 use deadpool_postgres::Pool;
 use meteroid_store::Store;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 
@@ -20,6 +21,7 @@ pub fn get_store() -> &'static Store {
         Store::new(
             config.database_url.clone(),
             config.secrets_crypt_key.clone(),
+            Arc::new(eventbus::memory::InMemory::new()),
         )
         .expect("Failed to initialize store")
     })
