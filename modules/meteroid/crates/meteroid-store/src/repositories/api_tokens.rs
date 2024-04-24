@@ -2,7 +2,8 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
-use common_eventbus::Event;
+use common_eventbus::{Event, EventBusError};
+use error_stack::Report;
 use nanoid::nanoid;
 use tracing_log::log;
 use uuid::Uuid;
@@ -102,16 +103,21 @@ impl ApiTokensInterface for Store {
             hint: hint,
         };
 
-        let result = insertable_entity
+        let result: Result<ApiToken, Report<StoreError>> = insertable_entity
             .insert(&mut conn)
             .await
             .map_err(Into::into)
             .map(Into::into);
 
-        let _ = self
-            .eventbus
-            .publish(Event::api_token_created(entity.created_by, result.id))
-            .await;
+        if result.is_ok() {
+            let _ = self
+                .eventbus
+                .publish(Event::api_token_created(
+                    insertable_entity.created_by,
+                    insertable_entity.id,
+                ))
+                .await;
+        }
 
         result.map(|res| (api_key, res))
     }
