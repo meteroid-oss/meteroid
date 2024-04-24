@@ -26,7 +26,7 @@ impl ConfigsInterface for Store {
         &self,
         config: ProviderConfigNew,
     ) -> StoreResult<ProviderConfig> {
-        let insertable = ProviderConfigNew::domain_to_row(&self.crypt_key, &config)?;
+        let insertable = config.to_row(&self.crypt_key)?;
 
         let mut conn = self.get_conn().await?;
 

@@ -15,3 +15,4 @@ pub mod configs;
 pub mod price_components;
 pub mod product_families;
 pub mod subscriptions;
+pub mod webhooks;

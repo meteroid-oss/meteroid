@@ -570,7 +570,7 @@ diesel::table! {
         description -> Nullable<Text>,
         secret -> Text,
         created_at -> Timestamp,
-        events_to_listen -> Array<Nullable<WebhookOutEventTypeEnum>>,
+        events_to_listen -> Array<WebhookOutEventTypeEnum>,
         enabled -> Bool,
     }
 }

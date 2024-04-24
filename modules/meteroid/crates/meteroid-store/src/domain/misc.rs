@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use o2o::o2o;
 use uuid::Uuid;
 
 pub struct PaginationRequest {
@@ -102,4 +103,13 @@ pub struct ComponentPeriods {
     pub arrear: Option<Period>,
     pub advance: Option<Period>,
     pub proration_factor: Option<f64>,
+}
+
+#[derive(Debug, Clone, o2o)]
+#[map_owned(diesel_models::extend::order::OrderByRequest)]
+pub enum OrderByRequest {
+    IdAsc,
+    IdDesc,
+    DateAsc,
+    DateDesc,
 }
