@@ -2,6 +2,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
+use common_eventbus::Event;
 use nanoid::nanoid;
 use tracing_log::log;
 use uuid::Uuid;
@@ -106,6 +107,11 @@ impl ApiTokensInterface for Store {
             .await
             .map_err(Into::into)
             .map(Into::into);
+
+        let _ = self
+            .eventbus
+            .publish(Event::api_token_created(entity.created_by, result.id))
+            .await;
 
         result.map(|res| (api_key, res))
     }

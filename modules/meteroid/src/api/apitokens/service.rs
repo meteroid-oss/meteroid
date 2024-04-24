@@ -66,12 +66,6 @@ impl ApiTokensService for ApiTokensServiceComponents {
                 )
             })?;
 
-        let _ = self
-            .store
-            .eventbus
-            .publish(Event::api_token_created(actor, res.id))
-            .await;
-
         let response = CreateApiTokenResponse {
             api_key,
             details: Some(mapping::api_token::domain_to_api(res)),
