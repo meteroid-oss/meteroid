@@ -8,7 +8,7 @@ use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
 use meteroid::eventbus::create_eventbus_memory;
 use meteroid::singletons::get_pool;
-use meteroid::{eventbus, webhook_in_api};
+use meteroid::webhook_in_api;
 use meteroid_repository::migrations;
 
 #[tokio::main]

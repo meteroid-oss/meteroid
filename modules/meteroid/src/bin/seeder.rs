@@ -1,11 +1,9 @@
 use std::env;
-use std::sync::Arc;
 
 use tokio::signal;
 
 use common_logging::init::init_regular_logging;
 use error_stack::ResultExt;
-use meteroid::eventbus;
 use meteroid::eventbus::create_eventbus_noop;
 use meteroid::seeder::domain;
 use meteroid::seeder::errors::SeederError;
