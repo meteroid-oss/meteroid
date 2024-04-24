@@ -6,6 +6,7 @@ use tokio::signal;
 use common_logging::init::init_regular_logging;
 use error_stack::ResultExt;
 use meteroid::eventbus;
+use meteroid::eventbus::create_eventbus_noop;
 use meteroid::seeder::domain;
 use meteroid::seeder::errors::SeederError;
 use meteroid::seeder::runner;
@@ -27,7 +28,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
     let store = Store::new(
         env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
         crypt_key,
-        Arc::new(eventbus::memory::InMemory::new()),
+        create_eventbus_noop().await,
     )
     .change_context(SeederError::InitializationError)?;
 

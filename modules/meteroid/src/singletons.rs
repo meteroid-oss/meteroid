@@ -1,8 +1,11 @@
-use crate::config::Config;
-use crate::eventbus;
+use std::sync::OnceLock;
+
 use deadpool_postgres::Pool;
+
 use meteroid_store::Store;
-use std::sync::{Arc, OnceLock};
+
+use crate::config::Config;
+use crate::eventbus::EventBusStatic;
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 
@@ -13,16 +16,18 @@ pub fn get_pool() -> &'static Pool {
     })
 }
 
-static STORE: OnceLock<Store> = OnceLock::new();
-
-pub fn get_store() -> &'static Store {
-    STORE.get_or_init(|| {
-        let config = Config::get();
-        Store::new(
-            config.database_url.clone(),
-            config.secrets_crypt_key.clone(),
-            Arc::new(eventbus::memory::InMemory::new()),
-        )
-        .expect("Failed to initialize store")
-    })
+static STORE: tokio::sync::OnceCell<Store> = tokio::sync::OnceCell::const_new();
+pub async fn get_store() -> &'static Store {
+    STORE
+        .get_or_init(|| async {
+            let config = Config::get();
+            let eventbus = EventBusStatic::get().await;
+            Store::new(
+                config.database_url.clone(),
+                config.secrets_crypt_key.clone(),
+                eventbus.clone(),
+            )
+            .expect("Failed to initialize store")
+        })
+        .await
 }
