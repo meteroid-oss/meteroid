@@ -7,12 +7,13 @@ use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::StreamExt;
 use meteroid_repository as db;
-use std::ops::Deref;
+
 use time::Date;
 
-use crate::eventbus::{Event, EventBus, EventBusStatic};
+use common_eventbus::Event;
 use meteroid_repository::subscriptions::SubscriptionToInvoice;
 use meteroid_store::domain::enums::BillingPeriodEnum;
+use meteroid_store::Store;
 
 const BATCH_SIZE: usize = 100;
 
@@ -26,11 +27,10 @@ impl AsyncRunnable for DraftWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         let pool = singletons::get_pool();
-        let eventbus = EventBusStatic::get().await;
 
         draft_worker(
+            singletons::get_store().await,
             pool,
-            eventbus.deref(),
             time::OffsetDateTime::now_utc().date(),
         )
         .timed(|res, elapsed| record_call("draft", res, elapsed))
@@ -59,8 +59,8 @@ impl AsyncRunnable for DraftWorker {
 
 #[tracing::instrument(skip_all)]
 pub async fn draft_worker(
+    store: &Store,
     pool: &Pool,
-    eventbus: &dyn EventBus<Event>,
     today: Date,
 ) -> Result<(), errors::WorkerError> {
     let db_client = pool
@@ -124,7 +124,8 @@ pub async fn draft_worker(
             .change_context(errors::WorkerError::DatabaseError)?;
 
         for param in &params {
-            let _ = eventbus
+            let _ = store
+                .eventbus
                 .publish(Event::invoice_created(param.id, param.tenant_id))
                 .await;
         }

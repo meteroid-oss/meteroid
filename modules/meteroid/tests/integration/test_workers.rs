@@ -1,19 +1,21 @@
-use crate::helpers;
-use crate::meteroid_it;
-use crate::meteroid_it::db::seed::*;
-use crate::meteroid_it::eventbus::NoopEventBus;
+use std::collections::HashSet;
+
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
-use meteroid::eventbus::EventBus;
-use meteroid::workers::invoicing::draft_worker::draft_worker;
-use meteroid_repository::invoices::ListInvoice;
-use meteroid_repository::InvoiceStatusEnum;
-use std::collections::HashSet;
-use std::ops::Deref;
-use std::sync::Arc;
 use testcontainers::clients::Cli;
 use time::macros::date;
 use uuid::Uuid;
+
+use meteroid::eventbus::create_eventbus_noop;
+use meteroid::singletons;
+use meteroid::workers::invoicing::draft_worker::draft_worker;
+use meteroid_repository::invoices::ListInvoice;
+use meteroid_repository::InvoiceStatusEnum;
+use meteroid_store::Store;
+
+use crate::helpers;
+use crate::meteroid_it;
+use crate::meteroid_it::db::seed::*;
 
 #[tokio::test]
 async fn test_draft_worker() {
@@ -31,9 +33,15 @@ async fn test_draft_worker() {
 
     let worker_run_date = date!(2023 - 11 - 04);
 
-    let eventbus: Arc<dyn EventBus<meteroid::eventbus::Event>> = Arc::new(NoopEventBus::new());
+    let store = Store::new(
+        postgres_connection_string,
+        secrecy::SecretString::new("test-key".into()),
+        //create_eventbus_noop().await,
+        singletons::get_store().await.eventbus.clone(),
+    )
+    .unwrap();
 
-    draft_worker(&pool, eventbus.deref(), worker_run_date.clone())
+    draft_worker(&store, &pool, worker_run_date.clone())
         .await
         .unwrap();
 
@@ -90,7 +98,7 @@ async fn test_draft_worker() {
     }
 
     // second run should not create new invoices
-    draft_worker(&pool, eventbus.deref(), worker_run_date.next_day().unwrap())
+    draft_worker(&store, &pool, worker_run_date.next_day().unwrap())
         .await
         .unwrap();
 

@@ -42,8 +42,8 @@ impl AsyncRunnable for PriceWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         price_worker(
-            singletons::get_pool().clone(),
-            singletons::get_store().clone(),
+            singletons::get_store().await,
+            singletons::get_pool(),
             MeteringClient::get().clone(),
         )
         .timed(|res, elapsed| record_call("price", res, elapsed))
@@ -72,8 +72,8 @@ impl AsyncRunnable for PriceWorker {
 
 #[tracing::instrument(skip_all)]
 pub async fn price_worker(
-    db_pool: Pool,
-    store: Store,
+    store: &Store,
+    db_pool: &Pool,
     metering_client: MeteringClient,
 ) -> Result<(), errors::WorkerError> {
     // fetch all invoice not finalized/voided and not updated since > 1h

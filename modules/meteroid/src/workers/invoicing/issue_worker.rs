@@ -24,9 +24,9 @@ impl AsyncRunnable for IssueWorker {
     #[tracing::instrument(skip(self, _queue))]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
         issue_worker(
+            singletons::get_store().await,
             singletons::get_pool(),
             Stripe::get(),
-            singletons::get_store(),
         )
         .timed(|res, elapsed| record_call("issue", res, elapsed))
         .await
@@ -54,9 +54,9 @@ impl AsyncRunnable for IssueWorker {
 
 #[tracing::instrument(skip_all)]
 async fn issue_worker(
+    store: &Store,
     pool: &Pool,
     stripe_adapter: &Stripe,
-    store: &Store,
 ) -> Result<(), errors::WorkerError> {
     // fetch all invoices with issue=false and send to stripe
 

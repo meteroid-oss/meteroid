@@ -1,6 +1,7 @@
 use chrono::DateTime;
+use common_eventbus::Event;
+use common_eventbus::EventHandler;
 use meteroid::eventbus::webhook_handler::WebhookHandler;
-use meteroid::eventbus::{Event, EventHandler};
 use std::str::FromStr;
 use testcontainers::clients::Cli;
 
@@ -167,8 +168,8 @@ async fn test_webhook_out_handler() {
             event_timestamp: DateTime::parse_from_rfc3339("2024-01-01T23:22:15Z")
                 .unwrap()
                 .to_utc(),
-            event_data: meteroid::eventbus::EventData::SubscriptionCreated(
-                meteroid::eventbus::TenantEventDataDetails {
+            event_data: common_eventbus::EventData::SubscriptionCreated(
+                common_eventbus::TenantEventDataDetails {
                     tenant_id: TENANT_ID,
                     entity_id: SUBSCRIPTION_SPORTIFY_ID1,
                 },
@@ -200,8 +201,8 @@ async fn test_webhook_out_handler() {
             event_timestamp: DateTime::parse_from_rfc3339("2024-02-01T23:22:15Z")
                 .unwrap()
                 .to_utc(),
-            event_data: meteroid::eventbus::EventData::CustomerCreated(
-                meteroid::eventbus::TenantEventDataDetails {
+            event_data: common_eventbus::EventData::CustomerCreated(
+                common_eventbus::TenantEventDataDetails {
                     tenant_id: TENANT_ID,
                     entity_id: CUSTOMER_UBER_ID,
                 },

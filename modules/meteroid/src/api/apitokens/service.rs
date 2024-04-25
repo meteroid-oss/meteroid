@@ -1,3 +1,4 @@
+use common_eventbus::Event;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
@@ -9,7 +10,6 @@ use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 
 use crate::api::apitokens::error::ApiTokenApiError;
-use crate::eventbus::Event;
 use crate::{api::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, ApiTokensServiceComponents};
@@ -65,11 +65,6 @@ impl ApiTokensService for ApiTokensServiceComponents {
                     Box::new(e.into_error()),
                 )
             })?;
-
-        let _ = self
-            .eventbus
-            .publish(Event::api_token_created(actor, res.id))
-            .await;
 
         let response = CreateApiTokenResponse {
             api_key,

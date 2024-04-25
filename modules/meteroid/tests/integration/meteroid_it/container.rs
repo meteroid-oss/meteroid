@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 
 use meteroid::config::Config;
+use meteroid::eventbus::create_eventbus_memory;
 use meteroid_repository::migrations;
 
 use crate::helpers;
@@ -49,6 +50,7 @@ pub async fn start_meteroid_with_port(
     let store = meteroid_store::Store::new(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
+        create_eventbus_memory(pool.clone(), config.clone()).await,
     )
     .expect("Could not create store");
 

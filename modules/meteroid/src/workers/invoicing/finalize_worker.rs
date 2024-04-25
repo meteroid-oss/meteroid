@@ -6,7 +6,7 @@ use meteroid_repository as db;
 use crate::{compute::InvoiceEngine, errors, singletons};
 
 use crate::compute::clients::usage::MeteringUsageClient;
-use crate::eventbus::{Event, EventBus, EventBusStatic};
+use common_eventbus::Event;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
@@ -30,12 +30,10 @@ pub struct FinalizeWorker;
 impl AsyncRunnable for FinalizeWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let eventbus = EventBusStatic::get().await;
         finalize_worker(
-            singletons::get_pool().clone(),
+            singletons::get_store().await,
+            singletons::get_pool(),
             MeteringClient::get().clone(),
-            eventbus.clone(),
-            singletons::get_store().clone(),
         )
         .timed(|res, elapsed| record_call("finalize", res, elapsed))
         .await
@@ -63,10 +61,9 @@ impl AsyncRunnable for FinalizeWorker {
 
 #[tracing::instrument(skip_all)]
 pub async fn finalize_worker(
-    db_pool: Pool,
+    store: &Store,
+    db_pool: &Pool,
     metering_client: MeteringClient,
-    eventbus: Arc<dyn EventBus<Event>>,
-    store: Store,
 ) -> Result<(), errors::WorkerError> {
     let connection = db_pool
         .get()
@@ -107,7 +104,7 @@ pub async fn finalize_worker(
                     .await
                     .change_context(errors::WorkerError::DatabaseError)?;
 
-                let eventbus = eventbus.clone();
+                let eventbus = store.eventbus.clone();
 
                 let task = tokio::spawn(async move {
                     let _permit = permit; // Moves permit into the async block

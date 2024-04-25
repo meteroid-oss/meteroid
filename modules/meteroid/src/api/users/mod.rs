@@ -7,7 +7,7 @@ use tonic::Status;
 use meteroid_grpc::meteroid::api::users::v1::users_service_server::UsersServiceServer;
 
 use crate::db::{get_connection, get_transaction};
-use crate::eventbus::{Event, EventBus};
+use common_eventbus::{Event, EventBus};
 
 mod error;
 pub mod mapping;

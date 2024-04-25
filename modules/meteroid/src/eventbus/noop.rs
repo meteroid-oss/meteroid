@@ -1,4 +1,5 @@
-use meteroid::eventbus::{Event, EventBus, EventBusError, EventHandler};
+use common_eventbus::{Event, EventBus};
+use common_eventbus::{EventBusError, EventHandler};
 use std::sync::Arc;
 
 pub struct NoopEventBus;

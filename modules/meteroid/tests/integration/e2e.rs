@@ -1,25 +1,17 @@
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use chrono::{Datelike, Days, Months};
 use cornucopia_async::{GenericClient, Params};
-
 use opentelemetry::propagation::Injector;
-use std::collections::HashMap;
-use std::ops::Deref;
-use std::str::FromStr;
-use std::sync::Arc;
-
 use rust_decimal::Decimal;
 use testcontainers::clients::Cli;
 use tonic::Request;
 use uuid::{uuid, Uuid};
 
-use crate::metering_it;
-use crate::{helpers, meteroid_it};
-
-use crate::meteroid_it::eventbus::NoopEventBus;
 use metering::utils::datetime_to_timestamp;
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::db::get_connection;
-use meteroid::eventbus::EventBus;
 use meteroid::mapping::common::chrono_to_date;
 use meteroid::models::{InvoiceLine, InvoiceLinePeriod};
 use meteroid_grpc::meteroid::api;
@@ -30,9 +22,11 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::{
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     Aggregation, CreateBillableMetricRequest, SegmentationMatrix,
 };
-
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_repository::invoices::ListInvoice;
+
+use crate::metering_it;
+use crate::{helpers, meteroid_it};
 
 /*
 Plan with Capacity
@@ -477,12 +471,10 @@ async fn test_metering_e2e() {
         ]
     );
 
-    let eventbus: Arc<dyn EventBus<meteroid::eventbus::Event>> = Arc::new(NoopEventBus::new());
-
     // DRAFT WORKER
     meteroid::workers::invoicing::draft_worker::draft_worker(
+        &meteroid_setup.store,
         &meteroid_setup.pool,
-        eventbus.deref(),
         chrono_to_date(now.date_naive()).unwrap(),
     )
     .await
@@ -524,8 +516,8 @@ async fn test_metering_e2e() {
 
     // PRICE WORKER
     meteroid::workers::invoicing::price_worker::price_worker(
-        meteroid_setup.pool.clone(),
-        meteroid_setup.store.clone(),
+        &meteroid_setup.store,
+        &meteroid_setup.pool,
         metering_client.clone(),
     )
     .await
@@ -588,10 +580,9 @@ async fn test_metering_e2e() {
 
     // FINALIZER
     meteroid::workers::invoicing::finalize_worker::finalize_worker(
-        meteroid_setup.pool.clone(),
+        &meteroid_setup.store,
+        &meteroid_setup.pool,
         metering_client.clone(),
-        eventbus.clone(),
-        meteroid_setup.store.clone(),
     )
     .await
     .unwrap();
