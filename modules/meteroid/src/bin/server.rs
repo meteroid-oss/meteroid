@@ -32,6 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = meteroid_store::Store::new(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
+        config.jwt_secret.clone(),
         create_eventbus_memory(pool.clone(), config.clone()).await,
     )?;
 

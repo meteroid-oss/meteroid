@@ -19,6 +19,7 @@ pub struct Organization {
 #[diesel(table_name = crate::schema::organization)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OrganizationNew {
+    pub id: Uuid,
     pub name: String,
     pub slug: String,
 }

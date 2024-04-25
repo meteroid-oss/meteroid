@@ -2,7 +2,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
-use common_eventbus::{Event, EventBusError};
+use common_eventbus::Event;
 use error_stack::Report;
 use nanoid::nanoid;
 use tracing_log::log;

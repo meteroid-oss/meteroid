@@ -45,4 +45,22 @@ impl Organization {
             .attach_printable("Error while finding organization by user_id")
             .into_db_result()
     }
+
+    pub async fn find_by_invite_link(
+        conn: &mut PgConn,
+        invite_link_hash: String,
+    ) -> DbResult<Organization> {
+        use crate::schema::organization::dsl as o_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = o_dsl::organization.filter(o_dsl::invite_link_hash.eq(invite_link_hash));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding organization by invite_link_hash")
+            .into_db_result()
+    }
 }

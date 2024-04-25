@@ -6,7 +6,6 @@ use testcontainers::clients::Cli;
 use time::macros::date;
 use uuid::Uuid;
 
-use meteroid::eventbus::create_eventbus_noop;
 use meteroid::singletons;
 use meteroid::workers::invoicing::draft_worker::draft_worker;
 use meteroid_repository::invoices::ListInvoice;
@@ -36,7 +35,7 @@ async fn test_draft_worker() {
     let store = Store::new(
         postgres_connection_string,
         secrecy::SecretString::new("test-key".into()),
-        //create_eventbus_noop().await,
+        secrecy::SecretString::new("test-jwt-key".into()),
         singletons::get_store().await.eventbus.clone(),
     )
     .unwrap();

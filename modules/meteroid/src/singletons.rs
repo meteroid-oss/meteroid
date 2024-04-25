@@ -25,6 +25,7 @@ pub async fn get_store() -> &'static Store {
             Store::new(
                 config.database_url.clone(),
                 config.secrets_crypt_key.clone(),
+                config.jwt_secret.clone(),
                 eventbus.clone(),
             )
             .expect("Failed to initialize store")
