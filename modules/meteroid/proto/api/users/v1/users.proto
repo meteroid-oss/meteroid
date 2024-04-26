@@ -4,17 +4,6 @@ package meteroid.api.users.v1;
 
 import "api/users/v1/models.proto";
 
-message UpsertUserRequest {
-  string id = 1;
-  string email = 2;
-  string password_hash = 3;
-}
-
-message UpsertUserResponse {
-  string id = 1;
-  string email = 2;
-}
-
 message GetUserByIdRequest {
   string id = 1;
 }
@@ -65,7 +54,6 @@ message RegisterResponse {
 }
 
 service UsersService {
-  rpc UpsertUser(UpsertUserRequest) returns (UpsertUserResponse) {}
   rpc Me(MeRequest) returns (MeResponse) {}
   rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse) {}
   rpc FindUserByEmail(FindUserByEmailRequest) returns (FindUserByEmailResponse) {}

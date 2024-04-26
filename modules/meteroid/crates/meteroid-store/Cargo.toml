@@ -39,6 +39,7 @@ hex = { workspace = true }
 url = { workspace = true }
 base64 = { workspace = true }
 fastrand = { workspace = true }
+jsonwebtoken = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

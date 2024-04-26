@@ -13,6 +13,7 @@ use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
+use secrecy::SecretString;
 
 #[tokio::main]
 async fn main() -> error_stack::Result<(), SeederError> {
@@ -21,11 +22,14 @@ async fn main() -> error_stack::Result<(), SeederError> {
     init_regular_logging();
     let _exit = signal::ctrl_c();
 
-    let crypt_key = secrecy::SecretString::new("00000000000000000000000000000000".into());
-
     let store = Store::new(
         env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
-        crypt_key,
+        env::var("SECRETS_CRYPT_KEY")
+            .map(SecretString::new)
+            .change_context(SeederError::InitializationError)?,
+        env::var("JWT_SECRET")
+            .map(SecretString::new)
+            .change_context(SeederError::InitializationError)?,
         create_eventbus_noop().await,
     )
     .change_context(SeederError::InitializationError)?;

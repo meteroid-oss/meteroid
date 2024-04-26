@@ -12,5 +12,6 @@ mod test_idempotency_cache;
 mod test_slot_transaction;
 mod test_subscription;
 mod test_tenant;
+mod test_user;
 mod test_webhooks_out;
 mod test_workers;

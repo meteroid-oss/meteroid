@@ -1,7 +1,7 @@
 BEGIN;
 
 INSERT INTO public.organization
-VALUES ('018c2c82-3def-7fa0-bf6f-a5f8fe341549', 'Local Org', '91ny4j5j4j01', '2023-12-02 21:49:42.255', NULL);
+VALUES ('018c2c82-3def-7fa0-bf6f-a5f8fe341549', 'Local Org', '91ny4j5j4j01', '2023-12-02 21:49:42.255', NULL, 'fake-invite-link');
 
 INSERT INTO public."user"
 VALUES ('ae35bbb9-65da-477d-b856-7dbd87546441', 'demo-user@meteroid.dev', '2023-12-02 21:49:08.805', NULL,

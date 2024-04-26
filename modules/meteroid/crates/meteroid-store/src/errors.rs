@@ -35,6 +35,10 @@ pub enum StoreError {
     SerdeError(String, #[source] serde_json::Error),
     #[error("Failed to encrypt/decrypt data")]
     CryptError(String),
+    #[error("Login failure")]
+    LoginError(String),
+    #[error("User registration failure")]
+    UserRegisterError(String),
 }
 
 impl From<DatabaseError> for StoreError {

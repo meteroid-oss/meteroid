@@ -17,6 +17,7 @@ pub type PgConn = Object<AsyncPgConnection>;
 pub struct Store {
     pub pool: PgPool,
     pub crypt_key: secrecy::SecretString,
+    pub jwt_secret: secrecy::SecretString,
     pub eventbus: Arc<dyn EventBus<Event>>,
 }
 
@@ -35,6 +36,7 @@ impl Store {
     pub fn new(
         database_url: String,
         crypt_key: secrecy::SecretString,
+        jwt_secret: secrecy::SecretString,
         eventbus: Arc<dyn EventBus<Event>>,
     ) -> StoreResult<Self> {
         let pool: PgPool = diesel_make_pg_pool(database_url)?;
@@ -42,6 +44,7 @@ impl Store {
         Ok(Store {
             pool,
             crypt_key,
+            jwt_secret,
             eventbus,
         })
     }

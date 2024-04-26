@@ -1,4 +1,3 @@
-use common_eventbus::Event;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
