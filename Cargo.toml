@@ -124,7 +124,7 @@ shellexpand = "3.1.0"
 syn = "2.0.52"
 tap = "1.0.1"
 testcontainers = "0.15.0"
-testcontainers-modules = { version = "0.3.2", default-features = false }
+testcontainers-modules = { version = "0.4.0", default-features = false }
 thiserror = "1.0.49"
 time = "0.3.30"
 tokio = { version = "1.33.0", default-features = false }
