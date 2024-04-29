@@ -123,7 +123,7 @@ sha2 = "0.10.8"
 shellexpand = "3.1.0"
 syn = "2.0.52"
 tap = "1.0.1"
-testcontainers = "0.15.0"
+testcontainers = "0.16.5"
 testcontainers-modules = { version = "0.3.2", default-features = false }
 thiserror = "1.0.49"
 time = "0.3.30"
