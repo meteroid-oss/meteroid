@@ -111,10 +111,7 @@ pub async fn start_api_server(
             store.eventbus.clone(),
             metering_service,
         ))
-        .add_service(api::customers::service(
-            pool.clone(),
-            store.eventbus.clone(),
-        ))
+        .add_service(api::customers::service(store.clone()))
         .add_service(api::tenants::service(store.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(

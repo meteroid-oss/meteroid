@@ -104,6 +104,7 @@ impl WebhookOutEvent {
             OrderByRequest::IdDesc => query = query.order(ev_dsl::id.desc()),
             OrderByRequest::DateAsc => query = query.order(ev_dsl::created_at.asc()),
             OrderByRequest::DateDesc => query = query.order(ev_dsl::created_at.desc()),
+            _ => query = query.order(ev_dsl::id.asc()),
         }
 
         let paginated_query = query.paginate(pagination);

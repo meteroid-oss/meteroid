@@ -133,7 +133,7 @@ async fn issue_invoice(
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 
-            let customer = crate::api::customers::mapping::customer::db_to_server(customer)
+            let customer = crate::api::customers::mapping::customer_old::db_to_server(customer)
                 .change_context(errors::WorkerError::DatabaseError)?;
 
             let api_key = store

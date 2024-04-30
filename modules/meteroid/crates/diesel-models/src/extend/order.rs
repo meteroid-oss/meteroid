@@ -3,4 +3,6 @@ pub enum OrderByRequest {
     IdDesc,
     DateAsc,
     DateDesc,
+    NameAsc,
+    NameDesc,
 }
