@@ -134,7 +134,7 @@ pub mod customer {
     pub struct DomainAddressWrapper(pub domain::Address);
 
     impl TryFrom<server::Address> for DomainAddressWrapper {
-        type Error = Report<StoreError>;
+        type Error = CustomerApiError;
 
         fn try_from(value: server::Address) -> Result<Self, Self::Error> {
             Ok(DomainAddressWrapper(domain::Address {
@@ -168,7 +168,7 @@ pub mod customer {
     pub struct DomainShippingAddressWrapper(pub domain::ShippingAddress);
 
     impl TryFrom<server::ShippingAddress> for DomainShippingAddressWrapper {
-        type Error = Report<StoreError>;
+        type Error = CustomerApiError;
 
         fn try_from(value: server::ShippingAddress) -> Result<Self, Self::Error> {
             Ok(DomainShippingAddressWrapper(domain::ShippingAddress {
