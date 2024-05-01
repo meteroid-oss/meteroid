@@ -13,10 +13,13 @@ use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 
 use crate::api::customers::error::CustomerApiError;
+use crate::api::customers::mapping::customer::{
+    DomainBillingConfigWrapper, ServerCustomerListWrapper, ServerCustomerWrapper,
+};
 use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
 
-use super::{mapping, CustomerServiceComponents};
+use super::CustomerServiceComponents;
 
 #[tonic::async_trait]
 impl CustomersService for CustomerServiceComponents {
@@ -33,7 +36,8 @@ impl CustomersService for CustomerServiceComponents {
         let billing_config = inner
             .billing_config
             .ok_or_else(|| CustomerApiError::MissingArgument("billing_config".to_string()))
-            .and_then(mapping::customer::billing_config_server_to_domain)?;
+            .and_then(DomainBillingConfigWrapper::try_from)?
+            .0;
 
         let customer = self
             .store
@@ -53,7 +57,8 @@ impl CustomersService for CustomerServiceComponents {
                 created_at: None,
             })
             .await
-            .and_then(mapping::customer::list_db_to_server)
+            .and_then(ServerCustomerListWrapper::try_from)
+            .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
         Ok(Response::new(CreateCustomerResponse {
@@ -137,7 +142,7 @@ impl CustomersService for CustomerServiceComponents {
             customers: res
                 .items
                 .into_iter()
-                .map(|l| crate::api::customers::mapping::customer::list_db_to_server(l))
+                .map(|l| ServerCustomerListWrapper::try_from(l).map(|v| v.0))
                 .collect::<Vec<Result<CustomerList, Report<StoreError>>>>()
                 .into_iter()
                 .collect::<Result<Vec<_>, _>>()
@@ -159,7 +164,8 @@ impl CustomersService for CustomerServiceComponents {
             .store
             .find_customer_by_id(customer_id.clone())
             .await
-            .and_then(mapping::customer::domain_to_server)
+            .and_then(ServerCustomerWrapper::try_from)
+            .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
         Ok(Response::new(customer))
@@ -176,7 +182,8 @@ impl CustomersService for CustomerServiceComponents {
             .store
             .find_customer_by_alias(req.alias.clone())
             .await
-            .and_then(mapping::customer::domain_to_server)
+            .and_then(ServerCustomerWrapper::try_from)
+            .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
         Ok(Response::new(customer))
