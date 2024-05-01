@@ -123,3 +123,7 @@ Licensed under the AGPL V3 License. <br/> See [LICENSE.md](LICENSE.md) for more 
     <img width="220" src="https://contrib.rocks/image?repo=meteroid-oss/meteroid" alt="A table of avatars from the project's contributors" />
   </p>
 </a>
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=meteroid-oss/meteroid&type=Date)](https://star-history.com/#meteroid-oss/meteroid&Date)
