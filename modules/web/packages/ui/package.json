@@ -74,7 +74,7 @@
     "chromatic": "^10.7.1",
     "concurrently": "^8.2.2",
     "json": "^11.0.0",
-    "postcss": "^8.4.37",
+    "postcss": "^8.4.38",
     "postcss-loader": "^8.1.0",
     "postcss-scss": "^4.0.9",
     "postcss-selector-parser": "^6.0.15",
