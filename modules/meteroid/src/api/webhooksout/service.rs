@@ -121,7 +121,7 @@ impl WebhooksService for WebhooksServiceComponents {
 
         let params = ListEventsParams {
             endpoint_id,
-            order_by: match req.order_by.try_into() {
+            order_by: match req.sort_by.try_into() {
                 Ok(SortBy::DateAsc) => "DATE_ASC",
                 Ok(SortBy::DateDesc) => "DATE_DESC",
                 Ok(SortBy::IdAsc) => "ID_ASC",
