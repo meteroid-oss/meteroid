@@ -25,7 +25,7 @@ export const Invoices = () => {
   const invoicesQuery = useQuery(
     listInvoices,
     {
-      orderBy: ListInvoicesRequest_SortBy.DATE_DESC,
+      sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
       search: debouncedSearch.text || '',
       status: debouncedSearch.status,
       pagination: {
