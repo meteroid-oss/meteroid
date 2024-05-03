@@ -4,9 +4,9 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, list_customer_request::SortBy,
-    CreateCustomerRequest, CreateCustomerResponse, Customer, GetCustomerByAliasRequest,
-    GetCustomerRequest, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse,
+    CreateCustomerRequest, CreateCustomerResponse, GetCustomerByAliasRequest,
+    GetCustomerByAliasResponse, GetCustomerByIdRequest, GetCustomerByIdResponse,
+    ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest, PatchCustomerResponse,
 };
 use meteroid_repository as db;
 
@@ -180,10 +180,10 @@ impl CustomersService for CustomerServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_customer(
+    async fn get_customer_by_id(
         &self,
-        request: Request<GetCustomerRequest>,
-    ) -> Result<Response<Customer>, Status> {
+        request: Request<GetCustomerByIdRequest>,
+    ) -> Result<Response<GetCustomerByIdResponse>, Status> {
         let req = request.into_inner();
         let connection = self.get_connection().await?;
         let id = parse_uuid(&req.id, "id")?;
@@ -200,14 +200,16 @@ impl CustomersService for CustomerServiceComponents {
             CustomerApiError::MappingError("failed to map db customer to proto".to_string(), e)
         })?;
 
-        Ok(Response::new(rs))
+        Ok(Response::new(GetCustomerByIdResponse {
+            customer: Some(rs),
+        }))
     }
 
     #[tracing::instrument(skip_all)]
     async fn get_customer_by_alias(
         &self,
         request: Request<GetCustomerByAliasRequest>,
-    ) -> Result<Response<Customer>, Status> {
+    ) -> Result<Response<GetCustomerByAliasResponse>, Status> {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
@@ -225,6 +227,8 @@ impl CustomersService for CustomerServiceComponents {
             CustomerApiError::MappingError("failed to map db customer to proto".to_string(), e)
         })?;
 
-        Ok(Response::new(rs))
+        Ok(Response::new(GetCustomerByAliasResponse {
+            customer: Some(rs),
+        }))
     }
 }
