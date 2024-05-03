@@ -6,28 +6,6 @@ import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 import * as api from '../schemas/plans'
 
-// function mapDiscount(discount: StandardDiscount): GrpcStandardDiscount | undefined {
-//   if ('amount' in discount) {
-//     return {
-//       discountType: {
-//         case: 'amount',
-//         amount: { valueInCents: discount.amount },
-//       },
-//     }
-//   } else {
-//     return {
-//       discountType: {
-//         case: 'percent',
-//         percent: { percentage: { value: discount.percentage } },
-//       },
-//     }
-//   }
-// }
-
-// function mapPercentDiscount(discount: PercentDiscount): Discount_Percent | undefined {
-//   return { percentage: { value: discount.percentage } }
-// }
-
 export const mapCadence = (cadence: api.Cadence): BillingPeriod => {
   return match(cadence)
     .with('MONTHLY', () => BillingPeriod.MONTHLY)
