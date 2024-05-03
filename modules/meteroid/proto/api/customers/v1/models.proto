@@ -20,7 +20,7 @@ message CustomerBillingConfig {
   }
 }
 
-message CustomerList {
+message CustomerBrief {
   string id = 1;
   string name = 2;
   optional string email = 3;

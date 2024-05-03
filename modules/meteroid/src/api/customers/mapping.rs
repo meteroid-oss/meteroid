@@ -57,9 +57,9 @@ pub mod customer {
     }
 
     pub fn list_db_to_server(
-        customer: db::CustomerList,
-    ) -> Result<server::CustomerList, errors::DatabaseError> {
-        Ok(server::CustomerList {
+        customer: db::CustomerBrief,
+    ) -> Result<server::CustomerBrief, errors::DatabaseError> {
+        Ok(server::CustomerBrief {
             id: customer.id.to_string(),
             name: customer.name,
             alias: customer.alias,
@@ -69,8 +69,8 @@ pub mod customer {
 
     pub fn create_db_to_server(
         customer: db::CreateCustomer,
-    ) -> Result<server::CustomerList, errors::DatabaseError> {
-        Ok(server::CustomerList {
+    ) -> Result<server::CustomerBrief, errors::DatabaseError> {
+        Ok(server::CustomerBrief {
             id: customer.id.to_string(),
             name: customer.name,
             alias: customer.alias,

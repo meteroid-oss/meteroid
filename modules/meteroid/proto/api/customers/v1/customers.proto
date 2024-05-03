@@ -13,7 +13,7 @@ message CreateCustomerRequest {
 }
 
 message CreateCustomerResponse {
-  CustomerList customer = 1;
+  CustomerBrief customer = 1;
 }
 
 message PatchCustomerRequest {
@@ -36,7 +36,7 @@ message ListCustomerRequest {
   }
 }
 message ListCustomerResponse {
-  repeated CustomerList customers = 1;
+  repeated CustomerBrief customers = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 

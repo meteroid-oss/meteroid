@@ -2086,29 +2086,29 @@ WHERE bm.id = ANY ($1)
             }
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct CustomerList {
+        pub struct CustomerBrief {
             pub id: uuid::Uuid,
             pub name: String,
             pub email: Option<String>,
             pub alias: Option<String>,
             pub total_count: i64,
         }
-        pub struct CustomerListBorrowed<'a> {
+        pub struct CustomerBriefBorrowed<'a> {
             pub id: uuid::Uuid,
             pub name: &'a str,
             pub email: Option<&'a str>,
             pub alias: Option<&'a str>,
             pub total_count: i64,
         }
-        impl<'a> From<CustomerListBorrowed<'a>> for CustomerList {
+        impl<'a> From<CustomerBriefBorrowed<'a>> for CustomerBrief {
             fn from(
-                CustomerListBorrowed {
+                CustomerBriefBorrowed {
                     id,
                     name,
                     email,
                     alias,
                     total_count,
-                }: CustomerListBorrowed<'a>,
+                }: CustomerBriefBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
@@ -2119,22 +2119,22 @@ WHERE bm.id = ANY ($1)
                 }
             }
         }
-        pub struct CustomerListQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct CustomerBriefQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> CustomerListBorrowed,
-            mapper: fn(CustomerListBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> CustomerBriefBorrowed,
+            mapper: fn(CustomerBriefBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> CustomerListQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> CustomerBriefQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(CustomerListBorrowed) -> R,
-            ) -> CustomerListQuery<'a, C, R, N> {
-                CustomerListQuery {
+                mapper: fn(CustomerBriefBorrowed) -> R,
+            ) -> CustomerBriefQuery<'a, C, R, N> {
+                CustomerBriefQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -2550,19 +2550,19 @@ LIMIT $4 OFFSET $5",
                 order_by: &'a T2,
                 limit: &'a i64,
                 offset: &'a i64,
-            ) -> CustomerListQuery<'a, C, CustomerList, 5> {
-                CustomerListQuery {
+            ) -> CustomerBriefQuery<'a, C, CustomerBrief, 5> {
+                CustomerBriefQuery {
                     client,
                     params: [tenant_id, search, order_by, limit, offset],
                     stmt: &mut self.0,
-                    extractor: |row| CustomerListBorrowed {
+                    extractor: |row| CustomerBriefBorrowed {
                         id: row.get(0),
                         name: row.get(1),
                         email: row.get(2),
                         alias: row.get(3),
                         total_count: row.get(4),
                     },
-                    mapper: |it| <CustomerList>::from(it),
+                    mapper: |it| <CustomerBrief>::from(it),
                 }
             }
         }
@@ -2575,7 +2575,7 @@ LIMIT $4 OFFSET $5",
             cornucopia_async::Params<
                 'a,
                 ListCustomersParams<T1, T2>,
-                CustomerListQuery<'a, C, CustomerList, 5>,
+                CustomerBriefQuery<'a, C, CustomerBrief, 5>,
                 C,
             > for ListCustomersStmt
         {
@@ -2583,7 +2583,7 @@ LIMIT $4 OFFSET $5",
                 &'a mut self,
                 client: &'a C,
                 params: &'a ListCustomersParams<T1, T2>,
-            ) -> CustomerListQuery<'a, C, CustomerList, 5> {
+            ) -> CustomerBriefQuery<'a, C, CustomerBrief, 5> {
                 self.bind(
                     client,
                     &params.tenant_id,
