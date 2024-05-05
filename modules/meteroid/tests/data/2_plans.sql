@@ -13,6 +13,11 @@ VALUES ('018c344a-78a9-7e2b-af90-5748672711f8', false, '018c344a-78a8-79bc-aefd-
         '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL, 0, 'EUR', NULL, '2023-12-04 10:05:45',
         '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', '{MONTHLY,ANNUAL}');
 
+INSERT INTO public.plan_version
+VALUES ('018c344a-78a9-7e2b-af90-5748672711f9', true, '018c344a-78a8-79bc-aefd-09113eaf5cb3', 2, NULL, NULL,
+        '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL, 0, 'EUR', NULL, '2023-12-04 10:05:45',
+        '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', '{MONTHLY,ANNUAL}');
+
 INSERT INTO public.price_component
 VALUES ('018c344b-6050-7ec8-bd8c-d2e9c41ab711', 'Subscription Rate', '{
   "rate": {

@@ -69,7 +69,7 @@ impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
                 .internal
                 .billing_periods
                 .into_iter()
-                .map(|v| Some(v.into()))
+                .map(|v| v.into())
                 .collect::<Vec<_>>(),
         }
     }
@@ -108,7 +108,7 @@ pub struct PlanVersion {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    #[from(~.into_iter().filter_map(| v | v).map(| v | v.into()).collect::< Vec < _ >> ())]
+    #[from(~.into_iter().map(| v | v.into()).collect::< Vec < _ >> ())]
     pub billing_periods: Vec<BillingPeriodEnum>,
 }
 

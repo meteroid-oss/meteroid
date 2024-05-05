@@ -369,7 +369,7 @@ diesel::table! {
         billing_cycles -> Nullable<Int4>,
         created_at -> Timestamp,
         created_by -> Uuid,
-        billing_periods -> Array<Nullable<BillingPeriodEnum>>,
+        billing_periods -> Array<BillingPeriodEnum>,
     }
 }
 
