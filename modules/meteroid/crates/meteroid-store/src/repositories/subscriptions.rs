@@ -362,8 +362,8 @@ impl SubscriptionInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.into())
-            .collect();
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_components: Vec<domain::SubscriptionComponent> =
             diesel_models::subscription_components::SubscriptionComponent::list_subscription_components_by_subscription(
