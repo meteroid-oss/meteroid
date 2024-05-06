@@ -1,4 +1,3 @@
-use cornucopia_async::Params;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
@@ -7,13 +6,13 @@ use meteroid_grpc::meteroid::api::productfamilies::v1::{
     CreateProductFamilyResponse, GetProductFamilyByExternalIdRequest,
     GetProductFamilyByExternalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
 };
-use meteroid_repository as db;
+use meteroid_store::domain;
+use meteroid_store::repositories::ProductFamilyInterface;
 
 use crate::api::productfamilies::error::ProductFamilyApiError;
-use crate::api::utils::uuid_gen;
-use common_eventbus::Event;
+use crate::api::productfamilies::mapping::product_family::ProductFamilyWrapper;
 
-use super::{mapping, ProductFamilyServiceComponents};
+use super::ProductFamilyServiceComponents;
 
 #[tonic::async_trait]
 impl ProductFamiliesService for ProductFamilyServiceComponents {
@@ -22,26 +21,19 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
         &self,
         request: Request<ListProductFamiliesRequest>,
     ) -> Result<Response<ListProductFamiliesResponse>, Status> {
-        let connection = self.get_connection().await?;
+        let tenant_id = &request.tenant()?;
 
-        let families = db::products::list_product_families()
-            .bind(&connection, &request.tenant()?)
-            .all()
+        let families = self
+            .store
+            .list_product_families(tenant_id.clone())
             .await
-            .map_err(|e| {
-                ProductFamilyApiError::DatabaseError(
-                    "unable to list product families".to_string(),
-                    e,
-                )
-            })?;
-
-        let result = families
+            .map_err(Into::<ProductFamilyApiError>::into)?
             .into_iter()
-            .map(mapping::product_family::db_to_server)
+            .map(|x| ProductFamilyWrapper::from(x).0)
             .collect();
 
         Ok(Response::new(ListProductFamiliesResponse {
-            product_families: result,
+            product_families: families,
         }))
     }
 
@@ -53,36 +45,20 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let client = self.pool.get().await.unwrap();
 
-        let params = db::products::CreateProductFamilyParams {
-            id: uuid_gen::v7(),
-            name: req.name,
-            external_id: req.external_id,
-            tenant_id,
-        };
-
-        let product_family = db::products::create_product_family()
-            .params(&client, &params)
-            .one()
+        let rs = self
+            .store
+            .insert_product_family(
+                domain::ProductFamilyNew {
+                    name: req.name,
+                    external_id: req.external_id,
+                    tenant_id,
+                },
+                Some(actor),
+            )
             .await
-            .map_err(|e| {
-                ProductFamilyApiError::DatabaseError(
-                    "unable to create product family".to_string(),
-                    e,
-                )
-            })?;
-
-        let rs = mapping::product_family::db_to_server(product_family.clone());
-
-        let _ = self
-            .eventbus
-            .publish(Event::product_family_created(
-                actor,
-                product_family.id,
-                tenant_id,
-            ))
-            .await;
+            .map_err(Into::<ProductFamilyApiError>::into)
+            .map(|x| ProductFamilyWrapper::from(x).0)?;
 
         Ok(Response::new(CreateProductFamilyResponse {
             product_family: Some(rs),
@@ -96,25 +72,14 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
     ) -> Result<Response<GetProductFamilyByExternalIdResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let client = self.pool.get().await.unwrap();
 
-        let params = db::products::GetProductFamilyByExternalIdParams {
-            external_id: req.external_id,
-            tenant_id,
-        };
-
-        let product_family = db::products::get_product_family_by_external_id()
-            .params(&client, &params)
-            .one()
+        let rs = self
+            .store
+            .find_product_family_by_external_id(req.external_id.as_str(), tenant_id)
             .await
-            .map_err(|e| {
-                ProductFamilyApiError::DatabaseError(
-                    "unable to get product family by api name".to_string(),
-                    e,
-                )
-            })?;
+            .map_err(Into::<ProductFamilyApiError>::into)
+            .map(|x| ProductFamilyWrapper::from(x).0)?;
 
-        let rs = mapping::product_family::db_to_server(product_family);
         Ok(Response::new(GetProductFamilyByExternalIdResponse {
             product_family: Some(rs),
         }))

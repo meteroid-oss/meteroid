@@ -1,11 +1,11 @@
 use chrono::NaiveDateTime;
+use diesel_models::products::Product as DieselProduct;
+use o2o::o2o;
 use uuid::Uuid;
 
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
-
-#[derive(Queryable, Debug, Identifiable, Selectable)]
-#[diesel(table_name = crate::schema::product)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Clone, Debug, o2o)]
+#[from_owned(DieselProduct)]
+#[owned_into(DieselProduct)]
 pub struct Product {
     pub id: Uuid,
     pub name: String,
@@ -18,14 +18,11 @@ pub struct Product {
     pub product_family_id: Uuid,
 }
 
-#[derive(Debug, Insertable)]
-#[diesel(table_name = crate::schema::product)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Clone, Debug)]
 pub struct ProductNew {
-    pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub product_family_id: Uuid,
+    pub family_external_id: String,
 }

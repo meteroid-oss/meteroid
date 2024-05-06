@@ -14,6 +14,7 @@ pub mod api_tokens;
 pub mod configs;
 pub mod price_components;
 pub mod product_families;
+pub mod products;
 pub mod schedules;
 pub mod subscriptions;
 pub mod users;
