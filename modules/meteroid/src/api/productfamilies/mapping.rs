@@ -1,12 +1,16 @@
 pub mod product_family {
     use meteroid_grpc::meteroid::api::productfamilies::v1::ProductFamily;
-    use meteroid_repository::products::ProductFamily as DbProductFamily;
+    use meteroid_store::domain;
 
-    pub fn db_to_server(db_family: DbProductFamily) -> ProductFamily {
-        ProductFamily {
-            id: db_family.id.to_string(),
-            name: db_family.name,
-            external_id: db_family.external_id,
+    pub struct ProductFamilyWrapper(pub ProductFamily);
+
+    impl From<domain::ProductFamily> for ProductFamilyWrapper {
+        fn from(domain_family: domain::ProductFamily) -> Self {
+            ProductFamilyWrapper(ProductFamily {
+                id: domain_family.id.to_string(),
+                name: domain_family.name,
+                external_id: domain_family.external_id,
+            })
         }
     }
 }

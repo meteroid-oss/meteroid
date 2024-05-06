@@ -67,11 +67,14 @@ pub async fn run(
     log::info!("Created tenant '{}'", &tenant.name);
 
     let product_family = store
-        .insert_product_family(store_domain::ProductFamilyNew {
-            external_id: slugify(&scenario.product_family),
-            name: scenario.product_family,
-            tenant_id: tenant.id,
-        })
+        .insert_product_family(
+            store_domain::ProductFamilyNew {
+                external_id: slugify(&scenario.product_family),
+                name: scenario.product_family,
+                tenant_id: tenant.id,
+            },
+            Some(user_id),
+        )
         .await
         .change_context(SeederError::TempError)?;
 
