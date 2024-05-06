@@ -12,6 +12,7 @@ mod test_idempotency;
 mod test_idempotency_cache;
 mod test_product;
 mod test_product_family;
+mod test_schedule;
 mod test_slot_transaction;
 mod test_subscription;
 mod test_tenant;
