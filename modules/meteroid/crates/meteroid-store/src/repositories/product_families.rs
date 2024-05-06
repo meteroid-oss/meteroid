@@ -1,4 +1,3 @@
-use crate::domain::ProductFamily;
 use crate::store::Store;
 use crate::{domain, StoreResult};
 use common_eventbus::Event;
@@ -20,7 +19,7 @@ pub trait ProductFamilyInterface {
     async fn find_product_family_by_external_id(
         &self,
         external_id: &str,
-        auth_tenant_id: uuid::Uuid,
+        auth_tenant_id: Uuid,
     ) -> StoreResult<domain::ProductFamily>;
 }
 
@@ -54,7 +53,10 @@ impl ProductFamilyInterface for Store {
         res
     }
 
-    async fn list_product_families(&self, auth_tenant_id: Uuid) -> StoreResult<Vec<ProductFamily>> {
+    async fn list_product_families(
+        &self,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<Vec<domain::ProductFamily>> {
         let mut conn = self.get_conn().await?;
 
         diesel_models::product_families::ProductFamily::list(&mut conn, auth_tenant_id)
@@ -67,7 +69,7 @@ impl ProductFamilyInterface for Store {
         &self,
         external_id: &str,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<ProductFamily> {
+    ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
         diesel_models::product_families::ProductFamily::find_by_external_id_and_tenant_id(
