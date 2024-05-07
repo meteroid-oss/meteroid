@@ -217,12 +217,12 @@ pub mod customer {
         }
     }
 
-    pub struct ServerCustomerListWrapper(pub server::CustomerList);
-    impl TryFrom<domain::Customer> for ServerCustomerListWrapper {
+    pub struct ServerCustomerBriefWrapper(pub server::CustomerBrief);
+    impl TryFrom<domain::Customer> for ServerCustomerBriefWrapper {
         type Error = Report<StoreError>;
 
         fn try_from(value: domain::Customer) -> Result<Self, Self::Error> {
-            Ok(ServerCustomerListWrapper(server::CustomerList {
+            Ok(ServerCustomerBriefWrapper(server::CustomerBrief {
                 id: value.id.to_string(),
                 name: value.name,
                 alias: value.alias,

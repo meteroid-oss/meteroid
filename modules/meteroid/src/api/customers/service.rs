@@ -4,7 +4,7 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, CreateCustomerRequest, CreateCustomerResponse,
-    Customer, CustomerList, GetCustomerByAliasRequest, GetCustomerRequest, ListCustomerRequest,
+    Customer, CustomerBrief, GetCustomerByAliasRequest, GetCustomerRequest, ListCustomerRequest,
     ListCustomerResponse, PatchCustomerRequest, PatchCustomerResponse,
 };
 use meteroid_store::domain;
@@ -14,7 +14,7 @@ use meteroid_store::repositories::CustomersInterface;
 
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
-    DomainBillingConfigWrapper, ServerCustomerListWrapper, ServerCustomerWrapper,
+    DomainBillingConfigWrapper, ServerCustomerBriefWrapper, ServerCustomerWrapper,
 };
 use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
@@ -57,7 +57,7 @@ impl CustomersService for CustomerServiceComponents {
                 created_at: None,
             })
             .await
-            .and_then(ServerCustomerListWrapper::try_from)
+            .and_then(ServerCustomerBriefWrapper::try_from)
             .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
@@ -142,8 +142,8 @@ impl CustomersService for CustomerServiceComponents {
             customers: res
                 .items
                 .into_iter()
-                .map(|l| ServerCustomerListWrapper::try_from(l).map(|v| v.0))
-                .collect::<Vec<Result<CustomerList, Report<StoreError>>>>()
+                .map(|l| ServerCustomerBriefWrapper::try_from(l).map(|v| v.0))
+                .collect::<Vec<Result<CustomerBrief, Report<StoreError>>>>()
                 .into_iter()
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?,

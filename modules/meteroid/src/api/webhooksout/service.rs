@@ -79,7 +79,7 @@ impl WebhooksService for WebhooksServiceComponents {
             per_page: req.pagination.as_ref().map(|p| p.limit),
         };
 
-        let order_by = match req.order_by.try_into() {
+        let order_by = match req.sort_by.try_into() {
             Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
             Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
             Ok(SortBy::IdAsc) => OrderByRequest::IdAsc,

@@ -2,7 +2,7 @@ pub mod products {
     use meteroid_grpc::meteroid::api::products::v1::{Product, ProductMeta};
     use meteroid_store::domain;
 
-    use crate::api::shared::mapping::datetime::{chrono_to_timestamp, datetime_to_timestamp};
+    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
     pub struct ProductWrapper(pub Product);
 
     impl From<domain::Product> for ProductWrapper {

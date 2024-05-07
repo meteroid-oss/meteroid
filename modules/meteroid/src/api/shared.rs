@@ -12,8 +12,8 @@ pub mod mapping {
 
         pub fn chrono_to_timestamp(dt: NaiveDateTime) -> prost_types::Timestamp {
             prost_types::Timestamp {
-                seconds: dt.timestamp(),
-                nanos: dt.timestamp_subsec_nanos() as i32,
+                seconds: dt.and_utc().timestamp(),
+                nanos: dt.and_utc().timestamp_subsec_nanos() as i32,
             }
         }
 
