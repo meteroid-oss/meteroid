@@ -1,17 +1,17 @@
 import { disableQuery } from '@connectrpc/connect-query'
 import {
+  Button,
+  Card,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Card,
   Separator,
-  Button,
 } from '@md/ui'
 import { subYears } from 'date-fns'
-import { useMemo } from 'react'
 import * as React from 'react'
+import { useMemo } from 'react'
 import { DateRange } from 'react-day-picker'
 
 import { SimpleTable } from '@/components/table/SimpleTable'
@@ -47,7 +47,7 @@ export const MrrReport = () => {
     listPlans,
     productFamily
       ? {
-          orderBy: ListPlansRequest_SortBy.NAME_ASC,
+          sortBy: ListPlansRequest_SortBy.NAME_ASC,
           productFamilyExternalId: productFamily,
         }
       : disableQuery
