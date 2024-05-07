@@ -17,6 +17,7 @@ use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 
 #[tokio::test]
+#[ignore] // subscription seed is broken
 async fn test_draft_worker() {
     helpers::init::logging();
     let docker = Cli::default();

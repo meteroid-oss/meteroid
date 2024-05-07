@@ -37,8 +37,8 @@ pub enum StoreError {
     CryptError(String),
     #[error("Login failure")]
     LoginError(String),
-    #[error("User registration failure")]
-    UserRegisterError(String),
+    #[error("Registration closed")]
+    UserRegistrationClosed(String),
 }
 
 impl From<DatabaseError> for StoreError {

@@ -30,7 +30,6 @@ async fn test_customers_basic() {
     let customer_name = "friends and co".to_owned();
     let customer_alias = "fffrrriiieeennndddsss".to_owned();
     let customer_email = "fake@fake.com".to_owned();
-    let tenant_currency = "EUR";
 
     // create customer
     let created = clients

@@ -30,6 +30,10 @@ pub enum UserApiError {
     #[code(AlreadyExists)]
     UserAlreadyExistsError,
 
+    #[error("Registration error: {0}")]
+    #[code(PermissionDenied)]
+    RegistrationClosed(String),
+
     #[error("Entity not found: {0}")]
     #[code(NotFound)]
     DatabaseEntityNotFoundError(String, #[source] tokio_postgres::Error),
@@ -53,6 +57,9 @@ impl Into<UserApiError> for error_stack::Report<meteroid_store::errors::StoreErr
             }
             meteroid_store::errors::StoreError::DuplicateValue { entity: _, key: _ } => {
                 UserApiError::UserAlreadyExistsError
+            }
+            meteroid_store::errors::StoreError::UserRegistrationClosed(value) => {
+                UserApiError::RegistrationClosed(value.clone())
             }
             _e => UserApiError::StoreError(
                 "Error in user service".to_string(),
