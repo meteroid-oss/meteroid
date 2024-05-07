@@ -170,7 +170,7 @@ impl PlansService for PlanServiceComponents {
             product_family_external_id: req.product_family_external_id,
             limit: req.pagination.limit(),
             offset: req.pagination.offset(),
-            order_by: match req.order_by.try_into() {
+            order_by: match req.sort_by.try_into() {
                 Ok(SortBy::DateAsc) => "DATE_ASC",
                 Ok(SortBy::DateDesc) => "DATE_DESC",
                 Ok(SortBy::NameAsc) => "NAME_ASC",

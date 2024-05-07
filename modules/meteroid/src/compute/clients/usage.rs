@@ -122,7 +122,7 @@ impl UsageClient for MeteringUsageClient {
 fn date_to_timestamp(dt: NaiveDate) -> prost_types::Timestamp {
     let dt_at_start_of_day = dt.and_hms_opt(0, 0, 0).unwrap();
     prost_types::Timestamp {
-        seconds: dt_at_start_of_day.timestamp(),
+        seconds: dt_at_start_of_day.and_utc().timestamp(),
         nanos: dt_at_start_of_day.nanosecond() as i32,
     }
 }

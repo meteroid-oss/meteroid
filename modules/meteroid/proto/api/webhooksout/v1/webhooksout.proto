@@ -30,7 +30,7 @@ message ListWebhookEventsRequest {
     ID_DESC = 2;
     ID_ASC = 3;
   }
-  SortBy order_by = 1;
+  SortBy sort_by = 1;
   string endpoint_id = 2;
   meteroid.common.v1.Pagination pagination = 3;
 }
