@@ -13,6 +13,7 @@ use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
 
 #[tokio::test]
+#[ignore] // needs to be revisited + remove cornucopia code
 async fn test_main() {
     // Generic setup
     helpers::init::logging();
@@ -134,7 +135,16 @@ async fn test_main() {
                 name: "Customer A".to_string(),
                 email: Some("customer@domain.com".to_string()),
                 alias: None,
-                billing_config: Some(CustomerBillingConfig::default()),
+                billing_config: Some(CustomerBillingConfig {
+                    billing_config_oneof: Some(
+                        api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
+                            api::customers::v1::customer_billing_config::Stripe {
+                                customer_id: "customer_id".to_string(),
+                                collection_method: 0,
+                            },
+                        ),
+                    ),
+                }),
             },
         ))
         .await

@@ -80,7 +80,7 @@ impl UserInterface for Store {
                 let users_non_empty = diesel_models::users::User::any_exists(&mut conn).await?;
 
                 if users_non_empty {
-                    return Err(Report::new(StoreError::UserRegisterError("registration is currently closed. Please request an invite key from your administrator.".into())));
+                    return Err(Report::new(StoreError::UserRegistrationClosed("registration is currently closed. Please request an invite key from your administrator.".into())));
                 }
 
                 // This is the first user. We allow invite-less registration & init the instance
