@@ -1,4 +1,5 @@
-use crate::eventbus::{EventBus, EventBusError, EventHandler};
+use common_eventbus::EventBus;
+use common_eventbus::{EventBusError, EventHandler};
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::broadcast::error::RecvError;
@@ -64,9 +65,9 @@ impl<E: Debug + Clone + Send + 'static> InMemory<E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::eventbus;
     use crate::eventbus::memory::InMemory;
-    use crate::eventbus::{EventBus, EventHandler};
+    use common_eventbus::EventBus;
+    use common_eventbus::{EventBusError, EventHandler};
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
 
@@ -89,7 +90,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler<u8> for CapturingEventHandler {
-        async fn handle(&self, event: u8) -> Result<(), eventbus::EventBusError> {
+        async fn handle(&self, event: u8) -> Result<(), EventBusError> {
             let mut guard = self.items.lock().unwrap();
             guard.push(event);
             Ok(())

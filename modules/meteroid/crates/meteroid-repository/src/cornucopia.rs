@@ -2086,29 +2086,29 @@ WHERE bm.id = ANY ($1)
             }
         }
         #[derive(Debug, Clone, PartialEq)]
-        pub struct CustomerList {
+        pub struct CustomerBrief {
             pub id: uuid::Uuid,
             pub name: String,
             pub email: Option<String>,
             pub alias: Option<String>,
             pub total_count: i64,
         }
-        pub struct CustomerListBorrowed<'a> {
+        pub struct CustomerBriefBorrowed<'a> {
             pub id: uuid::Uuid,
             pub name: &'a str,
             pub email: Option<&'a str>,
             pub alias: Option<&'a str>,
             pub total_count: i64,
         }
-        impl<'a> From<CustomerListBorrowed<'a>> for CustomerList {
+        impl<'a> From<CustomerBriefBorrowed<'a>> for CustomerBrief {
             fn from(
-                CustomerListBorrowed {
+                CustomerBriefBorrowed {
                     id,
                     name,
                     email,
                     alias,
                     total_count,
-                }: CustomerListBorrowed<'a>,
+                }: CustomerBriefBorrowed<'a>,
             ) -> Self {
                 Self {
                     id,
@@ -2119,22 +2119,22 @@ WHERE bm.id = ANY ($1)
                 }
             }
         }
-        pub struct CustomerListQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct CustomerBriefQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> CustomerListBorrowed,
-            mapper: fn(CustomerListBorrowed) -> T,
+            extractor: fn(&tokio_postgres::Row) -> CustomerBriefBorrowed,
+            mapper: fn(CustomerBriefBorrowed) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> CustomerListQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> CustomerBriefQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(CustomerListBorrowed) -> R,
-            ) -> CustomerListQuery<'a, C, R, N> {
-                CustomerListQuery {
+                mapper: fn(CustomerBriefBorrowed) -> R,
+            ) -> CustomerBriefQuery<'a, C, R, N> {
+                CustomerBriefQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -2550,19 +2550,19 @@ LIMIT $4 OFFSET $5",
                 order_by: &'a T2,
                 limit: &'a i64,
                 offset: &'a i64,
-            ) -> CustomerListQuery<'a, C, CustomerList, 5> {
-                CustomerListQuery {
+            ) -> CustomerBriefQuery<'a, C, CustomerBrief, 5> {
+                CustomerBriefQuery {
                     client,
                     params: [tenant_id, search, order_by, limit, offset],
                     stmt: &mut self.0,
-                    extractor: |row| CustomerListBorrowed {
+                    extractor: |row| CustomerBriefBorrowed {
                         id: row.get(0),
                         name: row.get(1),
                         email: row.get(2),
                         alias: row.get(3),
                         total_count: row.get(4),
                     },
-                    mapper: |it| <CustomerList>::from(it),
+                    mapper: |it| <CustomerBrief>::from(it),
                 }
             }
         }
@@ -2575,7 +2575,7 @@ LIMIT $4 OFFSET $5",
             cornucopia_async::Params<
                 'a,
                 ListCustomersParams<T1, T2>,
-                CustomerListQuery<'a, C, CustomerList, 5>,
+                CustomerBriefQuery<'a, C, CustomerBrief, 5>,
                 C,
             > for ListCustomersStmt
         {
@@ -2583,7 +2583,7 @@ LIMIT $4 OFFSET $5",
                 &'a mut self,
                 client: &'a C,
                 params: &'a ListCustomersParams<T1, T2>,
-            ) -> CustomerListQuery<'a, C, CustomerList, 5> {
+            ) -> CustomerBriefQuery<'a, C, CustomerBrief, 5> {
                 self.bind(
                     client,
                     &params.tenant_id,
@@ -10397,7 +10397,7 @@ GROUP BY
             pub created_at: time::PrimitiveDateTime,
             pub description: String,
             pub invoice_id: uuid::Uuid,
-            pub credit_note_id: uuid::Uuid,
+            pub credit_note_id: Option<uuid::Uuid>,
             pub tenant_id: uuid::Uuid,
             pub plan_version_id: uuid::Uuid,
             pub customer_id: uuid::Uuid,
@@ -10414,7 +10414,7 @@ GROUP BY
             pub created_at: time::PrimitiveDateTime,
             pub description: &'a str,
             pub invoice_id: uuid::Uuid,
-            pub credit_note_id: uuid::Uuid,
+            pub credit_note_id: Option<uuid::Uuid>,
             pub tenant_id: uuid::Uuid,
             pub plan_version_id: uuid::Uuid,
             pub customer_id: uuid::Uuid,
@@ -10638,27 +10638,27 @@ GROUP BY
             }
         }
         #[derive(Debug, Clone, PartialEq, Copy)]
-        pub struct DailyNewSignups30Days {
+        pub struct DailyNewSignups90Days {
             pub signup_date: time::Date,
             pub daily_signups: i64,
             pub total_signups_over_30_days: i64,
         }
-        pub struct DailyNewSignups30DaysQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct DailyNewSignups90DaysQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> DailyNewSignups30Days,
-            mapper: fn(DailyNewSignups30Days) -> T,
+            extractor: fn(&tokio_postgres::Row) -> DailyNewSignups90Days,
+            mapper: fn(DailyNewSignups90Days) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> DailyNewSignups30DaysQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> DailyNewSignups90DaysQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(DailyNewSignups30Days) -> R,
-            ) -> DailyNewSignups30DaysQuery<'a, C, R, N> {
-                DailyNewSignups30DaysQuery {
+                mapper: fn(DailyNewSignups90Days) -> R,
+            ) -> DailyNewSignups90DaysQuery<'a, C, R, N> {
+                DailyNewSignups90DaysQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -10699,26 +10699,26 @@ GROUP BY
             }
         }
         #[derive(Debug, Clone, PartialEq, Copy)]
-        pub struct NewSignupsTrend30Days {
-            pub total_last_30_days: i64,
-            pub total_previous_30_days: i64,
+        pub struct NewSignupsTrend90Days {
+            pub total_last_90_days: i64,
+            pub total_previous_90_days: i64,
         }
-        pub struct NewSignupsTrend30DaysQuery<'a, C: GenericClient, T, const N: usize> {
+        pub struct NewSignupsTrend90DaysQuery<'a, C: GenericClient, T, const N: usize> {
             client: &'a C,
             params: [&'a (dyn postgres_types::ToSql + Sync); N],
             stmt: &'a mut cornucopia_async::private::Stmt,
-            extractor: fn(&tokio_postgres::Row) -> NewSignupsTrend30Days,
-            mapper: fn(NewSignupsTrend30Days) -> T,
+            extractor: fn(&tokio_postgres::Row) -> NewSignupsTrend90Days,
+            mapper: fn(NewSignupsTrend90Days) -> T,
         }
-        impl<'a, C, T: 'a, const N: usize> NewSignupsTrend30DaysQuery<'a, C, T, N>
+        impl<'a, C, T: 'a, const N: usize> NewSignupsTrend90DaysQuery<'a, C, T, N>
         where
             C: GenericClient,
         {
             pub fn map<R>(
                 self,
-                mapper: fn(NewSignupsTrend30Days) -> R,
-            ) -> NewSignupsTrend30DaysQuery<'a, C, R, N> {
-                NewSignupsTrend30DaysQuery {
+                mapper: fn(NewSignupsTrend90Days) -> R,
+            ) -> NewSignupsTrend90DaysQuery<'a, C, R, N> {
+                NewSignupsTrend90DaysQuery {
                     client: self.client,
                     params: self.params,
                     stmt: self.stmt,
@@ -11667,7 +11667,7 @@ FROM revenue_ytd,
 FROM subscription
 WHERE tenant_id = $1
   AND now() >= activated_at
-  AND now() <= billing_end_date",
+  AND (billing_end_date IS NULL OR now() <= billing_end_date)",
             ))
         }
         pub struct CountActiveSubscriptionsStmt(cornucopia_async::private::Stmt);
@@ -11740,13 +11740,13 @@ FROM
                 }
             }
         }
-        pub fn daily_new_signups_30_days() -> DailyNewSignups30DaysStmt {
-            DailyNewSignups30DaysStmt(cornucopia_async::private::Stmt::new("WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 29)) AS date),
+        pub fn daily_new_signups_90_days() -> DailyNewSignups90DaysStmt {
+            DailyNewSignups90DaysStmt(cornucopia_async::private::Stmt::new("WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 89)) AS date),
      daily_signups AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
                        WHERE tenant_id = $1
-                         AND created_at >= CURRENT_DATE - INTERVAL '30 days'
+                         AND created_at >= CURRENT_DATE - INTERVAL '90 days'
                        GROUP BY signup_date)
 SELECT ds.date                                                                        as signup_date,
        COALESCE(d.daily_signups, 0)                                                   AS daily_signups,
@@ -11755,56 +11755,56 @@ FROM date_series ds
          LEFT JOIN daily_signups d ON ds.date = d.signup_date
 ORDER BY ds.date"))
         }
-        pub struct DailyNewSignups30DaysStmt(cornucopia_async::private::Stmt);
-        impl DailyNewSignups30DaysStmt {
+        pub struct DailyNewSignups90DaysStmt(cornucopia_async::private::Stmt);
+        impl DailyNewSignups90DaysStmt {
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 tenant_id: &'a uuid::Uuid,
-            ) -> DailyNewSignups30DaysQuery<'a, C, DailyNewSignups30Days, 1> {
-                DailyNewSignups30DaysQuery {
+            ) -> DailyNewSignups90DaysQuery<'a, C, DailyNewSignups90Days, 1> {
+                DailyNewSignups90DaysQuery {
                     client,
                     params: [tenant_id],
                     stmt: &mut self.0,
-                    extractor: |row| DailyNewSignups30Days {
+                    extractor: |row| DailyNewSignups90Days {
                         signup_date: row.get(0),
                         daily_signups: row.get(1),
                         total_signups_over_30_days: row.get(2),
                     },
-                    mapper: |it| <DailyNewSignups30Days>::from(it),
+                    mapper: |it| <DailyNewSignups90Days>::from(it),
                 }
             }
         }
-        pub fn new_signups_trend_30_days() -> NewSignupsTrend30DaysStmt {
-            NewSignupsTrend30DaysStmt(cornucopia_async::private::Stmt::new("WITH signup_counts AS (SELECT DATE(created_at) AS signup_date,
+        pub fn new_signups_trend_90_days() -> NewSignupsTrend90DaysStmt {
+            NewSignupsTrend90DaysStmt(cornucopia_async::private::Stmt::new("WITH signup_counts AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
                        WHERE tenant_id = $1
-                         AND created_at >= CURRENT_DATE - INTERVAL '60 days'
+                         AND created_at >= CURRENT_DATE - INTERVAL '180 days'
                        GROUP BY signup_date)
-SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '30 days'),
-                0)::bigint                                                                                    AS total_last_30_days,
-       COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '30 days' AND
-                                                 signup_date > CURRENT_DATE - INTERVAL '60 days'),
-                0)::bigint                                                                                    AS total_previous_30_days
+SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '90 days'),
+                0)::bigint                                                                                    AS total_last_90_days,
+       COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '90 days' AND
+                                                 signup_date > CURRENT_DATE - INTERVAL '180 days'),
+                0)::bigint                                                                                    AS total_previous_90_days
 FROM signup_counts"))
         }
-        pub struct NewSignupsTrend30DaysStmt(cornucopia_async::private::Stmt);
-        impl NewSignupsTrend30DaysStmt {
+        pub struct NewSignupsTrend90DaysStmt(cornucopia_async::private::Stmt);
+        impl NewSignupsTrend90DaysStmt {
             pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 tenant_id: &'a uuid::Uuid,
-            ) -> NewSignupsTrend30DaysQuery<'a, C, NewSignupsTrend30Days, 1> {
-                NewSignupsTrend30DaysQuery {
+            ) -> NewSignupsTrend90DaysQuery<'a, C, NewSignupsTrend90Days, 1> {
+                NewSignupsTrend90DaysQuery {
                     client,
                     params: [tenant_id],
                     stmt: &mut self.0,
-                    extractor: |row| NewSignupsTrend30Days {
-                        total_last_30_days: row.get(0),
-                        total_previous_30_days: row.get(1),
+                    extractor: |row| NewSignupsTrend90Days {
+                        total_last_90_days: row.get(0),
+                        total_previous_90_days: row.get(1),
                     },
-                    mapper: |it| <NewSignupsTrend30Days>::from(it),
+                    mapper: |it| <NewSignupsTrend90Days>::from(it),
                 }
             }
         }
@@ -11910,8 +11910,8 @@ FROM monthly_trials"))
             pub subscription_id: uuid::Uuid,
             pub tenant_id: uuid::Uuid,
         }
-        #[derive(Debug)]
-        pub struct CreateSubscriptionParams<T1: cornucopia_async::JsonSql> {
+        #[derive(Clone, Copy, Debug)]
+        pub struct CreateSubscriptionParams {
             pub id: uuid::Uuid,
             pub tenant_id: uuid::Uuid,
             pub customer_id: uuid::Uuid,
@@ -11920,8 +11920,6 @@ FROM monthly_trials"))
             pub billing_start: time::Date,
             pub billing_end: Option<time::Date>,
             pub billing_day: i16,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub parameters: Option<T1>,
             pub net_terms: i32,
         }
         #[derive(Clone, Copy, Debug)]
@@ -11955,8 +11953,6 @@ FROM monthly_trials"))
             pub billing_day: i16,
             pub activated_at: Option<time::PrimitiveDateTime>,
             pub canceled_at: Option<time::PrimitiveDateTime>,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: serde_json::Value,
             pub currency: String,
             pub net_terms: i32,
             pub version: i32,
@@ -11972,8 +11968,6 @@ FROM monthly_trials"))
             pub billing_day: i16,
             pub activated_at: Option<time::PrimitiveDateTime>,
             pub canceled_at: Option<time::PrimitiveDateTime>,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
             pub currency: &'a str,
             pub net_terms: i32,
             pub version: i32,
@@ -11991,8 +11985,6 @@ FROM monthly_trials"))
                     billing_day,
                     activated_at,
                     canceled_at,
-                    effective_billing_period,
-                    input_parameters,
                     currency,
                     net_terms,
                     version,
@@ -12009,8 +12001,6 @@ FROM monthly_trials"))
                     billing_day,
                     activated_at,
                     canceled_at,
-                    effective_billing_period,
-                    input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
                     currency: currency.into(),
                     net_terms,
                     version,
@@ -12083,8 +12073,6 @@ FROM monthly_trials"))
             pub activated_at: Option<time::PrimitiveDateTime>,
             pub canceled_at: Option<time::PrimitiveDateTime>,
             pub trial_start_date: Option<time::Date>,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: serde_json::Value,
             pub customer_id: uuid::Uuid,
             pub customer_external_id: Option<String>,
             pub customer_name: String,
@@ -12104,8 +12092,6 @@ FROM monthly_trials"))
             pub activated_at: Option<time::PrimitiveDateTime>,
             pub canceled_at: Option<time::PrimitiveDateTime>,
             pub trial_start_date: Option<time::Date>,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
             pub customer_id: uuid::Uuid,
             pub customer_external_id: Option<&'a str>,
             pub customer_name: &'a str,
@@ -12127,8 +12113,6 @@ FROM monthly_trials"))
                     activated_at,
                     canceled_at,
                     trial_start_date,
-                    effective_billing_period,
-                    input_parameters,
                     customer_id,
                     customer_external_id,
                     customer_name,
@@ -12149,8 +12133,6 @@ FROM monthly_trials"))
                     activated_at,
                     canceled_at,
                     trial_start_date,
-                    effective_billing_period,
-                    input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
                     customer_id,
                     customer_external_id: customer_external_id.map(|v| v.into()),
                     customer_name: customer_name.into(),
@@ -12281,8 +12263,6 @@ FROM monthly_trials"))
             pub activated_at: Option<time::PrimitiveDateTime>,
             pub canceled_at: Option<time::PrimitiveDateTime>,
             pub trial_start_date: Option<time::Date>,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: serde_json::Value,
             pub net_terms: i32,
             pub currency: String,
             pub version: i32,
@@ -12302,8 +12282,6 @@ FROM monthly_trials"))
             pub activated_at: Option<time::PrimitiveDateTime>,
             pub canceled_at: Option<time::PrimitiveDateTime>,
             pub trial_start_date: Option<time::Date>,
-            pub effective_billing_period: super::super::types::public::BillingPeriodEnum,
-            pub input_parameters: postgres_types::Json<&'a serde_json::value::RawValue>,
             pub net_terms: i32,
             pub currency: &'a str,
             pub version: i32,
@@ -12325,8 +12303,6 @@ FROM monthly_trials"))
                     activated_at,
                     canceled_at,
                     trial_start_date,
-                    effective_billing_period,
-                    input_parameters,
                     net_terms,
                     currency,
                     version,
@@ -12347,8 +12323,6 @@ FROM monthly_trials"))
                     activated_at,
                     canceled_at,
                     trial_start_date,
-                    effective_billing_period,
-                    input_parameters: serde_json::from_str(input_parameters.0.get()).unwrap(),
                     net_terms,
                     currency: currency.into(),
                     version,
@@ -12426,14 +12400,12 @@ FROM monthly_trials"))
        s.billing_day,
        s.activated_at,
        s.canceled_at,
-       s.effective_billing_period,
-       s.input_parameters,
        pp.currency,
        pp.net_terms,
        pp.version
 FROM subscription s
-       JOIN plan_version pp ON s.plan_version_id = pp.id
-       LEFT JOIN invoice i ON s.id = i.subscription_id AND i.invoice_date > $1
+         JOIN plan_version pp ON s.plan_version_id = pp.id
+         LEFT JOIN invoice i ON s.id = i.subscription_id AND i.invoice_date > $1
 where (s.billing_end_date is null OR s.billing_end_date > $1)
   AND i.id IS NULL",
             ))
@@ -12460,11 +12432,9 @@ where (s.billing_end_date is null OR s.billing_end_date > $1)
                         billing_day: row.get(7),
                         activated_at: row.get(8),
                         canceled_at: row.get(9),
-                        effective_billing_period: row.get(10),
-                        input_parameters: row.get(11),
-                        currency: row.get(12),
-                        net_terms: row.get(13),
-                        version: row.get(14),
+                        currency: row.get(10),
+                        net_terms: row.get(11),
+                        version: row.get(12),
                     },
                     mapper: |it| <SubscriptionToInvoice>::from(it),
                 }
@@ -12481,8 +12451,7 @@ where (s.billing_end_date is null OR s.billing_end_date > $1)
        s.activated_at,
        s.canceled_at,
        s.trial_start_date,
-       s.effective_billing_period,
-       s.input_parameters,
+--        s.effective_billing_period,
        s.customer_id,
        c.alias as customer_external_id,
        c.name  AS customer_name,
@@ -12492,9 +12461,9 @@ where (s.billing_end_date is null OR s.billing_end_date > $1)
        pp.version,
        s.net_terms
 FROM subscription s
-       JOIN plan_version pp ON s.plan_version_id = pp.id
-       JOIN plan p ON pp.plan_id = p.id
-       JOIN customer c ON s.customer_id = c.id
+         JOIN plan_version pp ON s.plan_version_id = pp.id
+         JOIN plan p ON pp.plan_id = p.id
+         JOIN customer c ON s.customer_id = c.id
 WHERE s.id = $1
   AND s.tenant_id = $2",
             ))
@@ -12521,16 +12490,14 @@ WHERE s.id = $1
                         activated_at: row.get(6),
                         canceled_at: row.get(7),
                         trial_start_date: row.get(8),
-                        effective_billing_period: row.get(9),
-                        input_parameters: row.get(10),
-                        customer_id: row.get(11),
-                        customer_external_id: row.get(12),
-                        customer_name: row.get(13),
-                        plan_id: row.get(14),
-                        plan_name: row.get(15),
-                        currency: row.get(16),
-                        version: row.get(17),
-                        net_terms: row.get(18),
+                        customer_id: row.get(9),
+                        customer_external_id: row.get(10),
+                        customer_name: row.get(11),
+                        plan_id: row.get(12),
+                        plan_name: row.get(13),
+                        currency: row.get(14),
+                        version: row.get(15),
+                        net_terms: row.get(16),
                     },
                     mapper: |it| <Subscription>::from(it),
                 }
@@ -12562,8 +12529,6 @@ WHERE s.id = $1
                           billing_start_date,
                           billing_end_date,
                           billing_day,
-                          effective_billing_period,
-                          input_parameters,
                           net_terms)
 VALUES ($1,
         $2,
@@ -12573,16 +12538,14 @@ VALUES ($1,
         $6,
         $7,
         $8,
-        $9,
-        $10,
-        $11)
+        $9)
 RETURNING id
 ",
             ))
         }
         pub struct CreateSubscriptionStmt(cornucopia_async::private::Stmt);
         impl CreateSubscriptionStmt {
-            pub fn bind<'a, C: GenericClient, T1: cornucopia_async::JsonSql>(
+            pub fn bind<'a, C: GenericClient>(
                 &'a mut self,
                 client: &'a C,
                 id: &'a uuid::Uuid,
@@ -12593,10 +12556,8 @@ RETURNING id
                 billing_start: &'a time::Date,
                 billing_end: &'a Option<time::Date>,
                 billing_day: &'a i16,
-                effective_billing_period: &'a super::super::types::public::BillingPeriodEnum,
-                parameters: &'a Option<T1>,
                 net_terms: &'a i32,
-            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 11> {
+            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 9> {
                 UuidUuidQuery {
                     client,
                     params: [
@@ -12608,8 +12569,6 @@ RETURNING id
                         billing_start,
                         billing_end,
                         billing_day,
-                        effective_billing_period,
-                        parameters,
                         net_terms,
                     ],
                     stmt: &mut self.0,
@@ -12618,19 +12577,19 @@ RETURNING id
                 }
             }
         }
-        impl<'a, C: GenericClient, T1: cornucopia_async::JsonSql>
+        impl<'a, C: GenericClient>
             cornucopia_async::Params<
                 'a,
-                CreateSubscriptionParams<T1>,
-                UuidUuidQuery<'a, C, uuid::Uuid, 11>,
+                CreateSubscriptionParams,
+                UuidUuidQuery<'a, C, uuid::Uuid, 9>,
                 C,
             > for CreateSubscriptionStmt
         {
             fn params(
                 &'a mut self,
                 client: &'a C,
-                params: &'a CreateSubscriptionParams<T1>,
-            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 11> {
+                params: &'a CreateSubscriptionParams,
+            ) -> UuidUuidQuery<'a, C, uuid::Uuid, 9> {
                 self.bind(
                     client,
                     &params.id,
@@ -12641,8 +12600,6 @@ RETURNING id
                     &params.billing_start,
                     &params.billing_end,
                     &params.billing_day,
-                    &params.effective_billing_period,
-                    &params.parameters,
                     &params.net_terms,
                 )
             }
@@ -12659,8 +12616,6 @@ RETURNING id
        s.activated_at,
        s.canceled_at,
        s.trial_start_date,
-       s.effective_billing_period,
-       s.input_parameters,
        s.net_terms,
        pp.currency,
        pp.version,
@@ -12669,9 +12624,9 @@ RETURNING id
        p.name           AS plan_name,
        count(*) OVER () AS total_count
 FROM subscription s
-       JOIN plan_version pp ON s.plan_version_id = pp.id
-       JOIN plan p ON pp.plan_id = p.id
-       JOIN customer c ON s.customer_id = c.id
+         JOIN plan_version pp ON s.plan_version_id = pp.id
+         JOIN plan p ON pp.plan_id = p.id
+         JOIN customer c ON s.customer_id = c.id
 WHERE s.tenant_id = $1
   AND ($2 :: UUID IS NULL OR pp.plan_id = $2)
   AND ($3 :: UUID IS NULL OR s.customer_id = $3)
@@ -12705,15 +12660,13 @@ LIMIT $4 OFFSET $5",
                         activated_at: row.get(7),
                         canceled_at: row.get(8),
                         trial_start_date: row.get(9),
-                        effective_billing_period: row.get(10),
-                        input_parameters: row.get(11),
-                        net_terms: row.get(12),
-                        currency: row.get(13),
-                        version: row.get(14),
-                        customer_name: row.get(15),
-                        plan_id: row.get(16),
-                        plan_name: row.get(17),
-                        total_count: row.get(18),
+                        net_terms: row.get(10),
+                        currency: row.get(11),
+                        version: row.get(12),
+                        customer_name: row.get(13),
+                        plan_id: row.get(14),
+                        plan_name: row.get(15),
+                        total_count: row.get(16),
                     },
                     mapper: |it| <SubscriptionList>::from(it),
                 }

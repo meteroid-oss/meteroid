@@ -6,8 +6,7 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
+    types: [ opened, reopened, synchronize ]
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -50,7 +49,7 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.4
       - name: Install nextest
-        uses: taiki-e/cache-cargo-install-action@v1
+        uses: taiki-e/cache-cargo-install-action@v2
         with:
           tool: cargo-nextest
       - name: Test

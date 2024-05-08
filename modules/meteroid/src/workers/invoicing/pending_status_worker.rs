@@ -1,4 +1,4 @@
-use crate::{errors, repo::get_pool};
+use crate::{errors, singletons};
 use deadpool_postgres::Pool;
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use meteroid_repository as db;
@@ -16,7 +16,7 @@ pub struct PendingStatusWorker;
 impl AsyncRunnable for PendingStatusWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = get_pool();
+        let pool = singletons::get_pool();
 
         pending_worker(pool)
             .timed(|res, elapsed| record_call("pending", res, elapsed))

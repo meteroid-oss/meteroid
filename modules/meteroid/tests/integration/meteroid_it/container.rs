@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use deadpool_postgres::Pool;
@@ -11,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 
 use meteroid::config::Config;
-use meteroid::repo::provider_config::ProviderConfigRepoCornucopia;
+use meteroid::eventbus::create_eventbus_memory;
 use meteroid_repository::migrations;
 
 use crate::helpers;
@@ -22,6 +21,7 @@ pub struct MeteroidSetup {
     pub channel: Channel,
     pub config: Config,
     pub pool: Pool,
+    pub store: meteroid_store::Store,
 }
 
 pub async fn start_meteroid_with_port(
@@ -47,14 +47,17 @@ pub async fn start_meteroid_with_port(
     let token = CancellationToken::new();
     let cloned_token = token.clone();
 
-    let provider_config_repo = Arc::new(ProviderConfigRepoCornucopia {
-        pool: pool.clone(),
-        crypt_key: config.secrets_crypt_key.clone(),
-    });
+    let store = meteroid_store::Store::new(
+        config.database_url.clone(),
+        config.secrets_crypt_key.clone(),
+        config.jwt_secret.clone(),
+        create_eventbus_memory(pool.clone(), config.clone()).await,
+    )
+    .expect("Could not create store");
 
     log::info!("Starting gRPC server {}", config.listen_addr);
     let private_server =
-        meteroid::api::server::start_api_server(config.clone(), pool.clone(), provider_config_repo);
+        meteroid::api::server::start_api_server(config.clone(), pool.clone(), store.clone());
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
@@ -81,6 +84,7 @@ pub async fn start_meteroid_with_port(
         channel: channel,
         config: config.clone(),
         pool: pool,
+        store: store,
     }
 }
 

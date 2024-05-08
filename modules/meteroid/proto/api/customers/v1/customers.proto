@@ -13,7 +13,7 @@ message CreateCustomerRequest {
 }
 
 message CreateCustomerResponse {
-  CustomerList customer = 1;
+  CustomerBrief customer = 1;
 }
 
 message PatchCustomerRequest {
@@ -36,22 +36,28 @@ message ListCustomerRequest {
   }
 }
 message ListCustomerResponse {
-  repeated CustomerList customers = 1;
+  repeated CustomerBrief customers = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
-message GetCustomerRequest {
+message GetCustomerByIdRequest {
   string id = 1;
+}
+message GetCustomerByIdResponse {
+  Customer customer = 1;
 }
 
 message GetCustomerByAliasRequest {
   string alias = 1;
+}
+message GetCustomerByAliasResponse {
+  Customer customer = 1;
 }
 
 service CustomersService {
   rpc CreateCustomer (CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc PatchCustomer (PatchCustomerRequest) returns (PatchCustomerResponse) {}
   rpc ListCustomers (ListCustomerRequest) returns (ListCustomerResponse) {}
-  rpc GetCustomer (GetCustomerRequest) returns (Customer) {}
-  rpc GetCustomerByAlias (GetCustomerByAliasRequest) returns (Customer) {}
+  rpc GetCustomerById (GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
+  rpc GetCustomerByAlias (GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
 }

@@ -1,15 +1,15 @@
-import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
-import { MoreVerticalIcon } from 'lucide-react'
-import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import {ColumnDef, OnChangeFn, PaginationState} from '@tanstack/react-table'
+import {MoreVerticalIcon} from 'lucide-react'
+import {useMemo} from 'react'
+import {Link} from 'react-router-dom'
 
-import { StandardTable } from '@/components/table/StandardTable'
-import { CustomerList } from '@/rpc/api/customers/v1/models_pb'
+import {StandardTable} from '@/components/table/StandardTable'
+import {CustomerBrief} from '@/rpc/api/customers/v1/models_pb'
 
-import type { FunctionComponent } from 'react'
+import type {FunctionComponent} from 'react'
 
 interface CustomersTableProps {
-  data: CustomerList[]
+  data: CustomerBrief[]
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
@@ -17,17 +17,17 @@ interface CustomersTableProps {
 }
 
 export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
-  data,
-  pagination,
-  setPagination,
-  totalCount,
-  isLoading,
-}) => {
-  const columns = useMemo<ColumnDef<CustomerList>[]>(
+                                                                         data,
+                                                                         pagination,
+                                                                         setPagination,
+                                                                         totalCount,
+                                                                         isLoading,
+                                                                       }) => {
+  const columns = useMemo<ColumnDef<CustomerBrief>[]>(
     () => [
       {
         header: 'Name',
-        cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
+        cell: ({row}) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
       },
       {
         header: 'Active subscriptions',
@@ -45,7 +45,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
         accessorKey: 'id',
         header: '',
         className: 'w-2',
-        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer" />,
+        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer"/>,
       },
     ],
     []

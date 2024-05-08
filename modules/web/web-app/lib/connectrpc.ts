@@ -11,7 +11,7 @@ import { toast } from 'sonner'
 import { getSessionToken } from '@/features/auth/session'
 
 import type { Message, PartialMessage, PlainMessage } from '@bufbuild/protobuf'
-import type { Interceptor, ConnectError, Transport } from '@connectrpc/connect'
+import type { ConnectError, Interceptor, Transport } from '@connectrpc/connect'
 import type { UseQueryResult } from '@tanstack/react-query'
 
 const loggingInterceptorSkipError = ['AbortError:', 'DOMException:']
@@ -59,8 +59,6 @@ export const authInterceptor: Interceptor = next => async req => {
   const result = await next(req)
   return result
 }
-
-// TODO error notif interceptor
 
 type HasFields<T> = keyof T extends never ? false : true
 // // a version of useQuery that forces to use all the required fields of the input message, if any

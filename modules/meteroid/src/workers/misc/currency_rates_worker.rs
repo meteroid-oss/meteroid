@@ -1,6 +1,5 @@
 use crate::api::utils::uuid_gen;
-use crate::errors;
-use crate::repo::get_pool;
+use crate::{errors, singletons};
 
 use crate::services::currency_rates::{CurrencyRatesService, OpenexchangeRatesService};
 use crate::workers::metrics::record_call;
@@ -21,7 +20,7 @@ pub struct CurrencyRatesWorker;
 impl AsyncRunnable for CurrencyRatesWorker {
     #[tracing::instrument(skip(self, _queue))]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = get_pool();
+        let pool = singletons::get_pool();
         currency_rates_worker(pool, OpenexchangeRatesService::get())
             .timed(|res, elapsed| record_call("issue", res, elapsed))
             .await

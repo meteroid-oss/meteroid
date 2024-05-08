@@ -2,36 +2,24 @@ syntax = "proto3";
 
 package meteroid.api.subscriptions.v1;
 
-import "common/v1/date.proto";
-import "common/v1/pagination.proto";
+
 import "api/subscriptions/v1/models.proto";
 
 
-message ListSubscriptionsRequest {
-  optional string plan_id = 1;
-  optional string customer_id = 2;
-  meteroid.common.v1.Pagination pagination = 3;
-}
-
-message ListSubscriptionsResponse {
-  repeated Subscription subscriptions = 1;
-  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+message CreateSubscriptionsRequest {
+  repeated CreateSubscription subscriptions = 1;
 }
 
 message CreateSubscriptionRequest {
-  string customer_id = 2;
-  string plan_version_id = 3;
-  //  optional string price_point_id = 4;
-  meteroid.common.v1.Date billing_start = 5;
-  meteroid.common.v1.Date billing_end = 6;
-  int32 net_terms = 7;
-  uint32 billing_day = 8;
+  CreateSubscription subscription = 1;
+}
 
-  SubscriptionParameters parameters = 11;
+message CreateSubscriptionsResponse {
+  repeated CreatedSubscription subscriptions = 1;
 }
 
 message CreateSubscriptionResponse {
-  Subscription subscription = 1;
+  CreatedSubscription subscription = 1;
 }
 
 message GetSubscriptionDetailsRequest {
@@ -39,18 +27,10 @@ message GetSubscriptionDetailsRequest {
 }
 
 message GetSubscriptionDetailsResponse {
-  Subscription subscription = 1;
+  SubscriptionDetails subscription = 1;
 }
 
-message ApplySlotsDeltaRequest {
-  string subscription_id = 1;
-  string price_component_id = 2;
-  int32 delta = 3;
-}
 
-message ApplySlotsDeltaResponse {
-  uint32 active_slots = 1;
-}
 
 message CancelSubscriptionRequest {
   string subscription_id = 1;
@@ -66,10 +46,57 @@ message CancelSubscriptionResponse {
   Subscription subscription = 1;
 }
 
+
+message PaginationRequest {
+  uint32 page = 1;
+  uint32 per_page = 2;
+}
+
+message PaginationResponse {
+  uint32 total_pages = 1;
+  uint64 total_items = 2;
+}
+
+message ListSubscriptionsRequest {
+  optional string customer_id = 1;
+  optional string plan_id = 2;
+  PaginationRequest pagination = 3;
+}
+
+message ListSubscriptionsResponse {
+  repeated Subscription subscriptions = 1;
+  PaginationResponse pagination = 2;
+}
+
+
+message UpdateSlotsRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+  int32 delta = 3;
+}
+
+message UpdateSlotsResponse {
+  uint32 current_value = 1;
+}
+
+message GetSlotsValueRequest {
+  string subscription_id = 1;
+  string price_component_id = 2;
+}
+
+message GetSlotsValueResponse {
+  uint32 current_value = 1;
+  // uint32 next_period_value = 2; // TODO
+}
+
+
+// Service definition
 service SubscriptionsService {
-  rpc ListSubscriptions (ListSubscriptionsRequest) returns (ListSubscriptionsResponse) {}
-  rpc CreateSubscription (CreateSubscriptionRequest) returns (CreateSubscriptionResponse) {}
-  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (GetSubscriptionDetailsResponse) {}
-  rpc ApplySlotsDelta(ApplySlotsDeltaRequest) returns (ApplySlotsDeltaResponse) {}
-  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse) {}
+  rpc CreateSubscription(CreateSubscriptionRequest) returns (CreateSubscriptionResponse);
+  rpc CreateSubscriptions(CreateSubscriptionsRequest) returns (CreateSubscriptionsResponse);
+  rpc GetSubscriptionDetails(GetSubscriptionDetailsRequest) returns (SubscriptionDetails);
+  rpc ListSubscriptions(ListSubscriptionsRequest) returns (ListSubscriptionsResponse);
+  rpc UpdateSlots(UpdateSlotsRequest) returns (UpdateSlotsResponse);
+  rpc GetSlotsValue(GetSlotsValueRequest) returns (GetSlotsValueResponse);
+  rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
 }

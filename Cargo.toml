@@ -6,6 +6,8 @@ members = [
   "modules/meteroid/crates/meteroid-grpc",
   "modules/meteroid/crates/meteroid-repository",
   "modules/meteroid/crates/stripe-client",
+  "modules/meteroid/crates/diesel-models",
+  "modules/meteroid/crates/meteroid-store",
   # metering
   "modules/metering",
   "modules/metering/crates/metering-grpc",
@@ -14,6 +16,7 @@ members = [
   "crates/common-build-info",
   "crates/common-config",
   "crates/common-domain",
+  "crates/common-eventbus",
   "crates/common-grpc",
   "crates/common-grpc-error-as-tonic-macros",
   "crates/common-grpc-error-as-tonic-macros-impl",
@@ -23,7 +26,7 @@ members = [
   "crates/common-utils",
   "crates/distributed-lock",
   # extra
-  "extra/generator"
+  "extra/generator",
 ]
 
 [workspace.package]
@@ -40,39 +43,54 @@ axum = { version = "0.6.20", default-features = false }
 backon = "0.4.1"
 base62 = "2.0.2"
 base64 = "0.22.0"
+bigdecimal = "0.4.3"
 blake3 = "1.5.0"
 build-info = "0.0.36"
 build-info-build = "0.0.36"
 bytes = "1.5.0"
-cached = "0.49.2"
+cached = "0.50.0"
+chacha20poly1305 = "0.10.1"
 chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
-chacha20poly1305 = "0.10.1"
-# cornucopia is on 0.10.x
+clickhouse-rs = "1.1.0-alpha.1"
+cornucopia = { version = "0.9" }
+cornucopia_async = { version = "0.6.0", default-features = false }
 deadpool-postgres = "0.12.1"
+diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
+diesel-async = { version = "0.3.2", features = ["postgres", "deadpool"] } # avoid updating while waiting for https://github.com/weiznich/diesel_async/issues/103. This impacts PlanVersion and WebhookOutEndpoint
+diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
 error-stack = "0.4.1"
+fang = { version = "0.10.4", default-features = false }
+fastrand = "2.0.1"
 futures = "0.3.28"
 futures-util = { version = "0.3.29", features = [] }
 headers = "0.3.9"
-humantime = { version = "2.1.0" }
-fang = { version = "0.10.4", default-features = false }
 hex = "0.4.3"
 hmac = "0.12.1"
 hmac-sha256 = "1.1.7"
-hyper = { version = "0.14.27", default-features = false }
 http = { version = "0.2.10" }
-http-types = "2.12.0"
 http-body = "0.4.5"
+http-types = "2.12.0"
+humantime = { version = "2.1.0" }
+hyper = { version = "0.14.27", default-features = false }
+init-tracing-opentelemetry = { version = "0.18.0", features = ["tracing_subscriber_ext"] }
+itertools = "0.12.1"
 jsonwebtoken = "9.2.0"
 lazy_static = "1"
 log = "0.4.20"
 miette = { version = "7.0.0", default-features = false }
-moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 mockito = "1.2.0"
+moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
+o2o = "0.4.1"
+object_store = { version = "0.9.0", default-features = false }
 once_cell = "1.18.0"
+opentelemetry = { version = "0.22.0", features = ["metrics", "trace", "logs"] }
+opentelemetry-otlp = { version = "0.15.0", features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.22.1", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
+pbjson-build = "0.6.2"
 pin-project = "1.1.3"
 postgres = "0.19.7"
 postgres-types = { version = "0.2.6", default-features = false }
@@ -80,38 +98,41 @@ proc-macro2 = { version = "1.0.78" }
 prost = "0.12.1"
 prost-build = "0.12.1"
 prost-types = "0.12.1"
-pbjson-build = "0.6.2"
+quick_cache = "0.5.1"
 quote = "1.0.35"
 rand = "0.8.5"
 rdkafka = "0.36.0"
-reqwest = { version = "0.11.22", default-features = false }
-reqwest-middleware = "0.2.4"
-reqwest-retry = "0.4.0"
+redis = { version = "0.25.0", default-features = false }
+refinery = { version = "0.8.11", default-features = false }
 regex = "1"
+reqwest = { version = "0.12.3", default-features = false }
+reqwest-middleware = "0.3.0"
+reqwest-retry = "0.5.0"
 ring = "0.17.4"
+rstest = "0.19.0"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
 rustls = { version = "0.23.4", default-features = false }
-redis = { version = "0.25.0", default-features = false }
-refinery = { version = "0.8.11", default-features = false }
 secrecy = "0.8.0"
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
 serde_json = "1.0.107"
 serde_path_to_error = "0.1.14"
 serde_qs = "0.13.0"
-syn = "2.0.52"
+serde_yaml = "0.9.30"
 sha2 = "0.10.8"
+shellexpand = "3.1.0"
+syn = "2.0.52"
+tap = "1.0.1"
 testcontainers = "0.15.0"
 testcontainers-modules = { version = "0.3.2", default-features = false }
 thiserror = "1.0.49"
 time = "0.3.30"
 tokio = { version = "1.33.0", default-features = false }
-tokio-stream = "0.1.14"
-tokio-test = { version = "0.4.3" }
-# cornucopia is on 0.7.7
 tokio-postgres = { version = "0.7.7", default-features = false }
 tokio-postgres-rustls = "0.12.0"
+tokio-stream = "0.1.14"
+tokio-test = { version = "0.4.3" }
 tokio-util = "0.7.10"
 tonic = "0.11.0"
 tonic-build = "0.11.0"
@@ -121,37 +142,30 @@ tonic-tracing-opentelemetry = "0.14.1" # do not update https://github.com/davidB
 tonic-types = "0.11.0"
 tonic-web = "0.11.0"
 tower = { version = "0.4.13" }
-tower-service = { version = "0.3.2" }
-tower-layer = { version = "0.3.2" }
 tower-http = { version = "0.4.4", features = ["full"] }
+tower-layer = { version = "0.3.2" }
+tower-service = { version = "0.3.2" }
 tracing = "0.1.39"
-tracing-log = "0.2.0"
 tracing-futures = "0.2.5"
-tracing-subscriber = { version = "0.3.17", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
+tracing-log = "0.2.0"
 tracing-opentelemetry = { version = "0.23.0" }
-init-tracing-opentelemetry = { version = "0.16.0", features = ["tracing_subscriber_ext"] }
-opentelemetry = { version = "0.21.0", features = ["metrics", "trace", "logs"] }
-opentelemetry_sdk = { version = "0.21.0", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
-opentelemetry-otlp = { version = "0.14.0", features = ["trace", "metrics", "logs"] }
+tracing-subscriber = { version = "0.3.17", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
+url = "2.4.1"
 uuid = "1.4.1"
 uuid7 = "0.7.2"
-url = "2.4.1"
-clickhouse-rs = "1.1.0-alpha.1"
-quick_cache = "0.5.1"
-cornucopia = { version = "0.9" }
-cornucopia_async = { version = "0.6.0", default-features = false }
-object_store = { version = "0.9.0", default-features = false }
-fastrand = "2.0.1"
-serde_yaml = "0.9.30"
-shellexpand = "3.1.0"
-rstest = "0.18.2"
+ndarray = "0.15.6"
+ndarray-interp = "0.4.1"
+rand_distr = "0.4.3"
+fake = "2.9.2"
+rand_chacha = "0.3.1"
 
 
 # TODO prefix it all
 common-build-info = { path = "crates/common-build-info" }
 common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
+common-eventbus = { path = "crates/common-eventbus" }
 common-logging = { path = "crates/common-logging" }
 common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }
@@ -165,3 +179,5 @@ common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }
 metering = { path = "modules/metering" }
+diesel-models = { path = "modules/meteroid/crates/diesel-models" }
+meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
