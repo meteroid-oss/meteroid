@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { customerSchema } from '@/features/customers/cards/customer/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
-  getCustomerById,
+  getCustomer,
   patchCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
@@ -22,7 +22,7 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
   const patchCustomerMutation = useMutation(patchCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomerById, { id: customer.id }),
+        queryKey: createConnectQueryKey(getCustomer, { id: customer.id }),
       })
     },
   })
