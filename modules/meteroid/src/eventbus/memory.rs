@@ -48,10 +48,10 @@ impl<E: Debug + Clone + Send + 'static> EventBus<E> for InMemory<E> {
     }
 
     async fn publish(&self, event: E) -> Result<(), EventBusError> {
-        self.sender
-            .send(event)
-            .map(|_| ())
-            .map_err(|_| EventBusError::PublishFailed)
+        self.sender.send(event).map(|_| ()).map_err(|e| {
+            log::error!("Error publishing event. {:?}", e);
+            EventBusError::PublishFailed
+        })
     }
 }
 
