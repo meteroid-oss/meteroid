@@ -1,4 +1,4 @@
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BillingMetricAggregateEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BillingMetricAggregateEnum {
@@ -11,7 +11,7 @@ pub enum BillingMetricAggregateEnum {
     CountDistinct,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BillingPeriodEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BillingPeriodEnum {
@@ -20,7 +20,7 @@ pub enum BillingPeriodEnum {
     Annual,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::CreditNoteStatus"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum CreditNoteStatus {
@@ -29,7 +29,7 @@ pub enum CreditNoteStatus {
     Voided,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::FangTaskState"]
 #[DbValueStyle = "snake_case"]
 pub enum FangTaskState {
@@ -40,7 +40,7 @@ pub enum FangTaskState {
     Retried,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceExternalStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoiceExternalStatusEnum {
@@ -53,7 +53,7 @@ pub enum InvoiceExternalStatusEnum {
     Void,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoiceStatusEnum {
@@ -63,7 +63,7 @@ pub enum InvoiceStatusEnum {
     Void,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceType"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoiceType {
@@ -74,14 +74,14 @@ pub enum InvoiceType {
     UsageThreshold,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoicingProviderEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoicingProviderEnum {
     Stripe,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::MrrMovementType"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum MrrMovementType {
@@ -92,7 +92,7 @@ pub enum MrrMovementType {
     Reactivation,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::OrganizationUserRole"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum OrganizationUserRole {
@@ -100,7 +100,7 @@ pub enum OrganizationUserRole {
     Member,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Default)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Default)]
 #[ExistingTypePath = "crate::schema::sql_types::PlanStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum PlanStatusEnum {
@@ -111,7 +111,7 @@ pub enum PlanStatusEnum {
     Archived,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Default, PartialEq)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Default, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::PlanTypeEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum PlanTypeEnum {
@@ -121,7 +121,7 @@ pub enum PlanTypeEnum {
     Custom,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::SubscriptionFeeBillingPeriod"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum SubscriptionFeeBillingPeriod {
@@ -131,7 +131,7 @@ pub enum SubscriptionFeeBillingPeriod {
     Annual,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::SubscriptionEventType"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum SubscriptionEventType {
@@ -155,7 +155,7 @@ pub enum TenantEnvironmentEnum {
     Demo,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::UnitConversionRoundingEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum UnitConversionRoundingEnum {
@@ -167,7 +167,7 @@ pub enum UnitConversionRoundingEnum {
     None,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::WebhookOutEventTypeEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum WebhookOutEventTypeEnum {
