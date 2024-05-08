@@ -21,28 +21,21 @@ macro_rules! parse_uuid {
     };
 }
 
-pub mod rng {
-    pub const BASE62_ALPHABET: [char; 62] = [
-        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
-        'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R',
-        'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-    ];
-}
-
-pub mod webhook_security {
-    use base64::Engine;
-
-    const KEY_SIZE: usize = 24;
-    const PREFIX: &str = "whsec_";
-
-    pub fn gen() -> String {
-        let key: Vec<u8> = std::iter::repeat_with(|| fastrand::u8(..))
-            .take(KEY_SIZE)
-            .collect();
-        let encoded = base64::prelude::BASE64_STANDARD.encode(&key);
-
-        format!("{}{}", PREFIX, encoded)
+// let's do a parse_uuid_opt
+pub fn parse_uuid_opt(
+    uuid: &Option<String>,
+    resource_name: &str,
+) -> Result<Option<uuid::Uuid>, Status> {
+    match uuid {
+        Some(uuid_str) if !uuid_str.is_empty() => {
+            uuid::Uuid::parse_str(uuid_str).map(Some).map_err(|e| {
+                Status::invalid_argument(format!(
+                    "Failed to parse UUID at {}: {}",
+                    resource_name, e
+                ))
+            })
+        }
+        _ => Ok(None),
     }
 }
 

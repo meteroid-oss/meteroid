@@ -9,15 +9,15 @@ import {
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { RecurringFixedFeeSchema, RecurringFixedFee } from '@/lib/schemas/plans'
+import { ExtraRecurringFeeSchema, ExtraRecurringFee } from '@/lib/schemas/plans'
 
 export const RecurringForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
   const currency = useCurrency()
 
   const methods = useZodForm({
-    schema: RecurringFixedFeeSchema,
-    defaultValues: component?.data as RecurringFixedFee,
+    schema: ExtraRecurringFeeSchema,
+    defaultValues: component?.data as ExtraRecurringFee,
   })
 
   return (
@@ -27,7 +27,7 @@ export const RecurringForm = (props: FeeFormProps) => {
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
               <SelectFormField
-                name="cadence"
+                name="term"
                 label="Cadence"
                 control={methods.control}
                 className="lg:w-[180px] xl:w-[230px]"
@@ -37,7 +37,7 @@ export const RecurringForm = (props: FeeFormProps) => {
                 <SelectItem value="ANNUAL">Annual</SelectItem>
               </SelectFormField>
               <SelectFormField
-                name="fee.billingType"
+                name="billingType"
                 label="Billing type"
                 control={methods.control}
                 className="lg:w-[180px] xl:w-[230px]"
@@ -48,7 +48,7 @@ export const RecurringForm = (props: FeeFormProps) => {
             </div>
             <div className="ml-4 col-span-2 space-y-4">
               <InputFormField
-                name="fee.quantity"
+                name="quantity"
                 label="Quantity"
                 type="number"
                 step={1}
@@ -56,7 +56,7 @@ export const RecurringForm = (props: FeeFormProps) => {
                 control={methods.control}
               />
               <GenericFormField
-                name="fee.unitPrice"
+                name="unitPrice"
                 label="Price per unit"
                 control={methods.control}
                 render={({ field }) => (

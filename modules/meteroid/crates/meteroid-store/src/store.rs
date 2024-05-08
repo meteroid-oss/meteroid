@@ -1,8 +1,10 @@
 use crate::errors::StoreError;
 use diesel_async::pooled_connection::deadpool::Object;
 use diesel_async::pooled_connection::deadpool::Pool;
+use std::sync::Arc;
 
 use crate::StoreResult;
+use common_eventbus::{Event, EventBus};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
@@ -14,6 +16,9 @@ pub type PgConn = Object<AsyncPgConnection>;
 #[derive(Clone)]
 pub struct Store {
     pub pool: PgPool,
+    pub crypt_key: secrecy::SecretString,
+    pub jwt_secret: secrecy::SecretString,
+    pub eventbus: Arc<dyn EventBus<Event>>,
 }
 
 pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
@@ -28,14 +33,20 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
 }
 
 impl Store {
-    pub fn from_pool(pool: PgPool) -> Self {
-        Store { pool }
-    }
-
-    pub fn new(database_url: String) -> StoreResult<Self> {
+    pub fn new(
+        database_url: String,
+        crypt_key: secrecy::SecretString,
+        jwt_secret: secrecy::SecretString,
+        eventbus: Arc<dyn EventBus<Event>>,
+    ) -> StoreResult<Self> {
         let pool: PgPool = diesel_make_pg_pool(database_url)?;
 
-        Ok(Store { pool })
+        Ok(Store {
+            pool,
+            crypt_key,
+            jwt_secret,
+            eventbus,
+        })
     }
 
     pub async fn get_conn(&self) -> StoreResult<PgConn> {

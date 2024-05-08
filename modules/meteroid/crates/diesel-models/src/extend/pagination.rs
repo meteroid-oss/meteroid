@@ -39,7 +39,7 @@ impl<T> Paginate for T {
             query: self,
             per_page,
             page: page.page as i64,
-            offset: (page.page as i64 - 1) * per_page,
+            offset: page.page as i64 * per_page,
         }
     }
 
@@ -62,7 +62,7 @@ impl<T> Paginated<T> {
     pub fn per_page(self, per_page: u32) -> Self {
         Paginated {
             per_page: per_page as i64,
-            offset: (self.page - 1) * (per_page as i64),
+            offset: self.page.max(0) * (per_page as i64),
             ..self
         }
     }

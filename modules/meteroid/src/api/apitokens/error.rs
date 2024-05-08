@@ -1,4 +1,5 @@
-use deadpool_postgres::tokio_postgres;
+use std::error::Error;
+
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
@@ -9,7 +10,7 @@ pub enum ApiTokenApiError {
     #[code(Internal)]
     PasswordHashError(String),
 
-    #[error("Database error: {0}")]
+    #[error("Store error: {0}")]
     #[code(Internal)]
-    DatabaseError(String, #[source] tokio_postgres::Error),
+    StoreError(String, #[source] Box<dyn Error>),
 }

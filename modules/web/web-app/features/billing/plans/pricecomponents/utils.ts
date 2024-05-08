@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSetAtom, atom, useAtomValue } from 'jotai'
 import { nanoid } from 'nanoid'
@@ -57,9 +57,14 @@ export const useBillingPeriods = () => {
 export const usePlanOverview = () => {
   const { planExternalId } = useTypedParams<{ planExternalId: string }>()
 
-  const { data } = useQuery(getPlanOverviewByExternalId, {
-    externalId: planExternalId!,
-  })
+  const { data } = useQuery(
+    getPlanOverviewByExternalId,
+    planExternalId
+      ? {
+          externalId: planExternalId,
+        }
+      : disableQuery
+  )
 
   return data?.planOverview
 }
@@ -72,65 +77,43 @@ export const useIsDraftVersion = () => {
 const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
   rate: {
     name: 'Subscription Rate',
-    productItem: {
-      name: 'Subscription rate',
-    },
+    // productItem: {
+    //   name: 'Subscription rate',
+    // },
     fee: {
       fee: 'rate',
       data: {
-        pricing: {
-          rates: [],
-          cadence: 'COMMITTED',
-        },
+        rates: [],
       },
     },
   },
-  slot_based: {
+  slot: {
     name: 'Seats',
-    productItem: {
-      name: 'Subscription rate',
-    },
     fee: {
-      fee: 'slot_based',
+      fee: 'slot',
       data: {
+        rates: [],
         downgradePolicy: 'REMOVE_AT_END_OF_PERIOD',
         upgradePolicy: 'PRORATED',
         minimumCount: 1,
-        slotUnit: {
-          name: 'Seats',
-        },
-        pricing: {
-          rates: [],
-          cadence: 'COMMITTED',
-        },
+        slotUnitName: 'Seats',
       },
     },
   },
   capacity: {
     name: 'Capacity commitment',
-    productItem: {
-      name: 'Usage fees',
-    },
     fee: {
       fee: 'capacity',
       data: {
-        metric: {},
-        pricing: {
-          thresholds: [],
-          cadence: 'COMMITTED',
-        },
+        thresholds: [],
       },
     },
   },
-  usage_based: {
+  usage: {
     name: 'Usage-based fee',
-    productItem: {
-      name: 'Usage fees',
-    },
     fee: {
-      fee: 'usage_based',
+      fee: 'usage',
       data: {
-        metric: {},
         model: {
           model: 'per_unit',
           data: {},
@@ -138,34 +121,24 @@ const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
       },
     },
   },
-  recurring: {
+  extraRecurring: {
     name: 'Recurring Charge',
-    productItem: {
-      name: 'Fixed charge',
-    },
     fee: {
-      fee: 'recurring',
+      fee: 'extraRecurring',
       data: {
-        cadence: 'MONTHLY',
-        fee: {
-          billingType: 'ADVANCE',
-          quantity: 1,
-        },
+        term: 'MONTHLY',
+        billingType: 'ADVANCE',
+        quantity: 1,
       },
     },
   },
-  one_time: {
+  oneTime: {
     name: 'One-time fee',
-    productItem: {
-      name: 'Fixed charge',
-    },
     fee: {
-      fee: 'one_time',
+      fee: 'oneTime',
       data: {
-        pricing: {
-          billingType: 'ADVANCE',
-          quantity: 1,
-        },
+        quantity: 1,
+        unitPrice: '0',
       },
     },
   },
@@ -217,14 +190,14 @@ export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMIT
 }
 
 export const feeTypeToHuman = (
-  type: 'rate' | 'slot_based' | 'capacity' | 'usage_based' | 'recurring' | 'one_time'
+  type: 'rate' | 'slot' | 'capacity' | 'usage' | 'extraRecurring' | 'oneTime'
 ) => {
   return match(type)
     .with('rate', () => 'Subscription Rate')
-    .with('slot_based', () => 'Slot-based')
+    .with('slot', () => 'Slot-based')
     .with('capacity', () => 'Capacity commitment')
-    .with('usage_based', () => 'Usage-based')
-    .with('one_time', () => 'One-time charge')
-    .with('recurring', () => 'Recurring charge')
+    .with('usage', () => 'Usage-based')
+    .with('oneTime', () => 'One-time charge')
+    .with('extraRecurring', () => 'Recurring charge')
     .exhaustive()
 }

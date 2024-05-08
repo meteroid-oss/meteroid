@@ -1,9 +1,9 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::product)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Product {

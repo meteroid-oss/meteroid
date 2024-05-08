@@ -26,7 +26,7 @@ export const PlansTable: FunctionComponent = () => {
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
     },
-    orderBy: ListPlansRequest_SortBy.DATE_DESC,
+    sortBy: ListPlansRequest_SortBy.DATE_DESC,
   })
   const isLoading = plansQuery.isLoading
 

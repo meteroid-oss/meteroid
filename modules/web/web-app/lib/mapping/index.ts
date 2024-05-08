@@ -1,3 +1,5 @@
+import { format, parseISO } from 'date-fns'
+
 import { BillingPeriod as BillingPeriodMessage } from '@/rpc/api/shared/v1/shared_pb'
 import { Date as DateMessage } from '@/rpc/common/v1/date_pb'
 
@@ -9,8 +11,17 @@ export const mapDate = (date: Date): DateMessage => {
   })
 }
 
+export const mapDatev2 = (date: Date): string => {
+  // format date to yyyy-mm-dd
+  return format(date, 'yyyy-MM-dd')
+}
+
 export const mapDateFromGrpc = (date: DateMessage): Date => {
-  return new Date(date.year, date.month, date.day)
+  return new Date(date.year, date.month - 1, date.day)
+}
+
+export const mapDateFromGrpcv2 = (date: string): Date => {
+  return parseISO(date)
 }
 
 export type BillingPeriod = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'

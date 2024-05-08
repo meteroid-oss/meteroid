@@ -2,6 +2,8 @@
 
 This directory contains scripts that are used to automate or simplify the DX process.
 
+We're in the process of migrating to diesel, so this flow will change in a short future
+
 ### new_migration.sh
 
 This script is an optional helper to create a new postgres migration.

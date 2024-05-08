@@ -1,5 +1,5 @@
 use crate::db::{get_connection, get_transaction};
-use crate::eventbus::{Event, EventBus};
+use common_eventbus::{Event, EventBus};
 use deadpool_postgres::{Object, Transaction};
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_server::PlansServiceServer;
 use meteroid_repository::Pool;

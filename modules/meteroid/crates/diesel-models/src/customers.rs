@@ -26,7 +26,7 @@ pub struct Customer {
     pub shipping_address: Option<serde_json::Value>,
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerNew {
@@ -45,6 +45,22 @@ pub struct CustomerNew {
     pub shipping_address: Option<serde_json::Value>,
     // for seed
     pub created_at: Option<NaiveDateTime>,
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::customer)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct CustomerPatch {
+    pub id: Uuid,
+    pub name: Option<String>,
+    pub alias: Option<String>,
+    pub email: Option<String>,
+    pub invoicing_email: Option<String>,
+    pub phone: Option<String>,
+    pub balance_value_cents: Option<i32>,
+    pub balance_currency: Option<String>,
+    pub billing_address: Option<serde_json::Value>,
+    pub shipping_address: Option<serde_json::Value>,
 }
 
 #[derive(AsChangeset, Debug)]

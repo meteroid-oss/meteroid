@@ -1,4 +1,5 @@
 use deadpool_postgres::tokio_postgres;
+use std::error::Error;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
@@ -21,14 +22,6 @@ pub enum UserApiError {
     #[code(Internal)]
     MappingError(String, #[source] crate::api::errors::DatabaseError),
 
-    #[error("JWT error: {0}")]
-    #[code(Internal)]
-    JWTError(String, #[source] jsonwebtoken::errors::Error),
-
-    #[error("Password hashing error: {0}")]
-    #[code(Internal)]
-    PasswordHashingError(String),
-
     #[error("Authentication error: {0}")]
     #[code(Unauthenticated)]
     AuthenticationError(String),
@@ -48,4 +41,30 @@ pub enum UserApiError {
     #[error("Database error: {0}")]
     #[code(Internal)]
     DatabaseError(String, #[source] tokio_postgres::Error),
+
+    #[error("Store error: {0}")]
+    #[code(Internal)]
+    StoreError(String, #[source] Box<dyn Error>),
+}
+
+impl Into<UserApiError> for error_stack::Report<meteroid_store::errors::StoreError> {
+    fn into(self) -> UserApiError {
+        let err = self.current_context();
+
+        match err {
+            meteroid_store::errors::StoreError::LoginError(str) => {
+                UserApiError::AuthenticationError(str.clone())
+            }
+            meteroid_store::errors::StoreError::DuplicateValue { entity: _, key: _ } => {
+                UserApiError::UserAlreadyExistsError
+            }
+            meteroid_store::errors::StoreError::UserRegistrationClosed(value) => {
+                UserApiError::RegistrationClosed(value.clone())
+            }
+            _e => UserApiError::StoreError(
+                "Error in user service".to_string(),
+                Box::new(self.into_error()),
+            ),
+        }
+    }
 }

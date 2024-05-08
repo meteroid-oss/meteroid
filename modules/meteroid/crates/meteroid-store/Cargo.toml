@@ -9,10 +9,15 @@ repository.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+common-eventbus.workspace = true
+
+argon2 = { workspace = true }
+base62.workspace = true
 chrono.workspace = true
 diesel.workspace = true
 diesel-async.workspace = true
 uuid = { workspace = true, features = ["serde"] }
+nanoid.workspace = true
 dotenvy.workspace = true
 tracing.workspace = true
 tracing-log = { workspace = true }
@@ -28,7 +33,13 @@ rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
 common-utils = { workspace = true, features = ["decimal"] }
 itertools.workspace = true
-
+secrecy = { workspace = true, features = ["default", "serde"] }
+chacha20poly1305 = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+fastrand = { workspace = true }
+jsonwebtoken = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

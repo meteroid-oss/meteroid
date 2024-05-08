@@ -1,8 +1,16 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue , Card, Separator } from '@md/ui'
+import {
+  Card,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Separator,
+} from '@md/ui'
 import { subYears } from 'date-fns'
-import { useMemo } from 'react'
 import * as React from 'react'
+import { useMemo } from 'react'
 import { DateRange } from 'react-day-picker'
 
 import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
@@ -37,7 +45,7 @@ export const MrrSection = () => {
     listPlans,
     productFamily
       ? {
-          orderBy: ListPlansRequest_SortBy.NAME_ASC,
+          sortBy: ListPlansRequest_SortBy.NAME_ASC,
           productFamilyExternalId: productFamily,
         }
       : disableQuery

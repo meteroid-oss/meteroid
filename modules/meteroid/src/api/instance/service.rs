@@ -14,7 +14,7 @@ use meteroid_repository::Params;
 use crate::api::instance::error::InstanceApiError;
 use crate::api::instance::InstanceServiceComponents;
 use crate::api::utils::uuid_gen;
-use crate::eventbus::Event;
+use common_eventbus::Event;
 
 #[tonic::async_trait]
 impl InstanceService for InstanceServiceComponents {

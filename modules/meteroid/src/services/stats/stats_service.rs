@@ -1,5 +1,3 @@
-use crate::compute::fees::shared::ToCents;
-
 use cornucopia_async::Params;
 use deadpool_postgres::{Object, Pool};
 
@@ -12,6 +10,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 use crate::services::stats::utils::date_utils;
+use common_utils::decimal::ToCent;
 use uuid::Uuid;
 
 #[derive(Error, Debug)]
@@ -44,11 +43,13 @@ pub struct SignupDataPoint {
     pub total: i64,
     pub delta: i64,
 }
+
 pub struct SignupSeries {
     pub name: String,
     pub code: String,
     pub data: Vec<SignupDataPoint>,
 }
+
 pub struct SignupSparklineResponse {
     pub series: SignupSeries,
 }
@@ -110,6 +111,7 @@ pub struct MrrChartSeries {
     pub plan: Option<Plan>,
     pub data: Vec<MrrChartDataPoint>,
 }
+
 pub struct Plan {
     pub id: Uuid,
     pub name: String,
@@ -168,6 +170,7 @@ pub struct CountAndValue {
     pub count: i32,
     pub value: i64,
 }
+
 pub struct MRRBreakdown {
     pub new_business: CountAndValue,
     pub expansion: CountAndValue,
@@ -243,6 +246,7 @@ pub trait StatsService {
 pub struct PgStatsService {
     pool: Pool,
 }
+
 impl PgStatsService {
     pub fn new(pool: Pool) -> Self {
         Self { pool }
@@ -274,6 +278,7 @@ impl PgStatsService {
         Ok(currency.to_string())
     }
 }
+
 #[tonic::async_trait]
 impl StatsService for PgStatsService {
     async fn net_revenue(&self, tenant_id: Uuid) -> Result<Trend, StatServiceError> {
@@ -335,18 +340,19 @@ impl StatsService for PgStatsService {
 
         Ok(CountAndValue {
             count: trend.total,
-            value: trend.total_cents.to_cents().map_err(|_| {
-                StatServiceError::InternalServerError(
+            value: trend
+                .total_cents
+                .to_cents()
+                .ok_or(StatServiceError::InternalServerError(
                     "Failed to convert pending invoice total cents".to_string(),
-                )
-            })?,
+                ))?,
         })
     }
 
     async fn signups(&self, tenant_id: Uuid) -> Result<Trend, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        let trend = db::stats::new_signups_trend_30_days()
+        let trend = db::stats::new_signups_trend_90_days()
             .bind(&conn, &tenant_id)
             .one()
             .await
@@ -355,10 +361,10 @@ impl StatsService for PgStatsService {
             })?;
 
         let (change, percent) =
-            calculate_trend(trend.total_last_30_days, trend.total_previous_30_days);
+            calculate_trend(trend.total_last_90_days, trend.total_previous_90_days);
 
         Ok(Trend {
-            current: trend.total_last_30_days,
+            current: trend.total_last_90_days,
             change_amount: change,
             change_percent: percent,
             positive_is_good: true,
@@ -372,7 +378,7 @@ impl StatsService for PgStatsService {
     ) -> Result<SignupSparklineResponse, StatServiceError> {
         let conn = self.get_connection().await?;
 
-        let chart_data = db::stats::daily_new_signups_30_days()
+        let chart_data = db::stats::daily_new_signups_90_days()
             .bind(&conn, &tenant_id)
             .all()
             .await

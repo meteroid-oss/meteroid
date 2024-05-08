@@ -13,6 +13,19 @@ message PaginationResponse {
   uint32 total = 3;
 }
 
+// TODO rename above to OffsetPagination and this to Pagination
+message PagePagination {
+  uint32 page = 1;
+  optional uint32 per_page = 2;
+}
+
+message PagePaginationResponse {
+  uint32 page = 1;
+  uint32 per_page = 2;
+  uint32 total_pages = 3;
+  uint32 total_items = 4;
+}
+
 
 message CursorPagination {
   uint32 limit = 1;

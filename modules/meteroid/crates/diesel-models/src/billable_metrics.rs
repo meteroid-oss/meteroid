@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use crate::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetric {
@@ -27,7 +27,7 @@ pub struct BillableMetric {
     pub product_family_id: Uuid,
 }
 
-#[derive(Debug, Insertable)]
+#[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetricNew {
@@ -44,4 +44,17 @@ pub struct BillableMetricNew {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
+}
+
+#[derive(Debug, Identifiable, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::billable_metric)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct BillableMetricMeta {
+    pub id: Uuid,
+    pub name: String,
+    pub code: String,
+    pub aggregation_type: BillingMetricAggregateEnum,
+    pub aggregation_key: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub archived_at: Option<NaiveDateTime>,
 }
