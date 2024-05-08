@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use crate::enums::TenantEnvironmentEnum;
 
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Clone, Queryable, Debug, Identifiable)]
+#[derive(Clone, Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::tenant)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Tenant {

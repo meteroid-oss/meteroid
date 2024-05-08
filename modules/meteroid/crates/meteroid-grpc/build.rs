@@ -33,10 +33,11 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
     for service in services {
         let service_path = root.join(format!("proto/api/{}/v1", service));
         proto_files.push(service_path.join(format!("{}.proto", service))); // main service file
-                                                                           // proto_files.push(service_path.join("model.proto")); // model file
     }
     // Add additional paths as needed
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
+    proto_files.push(root.join("proto/api/subscriptions/v1/subscriptions.proto"));
+    proto_files.push(root.join("proto/api/pricecomponents/v1/pricecomponents.proto"));
 
     for proto_file in &proto_files {
         println!("cargo:rerun-if-changed={}", proto_file.display());

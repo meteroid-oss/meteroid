@@ -1,4 +1,6 @@
 use deadpool_postgres::tokio_postgres;
+use std::error::Error;
+
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
@@ -15,7 +17,11 @@ pub enum SubscriptionApiError {
 
     #[error("Calculation error: {0}")]
     #[code(Internal)]
-    CalculationError(String, #[source] anyhow::Error),
+    CalculationError(String, #[source] crate::compute::ComputeError),
+
+    #[error("Failed to retrieve the subscription details: {0}")]
+    #[code(Internal)]
+    SubscriptionDetailsError(String, #[source] anyhow::Error),
 
     #[error("Serialization error: {0}")]
     #[code(Internal)]
@@ -24,4 +30,15 @@ pub enum SubscriptionApiError {
     #[error("Database error: {0}")]
     #[code(Internal)]
     DatabaseError(String, #[source] tokio_postgres::Error),
+
+    #[error("Store error: {0}")]
+    #[code(Internal)]
+    StoreError(String, #[source] Box<dyn Error>),
+}
+
+impl Into<SubscriptionApiError> for error_stack::Report<meteroid_store::errors::StoreError> {
+    fn into(self) -> SubscriptionApiError {
+        let err = Box::new(self.into_error());
+        SubscriptionApiError::StoreError("Error in subscription service".to_string(), err)
+    }
 }

@@ -1,12 +1,15 @@
 use meteroid_grpc::meteroid::api::schedules::v1::schedules_service_server::SchedulesServiceServer;
-use meteroid_repository::Pool;
+use meteroid_store::Store;
 
-use crate::db::DbService;
 mod error;
 pub mod mapping;
 mod service;
 
-pub fn service(pool: Pool) -> SchedulesServiceServer<DbService> {
-    let inner = DbService::new(pool);
+pub struct ScheduleServiceComponents {
+    pub store: Store,
+}
+
+pub fn service(store: Store) -> SchedulesServiceServer<ScheduleServiceComponents> {
+    let inner = ScheduleServiceComponents { store };
     SchedulesServiceServer::new(inner)
 }

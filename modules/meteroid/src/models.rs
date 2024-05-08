@@ -54,7 +54,7 @@ pub enum InvoiceSubLineMetadata {
     // matrix usage
 }
 
-#[derive(PartialEq, Debug, Deserialize, Serialize)]
+#[derive(PartialEq, Debug, Clone, Deserialize, Serialize)]
 pub struct UsageDetails {
     pub date: NaiveDate,
     pub usage: Decimal,

@@ -1,22 +1,20 @@
-use cornucopia_async::Params;
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::components::v1::fee::r#type::Fee;
 use meteroid_grpc::meteroid::api::components::v1::{
     price_components_service_server::PriceComponentsService, CreatePriceComponentRequest,
     CreatePriceComponentResponse, EditPriceComponentRequest, EditPriceComponentResponse,
     EmptyResponse, ListPriceComponentRequest, ListPriceComponentResponse,
     RemovePriceComponentRequest,
 };
-use meteroid_repository as db;
+
+use meteroid_store::repositories::price_components::PriceComponentInterface;
 
 use crate::api::pricecomponents::error::PriceComponentApiError;
-use crate::eventbus::Event;
-use crate::{
-    api::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
+use crate::api::shared::conversions::ProtoConv;
+use crate::{api::utils::parse_uuid, parse_uuid};
+use common_eventbus::Event;
 
 use super::{mapping, PriceComponentServiceComponents};
 
@@ -30,14 +28,22 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        let components = super::ext::list_price_components(
-            parse_uuid!(&req.plan_version_id)?,
-            tenant_id,
-            &connection,
-        )
-        .await?;
+        let domain_components = self
+            .store
+            .list_price_components(parse_uuid!(&req.plan_version_id)?, tenant_id)
+            .await
+            .map_err(|err| {
+                PriceComponentApiError::StoreError(
+                    "Failed to list price components".to_string(),
+                    Box::new(err.into_error()),
+                )
+            })?;
+
+        let components = domain_components
+            .into_iter()
+            .map(mapping::components::domain_to_api)
+            .collect::<Result<Vec<_>, _>>()?;
 
         let response = ListPriceComponentResponse { components };
 
@@ -52,78 +58,20 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let mut connection = self.get_connection().await?;
-        let transaction = self.get_transaction(&mut connection).await?;
 
-        let metric_id = req
-            .fee_type
-            .as_ref()
-            .and_then(|f| f.fee.as_ref())
-            .and_then(|f| match f {
-                Fee::Rate(_) => None,
-                Fee::SlotBased(_) => None,
-                Fee::Capacity(c) => c.metric.as_ref().and_then(|m| parse_uuid!(m.id).ok()),
-                Fee::UsageBased(u) => u.metric.as_ref().and_then(|m| parse_uuid!(m.id).ok()),
-                Fee::Recurring(_) => None,
-                Fee::OneTime(_) => None,
-            });
+        let mapped = mapping::components::create_api_to_domain(req.clone())?;
 
-        let serialized_fee = req
-            .fee_type
-            .ok_or_else(|| PriceComponentApiError::MissingArgument("fee_type".to_string()))
-            .and_then(|fee_type| {
-                serde_json::to_value(&fee_type).map_err(|e| {
-                    PriceComponentApiError::SerializationError(
-                        "Failed to serialize fee_type".to_string(),
-                        e,
-                    )
-                })
-            })?;
-
-        let id = uuid_gen::v7();
-        db::price_components::upsert_price_component()
-            .params(
-                &transaction,
-                &db::price_components::UpsertPriceComponentParams {
-                    id,
-                    plan_version_id: parse_uuid!(&req.plan_version_id)?,
-                    tenant_id,
-                    name: &req.name,
-                    fee: &serialized_fee,
-                    product_item_id: req
-                        .product_item_id
-                        .map(|product_item_id| parse_uuid!(product_item_id))
-                        .transpose()?,
-                    billable_metric_id: metric_id,
-                },
-            )
+        let component = self
+            .store
+            .create_price_component(mapped)
             .await
-            .map_err(|e| {
-                PriceComponentApiError::DatabaseError(
-                    "unable to create price component".to_string(),
-                    e,
+            .map_err(|err| {
+                PriceComponentApiError::StoreError(
+                    "Failed to create price components".to_string(),
+                    Box::new(err.into_error()),
                 )
             })?;
-
-        let component = db::price_components::get_price_component()
-            .params(
-                &transaction,
-                &db::price_components::GetPriceComponentParams {
-                    component_id: id,
-                    tenant_id,
-                },
-            )
-            .one()
-            .await
-            .map_err(|e| {
-                PriceComponentApiError::DatabaseError("unable to get component".to_string(), e)
-            })?;
-
-        transaction.commit().await.map_err(|e| {
-            PriceComponentApiError::DatabaseError("failed to commit transaction".to_string(), e)
-        })?;
-
-        let response = mapping::components::db_to_server(component.clone())?;
+        let response = mapping::components::domain_to_api(component.clone())?;
 
         let _ = self
             .eventbus
@@ -147,77 +95,22 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let mut connection = self.get_connection().await?;
-        let transaction = self.get_transaction(&mut connection).await?;
 
-        let req_component = req
-            .component
-            .ok_or_else(|| PriceComponentApiError::MissingArgument("component".to_string()))?;
+        let component = mapping::components::edit_api_to_domain(req.clone())?;
 
-        let fee_type = req_component
-            .fee_type
-            .ok_or_else(|| PriceComponentApiError::MissingArgument("fee_type".to_string()))?;
-
-        let metric_id = fee_type.fee.as_ref().and_then(|f| match f {
-            Fee::Rate(_) => None,
-            Fee::SlotBased(_) => None,
-            Fee::Capacity(c) => c.metric.as_ref().and_then(|m| parse_uuid!(m.id).ok()),
-            Fee::UsageBased(u) => u.metric.as_ref().and_then(|m| parse_uuid!(m.id).ok()),
-            Fee::Recurring(_) => None,
-            Fee::OneTime(_) => None,
-        });
-
-        let serialized_fee = serde_json::to_value(fee_type).map_err(|e| {
-            PriceComponentApiError::SerializationError(
-                "failed to serialize fee_type".to_string(),
-                e,
-            )
-        })?;
-
-        let product_item = req_component.product_item;
-        db::price_components::upsert_price_component()
-            .params(
-                &transaction,
-                &db::price_components::UpsertPriceComponentParams {
-                    id: parse_uuid!(&req_component.id)?,
-                    plan_version_id: parse_uuid!(&req.plan_version_id)?,
-                    tenant_id,
-                    name: &req_component.name,
-                    fee: &serialized_fee,
-                    product_item_id: product_item
-                        .map(|product_item| parse_uuid!(product_item.id))
-                        .transpose()?,
-                    billable_metric_id: metric_id,
-                },
-            )
-            //.one()
+        let component = self
+            .store
+            .update_price_component(component, tenant_id, Uuid::from_proto(req.plan_version_id)?)
             .await
-            .map_err(|e| {
-                PriceComponentApiError::DatabaseError(
-                    "unable to edit price component".to_string(),
-                    e,
+            .map_err(|err| {
+                PriceComponentApiError::StoreError(
+                    "Failed to edit price component".to_string(),
+                    Box::new(err.into_error()),
                 )
             })?;
+        let component = component.ok_or(Status::internal("No element was updated"))?;
 
-        let component = db::price_components::get_price_component()
-            .params(
-                &transaction,
-                &db::price_components::GetPriceComponentParams {
-                    component_id: parse_uuid!(&req_component.id)?,
-                    tenant_id,
-                },
-            )
-            .one()
-            .await
-            .map_err(|e| {
-                PriceComponentApiError::DatabaseError("unable to get component".to_string(), e)
-            })?;
-
-        transaction.commit().await.map_err(|e| {
-            PriceComponentApiError::DatabaseError("failed to commit transaction".to_string(), e)
-        })?;
-
-        let response = mapping::components::db_to_server(component.clone())?;
+        let response = mapping::components::domain_to_api(component.clone())?;
 
         let _ = self
             .eventbus
@@ -241,23 +134,16 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
         let price_component_id = parse_uuid(&req.price_component_id, "price_component_id")?;
 
-        db::price_components::delete_price_component()
-            .params(
-                &connection,
-                &db::price_components::DeletePriceComponentParams {
-                    id: price_component_id.clone(),
-                    tenant_id,
-                },
-            )
+        self.store
+            .delete_price_component(price_component_id, tenant_id)
             .await
-            .map_err(|e| {
-                PriceComponentApiError::DatabaseError(
-                    "Unable to remove price component".to_string(),
-                    e,
+            .map_err(|err| {
+                PriceComponentApiError::StoreError(
+                    "Failed to remove price component".to_string(),
+                    Box::new(err.into_error()),
                 )
             })?;
 

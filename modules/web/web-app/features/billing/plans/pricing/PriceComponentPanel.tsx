@@ -47,7 +47,7 @@ export const PriceComponentPanel: React.FC = () => {
             icon={<UngroupIcon size={14} />}
           />
           <Row
-            to="slot_based"
+            to="slot"
             label="Slot-based"
             description="Perfect for Seats, Licenses or other purchasable entities. Price is based on the number of active slots. You can define different rates per committed period."
             icon={<ArmchairIcon size={14} />}
@@ -63,7 +63,7 @@ export const PriceComponentPanel: React.FC = () => {
           </div>
 
           <Row
-            to="usage_based"
+            to="usage"
             label="Usage-based"
             description="Charge your customers based on their usage of your product during the last billing period."
             icon={<ActivityIcon size={14} />}
@@ -79,13 +79,13 @@ export const PriceComponentPanel: React.FC = () => {
             Additional charges
           </div>
           <Row
-            to="one_time"
+            to="oneTime"
             label="One-time charge"
             description="Charge your customers once when their subscription starts. Ideal for an implementation fee."
             icon={<ArrowDownIcon size={14} />}
           />
           <Row
-            to="recurring"
+            to="extraRecurring"
             label="Recurring charge"
             description="A recurring fee outside of the standard subscription rate or period, ex: a quarterly maintenance fee"
             icon={<Clock4Icon size={14} />}

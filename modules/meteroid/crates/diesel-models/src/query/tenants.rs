@@ -2,8 +2,8 @@ use crate::errors::IntoDbResult;
 use crate::tenants::{Tenant, TenantNew};
 use crate::{DbResult, PgConn};
 
-use diesel::debug_query;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
+use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl TenantNew {
@@ -34,6 +34,29 @@ impl Tenant {
             .first(conn)
             .await
             .attach_printable("Error while finding tenant by id")
+            .into_db_result()
+    }
+
+    pub async fn list_by_user_id(conn: &mut PgConn, user_id: uuid::Uuid) -> DbResult<Vec<Tenant>> {
+        use crate::schema::organization::dsl as o_dsl;
+        use crate::schema::organization_member::dsl as om_dsl;
+        use crate::schema::tenant::dsl as t_dsl;
+        use crate::schema::user::dsl as u_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = t_dsl::tenant
+            .inner_join(o_dsl::organization.on(t_dsl::organization_id.eq(o_dsl::id)))
+            .inner_join(om_dsl::organization_member.on(om_dsl::organization_id.eq(o_dsl::id)))
+            .inner_join(u_dsl::user.on(u_dsl::id.eq(om_dsl::user_id)))
+            .filter(u_dsl::id.eq(user_id))
+            .select(Tenant::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while fetching tenants by user_id")
             .into_db_result()
     }
 }
