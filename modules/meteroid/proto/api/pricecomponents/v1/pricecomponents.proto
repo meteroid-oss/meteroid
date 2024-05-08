@@ -16,7 +16,7 @@ message EditPriceComponentResponse {
 message CreatePriceComponentRequest {
   string plan_version_id = 1;
   string name = 2;
-  Fee.Type fee_type = 3;
+  Fee fee = 3;
   optional string product_item_id = 4;
 }
 

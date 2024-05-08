@@ -231,7 +231,7 @@ const PlanTypeFormItem = <
         <RadioGroupItem value="FREE" id="r1" disabled />
         <Label htmlFor="r1">
           <PlanTypeCard
-            title="Free / Freemium (disabled)"
+            title="Free / Freemium "
             desc="Free plans can be subscribed to without payment information."
           />
         </Label>
@@ -241,7 +241,7 @@ const PlanTypeFormItem = <
         <RadioGroupItem value="CUSTOM" id="r3" disabled />
         <Label htmlFor="r3">
           <PlanTypeCard
-            title="Custom (disabled)"
+            title="Custom "
             desc={
               <>
                 Custom plans allows to generate quotes and to be extended per customer or customer

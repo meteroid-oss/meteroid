@@ -10,7 +10,7 @@ use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
-use meteroid::repo::get_pool;
+use meteroid::singletons::get_pool;
 use meteroid::workers::fang;
 use meteroid::workers::invoicing::draft_worker::DraftWorker;
 use meteroid::workers::invoicing::finalize_worker::FinalizeWorker;

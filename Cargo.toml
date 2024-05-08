@@ -16,6 +16,7 @@ members = [
   "crates/common-build-info",
   "crates/common-config",
   "crates/common-domain",
+  "crates/common-eventbus",
   "crates/common-grpc",
   "crates/common-grpc-error-as-tonic-macros",
   "crates/common-grpc-error-as-tonic-macros-impl",
@@ -164,6 +165,7 @@ rand_chacha = "0.3.1"
 common-build-info = { path = "crates/common-build-info" }
 common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
+common-eventbus = { path = "crates/common-eventbus" }
 common-logging = { path = "crates/common-logging" }
 common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }

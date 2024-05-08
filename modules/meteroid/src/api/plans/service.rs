@@ -19,14 +19,14 @@ use meteroid_repository as db;
 use meteroid_repository::Params;
 
 use crate::api::plans::error::PlanApiError;
-use crate::api::pricecomponents;
+
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
-use crate::eventbus::Event;
 use crate::{
     api::utils::{parse_uuid, uuid_gen},
     parse_uuid,
 };
+use common_eventbus::Event;
 
 use super::{mapping, PlanServiceComponents};
 
@@ -588,28 +588,36 @@ impl PlansService for PlanServiceComponents {
         Ok(Response::new(response))
     }
 
-    #[tracing::instrument(skip_all)]
     async fn get_plan_parameters(
         &self,
-        request: Request<GetPlanParametersRequest>,
+        _request: Request<GetPlanParametersRequest>,
     ) -> Result<Response<GetPlanParametersResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let req = request.into_inner();
-        let connection = self.get_connection().await?;
-
-        let components = pricecomponents::ext::list_price_components(
-            parse_uuid!(&req.plan_version_id)?,
-            tenant_id,
-            &connection,
-        )
-        .await?;
-        let plan_parameters = pricecomponents::ext::components_to_params(components)
-            .into_iter()
-            .map(mapping::plans::parameters::to_grpc)
-            .collect();
-
-        Ok(Response::new(GetPlanParametersResponse {
-            parameters: plan_parameters,
-        }))
+        todo!()
     }
+
+    //
+    // #[tracing::instrument(skip_all)]
+    // async fn get_plan_parameters(
+    //     &self,
+    //     request: Request<GetPlanParametersRequest>,
+    // ) -> Result<Response<GetPlanParametersResponse>, Status> {
+    //     let tenant_id = request.tenant()?;
+    //     let req = request.into_inner();
+    //     let connection = self.get_connection().await?;
+    //
+    //     let components = pricecomponents::ext::list_price_components(
+    //         parse_uuid!(&req.plan_version_id)?,
+    //         tenant_id,
+    //         &connection,
+    //     )
+    //     .await?;
+    //     let plan_parameters = pricecomponents::ext::components_to_params(components)
+    //         .into_iter()
+    //         .map(mapping::plans::parameters::to_grpc)
+    //         .collect();
+    //
+    //     Ok(Response::new(GetPlanParametersResponse {
+    //         parameters: plan_parameters,
+    //     }))
+    // }
 }

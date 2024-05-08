@@ -10,21 +10,21 @@ use common_grpc::middleware::common::filters as common_filters;
 use common_grpc::middleware::server as common_middleware;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
+use meteroid_store::Store;
 
 use crate::api;
 use crate::api::cors::cors;
+use crate::compute::clients::usage::MeteringUsageClient;
 use crate::compute::InvoiceEngine;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::webhook_handler::WebhookHandler;
-use crate::eventbus::{Event, EventBus};
-use crate::repo::provider_config::ProviderConfigRepo;
 
 use super::super::config::Config;
 
 pub async fn start_api_server(
     config: Config,
     pool: Pool,
-    provider_config_repo: Arc<dyn ProviderConfigRepo>,
+    store: Store,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
         "Starting Billing API grpc server on port {}",
@@ -47,11 +47,17 @@ pub async fn start_api_server(
     let query_service_client = UsageQueryServiceClient::new(metering_layered_channel.clone());
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
-    let compute_service = Arc::new(InvoiceEngine::new(query_service_client));
+    let compute_service = Arc::new(InvoiceEngine::new(
+        Arc::new(MeteringUsageClient::new(query_service_client)),
+        Arc::new(store.clone()),
+    ));
 
-    let eventbus: Arc<dyn EventBus<Event>> = Arc::new(crate::eventbus::memory::InMemory::new());
+    // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel
+    // the pools are incompatible, without some refacto
+    // let store = meteroid_store::Store::from_pool(pool.clone());
 
-    eventbus
+    store
+        .eventbus
         .subscribe(Arc::new(WebhookHandler::new(
             pool.clone(),
             config.secrets_crypt_key.clone(),
@@ -68,7 +74,8 @@ pub async fn start_api_server(
             }
         };
 
-        eventbus
+        store
+            .eventbus
             .subscribe(Arc::new(AnalyticsHandler::new(
                 config.analytics.clone(),
                 pool.clone(),
@@ -100,41 +107,30 @@ pub async fn start_api_server(
         .add_service(health_service)
         .add_service(reflection_service)
         .add_service(api::billablemetrics::service(
-            pool.clone(),
-            eventbus.clone(),
+            store.clone(),
             metering_service,
         ))
-        .add_service(api::customers::service(pool.clone(), eventbus.clone()))
-        .add_service(api::tenants::service(pool.clone(), provider_config_repo))
-        .add_service(api::apitokens::service(pool.clone(), eventbus.clone()))
+        .add_service(api::customers::service(store.clone()))
+        .add_service(api::tenants::service(store.clone()))
+        .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(
-            pool.clone(),
-            eventbus.clone(),
+            store.clone(),
+            store.eventbus.clone(),
         ))
-        .add_service(api::plans::service(pool.clone(), eventbus.clone()))
-        .add_service(api::schedules::service(pool.clone()))
-        .add_service(api::productitems::service(pool.clone()))
-        .add_service(api::productfamilies::service(
-            pool.clone(),
-            eventbus.clone(),
-        ))
-        .add_service(api::instance::service(pool.clone(), eventbus.clone()))
+        .add_service(api::plans::service(pool.clone(), store.eventbus.clone()))
+        .add_service(api::schedules::service(store.clone()))
+        .add_service(api::productitems::service(store.clone()))
+        .add_service(api::productfamilies::service(store.clone()))
+        .add_service(api::instance::service(pool.clone(), store.eventbus.clone()))
         .add_service(api::invoices::service(pool.clone()))
         .add_service(api::stats::service(pool.clone()))
-        .add_service(api::users::service(
-            pool.clone(),
-            eventbus.clone(),
-            config.jwt_secret.clone(),
-        ))
+        .add_service(api::users::service(store.clone()))
         .add_service(api::subscriptions::service(
-            pool.clone(),
+            store.clone(),
             compute_service,
-            eventbus.clone(),
+            store.eventbus.clone(),
         ))
-        .add_service(api::webhooksout::service(
-            pool.clone(),
-            config.secrets_crypt_key.clone(),
-        ))
+        .add_service(api::webhooksout::service(store.clone()))
         .add_service(api::internal::service(pool.clone()))
         .serve(config.listen_addr)
         .await?;

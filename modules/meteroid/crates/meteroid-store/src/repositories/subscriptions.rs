@@ -22,6 +22,7 @@ use itertools::Itertools;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
+    Date(NaiveDate),
 }
 
 #[async_trait::async_trait]
@@ -74,35 +75,38 @@ pub trait SubscriptionInterface {
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 
 fn calculate_mrr_for_new_component(component: &domain::SubscriptionComponentNewInternal) -> i64 {
-    let mut mrr_cents = 0;
+    let mut total_cents = 0;
 
     let period_as_months = component.period.as_months() as i64;
 
     match &component.fee {
         SubscriptionFee::Rate { rate } => {
-            mrr_cents = rate.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = rate.to_cents().unwrap_or(0);
         }
         SubscriptionFee::Recurring { quantity, rate, .. } => {
             let total = rate * Decimal::from(*quantity);
-            mrr_cents = total.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = total.to_cents().unwrap_or(0);
         }
         SubscriptionFee::Capacity { rate, .. } => {
-            mrr_cents = rate.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = rate.to_cents().unwrap_or(0);
         }
         SubscriptionFee::Slot {
             initial_slots,
             unit_rate,
             ..
         } => {
-            mrr_cents =
-                (*initial_slots as i64) * unit_rate.to_cents().unwrap_or(0) * period_as_months;
+            total_cents = (*initial_slots as i64) * unit_rate.to_cents().unwrap_or(0);
         }
         SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => {
             // doesn't count as mrr
         }
     }
 
-    mrr_cents
+    let _mrr = total_cents / period_as_months;
+
+    let mrr_monthly = Decimal::from(total_cents) / Decimal::from(period_as_months);
+
+    return mrr_monthly.to_i64().unwrap_or(0);
 }
 
 #[async_trait::async_trait]
@@ -327,6 +331,8 @@ impl SubscriptionInterface for Store {
             Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
         }.scope_boxed()).await?;
 
+        // TODO create invoice ? in the sequence flow I guess it only happens after the payment is confirmed
+
         Ok(inserted_subscriptions)
     }
 
@@ -356,8 +362,8 @@ impl SubscriptionInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.into())
-            .collect();
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_components: Vec<domain::SubscriptionComponent> =
             diesel_models::subscription_components::SubscriptionComponent::list_subscription_components_by_subscription(
@@ -464,6 +470,7 @@ impl SubscriptionInterface for Store {
                         CancellationEffectiveAt::EndOfBillingPeriod => subscription
                             .calculate_cancellable_end_of_period_date(now.date())
                             .ok_or(Report::from(StoreError::CancellationError))?,
+                        CancellationEffectiveAt::Date(date) => date,
                     };
 
                     diesel_models::subscriptions::Subscription::cancel_subscription(
@@ -571,6 +578,9 @@ fn process_create_subscription_components(
 
     let mut processed_components = Vec::new();
     let mut removed_components = Vec::new();
+
+    // TODO should we add a quick_param or something to not require the component id when creating subscription without complex parameterization ?
+    // basically a top level params with period, initial slots, committed capacity, that can be overriden at the component level
 
     let all_ids = parameterized_components
         .iter()

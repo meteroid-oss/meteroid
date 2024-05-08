@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use crate::enums::BillingPeriodEnum;
 
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PlanVersion {
@@ -22,7 +22,7 @@ pub struct PlanVersion {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    pub billing_periods: Vec<Option<BillingPeriodEnum>>,
+    pub billing_periods: Vec<BillingPeriodEnum>,
 }
 
 #[derive(Debug, Insertable, Default)]
@@ -41,5 +41,5 @@ pub struct PlanVersionNew {
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_by: Uuid,
-    pub billing_periods: Vec<Option<BillingPeriodEnum>>,
+    pub billing_periods: Vec<BillingPeriodEnum>,
 }

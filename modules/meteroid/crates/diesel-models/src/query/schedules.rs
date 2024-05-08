@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::schedules::{Schedule, ScheduleNew};
+use crate::schedules::{Schedule, ScheduleNew, SchedulePatch};
 use crate::schema::schedule;
 use crate::{DbResult, PgConn};
 
@@ -25,6 +25,35 @@ impl ScheduleNew {
 }
 
 impl Schedule {
+    pub async fn delete(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<usize> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::schedule::dsl as s_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(s_dsl::schedule)
+            .filter(s_dsl::id.eq(id))
+            .filter(
+                s_dsl::plan_version_id.eq_any(
+                    pv_dsl::plan_version
+                        .select(pv_dsl::id)
+                        .filter(pv_dsl::tenant_id.eq(tenant_id))
+                        .filter(pv_dsl::is_draft_version.eq(true)),
+                ),
+            );
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while deleting schedule")
+            .into_db_result()
+    }
+
     pub async fn insert_schedule_batch(
         conn: &mut PgConn,
         batch: Vec<ScheduleNew>,
@@ -70,22 +99,20 @@ impl Schedule {
             .into_db_result()
     }
 
-    pub async fn list_schedules_by_plans(
+    pub async fn list(
         conn: &mut PgConn,
-        tenant_id_params: &uuid::Uuid,
-        subscription_ids: &[uuid::Uuid],
+        plan_version_id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
     ) -> DbResult<Vec<Schedule>> {
-        use crate::schema::schedule::dsl as schedule_dsl;
-        use crate::schema::subscription;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::schedule::dsl as s_dsl;
 
         use diesel_async::RunQueryDsl;
 
-        let query = schedule_dsl::schedule
-            .inner_join(
-                subscription::table.on(schedule::plan_version_id.eq(subscription::plan_version_id)),
-            )
-            .filter(subscription::id.eq_any(subscription_ids))
-            .filter(subscription::tenant_id.eq(tenant_id_params))
+        let query = s_dsl::schedule
+            .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
+            .filter(pv_dsl::id.eq(plan_version_id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
             .select(Schedule::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -93,7 +120,39 @@ impl Schedule {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching schedules by subscriptions")
+            .attach_printable("Error while fetching schedules")
+            .into_db_result()
+    }
+}
+
+impl SchedulePatch {
+    pub async fn update(&self, conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<Schedule> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::schedule::dsl as s_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(s_dsl::schedule)
+            .filter(s_dsl::id.eq(self.id))
+            .filter(
+                s_dsl::plan_version_id.eq_any(
+                    pv_dsl::plan_version
+                        .select(pv_dsl::id)
+                        .filter(pv_dsl::tenant_id.eq(tenant_id))
+                        .filter(pv_dsl::is_draft_version.eq(true)),
+                ),
+            )
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .map_err(|e| {
+                log::error!("Error while updating schedule: {:?}", e);
+                e
+            })
+            .attach_printable("Error while updating schedule")
             .into_db_result()
     }
 }

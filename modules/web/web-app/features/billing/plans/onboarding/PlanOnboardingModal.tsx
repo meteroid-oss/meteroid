@@ -70,8 +70,8 @@ export const PlanOnboardingModal: FC = () => {
               title="Slot-based price"
               subtitle="Perfect for Seats or Licenses. Price is based on a metered feature."
               hero={<SlotsDesignCard />}
-              action={() => setSelected('slot_based')}
-              selected={selected === 'slot_based'}
+              action={() => setSelected('slot')}
+              selected={selected === 'slot'}
             />
             {/* examples: loops.so, mailgun, ... */}
             <PricingModelCard
@@ -85,8 +85,8 @@ export const PlanOnboardingModal: FC = () => {
               title="Pay-as-you-go"
               subtitle="Flexible usage-based pricing with no single main fixed fee or commitment"
               hero={<UsageBasedDesignCard />}
-              action={() => setSelected('usage_based')}
-              selected={selected === 'usage_based'}
+              action={() => setSelected('usage')}
+              selected={selected === 'usage'}
             />
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { cn , Separator } from '@md/ui'
+import { cn, Separator } from '@md/ui'
 
 import { formatCurrency } from '@/features/dashboard/utils'
 import { useQuery } from '@/lib/connectrpc'
@@ -6,7 +6,7 @@ import { MRRBreakdownScope } from '@/rpc/api/stats/v1/models_pb'
 import { mrrBreakdown } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
 export const MrrBreakdownCard = () => {
-  const breakdown = useQuery(mrrBreakdown, { scope: MRRBreakdownScope.THIS_MONTH }).data
+  const breakdown = useQuery(mrrBreakdown, { scope: MRRBreakdownScope.THIS_YEAR }).data
     ?.mmrBreakdown
 
   return (
@@ -87,3 +87,8 @@ const Circle = ({ colorClassName }: { colorClassName: string }) => (
     className={cn('w-[12px] h-[12px] rounded-full shadow-circle mr-2 opacity-60', colorClassName)}
   ></div>
 )
+
+export const MrrColorCircle = ({ type }: { type: keyof typeof colors }) => (
+  <Circle colorClassName={colors[type]} />
+)
+export type MrrColorCircleColors = keyof typeof colors

@@ -4,6 +4,7 @@ import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
+import { ReportsPage } from '@/pages/tenants/reports'
 import { TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
@@ -30,6 +31,10 @@ export const tenantRoutes: RouteObject = {
     customersRoutes,
     billingRoutes,
     growthRoutes,
+    {
+      path: 'reports',
+      element: <ReportsPage />,
+    },
     {
       path: '*',
       element: <NotImplemented />,
