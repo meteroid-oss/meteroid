@@ -127,7 +127,7 @@ impl Subscription {
         conn: &mut PgConn,
         tenant_id_param: uuid::Uuid,
         customer_id_opt: Option<uuid::Uuid>,
-        subscription_id_opt: Option<uuid::Uuid>,
+        plan_id_param_opt: Option<uuid::Uuid>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplay>> {
         use crate::schema::subscription::dsl::*;
@@ -142,8 +142,8 @@ impl Subscription {
             query = query.filter(customer_id.eq(customer_id_param));
         }
 
-        if let Some(subscription_id_param) = subscription_id_opt {
-            query = query.filter(id.eq(subscription_id_param));
+        if let Some(plan_id_param) = plan_id_param_opt {
+            query = query.filter(crate::schema::plan::id.eq(plan_id_param));
         }
         //
         //

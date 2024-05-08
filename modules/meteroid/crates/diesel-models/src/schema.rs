@@ -369,7 +369,7 @@ diesel::table! {
         billing_cycles -> Nullable<Int4>,
         created_at -> Timestamp,
         created_by -> Uuid,
-        billing_periods -> Array<Nullable<BillingPeriodEnum>>,
+        billing_periods -> Array<BillingPeriodEnum>,
     }
 }
 
@@ -570,7 +570,7 @@ diesel::table! {
         description -> Nullable<Text>,
         secret -> Text,
         created_at -> Timestamp,
-        events_to_listen -> Array<Nullable<WebhookOutEventTypeEnum>>,
+        events_to_listen -> Array<WebhookOutEventTypeEnum>,
         enabled -> Bool,
     }
 }

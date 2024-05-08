@@ -297,7 +297,7 @@ impl Stripe {
         let date_time = date
             .and_hms_opt(0, 0, 0)
             .ok_or(InvoicingAdapterError::InvalidData)?;
-        Ok(date_time.timestamp())
+        Ok(date_time.and_utc().timestamp())
     }
 
     fn extract_stripe_collection_method(

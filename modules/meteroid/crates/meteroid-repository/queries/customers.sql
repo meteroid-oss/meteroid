@@ -1,5 +1,5 @@
 --: Customer(id, name, alias?, email?, billing_config?, invoicing_email?, phone?, archived_at?, created_at?, billing_address?, shipping_address?)
---: CustomerList(alias?, email?)
+--: CustomerBrief(alias?, email?)
 --! create_customer (id, name, email?, alias?, tenant_id, created_by): (alias?, email?)
 INSERT INTO customer (id, name, alias, email, tenant_id, created_by, billing_config)
 VALUES (:id,
@@ -11,7 +11,7 @@ VALUES (:id,
         :billing_config)
 RETURNING id, name, email, alias;
 
---! list_customers (search?) : CustomerList
+--! list_customers (search?) : CustomerBrief
 SELECT id,
        name,
        email,
@@ -103,4 +103,4 @@ SET
     balance_currency = :balance_currency,
     billing_address = :billing_address,
     shipping_address = :shipping_address
-WHERE id = :id;        
+WHERE id = :id;

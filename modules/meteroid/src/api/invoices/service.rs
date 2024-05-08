@@ -31,7 +31,7 @@ impl InvoicesService for DbService {
             limit: req.pagination.limit(),
             offset: req.pagination.offset(),
             status: mapping::invoices::status_server_to_db(req.status),
-            order_by: match req.order_by.try_into() {
+            order_by: match req.sort_by.try_into() {
                 Ok(SortBy::DateAsc) => "DATE_ASC",
                 Ok(SortBy::DateDesc) => "DATE_DESC",
                 Ok(SortBy::IdAsc) => "ID_ASC",

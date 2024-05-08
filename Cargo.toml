@@ -16,6 +16,7 @@ members = [
   "crates/common-build-info",
   "crates/common-config",
   "crates/common-domain",
+  "crates/common-eventbus",
   "crates/common-grpc",
   "crates/common-grpc-error-as-tonic-macros",
   "crates/common-grpc-error-as-tonic-macros-impl",
@@ -47,7 +48,7 @@ blake3 = "1.5.0"
 build-info = "0.0.36"
 build-info-build = "0.0.36"
 bytes = "1.5.0"
-cached = "0.49.2"
+cached = "0.50.0"
 chacha20poly1305 = "0.10.1"
 chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
@@ -164,6 +165,7 @@ rand_chacha = "0.3.1"
 common-build-info = { path = "crates/common-build-info" }
 common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
+common-eventbus = { path = "crates/common-eventbus" }
 common-logging = { path = "crates/common-logging" }
 common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }
