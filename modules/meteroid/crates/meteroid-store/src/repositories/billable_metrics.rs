@@ -102,24 +102,21 @@ impl BillableMetricInterface for Store {
             product_family_id: family.id,
         };
 
-        let res: Result<domain::BillableMetric, Report<StoreError>> = insertable_entity
+        let res: domain::BillableMetric = insertable_entity
             .insert(&mut conn)
             .await
-            .map_err(Into::into)
-            .map(Into::into);
+            .map_err(Into::<Report<StoreError>>::into)
+            .map(Into::into)?;
 
-        if let Ok(inserted_entity) = &res {
-            let inserted_entity = inserted_entity.clone();
-            let _ = self
-                .eventbus
-                .publish(Event::billable_metric_created(
-                    inserted_entity.created_by,
-                    inserted_entity.id,
-                    inserted_entity.tenant_id,
-                ))
-                .await;
-        };
+        let _ = self
+            .eventbus
+            .publish(Event::billable_metric_created(
+                res.created_by,
+                res.id,
+                res.tenant_id,
+            ))
+            .await;
 
-        res
+        Ok(res)
     }
 }
