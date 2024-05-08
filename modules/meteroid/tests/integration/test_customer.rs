@@ -102,12 +102,14 @@ async fn test_customers_basic() {
     let get_by_id = clients
         .customers
         .clone()
-        .get_customer(api::customers::v1::GetCustomerRequest {
+        .get_customer_by_id(api::customers::v1::GetCustomerByIdRequest {
             id: created.id.to_string(),
         })
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .customer
+        .unwrap();
 
     assert_eq!(get_by_id.id, created.id.clone());
     assert_eq!(get_by_id.name, customer_name.clone());
@@ -122,7 +124,9 @@ async fn test_customers_basic() {
         })
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .customer
+        .unwrap();
 
     assert_eq!(get_by_alias.id, created.id.clone());
     assert_eq!(get_by_alias.name, customer_name.clone());
@@ -153,12 +157,14 @@ async fn test_customers_basic() {
     let get_by_id_patched = clients
         .customers
         .clone()
-        .get_customer(api::customers::v1::GetCustomerRequest {
+        .get_customer_by_id(api::customers::v1::GetCustomerByIdRequest {
             id: created.id.to_string(),
         })
         .await
         .unwrap()
-        .into_inner();
+        .into_inner()
+        .customer
+        .unwrap();
 
     assert_eq!(get_by_id_patched.id, created.id.clone());
     assert_eq!(get_by_id_patched.name, "new name".to_string());

@@ -2,7 +2,7 @@ use super::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 use chrono::NaiveDateTime;
 
 use diesel_models::billable_metrics::{
-    BillableMetric as DieselBillableMetric, BillableMetricNew as DieselBillableMetricNew,
+    BillableMetric as DieselBillableMetric, BillableMetricMeta as DieselBillableMetricMeta,
 };
 use o2o::o2o;
 use uuid::Uuid;
@@ -31,22 +31,32 @@ pub struct BillableMetric {
     pub product_family_id: Uuid,
 }
 
-#[derive(Clone, Debug, o2o)]
-#[owned_into(DieselBillableMetricNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
+#[derive(Clone, Debug)]
 pub struct BillableMetricNew {
     pub name: String,
     pub description: Option<String>,
     pub code: String,
-    #[into(~.into())]
     pub aggregation_type: BillingMetricAggregateEnum,
     pub aggregation_key: Option<String>,
     pub unit_conversion_factor: Option<i32>,
-    #[into(~.map(|x| x.into()))]
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
-    pub segmentation_matrix: Option<serde_json::Value>,
+    pub segmentation_matrix: Option<serde_json::Value>, // todo refactor into structure
     pub usage_group_key: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub product_family_id: Uuid,
+    pub family_external_id: String,
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(DieselBillableMetricMeta)]
+#[owned_into(DieselBillableMetricMeta)]
+pub struct BillableMetricMeta {
+    pub id: Uuid,
+    pub name: String,
+    pub code: String,
+    #[map(~.into())]
+    pub aggregation_type: BillingMetricAggregateEnum,
+    pub aggregation_key: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub archived_at: Option<NaiveDateTime>,
 }
