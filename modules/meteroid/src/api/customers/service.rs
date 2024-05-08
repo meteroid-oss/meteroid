@@ -3,9 +3,9 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
-    customers_service_server::CustomersService, list_customer_request::SortBy,
-    CreateCustomerRequest, CreateCustomerResponse, Customer, GetCustomerByAliasRequest,
-    GetCustomerRequest, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
+    customers_service_server::CustomersService, CreateCustomerRequest, CreateCustomerResponse,
+    CustomerBrief, GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
+    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
     PatchCustomerResponse,
 };
 use meteroid_store::domain;
@@ -169,11 +169,9 @@ impl CustomersService for CustomerServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
-        let rs = mapping::customer::db_to_server(customer).map_err(|e| {
-            CustomerApiError::MappingError("failed to map db customer to proto".to_string(), e)
-        })?;
-
-        Ok(Response::new(rs))
+        Ok(Response::new(GetCustomerByIdResponse {
+            customer: Some(customer),
+        }))
     }
 
     #[tracing::instrument(skip_all)]
@@ -191,10 +189,8 @@ impl CustomersService for CustomerServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
-        let rs = mapping::customer::db_to_server(customer).map_err(|e| {
-            CustomerApiError::MappingError("failed to map db customer to proto".to_string(), e)
-        })?;
-
-        Ok(Response::new(rs))
+        Ok(Response::new(GetCustomerByAliasResponse {
+            customer: Some(customer),
+        }))
     }
 }
