@@ -1,28 +1,28 @@
-import {Select, SelectTrigger, SelectContent, SelectItem, Input} from '@ui/components'
-import {useState} from 'react'
+import { Input, Select, SelectContent, SelectItem, SelectTrigger } from '@ui/components'
+import { useState } from 'react'
 
-import {useQuery} from '@/lib/connectrpc'
+import { useQuery } from '@/lib/connectrpc'
 import {
-  getCustomer,
+  getCustomerById,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import {ListCustomerRequest_SortBy} from '@/rpc/api/customers/v1/customers_pb'
-import {CustomerBrief} from '@/rpc/api/customers/v1/models_pb'
+import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
+import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 
 interface Props {
   value?: CustomerBrief['id']
   onChange: (id: CustomerBrief['id']) => void
 }
 
-export const CustomerSelect = ({value, onChange}: Props) => {
+export const CustomerSelect = ({ value, onChange }: Props) => {
   const [search, setSearch] = useState('')
 
   const getCustomerQuery = useQuery(
-    getCustomer,
+    getCustomerById,
     {
       id: value ?? '',
     },
-    {enabled: Boolean(value)}
+    { enabled: Boolean(value) }
   )
 
   const onValueChange = (value: string) => {
@@ -34,7 +34,9 @@ export const CustomerSelect = ({value, onChange}: Props) => {
 
   return (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger className="w-[180px]">{customer ? customer.name : 'Choose one'}</SelectTrigger>
+      <SelectTrigger className="w-[180px]">
+        {customer ? customer.customer?.name : 'Choose one'}
+      </SelectTrigger>
       <SelectContent>
         <Input
           className="mb-2"
@@ -43,13 +45,13 @@ export const CustomerSelect = ({value, onChange}: Props) => {
           value={search}
           onChange={event => setSearch(event.target.value)}
         />
-        <CustomerItems search={search}/>
+        <CustomerItems search={search} />
       </SelectContent>
     </Select>
   )
 }
 
-const CustomerItems = ({search}: { search: string }) => {
+const CustomerItems = ({ search }: { search: string }) => {
   const customersQuery = useQuery(
     listCustomers,
     {
