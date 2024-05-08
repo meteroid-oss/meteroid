@@ -29,7 +29,7 @@ pub fn chrono_to_datetime(
         datetime.time().hour() as u8,
         datetime.time().minute() as u8,
         datetime.time().second() as u8,
-        datetime.timestamp_subsec_millis() as u16,
+        datetime.and_utc().timestamp_subsec_millis() as u16,
     )
     .map_err(|_| MappingError::new("Failed to convert chrono::Time to time::Time"))?;
 

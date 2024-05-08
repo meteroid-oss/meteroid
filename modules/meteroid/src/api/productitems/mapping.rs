@@ -1,23 +1,28 @@
 pub mod products {
     use meteroid_grpc::meteroid::api::products::v1::{Product, ProductMeta};
-    use meteroid_repository::products::{ListProduct as DbListProducts, Product as DbProduct};
+    use meteroid_store::domain;
 
-    use crate::api::shared::mapping::datetime::datetime_to_timestamp;
+    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    pub struct ProductWrapper(pub Product);
 
-    // TODO add the db_product.**count
-    pub fn db_to_server(db_product: DbProduct) -> Product {
-        Product {
-            id: db_product.id.to_string(),
-            name: db_product.name,
-            description: db_product.description,
-            created_at: Some(datetime_to_timestamp(db_product.created_at)),
+    impl From<domain::Product> for ProductWrapper {
+        fn from(product: domain::Product) -> Self {
+            ProductWrapper(Product {
+                id: product.id.to_string(),
+                name: product.name,
+                description: product.description,
+                created_at: Some(chrono_to_timestamp(product.created_at)),
+            })
         }
     }
 
-    pub fn db_to_server_list(db_product: DbListProducts) -> ProductMeta {
-        ProductMeta {
-            id: db_product.id.to_string(),
-            name: db_product.name,
+    pub struct ProductMetaWrapper(pub ProductMeta);
+    impl From<domain::Product> for ProductMetaWrapper {
+        fn from(product: domain::Product) -> Self {
+            ProductMetaWrapper(ProductMeta {
+                id: product.id.to_string(),
+                name: product.name,
+            })
         }
     }
 }

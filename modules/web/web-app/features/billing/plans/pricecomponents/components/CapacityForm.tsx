@@ -1,11 +1,4 @@
-import {
-  SelectItem,
-  Button,
-  Input,
-  ComboboxFormField,
-  Form,
-  SelectFormField,
-} from '@md/ui'
+import { Button, ComboboxFormField, Form, Input } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
@@ -16,14 +9,14 @@ import { useNavigate } from 'react-router-dom'
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
-  componentFeeAtom,
-  FeeFormProps,
   EditPriceComponentCard,
+  FeeFormProps,
+  componentFeeAtom,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
-import { useZodForm, Methods } from '@/hooks/useZodForm'
+import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
-import { CapacitySchema, Capacity, Threshold } from '@/lib/schemas/plans'
+import { CapacityFee, CapacityFeeSchema, CapacityThreshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
@@ -34,14 +27,11 @@ export const CapacityForm = (props: FeeFormProps) => {
   const navigate = useNavigate()
 
   const methods = useZodForm({
-    schema: CapacitySchema,
-    defaultValues: component?.data as Capacity,
+    schema: CapacityFeeSchema,
+    defaultValues: component?.data as CapacityFee,
   })
 
   // TODO add cadence to capacity. This is the committed cadence, amount & overage is still monthly
-  // also TODO, it needs to be picked from the db in edit (same for slots / rate)
-
-  const cadence = useWatch({ control: methods.control, name: 'pricing.cadence' })
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
 
@@ -64,23 +54,8 @@ export const CapacityForm = (props: FeeFormProps) => {
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
-              <SelectFormField
-                name="pricing.cadence"
-                label="Cadence"
-                control={methods.control}
-                className="lg:w-[180px] xl:w-[230px]"
-                onValueChange={value =>
-                  value === 'COMMITTED' && methods.unregister('pricing.cadence')
-                }
-              >
-                <SelectItem value="COMMITTED">Committed</SelectItem>
-                <SelectItem value="MONTHLY">Monthly</SelectItem>
-                <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-                <SelectItem value="ANNUAL">Annual</SelectItem>
-              </SelectFormField>
-
               <ComboboxFormField
-                name="metric.id"
+                name="metricId"
                 label="Billable metric"
                 control={methods.control}
                 placeholder="Select a metric"
@@ -99,11 +74,7 @@ export const CapacityForm = (props: FeeFormProps) => {
               />
             </div>
             <div className="ml-4 col-span-2">
-              {cadence === 'COMMITTED' ? (
-                <>Not implemented</> // TODO use column grouping so that we have sub-tds for each term, only for the fixed fee
-              ) : (
-                <ThresholdTable methods={methods} currency={currency} />
-              )}
+              <ThresholdTable methods={methods} currency={currency} />
             </div>
           </div>
         </EditPriceComponentCard>
@@ -116,12 +87,12 @@ const ThresholdTable = ({
   methods,
   currency,
 }: {
-  methods: Methods<typeof CapacitySchema> // TODO
+  methods: Methods<typeof CapacityFeeSchema> // TODO
   currency: string
 }) => {
   const { fields, append, remove } = useFieldArray({
     control: methods.control,
-    name: 'pricing.thresholds',
+    name: 'thresholds',
   })
 
   const addThreshold = () => {
@@ -140,7 +111,7 @@ const ThresholdTable = ({
     remove(idx)
   }
 
-  const columns = useMemo<ColumnDef<Threshold>[]>(() => {
+  const columns = useMemo<ColumnDef<CapacityThreshold>[]>(() => {
     return [
       {
         header: 'Included ',
@@ -150,8 +121,8 @@ const ThresholdTable = ({
         header: 'Tier price',
         cell: ({ row }) => (
           <PriceInput
-            {...methods.withControl(`pricing.thresholds.${row.index}.price`)}
-            {...methods.withError(`pricing.thresholds.${row.index}.price`)}
+            {...methods.withControl(`thresholds.${row.index}.price`)}
+            {...methods.withError(`thresholds.${row.index}.price`)}
             currency={currency}
             showCurrency={false}
           />
@@ -161,8 +132,8 @@ const ThresholdTable = ({
         header: 'Per unit overage',
         cell: ({ row }) => (
           <PriceInput
-            {...methods.withControl(`pricing.thresholds.${row.index}.perUnitOverage`)}
-            {...methods.withError(`pricing.thresholds.${row.index}.perUnitOverage`)}
+            {...methods.withControl(`thresholds.${row.index}.perUnitOverage`)}
+            {...methods.withError(`thresholds.${row.index}.perUnitOverage`)}
             currency={currency}
             showCurrency={false}
             precision={8}
@@ -195,33 +166,33 @@ const IncludedAmountInput = ({
   methods,
   rowIndex,
 }: {
-  methods: Methods<typeof CapacitySchema>
+  methods: Methods<typeof CapacityFeeSchema>
   rowIndex: number
 }) => {
   const { setValue, control } = methods
   const prevRowValue = useWatch({
     control,
-    name: `pricing.thresholds.${rowIndex - 1}.includedAmount`,
+    name: `thresholds.${rowIndex - 1}.includedAmount`,
   })
   const thisValue = useWatch({
     control,
-    name: `pricing.thresholds.${rowIndex}.includedAmount`,
+    name: `thresholds.${rowIndex}.includedAmount`,
   })
 
   useEffect(() => {
     if (rowIndex > 0 && prevRowValue >= thisValue) {
       const updatedValue = prevRowValue + 1
-      setValue(`pricing.thresholds.${rowIndex}.includedAmount`, updatedValue)
+      setValue(`thresholds.${rowIndex}.includedAmount`, updatedValue)
     }
   }, [prevRowValue, rowIndex, setValue])
 
   return (
     <Input
       type="number"
-      {...methods.register(`pricing.thresholds.${rowIndex}.includedAmount`, {
+      {...methods.register(`thresholds.${rowIndex}.includedAmount`, {
         valueAsNumber: true,
       })}
-      {...methods.withError(`pricing.thresholds.${rowIndex}.includedAmount`)}
+      {...methods.withError(`thresholds.${rowIndex}.includedAmount`)}
     />
   )
 }

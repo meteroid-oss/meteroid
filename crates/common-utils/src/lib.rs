@@ -7,3 +7,4 @@ pub mod timed;
 
 #[cfg(feature = "decimal")]
 pub mod decimal;
+pub mod rng;

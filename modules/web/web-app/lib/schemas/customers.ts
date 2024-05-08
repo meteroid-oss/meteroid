@@ -7,20 +7,3 @@ export const createCustomerSchema = z.object({
   externalId: z.string().optional(),
   stripeCustomerId: z.string(),
 })
-
-/*
-TODO
-
-accountInformation {
-  companyName
-  externalId
-  accountEmail
-}
-billingInformation {
-  billingEmails
-  billingAddress
-}
-
-
-
-*/

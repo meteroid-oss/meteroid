@@ -6,12 +6,11 @@ use uuid::Uuid;
 
 use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
+use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
 use common_repository::Pool;
 
-use crate::eventbus::{
-    Event, EventBusError, EventData, EventDataDetails, EventHandler, TenantEventDataDetails,
-};
+use common_eventbus::{Event, EventData, EventDataDetails, TenantEventDataDetails};
 
 pub struct AnalyticsHandler {
     pool: Pool,
@@ -131,7 +130,7 @@ impl AnalyticsHandler {
             serde_json::json!({
                 "billable_metric_id": event_data_details.entity_id,
                 "tenant_id": event_data_details.tenant_id,
-                "aggregation_type": crate::api::billablemetrics::mapping::aggregation_type::db_to_server(billable_metric.aggregation_type).as_str_name()
+                "aggregation_type": crate::api::billablemetrics::mapping::aggregation_type_old::db_to_server(billable_metric.aggregation_type).as_str_name()
             }),
         )
         .await;

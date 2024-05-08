@@ -23,7 +23,7 @@ function DatePicker({
         <Button
           variant="outline"
           className={cn(
-            'justify-start text-left font-normal border border-slate-400 rounded-md',
+            'justify-start text-left font-normal border border-border rounded-md',
             !date && 'text-muted-foreground',
             className
           )}
@@ -32,8 +32,8 @@ function DatePicker({
           {date ? format(date, 'LLL dd, y') : <span>{placeholder}</span>}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0 border border-slate-400 rounded-md " align="start">
-        <Calendar initialFocus className="bg-white-100 dark:bg-slate-200" {...props} />
+      <PopoverContent className="w-auto p-0 border border-border rounded-md " align="start">
+        <Calendar initialFocus className=" " {...props} />
       </PopoverContent>
     </Popover>
   )

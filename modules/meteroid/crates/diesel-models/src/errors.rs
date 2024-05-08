@@ -12,7 +12,7 @@ impl From<Report<DatabaseError>> for DatabaseErrorContainer {
     }
 }
 
-#[derive(Copy, Clone, Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum DatabaseError {
     #[error("An error occurred when obtaining database connection")]
     DatabaseConnectionError,
@@ -25,8 +25,8 @@ pub enum DatabaseError {
     #[error("An error occurred when generating typed SQL query")]
     QueryGenerationFailed,
     // InsertFailed,
-    #[error("An unknown error occurred")]
-    Others,
+    #[error("An unknown error occurred: {0}")]
+    Others(String),
 }
 
 impl From<&diesel::result::Error> for DatabaseError {
@@ -38,7 +38,7 @@ impl From<&diesel::result::Error> for DatabaseError {
             ) => Self::UniqueViolation,
             diesel::result::Error::NotFound => Self::NotFound,
             diesel::result::Error::QueryBuilderError(_) => Self::QueryGenerationFailed,
-            _ => Self::Others,
+            err => Self::Others(err.to_string()),
         }
     }
 }
@@ -64,7 +64,9 @@ impl<T> IntoDbResult for Result<T, DieselError> {
             Ok(value) => Ok(value),
             Err(err) => {
                 let db_err = DatabaseError::from(&err);
-                Err(Report::from(err).change_context(db_err)).map_err(DatabaseErrorContainer::from)
+                Err(DatabaseErrorContainer::from(
+                    Report::from(err).change_context(db_err),
+                ))
             }
         }
     }
@@ -77,7 +79,7 @@ impl<T> IntoDbResult for error_stack::Result<T, DieselError> {
             Ok(value) => Ok(value),
             Err(err) => {
                 let db_err = DatabaseError::from(err.current_context());
-                Err(Report::from(err).change_context(db_err)).map_err(DatabaseErrorContainer::from)
+                Err(DatabaseErrorContainer::from(err.change_context(db_err)))
             }
         }
     }
@@ -89,7 +91,7 @@ where
     E: From<DatabaseError>,
 {
     fn from(container: DatabaseErrorContainer) -> Self {
-        let new_error: E = (*container.error.current_context()).into();
+        let new_error: E = (container.error.current_context().clone()).into();
         container.error.change_context(new_error)
     }
 }

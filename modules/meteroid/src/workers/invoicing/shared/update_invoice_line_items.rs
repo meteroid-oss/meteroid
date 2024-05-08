@@ -4,33 +4,34 @@ use cornucopia_async::Params;
 use meteroid_repository as db;
 
 use crate::{compute::InvoiceEngine, errors};
-use common_utils::error_stack_conv::AnyhowIntoReport;
+
 use error_stack::{Result, ResultExt};
-use log::error;
+
+use meteroid_store::repositories::SubscriptionInterface;
+use meteroid_store::Store;
 
 pub async fn update_invoice_line_items(
     invoice_data: &db::invoices::Invoice,
     compute_service: &InvoiceEngine,
     db_client: &Client,
+    store: Store,
 ) -> Result<(), errors::WorkerError> {
     let invoice_date = convert_time_to_chrono(invoice_data.invoice_date)?;
 
-    let invoice_lines = compute_service
-        .calculate_invoice_lines(
-            db_client,
-            &invoice_data.subscription_id,
-            &invoice_data.tenant_id,
-            &invoice_date,
+    let subscription_details = store
+        .get_subscription_details(
+            invoice_data.tenant_id.clone(),
+            invoice_data.subscription_id.clone(),
         )
         .await
-        .map_err(|e| {
-            error!("Failed to calculate invoice lines: {}", e);
-            e
-        })
-        .into_report()
+        .change_context(errors::WorkerError::DatabaseError)?;
+
+    let invoice_lines = compute_service
+        .compute_dated_invoice_lines(&invoice_date, subscription_details)
+        .await
         .change_context(errors::WorkerError::MeteringError)?;
 
-    let invoice_lines_json = serde_json::to_value(invoice_lines.lines)
+    let invoice_lines_json = serde_json::to_value(invoice_lines)
         .attach_printable("Failed to encode computed invoice lines to JSON")
         .change_context(errors::WorkerError::MeteringError)?; // TODO
 

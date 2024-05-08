@@ -187,33 +187,33 @@ pub mod plans {
         }
     }
 
-    pub mod parameters {
-        use meteroid_grpc::meteroid::api::plans::v1 as grpc;
-
-        use crate::api::pricecomponents::ext::PlanParameter;
-
-        pub fn to_grpc(param: PlanParameter) -> grpc::PlanParameter {
-            let param = match param {
-                PlanParameter::BillingPeriodTerm => grpc::plan_parameter::Param::BillingPeriodTerm(
-                    grpc::plan_parameter::BillingPeriodTerm {},
-                ),
-                PlanParameter::CapacityThresholdValue {
-                    capacity_values,
-                    component_id,
-                } => grpc::plan_parameter::Param::CapacityThresholdValue(
-                    grpc::plan_parameter::CapacityThresholdValue {
-                        component_id,
-                        capacity_values,
-                    },
-                ),
-                PlanParameter::CommittedSlot { component_id } => {
-                    grpc::plan_parameter::Param::CommittedSlot(
-                        grpc::plan_parameter::CommittedSlot { component_id },
-                    )
-                }
-            };
-
-            grpc::PlanParameter { param: Some(param) }
-        }
-    }
+    // pub mod parameters {
+    //     use meteroid_grpc::meteroid::api::plans::v1 as grpc;
+    //
+    //     use crate::api::pricecomponents::ext::PlanParameter;
+    //
+    //     pub fn to_grpc(param: PlanParameter) -> grpc::PlanParameter {
+    //         let param = match param {
+    //             PlanParameter::BillingPeriodTerm => grpc::plan_parameter::Param::BillingPeriodTerm(
+    //                 grpc::plan_parameter::BillingPeriodTerm {},
+    //             ),
+    //             PlanParameter::CapacityThresholdValue {
+    //                 capacity_values,
+    //                 component_id,
+    //             } => grpc::plan_parameter::Param::CapacityThresholdValue(
+    //                 grpc::plan_parameter::CapacityThresholdValue {
+    //                     component_id,
+    //                     capacity_values,
+    //                 },
+    //             ),
+    //             PlanParameter::CommittedSlot { component_id } => {
+    //                 grpc::plan_parameter::Param::CommittedSlot(
+    //                     grpc::plan_parameter::CommittedSlot { component_id },
+    //                 )
+    //             }
+    //         };
+    //
+    //         grpc::PlanParameter { param: Some(param) }
+    //     }
+    // }
 }

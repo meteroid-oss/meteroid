@@ -1,5 +1,5 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Form, Modal, CheckboxFormField, InputFormField } from '@md/ui'
+import { CheckboxFormField, Form, InputFormField, Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { ComponentProps } from 'react'
 import { toast } from 'sonner'
@@ -8,7 +8,7 @@ import { z } from 'zod'
 import { addressesSchema } from '@/features/customers/cards/address/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
-  getCustomer,
+  getCustomerById,
   patchCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
@@ -22,7 +22,7 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
   const patchCustomerMutation = useMutation(patchCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomer, { id: customer.id }),
+        queryKey: createConnectQueryKey(getCustomerById, { id: customer.id }),
       })
     },
   })

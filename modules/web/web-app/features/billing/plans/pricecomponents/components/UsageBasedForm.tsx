@@ -28,8 +28,8 @@ import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm, Methods } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import {
-  UsageBasedSchema,
-  UsageBased,
+  UsageFeeSchema,
+  UsageFee,
   UsagePricingModelType,
   TieredAndVolumeRow,
 } from '@/lib/schemas/plans'
@@ -50,8 +50,8 @@ export const UsageBasedForm = (props: FeeFormProps) => {
   const navigate = useNavigate()
 
   const methods = useZodForm({
-    schema: UsageBasedSchema,
-    defaultValues: component?.data as UsageBased,
+    schema: UsageFeeSchema,
+    defaultValues: component?.data as UsageFee,
   })
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
@@ -79,7 +79,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
               <ComboboxFormField
-                name="metric.id"
+                name="metricId"
                 label="Billable metric"
                 control={methods.control}
                 placeholder="Select a metric"
@@ -124,7 +124,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
 const UsageBasedDataForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const model = useWatch({
     control: methods.control,
@@ -142,7 +142,7 @@ const UsageBasedDataForm = ({
 const PerUnitForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
 
@@ -180,7 +180,7 @@ const PerUnitForm = ({
 const TieredForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
   return <TierTable methods={methods} currency={currency} />
@@ -189,7 +189,7 @@ const TieredForm = ({
 const VolumeForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
   return <TierTable methods={methods} currency={currency} />
@@ -198,7 +198,7 @@ const VolumeForm = ({
 const PackageForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
   return (
@@ -214,7 +214,7 @@ const PackageForm = ({
 
       <GenericFormField
         control={methods.control}
-        name="model.data.blockPrice"
+        name="model.data.packagePrice"
         label="Price per block"
         render={({ field }) => (
           <UncontrolledPriceInput
@@ -233,7 +233,7 @@ const TierTable = ({
   methods,
   currency,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema>
   currency: string
 }) => {
   const [shouldInitTiers, setShouldInitTiers] = useState(false)
@@ -253,11 +253,11 @@ const TierTable = ({
   useEffect(() => {
     if (shouldInitTiers) {
       append({
-        firstUnit: 0,
+        firstUnit: BigInt(0),
         unitPrice: '',
       })
       append({
-        firstUnit: 100,
+        firstUnit: BigInt(100),
         unitPrice: '',
       })
     }
@@ -266,7 +266,8 @@ const TierTable = ({
   const addTier = () => {
     const tiers = [...fields]
 
-    const firstUnit = tiers.length === 0 ? 0 : (tiers[tiers.length - 1]?.lastUnit ?? 0) + 1
+    const firstUnit: bigint =
+      tiers.length === 0 ? BigInt(0) : BigInt(tiers[tiers.length - 1].firstUnit) + BigInt(1)
 
     append({
       firstUnit,
@@ -281,12 +282,12 @@ const TierTable = ({
   const columns = useMemo<ColumnDef<TieredAndVolumeRow>[]>(() => {
     return [
       {
-        header: 'First unit ',
+        header: 'First unit',
         cell: ({ row }) => <FirstUnitField methods={methods} rowIndex={row.index} />,
       },
       {
-        header: 'Last unit ',
-        cell: ({ row }) => <LastUnitInput methods={methods} rowIndex={row.index} />,
+        header: 'Last unit',
+        cell: ({ row }) => <LastUnitCell methods={methods} rowIndex={row.index} />,
       },
       {
         header: 'Per unit',
@@ -332,75 +333,43 @@ const FirstUnitField = ({
   methods,
   rowIndex,
 }: {
-  methods: Methods<typeof UsageBasedSchema>
+  methods: Methods<typeof UsageFeeSchema>
   rowIndex: number
 }) => {
-  const { setValue, control } = methods
+  const { control } = methods
   const prevRowValue = useWatch({
     control,
     name: `model.data.rows.${rowIndex - 1}`,
   })
-  const thisValue = useWatch({
-    control,
-    name: `model.data.rows.${rowIndex}.firstUnit`,
-  })
 
-  useEffect(() => {
-    const updatedValue = prevRowValue
-      ? Math.max(prevRowValue.firstUnit, prevRowValue.lastUnit ?? 0)
-      : 0
-    setValue(`model.data.rows.${rowIndex}.firstUnit`, updatedValue)
-  }, [prevRowValue, rowIndex, setValue])
+  const isFirst = !prevRowValue
 
-  return thisValue
+  return (
+    <Input
+      type="number"
+      {...methods.register(`model.data.rows.${rowIndex}.firstUnit`, {
+        setValueAs: (value: string) => value,
+        disabled: isFirst,
+      })}
+      {...methods.withError(`model.data.rows.${rowIndex}.firstUnit`)}
+      placeholder="0"
+    />
+  )
 }
 
-const LastUnitInput = ({
+const LastUnitCell = ({
   methods,
   rowIndex,
 }: {
-  methods: Methods<typeof UsageBasedSchema>
+  methods: Methods<typeof UsageFeeSchema>
   rowIndex: number
 }) => {
-  const { setValue, control } = methods
   const nextRow = useWatch({
-    control,
+    control: methods.control,
     name: `model.data.rows.${rowIndex + 1}`,
   })
-  const thisRow = useWatch({
-    control,
-    name: `model.data.rows.${rowIndex}`,
-  })
-
-  useEffect(() => {
-    if (nextRow && !thisRow.lastUnit) {
-      // and is not focused todo
-      const updatedValue = thisRow.firstUnit + 1
-      setValue(`model.data.rows.${rowIndex}.lastUnit`, updatedValue)
-    } else if (!nextRow) {
-      setValue(`model.data.rows.${rowIndex}.lastUnit`, undefined)
-    }
-  }, [nextRow, setValue])
 
   const isLast = !nextRow
 
-  return isLast ? (
-    '∞'
-  ) : (
-    <Input
-      type="number"
-      {...methods.register(`model.data.rows.${rowIndex}.lastUnit`, {
-        setValueAs: (value: string) => {
-          const parsed = value === '' ? undefined : parseInt(value)
-          if (!parsed || isNaN(parsed)) {
-            return undefined
-          } else {
-            return parsed
-          }
-        },
-      })}
-      {...methods.withError(`model.data.rows.${rowIndex}.lastUnit`)}
-      placeholder="∞"
-    />
-  )
+  return isLast ? '∞' : `${BigInt(nextRow.firstUnit) - BigInt(1)}`
 }
