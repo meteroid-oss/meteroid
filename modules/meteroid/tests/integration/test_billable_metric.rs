@@ -31,7 +31,7 @@ async fn test_billable_metrics_basic() {
     let metric_code = "vvv".to_owned();
 
     // create family
-    let family = clients
+    let _family = clients
         .product_families
         .clone()
         .create_product_family(api::productfamilies::v1::CreateProductFamilyRequest {
