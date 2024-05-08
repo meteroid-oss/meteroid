@@ -98,25 +98,22 @@ impl CustomersInterface for Store {
 
         let insertable_entity: diesel_models::customers::CustomerNew = customer.try_into()?;
 
-        let res: Result<domain::Customer, Report<StoreError>> = insertable_entity
+        let res: domain::Customer = insertable_entity
             .insert(&mut conn)
             .await
             .map_err(Into::into)
-            .and_then(TryInto::try_into);
+            .and_then(TryInto::try_into)?;
 
-        if let Ok(inserted_entity) = &res {
-            let inserted_entity = inserted_entity.clone();
-            let _ = self
-                .eventbus
-                .publish(Event::customer_created(
-                    inserted_entity.created_by,
-                    inserted_entity.id,
-                    inserted_entity.tenant_id,
-                ))
-                .await;
-        };
+        let _ = self
+            .eventbus
+            .publish(Event::customer_created(
+                res.created_by,
+                res.id,
+                res.tenant_id,
+            ))
+            .await;
 
-        res
+        Ok(res)
     }
 
     async fn insert_customer_batch(
@@ -132,10 +129,24 @@ impl CustomersInterface for Store {
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        diesel_models::customers::Customer::insert_customer_batch(&mut conn, insertable_batch)
-            .await
-            .map_err(Into::into)
-            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())
+        let res: Vec<Customer> =
+            diesel_models::customers::Customer::insert_customer_batch(&mut conn, insertable_batch)
+                .await
+                .map_err(Into::into)
+                .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+
+        let _ = futures::future::join_all(res.clone().into_iter().map(|res| {
+            self.eventbus.publish(Event::customer_created(
+                res.created_by,
+                res.id,
+                res.tenant_id,
+            ))
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>();
+
+        Ok(res)
     }
 
     async fn patch_customer(
