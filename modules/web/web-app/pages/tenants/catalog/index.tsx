@@ -78,12 +78,8 @@ export const CatalogOutlet: FunctionComponent = () => {
                   to: 'currencies',
                 },
                 {
-                  label: 'Custom Pricing units',
+                  label: 'Custom units',
                   to: 'units',
-                },
-                {
-                  label: 'Billing Frequencies',
-                  to: 'frequencies',
                 },
               ],
             },

@@ -1,3 +1,4 @@
+use common_eventbus::Event;
 use cornucopia_async::Params;
 use log::error;
 use tonic::{Request, Response, Status};
@@ -14,7 +15,6 @@ use meteroid_repository as db;
 use crate::api::billablemetrics::error::BillableMetricApiError;
 use crate::api::utils::uuid_gen;
 use crate::api::utils::{parse_uuid, PaginationExt};
-use crate::eventbus::Event;
 
 use super::{mapping, BillableMetricsComponents};
 

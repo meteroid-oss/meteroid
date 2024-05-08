@@ -1,3 +1,4 @@
+pub mod crypt;
 pub mod domain;
 pub mod errors;
 pub mod repositories;

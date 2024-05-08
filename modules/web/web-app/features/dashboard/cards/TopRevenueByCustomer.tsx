@@ -4,7 +4,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { topRevenueByCustomer } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
 export const TopRevenueByCustomers = () => {
-  const q = useQuery(topRevenueByCustomer, { count: 3 })
+  const q = useQuery(topRevenueByCustomer, { count: 6 })
 
   return (
     <TopCard
@@ -13,7 +13,7 @@ export const TopRevenueByCustomers = () => {
       values={q.data?.revenueByCustomer.map(customer => ({
         name: customer.customerName,
         value: formatCurrency(customer.revenue),
-        detailsPath: `/customers/${customer.customerId}`,
+        detailsPath: `customers/${customer.customerId}`,
       }))}
     />
   )
