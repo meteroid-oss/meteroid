@@ -1,19 +1,22 @@
-use common_eventbus::Event;
-use cornucopia_async::Params;
-use log::error;
+use error_stack::Report;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use metering_grpc::meteroid::metering::v1::RegisterMeterRequest;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
-    billable_metrics_service_server::BillableMetricsService, CreateBillableMetricRequest,
-    CreateBillableMetricResponse, GetBillableMetricRequest, GetBillableMetricResponse,
-    ListBillableMetricsRequest, ListBillableMetricsResponse,
+    billable_metrics_service_server::BillableMetricsService, BillableMetricMeta,
+    CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
+    GetBillableMetricResponse, ListBillableMetricsRequest, ListBillableMetricsResponse,
 };
-use meteroid_repository as db;
+use meteroid_store::domain;
+use meteroid_store::domain::BillableMetric;
+use meteroid_store::errors::StoreError;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 
 use crate::api::billablemetrics::error::BillableMetricApiError;
-use crate::api::utils::uuid_gen;
+use crate::api::billablemetrics::mapping::metric::{
+    ServerBillableMetricMetaWrapper, ServerBillableMetricWrapper,
+};
 use crate::api::utils::{parse_uuid, PaginationExt};
 
 use super::{mapping, BillableMetricsComponents};
@@ -27,13 +30,12 @@ impl BillableMetricsService for BillableMetricsComponents {
     ) -> Result<Response<CreateBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
         let actor = request.actor()?;
-        let metric = request.into_inner();
-        let connection = self.get_connection().await?;
+        let inner = request.into_inner();
 
-        let (aggregation_key, aggregation_type, unit_conversion) = match metric.aggregation {
+        let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation {
             Some(aggregation) => (
                 aggregation.aggregation_key,
-                Some(mapping::aggregation_type::server_to_db(
+                Some(mapping::aggregation_type::server_to_domain(
                     aggregation.aggregation_type.try_into().map_err(|e| {
                         BillableMetricApiError::MappingError(
                             "unknown aggregation_type".to_string(),
@@ -46,43 +48,36 @@ impl BillableMetricsService for BillableMetricsComponents {
             None => (None, None, None),
         };
 
-        let params = db::billable_metrics::CreateBillableMetricParams {
-            id: uuid_gen::v7(),
-            product_family_external_id: metric.family_external_id,
-            code: metric.code,
-            name: metric.name,
-            description: metric.description,
-            aggregation_key,
-            aggregation_type: aggregation_type.unwrap(),
-            segmentation_matrix: metric
-                .segmentation_matrix
-                .map(|s| serde_json::to_value(s).unwrap()),
-            // segmentation_matrix_type: None, // TODO remove it from db, we encode it all in segmentation_matrix
-            tenant_id, // TODO
-            usage_group_key: metric.usage_group_key,
-            unit_conversion_factor: Some(1), // TODO float => metric.aggregation.and_then(|a| a.unit_conversion).map(|u| u.factor),
-            unit_conversion_rounding: unit_conversion.map(|u| match u.rounding.try_into() {
-                Ok(a) => mapping::unit_conversion_rounding::server_to_db(a),
-                Err(_) => db::UnitConversionRoundingEnum::NONE,
-            }),
-            created_by: actor,
-        };
-
-        let metric = db::billable_metrics::create_billable_metric()
-            .params(&connection, &params)
-            .one()
+        let domain_billable_metric: BillableMetric = self
+            .store
+            .insert_billable_metric(domain::BillableMetricNew {
+                name: inner.name,
+                description: inner.description,
+                code: inner.code,
+                aggregation_type: aggregation_type.unwrap(),
+                aggregation_key,
+                unit_conversion_factor: Some(1), // todo fix?
+                unit_conversion_rounding: unit_conversion.map(|u| match u.rounding.try_into() {
+                    Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
+                    Err(_) => domain::enums::UnitConversionRoundingEnum::None,
+                }),
+                segmentation_matrix: inner
+                    .segmentation_matrix
+                    .map(|s| serde_json::to_value(s).unwrap()),
+                usage_group_key: inner.usage_group_key,
+                created_by: actor,
+                tenant_id,
+                family_external_id: inner.family_external_id,
+            })
             .await
-            .map_err(|e| {
-                error!("Unable to create billable metric: {:#?}", e);
-                BillableMetricApiError::DatabaseError(
-                    "unable to create billable metric".to_string(),
-                    e,
-                )
-            })?;
+            .map_err(Into::<BillableMetricApiError>::into)?;
 
-        let rs = mapping::metric::db_to_server(metric.clone());
+        let server_billable_metric =
+            ServerBillableMetricWrapper::try_from(domain_billable_metric.clone())
+                .map(|v| v.0)
+                .map_err(Into::<BillableMetricApiError>::into)?;
 
-        let metering_meter = mapping::metric::db_to_metering(metric.clone());
+        let metering_meter = mapping::metric::domain_to_metering(domain_billable_metric.clone());
 
         let _ = &self
             .meters_service_client
@@ -93,13 +88,8 @@ impl BillableMetricsService for BillableMetricsComponents {
             }))
             .await; // TODO add in db/response the register , error and allow retrying
 
-        let _ = self
-            .eventbus
-            .publish(Event::billable_metric_created(actor, metric.id, tenant_id))
-            .await;
-
         Ok(Response::new(CreateBillableMetricResponse {
-            billable_metric: Some(rs),
+            billable_metric: Some(server_billable_metric),
         }))
     }
 
@@ -111,36 +101,30 @@ impl BillableMetricsService for BillableMetricsComponents {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
 
-        let connection = self.get_connection().await?;
-
-        let params = db::billable_metrics::ListBillableMetricsParams {
-            product_family_external_id: inner.family_external_id,
-            tenant_id,
-            limit: inner.pagination.limit(),
-            offset: inner.pagination.offset(),
+        let pagination_req = domain::PaginationRequest {
+            page: inner.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: inner.pagination.as_ref().map(|p| p.limit),
         };
 
-        let metrics = db::billable_metrics::list_billable_metrics()
-            .params(&connection, &params)
-            .all()
+        let res = self
+            .store
+            .list_billable_metrics(tenant_id, pagination_req, inner.family_external_id)
             .await
-            .map_err(|e| {
-                BillableMetricApiError::DatabaseError(
-                    "unable to list billable metrics".to_string(),
-                    e,
-                )
-            })?;
+            .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
-        let total_count = metrics.first().map(|p| p.total_count).unwrap_or(0);
-        let rs = metrics
-            .into_iter()
-            .map(mapping::metric::list_db_to_server)
-            .collect::<Vec<_>>();
+        let response = ListBillableMetricsResponse {
+            pagination_meta: inner.pagination.into_response(res.total_results as u32),
+            billable_metrics: res
+                .items
+                .into_iter()
+                .map(|l| ServerBillableMetricMetaWrapper::try_from(l).map(|v| v.0))
+                .collect::<Vec<Result<BillableMetricMeta, Report<StoreError>>>>()
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::<BillableMetricApiError>::into)?,
+        };
 
-        Ok(Response::new(ListBillableMetricsResponse {
-            billable_metrics: rs,
-            pagination_meta: inner.pagination.into_response(total_count as u32),
-        }))
+        Ok(Response::new(response))
     }
 
     #[tracing::instrument(skip_all)]
@@ -149,30 +133,20 @@ impl BillableMetricsService for BillableMetricsComponents {
         request: Request<GetBillableMetricRequest>,
     ) -> Result<Response<GetBillableMetricResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let inner = request.into_inner();
+        let req = request.into_inner();
 
-        let connection = self.get_connection().await?;
+        let billable_metric_id = parse_uuid(&req.id, "id")?;
 
-        let params = db::billable_metrics::GetBillableMetricByIdParams {
-            id: parse_uuid(&inner.id, "metric_id")?,
-            tenant_id,
-        };
-
-        let metric = db::billable_metrics::get_billable_metric_by_id()
-            .params(&connection, &params)
-            .one()
+        let billable_metric = self
+            .store
+            .find_billable_metric_by_id(billable_metric_id.clone(), tenant_id.clone())
             .await
-            .map_err(|e| {
-                BillableMetricApiError::DatabaseError(
-                    "Unable to get billable metric".to_string(),
-                    e,
-                )
-            })?;
-
-        let rs = mapping::metric::db_to_server(metric);
+            .and_then(ServerBillableMetricWrapper::try_from)
+            .map(|v| v.0)
+            .map_err(Into::<BillableMetricApiError>::into)?;
 
         Ok(Response::new(GetBillableMetricResponse {
-            billable_metric: Some(rs),
+            billable_metric: Some(billable_metric),
         }))
     }
 }
