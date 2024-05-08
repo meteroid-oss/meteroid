@@ -12,21 +12,21 @@ import { AddressCard } from '@/features/customers/cards/address/AddressCard'
 import { BalanceCard } from '@/features/customers/cards/balance/BalanceCard'
 import { CustomerCard } from '@/features/customers/cards/customer/CustomerCard'
 import { useQuery } from '@/lib/connectrpc'
-import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { getCustomer } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 export const Customer = () => {
   const navigate = useNavigate()
   const { customerId } = useTypedParams<{ customerId: string }>()
   const customerQuery = useQuery(
-    getCustomerById,
+    getCustomer,
     {
       id: customerId ?? '',
     },
     { enabled: Boolean(customerId) }
   )
 
-  const data = customerQuery.data?.customer
+  const data = customerQuery.data
   const isLoading = customerQuery.isLoading
 
   return (

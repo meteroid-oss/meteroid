@@ -4,9 +4,8 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, CreateCustomerRequest, CreateCustomerResponse,
-    CustomerBrief, GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
-    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse,
+    Customer, CustomerBrief, GetCustomerByAliasRequest, GetCustomerRequest, ListCustomerRequest,
+    ListCustomerResponse, PatchCustomerRequest, PatchCustomerResponse,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{CustomerNew, CustomerPatch, OrderByRequest};
@@ -154,10 +153,10 @@ impl CustomersService for CustomerServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_customer_by_id(
+    async fn get_customer(
         &self,
-        request: Request<GetCustomerByIdRequest>,
-    ) -> Result<Response<GetCustomerByIdResponse>, Status> {
+        request: Request<GetCustomerRequest>,
+    ) -> Result<Response<Customer>, Status> {
         let req = request.into_inner();
         let customer_id = parse_uuid(&req.id, "id")?;
 
@@ -169,16 +168,14 @@ impl CustomersService for CustomerServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
-        Ok(Response::new(GetCustomerByIdResponse {
-            customer: Some(customer),
-        }))
+        Ok(Response::new(customer))
     }
 
     #[tracing::instrument(skip_all)]
     async fn get_customer_by_alias(
         &self,
         request: Request<GetCustomerByAliasRequest>,
-    ) -> Result<Response<GetCustomerByAliasResponse>, Status> {
+    ) -> Result<Response<Customer>, Status> {
         let req = request.into_inner();
 
         let customer = self
@@ -189,8 +186,6 @@ impl CustomersService for CustomerServiceComponents {
             .map(|v| v.0)
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
-        Ok(Response::new(GetCustomerByAliasResponse {
-            customer: Some(customer),
-        }))
+        Ok(Response::new(customer))
     }
 }
