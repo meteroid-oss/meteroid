@@ -1,7 +1,5 @@
 use crate::compute::InvoiceEngine;
 
-use common_eventbus::{Event, EventBus};
-
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsServiceServer;
 
 use meteroid_store::Store;
@@ -20,18 +18,15 @@ mod service;
 pub struct SubscriptionServiceComponents {
     pub store: Store,
     pub compute_service: Arc<InvoiceEngine>,
-    pub eventbus: Arc<dyn EventBus<Event>>,
 }
 
 pub fn service(
     store: Store,
     subscription_billing: Arc<InvoiceEngine>,
-    eventbus: Arc<dyn EventBus<Event>>,
 ) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
     let inner = SubscriptionServiceComponents {
         store,
         compute_service: subscription_billing,
-        eventbus,
     };
     SubscriptionsServiceServer::new(inner)
 }

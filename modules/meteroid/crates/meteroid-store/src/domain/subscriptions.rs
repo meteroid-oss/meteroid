@@ -8,7 +8,7 @@ use crate::domain::{
 use diesel_models::subscriptions::Subscription as DieselSubscription;
 use diesel_models::subscriptions::SubscriptionNew as DieselSubscriptionNew;
 
-#[derive(Debug, o2o)]
+#[derive(Debug, Clone, o2o)]
 #[from_owned(DieselSubscription)]
 pub struct CreatedSubscription {
     pub id: Uuid,
@@ -31,7 +31,7 @@ pub struct CreatedSubscription {
     pub mrr_cents: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Subscription {
     pub id: Uuid,
     pub customer_id: Uuid,
