@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use rust_decimal::prelude::*;
 
+use common_eventbus::Event;
 use itertools::Itertools;
 
 pub enum CancellationEffectiveAt {
@@ -333,6 +334,17 @@ impl SubscriptionInterface for Store {
 
         // TODO create invoice ? in the sequence flow I guess it only happens after the payment is confirmed
 
+        let _ = futures::future::join_all(inserted_subscriptions.clone().into_iter().map(|res| {
+            self.eventbus.publish(Event::subscription_created(
+                res.created_by,
+                res.id,
+                res.tenant_id,
+            ))
+        }))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>();
+
         Ok(inserted_subscriptions)
     }
 
@@ -519,6 +531,15 @@ impl SubscriptionInterface for Store {
             .await?;
 
         let subscription: domain::Subscription = db_subscription.into();
+
+        let _ = self
+            .eventbus
+            .publish(Event::subscription_canceled(
+                context.actor,
+                subscription.id,
+                subscription.tenant_id,
+            ))
+            .await;
 
         Ok(subscription)
     }

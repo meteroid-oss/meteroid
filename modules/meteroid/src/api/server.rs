@@ -125,11 +125,7 @@ pub async fn start_api_server(
         .add_service(api::invoices::service(pool.clone()))
         .add_service(api::stats::service(pool.clone()))
         .add_service(api::users::service(store.clone()))
-        .add_service(api::subscriptions::service(
-            store.clone(),
-            compute_service,
-            store.eventbus.clone(),
-        ))
+        .add_service(api::subscriptions::service(store.clone(), compute_service))
         .add_service(api::webhooksout::service(store.clone()))
         .add_service(api::internal::service(pool.clone()))
         .serve(config.listen_addr)
