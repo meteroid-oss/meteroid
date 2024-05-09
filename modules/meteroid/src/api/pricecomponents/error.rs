@@ -1,8 +1,11 @@
-use deadpool_postgres::tokio_postgres;
 use std::error::Error;
+
+use deadpool_postgres::tokio_postgres;
+use error_stack::Report;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum PriceComponentApiError {
@@ -27,9 +30,9 @@ pub enum PriceComponentApiError {
     StoreError(String, #[source] Box<dyn Error>),
 }
 
-impl Into<PriceComponentApiError> for error_stack::Report<meteroid_store::errors::StoreError> {
-    fn into(self) -> PriceComponentApiError {
-        let err = Box::new(self.into_error());
-        PriceComponentApiError::StoreError("Error in price component service".to_string(), err)
+impl From<Report<StoreError>> for PriceComponentApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        let err = Box::new(value.into_error());
+        Self::StoreError("Error in api price component service".to_string(), err)
     }
 }
