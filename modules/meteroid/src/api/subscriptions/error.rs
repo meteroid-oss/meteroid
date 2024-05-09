@@ -1,9 +1,10 @@
-use deadpool_postgres::tokio_postgres;
 use std::error::Error;
 
+use error_stack::Report;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum SubscriptionApiError {
@@ -27,18 +28,14 @@ pub enum SubscriptionApiError {
     #[code(Internal)]
     SerializationError(String, #[source] serde_json::Error),
 
-    #[error("Database error: {0}")]
-    #[code(Internal)]
-    DatabaseError(String, #[source] tokio_postgres::Error),
-
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
 }
 
-impl Into<SubscriptionApiError> for error_stack::Report<meteroid_store::errors::StoreError> {
-    fn into(self) -> SubscriptionApiError {
-        let err = Box::new(self.into_error());
-        SubscriptionApiError::StoreError("Error in subscription service".to_string(), err)
+impl From<Report<StoreError>> for SubscriptionApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        let err = Box::new(value.into_error());
+        Self::StoreError("Error in subscription service".to_string(), err)
     }
 }

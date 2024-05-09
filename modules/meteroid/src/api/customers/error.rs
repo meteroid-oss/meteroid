@@ -1,7 +1,9 @@
+use error_stack::Report;
 use std::error::Error;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum CustomerApiError {
@@ -22,9 +24,9 @@ pub enum CustomerApiError {
     StoreError(String, #[source] Box<dyn Error>),
 }
 
-impl Into<CustomerApiError> for error_stack::Report<meteroid_store::errors::StoreError> {
-    fn into(self) -> CustomerApiError {
-        let err = Box::new(self.into_error());
-        CustomerApiError::StoreError("Error in tenant service".to_string(), err)
+impl From<Report<StoreError>> for CustomerApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        let err = Box::new(value.into_error());
+        Self::StoreError("Error in api customer service".to_string(), err)
     }
 }

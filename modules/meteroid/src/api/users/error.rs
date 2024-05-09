@@ -1,8 +1,10 @@
-use deadpool_postgres::tokio_postgres;
 use std::error::Error;
+
+use error_stack::Report;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum UserApiError {
@@ -13,14 +15,6 @@ pub enum UserApiError {
     #[error("Missing argument: {0}")]
     #[code(InvalidArgument)]
     MissingArgument(String),
-
-    #[error("Serialization error: {0}")]
-    #[code(InvalidArgument)]
-    SerializationError(String, #[source] serde_json::Error),
-
-    #[error("Mapping error: {0}")]
-    #[code(Internal)]
-    MappingError(String, #[source] crate::api::errors::DatabaseError),
 
     #[error("Authentication error: {0}")]
     #[code(Unauthenticated)]
@@ -34,36 +28,22 @@ pub enum UserApiError {
     #[code(PermissionDenied)]
     RegistrationClosed(String),
 
-    #[error("Entity not found: {0}")]
-    #[code(NotFound)]
-    DatabaseEntityNotFoundError(String, #[source] tokio_postgres::Error),
-
-    #[error("Database error: {0}")]
-    #[code(Internal)]
-    DatabaseError(String, #[source] tokio_postgres::Error),
-
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
 }
 
-impl Into<UserApiError> for error_stack::Report<meteroid_store::errors::StoreError> {
-    fn into(self) -> UserApiError {
-        let err = self.current_context();
+impl From<Report<StoreError>> for UserApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        let err = value.current_context();
 
         match err {
-            meteroid_store::errors::StoreError::LoginError(str) => {
-                UserApiError::AuthenticationError(str.clone())
-            }
-            meteroid_store::errors::StoreError::DuplicateValue { entity: _, key: _ } => {
-                UserApiError::UserAlreadyExistsError
-            }
-            meteroid_store::errors::StoreError::UserRegistrationClosed(value) => {
-                UserApiError::RegistrationClosed(value.clone())
-            }
-            _e => UserApiError::StoreError(
+            StoreError::LoginError(str) => Self::AuthenticationError(str.clone()),
+            StoreError::DuplicateValue { entity: _, key: _ } => Self::UserAlreadyExistsError,
+            StoreError::UserRegistrationClosed(value) => Self::RegistrationClosed(value.clone()),
+            _e => Self::StoreError(
                 "Error in user service".to_string(),
-                Box::new(self.into_error()),
+                Box::new(value.into_error()),
             ),
         }
     }
