@@ -6,21 +6,32 @@ use super::enums::{BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
 
-// not mapped automatically, as we include multiple entities like the plan_version and the price components
-#[derive(Debug, o2o)]
-#[owned_into(diesel_models::plans::PlanNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
+#[derive(Debug, Clone)]
 pub struct PlanNew {
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub product_family_id: Uuid,
+    pub product_family_external_id: String,
     pub external_id: String,
-    #[into(~.into())]
     pub plan_type: PlanTypeEnum,
-    #[into(~.into())]
     pub status: PlanStatusEnum,
+}
+
+impl PlanNew {
+    pub fn into_raw(self, product_family_id: Uuid) -> diesel_models::plans::PlanNew {
+        diesel_models::plans::PlanNew {
+            id: Uuid::now_v7(),
+            name: self.name,
+            description: self.description,
+            created_by: self.created_by,
+            tenant_id: self.tenant_id,
+            product_family_id,
+            external_id: self.external_id,
+            plan_type: self.plan_type.into(),
+            status: self.status.into(),
+        }
+    }
 }
 
 pub struct FullPlanNew {
@@ -29,19 +40,19 @@ pub struct FullPlanNew {
     pub price_components: Vec<PriceComponentNewInternal>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlanVersionNewInternal {
     pub is_draft_version: bool,
     pub trial_duration_days: Option<i32>,
     pub trial_fallback_plan_id: Option<Uuid>,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
-    pub currency: String,
+    pub currency: Option<String>,
     pub billing_cycles: Option<i32>,
     pub billing_periods: Vec<BillingPeriodEnum>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlanVersionNew {
     pub plan_id: Uuid,
     pub created_by: Uuid,
@@ -50,8 +61,8 @@ pub struct PlanVersionNew {
     pub internal: PlanVersionNewInternal,
 }
 
-impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
-    fn into(self) -> diesel_models::plan_versions::PlanVersionNew {
+impl PlanVersionNew {
+    pub fn into_raw(self, tenant_currency: String) -> diesel_models::plan_versions::PlanVersionNew {
         diesel_models::plan_versions::PlanVersionNew {
             id: Uuid::now_v7(),
             plan_id: self.plan_id,
@@ -63,7 +74,7 @@ impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
             trial_fallback_plan_id: self.internal.trial_fallback_plan_id,
             period_start_day: self.internal.period_start_day,
             net_terms: self.internal.net_terms,
-            currency: self.internal.currency,
+            currency: self.internal.currency.unwrap_or(tenant_currency),
             billing_cycles: self.internal.billing_cycles,
             billing_periods: self
                 .internal
@@ -74,6 +85,31 @@ impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
         }
     }
 }
+
+// impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
+//     fn into(self) -> diesel_models::plan_versions::PlanVersionNew {
+//         diesel_models::plan_versions::PlanVersionNew {
+//             id: Uuid::now_v7(),
+//             plan_id: self.plan_id,
+//             created_by: self.created_by,
+//             version: self.version,
+//             tenant_id: self.tenant_id,
+//             is_draft_version: self.internal.is_draft_version,
+//             trial_duration_days: self.internal.trial_duration_days,
+//             trial_fallback_plan_id: self.internal.trial_fallback_plan_id,
+//             period_start_day: self.internal.period_start_day,
+//             net_terms: self.internal.net_terms,
+//             currency: self.internal.currency,
+//             billing_cycles: self.internal.billing_cycles,
+//             billing_periods: self
+//                 .internal
+//                 .billing_periods
+//                 .into_iter()
+//                 .map(|v| v.into())
+//                 .collect::<Vec<_>>(),
+//         }
+//     }
+// }
 
 #[derive(Debug, o2o)]
 #[from_owned(diesel_models::plans::Plan)]

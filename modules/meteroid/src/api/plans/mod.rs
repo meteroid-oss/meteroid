@@ -1,9 +1,8 @@
 use crate::db::{get_connection, get_transaction};
-use common_eventbus::{Event, EventBus};
 use deadpool_postgres::{Object, Transaction};
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_server::PlansServiceServer;
 use meteroid_repository::Pool;
-use std::sync::Arc;
+use meteroid_store::Store;
 use tonic::Status;
 
 mod error;
@@ -11,8 +10,9 @@ mod mapping;
 mod service;
 
 pub struct PlanServiceComponents {
+    #[deprecated]
     pub pool: Pool,
-    pub eventbus: Arc<dyn EventBus<Event>>,
+    pub store: Store,
 }
 
 impl PlanServiceComponents {
@@ -27,10 +27,7 @@ impl PlanServiceComponents {
     }
 }
 
-pub fn service(
-    pool: Pool,
-    eventbus: Arc<dyn EventBus<Event>>,
-) -> PlansServiceServer<PlanServiceComponents> {
-    let inner = PlanServiceComponents { pool, eventbus };
+pub fn service(pool: Pool, store: Store) -> PlansServiceServer<PlanServiceComponents> {
+    let inner = PlanServiceComponents { pool, store };
     PlansServiceServer::new(inner)
 }

@@ -20,6 +20,7 @@ use meteroid_repository::Params;
 
 use crate::api::plans::error::PlanApiError;
 
+use crate::api::plans::mapping::plans::{PlanDetailsWrapper, PlanTypeWrapper};
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
 use crate::{
@@ -27,6 +28,8 @@ use crate::{
     parse_uuid,
 };
 use common_eventbus::Event;
+use meteroid_store::domain;
+use meteroid_store::repositories::PlansInterface;
 
 use super::{mapping, PlanServiceComponents};
 
@@ -37,83 +40,47 @@ impl PlansService for PlanServiceComponents {
         &self,
         request: Request<CreateDraftPlanRequest>,
     ) -> Result<Response<CreateDraftPlanResponse>, Status> {
-        let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let created_by = request.actor()?;
 
         let req = request.into_inner();
-        let mut connection = self.get_connection().await?;
-        let transaction = self.get_transaction(&mut connection).await?;
 
-        let plan_type = req.plan_type();
+        let plan_type: domain::enums::PlanTypeEnum =
+            PlanTypeWrapper(req.plan_type().clone()).into();
 
-        let params = db::plans::CreatePlanParams {
-            id: uuid_gen::v7(),
-            name: req.name,
-            external_id: req.external_id,
-            description: req.description,
-            tenant_id,
-            product_family_external_id: req.product_family_external_id,
-            created_by,
-            status: db::PlanStatusEnum::DRAFT,
-            plan_type: match plan_type {
-                meteroid_grpc::meteroid::api::plans::v1::PlanType::Standard => {
-                    db::PlanTypeEnum::STANDARD
-                }
-                meteroid_grpc::meteroid::api::plans::v1::PlanType::Free => db::PlanTypeEnum::FREE,
-                meteroid_grpc::meteroid::api::plans::v1::PlanType::Custom => {
-                    db::PlanTypeEnum::CUSTOM
-                }
+        let plan_new = domain::FullPlanNew {
+            plan: domain::PlanNew {
+                name: req.name,
+                description: req.description,
+                created_by,
+                tenant_id,
+                external_id: req.external_id,
+                product_family_external_id: req.product_family_external_id,
+                status: domain::enums::PlanStatusEnum::Draft,
+                plan_type,
             },
+            version: domain::PlanVersionNewInternal {
+                is_draft_version: true,
+                trial_duration_days: None,
+                trial_fallback_plan_id: None,
+                period_start_day: None,
+                net_terms: 0,
+                currency: None,
+                billing_cycles: None,
+                billing_periods: vec![],
+            },
+            price_components: vec![],
         };
 
-        let plan = db::plans::create_plan()
-            .params(&transaction, &params)
-            .one()
+        let plan_details = self
+            .store
+            .insert_plan(plan_new)
             .await
-            .map_err(|e| PlanApiError::DatabaseError("Unable to create plan".to_string(), e))?;
-
-        let plan_version_params = db::plans::CreatePlanVersionParams {
-            id: uuid_gen::v7(),
-            plan_id: plan.id,
-            version: 1,
-            created_by,
-            trial_duration_days: None,
-            trial_fallback_plan_id: None,
-            tenant_id,
-            period_start_day: None,
-            net_terms: None,
-            currency: None::<String>,
-            billing_cycles: None,
-            billing_periods: vec![],
-        };
-
-        let version = db::plans::create_plan_version()
-            .params(&transaction, &plan_version_params)
-            .one()
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to create plan version".to_string(), e)
-            })?;
-
-        transaction.commit().await.map_err(|e| {
-            PlanApiError::DatabaseError("failed to commit transaction".to_string(), e)
-        })?;
-
-        let mapped_version = mapping::plans::version::db_to_server(version.clone());
-        let mapped_plan = mapping::plans::db_to_server(plan);
-
-        let _ = self
-            .eventbus
-            .publish(Event::plan_created_draft(actor, version.id, tenant_id))
-            .await;
+            .map(|x| PlanDetailsWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(CreateDraftPlanResponse {
-            plan: Some(PlanDetails {
-                plan: Some(mapped_plan),
-                current_version: Some(mapped_version),
-                metadata: vec![],
-            }),
+            plan: Some(plan_details),
         }))
     }
 
@@ -359,6 +326,7 @@ impl PlansService for PlanServiceComponents {
         let response = mapping::plans::version::db_to_server(plan_version_row.clone());
 
         let _ = self
+            .store
             .eventbus
             .publish(Event::plan_published_version(
                 actor,
@@ -432,6 +400,7 @@ impl PlansService for PlanServiceComponents {
             })?;
 
         let _ = self
+            .store
             .eventbus
             .publish(Event::plan_discarded_version(
                 actor,
