@@ -10,8 +10,8 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     GetPlanParametersRequest, GetPlanParametersResponse, GetPlanVersionByIdRequest,
     GetPlanVersionByIdResponse, ListPlanVersionByIdRequest, ListPlanVersionByIdResponse,
     ListPlansRequest, ListPlansResponse, ListSubscribablePlanVersionRequest,
-    ListSubscribablePlanVersionResponse, PlanDetails, PublishPlanVersionRequest,
-    PublishPlanVersionResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
+    ListSubscribablePlanVersionResponse, PublishPlanVersionRequest, PublishPlanVersionResponse,
+    UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
     UpdatePublishedPlanOverviewRequest, UpdatePublishedPlanOverviewResponse,
 };
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
@@ -92,33 +92,16 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        let plan = db::plans::find_plan_by_external_id()
-            .bind(&connection, &tenant_id, &req.external_id)
-            .one()
+        let plan_details = self
+            .store
+            .get_plan_by_external_id(req.external_id.as_str(), tenant_id, None)
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to get plan by external_id".to_string(), e)
-            })?;
-
-        let plan_version = db::plans::last_plan_version()
-            .bind(&connection, &tenant_id, &plan.id, &None)
-            .one()
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to get plan by external_id".to_string(), e)
-            })?;
-
-        let res_plan = mapping::plans::db_to_server(plan);
-        let res_plan_version = mapping::plans::version::db_to_server(plan_version);
+            .map(|x| PlanDetailsWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(GetPlanByExternalIdResponse {
-            plan_details: Some(PlanDetails {
-                current_version: Some(res_plan_version),
-                plan: Some(res_plan),
-                metadata: vec![],
-            }),
+            plan_details: Some(plan_details),
         }))
     }
 

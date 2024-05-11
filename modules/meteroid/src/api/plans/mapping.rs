@@ -7,7 +7,6 @@ pub mod plans {
     };
     use meteroid_repository::plans::{
         ListPlan as DbListPlans, ListSubscribablePlanVersion as DbListSubscribablePlanVersion,
-        Plan as DbPlan,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
@@ -148,17 +147,6 @@ pub mod plans {
             meteroid_repository::PlanTypeEnum::CUSTOM => PlanType::Custom,
             meteroid_repository::PlanTypeEnum::FREE => PlanType::Free,
             meteroid_repository::PlanTypeEnum::STANDARD => PlanType::Standard,
-        }
-    }
-
-    pub fn db_to_server(plan: DbPlan) -> Plan {
-        Plan {
-            id: plan.id.to_string(),
-            name: plan.name,
-            external_id: plan.external_id,
-            description: plan.description,
-            plan_type: type_db_to_server(plan.plan_type).into(),
-            plan_status: status_db_to_server(plan.status).into(),
         }
     }
 

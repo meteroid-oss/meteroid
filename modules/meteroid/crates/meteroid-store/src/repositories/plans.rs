@@ -1,16 +1,24 @@
 use crate::store::Store;
 use crate::{domain, StoreResult};
 
+use crate::domain::FullPlan;
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use error_stack::Report;
+use uuid::Uuid;
 
 use crate::errors::StoreError;
 
 #[async_trait::async_trait]
 pub trait PlansInterface {
     async fn insert_plan(&self, plan: domain::FullPlanNew) -> StoreResult<domain::FullPlan>;
+    async fn get_plan_by_external_id(
+        &self,
+        external_id: &str,
+        auth_tenant_id: Uuid,
+        is_draft: Option<bool>,
+    ) -> StoreResult<domain::FullPlan>;
 }
 
 #[async_trait::async_trait]
@@ -109,5 +117,52 @@ impl PlansInterface for Store {
             .await;
 
         Ok(res)
+    }
+
+    async fn get_plan_by_external_id(
+        &self,
+        external_id: &str,
+        auth_tenant_id: Uuid,
+        is_draft: Option<bool>,
+    ) -> StoreResult<FullPlan> {
+        let mut conn = self.get_conn().await?;
+
+        let plan: domain::Plan = diesel_models::plans::Plan::get_by_external_id_and_tenant_id(
+            &mut conn,
+            external_id,
+            auth_tenant_id,
+        )
+        .await
+        .map(Into::into)
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let version: domain::PlanVersion =
+            diesel_models::plan_versions::PlanVersion::find_latest_by_plan_id_and_tenant_id(
+                &mut conn,
+                plan.id,
+                auth_tenant_id,
+                is_draft,
+            )
+            .await
+            .map(Into::into)
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let price_components: Vec<domain::PriceComponent> =
+            diesel_models::price_components::PriceComponent::list_by_plan_version_id(
+                &mut conn,
+                auth_tenant_id,
+                version.id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(FullPlan {
+            plan,
+            version,
+            price_components,
+        })
     }
 }

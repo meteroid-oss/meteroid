@@ -1,4 +1,3 @@
-use deadpool_postgres::tokio_postgres;
 use error_stack::Report;
 use std::error::Error;
 use thiserror::Error;

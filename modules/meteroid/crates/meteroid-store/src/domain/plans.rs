@@ -86,31 +86,6 @@ impl PlanVersionNew {
     }
 }
 
-// impl Into<diesel_models::plan_versions::PlanVersionNew> for PlanVersionNew {
-//     fn into(self) -> diesel_models::plan_versions::PlanVersionNew {
-//         diesel_models::plan_versions::PlanVersionNew {
-//             id: Uuid::now_v7(),
-//             plan_id: self.plan_id,
-//             created_by: self.created_by,
-//             version: self.version,
-//             tenant_id: self.tenant_id,
-//             is_draft_version: self.internal.is_draft_version,
-//             trial_duration_days: self.internal.trial_duration_days,
-//             trial_fallback_plan_id: self.internal.trial_fallback_plan_id,
-//             period_start_day: self.internal.period_start_day,
-//             net_terms: self.internal.net_terms,
-//             currency: self.internal.currency,
-//             billing_cycles: self.internal.billing_cycles,
-//             billing_periods: self
-//                 .internal
-//                 .billing_periods
-//                 .into_iter()
-//                 .map(|v| v.into())
-//                 .collect::<Vec<_>>(),
-//         }
-//     }
-// }
-
 #[derive(Debug, o2o)]
 #[from_owned(diesel_models::plans::Plan)]
 pub struct Plan {
