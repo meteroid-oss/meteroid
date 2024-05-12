@@ -1,6 +1,8 @@
 pub mod plans {
     use crate::api::domain_mapping::billing_period::to_proto;
-    use meteroid_grpc::meteroid::api::plans::v1::plan_billing_configuration as billing_config_grpc;
+    use meteroid_grpc::meteroid::api::plans::v1::{
+        plan_billing_configuration as billing_config_grpc, ListPlanVersion,
+    };
     use meteroid_grpc::meteroid::api::plans::v1::{
         ListPlan, ListSubscribablePlanVersion, Plan, PlanBillingConfiguration, PlanDetails,
         PlanStatus, PlanType, PlanVersion, TrialConfig,
@@ -14,6 +16,18 @@ pub mod plans {
     pub struct PlanStatusWrapper(pub PlanStatus);
     pub struct ListPlanWrapper(pub ListPlan);
     pub struct ListSubscribablePlanVersionWrapper(pub ListSubscribablePlanVersion);
+    pub struct ListPlanVersionWrapper(pub ListPlanVersion);
+
+    impl From<domain::PlanVersion> for ListPlanVersionWrapper {
+        fn from(value: domain::PlanVersion) -> Self {
+            Self(ListPlanVersion {
+                id: value.id.to_string(),
+                is_draft: value.is_draft_version,
+                version: value.version as u32,
+                currency: value.currency,
+            })
+        }
+    }
 
     impl From<domain::PlanVersion> for PlanVersionWrapper {
         fn from(value: domain::PlanVersion) -> Self {

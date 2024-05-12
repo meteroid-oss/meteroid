@@ -21,8 +21,8 @@ use meteroid_repository::Params;
 use crate::api::plans::error::PlanApiError;
 
 use crate::api::plans::mapping::plans::{
-    ListPlanWrapper, ListSubscribablePlanVersionWrapper, PlanDetailsWrapper, PlanTypeWrapper,
-    PlanVersionWrapper,
+    ListPlanVersionWrapper, ListPlanWrapper, ListSubscribablePlanVersionWrapper,
+    PlanDetailsWrapper, PlanTypeWrapper, PlanVersionWrapper,
 };
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
@@ -210,30 +210,27 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<ListPlanVersionByIdResponse>, Status> {
         let tenant_id = request.tenant()?;
 
-        let inner = request.into_inner();
-        let connection = self.get_connection().await?;
+        let req = request.into_inner();
+        let plan_id = parse_uuid!(&req.plan_id)?;
 
-        let params = db::plans::ListPlansVersionsParams {
-            tenant_id,
-            plan_id: parse_uuid!(&inner.plan_id)?,
-            limit: inner.pagination.limit(),
-            offset: inner.pagination.offset(),
+        let pagination_req = domain::PaginationRequest {
+            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: req.pagination.as_ref().map(|p| p.limit),
         };
 
-        let plans = db::plans::list_plans_versions()
-            .params(&connection, &params)
-            .all()
+        let res = self
+            .store
+            .list_plan_versions(plan_id, tenant_id, pagination_req)
             .await
-            .map_err(|e| PlanApiError::DatabaseError("unable to list plans".to_string(), e))?;
-
-        let total = plans.first().map(|p| p.total_count).unwrap_or(0);
+            .map_err(Into::<PlanApiError>::into)?;
 
         let response = ListPlanVersionByIdResponse {
-            plan_versions: plans
+            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            plan_versions: res
+                .items
                 .into_iter()
-                .map(mapping::plans::version::list_db_to_server)
-                .collect(),
-            pagination_meta: inner.pagination.into_response(total as u32),
+                .map(|l| ListPlanVersionWrapper::from(l).0)
+                .collect::<Vec<_>>(),
         };
 
         Ok(Response::new(response))

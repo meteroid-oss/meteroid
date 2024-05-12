@@ -39,6 +39,12 @@ pub trait PlansInterface {
         id: Uuid,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanVersion>;
+    async fn list_plan_versions(
+        &self,
+        plan_id: Uuid,
+        auth_tenant_id: Uuid,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<PlanVersion>>;
 }
 
 #[async_trait::async_trait]
@@ -242,5 +248,31 @@ impl PlansInterface for Store {
         .await
         .map(Into::into)
         .map_err(Into::into)
+    }
+
+    async fn list_plan_versions(
+        &self,
+        plan_id: Uuid,
+        auth_tenant_id: Uuid,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<PlanVersion>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = diesel_models::plan_versions::PlanVersion::list_by_plan_id_and_tenant_id(
+            &mut conn,
+            plan_id,
+            auth_tenant_id,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<PlanVersion> = PaginatedVec {
+            items: rows.items.into_iter().map(Into::into).collect(),
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        };
+
+        Ok(res)
     }
 }

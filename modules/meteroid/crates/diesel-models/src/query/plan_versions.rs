@@ -3,6 +3,7 @@ use crate::plan_versions::{PlanVersion, PlanVersionLatest, PlanVersionNew};
 
 use crate::{DbResult, PgConn};
 
+use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use error_stack::ResultExt;
@@ -71,6 +72,33 @@ impl PlanVersion {
             .first(conn)
             .await
             .attach_printable("Error while finding latest plan version")
+            .into_db_result()
+    }
+
+    pub async fn list_by_plan_id_and_tenant_id(
+        conn: &mut PgConn,
+        plan_id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        pagination: PaginationRequest,
+    ) -> DbResult<PaginatedVec<PlanVersion>> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+
+        let paginated_query = pv_dsl::plan_version
+            .filter(pv_dsl::plan_id.eq(plan_id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .order(pv_dsl::version.desc())
+            .into_boxed()
+            .paginate(pagination);
+
+        log::debug!(
+            "{}",
+            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
+        );
+
+        paginated_query
+            .load_and_count_pages(conn)
+            .await
+            .attach_printable("Error while listing plan versions")
             .into_db_result()
     }
 }
