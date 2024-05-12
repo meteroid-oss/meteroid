@@ -128,3 +128,23 @@ pub struct FullPlan {
     pub version: PlanVersion,
     pub price_components: Vec<PriceComponent>,
 }
+
+#[derive(Debug, o2o)]
+#[from_owned(diesel_models::plans::PlanForList)]
+pub struct PlanForList {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub created_by: Uuid,
+    pub updated_at: Option<NaiveDateTime>,
+    pub archived_at: Option<NaiveDateTime>,
+    pub tenant_id: Uuid,
+    pub product_family_id: Uuid,
+    pub external_id: String,
+    #[from(~.into())]
+    pub plan_type: PlanTypeEnum,
+    #[from(~.into())]
+    pub status: PlanStatusEnum,
+    pub product_family_name: String,
+}

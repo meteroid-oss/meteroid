@@ -45,37 +45,6 @@ impl PlanVersion {
             .into_db_result()
     }
 
-    /**
-    "SELECT
-    id,
-    is_draft_version,
-    plan_id,
-    version,
-    created_by,
-    trial_duration_days,
-    trial_fallback_plan_id,
-    tenant_id,
-    period_start_day,
-    net_terms,
-    currency,
-    billing_cycles,
-    billing_periods
-    FROM
-        plan_version
-    WHERE
-            plan_version.tenant_id = $1
-      AND plan_version.plan_id = $2
-      -- only if is_draft is not null, check is_draft_version
-        AND (
-            -- below does not work, we need to cast to bool
-            $3::bool IS NULL
-            OR plan_version.is_draft_version = $3
-        )
-    ORDER BY
-        plan_version.version DESC
-        LIMIT
-      1"
-    **/
     pub async fn find_latest_by_plan_id_and_tenant_id(
         conn: &mut PgConn,
         plan_id: uuid::Uuid,

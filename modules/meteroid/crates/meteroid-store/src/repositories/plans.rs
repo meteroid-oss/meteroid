@@ -1,7 +1,10 @@
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::StoreResult;
 
-use crate::domain::FullPlan;
+use crate::domain::{
+    FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan, PlanForList,
+    PlanVersion, PlanVersionNew, PriceComponent, PriceComponentNew,
+};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
@@ -12,21 +15,29 @@ use crate::errors::StoreError;
 
 #[async_trait::async_trait]
 pub trait PlansInterface {
-    async fn insert_plan(&self, plan: domain::FullPlanNew) -> StoreResult<domain::FullPlan>;
+    async fn insert_plan(&self, plan: FullPlanNew) -> StoreResult<FullPlan>;
     async fn get_plan_by_external_id(
         &self,
         external_id: &str,
         auth_tenant_id: Uuid,
         is_draft: Option<bool>,
-    ) -> StoreResult<domain::FullPlan>;
+    ) -> StoreResult<FullPlan>;
+    async fn list_plans(
+        &self,
+        auth_tenant_id: Uuid,
+        search: Option<String>,
+        product_family_external_id: Option<String>,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+    ) -> StoreResult<PaginatedVec<PlanForList>>;
 }
 
 #[async_trait::async_trait]
 impl PlansInterface for Store {
-    async fn insert_plan(&self, full_plan: domain::FullPlanNew) -> StoreResult<domain::FullPlan> {
+    async fn insert_plan(&self, full_plan: FullPlanNew) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
 
-        let domain::FullPlanNew {
+        let FullPlanNew {
             plan,
             version,
             price_components,
@@ -50,14 +61,14 @@ impl PlansInterface for Store {
                 async move {
                     let plan_to_insert: diesel_models::plans::PlanNew =
                         plan.into_raw(product_family.id);
-                    let inserted: domain::Plan = plan_to_insert
+                    let inserted: Plan = plan_to_insert
                         .insert(conn)
                         .await
                         .map(Into::into)
                         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
                     let plan_version_to_insert: diesel_models::plan_versions::PlanVersionNew =
-                        domain::PlanVersionNew {
+                        PlanVersionNew {
                             tenant_id: inserted.tenant_id,
                             internal: version,
                             plan_id: inserted.id,
@@ -66,7 +77,7 @@ impl PlansInterface for Store {
                         }
                         .into_raw(tenant.currency);
 
-                    let inserted_plan_version_new: domain::PlanVersion = plan_version_to_insert
+                    let inserted_plan_version_new: PlanVersion = plan_version_to_insert
                         .insert(conn)
                         .await
                         .map(Into::into)
@@ -79,7 +90,7 @@ impl PlansInterface for Store {
                             price_components
                                 .into_iter()
                                 .map(|p| {
-                                    domain::PriceComponentNew {
+                                    PriceComponentNew {
                                         plan_version_id: inserted_plan_version_new.id,
                                         name: p.name,
                                         product_item_id: p.product_item_id,
@@ -96,7 +107,7 @@ impl PlansInterface for Store {
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|err| StoreError::TransactionStoreError(err))?;
 
-                    Ok::<_, StoreError>(domain::FullPlan {
+                    Ok::<_, StoreError>(FullPlan {
                         price_components: inserted_price_components,
                         plan: inserted,
                         version: inserted_plan_version_new,
@@ -127,7 +138,7 @@ impl PlansInterface for Store {
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
 
-        let plan: domain::Plan = diesel_models::plans::Plan::get_by_external_id_and_tenant_id(
+        let plan: Plan = diesel_models::plans::Plan::get_by_external_id_and_tenant_id(
             &mut conn,
             external_id,
             auth_tenant_id,
@@ -136,7 +147,7 @@ impl PlansInterface for Store {
         .map(Into::into)
         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let version: domain::PlanVersion =
+        let version: PlanVersion =
             diesel_models::plan_versions::PlanVersion::find_latest_by_plan_id_and_tenant_id(
                 &mut conn,
                 plan.id,
@@ -147,7 +158,7 @@ impl PlansInterface for Store {
             .map(Into::into)
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let price_components: Vec<domain::PriceComponent> =
+        let price_components: Vec<PriceComponent> =
             diesel_models::price_components::PriceComponent::list_by_plan_version_id(
                 &mut conn,
                 auth_tenant_id,
@@ -164,5 +175,35 @@ impl PlansInterface for Store {
             version,
             price_components,
         })
+    }
+
+    async fn list_plans(
+        &self,
+        auth_tenant_id: Uuid,
+        search: Option<String>,
+        product_family_external_id: Option<String>,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+    ) -> StoreResult<PaginatedVec<PlanForList>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = diesel_models::plans::PlanForList::list(
+            &mut conn,
+            auth_tenant_id,
+            search,
+            product_family_external_id,
+            pagination.into(),
+            order_by.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<PlanForList> = PaginatedVec {
+            items: rows.items.into_iter().map(Into::into).collect(),
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        };
+
+        Ok(res)
     }
 }

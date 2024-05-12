@@ -20,7 +20,7 @@ use meteroid_repository::Params;
 
 use crate::api::plans::error::PlanApiError;
 
-use crate::api::plans::mapping::plans::{PlanDetailsWrapper, PlanTypeWrapper};
+use crate::api::plans::mapping::plans::{ListPlanWrapper, PlanDetailsWrapper, PlanTypeWrapper};
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
 use crate::{
@@ -29,6 +29,7 @@ use crate::{
 };
 use common_eventbus::Event;
 use meteroid_store::domain;
+use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::PlansInterface;
 
 use super::{mapping, PlanServiceComponents};
@@ -113,37 +114,39 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        let params = db::plans::ListPlansParams {
-            tenant_id,
-            product_family_external_id: req.product_family_external_id,
-            limit: req.pagination.limit(),
-            offset: req.pagination.offset(),
-            order_by: match req.sort_by.try_into() {
-                Ok(SortBy::DateAsc) => "DATE_ASC",
-                Ok(SortBy::DateDesc) => "DATE_DESC",
-                Ok(SortBy::NameAsc) => "NAME_ASC",
-                Ok(SortBy::NameDesc) => "NAME_DESC",
-                Err(_) => "DATE_DESC",
-            },
-            search: req.search,
+        let pagination_req = domain::PaginationRequest {
+            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: req.pagination.as_ref().map(|p| p.limit),
         };
 
-        let plans = db::plans::list_plans()
-            .params(&connection, &params)
-            .all()
-            .await
-            .map_err(|e| PlanApiError::DatabaseError("unable to list plans".to_string(), e))?;
+        let order_by = match req.sort_by.try_into() {
+            Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
+            Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
+            Ok(SortBy::NameAsc) => OrderByRequest::NameAsc,
+            Ok(SortBy::NameDesc) => OrderByRequest::NameDesc,
+            Err(_) => OrderByRequest::DateDesc,
+        };
 
-        let total = plans.first().map(|p| p.total_count).unwrap_or(0);
+        let res = self
+            .store
+            .list_plans(
+                tenant_id,
+                req.search,
+                req.product_family_external_id,
+                pagination_req,
+                order_by,
+            )
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
 
         let response = ListPlansResponse {
-            plans: plans
+            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            plans: res
+                .items
                 .into_iter()
-                .map(mapping::plans::list_db_to_server)
-                .collect(),
-            pagination_meta: req.pagination.into_response(total as u32),
+                .map(|l| ListPlanWrapper::from(l).0)
+                .collect::<Vec<_>>(),
         };
 
         Ok(Response::new(response))

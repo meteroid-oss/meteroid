@@ -10,12 +10,14 @@ pub mod plans {
     };
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
-    use meteroid_store::domain::FullPlan;
 
     pub struct PlanDetailsWrapper(pub PlanDetails);
+    pub struct PlanTypeWrapper(pub PlanType);
+    pub struct PlanStatusWrapper(pub PlanStatus);
+    pub struct ListPlanWrapper(pub ListPlan);
 
-    impl From<FullPlan> for PlanDetailsWrapper {
-        fn from(value: FullPlan) -> Self {
+    impl From<domain::FullPlan> for PlanDetailsWrapper {
+        fn from(value: domain::FullPlan) -> Self {
             fn trial_config(version: &domain::PlanVersion) -> Option<TrialConfig> {
                 Some(TrialConfig {
                     duration_in_days: version.trial_duration_days? as u32,
@@ -77,8 +79,6 @@ pub mod plans {
         }
     }
 
-    pub struct PlanTypeWrapper(pub PlanType);
-
     impl Into<PlanTypeEnum> for PlanTypeWrapper {
         fn into(self) -> PlanTypeEnum {
             match self.0 {
@@ -99,8 +99,6 @@ pub mod plans {
         }
     }
 
-    pub struct PlanStatusWrapper(pub PlanStatus);
-
     impl Into<PlanStatusEnum> for PlanStatusWrapper {
         fn into(self) -> PlanStatusEnum {
             match self.0 {
@@ -119,6 +117,21 @@ pub mod plans {
                 PlanStatusEnum::Active => PlanStatus::Active,
                 PlanStatusEnum::Archived => PlanStatus::Archived,
                 PlanStatusEnum::Inactive => PlanStatus::Inactive,
+            })
+        }
+    }
+
+    impl From<domain::PlanForList> for ListPlanWrapper {
+        fn from(value: domain::PlanForList) -> Self {
+            Self(ListPlan {
+                id: value.id.to_string(),
+                name: value.name,
+                external_id: value.external_id,
+                description: value.description,
+                plan_type: PlanTypeWrapper::from(value.plan_type).0 as i32,
+                plan_status: PlanStatusWrapper::from(value.status).0 as i32,
+                product_family_id: value.product_family_id.to_string(),
+                product_family_name: value.product_family_name,
             })
         }
     }
