@@ -148,3 +148,20 @@ pub struct PlanForList {
     pub status: PlanStatusEnum,
     pub product_family_name: String,
 }
+
+#[derive(Debug, o2o)]
+#[from_owned(diesel_models::plan_versions::PlanVersionLatest)]
+pub struct PlanVersionLatest {
+    pub id: Uuid,
+    pub plan_id: Uuid,
+    pub plan_name: String,
+    pub version: i32,
+    pub created_by: Uuid,
+    pub trial_duration_days: Option<i32>,
+    pub trial_fallback_plan_id: Option<Uuid>,
+    pub period_start_day: Option<i16>,
+    pub net_terms: i32,
+    pub currency: String,
+    pub product_family_id: Uuid,
+    pub product_family_name: String,
+}

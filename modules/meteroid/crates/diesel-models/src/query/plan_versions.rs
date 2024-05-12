@@ -1,10 +1,10 @@
 use crate::errors::IntoDbResult;
-use crate::plan_versions::{PlanVersion, PlanVersionNew};
+use crate::plan_versions::{PlanVersion, PlanVersionLatest, PlanVersionNew};
 
 use crate::{DbResult, PgConn};
 
-use diesel::debug_query;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
+use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 impl PlanVersionNew {
@@ -71,6 +71,39 @@ impl PlanVersion {
             .first(conn)
             .await
             .attach_printable("Error while finding latest plan version")
+            .into_db_result()
+    }
+}
+
+impl PlanVersionLatest {
+    pub async fn list(
+        conn: &mut PgConn,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<Vec<PlanVersionLatest>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = pv_dsl::plan_version
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .filter(pv_dsl::is_draft_version.eq(false))
+            .order((
+                pv_dsl::plan_id,
+                pv_dsl::version.desc(),
+                pv_dsl::created_at.desc(),
+            ))
+            .distinct_on(pv_dsl::plan_id)
+            .select(PlanVersionLatest::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while listing plans")
             .into_db_result()
     }
 }

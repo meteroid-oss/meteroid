@@ -20,7 +20,9 @@ use meteroid_repository::Params;
 
 use crate::api::plans::error::PlanApiError;
 
-use crate::api::plans::mapping::plans::{ListPlanWrapper, PlanDetailsWrapper, PlanTypeWrapper};
+use crate::api::plans::mapping::plans::{
+    ListPlanWrapper, ListSubscribablePlanVersionWrapper, PlanDetailsWrapper, PlanTypeWrapper,
+};
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
 use crate::{
@@ -158,18 +160,17 @@ impl PlansService for PlanServiceComponents {
         request: Request<ListSubscribablePlanVersionRequest>,
     ) -> Result<Response<ListSubscribablePlanVersionResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let connection = self.get_connection().await?;
 
-        let plan_versions = db::plans::list_subscribable_plan_version()
-            .bind(&connection, &tenant_id)
-            .all()
+        let plan_versions = self
+            .store
+            .list_latest_plan_versions(tenant_id)
             .await
-            .map_err(|e| PlanApiError::DatabaseError("unable to list plans".to_string(), e))?;
+            .map_err(Into::<PlanApiError>::into)?;
 
         let response = ListSubscribablePlanVersionResponse {
             plan_versions: plan_versions
                 .into_iter()
-                .map(mapping::plans::list_subscribable_db_to_server)
+                .map(|x| ListSubscribablePlanVersionWrapper::from(x).0)
                 .collect(),
         };
 

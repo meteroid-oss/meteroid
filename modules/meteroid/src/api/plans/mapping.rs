@@ -5,9 +5,6 @@ pub mod plans {
         ListPlan, ListSubscribablePlanVersion, Plan, PlanBillingConfiguration, PlanDetails,
         PlanStatus, PlanType, PlanVersion, TrialConfig,
     };
-    use meteroid_repository::plans::{
-        ListPlan as DbListPlans, ListSubscribablePlanVersion as DbListSubscribablePlanVersion,
-    };
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
 
@@ -15,6 +12,7 @@ pub mod plans {
     pub struct PlanTypeWrapper(pub PlanType);
     pub struct PlanStatusWrapper(pub PlanStatus);
     pub struct ListPlanWrapper(pub ListPlan);
+    pub struct ListSubscribablePlanVersionWrapper(pub ListSubscribablePlanVersion);
 
     impl From<domain::FullPlan> for PlanDetailsWrapper {
         fn from(value: domain::FullPlan) -> Self {
@@ -136,62 +134,22 @@ pub mod plans {
         }
     }
 
-    fn status_db_to_server(
-        e: meteroid_repository::PlanStatusEnum,
-    ) -> meteroid_grpc::meteroid::api::plans::v1::PlanStatus {
-        match e {
-            meteroid_repository::PlanStatusEnum::ACTIVE => {
-                meteroid_grpc::meteroid::api::plans::v1::PlanStatus::Active
-            }
-            meteroid_repository::PlanStatusEnum::ARCHIVED => {
-                meteroid_grpc::meteroid::api::plans::v1::PlanStatus::Archived
-            }
-            meteroid_repository::PlanStatusEnum::DRAFT => {
-                meteroid_grpc::meteroid::api::plans::v1::PlanStatus::Draft
-            }
-            meteroid_repository::PlanStatusEnum::INACTIVE => {
-                meteroid_grpc::meteroid::api::plans::v1::PlanStatus::Inactive
-            }
-        }
-    }
-
-    fn type_db_to_server(e: meteroid_repository::PlanTypeEnum) -> PlanType {
-        match e {
-            meteroid_repository::PlanTypeEnum::CUSTOM => PlanType::Custom,
-            meteroid_repository::PlanTypeEnum::FREE => PlanType::Free,
-            meteroid_repository::PlanTypeEnum::STANDARD => PlanType::Standard,
-        }
-    }
-
-    pub fn list_db_to_server(plan: DbListPlans) -> ListPlan {
-        ListPlan {
-            id: plan.id.to_string(),
-            name: plan.name,
-            external_id: plan.external_id,
-            description: plan.description,
-            plan_type: type_db_to_server(plan.plan_type).into(),
-            plan_status: status_db_to_server(plan.status).into(),
-            product_family_id: plan.product_family_id.to_string(),
-            product_family_name: plan.product_family_name,
-        }
-    }
-
-    pub fn list_subscribable_db_to_server(
-        plan: DbListSubscribablePlanVersion,
-    ) -> ListSubscribablePlanVersion {
-        ListSubscribablePlanVersion {
-            plan_id: plan.plan_id.to_string(),
-            id: plan.id.to_string(),
-            plan_name: plan.plan_name,
-            version: plan.version,
-            created_by: plan.created_by.to_string(),
-            trial_duration_days: plan.trial_duration_days,
-            trial_fallback_plan_id: plan.trial_fallback_plan_id.map(|id| id.to_string()),
-            period_start_day: plan.period_start_day.map(|d| d as i32),
-            net_terms: plan.net_terms,
-            currency: plan.currency,
-            product_family_id: plan.product_family_id.to_string(),
-            product_family_name: plan.product_family_name,
+    impl From<domain::PlanVersionLatest> for ListSubscribablePlanVersionWrapper {
+        fn from(value: domain::PlanVersionLatest) -> Self {
+            Self(ListSubscribablePlanVersion {
+                id: value.id.to_string(),
+                plan_id: value.plan_id.to_string(),
+                plan_name: value.plan_name,
+                version: value.version,
+                created_by: value.created_by.to_string(),
+                trial_duration_days: value.trial_duration_days,
+                trial_fallback_plan_id: value.trial_fallback_plan_id.map(|x| x.to_string()),
+                period_start_day: value.period_start_day.map(|x| x as i32),
+                net_terms: value.net_terms,
+                currency: value.currency,
+                product_family_id: value.product_family_id.to_string(),
+                product_family_name: value.product_family_name,
+            })
         }
     }
 

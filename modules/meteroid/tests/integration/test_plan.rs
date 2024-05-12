@@ -121,6 +121,18 @@ async fn test_plans_basic() {
     assert_eq!(plan_list.plan_status(), api::plans::v1::PlanStatus::Draft);
     assert_eq!(plan_list.plan_type(), api::plans::v1::PlanType::Standard);
 
+    // ListSubscribablePlanVersion
+    let plan_versions = clients
+        .plans
+        .clone()
+        .list_subscribable_plan_version(api::plans::v1::ListSubscribablePlanVersionRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_versions;
+
+    assert_eq!(plan_versions.len(), 0); // todo move after activating some PV
+
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
 }

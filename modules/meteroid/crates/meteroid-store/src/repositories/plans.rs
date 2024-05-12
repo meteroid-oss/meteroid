@@ -3,7 +3,7 @@ use crate::StoreResult;
 
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan, PlanForList,
-    PlanVersion, PlanVersionNew, PriceComponent, PriceComponentNew,
+    PlanVersion, PlanVersionLatest, PlanVersionNew, PriceComponent, PriceComponentNew,
 };
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -30,6 +30,10 @@ pub trait PlansInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<PlanForList>>;
+    async fn list_latest_plan_versions(
+        &self,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<Vec<PlanVersionLatest>>;
 }
 
 #[async_trait::async_trait]
@@ -205,5 +209,17 @@ impl PlansInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_latest_plan_versions(
+        &self,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<Vec<PlanVersionLatest>> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::plan_versions::PlanVersionLatest::list(&mut conn, auth_tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(|x| x.into_iter().map(Into::into).collect())
     }
 }
