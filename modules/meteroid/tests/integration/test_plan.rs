@@ -133,6 +133,21 @@ async fn test_plans_basic() {
 
     assert_eq!(plan_versions.len(), 0); // todo move after activating some PV
 
+    // get_plan_version_by_id
+    let plan_version = clients
+        .plans
+        .clone()
+        .get_plan_version_by_id(api::plans::v1::GetPlanVersionByIdRequest {
+            plan_version_id: created_version.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_version
+        .unwrap();
+
+    assert_eq!(&plan_version, &created_version);
+
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
 }

@@ -9,13 +9,14 @@ pub mod plans {
     use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
 
     pub struct PlanDetailsWrapper(pub PlanDetails);
+    pub struct PlanVersionWrapper(pub PlanVersion);
     pub struct PlanTypeWrapper(pub PlanType);
     pub struct PlanStatusWrapper(pub PlanStatus);
     pub struct ListPlanWrapper(pub ListPlan);
     pub struct ListSubscribablePlanVersionWrapper(pub ListSubscribablePlanVersion);
 
-    impl From<domain::FullPlan> for PlanDetailsWrapper {
-        fn from(value: domain::FullPlan) -> Self {
+    impl From<domain::PlanVersion> for PlanVersionWrapper {
+        fn from(value: domain::PlanVersion) -> Self {
             fn trial_config(version: &domain::PlanVersion) -> Option<TrialConfig> {
                 Some(TrialConfig {
                     duration_in_days: version.trial_duration_days? as u32,
@@ -54,7 +55,19 @@ pub mod plans {
                     }),
                 })
             }
+            Self(PlanVersion {
+                id: value.id.to_string(),
+                version: value.version as u32,
+                is_draft: value.is_draft_version,
+                trial_config: trial_config(&value),
+                billing_config: billing_config(&value),
+                currency: value.currency,
+            })
+        }
+    }
 
+    impl From<domain::FullPlan> for PlanDetailsWrapper {
+        fn from(value: domain::FullPlan) -> Self {
             Self(PlanDetails {
                 plan: Some(Plan {
                     id: value.plan.id.to_string(),
@@ -64,14 +77,7 @@ pub mod plans {
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
                 }),
-                current_version: Some(PlanVersion {
-                    id: value.version.id.to_string(),
-                    version: value.version.version as u32,
-                    is_draft: value.version.is_draft_version,
-                    trial_config: trial_config(&value.version),
-                    billing_config: billing_config(&value.version),
-                    currency: value.version.currency,
-                }),
+                current_version: Some(PlanVersionWrapper::from(value.version).0),
                 metadata: vec![],
             })
         }

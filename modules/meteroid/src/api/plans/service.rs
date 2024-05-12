@@ -22,6 +22,7 @@ use crate::api::plans::error::PlanApiError;
 
 use crate::api::plans::mapping::plans::{
     ListPlanWrapper, ListSubscribablePlanVersionWrapper, PlanDetailsWrapper, PlanTypeWrapper,
+    PlanVersionWrapper,
 };
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
@@ -163,7 +164,7 @@ impl PlansService for PlanServiceComponents {
 
         let plan_versions = self
             .store
-            .list_latest_plan_versions(tenant_id)
+            .list_latest_published_plan_versions(tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)?;
 
@@ -185,18 +186,18 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        let res = db::plans::get_plan_version_by_id()
-            .bind(&connection, &parse_uuid!(&req.plan_version_id)?, &tenant_id)
-            .one()
+        let id = parse_uuid!(&req.plan_version_id)?;
+
+        let version = self
+            .store
+            .get_plan_version_by_id(id, tenant_id)
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to get version by id".to_string(), e)
-            })?;
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanVersionWrapper::from(x).0)?;
 
         let response = GetPlanVersionByIdResponse {
-            plan_version: Some(mapping::plans::version::db_to_server(res)),
+            plan_version: Some(version),
         };
 
         Ok(Response::new(response))
