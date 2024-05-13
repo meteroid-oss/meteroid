@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::invoices::{Invoice, InvoiceNew, InvoiceWithPlanDetails};
+use crate::invoices::{Invoice, InvoiceNew, InvoiceWithCustomer, InvoiceWithPlanDetails};
 
 use crate::{DbResult, PgConn};
 
@@ -8,7 +8,7 @@ use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::{debug_query, JoinOnDsl, PgTextExpressionMethods, SelectableHelper};
 use diesel::{ExpressionMethods, QueryDsl};
-use error_stack::{Report, ResultExt};
+use error_stack::ResultExt;
 
 impl InvoiceNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Invoice> {
@@ -92,14 +92,14 @@ impl Invoice {
         param_query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
-    ) -> DbResult<PaginatedVec<Invoice>> {
+    ) -> DbResult<PaginatedVec<InvoiceWithCustomer>> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
 
         let mut query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
-            .select(Invoice::as_select())
+            .select(InvoiceWithCustomer::as_select())
             .into_boxed();
 
         if let Some(param_customer_id) = param_customer_id {

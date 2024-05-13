@@ -63,19 +63,21 @@ pub mod invoices {
         }
     }
 
-    pub fn domain_to_server(value: domain::Invoice) -> Invoice {
+    pub fn domain_to_server(value: domain::InvoiceWithCustomer) -> Invoice {
         Invoice {
-            id: value.id.to_string(),
-            status: status_domain_to_server(value.status).into(),
-            invoicing_provider: invoicing_provider_domain_to_server(value.invoicing_provider)
-                .into(),
-            invoice_date: value.invoice_date.to_string(),
-            customer_id: value.customer_id.to_string(),
-            customer_name: "".to_string(), // todo: fix
-            subscription_id: value.subscription_id.to_string(),
-            currency: value.currency,
-            days_until_due: value.days_until_due,
-            amount_cents: value.amount_cents,
+            id: value.invoice.id.to_string(),
+            status: status_domain_to_server(value.invoice.status).into(),
+            invoicing_provider: invoicing_provider_domain_to_server(
+                value.invoice.invoicing_provider,
+            )
+            .into(),
+            invoice_date: value.invoice.invoice_date.to_string(),
+            customer_id: value.invoice.customer_id.to_string(),
+            customer_name: value.customer.name.to_string(),
+            subscription_id: value.invoice.subscription_id.to_string(),
+            currency: value.invoice.currency,
+            days_until_due: value.invoice.days_until_due,
+            amount_cents: value.invoice.amount_cents,
         }
     }
 }

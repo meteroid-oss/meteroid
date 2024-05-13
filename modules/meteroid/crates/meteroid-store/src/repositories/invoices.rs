@@ -1,4 +1,4 @@
-use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
+use crate::domain::enums::InvoiceType;
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
@@ -7,7 +7,7 @@ use diesel_models::PgConn;
 use error_stack::Report;
 
 use crate::domain::{
-    Customer, Invoice, InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
+    InvoiceWithCustomer, InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use tracing_log::log;
 use uuid::Uuid;
@@ -28,7 +28,7 @@ pub trait InvoiceInterface {
         query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
-    ) -> StoreResult<PaginatedVec<domain::Invoice>>;
+    ) -> StoreResult<PaginatedVec<domain::InvoiceWithCustomer>>;
 
     async fn insert_invoice(&self, invoice: domain::InvoiceNew) -> StoreResult<domain::Invoice>;
 
@@ -61,7 +61,7 @@ impl InvoiceInterface for Store {
         query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
-    ) -> StoreResult<PaginatedVec<Invoice>> {
+    ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>> {
         let mut conn = self.get_conn().await?;
 
         let rows = diesel_models::invoices::Invoice::list(
@@ -76,8 +76,12 @@ impl InvoiceInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res: PaginatedVec<Invoice> = PaginatedVec {
-            items: rows.items.into_iter().map(|s| s.into()).collect(),
+        let res: PaginatedVec<InvoiceWithCustomer> = PaginatedVec {
+            items: rows
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         };

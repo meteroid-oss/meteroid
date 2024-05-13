@@ -605,6 +605,8 @@ diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
 diesel::joinable!(customer -> tenant (tenant_id));
+diesel::joinable!(invoice -> customer (customer_id));
+diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));

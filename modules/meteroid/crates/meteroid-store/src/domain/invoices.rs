@@ -1,10 +1,14 @@
 use super::enums::{
     InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
 };
+use crate::domain::Customer;
+use crate::errors::StoreError;
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel_models::invoices::Invoice as DieselInvoice;
 use diesel_models::invoices::InvoiceNew as DieselInvoiceNew;
+use diesel_models::invoices::InvoiceWithCustomer as DieselInvoiceBrief;
 use diesel_models::invoices::InvoiceWithPlanDetails as DieselInvoiceWithPlanDetails;
+use error_stack::Report;
 use o2o::o2o;
 use uuid::Uuid;
 
@@ -103,4 +107,21 @@ pub struct InvoiceWithPlanDetails {
     pub plan_name: String,
     pub plan_external_id: String,
     pub plan_version: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct InvoiceWithCustomer {
+    pub invoice: Invoice,
+    pub customer: Customer,
+}
+
+impl TryFrom<diesel_models::invoices::InvoiceWithCustomer> for InvoiceWithCustomer {
+    type Error = Report<StoreError>;
+
+    fn try_from(value: DieselInvoiceBrief) -> Result<Self, Self::Error> {
+        Ok(InvoiceWithCustomer {
+            invoice: value.invoice.into(),
+            customer: value.customer.try_into()?,
+        })
+    }
 }

@@ -4,10 +4,10 @@ use crate::enums::{
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
+use crate::customers::Customer;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
-// TODO harmonize DateTime<utc> / NaiveDateTime
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::invoice)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -66,7 +66,6 @@ pub struct InvoiceNew {
 }
 
 #[derive(Debug, Queryable)]
-//#[diesel(table_name = crate::schema::invoice)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoiceWithPlanDetails {
     pub id: Uuid,
@@ -94,4 +93,13 @@ pub struct InvoiceWithPlanDetails {
     pub plan_name: String,
     pub plan_external_id: String,
     pub plan_version: i32,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct InvoiceWithCustomer {
+    #[diesel(embed)]
+    pub invoice: Invoice,
+    #[diesel(embed)]
+    pub customer: Customer,
 }
