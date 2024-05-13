@@ -65,7 +65,8 @@ pub struct InvoiceNew {
     pub finalized_at: Option<NaiveDateTime>,
 }
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::invoice)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoiceWithPlanDetails {
     pub id: Uuid,
@@ -89,9 +90,17 @@ pub struct InvoiceWithPlanDetails {
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub amount_cents: Option<i64>,
+    #[diesel(select_expression = crate::schema::customer::name)]
+    #[diesel(select_expression_type = crate::schema::customer::name)]
     pub customer_name: String,
+    #[diesel(select_expression = crate::schema::plan::name)]
+    #[diesel(select_expression_type = crate::schema::plan::name)]
     pub plan_name: String,
+    #[diesel(select_expression = crate::schema::plan::external_id)]
+    #[diesel(select_expression_type = crate::schema::plan::external_id)]
     pub plan_external_id: String,
+    #[diesel(select_expression = crate::schema::plan_version::version)]
+    #[diesel(select_expression_type = crate::schema::plan_version::version)]
     pub plan_version: i32,
 }
 

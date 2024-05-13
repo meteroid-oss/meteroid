@@ -47,33 +47,7 @@ impl Invoice {
             .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
-            .select((
-                i_dsl::id,
-                i_dsl::status,
-                i_dsl::external_status,
-                i_dsl::created_at,
-                i_dsl::updated_at,
-                i_dsl::tenant_id,
-                i_dsl::customer_id,
-                i_dsl::subscription_id,
-                i_dsl::currency,
-                i_dsl::days_until_due,
-                i_dsl::external_invoice_id,
-                i_dsl::invoice_id,
-                i_dsl::invoicing_provider,
-                i_dsl::line_items,
-                i_dsl::issued,
-                i_dsl::issue_attempts,
-                i_dsl::last_issue_attempt_at,
-                i_dsl::last_issue_error,
-                i_dsl::data_updated_at,
-                i_dsl::invoice_date,
-                i_dsl::amount_cents,
-                c_dsl::name,
-                p_dsl::name,
-                p_dsl::external_id,
-                pv_dsl::version,
-            ));
+            .select(InvoiceWithPlanDetails::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
