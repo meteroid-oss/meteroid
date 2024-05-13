@@ -6,11 +6,30 @@ use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::PgConn;
 use error_stack::Report;
 
+use crate::domain::{
+    InvoiceWithCustomer, InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
+};
 use tracing_log::log;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait InvoiceInterface {
+    async fn find_invoice_by_id(
+        &self,
+        tenant_id: Uuid,
+        invoice_id: Uuid,
+    ) -> StoreResult<domain::InvoiceWithPlanDetails>;
+
+    async fn list_invoices(
+        &self,
+        tenant_id: Uuid,
+        customer_id: Option<Uuid>,
+        status: Option<domain::enums::InvoiceStatusEnum>,
+        query: Option<String>,
+        order_by: OrderByRequest,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<domain::InvoiceWithCustomer>>;
+
     async fn insert_invoice(&self, invoice: domain::InvoiceNew) -> StoreResult<domain::Invoice>;
 
     async fn insert_invoice_batch(
@@ -21,6 +40,55 @@ pub trait InvoiceInterface {
 
 #[async_trait::async_trait]
 impl InvoiceInterface for Store {
+    async fn find_invoice_by_id(
+        &self,
+        tenant_id: Uuid,
+        invoice_id: Uuid,
+    ) -> StoreResult<InvoiceWithPlanDetails> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::invoices::Invoice::find_by_id(&mut conn, tenant_id, invoice_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
+    async fn list_invoices(
+        &self,
+        tenant_id: Uuid,
+        customer_id: Option<Uuid>,
+        status: Option<domain::enums::InvoiceStatusEnum>,
+        query: Option<String>,
+        order_by: OrderByRequest,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = diesel_models::invoices::Invoice::list(
+            &mut conn,
+            tenant_id,
+            customer_id,
+            status.map(Into::into),
+            query,
+            order_by.into(),
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<InvoiceWithCustomer> = PaginatedVec {
+            items: rows
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        };
+
+        Ok(res)
+    }
+
     async fn insert_invoice(&self, invoice: domain::InvoiceNew) -> StoreResult<domain::Invoice> {
         let mut conn = self.get_conn().await?;
 
