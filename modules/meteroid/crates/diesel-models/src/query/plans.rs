@@ -3,6 +3,7 @@ use crate::plans::{Plan, PlanForList, PlanNew};
 
 use crate::{DbResult, PgConn};
 
+use crate::enums::PlanStatusEnum;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::{
@@ -48,6 +49,28 @@ impl Plan {
             .first(conn)
             .await
             .attach_printable("Error while getting plan")
+            .into_db_result()
+    }
+
+    pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<Plan> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::plan)
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .set((
+                p_dsl::status.eq(PlanStatusEnum::Active),
+                p_dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .returning(Plan::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while activating plan")
             .into_db_result()
     }
 }

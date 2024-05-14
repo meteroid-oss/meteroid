@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use diesel::{debug_query, ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
+use diesel::{
+    debug_query, ExpressionMethods, Insertable, OptionalExtension, QueryDsl, SelectableHelper,
+};
 use error_stack::ResultExt;
 use itertools::Itertools;
 use tap::prelude::*;
@@ -174,5 +176,48 @@ impl PriceComponent {
             .into_db_result()?;
 
         Ok(())
+    }
+
+    pub async fn clone_all(
+        conn: &mut PgConn,
+        src_plan_version_id: uuid::Uuid,
+        dst_plan_version_id: uuid::Uuid,
+    ) -> DbResult<usize> {
+        use crate::schema::price_component::dsl as pc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_function! {
+            fn gen_random_uuid() -> Uuid;
+        }
+
+        let query = pc_dsl::price_component
+            .filter(pc_dsl::plan_version_id.eq(src_plan_version_id))
+            .select((
+                gen_random_uuid(),
+                pc_dsl::name,
+                pc_dsl::fee,
+                diesel::dsl::sql::<diesel::sql_types::Uuid>(
+                    format!("'{}'", dst_plan_version_id).as_str(),
+                ),
+                pc_dsl::product_item_id,
+                pc_dsl::billable_metric_id,
+            ))
+            .insert_into(pc_dsl::price_component)
+            .into_columns((
+                pc_dsl::id,
+                pc_dsl::name,
+                pc_dsl::fee,
+                pc_dsl::plan_version_id,
+                pc_dsl::product_item_id,
+                pc_dsl::billable_metric_id,
+            ));
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while cloning price components")
+            .into_db_result()
     }
 }

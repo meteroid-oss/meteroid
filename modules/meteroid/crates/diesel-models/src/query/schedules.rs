@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use error_stack::ResultExt;
 
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{debug_query, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper};
 
 impl ScheduleNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Schedule> {
@@ -121,6 +121,45 @@ impl Schedule {
             .get_results(conn)
             .await
             .attach_printable("Error while fetching schedules")
+            .into_db_result()
+    }
+
+    pub async fn clone_all(
+        conn: &mut PgConn,
+        src_plan_version_id: uuid::Uuid,
+        dst_plan_version_id: uuid::Uuid,
+    ) -> DbResult<usize> {
+        use crate::schema::schedule::dsl as s_dsl;
+        use diesel_async::RunQueryDsl;
+
+        diesel::sql_function! {
+            fn gen_random_uuid() -> Uuid;
+        }
+
+        let query = s_dsl::schedule
+            .filter(s_dsl::plan_version_id.eq(src_plan_version_id))
+            .select((
+                gen_random_uuid(),
+                s_dsl::billing_period,
+                diesel::dsl::sql::<diesel::sql_types::Uuid>(
+                    format!("'{}'", dst_plan_version_id).as_str(),
+                ),
+                s_dsl::ramps,
+            ))
+            .insert_into(s_dsl::schedule)
+            .into_columns((
+                s_dsl::id,
+                s_dsl::billing_period,
+                s_dsl::plan_version_id,
+                s_dsl::ramps,
+            ));
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while cloning schedules")
             .into_db_result()
     }
 }

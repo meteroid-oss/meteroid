@@ -101,6 +101,55 @@ impl PlanVersion {
             .attach_printable("Error while listing plan versions")
             .into_db_result()
     }
+
+    pub async fn delete_others_draft(
+        conn: &mut PgConn,
+        excl_plan_version_id: uuid::Uuid,
+        plan_id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<usize> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(
+            pv_dsl::plan_version
+                .filter(pv_dsl::plan_id.eq(plan_id))
+                .filter(pv_dsl::tenant_id.eq(tenant_id))
+                .filter(pv_dsl::is_draft_version.eq(true))
+                .filter(pv_dsl::id.ne(excl_plan_version_id)),
+        );
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while deleting draft plan versions")
+            .into_db_result()
+    }
+
+    pub async fn publish(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<PlanVersion> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(pv_dsl::plan_version)
+            .filter(pv_dsl::id.eq(id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .set(pv_dsl::is_draft_version.eq(false))
+            .returning(PlanVersion::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while finding plan version by id")
+            .into_db_result()
+    }
 }
 
 impl PlanVersionLatest {

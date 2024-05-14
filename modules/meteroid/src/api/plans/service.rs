@@ -26,10 +26,7 @@ use crate::api::plans::mapping::plans::{
 };
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
-use crate::{
-    api::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
+use crate::{api::utils::parse_uuid, parse_uuid};
 use common_eventbus::Event;
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
@@ -245,41 +242,17 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let mut connection = self.get_connection().await?;
-        let transaction = self.get_transaction(&mut connection).await?;
+        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
 
-        db::plans::delete_all_draft_versions_of_same_plan()
-            .bind(
-                &transaction,
-                &parse_uuid!(&req.plan_version_id)?,
-                &tenant_id,
-            )
+        let res = self
+            .store
+            .copy_plan_version_to_draft(plan_version_id, tenant_id, actor)
             .await
-            .map_err(|e| PlanApiError::DatabaseError("unable to discard drafts".to_string(), e))?;
-
-        let params = db::plans::CopyVersionToDraftParams {
-            new_plan_version_id: uuid_gen::v7(),
-            created_by: actor,
-            original_plan_version_id: parse_uuid!(&req.plan_version_id)?,
-            tenant_id,
-        };
-
-        let new_version = db::plans::copy_version_to_draft()
-            .params(&transaction, &params)
-            .one()
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to copy plan version to draft".to_string(), e)
-            })?;
-
-        transaction.commit().await.map_err(|e| {
-            PlanApiError::DatabaseError("failed to commit transaction".to_string(), e)
-        })?;
-
-        let response = mapping::plans::version::db_to_server(new_version);
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanVersionWrapper::from(x).0)?;
 
         Ok(Response::new(CopyVersionToDraftResponse {
-            plan_version: Some(response),
+            plan_version: Some(res),
         }))
     }
 
@@ -291,37 +264,18 @@ impl PlansService for PlanServiceComponents {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        // TODO validations
-        // - all components on committed must have values for all periods
-        let plan_version_row = db::plans::publish_plan_version()
-            .bind(&connection, &parse_uuid!(&req.plan_version_id)?, &tenant_id)
-            .one()
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to publish plan version".to_string(), e)
-            })?;
+        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
 
-        db::plans::activate_plan()
-            .bind(&connection, &parse_uuid!(&req.plan_id)?, &tenant_id)
-            .await
-            .map_err(|e| PlanApiError::DatabaseError("unable to activate plan".to_string(), e))?;
-
-        let response = mapping::plans::version::db_to_server(plan_version_row.clone());
-
-        let _ = self
+        let res = self
             .store
-            .eventbus
-            .publish(Event::plan_published_version(
-                actor,
-                plan_version_row.id,
-                tenant_id,
-            ))
-            .await;
+            .publish_plan_version(plan_version_id, tenant_id, actor)
+            .await
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanVersionWrapper::from(x).0)?;
 
         Ok(Response::new(PublishPlanVersionResponse {
-            plan_version: Some(response),
+            plan_version: Some(res),
         }))
     }
 

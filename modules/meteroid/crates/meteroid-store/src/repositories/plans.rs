@@ -45,6 +45,19 @@ pub trait PlansInterface {
         auth_tenant_id: Uuid,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<PlanVersion>>;
+    async fn copy_plan_version_to_draft(
+        &self,
+        plan_version_id: Uuid,
+        auth_tenant_id: Uuid,
+        auth_actor: Uuid,
+    ) -> StoreResult<PlanVersion>;
+
+    async fn publish_plan_version(
+        &self,
+        plan_version_id: Uuid,
+        auth_tenant_id: Uuid,
+        auth_actor: Uuid,
+    ) -> StoreResult<PlanVersion>;
 }
 
 #[async_trait::async_trait]
@@ -272,6 +285,110 @@ impl PlansInterface for Store {
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         };
+
+        Ok(res)
+    }
+
+    async fn copy_plan_version_to_draft(
+        &self,
+        plan_version_id: Uuid,
+        auth_tenant_id: Uuid,
+        auth_actor: Uuid,
+    ) -> StoreResult<PlanVersion> {
+        self.transaction(|conn| {
+            async move {
+                let original = diesel_models::plan_versions::PlanVersion::find_by_id_and_tenant_id(
+                    conn,
+                    plan_version_id,
+                    auth_tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                diesel_models::plan_versions::PlanVersion::delete_others_draft(
+                    conn,
+                    original.id,
+                    original.plan_id,
+                    original.tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                let new = diesel_models::plan_versions::PlanVersionNew {
+                    id: Uuid::now_v7(),
+                    is_draft_version: true,
+                    plan_id: original.plan_id,
+                    version: original.version + 1,
+                    trial_duration_days: original.trial_duration_days,
+                    trial_fallback_plan_id: original.trial_fallback_plan_id,
+                    tenant_id: original.tenant_id,
+                    period_start_day: original.period_start_day,
+                    net_terms: original.net_terms,
+                    currency: original.currency,
+                    billing_cycles: original.billing_cycles,
+                    created_by: auth_actor,
+                    billing_periods: original.billing_periods,
+                }
+                .insert(conn)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                diesel_models::price_components::PriceComponent::clone_all(
+                    conn,
+                    original.id,
+                    new.id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                diesel_models::schedules::Schedule::clone_all(conn, original.id, new.id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(new.into())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn publish_plan_version(
+        &self,
+        plan_version_id: Uuid,
+        auth_tenant_id: Uuid,
+        auth_actor: Uuid,
+    ) -> StoreResult<PlanVersion> {
+        let res = self
+            .transaction(|conn| {
+                async move {
+                    // TODO validations
+                    // - all components on committed must have values for all periods
+                    let published = diesel_models::plan_versions::PlanVersion::publish(
+                        conn,
+                        plan_version_id,
+                        auth_tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    diesel_models::plans::Plan::activate(conn, published.plan_id, auth_tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    Ok(published.into())
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::plan_published_version(
+                auth_actor,
+                plan_version_id,
+                auth_tenant_id,
+            ))
+            .await;
 
         Ok(res)
     }

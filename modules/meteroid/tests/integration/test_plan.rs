@@ -121,7 +121,6 @@ async fn test_plans_basic() {
     assert_eq!(plan_list.plan_status(), api::plans::v1::PlanStatus::Draft);
     assert_eq!(plan_list.plan_type(), api::plans::v1::PlanType::Standard);
 
-    // ListSubscribablePlanVersion
     let plan_versions = clients
         .plans
         .clone()
@@ -131,7 +130,7 @@ async fn test_plans_basic() {
         .into_inner()
         .plan_versions;
 
-    assert_eq!(plan_versions.len(), 0); // todo move after activating some PV
+    assert_eq!(plan_versions.len(), 0);
 
     // get_plan_version_by_id
     let plan_version = clients
@@ -167,6 +166,51 @@ async fn test_plans_basic() {
     assert_eq!(&plan_version.version, &created_version.version);
     assert_eq!(&plan_version.is_draft, &created_version.is_draft);
     assert_eq!(&plan_version.currency, &created_version.currency);
+
+    // publish plan version
+    let published_version = clients
+        .plans
+        .clone()
+        .publish_plan_version(api::plans::v1::PublishPlanVersionRequest {
+            plan_id: created_plan.id.clone(),
+            plan_version_id: created_version.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_version
+        .unwrap();
+
+    assert_eq!(&published_version.is_draft, &false);
+
+    // ListSubscribablePlanVersion
+    let plan_versions = clients
+        .plans
+        .clone()
+        .list_subscribable_plan_version(api::plans::v1::ListSubscribablePlanVersionRequest {})
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_versions;
+
+    assert_eq!(plan_versions.len(), 1);
+
+    // copy version to draft
+    let copied_draft_version = clients
+        .plans
+        .clone()
+        .copy_version_to_draft(api::plans::v1::CopyVersionToDraftRequest {
+            plan_id: created_plan.id.clone(),
+            plan_version_id: created_version.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_version
+        .unwrap();
+
+    assert_ne!(copied_draft_version.id.clone(), created_version.id.clone());
+    assert_eq!(copied_draft_version.is_draft, true);
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

@@ -200,10 +200,8 @@ pub mod plans {
 
     pub mod version {
         use meteroid_grpc::meteroid::api::plans::v1::plan_billing_configuration as billing_config_grpc;
-        use meteroid_grpc::meteroid::api::plans::v1::{ListPlanVersion, PlanVersion};
-        use meteroid_repository::plans::{
-            ListPlanVersion as DbListPlanVersion, PlanVersion as DbPlanVersion,
-        };
+        use meteroid_grpc::meteroid::api::plans::v1::PlanVersion;
+        use meteroid_repository::plans::PlanVersion as DbPlanVersion;
 
         use crate::api::shared::mapping::period::billing_period_to_server;
 
@@ -263,15 +261,6 @@ pub mod plans {
                 version: version.version as u32,
                 trial_config: map_trial_config(&version),
                 billing_config: map_billing_config(&version),
-                currency: version.currency,
-            }
-        }
-
-        pub fn list_db_to_server(version: DbListPlanVersion) -> ListPlanVersion {
-            ListPlanVersion {
-                id: version.id.to_string(),
-                is_draft: version.is_draft_version,
-                version: version.version as u32,
                 currency: version.currency,
             }
         }
