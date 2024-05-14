@@ -1,11 +1,11 @@
-use crate::errors::{IntoDbResult};
+use crate::errors::IntoDbResult;
 use chrono::NaiveDate;
 
 use crate::subscriptions::{
-    CancelSubscriptionParams, Subscription, SubscriptionForDisplay, SubscriptionInvoiceCandidate, SubscriptionNew,
+    CancelSubscriptionParams, Subscription, SubscriptionForDisplay, SubscriptionInvoiceCandidate,
+    SubscriptionNew,
 };
 use crate::{DbResult, PgConn};
-
 
 use diesel::{
     allow_columns_to_appear_in_same_group_by_clause, debug_query, BoolExpressionMethods,

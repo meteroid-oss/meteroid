@@ -61,7 +61,6 @@ use crate::schema::customer;
 use crate::schema::plan;
 use crate::schema::plan_version;
 
-
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionForDisplay {

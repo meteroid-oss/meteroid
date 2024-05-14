@@ -2,11 +2,10 @@ use std::collections::HashSet;
 
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
-use meteroid::eventbus::{create_eventbus_noop};
+use meteroid::eventbus::create_eventbus_noop;
 use testcontainers::clients::Cli;
 use time::macros::date;
 use uuid::Uuid;
-
 
 use meteroid::workers::invoicing::draft_worker::draft_worker;
 use meteroid_repository::invoices::ListInvoice;
@@ -29,7 +28,7 @@ async fn test_draft_worker() {
         pool.clone(),
         meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
     )
-        .await;
+    .await;
 
     let worker_run_date = date!(2023 - 11 - 06);
 
@@ -39,7 +38,7 @@ async fn test_draft_worker() {
         secrecy::SecretString::new("test-jwt-key".into()),
         create_eventbus_noop().await,
     )
-        .unwrap();
+    .unwrap();
 
     draft_worker(&store, &pool, worker_run_date.clone())
         .await

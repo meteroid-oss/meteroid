@@ -1,11 +1,9 @@
-
 use diesel::pg::Pg;
 use diesel::query_builder::{AstPass, Query, QueryFragment};
 use diesel::sql_types;
 use diesel::sql_types::{BigInt, SqlType};
 use diesel::{Expression, QueryId, QueryResult};
 use std::borrow::Cow;
-
 
 use diesel_async::methods::LoadQuery;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};

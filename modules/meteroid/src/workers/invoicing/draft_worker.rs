@@ -7,7 +7,6 @@ use deadpool_postgres::Pool;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 
-
 use time::Date;
 
 use crate::mapping::common::date_to_chrono;
@@ -38,14 +37,14 @@ impl AsyncRunnable for DraftWorker {
             pool,
             time::OffsetDateTime::now_utc().date(),
         )
-            .timed(|res, elapsed| record_call("draft", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in draft worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        .timed(|res, elapsed| record_call("draft", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in draft worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
