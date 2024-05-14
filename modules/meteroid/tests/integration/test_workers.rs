@@ -2,11 +2,11 @@ use std::collections::HashSet;
 
 use cornucopia_async::Params;
 use deadpool_postgres::Pool;
+use meteroid::eventbus::create_eventbus_noop;
 use testcontainers::clients::Cli;
 use time::macros::date;
 use uuid::Uuid;
 
-use meteroid::singletons;
 use meteroid::workers::invoicing::draft_worker::draft_worker;
 use meteroid_repository::invoices::ListInvoice;
 use meteroid_repository::InvoiceStatusEnum;
@@ -17,7 +17,6 @@ use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 
 #[tokio::test]
-#[ignore] // subscription seed is broken
 async fn test_draft_worker() {
     helpers::init::logging();
     let docker = Cli::default();
@@ -31,13 +30,13 @@ async fn test_draft_worker() {
     )
     .await;
 
-    let worker_run_date = date!(2023 - 11 - 04);
+    let worker_run_date = date!(2023 - 11 - 06);
 
     let store = Store::new(
         postgres_connection_string,
         secrecy::SecretString::new("test-key".into()),
         secrecy::SecretString::new("test-jwt-key".into()),
-        singletons::get_store().await.eventbus.clone(),
+        create_eventbus_noop().await,
     )
     .unwrap();
 
@@ -69,31 +68,23 @@ async fn test_draft_worker() {
         if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
             assert_eq!(invoice.invoice_date, date!(2023 - 12 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
+        } else if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
             assert_eq!(invoice.invoice_date, date!(2023 - 12 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_UBER_ID1 {
+        } else if invoice.subscription_id == SUBSCRIPTION_UBER_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
             assert_eq!(invoice.invoice_date, date!(2024 - 11 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_UBER_ID2 {
+        } else if invoice.subscription_id == SUBSCRIPTION_UBER_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
             assert_eq!(invoice.invoice_date, date!(2023 - 11 - 15));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_COMODO_ID1 {
+        } else if invoice.subscription_id == SUBSCRIPTION_COMODO_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
             assert_eq!(invoice.invoice_date, date!(2023 - 12 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_COMODO_ID2 {
+        } else if invoice.subscription_id == SUBSCRIPTION_COMODO_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
             assert_eq!(invoice.invoice_date, date!(2023 - 11 - 30));
+        } else {
+            panic!("Unexpected invoice: {:?}", invoice);
         }
     }
 

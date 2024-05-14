@@ -53,7 +53,7 @@ pub mod sql_types {
     #[diesel(postgres_type(name = "SubscriptionEventType"))]
     pub struct SubscriptionEventType;
 
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[derive(Debug, diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionFeeBillingPeriod"))]
     pub struct SubscriptionFeeBillingPeriod;
 
