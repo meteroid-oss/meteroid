@@ -286,29 +286,18 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<GetLastPublishedPlanVersionResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
+        let plan_id = parse_uuid!(&req.plan_id)?;
 
-        let res = db::plans::last_plan_version()
-            .bind(
-                &connection,
-                &tenant_id,
-                &parse_uuid!(&req.plan_id)?,
-                &Some(false),
-            )
-            .opt()
+        let res = self
+            .store
+            .get_last_published_plan_version(plan_id, tenant_id)
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError(
-                    "unable to get last published plan version".to_string(),
-                    e,
-                )
-            })?;
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanVersionWrapper::from(x).0)?;
 
-        let response = GetLastPublishedPlanVersionResponse {
-            version: res.map(mapping::plans::version::db_to_server),
-        };
-
-        Ok(Response::new(response))
+        Ok(Response::new(GetLastPublishedPlanVersionResponse {
+            version: Some(res),
+        }))
     }
 
     #[tracing::instrument(skip_all)]

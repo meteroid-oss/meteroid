@@ -211,6 +211,22 @@ async fn test_plans_basic() {
 
     assert_ne!(copied_draft_version.id.clone(), created_version.id.clone());
     assert_eq!(copied_draft_version.is_draft, true);
+    assert_eq!(copied_draft_version.version, 2);
+
+    // get last published version
+    let last_published_version = clients
+        .plans
+        .clone()
+        .get_last_published_plan_version(api::plans::v1::GetLastPublishedPlanVersionRequest {
+            plan_id: created_plan.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .version
+        .unwrap();
+
+    assert_eq!(&last_published_version, &published_version);
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

@@ -58,6 +58,12 @@ pub trait PlansInterface {
         auth_tenant_id: Uuid,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion>;
+
+    async fn get_last_published_plan_version(
+        &self,
+        plan_id: Uuid,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanVersion>;
 }
 
 #[async_trait::async_trait]
@@ -391,5 +397,22 @@ impl PlansInterface for Store {
             .await;
 
         Ok(res)
+    }
+
+    async fn get_last_published_plan_version(
+        &self,
+        plan_id: Uuid,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanVersion> {
+        let mut conn = self.get_conn().await?;
+        diesel_models::plan_versions::PlanVersion::find_latest_by_plan_id_and_tenant_id(
+            &mut conn,
+            plan_id,
+            auth_tenant_id,
+            Some(false),
+        )
+        .await
+        .map(Into::into)
+        .map_err(Into::into)
     }
 }
