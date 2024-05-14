@@ -26,6 +26,15 @@ pub struct Customer {
     pub shipping_address: Option<serde_json::Value>,
 }
 
+#[derive(Clone, Debug, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::customer)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct CustomerBrief {
+    pub id: Uuid,
+    pub name: String,
+    pub alias: Option<String>,
+}
+
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

@@ -3,7 +3,9 @@ use uuid::Uuid;
 
 use common_eventbus::Event;
 
-use crate::domain::{Customer, CustomerPatch, OrderByRequest, PaginatedVec, PaginationRequest};
+use crate::domain::{
+    Customer, CustomerBrief, CustomerPatch, OrderByRequest, PaginatedVec, PaginationRequest,
+};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
@@ -11,7 +13,15 @@ use crate::{domain, StoreResult};
 #[async_trait::async_trait]
 pub trait CustomersInterface {
     async fn find_customer_by_id(&self, id: Uuid) -> StoreResult<domain::Customer>;
+
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<domain::Customer>;
+
+    async fn find_customer_ids_by_aliases(
+        &self,
+        tenant_id: Uuid,
+        aliases: Vec<String>,
+    ) -> StoreResult<Vec<CustomerBrief>>;
+
     async fn list_customers(
         &self,
         tenant_id: Uuid,
@@ -54,6 +64,23 @@ impl CustomersInterface for Store {
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
+    }
+
+    async fn find_customer_ids_by_aliases(
+        &self,
+        tenant_id: Uuid,
+        aliases: Vec<String>,
+    ) -> StoreResult<Vec<CustomerBrief>> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::customers::Customer::find_by_aliases(&mut conn, tenant_id, aliases)
+            .await
+            .map_err(Into::into)
+            .map(|v| {
+                v.into_iter()
+                    .map(Into::into)
+                    .collect::<Vec<CustomerBrief>>()
+            })
     }
 
     async fn list_customers(
