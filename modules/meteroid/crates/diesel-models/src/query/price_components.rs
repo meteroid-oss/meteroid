@@ -212,7 +212,7 @@ impl PriceComponent {
                 pc_dsl::billable_metric_id,
             ));
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
             .execute(conn)
