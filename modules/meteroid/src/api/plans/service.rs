@@ -27,7 +27,6 @@ use crate::api::plans::mapping::plans::{
 use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
-use common_eventbus::Event;
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::PlansInterface;
@@ -308,34 +307,13 @@ impl PlansService for PlanServiceComponents {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
         let plan_version_id = parse_uuid!(&req.plan_version_id)?;
-        let plan_id = parse_uuid!(&req.plan_id)?;
 
-        db::plans::delete_draft_plan_version()
-            .bind(&connection, &plan_version_id, &tenant_id)
+        self.store
+            .discard_draft_plan_version(plan_version_id, tenant_id, actor)
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to discard draft version".to_string(), e)
-            })?;
-
-        db::plans::delete_plan_if_no_versions()
-            .bind(&connection, &plan_id, &tenant_id)
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to discard_draft_plan".to_string(), e)
-            })?;
-
-        let _ = self
-            .store
-            .eventbus
-            .publish(Event::plan_discarded_version(
-                actor,
-                plan_version_id,
-                tenant_id,
-            ))
-            .await;
+            .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(DiscardDraftVersionResponse {}))
     }

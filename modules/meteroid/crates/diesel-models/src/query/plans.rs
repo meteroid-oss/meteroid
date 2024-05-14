@@ -73,6 +73,30 @@ impl Plan {
             .attach_printable("Error while activating plan")
             .into_db_result()
     }
+
+    pub async fn delete(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<usize> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(p_dsl::plan)
+            .filter(p_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(diesel::dsl::not(diesel::dsl::exists(
+                pv_dsl::plan_version
+                    .filter(pv_dsl::plan_id.eq(id))
+                    .filter(pv_dsl::tenant_id.eq(tenant_id))
+                    .select(diesel::dsl::sql::<diesel::sql_types::Integer>("1")),
+            )));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while deleting plan")
+            .into_db_result()
+    }
 }
 
 impl PlanForList {

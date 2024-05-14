@@ -64,6 +64,13 @@ pub trait PlansInterface {
         plan_id: Uuid,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanVersion>;
+
+    async fn discard_draft_plan_version(
+        &self,
+        plan_version_id: Uuid,
+        auth_tenant_id: Uuid,
+        auth_actor: Uuid,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -414,5 +421,53 @@ impl PlansInterface for Store {
         .await
         .map(Into::into)
         .map_err(Into::into)
+    }
+
+    async fn discard_draft_plan_version(
+        &self,
+        plan_version_id: Uuid,
+        auth_tenant_id: Uuid,
+        auth_actor: Uuid,
+    ) -> StoreResult<()> {
+        let res = self
+            .transaction(|conn| {
+                async move {
+                    let original =
+                        diesel_models::plan_versions::PlanVersion::find_by_id_and_tenant_id(
+                            conn,
+                            plan_version_id,
+                            auth_tenant_id,
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    diesel_models::plan_versions::PlanVersion::delete_draft(
+                        conn,
+                        plan_version_id,
+                        auth_tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    diesel_models::plans::Plan::delete(conn, original.plan_id, auth_tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    Ok(())
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::plan_discarded_version(
+                auth_actor,
+                plan_version_id,
+                auth_tenant_id,
+            ))
+            .await;
+
+        Ok(res)
     }
 }

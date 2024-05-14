@@ -150,6 +150,28 @@ impl PlanVersion {
             .attach_printable("Error while finding plan version by id")
             .into_db_result()
     }
+
+    pub async fn delete_draft(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<usize> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(pv_dsl::plan_version)
+            .filter(pv_dsl::id.eq(id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .filter(pv_dsl::is_draft_version.eq(true));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while deleting plan version")
+            .into_db_result()
+    }
 }
 
 impl PlanVersionLatest {

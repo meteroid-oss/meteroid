@@ -228,6 +228,32 @@ async fn test_plans_basic() {
 
     assert_eq!(&last_published_version, &published_version);
 
+    // discard plan version
+    clients
+        .plans
+        .clone()
+        .discard_draft_version(api::plans::v1::DiscardDraftVersionRequest {
+            plan_id: created_plan.id.clone(),
+            plan_version_id: copied_draft_version.id.clone(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+
+    let plan_versions = clients
+        .plans
+        .clone()
+        .list_plan_version_by_id(api::plans::v1::ListPlanVersionByIdRequest {
+            plan_id: created_plan.id.clone(),
+            pagination: None,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_versions;
+
+    assert_eq!(plan_versions.len(), 1);
+
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
 }
