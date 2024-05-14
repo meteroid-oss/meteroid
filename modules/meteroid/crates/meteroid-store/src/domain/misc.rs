@@ -51,7 +51,6 @@ impl Into<diesel_models::extend::cursor_pagination::CursorPaginationRequest>
 pub struct CursorPaginatedVec<T> {
     pub items: Vec<T>,
     pub next_cursor: Option<Uuid>,
-    pub total: i64,
 }
 
 impl<T> Into<CursorPaginatedVec<T>>
@@ -61,7 +60,6 @@ impl<T> Into<CursorPaginatedVec<T>>
         CursorPaginatedVec {
             items: self.items,
             next_cursor: self.next_cursor,
-            total: self.total,
         }
     }
 }

@@ -1,6 +1,7 @@
 use diesel_models::enums as diesel_enums;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]
 #[map_owned(diesel_enums::BillingMetricAggregateEnum)]
@@ -14,7 +15,7 @@ pub enum BillingMetricAggregateEnum {
     CountDistinct,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::BillingPeriodEnum)]
 pub enum BillingPeriodEnum {
     Monthly,
@@ -37,6 +38,18 @@ impl BillingPeriodEnum {
             BillingPeriodEnum::Quarterly => SubscriptionFeeBillingPeriod::Quarterly,
             BillingPeriodEnum::Annual => SubscriptionFeeBillingPeriod::Annual,
         }
+    }
+}
+
+impl PartialOrd for BillingPeriodEnum {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.as_months().cmp(&other.as_months()))
+    }
+}
+
+impl Ord for BillingPeriodEnum {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.as_months().cmp(&other.as_months())
     }
 }
 

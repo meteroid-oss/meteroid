@@ -61,6 +61,7 @@ use crate::schema::customer;
 use crate::schema::plan;
 use crate::schema::plan_version;
 
+
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionForDisplay {
@@ -81,4 +82,71 @@ pub struct SubscriptionForDisplay {
     #[diesel(select_expression = plan::id)]
     #[diesel(select_expression_type = plan::id)]
     pub plan_id: Uuid,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct SubscriptionInvoiceCandidate {
+    #[diesel(embed)]
+    pub subscription: subscription_invoice_candidate::SubscriptionEmbed,
+    #[diesel(embed)]
+    pub plan_version: subscription_invoice_candidate::PlanVersionEmbed,
+    #[diesel(embed)]
+    pub subscription_components: subscription_invoice_candidate::SubscriptionComponentsEmbed,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct SubscriptionInvoiceCandidateGroupBy {
+    #[diesel(embed)]
+    pub subscription: subscription_invoice_candidate::SubscriptionEmbed,
+    #[diesel(embed)]
+    pub plan_version: subscription_invoice_candidate::PlanVersionEmbed,
+}
+
+mod subscription_invoice_candidate {
+    use crate::enums::SubscriptionFeeBillingPeriod;
+    use crate::schema::sql_types::SubscriptionFeeBillingPeriod as SubscriptionFeeBillingPeriodSql;
+    use chrono::{NaiveDate, NaiveDateTime};
+    use diesel::dsl::sql;
+    use diesel::expression::SqlLiteral;
+    use diesel::sql_types;
+    use diesel::{Identifiable, Queryable, Selectable};
+    use uuid::Uuid;
+
+    #[derive(Debug, Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::subscription)]
+    #[diesel(check_for_backend(diesel::pg::Pg))]
+    pub struct SubscriptionEmbed {
+        pub id: Uuid,
+        pub tenant_id: Uuid,
+        pub customer_id: Uuid,
+        pub plan_version_id: Uuid,
+        pub billing_start_date: NaiveDate,
+        pub billing_end_date: Option<NaiveDate>,
+        pub billing_day: i16,
+        pub activated_at: Option<NaiveDateTime>,
+        pub canceled_at: Option<NaiveDateTime>,
+    }
+
+    #[derive(Debug, Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::plan_version)]
+    #[diesel(check_for_backend(diesel::pg::Pg))]
+    pub struct PlanVersionEmbed {
+        pub plan_id: Uuid,
+        pub currency: String,
+        pub net_terms: i32,
+        pub version: i32,
+    }
+
+    #[derive(Debug, Queryable, Selectable)]
+    #[diesel(table_name = crate::schema::subscription_component)]
+    #[diesel(check_for_backend(diesel::pg::Pg))]
+    pub struct SubscriptionComponentsEmbed {
+        #[diesel(select_expression = sql("array_agg(distinct(subscription_component.period)) periods"))]
+        #[diesel(
+        select_expression_type = SqlLiteral::< sql_types::Array < sql_types::Nullable < SubscriptionFeeBillingPeriodSql >> >
+        )]
+        pub periods: Vec<Option<SubscriptionFeeBillingPeriod>>,
+    }
 }

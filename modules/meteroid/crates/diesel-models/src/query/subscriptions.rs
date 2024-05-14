@@ -1,12 +1,22 @@
-use crate::errors::IntoDbResult;
+use crate::errors::{IntoDbResult};
+use chrono::NaiveDate;
 
 use crate::subscriptions::{
-    CancelSubscriptionParams, Subscription, SubscriptionForDisplay, SubscriptionNew,
+    CancelSubscriptionParams, Subscription, SubscriptionForDisplay, SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::{DbResult, PgConn};
 
-use diesel::{debug_query, ExpressionMethods, QueryDsl, SelectableHelper};
 
+use diesel::{
+    allow_columns_to_appear_in_same_group_by_clause, debug_query, BoolExpressionMethods,
+    ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper,
+};
+use diesel_async::RunQueryDsl;
+
+use crate::enums::InvoiceType;
+use crate::extend::cursor_pagination::{
+    CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
+};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -145,6 +155,7 @@ impl Subscription {
         if let Some(plan_id_param) = plan_id_param_opt {
             query = query.filter(crate::schema::plan::id.eq(plan_id_param));
         }
+
         //
         //
         //
@@ -165,6 +176,80 @@ impl Subscription {
             .load_and_count_pages::<SubscriptionForDisplay>(conn)
             .await
             .attach_printable("Error while fetching subscriptions")
+            .into_db_result()
+    }
+
+    pub async fn list_subscription_to_invoice_candidates(
+        conn: &mut PgConn,
+        input_date_param: NaiveDate,
+        pagination: CursorPaginationRequest,
+    ) -> DbResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>> {
+        use crate::schema::invoice::dsl as i_dsl;
+
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+        use crate::schema::subscription_component::dsl as sc_dsl;
+
+        allow_columns_to_appear_in_same_group_by_clause!(
+            s_dsl::id,
+            s_dsl::tenant_id,
+            s_dsl::customer_id,
+            s_dsl::plan_version_id,
+            s_dsl::billing_start_date,
+            s_dsl::billing_end_date,
+            s_dsl::billing_day,
+            s_dsl::activated_at,
+            s_dsl::canceled_at,
+            pv_dsl::plan_id,
+            pv_dsl::currency,
+            pv_dsl::net_terms,
+            pv_dsl::version
+        );
+
+        let query = s_dsl::subscription
+            // only if not already ended
+            .filter(
+                s_dsl::billing_end_date
+                    .is_null()
+                    .or(s_dsl::billing_end_date.gt(input_date_param)),
+            )
+            // only if started. lt => we consider that initial invoice was already created
+            .filter(s_dsl::billing_start_date.lt(input_date_param))
+            // only if no future recurring invoice exist.
+            // (requires a single recurring invoice in parallel. For now, this is true)
+            .left_join(
+                i_dsl::invoice.on(s_dsl::id
+                    .eq(i_dsl::subscription_id)
+                    .and(i_dsl::invoice_type.eq(InvoiceType::Recurring))
+                    .and(i_dsl::invoice_date.gt(input_date_param))),
+            )
+            .filter(i_dsl::id.is_null())
+            .inner_join(pv_dsl::plan_version)
+            .left_join(sc_dsl::subscription_component)
+            .group_by((
+                s_dsl::id,
+                s_dsl::tenant_id,
+                s_dsl::customer_id,
+                s_dsl::plan_version_id,
+                s_dsl::billing_start_date,
+                s_dsl::billing_end_date,
+                s_dsl::billing_day,
+                s_dsl::activated_at,
+                s_dsl::canceled_at,
+                pv_dsl::plan_id,
+                pv_dsl::currency,
+                pv_dsl::net_terms,
+                pv_dsl::version,
+            ))
+            .select(SubscriptionInvoiceCandidate::as_select())
+            .cursor_paginate(pagination, s_dsl::id, "id");
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load_and_get_next_cursor(conn, |a| a.subscription.id)
+            .await
+            .attach_printable("Error while fetching subscriptions to invoice")
             .into_db_result()
     }
 

@@ -1,8 +1,9 @@
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionEventType};
 use crate::domain::{
-    CreateSubscriptionComponents, FeeType, PaginatedVec, PaginationRequest, Subscription,
-    SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionDetails, SubscriptionFee, SubscriptionNew,
+    CreateSubscriptionComponents, CursorPaginatedVec, CursorPaginationRequest, FeeType,
+    PaginatedVec, PaginationRequest, Subscription, SubscriptionComponent, SubscriptionComponentNew,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
+    SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
@@ -44,11 +45,6 @@ pub trait SubscriptionInterface {
         subscription_id: Uuid,
     ) -> StoreResult<domain::SubscriptionDetails>;
 
-    // async fn get_subscription(
-    //     &self,
-    //     subscription_id: Uuid,
-    // ) -> StoreResult<domain::Subscription>;
-
     async fn insert_subscription_components(
         &self,
         tenant_id: Uuid,
@@ -70,6 +66,12 @@ pub trait SubscriptionInterface {
         plan_id: Option<Uuid>,
         pagination: domain::PaginationRequest,
     ) -> StoreResult<domain::PaginatedVec<domain::Subscription>>;
+
+    async fn list_subscription_invoice_candidates(
+        &self,
+        date: NaiveDate,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>>;
 }
 
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
@@ -571,6 +573,34 @@ impl SubscriptionInterface for Store {
                 .collect(),
             total_pages: db_subscriptions.total_pages,
             total_results: db_subscriptions.total_results,
+        };
+
+        Ok(res)
+    }
+
+    async fn list_subscription_invoice_candidates(
+        &self,
+        date: NaiveDate,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>> {
+        let mut conn = self.get_conn().await?;
+
+        let db_subscriptions =
+            diesel_models::subscriptions::Subscription::list_subscription_to_invoice_candidates(
+                &mut conn,
+                date,
+                pagination.into(),
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: CursorPaginatedVec<SubscriptionInvoiceCandidate> = CursorPaginatedVec {
+            items: db_subscriptions
+                .items
+                .into_iter()
+                .map(|s| s.into())
+                .collect(),
+            next_cursor: db_subscriptions.next_cursor,
         };
 
         Ok(res)

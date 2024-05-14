@@ -1,18 +1,23 @@
 use crate::workers::metrics::record_call;
 use crate::{errors, singletons};
+
 use common_utils::timed::*;
-use cornucopia_async::Params;
+
 use deadpool_postgres::Pool;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use futures::StreamExt;
-use meteroid_repository as db;
+
 
 use time::Date;
 
+use crate::mapping::common::date_to_chrono;
 use common_eventbus::Event;
-use meteroid_repository::subscriptions::SubscriptionToInvoice;
-use meteroid_store::domain::enums::BillingPeriodEnum;
+
+use meteroid_store::domain::enums::{
+    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
+};
+use meteroid_store::domain::{CursorPaginationRequest, SubscriptionInvoiceCandidate};
+use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
 use meteroid_store::Store;
 
 const BATCH_SIZE: usize = 100;
@@ -33,14 +38,14 @@ impl AsyncRunnable for DraftWorker {
             pool,
             time::OffsetDateTime::now_utc().date(),
         )
-        .timed(|res, elapsed| record_call("draft", res, elapsed))
-        .await
-        .map_err(|err| {
-            log::error!("Error in draft worker: {}", err);
-            FangError {
-                description: err.to_string(),
-            }
-        })
+            .timed(|res, elapsed| record_call("draft", res, elapsed))
+            .await
+            .map_err(|err| {
+                log::error!("Error in draft worker: {}", err);
+                FangError {
+                    description: err.to_string(),
+                }
+            })
     }
 
     fn uniq(&self) -> bool {
@@ -60,48 +65,33 @@ impl AsyncRunnable for DraftWorker {
 #[tracing::instrument(skip_all)]
 pub async fn draft_worker(
     store: &Store,
-    pool: &Pool,
+    _pool: &Pool,
     today: Date,
 ) -> Result<(), errors::WorkerError> {
-    let db_client = pool
-        .get()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
+    let naive_date = date_to_chrono(today).change_context(errors::WorkerError::InvalidInput)?;
 
-    // we fetch all subscriptions that are active and that DO NOT HAVE an invoice where invoice_date > date
-    // TODO this will not work if multiple opened invoices, we need a better way.
-    // Should we just rely on the pending worker to create the next iteration. Else we should rely on the components
-    let mut stmt = db::subscriptions::subscription_to_invoice_candidates();
+    let mut last_processed_id = None;
 
-    let stream = stmt
-        .bind(&db_client, &today)
-        .iter()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
-    let chunks = stream.chunks(BATCH_SIZE);
-
-    futures::pin_mut!(chunks);
-
-    while let Some(batch_result) = chunks.next().await {
-        let batch = batch_result
-            .into_iter()
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .change_context(errors::WorkerError::GrpcError)?;
-
-        let mut mut_db_client = pool
-            .get()
+    loop {
+        let paginated_vec = store
+            .list_subscription_invoice_candidates(
+                naive_date,
+                CursorPaginationRequest {
+                    limit: Some(BATCH_SIZE as u32),
+                    cursor: last_processed_id,
+                },
+            )
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
-        let transaction = mut_db_client
-            .transaction()
-            .await
-            .change_context(errors::WorkerError::DatabaseError)?;
+        if paginated_vec.items.is_empty() {
+            break;
+        }
 
-        let params = batch
+        let params = paginated_vec
+            .items
             .iter()
-            .map(|p| subscription_to_draft(p, today))
+            .map(subscription_to_draft)
             .collect::<Result<Vec<Option<_>>, _>>()?
             .into_iter()
             .filter_map(|p| p)
@@ -109,25 +99,22 @@ pub async fn draft_worker(
 
         log::debug!("Creating {} draft invoices", params.len());
 
-        // cornucopia doesn't support batch insert (unless you UNNEST, but we'll move away from cornucopia soon anyway)
-        for param in &params {
-            db::invoices::create_invoice()
-                .params(&transaction, param)
-                .one()
-                .await
-                .change_context(errors::WorkerError::DatabaseError)?;
-        }
-
-        transaction
-            .commit()
+        let inserted = store
+            .insert_invoice_batch(params)
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
-        for param in &params {
+        last_processed_id = paginated_vec.next_cursor;
+
+        for inv in &inserted {
             let _ = store
                 .eventbus
-                .publish(Event::invoice_created(param.id, param.tenant_id))
+                .publish(Event::invoice_created(inv.id, inv.tenant_id))
                 .await;
+        }
+
+        if paginated_vec.next_cursor.is_none() {
+            break;
         }
     }
 
@@ -136,46 +123,53 @@ pub async fn draft_worker(
 
 #[tracing::instrument]
 fn subscription_to_draft(
-    subscription: &SubscriptionToInvoice,
-    today: Date,
-) -> Result<Option<db::invoices::CreateInvoiceParams<String, serde_json::Value>>, errors::WorkerError>
-{
-    let billing_start_date =
-        crate::mapping::common::date_to_chrono(subscription.billing_start_date)
-            .change_context(errors::WorkerError::InvalidInput)?;
-    let today = crate::mapping::common::date_to_chrono(today)
-        .change_context(errors::WorkerError::InvalidInput)?;
+    subscription: &SubscriptionInvoiceCandidate,
+) -> Result<Option<meteroid_store::domain::invoices::InvoiceNew>, errors::WorkerError> {
+    let billing_start_date = subscription.billing_start_date;
     let billing_day = subscription.billing_day as u32;
 
-    let periods = meteroid_store::utils::periods::calculate_periods_for_date(
+    let mut billing_periods: Vec<BillingPeriodEnum> = subscription
+        .periods
+        .iter()
+        .filter_map(|a| a.as_billing_period_opt())
+        .collect();
+    billing_periods.sort();
+    let period = billing_periods.first();
+
+    if period.is_none() {
+        return Ok(None);
+    }
+
+    let period = meteroid_store::utils::periods::calculate_period_range(
         billing_start_date,
         billing_day,
-        today,
-        &BillingPeriodEnum::Monthly,
+        0,
+        &period.unwrap(),
     );
 
-    match periods.advance {
-        None => Ok(None),
-        Some(period) => {
-            let period_start_date = crate::mapping::common::chrono_to_date(period.end)
-                .change_context(errors::WorkerError::InvalidInput)?;
+    let invoice = meteroid_store::domain::invoices::InvoiceNew {
+        tenant_id: subscription.tenant_id,
+        customer_id: subscription.customer_id,
+        subscription_id: subscription.id,
+        amount_cents: None, // TODO let's calculate here (just skipping the usage)
+        plan_version_id: Some(subscription.plan_version_id),
+        invoice_type: InvoiceType::Recurring,
+        currency: subscription.currency.clone(),
+        days_until_due: Some(subscription.net_terms),
+        external_invoice_id: None,
+        invoice_id: None,                                  // TODO
+        invoicing_provider: InvoicingProviderEnum::Stripe, // TODO
+        line_items: serde_json::Value::Null,               // TODO
+        issued: false,
+        issue_attempts: 0,
+        last_issue_attempt_at: None,
+        last_issue_error: None,
+        data_updated_at: None,
+        status: InvoiceStatusEnum::Draft,
+        external_status: None,
+        invoice_date: period.end,
+        finalized_at: None,
+    };
 
-            let params = db::invoices::CreateInvoiceParams {
-                id: common_utils::uuid::v7(),
-                invoicing_provider: db::InvoicingProviderEnum::STRIPE, // TODO
-                status: db::InvoiceStatusEnum::DRAFT,
-                invoice_date: period_start_date,
-                tenant_id: subscription.tenant_id,
-                customer_id: subscription.customer_id,
-                subscription_id: subscription.subscription_id,
-                plan_version_id: subscription.plan_version_id,
-                currency: subscription.currency.clone(),
-                days_until_due: subscription.net_terms,
-                line_items: serde_json::Value::Null,
-                amount_cents: None,
-            };
-
-            Ok(Some(params))
-        }
-    }
+    Ok(Some(invoice))
 }
