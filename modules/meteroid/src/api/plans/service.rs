@@ -15,23 +15,21 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     UpdatePublishedPlanOverviewRequest, UpdatePublishedPlanOverviewResponse,
 };
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
-use meteroid_repository as db;
-use meteroid_repository::Params;
 
 use crate::api::plans::error::PlanApiError;
 
+use crate::api::domain_mapping::billing_period;
 use crate::api::plans::mapping::plans::{
     ListPlanVersionWrapper, ListPlanWrapper, ListSubscribablePlanVersionWrapper,
-    PlanDetailsWrapper, PlanTypeWrapper, PlanVersionWrapper,
+    PlanDetailsWrapper, PlanOverviewWrapper, PlanTypeWrapper, PlanVersionWrapper,
 };
-use crate::api::shared::mapping::period::billing_period_to_db;
 use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use meteroid_store::domain;
-use meteroid_store::domain::OrderByRequest;
+use meteroid_store::domain::{OrderByRequest, PlanAndVersionPatch, PlanPatch, PlanVersionPatch};
 use meteroid_store::repositories::PlansInterface;
 
-use super::{mapping, PlanServiceComponents};
+use super::PlanServiceComponents;
 
 #[tonic::async_trait]
 impl PlansService for PlanServiceComponents {
@@ -325,8 +323,8 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<UpdateDraftPlanOverviewResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let mut connection = self.get_connection().await?;
-        let transaction = self.get_transaction(&mut connection).await?;
+
+        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
 
         let frequencies = req
             .billing_periods
@@ -334,64 +332,29 @@ impl PlansService for PlanServiceComponents {
             .map(|f| {
                 BillingPeriod::try_from(*f)
                     .map_err(|_| PlanApiError::InvalidArgument("billing period".to_string()))
-                    .map(|period| billing_period_to_db(&period))
+                    .map(billing_period::from_proto)
             })
-            .collect::<Result<Vec<db::BillingPeriodEnum>, PlanApiError>>()?;
+            .collect::<Result<Vec<domain::enums::BillingPeriodEnum>, PlanApiError>>()?;
 
-        db::plans::update_plan_version_overview()
-            .params(
-                &transaction,
-                &db::plans::UpdatePlanVersionOverviewParams {
-                    plan_version_id: parse_uuid!(&req.plan_version_id)?,
-                    tenant_id: tenant_id.clone(),
-                    currency: req.currency,
-                    billing_periods: frequencies,
-                    net_terms: req.net_terms as i32,
+        let res = self
+            .store
+            .patch_draft_plan(PlanAndVersionPatch {
+                version: PlanVersionPatch {
+                    id: plan_version_id,
+                    tenant_id,
+                    currency: Some(req.currency),
+                    net_terms: Some(req.net_terms as i32),
+                    billing_periods: Some(frequencies),
                 },
-            )
+                name: Some(req.name),
+                description: Some(req.description),
+            })
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError(
-                    "unable to update draft plan version overview".to_string(),
-                    e,
-                )
-            })?;
-
-        db::plans::update_plan_overview()
-            .params(
-                &transaction,
-                &db::plans::UpdatePlanOverviewParams {
-                    plan_id: parse_uuid!(&req.plan_id)?,
-                    tenant_id: tenant_id.clone(),
-                    name: req.name,
-                    description: req.description,
-                },
-            )
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to update plan overview".to_string(), e)
-            })?;
-
-        let res = db::plans::get_plan_overview_by_id()
-            .bind(
-                &transaction,
-                &parse_uuid!(&req.plan_version_id)?,
-                &tenant_id,
-            )
-            .one()
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to get plan overview".to_string(), e)
-            })?;
-
-        transaction.commit().await.map_err(|e| {
-            PlanApiError::DatabaseError("Failed to commit transaction".to_string(), e)
-        })?;
-
-        let response = mapping::plans::overview::db_to_server(res);
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanOverviewWrapper::from(x).0)?;
 
         Ok(Response::new(UpdateDraftPlanOverviewResponse {
-            plan_overview: Some(response),
+            plan_overview: Some(res),
         }))
     }
 
@@ -402,35 +365,22 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<UpdatePublishedPlanOverviewResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
+        let plan_id = parse_uuid!(&req.plan_id)?;
 
-        db::plans::update_plan_overview()
-            .params(
-                &connection,
-                &db::plans::UpdatePlanOverviewParams {
-                    plan_id: parse_uuid!(&req.plan_id)?,
-                    tenant_id,
-                    name: req.name,
-                    description: req.description,
-                },
-            )
+        let res = self
+            .store
+            .patch_published_plan(PlanPatch {
+                id: plan_id,
+                tenant_id,
+                name: Some(req.name),
+                description: Some(req.description),
+            })
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to update plan overview".to_string(), e)
-            })?;
-
-        let res = db::plans::get_plan_overview_by_id()
-            .bind(&connection, &parse_uuid!(&req.plan_version_id)?, &tenant_id)
-            .one()
-            .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError("unable to get plan overview".to_string(), e)
-            })?;
-
-        let response = mapping::plans::overview::db_to_server(res);
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanOverviewWrapper::from(x).0)?;
 
         Ok(Response::new(UpdatePublishedPlanOverviewResponse {
-            plan_overview: Some(response),
+            plan_overview: Some(res),
         }))
     }
 
@@ -441,23 +391,16 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<GetPlanOverviewByExternalIdResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let connection = self.get_connection().await?;
 
-        let plan = db::plans::get_plan_overview_by_external_id()
-            .bind(&connection, &req.external_id, &tenant_id)
-            .one()
+        let res = self
+            .store
+            .get_plan_with_version_by_external_id(&req.external_id, tenant_id)
             .await
-            .map_err(|e| {
-                PlanApiError::DatabaseError(
-                    "unable to get plan overview by external_id".to_string(),
-                    e,
-                )
-            })?;
-
-        let res_plan_version = mapping::plans::overview::db_to_server(plan);
+            .map_err(Into::<PlanApiError>::into)
+            .map(|x| PlanOverviewWrapper::from(x).0)?;
 
         let response = GetPlanOverviewByExternalIdResponse {
-            plan_overview: Some(res_plan_version),
+            plan_overview: Some(res),
         };
 
         Ok(Response::new(response))

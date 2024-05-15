@@ -228,6 +228,39 @@ async fn test_plans_basic() {
 
     assert_eq!(&last_published_version, &published_version);
 
+    // update draft plan
+    let plan_overview = clients
+        .plans
+        .clone()
+        .update_draft_plan_overview(api::plans::v1::UpdateDraftPlanOverviewRequest {
+            plan_id: created_plan.id.clone(),
+            plan_version_id: copied_draft_version.id.clone(),
+            name: "new-plan-name".to_string(),
+            description: Some("new-plan-desc".to_string()),
+            currency: "AUD".to_string(),
+            net_terms: 5,
+            billing_periods: vec![api::shared::v1::BillingPeriod::Quarterly as i32],
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_overview
+        .unwrap();
+
+    assert_eq!(&plan_overview.plan_id, &created_plan.id);
+    assert_eq!(&plan_overview.plan_version_id, &copied_draft_version.id);
+    assert_eq!(&plan_overview.name, "new-plan-name");
+    assert_eq!(
+        &plan_overview.description,
+        &Some("new-plan-desc".to_string())
+    );
+    assert_eq!(&plan_overview.currency, "AUD");
+    assert_eq!(&plan_overview.net_terms, &5);
+    assert_eq!(
+        &plan_overview.billing_periods,
+        &vec![api::shared::v1::BillingPeriod::Quarterly as i32]
+    );
+
     // discard plan version
     clients
         .plans
@@ -253,6 +286,46 @@ async fn test_plans_basic() {
         .plan_versions;
 
     assert_eq!(plan_versions.len(), 1);
+
+    // get plan overview by external_id
+    let plan_overview = clients
+        .plans
+        .clone()
+        .get_plan_overview_by_external_id(api::plans::v1::GetPlanOverviewByExternalIdRequest {
+            external_id: created_plan.external_id,
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_overview
+        .unwrap();
+
+    assert_eq!(&plan_overview.plan_id, &created_plan.id);
+    assert_eq!(&plan_overview.plan_version_id, &created_version.id);
+
+    // update publised plan
+    let plan_overview = clients
+        .plans
+        .clone()
+        .update_published_plan_overview(api::plans::v1::UpdatePublishedPlanOverviewRequest {
+            plan_id: created_plan.id.clone(),
+            plan_version_id: created_version.id.clone(),
+            name: "new-plan-name".to_string(),
+            description: Some("new-plan-desc".to_string()),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .plan_overview
+        .unwrap();
+
+    assert_eq!(&plan_overview.plan_id, &created_plan.id);
+    assert_eq!(&plan_overview.plan_version_id, &created_version.id);
+    assert_eq!(&plan_overview.name, "new-plan-name");
+    assert_eq!(
+        &plan_overview.description,
+        &Some("new-plan-desc".to_string())
+    );
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

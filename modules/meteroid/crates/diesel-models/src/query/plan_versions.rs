@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::plan_versions::{PlanVersion, PlanVersionLatest, PlanVersionNew};
+use crate::plan_versions::{PlanVersion, PlanVersionLatest, PlanVersionNew, PlanVersionPatch};
 
 use crate::{DbResult, PgConn};
 
@@ -203,6 +203,27 @@ impl PlanVersionLatest {
             .get_results(conn)
             .await
             .attach_printable("Error while listing plans")
+            .into_db_result()
+    }
+}
+
+impl PlanVersionPatch {
+    pub async fn update_draft(&self, conn: &mut PgConn) -> DbResult<PlanVersion> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(pv_dsl::plan_version)
+            .filter(pv_dsl::id.eq(self.id))
+            .filter(pv_dsl::tenant_id.eq(self.tenant_id))
+            .filter(pv_dsl::is_draft_version.eq(true))
+            .set(self);
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while updating plan version")
             .into_db_result()
     }
 }

@@ -2,8 +2,9 @@ use crate::store::Store;
 use crate::StoreResult;
 
 use crate::domain::{
-    FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan, PlanForList,
-    PlanVersion, PlanVersionLatest, PlanVersionNew, PriceComponent, PriceComponentNew,
+    FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
+    PlanAndVersionPatch, PlanForList, PlanPatch, PlanVersion, PlanVersionLatest, PlanVersionNew,
+    PlanWithVersion, PriceComponent, PriceComponentNew,
 };
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -71,6 +72,16 @@ pub trait PlansInterface {
         auth_tenant_id: Uuid,
         auth_actor: Uuid,
     ) -> StoreResult<()>;
+
+    async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanWithVersion>;
+
+    async fn get_plan_with_version_by_external_id(
+        &self,
+        external_id: &str,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanWithVersion>;
+
+    async fn patch_draft_plan(&self, patch: PlanAndVersionPatch) -> StoreResult<PlanWithVersion>;
 }
 
 #[async_trait::async_trait]
@@ -469,5 +480,81 @@ impl PlansInterface for Store {
             .await;
 
         Ok(res)
+    }
+
+    async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanWithVersion> {
+        let mut conn = self.get_conn().await?;
+
+        let patch: diesel_models::plans::PlanPatch = patch.into();
+
+        let plan = patch
+            .update(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        diesel_models::plans::Plan::get_with_version_by_external_id(
+            &mut conn,
+            plan.external_id.as_str(),
+            plan.tenant_id,
+        )
+        .await
+        .map_err(Into::into)
+        .map(Into::into)
+    }
+
+    async fn get_plan_with_version_by_external_id(
+        &self,
+        external_id: &str,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanWithVersion> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::plans::Plan::get_with_version_by_external_id(
+            &mut conn,
+            external_id,
+            auth_tenant_id,
+        )
+        .await
+        .map_err(Into::into)
+        .map(Into::into)
+    }
+
+    async fn patch_draft_plan(&self, patch: PlanAndVersionPatch) -> StoreResult<PlanWithVersion> {
+        let mut conn = self.get_conn().await?;
+
+        let version = self
+            .transaction(|conn| {
+                async move {
+                    let patch_version: diesel_models::plan_versions::PlanVersionPatch =
+                        patch.version.into();
+
+                    let patched_version = patch_version
+                        .update_draft(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let patch_plan: diesel_models::plans::PlanPatch = PlanPatch {
+                        id: patched_version.plan_id,
+                        tenant_id: patched_version.tenant_id,
+                        name: patch.name,
+                        description: patch.description,
+                    }
+                    .into();
+
+                    patch_plan
+                        .update(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    Ok(patched_version)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        diesel_models::plans::Plan::get_with_version(&mut conn, version.id, version.tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 }

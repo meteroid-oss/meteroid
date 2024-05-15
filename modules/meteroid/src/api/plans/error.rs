@@ -1,4 +1,3 @@
-use deadpool_postgres::tokio_postgres;
 use error_stack::Report;
 use std::error::Error;
 use thiserror::Error;
@@ -11,11 +10,6 @@ pub enum PlanApiError {
     #[error("Invalid argument: {0}")]
     #[code(InvalidArgument)]
     InvalidArgument(String),
-
-    #[error("Database error: {0}")]
-    #[code(Internal)]
-    #[deprecated]
-    DatabaseError(String, #[source] tokio_postgres::Error),
 
     #[error("Store error: {0}")]
     #[code(Internal)]

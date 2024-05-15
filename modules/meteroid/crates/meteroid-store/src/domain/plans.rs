@@ -165,3 +165,38 @@ pub struct PlanVersionLatest {
     pub product_family_id: Uuid,
     pub product_family_name: String,
 }
+
+#[derive(Debug, o2o)]
+#[owned_into(diesel_models::plan_versions::PlanVersionPatch)]
+pub struct PlanVersionPatch {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub currency: Option<String>,
+    pub net_terms: Option<i32>,
+    #[into(~.map(|x| x.into_iter().map(| v | v.into()).collect::< Vec < _ >> ()))]
+    pub billing_periods: Option<Vec<BillingPeriodEnum>>,
+}
+
+pub struct PlanAndVersionPatch {
+    pub version: PlanVersionPatch,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+}
+
+#[derive(Debug, o2o)]
+#[owned_into(diesel_models::plans::PlanPatch)]
+pub struct PlanPatch {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+}
+
+#[derive(Debug, o2o)]
+#[from_owned(diesel_models::plans::PlanWithVersion)]
+pub struct PlanWithVersion {
+    #[from(~.into())]
+    pub plan: Plan,
+    #[from(~.into())]
+    pub version: PlanVersion,
+}

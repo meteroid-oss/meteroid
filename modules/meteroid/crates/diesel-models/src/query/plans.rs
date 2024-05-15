@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::plans::{Plan, PlanForList, PlanNew};
+use crate::plans::{Plan, PlanForList, PlanNew, PlanPatch, PlanWithVersion};
 
 use crate::{DbResult, PgConn};
 
@@ -97,6 +97,55 @@ impl Plan {
             .attach_printable("Error while deleting plan")
             .into_db_result()
     }
+
+    pub async fn get_with_version(
+        conn: &mut PgConn,
+        version_id: Uuid,
+        tenant_id: Uuid,
+    ) -> DbResult<PlanWithVersion> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .filter(pv_dsl::id.eq(version_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(PlanWithVersion::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while getting plan with version")
+            .into_db_result()
+    }
+
+    pub async fn get_with_version_by_external_id(
+        conn: &mut PgConn,
+        external_id: &str,
+        tenant_id: Uuid,
+    ) -> DbResult<PlanWithVersion> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .filter(p_dsl::external_id.eq(external_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .order(pv_dsl::version.desc())
+            .select(PlanWithVersion::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while getting plan with version by external_id")
+            .into_db_result()
+    }
 }
 
 impl PlanForList {
@@ -148,6 +197,26 @@ impl PlanForList {
             .load_and_count_pages(conn)
             .await
             .attach_printable("Error while listing plans")
+            .into_db_result()
+    }
+}
+
+impl PlanPatch {
+    pub async fn update(&self, conn: &mut PgConn) -> DbResult<Plan> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(p_dsl::plan)
+            .filter(p_dsl::id.eq(self.id))
+            .filter(p_dsl::tenant_id.eq(self.tenant_id))
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while updating plan")
             .into_db_result()
     }
 }

@@ -2,7 +2,8 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use crate::plan_versions::PlanVersion;
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan)]
@@ -57,4 +58,24 @@ pub struct PlanForList {
     #[diesel(select_expression = crate::schema::product_family::name)]
     #[diesel(select_expression_type = crate::schema::product_family::name)]
     pub product_family_name: String,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct PlanWithVersion {
+    #[diesel(embed)]
+    pub plan: Plan,
+    #[diesel(embed)]
+    pub version: PlanVersion,
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::plan)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(primary_key(id, tenant_id))]
+pub struct PlanPatch {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
 }

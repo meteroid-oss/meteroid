@@ -1,7 +1,7 @@
 pub mod plans {
     use crate::api::domain_mapping::billing_period::to_proto;
     use meteroid_grpc::meteroid::api::plans::v1::{
-        plan_billing_configuration as billing_config_grpc, ListPlanVersion,
+        plan_billing_configuration as billing_config_grpc, ListPlanVersion, PlanOverview,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
         ListPlan, ListSubscribablePlanVersion, Plan, PlanBillingConfiguration, PlanDetails,
@@ -17,6 +17,7 @@ pub mod plans {
     pub struct ListPlanWrapper(pub ListPlan);
     pub struct ListSubscribablePlanVersionWrapper(pub ListSubscribablePlanVersion);
     pub struct ListPlanVersionWrapper(pub ListPlanVersion);
+    pub struct PlanOverviewWrapper(pub PlanOverview);
 
     impl From<domain::PlanVersion> for ListPlanVersionWrapper {
         fn from(value: domain::PlanVersion) -> Self {
@@ -173,28 +174,24 @@ pub mod plans {
         }
     }
 
-    pub mod overview {
-        use meteroid_grpc::meteroid::api::plans::v1::PlanOverview;
-        use meteroid_repository::plans::PlanOverview as DbPlanOverview;
-
-        use crate::api::shared::mapping::period::billing_period_to_server;
-
-        pub fn db_to_server(plan: DbPlanOverview) -> PlanOverview {
-            PlanOverview {
-                plan_id: plan.id.to_string(),
-                plan_version_id: plan.plan_version_id.to_string(),
-                version: plan.version as u32,
-                name: plan.name,
-                description: plan.description,
-                net_terms: plan.net_terms as u32,
-                currency: plan.currency,
-                billing_periods: plan
+    impl From<domain::PlanWithVersion> for PlanOverviewWrapper {
+        fn from(value: domain::PlanWithVersion) -> Self {
+            Self(PlanOverview {
+                plan_id: value.plan.id.to_string(),
+                plan_version_id: value.version.id.to_string(),
+                name: value.plan.name,
+                version: value.version.version as u32,
+                description: value.plan.description,
+                currency: value.version.currency,
+                net_terms: value.version.net_terms as u32,
+                billing_periods: value
+                    .version
                     .billing_periods
-                    .iter()
-                    .map(|freq| billing_period_to_server(freq) as i32)
+                    .into_iter()
+                    .map(|freq| to_proto(freq) as i32)
                     .collect(),
-                is_draft: plan.is_draft_version,
-            }
+                is_draft: value.version.is_draft_version,
+            })
         }
     }
 
