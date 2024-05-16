@@ -80,6 +80,15 @@ impl TryInto<diesel_models::customers::Customer> for Customer {
     }
 }
 
+#[derive(Clone, Debug, o2o)]
+#[from_owned(diesel_models::customers::CustomerBrief)]
+#[owned_into(diesel_models::customers::CustomerBrief)]
+pub struct CustomerBrief {
+    pub id: Uuid,
+    pub name: String,
+    pub alias: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct CustomerNew {
     pub name: String,

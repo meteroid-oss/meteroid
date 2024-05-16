@@ -1,12 +1,11 @@
-use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{
-    debug_query, BoolExpressionMethods, OptionalExtension, PgTextExpressionMethods,
-    SelectableHelper,
+    debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
+    PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use tap::TapFallible;
 
-use crate::customers::{Customer, CustomerNew, CustomerPatch};
+use crate::customers::{Customer, CustomerBrief, CustomerNew, CustomerPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
@@ -54,6 +53,28 @@ impl Customer {
             .first(conn)
             .await
             .attach_printable("Error while finding customer by alias")
+            .into_db_result()
+    }
+
+    pub async fn find_by_aliases(
+        conn: &mut PgConn,
+        param_tenant_id: uuid::Uuid,
+        param_customer_aliases: Vec<String>,
+    ) -> DbResult<Vec<CustomerBrief>> {
+        use crate::schema::customer::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = customer
+            .filter(tenant_id.eq(param_tenant_id))
+            .filter(alias.eq_any(param_customer_aliases))
+            .select(CustomerBrief::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while finding customer by aliases")
             .into_db_result()
     }
 

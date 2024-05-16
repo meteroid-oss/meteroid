@@ -11,6 +11,7 @@ mod test_billable_metric;
 mod test_customer;
 mod test_idempotency;
 mod test_idempotency_cache;
+mod test_internal;
 mod test_plan;
 mod test_product;
 mod test_product_family;
