@@ -48,42 +48,6 @@ pub mod mapping {
             }
         }
     }
-
-    pub mod period {
-        use meteroid_grpc::meteroid::api::shared::v1 as shared_grpc;
-
-        pub fn billing_period_to_server(
-            freq: &meteroid_repository::BillingPeriodEnum,
-        ) -> shared_grpc::BillingPeriod {
-            match freq {
-                meteroid_repository::BillingPeriodEnum::MONTHLY => {
-                    shared_grpc::BillingPeriod::Monthly
-                }
-                meteroid_repository::BillingPeriodEnum::QUARTERLY => {
-                    shared_grpc::BillingPeriod::Quarterly
-                }
-                meteroid_repository::BillingPeriodEnum::ANNUAL => {
-                    shared_grpc::BillingPeriod::Annual
-                }
-            }
-        }
-
-        pub fn billing_period_to_db(
-            freq: &shared_grpc::BillingPeriod,
-        ) -> meteroid_repository::BillingPeriodEnum {
-            match freq {
-                shared_grpc::BillingPeriod::Monthly => {
-                    meteroid_repository::BillingPeriodEnum::MONTHLY
-                }
-                shared_grpc::BillingPeriod::Annual => {
-                    meteroid_repository::BillingPeriodEnum::ANNUAL
-                }
-                shared_grpc::BillingPeriod::Quarterly => {
-                    meteroid_repository::BillingPeriodEnum::QUARTERLY
-                }
-            }
-        }
-    }
 }
 
 // v2 conversions, we should now encode dates/decimals etc as string
