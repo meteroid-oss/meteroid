@@ -1,8 +1,3 @@
-use diesel::prelude::{ExpressionMethods, QueryDsl};
-use diesel::{
-    debug_query, BoolExpressionMethods, OptionalExtension, PgTextExpressionMethods,
-    SelectableHelper,
-};
 use diesel::{
     debug_query, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
     SelectableHelper,
