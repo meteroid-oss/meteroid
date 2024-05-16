@@ -1,3 +1,8 @@
+use diesel::prelude::{ExpressionMethods, QueryDsl};
+use diesel::{
+    debug_query, BoolExpressionMethods, OptionalExtension, PgTextExpressionMethods,
+    SelectableHelper,
+};
 use diesel::{
     debug_query, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
     SelectableHelper,
@@ -93,9 +98,10 @@ impl Customer {
             .into_boxed();
 
         if let Some(param_query) = param_query {
-            query = query
-                .filter(name.ilike(format!("%{}%", param_query)))
-                .or_filter(alias.ilike(format!("%{}%", param_query)));
+            query = query.filter(
+                name.ilike(format!("%{}%", param_query))
+                    .or(alias.ilike(format!("%{}%", param_query))),
+            );
         }
 
         match order_by {

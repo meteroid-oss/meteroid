@@ -43,7 +43,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let components = domain_components
             .into_iter()
             .map(mapping::components::domain_to_api)
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect();
 
         let response = ListPriceComponentResponse { components };
 
@@ -71,7 +71,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
                     Box::new(err.into_error()),
                 )
             })?;
-        let response = mapping::components::domain_to_api(component.clone())?;
+        let response = mapping::components::domain_to_api(component.clone());
 
         let _ = self
             .eventbus
@@ -110,7 +110,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             })?;
         let component = component.ok_or(Status::internal("No element was updated"))?;
 
-        let response = mapping::components::domain_to_api(component.clone())?;
+        let response = mapping::components::domain_to_api(component.clone());
 
         let _ = self
             .eventbus

@@ -7183,8 +7183,6 @@ WHERE
                 "DELETE
 FROM
     plan_version pv1
-USING
-    plan_version pv2
 WHERE
     pv1.plan_id = pv2.plan_id
   AND pv1.tenant_id = pv2.tenant_id

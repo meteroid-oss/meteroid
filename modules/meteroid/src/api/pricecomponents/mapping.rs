@@ -121,13 +121,13 @@ pub mod components {
         }
     }
 
-    pub fn domain_to_api(comp: domain::PriceComponent) -> Result<api::PriceComponent, Status> {
-        Ok(api::PriceComponent {
+    pub fn domain_to_api(comp: domain::PriceComponent) -> api::PriceComponent {
+        api::PriceComponent {
             id: comp.id.to_string(),
             name: comp.name.to_string(),
             fee: Some(map_fee_domain_to_api(comp.fee)),
             product_item_id: comp.product_item_id.as_proto(),
-        })
+        }
     }
 
     fn map_fee_domain_to_api(fee: domain::FeeType) -> api::Fee {

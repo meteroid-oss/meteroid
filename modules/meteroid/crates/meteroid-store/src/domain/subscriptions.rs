@@ -1,7 +1,9 @@
 use chrono::{NaiveDate, NaiveDateTime};
+
 use o2o::o2o;
 use uuid::Uuid;
 
+use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::{
     BillableMetric, CreateSubscriptionComponents, Schedule, SubscriptionComponent,
 };
@@ -146,4 +148,51 @@ pub struct SubscriptionDetails {
     pub activated_at: Option<chrono::NaiveDateTime>,
     pub created_by: Uuid,
     pub trial_start_date: Option<chrono::NaiveDate>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SubscriptionInvoiceCandidate {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub customer_id: Uuid,
+    pub plan_version_id: Uuid,
+    pub billing_start_date: NaiveDate,
+    pub billing_end_date: Option<NaiveDate>,
+    pub billing_day: i16,
+    pub activated_at: Option<NaiveDateTime>,
+    pub canceled_at: Option<NaiveDateTime>,
+    pub plan_id: Uuid,
+    pub currency: String,
+    pub net_terms: i32,
+    pub version: i32,
+    pub periods: Vec<SubscriptionFeeBillingPeriod>,
+}
+
+impl Into<SubscriptionInvoiceCandidate>
+    for diesel_models::subscriptions::SubscriptionInvoiceCandidate
+{
+    fn into(self) -> SubscriptionInvoiceCandidate {
+        SubscriptionInvoiceCandidate {
+            id: self.subscription.id,
+            tenant_id: self.subscription.tenant_id,
+            customer_id: self.subscription.customer_id,
+            plan_version_id: self.subscription.plan_version_id,
+            billing_start_date: self.subscription.billing_start_date,
+            billing_end_date: self.subscription.billing_end_date,
+            billing_day: self.subscription.billing_day,
+            activated_at: self.subscription.activated_at,
+            canceled_at: self.subscription.canceled_at,
+            plan_id: self.plan_version.plan_id,
+            currency: self.plan_version.currency,
+            net_terms: self.plan_version.net_terms,
+            version: self.plan_version.version,
+            periods: self
+                .subscription_components
+                .periods
+                .into_iter()
+                .filter_map(|p| p)
+                .map(|p| p.into())
+                .collect(),
+        }
+    }
 }
