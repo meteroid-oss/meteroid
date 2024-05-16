@@ -1,6 +1,6 @@
 use diesel::{
-    debug_query, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
-    SelectableHelper,
+    debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
+    PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use tap::TapFallible;
