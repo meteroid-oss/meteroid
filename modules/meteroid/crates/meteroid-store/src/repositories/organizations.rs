@@ -44,7 +44,7 @@ impl OrganizationsInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::instance_inited(actor, res.clone().id))
+            .publish(Event::instance_inited(actor, res.id))
             .await;
 
         Ok(res)
