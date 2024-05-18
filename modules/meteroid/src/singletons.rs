@@ -5,7 +5,7 @@ use deadpool_postgres::Pool;
 use meteroid_store::Store;
 
 use crate::config::Config;
-use crate::eventbus::{create_eventbus_memory, setup_store_eventbus};
+use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 
 static POOL: OnceLock<Pool> = OnceLock::new();
 
@@ -30,7 +30,7 @@ pub async fn get_store() -> &'static Store {
             )
             .expect("Failed to initialize store");
 
-            setup_store_eventbus(store.clone(), config.clone()).await;
+            setup_eventbus_handlers(store.clone(), config.clone()).await;
 
             store
         })

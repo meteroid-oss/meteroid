@@ -23,7 +23,7 @@ pub fn create_eventbus_memory() -> Arc<dyn EventBus<Event>> {
     Arc::new(InMemory::new())
 }
 
-pub async fn setup_store_eventbus(store: Store, config: Config) {
+pub async fn setup_eventbus_handlers(store: Store, config: Config) {
     store
         .clone()
         .eventbus
