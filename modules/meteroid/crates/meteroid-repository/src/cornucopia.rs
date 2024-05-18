@@ -1195,7 +1195,7 @@ pub mod queries {
         }
         pub fn create_api_token() -> CreateApiTokenStmt {
             CreateApiTokenStmt(cornucopia_async::private::Stmt::new(
-                "INSERT INTO api_token (id, name, hint, hash, tenant_id, created_by)
+                "INSERT INTO api_token (id, name, hint, hash, tenant_id, created_by) 
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, tenant_id, name, hint, created_at, created_by",
             ))
@@ -8531,7 +8531,7 @@ SET
     description = EXCLUDED.description,
     created_by = EXCLUDED.created_by,
     product_family_id = EXCLUDED.product_family_id,
-    tenant_id = EXCLUDED.tenant_id
+    tenant_id = EXCLUDED.tenant_id 
     RETURNING id, name, description,  created_at
     ",
             ))

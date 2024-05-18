@@ -59,7 +59,7 @@ pub async fn start_api_server(
     store
         .eventbus
         .subscribe(Arc::new(WebhookHandler::new(
-            pool.clone(),
+            store.clone(),
             config.secrets_crypt_key.clone(),
             true,
         )))
@@ -78,7 +78,7 @@ pub async fn start_api_server(
             .eventbus
             .subscribe(Arc::new(AnalyticsHandler::new(
                 config.analytics.clone(),
-                pool.clone(),
+                store.clone(),
                 country,
             )))
             .await;

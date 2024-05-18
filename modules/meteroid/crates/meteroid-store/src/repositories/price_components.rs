@@ -15,6 +15,12 @@ pub trait PriceComponentInterface {
         tenant_id: Uuid,
     ) -> StoreResult<Vec<PriceComponent>>;
 
+    async fn get_price_component_by_id(
+        &self,
+        tenant_id: Uuid,
+        id: Uuid,
+    ) -> StoreResult<PriceComponent>;
+
     async fn create_price_component(
         &self,
         price_component: PriceComponentNew,
@@ -43,6 +49,7 @@ impl PriceComponentInterface for Store {
         tenant_id: Uuid,
     ) -> StoreResult<Vec<PriceComponent>> {
         let mut conn = self.get_conn().await?;
+
         let components = diesel_models::price_components::PriceComponent::list_by_plan_version_id(
             &mut conn,
             tenant_id,
@@ -55,6 +62,23 @@ impl PriceComponentInterface for Store {
             .into_iter()
             .map(|s| s.try_into())
             .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn get_price_component_by_id(
+        &self,
+        tenant_id: Uuid,
+        price_component_id: Uuid,
+    ) -> StoreResult<PriceComponent> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::price_components::PriceComponent::get_by_id(
+            &mut conn,
+            tenant_id,
+            price_component_id,
+        )
+        .await
+        .map_err(Into::into)
+        .and_then(TryInto::try_into)
     }
 
     async fn create_price_component(
