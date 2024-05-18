@@ -11,7 +11,6 @@ use diesel::{
     allow_columns_to_appear_in_same_group_by_clause, debug_query, BoolExpressionMethods,
     ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper,
 };
-use diesel_async::RunQueryDsl;
 
 use crate::enums::InvoiceType;
 use crate::extend::cursor_pagination::{

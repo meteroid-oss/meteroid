@@ -1,5 +1,6 @@
 pub use customers::CustomersInterface;
 pub use invoices::InvoiceInterface;
+pub use organizations::OrganizationsInterface;
 pub use plans::PlansInterface;
 pub use product_families::ProductFamilyInterface;
 pub use subscriptions::SubscriptionInterface;
@@ -13,6 +14,7 @@ pub mod tenants;
 pub mod api_tokens;
 pub mod billable_metrics;
 pub mod configs;
+pub mod organizations;
 pub mod price_components;
 pub mod product_families;
 pub mod products;

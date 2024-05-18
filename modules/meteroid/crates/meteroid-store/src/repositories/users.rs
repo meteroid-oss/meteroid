@@ -194,7 +194,8 @@ impl UserInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let org =
-            diesel_models::organizations::Organization::by_user_id(&mut conn, auth_user_id).await?;
+            diesel_models::organizations::Organization::find_by_user_id(&mut conn, auth_user_id)
+                .await?;
 
         diesel_models::users::User::find_by_id_and_org_id(&mut conn, id, org.id)
             .await
@@ -206,7 +207,8 @@ impl UserInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let org =
-            diesel_models::organizations::Organization::by_user_id(&mut conn, auth_user_id).await?;
+            diesel_models::organizations::Organization::find_by_user_id(&mut conn, auth_user_id)
+                .await?;
 
         diesel_models::users::User::find_by_email_and_org_id(&mut conn, email, org.id)
             .await
@@ -218,7 +220,8 @@ impl UserInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let org =
-            diesel_models::organizations::Organization::by_user_id(&mut conn, auth_user_id).await?;
+            diesel_models::organizations::Organization::find_by_user_id(&mut conn, auth_user_id)
+                .await?;
 
         diesel_models::users::User::list_by_org_id(&mut conn, org.id)
             .await

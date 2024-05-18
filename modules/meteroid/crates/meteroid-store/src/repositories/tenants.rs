@@ -21,7 +21,7 @@ impl TenantInterface for Store {
         let insertable_tenant: diesel_models::tenants::TenantNew = match tenant {
             TenantNew::ForOrg(tenant_new) => tenant_new.into(),
             TenantNew::ForUser(tenant_new) => {
-                let org = Organization::by_user_id(&mut conn, tenant_new.user_id)
+                let org = Organization::find_by_user_id(&mut conn, tenant_new.user_id)
                     .await
                     .map_err(Into::<Report<errors::StoreError>>::into)?;
 
