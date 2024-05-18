@@ -60,7 +60,7 @@ pub struct WebhookOutEvent {
     pub error_message: Option<String>,
 }
 
-#[derive(Insertable, Debug)]
+#[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::webhook_out_event)]
 pub struct WebhookOutEventNew {
     pub id: Uuid,

@@ -56,36 +56,6 @@ pub async fn start_api_server(
     // the pools are incompatible, without some refacto
     // let store = meteroid_store::Store::from_pool(pool.clone());
 
-    store
-        .eventbus
-        .subscribe(Arc::new(WebhookHandler::new(
-            pool.clone(),
-            config.secrets_crypt_key.clone(),
-            true,
-        )))
-        .await;
-
-    if config.analytics.enabled {
-        let country = match crate::eventbus::analytics_handler::get_geoip().await {
-            Ok(geoip) => Some(geoip.country),
-            Err(err) => {
-                log::warn!("Failed to obtain data for analytics: {}", err);
-                None
-            }
-        };
-
-        store
-            .eventbus
-            .subscribe(Arc::new(AnalyticsHandler::new(
-                config.analytics.clone(),
-                pool.clone(),
-                country,
-            )))
-            .await;
-    } else {
-        log::info!("Analytics is disabled");
-    }
-
     Server::builder()
         .accept_http1(true)
         .layer(cors())

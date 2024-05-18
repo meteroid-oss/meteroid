@@ -6,7 +6,7 @@ use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
-use meteroid::eventbus::create_eventbus_memory;
+use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::singletons::get_pool;
 use meteroid::webhook_in_api;
 use meteroid_repository::migrations;
@@ -33,8 +33,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
-        create_eventbus_memory(pool.clone(), config.clone()).await,
+        create_eventbus_memory(),
     )?;
+
+    setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     let private_server =
         meteroid::api::server::start_api_server(config.clone(), pool.clone(), store.clone());

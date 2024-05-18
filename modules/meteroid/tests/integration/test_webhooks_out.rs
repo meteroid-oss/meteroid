@@ -157,7 +157,7 @@ async fn test_webhook_out_handler() {
         .unwrap();
 
     let handler = WebhookHandler::new(
-        setup.pool.clone(),
+        setup.store.clone(),
         setup.config.secrets_crypt_key.clone(),
         false,
     );

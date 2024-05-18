@@ -95,3 +95,18 @@ pub struct WebhookOutEvent {
     pub http_status_code: Option<i16>,
     pub error_message: Option<String>,
 }
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(diesel_models::webhooks::WebhookOutEventNew)]
+#[owned_into(diesel_models::webhooks::WebhookOutEventNew)]
+#[ghosts(id: {uuid::Uuid::now_v7()})]
+pub struct WebhookOutEventNew {
+    pub endpoint_id: Uuid,
+    pub created_at: NaiveDateTime,
+    #[map(~.into())]
+    pub event_type: WebhookOutEventTypeEnum,
+    pub request_body: String,
+    pub response_body: Option<String>,
+    pub http_status_code: Option<i16>,
+    pub error_message: Option<String>,
+}

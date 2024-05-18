@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 
 use meteroid::config::Config;
-use meteroid::eventbus::create_eventbus_memory;
+use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid_repository::migrations;
 
 use crate::helpers;
@@ -51,9 +51,11 @@ pub async fn start_meteroid_with_port(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
-        create_eventbus_memory(pool.clone(), config.clone()).await,
+        create_eventbus_memory(),
     )
     .expect("Could not create store");
+
+    setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     log::info!("Starting gRPC server {}", config.listen_addr);
     let private_server =

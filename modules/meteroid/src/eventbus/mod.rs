@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use common_eventbus::{Event, EventBus};
+use meteroid_store::Store;
 
 use crate::config::Config;
 use crate::eventbus::analytics_handler::AnalyticsHandler;
@@ -14,24 +15,20 @@ pub mod memory;
 pub mod noop;
 pub mod webhook_handler;
 
-static EVENTBUS_MEMORY: tokio::sync::OnceCell<Arc<dyn EventBus<Event>>> =
-    tokio::sync::OnceCell::const_new();
-
-pub struct EventBusStatic;
-
 pub async fn create_eventbus_noop() -> Arc<dyn EventBus<Event>> {
     Arc::new(NoopEventBus::new())
 }
 
-pub async fn create_eventbus_memory(
-    pool: deadpool_postgres::Pool,
-    config: Config,
-) -> Arc<dyn EventBus<Event>> {
-    let eventbus = Arc::new(InMemory::new());
+pub fn create_eventbus_memory() -> Arc<dyn EventBus<Event>> {
+    Arc::new(InMemory::new())
+}
 
-    eventbus
+pub async fn setup_eventbus_handlers(store: Store, config: Config) {
+    store
+        .clone()
+        .eventbus
         .subscribe(Arc::new(WebhookHandler::new(
-            pool.clone(),
+            store.clone(),
             config.secrets_crypt_key.clone(),
             true,
         )))
@@ -46,29 +43,16 @@ pub async fn create_eventbus_memory(
             }
         };
 
-        eventbus
+        store
+            .clone()
+            .eventbus
             .subscribe(Arc::new(AnalyticsHandler::new(
                 config.analytics.clone(),
-                pool.clone(),
+                store.clone(),
                 country,
             )))
             .await;
     } else {
         log::info!("Analytics is disabled");
-    }
-
-    eventbus
-}
-
-impl EventBusStatic {
-    pub async fn get() -> &'static Arc<dyn EventBus<Event>> {
-        EVENTBUS_MEMORY
-            .get_or_init(|| async {
-                let config = Config::get();
-                let pool = singletons::get_pool();
-
-                create_eventbus_memory(pool.clone(), config.clone()).await
-            })
-            .await
     }
 }

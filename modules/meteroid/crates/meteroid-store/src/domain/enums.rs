@@ -155,7 +155,7 @@ pub enum UnitConversionRoundingEnum {
     None,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[map_owned(diesel_enums::WebhookOutEventTypeEnum)]
 pub enum WebhookOutEventTypeEnum {
     CustomerCreated,

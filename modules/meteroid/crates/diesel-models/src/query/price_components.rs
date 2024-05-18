@@ -31,6 +31,30 @@ impl PriceComponentNew {
 
 // TODO check tenants in all methods
 impl PriceComponent {
+    pub async fn get_by_id(
+        conn: &mut PgConn,
+        param_tenant_id: uuid::Uuid,
+        param_id: uuid::Uuid,
+    ) -> DbResult<PriceComponent> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::price_component::dsl as pc_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = pc_dsl::price_component
+            .inner_join(pv_dsl::plan_version)
+            .filter(pv_dsl::tenant_id.eq(param_tenant_id))
+            .filter(pc_dsl::id.eq(param_id))
+            .select(PriceComponent::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while fetching price component")
+            .into_db_result()
+    }
+
     pub async fn insert(
         conn: &mut PgConn,
         price_component_param: PriceComponentNew,
