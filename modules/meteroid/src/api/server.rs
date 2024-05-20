@@ -93,7 +93,7 @@ pub async fn start_api_server(
         .add_service(api::productfamilies::service(store.clone()))
         .add_service(api::instance::service(store.clone()))
         .add_service(api::invoices::service(store.clone()))
-        .add_service(api::stats::service(pool.clone()))
+        .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
         .add_service(api::subscriptions::service(store.clone(), compute_service))
         .add_service(api::webhooksout::service(store.clone()))

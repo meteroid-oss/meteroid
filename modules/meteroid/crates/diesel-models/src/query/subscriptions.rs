@@ -11,6 +11,7 @@ use diesel::{
     allow_columns_to_appear_in_same_group_by_clause, debug_query, BoolExpressionMethods,
     ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper,
 };
+use diesel_async::RunQueryDsl;
 
 use crate::enums::InvoiceType;
 use crate::extend::cursor_pagination::{
@@ -23,7 +24,6 @@ use uuid::Uuid;
 impl SubscriptionNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Subscription> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(subscription).values(self);
 
@@ -43,7 +43,6 @@ impl Subscription {
         batch: Vec<&SubscriptionNew>,
     ) -> DbResult<Vec<Subscription>> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(subscription).values(batch);
 
@@ -62,7 +61,6 @@ impl Subscription {
         subscription_id: &uuid::Uuid,
     ) -> DbResult<SubscriptionForDisplay> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = subscription
             .filter(id.eq(subscription_id))
@@ -86,7 +84,6 @@ impl Subscription {
         subscription_ids: &[uuid::Uuid],
     ) -> DbResult<Vec<SubscriptionForDisplay>> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = subscription
             .filter(id.eq_any(subscription_ids))
@@ -109,7 +106,6 @@ impl Subscription {
         params: CancelSubscriptionParams,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = diesel::update(subscription)
             .filter(id.eq(params.subscription_id))
@@ -258,7 +254,6 @@ impl Subscription {
         mrr_cents_delta: i64,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = diesel::update(subscription)
             .filter(id.eq(subscription_id))
@@ -280,7 +275,6 @@ impl Subscription {
         subscription_id_param: uuid::Uuid,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl::*;
-        use diesel_async::RunQueryDsl;
 
         let query = subscription
             .for_update()

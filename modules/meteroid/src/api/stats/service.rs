@@ -1,3 +1,4 @@
+use chrono::Months;
 use tonic::{Request, Response, Status};
 
 use crate::{api::utils::parse_uuid, parse_uuid};
@@ -14,17 +15,17 @@ use meteroid_grpc::meteroid::api::stats::v1::{
     TrialConversionSeries,
 };
 
+use meteroid_store::repositories::stats::StatsInterface;
+
 use crate::api::shared;
 use crate::api::stats::mapping::trend_to_server;
-
-use crate::services::stats::stats_service;
-use crate::services::stats::stats_service::RevenueByCustomerRequest;
 
 use common_grpc::middleware::server::auth::RequestExt;
 use uuid::Uuid;
 
 use meteroid_grpc::meteroid::api::stats::v1::mrr_chart_series;
 use meteroid_grpc::meteroid::api::stats::v1::trial_conversion_series;
+use meteroid_store::domain::stats::RevenueByCustomerRequest;
 
 #[tonic::async_trait]
 impl StatsService for StatsServiceComponents {
@@ -43,12 +44,12 @@ impl StatsService for StatsServiceComponents {
             trial_conversion_res,
             total_mrr_res,
         ) = tokio::try_join!(
-            self.stats_service.net_revenue(tenant_id),
-            self.stats_service.active_subscriptions(tenant_id),
-            self.stats_service.pending_invoices(tenant_id),
-            self.stats_service.signups(tenant_id),
-            self.stats_service.trial_conversion_rate(tenant_id),
-            self.stats_service.total_mrr(tenant_id)
+            self.store.net_revenue(tenant_id),
+            self.store.active_subscriptions(tenant_id),
+            self.store.pending_invoices(tenant_id),
+            self.store.signups(tenant_id),
+            self.store.trial_conversion_rate(tenant_id),
+            self.store.total_mrr(tenant_id)
         )
         .map_err(|e| Status::internal(format!("Failed to fetch stats: {}", e)))?;
 
@@ -83,19 +84,15 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let now = time::OffsetDateTime::now_utc().date();
+        let now = chrono::Utc::now().naive_utc().date();
         let start_date = req
             .start_date
-            .map(shared::mapping::date::from_proto)
-            .transpose()
-            .map_err(|e| Status::invalid_argument(format!("Failed to parse start date: {}", e)))?
-            .unwrap_or(now.replace_year(now.year() - 1).unwrap());
+            .and_then(shared::mapping::date::chrono_from_proto)
+            .unwrap_or(now.checked_sub_months(Months::new(12)).unwrap());
 
         let end_date = req
             .end_date
-            .map(shared::mapping::date::from_proto)
-            .transpose()
-            .map_err(|e| Status::invalid_argument(format!("Failed to parse end date: {}", e)))?
+            .and_then(shared::mapping::date::chrono_from_proto)
             .unwrap_or(now);
 
         let plans_id = if req.plans_id.is_empty() {
@@ -110,8 +107,8 @@ impl StatsService for StatsServiceComponents {
         };
 
         let mrr_chart = self
-            .stats_service
-            .total_mrr_chart(stats_service::MrrChartRequest {
+            .store
+            .total_mrr_chart(meteroid_store::domain::stats::MrrChartRequest {
                 tenant_id,
                 start_date,
                 end_date,
@@ -153,8 +150,8 @@ impl StatsService for StatsServiceComponents {
         let req = request.into_inner();
 
         let mrr_breakdown = self
-            .stats_service
-            .mrr_breakdown(stats_service::MRRBreakdownRequest {
+            .store
+            .mrr_breakdown(meteroid_store::domain::stats::MRRBreakdownRequest {
                 tenant_id,
                 scope: mapping::mrr_breakdown_scope_from_server(
                     MrrBreakdownScope::try_from(req.scope).map_err(|e| {
@@ -179,8 +176,8 @@ impl StatsService for StatsServiceComponents {
         let req = request.into_inner();
 
         let mrr_log = self
-            .stats_service
-            .mrr_log(stats_service::MrrLogRequest {
+            .store
+            .mrr_log(meteroid_store::domain::stats::MrrLogRequest {
                 tenant_id,
                 before: req.before,
                 after: req.after,
@@ -196,8 +193,8 @@ impl StatsService for StatsServiceComponents {
                     mrr_type: mapping::map_mrr_type(entry.mrr_type).into(),
                     customer_id: entry.customer_id,
                     customer_name: entry.customer_name,
-                    applies_to: Some(shared::mapping::date::to_proto(entry.applies_to)),
-                    created_at: Some(shared::mapping::datetime::offset_datetime_to_timestamp(
+                    applies_to: Some(shared::mapping::date::chrono_to_proto(entry.applies_to)),
+                    created_at: Some(shared::mapping::datetime::chrono_to_timestamp(
                         entry.created_at,
                     )),
                     description: entry.description,
@@ -215,11 +212,10 @@ impl StatsService for StatsServiceComponents {
     ) -> Result<Response<SignupSparklineRequestResponse>, Status> {
         let tenant_id = request.tenant()?;
 
-        let res = self
-            .stats_service
-            .signups_sparkline(tenant_id)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to fetch signup sparkline: {}", e)))?;
+        let res =
+            self.store.signups_sparkline(tenant_id).await.map_err(|e| {
+                Status::internal(format!("Failed to fetch signup sparkline: {}", e))
+            })?;
 
         Ok(Response::new(SignupSparklineRequestResponse {
             series: Some(SignupSeries {
@@ -247,7 +243,7 @@ impl StatsService for StatsServiceComponents {
         let tenant_id = request.tenant()?;
 
         let res = self
-            .stats_service
+            .store
             .trial_conversion_rate_sparkline(tenant_id)
             .await
             .map_err(|e| {
@@ -295,7 +291,7 @@ impl StatsService for StatsServiceComponents {
         let req = request.into_inner();
 
         let top_revenue_by_customer = self
-            .stats_service
+            .store
             .top_revenue_by_customer(RevenueByCustomerRequest {
                 tenant_id,
                 limit: req.count,
