@@ -9,6 +9,10 @@ license.workspace = true
 common-config.workspace = true
 common-logging = { workspace = true }
 common-grpc-error-as-tonic-macros = { workspace = true }
+diesel.workspace = true
+deadpool-postgres.workspace = true
+diesel-derive-enum.workspace = true
+diesel-async.workspace = true
 
 cached = { workspace = true, features = ["async", "tokio"] }
 prost.workspace = true
@@ -47,7 +51,7 @@ common-repository = { workspace = true, optional = true }
 meteroid-repository = { workspace = true, optional = true }
 argon2 = { workspace = true }
 base62 = { workspace = true }
-uuid = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 secrecy = { workspace = true }

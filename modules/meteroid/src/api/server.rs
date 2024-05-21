@@ -62,7 +62,7 @@ pub async fn start_api_server(
         .layer(GrpcWebLayer::new())
         .layer(common_middleware::metric::create())
         .layer(
-            common_middleware::auth::create(config.jwt_secret.clone(), pool.clone())
+            meteroid_middleware::server::auth::create(config.jwt_secret.clone(), store.clone())
                 .filter(common_filters::only_api),
         )
         .layer(

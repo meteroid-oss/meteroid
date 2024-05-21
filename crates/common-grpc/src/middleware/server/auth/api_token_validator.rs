@@ -45,8 +45,9 @@ impl ApiTokenValidator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uuid::Uuid;
+
+    use super::*;
 
     #[test]
     fn test_parse_api_key() {

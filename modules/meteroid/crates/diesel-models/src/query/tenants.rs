@@ -37,6 +37,20 @@ impl Tenant {
             .into_db_result()
     }
 
+    pub async fn find_by_slug(conn: &mut PgConn, param_tenant_slug: String) -> DbResult<Tenant> {
+        use crate::schema::tenant::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = tenant.filter(slug.eq(param_tenant_slug));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding tenant by slug")
+            .into_db_result()
+    }
+
     pub async fn list_by_user_id(conn: &mut PgConn, user_id: uuid::Uuid) -> DbResult<Vec<Tenant>> {
         use crate::schema::organization::dsl as o_dsl;
         use crate::schema::organization_member::dsl as om_dsl;

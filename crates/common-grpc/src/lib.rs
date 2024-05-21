@@ -37,8 +37,8 @@ impl std::fmt::Display for GrpcKind {
 //       but without extract/parse
 #[derive(Debug, Clone)]
 pub struct GrpcServiceMethod {
-    service: String,
-    method: String,
+    pub service: String,
+    pub method: String,
 }
 impl GrpcServiceMethod {
     pub fn extract(uri: &Uri) -> GrpcServiceMethod {
