@@ -1,5 +1,4 @@
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
-use common_grpc::middleware::server::auth::strategies::{AuthenticatedState, AuthorizedState};
 use common_grpc::GrpcServiceMethod;
 
 use cached::proc_macro::cached;
@@ -19,6 +18,7 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState};
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
 use uuid::Uuid;

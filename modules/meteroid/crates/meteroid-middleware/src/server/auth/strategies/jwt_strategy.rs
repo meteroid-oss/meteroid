@@ -1,20 +1,19 @@
-use super::{AuthenticatedState, AuthorizedState};
-use crate::middleware::common::auth::{BEARER_AUTH_HEADER, TENANT_SLUG_HEADER};
-use crate::middleware::server::utils::get_connection;
-use crate::GrpcServiceMethod;
-
-use common_repository::Pool;
+use cached::proc_macro::cached;
 use http::HeaderMap;
 use jsonwebtoken::DecodingKey;
-use meteroid_repository as db;
-use meteroid_repository::OrganizationUserRole;
 use secrecy::{ExposeSecret, SecretString};
 use tonic::Status;
-
-use crate::middleware::common::jwt::Claims;
 use uuid::Uuid;
 
-use cached::proc_macro::cached;
+use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, TENANT_SLUG_HEADER};
+use common_grpc::middleware::common::jwt::Claims;
+use common_grpc::middleware::server::auth::AuthenticatedState;
+use common_grpc::middleware::server::AuthorizedState;
+use common_grpc::GrpcServiceMethod;
+use meteroid_store::domain::enums::OrganizationUserRole;
+use meteroid_store::repositories::users::UserInterface;
+use meteroid_store::repositories::TenantInterface;
+use meteroid_store::Store;
 
 pub fn validate_jwt(
     header_map: &HeaderMap,
@@ -55,13 +54,9 @@ const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
     key = "String",
     convert = r#"{ tenant_slug.to_string() }"#
 )]
-async fn get_tenant_id_by_slug_cached(
-    conn: &common_repository::Object,
-    tenant_slug: &str,
-) -> Result<Uuid, Status> {
-    let res = db::tenants::get_tenant_by_slug()
-        .bind(conn, &tenant_slug)
-        .one()
+async fn get_tenant_id_by_slug_cached(store: Store, tenant_slug: String) -> Result<Uuid, Status> {
+    let res = store
+        .find_tenant_by_slug(tenant_slug)
         .await
         .map_err(|_| Status::permission_denied("Failed to retrieve tenant"))?;
 
@@ -76,14 +71,14 @@ async fn get_tenant_id_by_slug_cached(
     convert = r#"{ user_id.to_string() }"#
 )]
 async fn get_user_role_oss_cached(
-    conn: &common_repository::Object,
-    user_id: &Uuid,
+    store: Store,
+    user_id: Uuid,
 ) -> Result<OrganizationUserRole, Status> {
-    let res = db::users::get_user_role_oss()
-        .bind(conn, &user_id)
-        .one()
+    let res = store
+        .find_user_by_id(user_id.clone(), user_id.clone())
         .await
-        .map_err(|_| Status::permission_denied("Failed to obtain user role"))?;
+        .map_err(|_| Status::permission_denied("Failed to retrieve user role"))
+        .map(|x| x.role)?;
 
     Ok(res)
 }
@@ -92,12 +87,10 @@ async fn get_user_role_oss_cached(
 pub async fn authorize_user(
     header_map: &HeaderMap,
     user_id: Uuid,
-    pool: &Pool,
+    store: Store,
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
-    let conn = get_connection(pool).await?;
-
-    let role = get_user_role_oss_cached(&conn, &user_id).await?;
+    let role = get_user_role_oss_cached(store.clone(), user_id).await?;
 
     // if we have a tenant header, we resolve role via tenant (validating tenant access at the same time)
     let (role, state) = if let Some(tenant_slug) = header_map.get(TENANT_SLUG_HEADER) {
@@ -105,7 +98,8 @@ pub async fn authorize_user(
             .to_str()
             .map_err(|_| Status::permission_denied("Unauthorized"))?;
 
-        let tenant_id = get_tenant_id_by_slug_cached(&conn, &tenant_slug).await?;
+        let tenant_id =
+            get_tenant_id_by_slug_cached(store.clone(), tenant_slug.to_string()).await?;
 
         (
             role,
@@ -119,7 +113,7 @@ pub async fn authorize_user(
     else {
         (role, AuthorizedState::User { user_id })
     };
-    if role == OrganizationUserRole::MEMBER && OWNER_ONLY_METHODS.contains(&gm.method.as_str()) {
+    if role == OrganizationUserRole::Member && OWNER_ONLY_METHODS.contains(&gm.method.as_str()) {
         return Err(Status::permission_denied("Unauthorized"));
     }
 

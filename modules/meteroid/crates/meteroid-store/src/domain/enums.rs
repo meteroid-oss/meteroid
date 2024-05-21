@@ -118,7 +118,7 @@ pub enum MrrMovementType {
     Reactivation,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::OrganizationUserRole)]
 pub enum OrganizationUserRole {
     Admin,

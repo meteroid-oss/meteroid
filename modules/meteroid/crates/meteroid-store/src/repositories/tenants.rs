@@ -10,6 +10,7 @@ use uuid::Uuid;
 pub trait TenantInterface {
     async fn insert_tenant(&self, tenant: domain::TenantNew) -> StoreResult<domain::Tenant>;
     async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<domain::Tenant>;
+    async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<domain::Tenant>;
     async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<domain::Tenant>>;
 }
 
@@ -48,6 +49,15 @@ impl TenantInterface for Store {
         let mut conn = self.get_conn().await?;
 
         diesel_models::tenants::Tenant::find_by_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
+    async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<Tenant> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::tenants::Tenant::find_by_slug(&mut conn, slug)
             .await
             .map_err(Into::into)
             .map(Into::into)

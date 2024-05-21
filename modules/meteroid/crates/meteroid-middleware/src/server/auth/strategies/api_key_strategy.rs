@@ -1,16 +1,12 @@
-use super::AuthenticatedState;
 use cached::proc_macro::cached;
-
-use common_repository::Pool;
+use common_grpc::middleware::common::auth::API_KEY_HEADER;
+use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
+use common_grpc::middleware::server::auth::AuthenticatedState;
+use common_grpc::GrpcServiceMethod;
 use http::HeaderMap;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use meteroid_store::Store;
 use tonic::Status;
-
-use crate::middleware::common::auth::API_KEY_HEADER;
-use crate::middleware::server::auth::api_token_validator::ApiTokenValidator;
-use crate::middleware::server::utils::get_connection;
-use crate::GrpcServiceMethod;
-use meteroid_repository as db;
-
 use uuid::Uuid;
 
 const FORBIDDEN_SERVICES: [&str; 4] = [
@@ -28,13 +24,12 @@ const FORBIDDEN_SERVICES: [&str; 4] = [
     convert = r#"{ api_key_id.to_string() }"#
 )]
 async fn validate_api_token_by_id_cached(
-    conn: &common_repository::Object,
+    store: &Store,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
 ) -> Result<Uuid, Status> {
-    let res = db::api_tokens::get_api_token_by_id()
-        .bind(conn, &api_key_id)
-        .one()
+    let res = store
+        .get_api_token_by_id(api_key_id)
         .await
         .map_err(|_| Status::permission_denied("Failed to retrieve api key"))?;
 
@@ -47,7 +42,7 @@ async fn validate_api_token_by_id_cached(
 
 pub async fn validate_api_key(
     header_map: &HeaderMap,
-    pool: &Pool,
+    store: &Store,
     gm: &GrpcServiceMethod,
 ) -> Result<AuthenticatedState, Status> {
     if FORBIDDEN_SERVICES.contains(&gm.service.as_str()) {
@@ -67,9 +62,7 @@ pub async fn validate_api_key(
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
     })?;
 
-    let conn = get_connection(pool).await?;
-
-    let tenant_id = validate_api_token_by_id_cached(&conn, &validator, &id).await?;
+    let tenant_id = validate_api_token_by_id_cached(store, &validator, &id).await?;
 
     Ok(AuthenticatedState::ApiKey { id, tenant_id })
 }
