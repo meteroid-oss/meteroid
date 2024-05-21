@@ -1,17 +1,18 @@
+use std::task::{Context, Poll};
+
 use futures_util::future;
 use futures_util::future::Ready;
 use hmac::{Hmac, Mac};
-use std::task::{Context, Poll};
-
-use crate::middleware::common::auth::{HMAC_SIGNATURE_HEADER, HMAC_TIMESTAMP_HEADER};
-use crate::middleware::common::filters::Filter;
-use common_config::auth::InternalAuthConfig;
 use hyper::{Request, Response};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
-
 use tonic::Status;
 use tower::{Layer, Service};
+
+use common_config::auth::InternalAuthConfig;
+
+use crate::middleware::common::auth::{HMAC_SIGNATURE_HEADER, HMAC_TIMESTAMP_HEADER};
+use crate::middleware::common::filters::Filter;
 
 #[derive(Debug, Clone)]
 pub struct AdminAuthLayer {

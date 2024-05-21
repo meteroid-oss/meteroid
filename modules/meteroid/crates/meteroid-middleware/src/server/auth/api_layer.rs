@@ -1,15 +1,17 @@
-use crate::middleware::common::auth::{API_KEY_HEADER, BEARER_AUTH_HEADER};
-use crate::middleware::server::auth::strategies::api_key_strategy::validate_api_key;
-use crate::middleware::server::auth::strategies::{AuthenticatedState, AuthorizedState};
-use crate::GrpcServiceMethod;
-use common_repository::Pool;
-
 use hyper::{Request, Response};
 
 use secrecy::SecretString;
 
+use crate::server::auth::strategies::api_key_strategy::validate_api_key;
+use crate::server::auth::strategies::jwt_strategy::{authorize_user, validate_jwt};
+use common_grpc::middleware::common::auth::{API_KEY_HEADER, BEARER_AUTH_HEADER};
+use common_grpc::middleware::common::filters::Filter;
+use common_grpc::middleware::server::auth::AuthenticatedState;
+use common_grpc::middleware::server::AuthorizedState;
+use common_grpc::GrpcServiceMethod;
 use futures_util::TryFutureExt;
 use http::StatusCode;
+use meteroid_store::Store;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -19,31 +21,28 @@ use tower::Service;
 use tower_layer::Layer;
 use tracing::log;
 
-use crate::middleware::common::filters::Filter;
-use crate::middleware::server::auth::strategies::jwt_strategy::{authorize_user, validate_jwt};
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApiAuthMiddleware<S> {
     inner: S,
     filter: Option<Filter>,
     jwt_secret: SecretString,
-    pool: Pool,
+    store: Store,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApiAuthLayer {
     jwt_secret: SecretString,
-    pool: Pool,
+    store: Store,
     filter: Option<Filter>,
 }
 
 impl ApiAuthLayer {
     #[allow(clippy::new_without_default)]
-    pub fn new(jwt_secret: SecretString, pool: Pool) -> Self {
+    pub fn new(jwt_secret: SecretString, store: Store) -> Self {
         ApiAuthLayer {
             jwt_secret,
             filter: None,
-            pool,
+            store,
         }
     }
 
@@ -61,7 +60,7 @@ impl<S> Layer<S> for ApiAuthLayer {
         ApiAuthMiddleware {
             inner,
             filter: self.filter,
-            pool: self.pool.clone(),
+            store: self.store.clone(),
             jwt_secret: self.jwt_secret.clone(),
         }
     }
@@ -110,12 +109,12 @@ where
 
         let metadata = request.headers().clone();
 
-        let pool = self.pool.clone();
+        let store = self.store.clone();
         let jwt_secret = self.jwt_secret.clone();
 
         let future = async move {
             let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
-                validate_api_key(&metadata, &pool, &sm)
+                validate_api_key(&metadata, &store, &sm)
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError)
             } else if metadata.contains_key(BEARER_AUTH_HEADER) {
@@ -129,7 +128,7 @@ where
                     tenant_id,
                     actor_id: id,
                 }),
-                AuthenticatedState::User { id } => authorize_user(&metadata, id, &pool, sm)
+                AuthenticatedState::User { id } => authorize_user(&metadata, id, store, sm)
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError),
             }?;

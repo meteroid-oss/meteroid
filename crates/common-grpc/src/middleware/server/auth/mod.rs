@@ -1,25 +1,12 @@
-use common_config::auth::InternalAuthConfig;
-use common_repository::Pool;
-use secrecy::SecretString;
-
-pub use api_layer::ApiAuthLayer;
-pub use api_layer::ApiAuthMiddleware;
-
-pub use admin_layer::AdminAuthLayer;
-pub use admin_layer::AdminAuthService;
-
-mod admin_layer;
-mod api_layer;
-pub mod api_token_validator;
-pub mod strategies;
-
-pub use strategies::AuthorizedState;
 use tonic::Status;
 use uuid::Uuid;
 
-pub fn create(jwt_secret: SecretString, pool: Pool) -> ApiAuthLayer {
-    ApiAuthLayer::new(jwt_secret, pool)
-}
+pub use admin_layer::AdminAuthLayer;
+pub use admin_layer::AdminAuthService;
+use common_config::auth::InternalAuthConfig;
+
+mod admin_layer;
+pub mod api_token_validator;
 
 pub fn create_admin(config: &InternalAuthConfig) -> AdminAuthLayer {
     AdminAuthLayer::new(config)
@@ -50,7 +37,7 @@ impl<T> RequestExt for http::Request<T> {
     }
 }
 
-fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
+pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
     let authorized = maybe_auth.ok_or(Status::unauthenticated(
         "Missing authorized state in request extensions",
     ))?;
@@ -63,7 +50,7 @@ fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
     Ok(res)
 }
 
-fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
+pub fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
     let authorized = maybe_auth.ok_or(Status::unauthenticated(
         "Missing authorized state in request extensions",
     ))?;
@@ -73,4 +60,14 @@ fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> 
         AuthorizedState::User { .. } => { Err(Status::invalid_argument("Tenant is absent from the authorized state. This indicates a missing x-tenant-id header.")) }
     }?;
     Ok(res)
+}
+
+pub enum AuthenticatedState {
+    ApiKey { id: Uuid, tenant_id: Uuid },
+    User { id: Uuid },
+}
+
+pub enum AuthorizedState {
+    Tenant { actor_id: Uuid, tenant_id: Uuid },
+    User { user_id: Uuid },
 }

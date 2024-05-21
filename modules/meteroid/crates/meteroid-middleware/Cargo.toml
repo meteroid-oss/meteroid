@@ -1,0 +1,40 @@
+[package]
+name = "meteroid-middleware"
+version = "0.1.0"
+rust-version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+common-config = { workspace = true }
+common-grpc = { workspace = true, features = ["server"] }
+diesel-models = { workspace = true }
+meteroid-store = { workspace = true }
+
+cached = { workspace = true, features = ["async", "tokio"] }
+http = { workspace = true }
+moka = { workspace = true }
+tonic = { workspace = true }
+tonic-types = { workspace = true }
+tonic-tracing-opentelemetry = { workspace = true }
+tower = { workspace = true }
+tower-layer = { workspace = true }
+tower-service = { workspace = true }
+tower-http = { workspace = true }
+hyper = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+pin-project = { workspace = true }
+
+argon2 = { workspace = true }
+base62 = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+secrecy = { workspace = true }
+jsonwebtoken = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+
