@@ -52,8 +52,8 @@ pub struct SubscriptionTrialConversionRate {
 
 #[derive(QueryableByName, Debug)]
 pub struct SubscriptionTrialToPaidConversion {
-    #[diesel(sql_type = diesel::sql_types::Date)]
-    pub month: NaiveDate,
+    #[diesel(sql_type = diesel::sql_types::Timestamp)]
+    pub month: NaiveDateTime,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub total_trials: i64,
     #[diesel(sql_type = diesel::sql_types::BigInt)]

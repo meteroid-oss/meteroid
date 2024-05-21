@@ -17,23 +17,23 @@ impl RevenueTrend {
         tenant_id: Uuid,
     ) -> DbResult<RevenueTrend> {
         let raw_sql = r#"
-    WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * ?::integer       AS start_current_period,
-                       CURRENT_DATE - INTERVAL '1 day' * (?::integer * 2) AS start_previous_period),
+    WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
+                       CURRENT_DATE - INTERVAL '1 day' * ($2::integer * 2) AS start_previous_period),
     conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = ?))::NUMERIC AS conversion_rate
+                                 (rates ->> (SELECT currency FROM tenant WHERE id = $3))::NUMERIC AS conversion_rate
                           FROM historical_rates_from_usd),
     revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
                               JOIN conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
                      WHERE revenue_date BETWEEN DATE_TRUNC('year', CURRENT_DATE) AND CURRENT_DATE
-                       AND bi_revenue_daily.tenant_id = ?),
+                       AND bi_revenue_daily.tenant_id = $4),
     current_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
                         FROM bi_revenue_daily
                                  JOIN
                              period ON revenue_date BETWEEN period.start_current_period AND CURRENT_DATE
                                  JOIN
                              conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
-                        WHERE bi_revenue_daily.tenant_id = ?),
+                        WHERE bi_revenue_daily.tenant_id = $5),
     previous_period AS (SELECT COALESCE(SUM(net_revenue_cents_usd * cr.conversion_rate), 0)::bigint AS total
                          FROM bi_revenue_daily
                                   JOIN
@@ -41,7 +41,7 @@ impl RevenueTrend {
                               ON revenue_date BETWEEN period.start_previous_period AND period.start_current_period
                                   JOIN
                               conversion_rates cr ON bi_revenue_daily.historical_rate_id = cr.id
-                         WHERE bi_revenue_daily.tenant_id = ?)
+                         WHERE bi_revenue_daily.tenant_id = $6)
     SELECT COALESCE(revenue_ytd.total_ytd, 0) AS total_ytd,
            COALESCE(current_period.total, 0)  AS total_current_period,
            COALESCE(previous_period.total, 0) AS total_previous_period
@@ -69,7 +69,7 @@ impl NewSignupsTrend90Days {
         let raw_sql = r#"
         WITH signup_counts AS (SELECT DATE(created_at) AS signup_date, COUNT(*) AS daily_signups
                        FROM customer
-                       WHERE tenant_id = ?
+                       WHERE tenant_id = $1
                          AND created_at >= CURRENT_DATE - INTERVAL '180 days'
                        GROUP BY signup_date)
         SELECT COALESCE(SUM(daily_signups) FILTER (WHERE signup_date > CURRENT_DATE - INTERVAL '90 days'),
@@ -92,7 +92,7 @@ impl PendingInvoicesTotal {
     pub async fn get(conn: &mut PgConn, tenant_id: Uuid) -> DbResult<PendingInvoicesTotal> {
         let raw_sql = r#"
         WITH tenant_currency AS (
-            SELECT currency FROM tenant WHERE id = ?
+            SELECT currency FROM tenant WHERE id = $1
         ),
         latest_rate AS (
             SELECT
@@ -116,7 +116,7 @@ impl PendingInvoicesTotal {
                 latest_rate,
                 tenant_currency
             WHERE
-                i.tenant_id = ?
+                i.tenant_id = $2
               AND i.status = 'PENDING'
         )
         SELECT
@@ -143,7 +143,7 @@ impl DailyNewSignups90Days {
         daily_signups AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
                        FROM customer
-                       WHERE tenant_id = ?
+                       WHERE tenant_id = $1
                          AND created_at >= CURRENT_DATE - INTERVAL '90 days'
                        GROUP BY signup_date)
         SELECT ds.date                                                                        as signup_date,
@@ -207,7 +207,7 @@ impl SubscriptionTrialConversionRate {
                0
            END AS all_time_conversion_rate_percentage
         FROM subscription s
-        WHERE s.tenant_id = ?
+        WHERE s.tenant_id = $1
            AND s.trial_start_date IS NOT NULL;
         "#;
 
@@ -232,7 +232,7 @@ WITH month_series AS (SELECT generate_series(
                                      '1 month'
                              ) AS month
                       FROM subscription
-                      WHERE tenant_id = ?),
+                      WHERE tenant_id = $1),
      monthly_trials AS (SELECT ms.month,
                                COALESCE(COUNT(s.trial_start_date), 0)                                                AS total_trials,
                                COALESCE(COUNT(s.activated_at)
@@ -244,7 +244,7 @@ WITH month_series AS (SELECT generate_series(
                                COALESCE(COUNT(s.activated_at), 0)                                                    AS conversions
                         FROM month_series ms
                                  LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
-                            AND s.tenant_id = ?
+                            AND s.tenant_id = $2
                         GROUP BY ms.month
                         ORDER BY ms.month)
 SELECT month,
@@ -285,14 +285,14 @@ impl CustomerTopRevenue {
         SELECT c.id,
         c.name,
         COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
-        ?                                  AS currency
+        $1                                  AS currency
         FROM customer c
                  LEFT JOIN bi_customer_ytd_summary bi ON bi.customer_id = c.id
-        WHERE c.tenant_id = ?
-          AND (bi.revenue_year IS NULL OR bi.currency = ?)
+        WHERE c.tenant_id = $2
+          AND (bi.revenue_year IS NULL OR bi.currency = $3)
           AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
         ORDER BY total_revenue_cents DESC
-        LIMIT ?;
+        LIMIT $4;
         "#;
 
         diesel::sql_query(raw_sql)
@@ -316,8 +316,8 @@ impl TotalMrr {
            bi_delta_mrr_daily bd
                JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
         WHERE
-           bd.tenant_id = ?
-           AND bd.date <= ?;
+           bd.tenant_id = $1
+           AND bd.date <= $2;
         "#;
 
         diesel::sql_query(raw_sql)
@@ -341,7 +341,7 @@ impl TotalMrrChart {
         WITH conversion_rates AS (
             SELECT
                 id,
-                (rates->>(SELECT currency FROM tenant WHERE id = ?))::NUMERIC AS conversion_rate
+                (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
             FROM
                 historical_rates_from_usd
         ),
@@ -353,8 +353,8 @@ impl TotalMrrChart {
                     JOIN
                 conversion_rates cr ON bd.historical_rate_id = cr.id
             WHERE
-                bd.date < ?
-              AND bd.tenant_id = ?
+                bd.date < $2
+              AND bd.tenant_id = $3
         )
         SELECT
             bi.date AS period,
@@ -377,8 +377,8 @@ impl TotalMrrChart {
                 CROSS JOIN
             initial_mrr im
         WHERE
-            bi.date BETWEEN ? AND ?
-          AND bi.tenant_id = ?
+            bi.date BETWEEN $4 AND $5
+            AND bi.tenant_id = $6
         ORDER BY period"#;
 
         let query = diesel::sql_query(raw_sql)
@@ -389,7 +389,7 @@ impl TotalMrrChart {
             .bind::<sql_types::Date, _>(end_date)
             .bind::<sql_types::Uuid, _>(tenant_id);
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
             .get_results::<TotalMrrChart>(conn)
@@ -415,7 +415,7 @@ impl TotalMrrByPlan {
         WITH conversion_rates AS (
             SELECT
                 id,
-                (rates->>(SELECT currency FROM tenant WHERE id = ?))::NUMERIC AS conversion_rate
+                (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
             FROM
                 historical_rates_from_usd
         ),
@@ -430,9 +430,9 @@ impl TotalMrrByPlan {
                     JOIN
                 conversion_rates cr ON bi.historical_rate_id = cr.id
             WHERE
-                bi.date < ?
-              AND bi.tenant_id = ?
-              AND pv.plan_id = ANY (?)
+                bi.date < $2
+                AND bi.tenant_id = $3
+                AND pv.plan_id = ANY ($4)
             GROUP BY
                 pv.plan_id
         )
@@ -457,9 +457,9 @@ impl TotalMrrByPlan {
                  JOIN
              conversion_rates cr ON bi.historical_rate_id = cr.id
                  JOIN initial_mrr im on pv.plan_id = im.plan_id
-        WHERE bi.date BETWEEN ? AND ?
-          AND bi.tenant_id = ?
-          AND p.id = ANY (?)
+        WHERE bi.date BETWEEN $5 AND $6
+          AND bi.tenant_id = $7
+          AND p.id = ANY ($8)
         ORDER BY date;
         "#;
 
@@ -467,12 +467,13 @@ impl TotalMrrByPlan {
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Date, _>(start_date)
             .bind::<sql_types::Uuid, _>(tenant_id)
-            // todo check this
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids)
             .bind::<sql_types::Date, _>(start_date)
             .bind::<sql_types::Date, _>(end_date)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
             .get_results::<TotalMrrByPlan>(conn)
@@ -493,7 +494,7 @@ impl MrrBreakdown {
         WITH conversion_rates AS (
             SELECT
                 id,
-                (rates->>(SELECT currency FROM tenant WHERE id = ?))::NUMERIC AS rate
+                (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
             FROM
                 historical_rates_from_usd
         )
@@ -513,8 +514,8 @@ impl MrrBreakdown {
             bi_delta_mrr_daily bi
                 JOIN conversion_rates cr ON bi.historical_rate_id = cr.id
         WHERE
-            bi.date BETWEEN ? AND ?
-          AND bi.tenant_id = ?
+            bi.date BETWEEN $2 AND $3
+          AND bi.tenant_id = $4
         GROUP BY
             bi.tenant_id;
         "#;
@@ -562,11 +563,11 @@ impl LastMrrMovements {
                  JOIN plan_version pv on bi.plan_version_id = pv.id
                  JOIN plan p on pv.plan_id = p.id
                  JOIN customer c on s.customer_id = c.id
-        WHERE bi.tenant_id = ?
-          AND (bi.id < ? OR ? IS NULL)
-          AND (bi.id > ? OR ? IS NULL)
+        WHERE bi.tenant_id = $1
+          AND (bi.id < $2 OR $3 IS NULL)
+          AND (bi.id > $4 OR $5 IS NULL)
         ORDER BY bi.id DESC
-        LIMIT ?;
+        LIMIT $6;
         "#;
 
         let query = diesel::sql_query(raw_sql)
