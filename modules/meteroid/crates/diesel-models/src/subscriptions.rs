@@ -110,7 +110,7 @@ mod subscription_invoice_candidate {
     use diesel::dsl::sql;
     use diesel::expression::SqlLiteral;
     use diesel::sql_types;
-    use diesel::{Identifiable, Queryable, Selectable};
+    use diesel::{Queryable, Selectable};
     use uuid::Uuid;
 
     #[derive(Debug, Queryable, Selectable)]

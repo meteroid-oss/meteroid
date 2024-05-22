@@ -8,7 +8,6 @@ use crate::eventbus::analytics_handler::AnalyticsHandler;
 use crate::eventbus::memory::InMemory;
 use crate::eventbus::noop::NoopEventBus;
 use crate::eventbus::webhook_handler::WebhookHandler;
-use crate::singletons;
 
 pub mod analytics_handler;
 pub mod memory;

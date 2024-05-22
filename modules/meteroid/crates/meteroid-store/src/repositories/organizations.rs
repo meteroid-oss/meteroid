@@ -7,7 +7,7 @@ use common_eventbus::Event;
 use crate::domain::{Organization, OrganizationNew};
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, errors, StoreResult};
+use crate::{domain, StoreResult};
 
 #[async_trait::async_trait]
 pub trait OrganizationsInterface {
