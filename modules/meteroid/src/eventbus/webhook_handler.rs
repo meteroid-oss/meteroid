@@ -8,7 +8,7 @@ use uuid::Uuid;
 use common_eventbus::{Event, EventData, TenantEventDataDetails};
 use common_eventbus::{EventBusError, EventHandler};
 use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
-use meteroid_store::domain::webhooks::{WebhookOutEndpointNew, WebhookOutEventNew};
+use meteroid_store::domain::webhooks::WebhookOutEventNew;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::{crypt, Store};

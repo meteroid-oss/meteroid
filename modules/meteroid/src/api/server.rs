@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use deadpool_postgres::Pool;
 use tonic::transport::Server;
 use tonic_tracing_opentelemetry::middleware as otel_middleware;
 use tonic_web::GrpcWebLayer;
@@ -16,14 +15,11 @@ use crate::api;
 use crate::api::cors::cors;
 use crate::compute::clients::usage::MeteringUsageClient;
 use crate::compute::InvoiceEngine;
-use crate::eventbus::analytics_handler::AnalyticsHandler;
-use crate::eventbus::webhook_handler::WebhookHandler;
 
 use super::super::config::Config;
 
 pub async fn start_api_server(
     config: Config,
-    pool: Pool,
     store: Store,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(

@@ -38,8 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
-    let private_server =
-        meteroid::api::server::start_api_server(config.clone(), pool.clone(), store.clone());
+    let private_server = meteroid::api::server::start_api_server(config.clone(), store.clone());
 
     let exit = signal::ctrl_c();
 

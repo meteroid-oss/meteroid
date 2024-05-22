@@ -58,8 +58,7 @@ pub async fn start_meteroid_with_port(
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     log::info!("Starting gRPC server {}", config.listen_addr);
-    let private_server =
-        meteroid::api::server::start_api_server(config.clone(), pool.clone(), store.clone());
+    let private_server = meteroid::api::server::start_api_server(config.clone(), store.clone());
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {

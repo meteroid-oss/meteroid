@@ -1,4 +1,3 @@
-use common_eventbus::EventBus;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::InstanceServiceServer;
 use meteroid_store::Store;
 
