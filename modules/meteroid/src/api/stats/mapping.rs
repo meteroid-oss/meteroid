@@ -1,7 +1,6 @@
 use meteroid_grpc::meteroid::api::stats::v1 as proto;
 use meteroid_grpc::meteroid::api::stats::v1::{BreakdownStat, MrrBreakdown, MrrBreakdownScope};
-
-use crate::services::stats::stats_service::{
+use meteroid_store::domain::stats::{
     CountAndValue, MRRBreakdown, MRRBreakdownScope, MrrMovementType, Trend, TrendScope,
 };
 

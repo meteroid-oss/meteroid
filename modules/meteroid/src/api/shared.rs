@@ -47,6 +47,10 @@ pub mod mapping {
                 day: d.day(),
             }
         }
+
+        pub fn chrono_from_proto(d: Date) -> Option<chrono::NaiveDate> {
+            chrono::NaiveDate::from_ymd_opt(d.year, d.month, d.day)
+        }
     }
 }
 

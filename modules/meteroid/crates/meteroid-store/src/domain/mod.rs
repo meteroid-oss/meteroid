@@ -30,6 +30,7 @@ pub mod organizations;
 pub mod product_families;
 pub mod products;
 pub mod schedules;
+pub mod stats;
 pub mod subscription_components;
 pub mod subscriptions;
 pub mod users;

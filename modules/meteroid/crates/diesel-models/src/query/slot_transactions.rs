@@ -43,16 +43,16 @@ WITH RankedSlotTransactions AS (
     FROM
         slot_transaction st
     WHERE
-        st.subscription_id = ?
-        AND st.price_component_id = ?
-        AND st.transaction_at <= ?
+        st.subscription_id = $1
+        AND st.price_component_id = $2
+        AND st.transaction_at <= $3
 )
 SELECT
     X.prev_active_slots + COALESCE(SUM(Y.delta), 0) AS current_active_slots
 FROM
     RankedSlotTransactions X
     LEFT JOIN
-    RankedSlotTransactions Y ON Y.effective_at BETWEEN X.transaction_at AND ?
+    RankedSlotTransactions Y ON Y.effective_at BETWEEN X.transaction_at AND $4
 WHERE
     X.row_num = 1
 GROUP BY

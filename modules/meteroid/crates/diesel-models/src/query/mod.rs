@@ -13,6 +13,7 @@ pub mod product_families;
 pub mod products;
 pub mod schedules;
 pub mod slot_transactions;
+pub mod stats;
 pub mod subscription_components;
 pub mod subscription_events;
 pub mod subscriptions;
