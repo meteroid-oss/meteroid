@@ -1,15 +1,13 @@
-use crate::api::utils::uuid_gen;
 use crate::{errors, singletons};
 
 use crate::services::currency_rates::{CurrencyRatesService, OpenexchangeRatesService};
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use meteroid_repository as db;
-use meteroid_repository::rates::InsertRatesParams;
+use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
+use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
+use meteroid_store::Store;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
@@ -20,8 +18,9 @@ pub struct CurrencyRatesWorker;
 impl AsyncRunnable for CurrencyRatesWorker {
     #[tracing::instrument(skip(self, _queue))]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = singletons::get_pool();
-        currency_rates_worker(pool, OpenexchangeRatesService::get())
+        let store = singletons::get_store().await;
+
+        currency_rates_worker(store, OpenexchangeRatesService::get())
             .timed(|res, elapsed| record_call("issue", res, elapsed))
             .await
             .map_err(|err| {
@@ -48,37 +47,24 @@ impl AsyncRunnable for CurrencyRatesWorker {
 
 #[tracing::instrument(skip_all)]
 async fn currency_rates_worker(
-    pool: &Pool,
+    store: &Store,
     currency_rates_service: &dyn CurrencyRatesService,
 ) -> Result<(), errors::WorkerError> {
-    let conn = pool
-        .get()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
     let rates = currency_rates_service
         .fetch_latest_exchange_rates()
         .await
         .change_context(errors::WorkerError::CurrencyRatesUpdateError)?;
 
-    let rates_json = serde_json::to_value(&rates.rates)
-        .change_context(errors::WorkerError::CurrencyRatesUpdateError)?;
-
-    let date = time::OffsetDateTime::from_unix_timestamp(rates.timestamp as i64)
-        .change_context(errors::WorkerError::CurrencyRatesUpdateError)?
-        .date();
+    let date = chrono::DateTime::from_timestamp(rates.timestamp as i64, 0)
+        .ok_or(errors::WorkerError::CurrencyRatesUpdateError)?
+        .date_naive();
 
     // we insert or update the rates. bi table usd values are updated via a trigger
-    db::rates::insert_rates()
-        .params(
-            &conn,
-            &InsertRatesParams {
-                id: uuid_gen::v7(),
-                date,
-                rates: rates_json,
-            },
-        )
-        .one()
+    store
+        .create_historical_rate_from_usd(HistoricalRatesFromUsdNew {
+            date,
+            rates: rates.rates,
+        })
         .await
         .change_context(errors::WorkerError::CurrencyRatesUpdateError)?;
 

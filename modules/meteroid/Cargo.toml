@@ -86,6 +86,7 @@ opentelemetry_sdk = { workspace = true }
 fang = { workspace = true, features = ["asynk", "derive-error"] }
 typetag = { workspace = true }
 jsonwebtoken.workspace = true
+diesel.workspace = true
 
 once_cell.workspace = true
 tower-layer.workspace = true
