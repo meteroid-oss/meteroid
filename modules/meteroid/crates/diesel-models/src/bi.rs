@@ -6,15 +6,6 @@ use super::enums::MrrMovementType;
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable, Insertable)]
-#[diesel(table_name = crate::schema::historical_rates_from_usd)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct HistoricalRatesFromUsd {
-    pub id: Uuid,
-    pub date: NaiveDate,
-    pub rates: serde_json::Value,
-}
-
-#[derive(Queryable, Debug, Identifiable, Insertable)]
 #[diesel(table_name = crate::schema::bi_customer_ytd_summary, primary_key(tenant_id, customer_id, currency, revenue_year))]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BiCustomerYtdSummary {

@@ -22,6 +22,7 @@ pub mod slot_transactions;
 pub mod subscriptions;
 
 pub mod extend;
+pub mod historical_rates_from_usd;
 pub mod stats;
 pub mod subscription_components;
 pub mod subscription_events;

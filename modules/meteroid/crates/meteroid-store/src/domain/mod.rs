@@ -25,6 +25,7 @@ pub mod api_tokens;
 pub mod billable_metrics;
 pub mod configs;
 pub mod enums;
+pub mod historical_rates;
 pub mod misc;
 pub mod organizations;
 pub mod product_families;
