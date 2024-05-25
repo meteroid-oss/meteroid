@@ -13,19 +13,17 @@ use crate::errors;
 
 use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::{InvoicingAdapter, ParsedRequest};
-use crate::datetime::time_utc_now;
 use crate::errors::InvoicingAdapterError;
 use crate::models::InvoiceLine;
 use axum::response::IntoResponse;
 use common_domain::StripeSecret;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
-use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
-use meteroid_repository as db;
-use meteroid_repository::{InvoiceExternalStatusEnum, InvoicingProviderEnum};
+use meteroid_repository::InvoicingProviderEnum;
+use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
+use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::Store;
 use stripe_client::webhook::event_type;
 use stripe_client::webhook::StripeWebhook;
 use uuid::Uuid;
@@ -81,7 +79,7 @@ impl WebhookAdapter for Stripe {
     async fn process_webhook_event(
         &self,
         request: &ParsedRequest,
-        db_pool: Pool,
+        store: Store,
     ) -> Result<bool, errors::AdapterWebhookError> {
         let parsed = StripeWebhook::parse_event(request.json_body.to_string().as_str())
             .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
@@ -90,7 +88,7 @@ impl WebhookAdapter for Stripe {
 
         match object {
             EventObject::Invoice(invoice) => {
-                self.process_invoice_events(parsed, invoice, db_pool).await
+                self.process_invoice_events(parsed, invoice, store).await
             }
         }?;
 
@@ -151,22 +149,17 @@ impl Stripe {
         })
     }
 
-    fn external_status_to_service(
-        &self,
-        event_type: String,
-    ) -> Option<db::InvoiceExternalStatusEnum> {
+    fn external_status_to_service(&self, event_type: String) -> Option<InvoiceExternalStatusEnum> {
         match event_type.as_str() {
-            event_type::INVOICE_CREATED => Some(db::InvoiceExternalStatusEnum::DRAFT),
-            event_type::INVOICE_DELETED => Some(db::InvoiceExternalStatusEnum::DELETED),
-            event_type::INVOICE_PAID => Some(db::InvoiceExternalStatusEnum::PAID),
-            event_type::INVOICE_PAYMENT_FAILED => {
-                Some(db::InvoiceExternalStatusEnum::PAYMENT_FAILED)
-            }
-            event_type::INVOICE_VOIDED => Some(db::InvoiceExternalStatusEnum::VOID),
+            event_type::INVOICE_CREATED => Some(InvoiceExternalStatusEnum::Draft),
+            event_type::INVOICE_DELETED => Some(InvoiceExternalStatusEnum::Deleted),
+            event_type::INVOICE_PAID => Some(InvoiceExternalStatusEnum::Paid),
+            event_type::INVOICE_PAYMENT_FAILED => Some(InvoiceExternalStatusEnum::PaymentFailed),
+            event_type::INVOICE_VOIDED => Some(InvoiceExternalStatusEnum::Void),
             event_type::INVOICE_MARKED_UNCOLLECTIBLE => {
-                Some(db::InvoiceExternalStatusEnum::UNCOLLECTIBLE)
+                Some(InvoiceExternalStatusEnum::Uncollectible)
             }
-            event_type::INVOICE_FINALIZED => Some(db::InvoiceExternalStatusEnum::FINALIZED),
+            event_type::INVOICE_FINALIZED => Some(InvoiceExternalStatusEnum::Finalized),
             _ => None,
         }
     }
@@ -176,18 +169,8 @@ impl Stripe {
         &self,
         parsed: Event,
         invoice: Invoice,
-        db_pool: Pool,
+        store: Store,
     ) -> Result<bool, errors::AdapterWebhookError> {
-        let mut conn = db_pool
-            .get()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
-        let transaction = conn
-            .transaction()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
         let event_type_clone = parsed.event_type.clone();
         let external_status = match self.external_status_to_service(parsed.event_type) {
             Some(status) => status,
@@ -198,53 +181,15 @@ impl Stripe {
         let invoice_id = Uuid::parse_str(invoice.metadata.meteroid_invoice_id.as_str())
             .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-        db::invoices::update_invoice_external_status()
-            .params(
-                &transaction,
-                &db::invoices::UpdateInvoiceExternalStatusParams {
-                    id: invoice_id,
-                    external_status,
-                },
-            )
-            .one()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
+        let tenant_id = Uuid::parse_str(invoice.metadata.meteroid_tenant_id.as_str())
+            .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-        let invoice = db::invoices::invoice_by_id()
-            .bind(&transaction, &invoice_id)
-            .one()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
-        if let Some(_) = Self::invoice_status_to_subscription_status(external_status) {
-            db::subscriptions::activate_subscription()
-                .params(
-                    &transaction,
-                    &db::subscriptions::ActivateSubscriptionParams {
-                        id: invoice.subscription_id,
-                        activated_at: time_utc_now(),
-                    },
-                )
-                .await
-                .change_context(errors::AdapterWebhookError::DatabaseError)?;
-        }
-
-        transaction
-            .commit()
+        store
+            .update_invoice_external_status(invoice_id, tenant_id, external_status)
             .await
             .change_context(errors::AdapterWebhookError::DatabaseError)?;
 
         Ok(true)
-    }
-
-    fn invoice_status_to_subscription_status(
-        invoice_status: InvoiceExternalStatusEnum,
-    ) -> Option<SubscriptionStatus> {
-        match invoice_status {
-            InvoiceExternalStatusEnum::PAID => Some(SubscriptionStatus::Active),
-            // todo what if payment failed? should we leave subscription Pending?
-            _ => None,
-        }
     }
 
     fn db_invoice_to_external<'a>(

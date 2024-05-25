@@ -1,17 +1,29 @@
 use crate::enums::WebhookOutEventTypeEnum;
-use chrono::offset::Utc;
-use chrono::DateTime;
 use chrono::NaiveDateTime;
 
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
-#[derive(Queryable, Debug)]
+#[derive(Queryable, Identifiable, Debug, Selectable)]
 #[diesel(table_name = crate::schema::webhook_in_event)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct WebhookInEvent {
     pub id: Uuid,
-    pub received_at: DateTime<Utc>,
+    pub received_at: NaiveDateTime,
+    pub action: Option<String>,
+    pub key: String,
+    pub processed: bool,
+    pub attempts: i32,
+    pub error: Option<String>,
+    pub provider_config_id: Uuid,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = crate::schema::webhook_in_event)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct WebhookInEventNew {
+    pub id: Uuid,
+    pub received_at: NaiveDateTime,
     pub action: Option<String>,
     pub key: String,
     pub processed: bool,

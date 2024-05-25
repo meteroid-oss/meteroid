@@ -441,7 +441,7 @@ async fn test_metering_e2e() {
 
     // create a draft invoice for p2
     let params = meteroid_repository::invoices::CreateInvoiceParams {
-        id: common_utils::uuid::v7(),
+        id: Uuid::now_v7(),
         invoicing_provider: meteroid_repository::InvoicingProviderEnum::STRIPE,
         status: meteroid_repository::InvoiceStatusEnum::DRAFT,
         invoice_date: chrono_to_date(period_2_start.date_naive()).unwrap(),

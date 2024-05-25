@@ -57,7 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ = webhook_in_api::serve(
             config.invoicing_webhook_addr,
             object_store_client,
-            pool.clone(),
             stripe_adapter.clone(),
             store,
         ) => {},

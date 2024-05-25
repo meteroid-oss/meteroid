@@ -5,8 +5,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum::{routing::post, Router};
-use common_repository::Pool;
-use common_utils::uuid::v7;
 use hyper::StatusCode;
 use object_store::ObjectStore;
 use std::net::SocketAddr;
@@ -17,12 +15,12 @@ use crate::{
     adapters::{stripe::Stripe, types::ParsedRequest},
     encoding,
 };
-use cornucopia_async::Params;
-use meteroid_repository as db;
 
 use error_stack::{bail, Result, ResultExt};
 use meteroid_store::domain::enums::InvoicingProviderEnum;
+use meteroid_store::domain::webhooks::WebhookInEventNew;
 use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::Store;
 use secrecy::SecretString;
 
@@ -30,21 +28,18 @@ use secrecy::SecretString;
 pub struct AppState {
     pub object_store: Arc<dyn ObjectStore>,
     pub store: Store,
-    pub db_pool: Pool,
     pub stripe_adapter: Arc<Stripe>,
 }
 
 pub async fn serve(
     listen_addr: SocketAddr,
     object_store_client: Arc<dyn ObjectStore>,
-    db_pool: Pool,
     stripe_adapter: Arc<Stripe>,
     store: Store,
 ) {
     let app_state = AppState {
         object_store: object_store_client.clone(),
         store,
-        db_pool: db_pool.clone(),
         stripe_adapter: stripe_adapter.clone(),
     };
 
@@ -83,9 +78,7 @@ async fn handler(
     req: Request<Body>,
     app_state: AppState,
 ) -> Result<Response, errors::AdapterWebhookError> {
-    let received_at = time::OffsetDateTime::now_utc();
-
-    let connection = app_state.db_pool.get().await.unwrap();
+    let received_at = chrono::Utc::now().naive_utc();
 
     log::trace!(
         "Received webhook for provider: {}, uid: {}",
@@ -117,7 +110,7 @@ async fn handler(
         .await
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-    let event_id = v7();
+    let event_id = uuid::Uuid::now_v7();
     let object_store_key = format!("webhooks/{}/{}/{}", provider_str, endpoint_uid, event_id);
 
     let object_store_key_clone = object_store_key.clone();
@@ -131,17 +124,18 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
 
     // index in db
-    db::webhook_in_events::create_webhook_in_event()
-        .params(
-            &connection,
-            &db::webhook_in_events::CreateWebhookInEventParams {
-                id: event_id,
-                provider_config_id: provider_config.id,
-                received_at,
-                key: object_store_key,
-            },
-        )
-        .one()
+    app_state
+        .store
+        .insert_webhook_in_event(WebhookInEventNew {
+            id: event_id,
+            received_at,
+            attempts: 0,
+            action: None,
+            key: object_store_key,
+            processed: false,
+            error: None,
+            provider_config_id: provider_config.id,
+        })
         .await
         .change_context(errors::AdapterWebhookError::DatabaseError)?;
 
@@ -184,7 +178,7 @@ async fn handler(
     // then process specific event
     tokio::spawn(async move {
         adapter
-            .process_webhook_event(&parsed_request, app_state.db_pool.clone())
+            .process_webhook_event(&parsed_request, app_state.store.clone())
             .await
     });
 

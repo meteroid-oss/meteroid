@@ -56,8 +56,7 @@ impl ApiTokensInterface for Store {
     ) -> StoreResult<(String, ApiToken)> {
         let mut conn = self.get_conn().await?;
 
-        //let id = uuid_gen::v7();
-        let id = common_utils::uuid::v7();
+        let id = Uuid::now_v7();
 
         // TODO
         // api key is ex: ${pv for private key ?? pb for publishable key}_${tenant.env}_ + random
