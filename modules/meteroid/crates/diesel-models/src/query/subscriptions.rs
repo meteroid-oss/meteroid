@@ -128,6 +128,30 @@ impl Subscription {
         Ok(())
     }
 
+    pub async fn activate_subscription(
+        conn: &mut PgConn,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> DbResult<()> {
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = diesel::update(s_dsl::subscription)
+            .filter(s_dsl::id.eq(id))
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(s_dsl::activated_at.is_null())
+            .set(s_dsl::activated_at.eq(chrono::Utc::now().naive_utc()));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while activating subscription")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
     pub async fn list_subscriptions(
         conn: &mut PgConn,
         tenant_id_param: uuid::Uuid,

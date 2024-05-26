@@ -1,5 +1,6 @@
 use crate::domain::webhooks::{
-    WebhookOutEndpoint, WebhookOutEndpointNew, WebhookOutEvent, WebhookOutEventNew,
+    WebhookInEvent, WebhookInEventNew, WebhookOutEndpoint, WebhookOutEndpointNew, WebhookOutEvent,
+    WebhookOutEventNew,
 };
 use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
@@ -31,6 +32,11 @@ pub trait WebhooksInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<WebhookOutEvent>>;
+
+    async fn insert_webhook_in_event(
+        &self,
+        event: WebhookInEventNew,
+    ) -> StoreResult<WebhookInEvent>;
 }
 
 #[async_trait::async_trait]
@@ -110,5 +116,20 @@ impl WebhooksInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn insert_webhook_in_event(
+        &self,
+        event: WebhookInEventNew,
+    ) -> StoreResult<WebhookInEvent> {
+        let mut conn = self.get_conn().await?;
+
+        let insertable: diesel_models::webhooks::WebhookInEventNew = event.into();
+
+        insertable
+            .insert(&mut conn)
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
     }
 }

@@ -71,7 +71,7 @@ pub enum FangTaskState {
     Retried,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceExternalStatusEnum)]
 pub enum InvoiceExternalStatusEnum {
     Deleted,

@@ -7,10 +7,6 @@ pub fn chrono_utc_now() -> DateTime<Utc> {
     Utc::now()
 }
 
-pub fn time_utc_now() -> PrimitiveDateTime {
-    chrono_utc_now().to_primitive_dt().unwrap()
-}
-
 pub trait ChronoExt {
     fn to_primitive_dt(&self) -> Result<PrimitiveDateTime, MappingError>;
 }

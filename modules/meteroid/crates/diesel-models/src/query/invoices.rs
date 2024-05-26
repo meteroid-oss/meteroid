@@ -3,7 +3,7 @@ use crate::invoices::{Invoice, InvoiceNew, InvoiceWithCustomer, InvoiceWithPlanD
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::InvoiceStatusEnum;
+use crate::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum};
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::{debug_query, JoinOnDsl, PgTextExpressionMethods, SelectableHelper};
@@ -125,6 +125,32 @@ impl Invoice {
             .get_results(conn)
             .await
             .attach_printable("Error while inserting invoice")
+            .into_db_result()
+    }
+
+    pub async fn update_external_status(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        external_status: InvoiceExternalStatusEnum,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set((
+                i_dsl::external_status.eq(external_status),
+                i_dsl::updated_at.eq(chrono::Utc::now().naive_utc()),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while update invoice external_status")
             .into_db_result()
     }
 }

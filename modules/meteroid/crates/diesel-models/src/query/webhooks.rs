@@ -2,7 +2,8 @@ use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::webhooks::{
-    WebhookOutEndpoint, WebhookOutEndpointNew, WebhookOutEvent, WebhookOutEventNew,
+    WebhookInEvent, WebhookInEventNew, WebhookOutEndpoint, WebhookOutEndpointNew, WebhookOutEvent,
+    WebhookOutEventNew,
 };
 use crate::{DbResult, PgConn};
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
@@ -118,6 +119,22 @@ impl WebhookOutEvent {
             .load_and_count_pages(conn)
             .await
             .attach_printable("Error while fetching webhook_out events")
+            .into_db_result()
+    }
+}
+
+impl WebhookInEventNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookInEvent> {
+        use crate::schema::webhook_in_event::dsl as wi_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(wi_dsl::webhook_in_event).values(self);
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while inserting webhook_in_event")
             .into_db_result()
     }
 }

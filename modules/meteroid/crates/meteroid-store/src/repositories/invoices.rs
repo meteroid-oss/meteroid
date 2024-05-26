@@ -1,7 +1,8 @@
-use crate::domain::enums::InvoiceType;
+use crate::domain::enums::{InvoiceExternalStatusEnum, InvoiceType};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::PgConn;
 use error_stack::Report;
@@ -36,6 +37,13 @@ pub trait InvoiceInterface {
         &self,
         invoice: Vec<domain::InvoiceNew>,
     ) -> StoreResult<Vec<domain::Invoice>>;
+
+    async fn update_invoice_external_status(
+        &self,
+        invoice_id: Uuid,
+        tenant_id: Uuid,
+        external_status: InvoiceExternalStatusEnum,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -127,6 +135,45 @@ impl InvoiceInterface for Store {
         // TODO update subscription mrr
 
         Ok(inserted)
+    }
+
+    async fn update_invoice_external_status(
+        &self,
+        invoice_id: Uuid,
+        tenant_id: Uuid,
+        external_status: InvoiceExternalStatusEnum,
+    ) -> StoreResult<()> {
+        self.transaction(|conn| {
+            async move {
+                diesel_models::invoices::Invoice::update_external_status(
+                    conn,
+                    invoice_id,
+                    tenant_id,
+                    external_status.clone().into(),
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                if external_status == InvoiceExternalStatusEnum::Paid {
+                    let invoice =
+                        diesel_models::invoices::Invoice::find_by_id(conn, tenant_id, invoice_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+
+                    diesel_models::subscriptions::Subscription::activate_subscription(
+                        conn,
+                        invoice.subscription_id,
+                        tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+                }
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await
     }
 }
 
