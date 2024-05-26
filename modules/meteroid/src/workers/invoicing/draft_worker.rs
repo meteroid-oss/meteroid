@@ -1,15 +1,12 @@
 use crate::workers::metrics::record_call;
 use crate::{errors, singletons};
+use chrono::NaiveDate;
 
 use common_utils::timed::*;
 
-use deadpool_postgres::Pool;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 
-use time::Date;
-
-use crate::mapping::common::date_to_chrono;
 use common_eventbus::Event;
 
 use meteroid_store::domain::enums::{
@@ -30,12 +27,9 @@ pub struct DraftWorker;
 impl AsyncRunnable for DraftWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = singletons::get_pool();
-
         draft_worker(
             singletons::get_store().await,
-            pool,
-            time::OffsetDateTime::now_utc().date(),
+            chrono::Utc::now().naive_utc().date(),
         )
         .timed(|res, elapsed| record_call("draft", res, elapsed))
         .await
@@ -62,19 +56,13 @@ impl AsyncRunnable for DraftWorker {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn draft_worker(
-    store: &Store,
-    _pool: &Pool,
-    today: Date,
-) -> Result<(), errors::WorkerError> {
-    let naive_date = date_to_chrono(today).change_context(errors::WorkerError::InvalidInput)?;
-
+pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors::WorkerError> {
     let mut last_processed_id = None;
 
     loop {
         let paginated_vec = store
             .list_subscription_invoice_candidates(
-                naive_date,
+                today,
                 CursorPaginationRequest {
                     limit: Some(BATCH_SIZE as u32),
                     cursor: last_processed_id,
@@ -93,7 +81,7 @@ pub async fn draft_worker(
             .map(subscription_to_draft)
             .collect::<Result<Vec<Option<_>>, _>>()?
             .into_iter()
-            .filter_map(|p| p)
+            .flatten()
             .collect::<Vec<_>>();
 
         log::debug!("Creating {} draft invoices", params.len());
