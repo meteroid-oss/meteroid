@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::errors::StoreError;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Customer {
     pub id: Uuid,
     pub name: String,
@@ -166,7 +166,7 @@ pub struct CustomerPatch {
     pub shipping_address: Option<serde_json::Value>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Address {
     pub line1: Option<String>,
     pub line2: Option<String>,
@@ -199,7 +199,7 @@ impl TryInto<serde_json::Value> for Address {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShippingAddress {
     pub address: Option<Address>,
     pub same_as_billing: bool,
@@ -234,12 +234,12 @@ impl TryInto<serde_json::Value> for ShippingAddress {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BillingConfig {
     Stripe(Stripe),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Stripe {
     pub customer_id: String,
     pub collection_method: i32, // todo fix: models.proto : CollectionMethod

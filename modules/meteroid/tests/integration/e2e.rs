@@ -475,8 +475,7 @@ async fn test_metering_e2e() {
     // DRAFT WORKER
     meteroid::workers::invoicing::draft_worker::draft_worker(
         &meteroid_setup.store,
-        &meteroid_setup.pool,
-        chrono_to_date(now.date_naive()).unwrap(),
+        now.date_naive(),
     )
     .await
     .unwrap();

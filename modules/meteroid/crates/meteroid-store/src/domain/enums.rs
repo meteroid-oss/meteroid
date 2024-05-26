@@ -83,7 +83,7 @@ pub enum InvoiceExternalStatusEnum {
     Void,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceStatusEnum)]
 pub enum InvoiceStatusEnum {
     Draft,
@@ -102,7 +102,7 @@ pub enum InvoiceType {
     UsageThreshold,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::InvoicingProviderEnum)]
 pub enum InvoicingProviderEnum {
     Stripe,

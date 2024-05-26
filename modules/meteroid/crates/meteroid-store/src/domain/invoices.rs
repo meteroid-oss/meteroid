@@ -12,7 +12,7 @@ use error_stack::Report;
 use o2o::o2o;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, o2o)]
+#[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[from_owned(DieselInvoice)]
 pub struct Invoice {
     pub id: Uuid,
@@ -109,7 +109,7 @@ pub struct InvoiceWithPlanDetails {
     pub plan_version: i32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvoiceWithCustomer {
     pub invoice: Invoice,
     pub customer: Customer,
