@@ -1,23 +1,3 @@
-#[deprecated(note = "please use `aggregation_type` mod instead")]
-pub mod aggregation_type_old {
-    use meteroid_grpc::meteroid::api::billablemetrics::v1::aggregation as server;
-    use meteroid_repository as db;
-
-    pub fn db_to_server(e: db::BillingMetricAggregateEnum) -> server::AggregationType {
-        match e {
-            db::BillingMetricAggregateEnum::SUM => server::AggregationType::Sum,
-            db::BillingMetricAggregateEnum::MIN => server::AggregationType::Min,
-            db::BillingMetricAggregateEnum::MAX => server::AggregationType::Max,
-            db::BillingMetricAggregateEnum::MEAN => server::AggregationType::Mean,
-            db::BillingMetricAggregateEnum::COUNT => server::AggregationType::Count,
-            db::BillingMetricAggregateEnum::COUNT_DISTINCT => {
-                server::AggregationType::CountDistinct
-            }
-            db::BillingMetricAggregateEnum::LATEST => server::AggregationType::Latest,
-        }
-    }
-}
-
 pub mod aggregation_type {
     use metering_grpc::meteroid::metering::v1 as metering;
     use meteroid_grpc::meteroid::api::billablemetrics::v1::aggregation as server;

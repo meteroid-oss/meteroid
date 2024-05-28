@@ -4,6 +4,9 @@ use crate::invoices::{Invoice, InvoiceNew, InvoiceWithCustomer, InvoiceWithPlanD
 use crate::{DbResult, PgConn};
 
 use crate::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum};
+use crate::extend::cursor_pagination::{
+    CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
+};
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::{debug_query, JoinOnDsl, PgTextExpressionMethods, SelectableHelper};
@@ -151,6 +154,67 @@ impl Invoice {
             .execute(conn)
             .await
             .attach_printable("Error while update invoice external_status")
+            .into_db_result()
+    }
+
+    pub async fn list_to_finalize(
+        conn: &mut PgConn,
+        pagination: CursorPaginationRequest,
+    ) -> DbResult<CursorPaginatedVec<Invoice>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use crate::schema::invoicing_config::dsl as ic_dsl;
+
+        let query = i_dsl::invoice
+            .inner_join(ic_dsl::invoicing_config.on(i_dsl::tenant_id.eq(ic_dsl::tenant_id)))
+            .filter(
+                i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
+            )
+            .filter(diesel::dsl::now.gt(i_dsl::invoice_date
+                + diesel::dsl::sql::<diesel::sql_types::Interval>(
+                    "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
+                )))
+            .select(Invoice::as_select())
+            .cursor_paginate(pagination, i_dsl::id, "id");
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load_and_get_next_cursor(conn, |a| a.id)
+            .await
+            .attach_printable("Error while paginating invoices to finalize")
+            .into_db_result()
+    }
+
+    pub async fn finalize(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        lines: serde_json::Value,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                i_dsl::status.ne_all(vec![InvoiceStatusEnum::Finalized, InvoiceStatusEnum::Void]),
+            )
+            .set((
+                i_dsl::status.eq(InvoiceStatusEnum::Finalized),
+                i_dsl::line_items.eq(lines),
+                i_dsl::updated_at.eq(now),
+                i_dsl::finalized_at.eq(now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while finalizing invoice")
             .into_db_result()
     }
 }

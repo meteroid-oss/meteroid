@@ -28,3 +28,4 @@ rust_decimal = { workspace = true, features = ["db-diesel2-postgres", "serde_jso
 tap.workspace = true
 itertools.workspace = true
 futures-util = { workspace = true }
+futures = { workspace = true }

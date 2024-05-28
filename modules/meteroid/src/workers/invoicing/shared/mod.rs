@@ -1,3 +1,4 @@
-mod update_invoice_line_items;
+mod line_items;
 
-pub use update_invoice_line_items::update_invoice_line_items;
+pub use line_items::get_invoice_lines;
+pub use line_items::update_invoice_line_items;
