@@ -58,6 +58,18 @@ pub trait InvoiceInterface {
         tenant_id: Uuid,
         lines: serde_json::Value,
     ) -> StoreResult<()>;
+
+    async fn list_outdated_invoices(
+        &self,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>>;
+
+    async fn update_invoice_lines(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        lines: serde_json::Value,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -227,6 +239,39 @@ impl InvoiceInterface for Store {
             .await;
 
         Ok(())
+    }
+
+    async fn list_outdated_invoices(
+        &self,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>> {
+        let mut conn = self.get_conn().await?;
+
+        let invoices =
+            diesel_models::invoices::Invoice::list_outdated(&mut conn, pagination.into())
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: CursorPaginatedVec<domain::Invoice> = CursorPaginatedVec {
+            items: invoices.items.into_iter().map(|s| s.into()).collect(),
+            next_cursor: invoices.next_cursor,
+        };
+
+        Ok(res)
+    }
+
+    async fn update_invoice_lines(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        lines: serde_json::Value,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::invoices::Invoice::finalize(&mut conn, id, tenant_id, lines)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
     }
 }
 

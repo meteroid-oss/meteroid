@@ -517,7 +517,6 @@ async fn test_metering_e2e() {
     // PRICE WORKER
     meteroid::workers::invoicing::price_worker::price_worker(
         &meteroid_setup.store,
-        &meteroid_setup.pool,
         metering_client.clone(),
     )
     .await
