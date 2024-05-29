@@ -8,8 +8,10 @@ use diesel_models::PgConn;
 use error_stack::Report;
 
 use crate::domain::{
-    InvoiceWithCustomer, InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, InvoiceWithCustomer, InvoiceWithPlanDetails,
+    OrderByRequest, PaginatedVec, PaginationRequest,
 };
+use common_eventbus::Event;
 use tracing_log::log;
 use uuid::Uuid;
 
@@ -43,6 +45,18 @@ pub trait InvoiceInterface {
         invoice_id: Uuid,
         tenant_id: Uuid,
         external_status: InvoiceExternalStatusEnum,
+    ) -> StoreResult<()>;
+
+    async fn list_invoices_to_finalize(
+        &self,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>>;
+
+    async fn finalize_invoice(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        lines: serde_json::Value,
     ) -> StoreResult<()>;
 }
 
@@ -174,6 +188,45 @@ impl InvoiceInterface for Store {
             .scope_boxed()
         })
         .await
+    }
+
+    async fn list_invoices_to_finalize(
+        &self,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>> {
+        let mut conn = self.get_conn().await?;
+
+        let invoices =
+            diesel_models::invoices::Invoice::list_to_finalize(&mut conn, pagination.into())
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: CursorPaginatedVec<domain::Invoice> = CursorPaginatedVec {
+            items: invoices.items.into_iter().map(|s| s.into()).collect(),
+            next_cursor: invoices.next_cursor,
+        };
+
+        Ok(res)
+    }
+
+    async fn finalize_invoice(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        lines: serde_json::Value,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let _ = diesel_models::invoices::Invoice::finalize(&mut conn, id, tenant_id, lines)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::invoice_finalized(id, tenant_id))
+            .await;
+
+        Ok(())
     }
 }
 
