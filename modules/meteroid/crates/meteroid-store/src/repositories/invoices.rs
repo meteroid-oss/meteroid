@@ -268,7 +268,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::invoices::Invoice::finalize(&mut conn, id, tenant_id, lines)
+        diesel_models::invoices::Invoice::update_lines(&mut conn, id, tenant_id, lines)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
