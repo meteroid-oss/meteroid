@@ -70,6 +70,21 @@ pub trait InvoiceInterface {
         tenant_id: Uuid,
         lines: serde_json::Value,
     ) -> StoreResult<()>;
+
+    async fn list_invoices_to_issue(
+        &self,
+        max_attempts: i32,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>>;
+
+    async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
+
+    async fn invoice_issue_error(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        last_issue_error: &str,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -269,6 +284,52 @@ impl InvoiceInterface for Store {
         let mut conn = self.get_conn().await?;
 
         diesel_models::invoices::Invoice::update_lines(&mut conn, id, tenant_id, lines)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn list_invoices_to_issue(
+        &self,
+        max_attempts: i32,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>> {
+        let mut conn = self.get_conn().await?;
+
+        let invoices = diesel_models::invoices::Invoice::list_to_issue(
+            &mut conn,
+            max_attempts,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: CursorPaginatedVec<domain::Invoice> = CursorPaginatedVec {
+            items: invoices.items.into_iter().map(|s| s.into()).collect(),
+            next_cursor: invoices.next_cursor,
+        };
+
+        Ok(res)
+    }
+
+    async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::invoices::Invoice::issue_success(&mut conn, id, tenant_id)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn invoice_issue_error(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        last_issue_error: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::invoices::Invoice::issue_error(&mut conn, id, tenant_id, last_issue_error)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)

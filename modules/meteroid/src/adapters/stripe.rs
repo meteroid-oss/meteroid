@@ -20,10 +20,9 @@ use common_domain::StripeSecret;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
-use meteroid_repository::InvoicingProviderEnum;
-use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
+use meteroid_store::domain::enums::{InvoiceExternalStatusEnum, InvoicingProviderEnum};
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::Store;
+use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
 use stripe_client::webhook::StripeWebhook;
 use uuid::Uuid;
@@ -100,12 +99,12 @@ impl WebhookAdapter for Stripe {
 impl InvoicingAdapter for Stripe {
     async fn send_invoice(
         &self,
-        invoice: &meteroid_repository::invoices::Invoice,
+        invoice: &domain::Invoice,
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), InvoicingAdapterError> {
         match invoice.invoicing_provider {
-            InvoicingProviderEnum::STRIPE => {
+            InvoicingProviderEnum::Stripe => {
                 let api_key = &StripeSecret(api_key);
 
                 let invoice_lines =
@@ -193,7 +192,7 @@ impl Stripe {
     }
 
     fn db_invoice_to_external<'a>(
-        invoice: &'a meteroid_repository::invoices::Invoice,
+        invoice: &'a domain::Invoice,
         stripe_customer: &'a String,
         collection_method: CollectionMethod,
     ) -> CreateInvoice<'a> {
@@ -216,7 +215,7 @@ impl Stripe {
 
     fn db_invoice_item_to_external<'a>(
         stripe_invoice: &'a Invoice,
-        invoice: &'a meteroid_repository::invoices::Invoice,
+        invoice: &'a domain::Invoice,
         line: &'a InvoiceLine,
     ) -> Result<CreateInvoiceItem<'a>, InvoicingAdapterError> {
         Ok(CreateInvoiceItem {

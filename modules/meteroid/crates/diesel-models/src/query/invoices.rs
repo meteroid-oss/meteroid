@@ -280,4 +280,90 @@ impl Invoice {
             .attach_printable("Error while paginating outdated invoices")
             .into_db_result()
     }
+
+    pub async fn list_to_issue(
+        conn: &mut PgConn,
+        max_attempts: i32,
+        pagination: CursorPaginationRequest,
+    ) -> DbResult<CursorPaginatedVec<Invoice>> {
+        use crate::schema::invoice::dsl as i_dsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .filter(i_dsl::issued.eq(false))
+            .filter(i_dsl::issue_attempts.lt(max_attempts))
+            .select(Invoice::as_select())
+            .cursor_paginate(pagination, i_dsl::id, "id");
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load_and_get_next_cursor(conn, |a| a.id)
+            .await
+            .attach_printable("Error while paginating invoices to issue")
+            .into_db_result()
+    }
+
+    pub async fn issue_success(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .filter(i_dsl::issued.eq(false))
+            .set((
+                i_dsl::issued.eq(true),
+                i_dsl::issue_attempts.eq(i_dsl::issue_attempts + 1),
+                i_dsl::updated_at.eq(now),
+                i_dsl::last_issue_attempt_at.eq(now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while issue_success invoice")
+            .into_db_result()
+    }
+
+    pub async fn issue_error(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        last_issue_error: &str,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .filter(i_dsl::issued.eq(false))
+            .set((
+                i_dsl::last_issue_error.eq(last_issue_error),
+                i_dsl::issue_attempts.eq(i_dsl::issue_attempts + 1),
+                i_dsl::updated_at.eq(now),
+                i_dsl::last_issue_attempt_at.eq(now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while issue_error invoice")
+            .into_db_result()
+    }
 }
