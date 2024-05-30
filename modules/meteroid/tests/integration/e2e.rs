@@ -560,9 +560,9 @@ async fn test_metering_e2e() {
         })
     );
 
-    // PENDING WORKER (no output as we're passed the grace period, TODO pass "now" date as param)
     meteroid::workers::invoicing::pending_status_worker::pending_worker(
-        &meteroid_setup.pool.clone(),
+        &meteroid_setup.store.clone(),
+        chrono::Utc::now().naive_utc(),
     )
     .await
     .unwrap();
