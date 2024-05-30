@@ -4,9 +4,6 @@
 */
 use std::sync::Arc;
 
-use common_repository::Pool;
-use meteroid_repository as db;
-
 use crate::{compute::InvoiceEngine, errors, singletons};
 
 use crate::compute::clients::usage::MeteringUsageClient;
@@ -15,8 +12,10 @@ use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use futures::{future::join_all, stream::StreamExt};
+use futures::future::join_all;
 
+use meteroid_store::domain::{CursorPaginationRequest, Invoice};
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 use tokio::sync::Semaphore;
 
@@ -32,6 +31,8 @@ We update the invoice with the new amount (ONLY IF status is not finalized/voide
 
 const MAX_CONCURRENT_REQUESTS: usize = 10;
 
+const BATCH_SIZE: usize = 100;
+
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
 pub struct PriceWorker;
@@ -41,19 +42,15 @@ pub struct PriceWorker;
 impl AsyncRunnable for PriceWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        price_worker(
-            singletons::get_store().await,
-            singletons::get_pool(),
-            MeteringClient::get().clone(),
-        )
-        .timed(|res, elapsed| record_call("price", res, elapsed))
-        .await
-        .map_err(|err| {
-            log::error!("Error in price worker: {}", err);
-            FangError {
-                description: err.to_string(),
-            }
-        })
+        price_worker(singletons::get_store().await, MeteringClient::get().clone())
+            .timed(|res, elapsed| record_call("price", res, elapsed))
+            .await
+            .map_err(|err| {
+                log::error!("Error in price worker: {}", err);
+                FangError {
+                    description: err.to_string(),
+                }
+            })
     }
 
     fn uniq(&self) -> bool {
@@ -73,78 +70,80 @@ impl AsyncRunnable for PriceWorker {
 #[tracing::instrument(skip_all)]
 pub async fn price_worker(
     store: &Store,
-    db_pool: &Pool,
     metering_client: MeteringClient,
 ) -> Result<(), errors::WorkerError> {
-    // fetch all invoice not finalized/voided and not updated since > 1h
-
-    let connection = db_pool
-        .get()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
-    let mut outdated_invoices_query = db::invoices::get_outdated_invoices();
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
 
-    let query_service_client = metering_client.queries;
-
     let compute_service = Arc::new(InvoiceEngine::new(
-        Arc::new(MeteringUsageClient::new(query_service_client)),
+        Arc::new(MeteringUsageClient::new(metering_client.queries)),
         Arc::new(store.clone()),
     ));
 
-    let invoices_iter = outdated_invoices_query
-        .bind(&connection)
-        .iter()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
-    let mut invoices_stream = Box::pin(invoices_iter);
-
     let mut tasks = Vec::new();
+
+    let mut last_processed_id = None;
+
     // TODO optimize (semaphore + parallelism)
-    while let Some(invoice_res) = invoices_stream.next().await {
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
+    loop {
+        let paginated_vec = store
+            .list_outdated_invoices(CursorPaginationRequest {
+                limit: Some(BATCH_SIZE as u32),
+                cursor: last_processed_id,
+            })
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
-        match invoice_res {
-            Ok(invoice) => {
-                let compute_service_clone: Arc<InvoiceEngine> = compute_service.clone();
-                let store = store.clone();
 
-                let connection = db_pool
-                    .get()
-                    .await
-                    .change_context(errors::WorkerError::DatabaseError)?;
+        for invoice in paginated_vec.items.into_iter() {
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .change_context(errors::WorkerError::DatabaseError)?;
 
-                let task = tokio::spawn(async move {
-                    let _permit = permit; // Moves permit into the async block
-                    let result = shared::update_invoice_line_items(
-                        &invoice,
-                        &compute_service_clone,
-                        &connection,
-                        store.clone(),
+            let compute_service_clone = compute_service.clone();
+            let store = store.clone();
+
+            let task = tokio::spawn(async move {
+                let _permit = permit; // Moves permit into the async block
+
+                let lines_result =
+                    update_invoice_lines(&invoice, store, compute_service_clone).await;
+
+                if let Err(e) = lines_result {
+                    // TODO this will retry, but we need to track/alert
+                    log::error!(
+                        "Failed to update lines for invoice with id {} : {}",
+                        &invoice.id,
+                        e
                     )
-                    .await;
-                    if let Err(e) = result {
-                        // TODO this will retry, but we need to track/alert
-                        log::error!("Failed to process invoice with id {} : {}", &invoice.id, e)
-                    }
+                }
 
-                    //  drop(_permit) should not be necessary, TODO validate
-                });
-                tasks.push(task);
-            }
-            Err(e) => {
-                //TODO
-                log::error!("Error while streaming invoice: {}", e)
-            }
+                //  drop(_permit) should not be necessary, TODO validate
+            });
+            tasks.push(task);
+        }
+
+        last_processed_id = paginated_vec.next_cursor;
+
+        if paginated_vec.next_cursor.is_none() {
+            break;
         }
     }
 
     join_all(tasks).await;
 
     Ok(())
+}
+
+async fn update_invoice_lines(
+    invoice: &Invoice,
+    store: Store,
+    compute_service: Arc<InvoiceEngine>,
+) -> Result<(), errors::WorkerError> {
+    let lines = shared::get_invoice_lines(&invoice, &compute_service, store.clone()).await?;
+
+    store
+        .update_invoice_lines(invoice.id, invoice.tenant_id, lines)
+        .await
+        .change_context(errors::WorkerError::DatabaseError)
 }

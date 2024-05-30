@@ -9,7 +9,10 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use diesel::{debug_query, JoinOnDsl, PgTextExpressionMethods, SelectableHelper};
+use diesel::dsl::IntervalDsl;
+use diesel::{
+    debug_query, BoolExpressionMethods, JoinOnDsl, PgTextExpressionMethods, SelectableHelper,
+};
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
@@ -206,6 +209,7 @@ impl Invoice {
                 i_dsl::status.eq(InvoiceStatusEnum::Finalized),
                 i_dsl::line_items.eq(lines),
                 i_dsl::updated_at.eq(now),
+                i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
             ));
 
@@ -215,6 +219,65 @@ impl Invoice {
             .execute(conn)
             .await
             .attach_printable("Error while finalizing invoice")
+            .into_db_result()
+    }
+
+    pub async fn update_lines(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        lines: serde_json::Value,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                i_dsl::status.ne_all(vec![InvoiceStatusEnum::Finalized, InvoiceStatusEnum::Void]),
+            )
+            .set((
+                i_dsl::line_items.eq(lines),
+                i_dsl::updated_at.eq(now),
+                i_dsl::data_updated_at.eq(now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while updating invoice lines")
+            .into_db_result()
+    }
+
+    pub async fn list_outdated(
+        conn: &mut PgConn,
+        pagination: CursorPaginationRequest,
+    ) -> DbResult<CursorPaginatedVec<Invoice>> {
+        use crate::schema::invoice::dsl as i_dsl;
+
+        let query = i_dsl::invoice
+            .filter(
+                i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
+            )
+            .filter(
+                i_dsl::data_updated_at
+                    .is_null()
+                    .or(diesel::dsl::now.gt(i_dsl::invoice_date + 1.hour())),
+            )
+            .select(Invoice::as_select())
+            .cursor_paginate(pagination, i_dsl::id, "id");
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load_and_get_next_cursor(conn, |a| a.id)
+            .await
+            .attach_printable("Error while paginating outdated invoices")
             .into_db_result()
     }
 }
