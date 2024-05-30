@@ -4,7 +4,7 @@ use meteroid_grpc::meteroid::api::customers::v1::Customer;
 use secrecy::SecretString;
 use std::fmt::Debug;
 
-use meteroid_repository as db;
+use meteroid_store::domain::Invoice;
 use meteroid_store::Store;
 
 pub enum IncomingWebhookEvent {
@@ -45,7 +45,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
 pub trait InvoicingAdapter: AdapterCommon + Sync {
     async fn send_invoice(
         &self,
-        invoice: &db::invoices::Invoice,
+        invoice: &Invoice,
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), errors::InvoicingAdapterError>;
