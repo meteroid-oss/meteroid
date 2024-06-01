@@ -1,11 +1,12 @@
 use crate::{errors, singletons};
-use deadpool_postgres::Pool;
+use chrono::NaiveDateTime;
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use meteroid_repository as db;
 
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
+use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::Store;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
@@ -16,17 +17,18 @@ pub struct PendingStatusWorker;
 impl AsyncRunnable for PendingStatusWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = singletons::get_pool();
-
-        pending_worker(pool)
-            .timed(|res, elapsed| record_call("pending", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in pending_status worker: {}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        pending_worker(
+            singletons::get_store().await,
+            chrono::Utc::now().naive_utc(),
+        )
+        .timed(|res, elapsed| record_call("pending", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in pending_status worker: {}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -48,17 +50,9 @@ impl AsyncRunnable for PendingStatusWorker {
  * and update their status to pending
  */
 #[tracing::instrument(skip_all)]
-pub async fn pending_worker(pool: &Pool) -> Result<(), errors::WorkerError> {
-    let connection = pool
-        .get()
+pub async fn pending_worker(store: &Store, now: NaiveDateTime) -> Result<(), errors::WorkerError> {
+    store
+        .update_pending_finalization_invoices(now)
         .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
-    db::invoices::update_pending_finalization_invoices()
-        .bind(&connection)
-        .all()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
-    Ok(())
+        .change_context(errors::WorkerError::DatabaseError)
 }

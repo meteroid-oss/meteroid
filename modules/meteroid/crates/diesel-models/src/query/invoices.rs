@@ -1,5 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::invoices::{Invoice, InvoiceNew, InvoiceWithCustomer, InvoiceWithPlanDetails};
+use chrono::NaiveDateTime;
 
 use crate::{DbResult, PgConn};
 
@@ -364,6 +365,39 @@ impl Invoice {
             .execute(conn)
             .await
             .attach_printable("Error while issue_error invoice")
+            .into_db_result()
+    }
+
+    pub async fn update_pending_finalization(
+        conn: &mut PgConn,
+        now: NaiveDateTime,
+    ) -> DbResult<usize> {
+        use diesel_async::RunQueryDsl;
+
+        // diesel doesn't support update/delete with joins https://github.com/diesel-rs/diesel/issues/1478
+        // also the id::eq_any(subquery_with_joins) doesn't work when the subquery is on the same table
+        let raw_sql = r#"
+UPDATE invoice
+SET status = 'PENDING',
+    updated_at = $1
+FROM invoicing_config
+WHERE invoice.tenant_id = invoicing_config.tenant_id
+  AND invoice.status = 'DRAFT'
+  AND invoice.invoice_date < $2
+  AND $3 <= (invoice.invoice_date + interval '1 hour' * invoicing_config.grace_period_hours);
+        "#;
+
+        let query = diesel::sql_query(raw_sql)
+            .bind::<diesel::sql_types::Timestamp, _>(now)
+            .bind::<diesel::sql_types::Timestamp, _>(now)
+            .bind::<diesel::sql_types::Timestamp, _>(now);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while fetching revenue trend")
             .into_db_result()
     }
 }

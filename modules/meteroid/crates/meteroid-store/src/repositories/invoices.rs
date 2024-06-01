@@ -2,6 +2,7 @@ use crate::domain::enums::{InvoiceExternalStatusEnum, InvoiceType};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
+use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::PgConn;
@@ -85,6 +86,8 @@ pub trait InvoiceInterface {
         tenant_id: Uuid,
         last_issue_error: &str,
     ) -> StoreResult<()>;
+
+    async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -330,6 +333,15 @@ impl InvoiceInterface for Store {
         let mut conn = self.get_conn().await?;
 
         diesel_models::invoices::Invoice::issue_error(&mut conn, id, tenant_id, last_issue_error)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        diesel_models::invoices::Invoice::update_pending_finalization(&mut conn, now)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
