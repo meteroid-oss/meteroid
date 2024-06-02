@@ -1,16 +1,14 @@
-use chrono::{Datelike, Months, NaiveDate};
+use chrono::{Datelike, Months, NaiveDate, NaiveDateTime};
 use std::error::Error;
+use std::str::FromStr;
 
 use crate::helpers;
 use meteroid::api::shared::conversions::ProtoConv;
 use testcontainers::clients::Cli;
 use testcontainers::Container;
 use testcontainers_modules::postgres::Postgres;
-use time::macros::datetime;
 use tonic::Code;
 
-use meteroid::db::get_connection;
-use meteroid::mapping::common::chrono_to_date;
 use meteroid::models::InvoiceLine;
 use meteroid_grpc::meteroid::api;
 
@@ -21,6 +19,9 @@ use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
+use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
+use meteroid_store::repositories::InvoiceInterface;
 
 struct TestContext<'a> {
     setup: MeteroidSetup,
@@ -62,7 +63,6 @@ async fn test_subscription_create() {
         clients,
         _container,
     } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
-    let conn = get_connection(&setup.pool).await.unwrap();
 
     let tenant_id = "018c2c82-3df1-7e84-9e05-6e141d0e751a".to_string();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
@@ -188,11 +188,18 @@ async fn test_subscription_create() {
         plan_version_id
     );
 
-    let db_invoices = meteroid_repository::invoices::get_invoices_to_issue()
-        .bind(&conn, &1)
-        .all()
+    let db_invoices = setup
+        .store
+        .list_invoices_to_issue(
+            1,
+            CursorPaginationRequest {
+                limit: Some(1000),
+                cursor: None,
+            },
+        )
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert_eq!(db_invoices.len(), 1);
 
@@ -498,13 +505,24 @@ async fn test_subscription_create_invoice_seats() {
         uuid::Uuid::parse_str(subscription.subscription.map(|s| s.id).unwrap().as_str()).unwrap();
     let price_component_id = uuid::Uuid::parse_str(component_id.as_str()).unwrap();
 
-    let db_invoices = meteroid_it::db::invoice::all(&setup.pool).await;
+    let db_invoices = setup
+        .store
+        .list_invoices_to_issue(
+            1,
+            CursorPaginationRequest {
+                limit: Some(1000),
+                cursor: None,
+            },
+        )
+        .await
+        .unwrap()
+        .items;
 
     assert_eq!(db_invoices.len(), 1);
 
     let db_invoice = db_invoices.get(0).unwrap();
 
-    assert_eq!(db_invoice.invoice_date, chrono_to_date(start).unwrap());
+    assert_eq!(db_invoice.invoice_date, start);
 
     let invoice_lines: Vec<InvoiceLine> =
         serde_json::from_value(db_invoice.line_items.clone()).unwrap();
@@ -526,15 +544,18 @@ async fn test_subscription_create_invoice_seats() {
     assert_eq!(period.from, start);
     assert_eq!(period.to, start.with_day(10).unwrap());
 
-    let current_active_seats = meteroid_it::db::slot_transaction::get_active_slots(
-        &setup.pool,
-        subscription_id.clone(),
-        price_component_id.clone(),
-        datetime!(2023-01-01 2:00),
-    )
-    .await;
+    let current_active_seats = setup
+        .store
+        .get_current_slots_value(
+            db_invoice.tenant_id.clone(),
+            subscription_id.clone(),
+            price_component_id.clone(),
+            Some(NaiveDateTime::from_str("2023-01-01T02:00:00").unwrap()),
+        )
+        .await
+        .unwrap();
 
-    assert_eq!(current_active_seats, seats_quantity as i32);
+    assert_eq!(current_active_seats, seats_quantity);
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
@@ -549,7 +570,6 @@ async fn test_subscription_create_invoice_rate() {
         clients,
         _container,
     } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
-    let conn = get_connection(&setup.pool).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344a-78a9-7e2b-af90-5748672711f8".to_string();
@@ -676,11 +696,18 @@ async fn test_subscription_create_invoice_rate() {
         .unwrap()
         .into_inner();
 
-    let db_invoices = meteroid_repository::invoices::get_invoices_to_issue()
-        .bind(&conn, &1)
-        .all()
+    let db_invoices = setup
+        .store
+        .list_invoices_to_issue(
+            1,
+            CursorPaginationRequest {
+                limit: Some(1000),
+                cursor: None,
+            },
+        )
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert_eq!(db_invoices.len(), 3);
 
@@ -763,7 +790,6 @@ async fn test_subscription_create_invoice_usage() {
         clients,
         _container,
     } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
-    let conn = get_connection(&setup.pool).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c35cc-3f41-7551-b7b6-f8bbcd62b784".to_string();
@@ -803,17 +829,24 @@ async fn test_subscription_create_invoice_usage() {
         .unwrap()
         .into_inner();
 
-    let db_invoices = meteroid_repository::invoices::get_invoices_to_issue()
-        .bind(&conn, &1)
-        .all()
+    let db_invoices = setup
+        .store
+        .list_invoices_to_issue(
+            1,
+            CursorPaginationRequest {
+                limit: Some(1000),
+                cursor: None,
+            },
+        )
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert_eq!(db_invoices.len(), 1);
 
     let db_invoice = db_invoices.get(0).unwrap();
 
-    assert_eq!(db_invoice.invoice_date, chrono_to_date(start).unwrap());
+    assert_eq!(db_invoice.invoice_date, start);
 
     let invoice_lines: Vec<InvoiceLine> =
         serde_json::from_value(db_invoice.line_items.clone()).unwrap();
