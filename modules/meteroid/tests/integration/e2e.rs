@@ -22,9 +22,7 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
-use meteroid_store::domain::{
-    Invoice, InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginationRequest,
-};
+use meteroid_store::domain::{Invoice, InvoiceNew, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 

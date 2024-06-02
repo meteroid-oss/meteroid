@@ -20,7 +20,7 @@ async fn test_slot_transaction_active_slots() {
     let docker = Cli::default();
     let (container, postgres_connection_string) = meteroid_it::container::start_postgres(&docker);
 
-    let pool = meteroid_repository::create_pool(postgres_connection_string.as_str());
+    let pool = common_repository::create_pool(postgres_connection_string.as_str());
 
     meteroid_it::container::populate_postgres(
         pool.clone(),

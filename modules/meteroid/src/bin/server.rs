@@ -9,7 +9,7 @@ use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::singletons::get_pool;
 use meteroid::webhook_in_api;
-use meteroid_repository::migrations;
+use meteroid_migrations::migrations;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

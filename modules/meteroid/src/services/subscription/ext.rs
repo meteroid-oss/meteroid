@@ -1,44 +1,15 @@
-use crate::datetime::{chrono_utc_now, DateExt, TimeExt};
 use crate::mapping::MappingError;
 use chrono::{NaiveDateTime, NaiveTime};
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
-use meteroid_repository::subscriptions::{Subscription, SubscriptionList};
-use time::PrimitiveDateTime;
 
 pub trait DbSubscriptionExt {
     fn status_proto(&self) -> Result<SubscriptionStatus, MappingError>;
 }
 
-impl DbSubscriptionExt for Subscription {
-    fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
-        derive_subscription_status(
-            chrono_utc_now().naive_utc(),
-            self.trial_start_date,
-            self.activated_at,
-            self.canceled_at,
-            self.billing_start_date,
-            self.billing_end_date,
-        )
-    }
-}
-
-impl DbSubscriptionExt for SubscriptionList {
-    fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
-        derive_subscription_status(
-            chrono_utc_now().naive_utc(),
-            self.trial_start_date,
-            self.activated_at,
-            self.canceled_at,
-            self.billing_start_date,
-            self.billing_end_date,
-        )
-    }
-}
-
 impl DbSubscriptionExt for meteroid_store::domain::Subscription {
     fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
         derive_subscription_status_chrono(
-            chrono_utc_now().naive_utc(),
+            chrono::Utc::now().naive_utc(),
             self.trial_start_date,
             self.activated_at,
             self.canceled_at,
@@ -51,7 +22,7 @@ impl DbSubscriptionExt for meteroid_store::domain::Subscription {
 impl DbSubscriptionExt for meteroid_store::domain::SubscriptionDetails {
     fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
         derive_subscription_status_chrono(
-            chrono_utc_now().naive_utc(),
+            chrono::Utc::now().naive_utc(),
             self.trial_start_date,
             self.activated_at,
             self.canceled_at,
@@ -94,163 +65,124 @@ fn derive_subscription_status_chrono(
     }
 }
 
-fn derive_subscription_status(
-    timestamp: NaiveDateTime,
-    trial_start_date: Option<time::Date>,
-    activated_at: Option<PrimitiveDateTime>,
-    canceled_at: Option<PrimitiveDateTime>,
-    billing_start_date: time::Date,
-    billing_end_date: Option<time::Date>,
-) -> Result<SubscriptionStatus, MappingError> {
-    let trial_start_date = trial_start_date
-        .map(|x| x.to_chrono())
-        .transpose()?
-        .map(|x| x.and_time(NaiveTime::MIN));
-    let activated_at = activated_at.map(|x| x.to_chrono()).transpose()?;
-    let canceled_at = canceled_at.map(|x| x.to_chrono()).transpose()?;
-    let billing_start_date = billing_start_date.to_chrono()?.and_time(NaiveTime::MIN);
-    let billing_end_date = billing_end_date
-        .map(|x| x.to_chrono())
-        .transpose()?
-        .and_then(|x| NaiveTime::from_hms_opt(23, 59, 59).map(|y| x.and_time(y)))
-        .unwrap_or(NaiveDateTime::MAX);
-
-    match (trial_start_date, activated_at, canceled_at) {
-        (None, None, _) => Ok(SubscriptionStatus::Pending),
-        (Some(_), Some(active_at), _) if active_at > timestamp => Ok(SubscriptionStatus::Trial),
-        (_, Some(active_at), _) if active_at > timestamp => Ok(SubscriptionStatus::Pending),
-        (_, Some(active_at), _) if active_at <= timestamp && timestamp <= billing_end_date => {
-            Ok(SubscriptionStatus::Active)
-        }
-        (_, Some(_), _) if canceled_at.is_some() => Ok(SubscriptionStatus::Canceled),
-        (_, Some(_), _) => Ok(SubscriptionStatus::Ended),
-        (Some(trial_start_date), _, _) => {
-            if trial_start_date <= timestamp && timestamp <= billing_start_date {
-                Ok(SubscriptionStatus::Trial)
-            } else {
-                Ok(SubscriptionStatus::Pending)
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{NaiveDate, NaiveDateTime};
     use rstest::rstest;
-    use time::macros::{date, datetime};
+    use std::str::FromStr;
 
     #[rstest]
     #[case(
-    SubscriptionStatus::Pending,
-    "2024-01-01T00:00:00",
-    None,
-    None,
-    None,
-    date ! (2024 - 01 - 01),
-    None
+        SubscriptionStatus::Pending,
+        "2024-01-01T00:00:00",
+        None,
+        None,
+        None,
+        "2024-01-01",
+        None
     )]
     #[case(
-    SubscriptionStatus::Pending,
-    "2024-01-02T00:00:00",
-    None,
-    None,
-    None,
-    date ! (2024 - 01 - 01),
-    None
+        SubscriptionStatus::Pending,
+        "2024-01-02T00:00:00",
+        None,
+        None,
+        None,
+        "2024-01-01",
+        None
     )]
     #[case(
-    SubscriptionStatus::Pending,
-    "2024-01-02T00:00:00",
-    None,
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    None,
-    date ! (2024 - 01 - 01),
-    None
+        SubscriptionStatus::Pending,
+        "2024-01-02T00:00:00",
+        None,
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        None,
+        "2024-01-01",
+        None
     )]
     #[case(
-    SubscriptionStatus::Pending,
+        SubscriptionStatus::Pending,
     "2024-01-04T00:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    None,
-    None,
-    date ! (2024 - 01 - 03),
-    None
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        None,
+        None,
+    "2024-01-03",
+        None
     )]
     #[case(
-    SubscriptionStatus::Trial,
+        SubscriptionStatus::Trial,
     "2024-01-02T00:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    None,
-    None,
-    date ! (2024 - 01 - 03),
-    None
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        None,
+        None,
+    "2024-01-03",
+        None
     )]
     #[case(
-    SubscriptionStatus::Trial,
+        SubscriptionStatus::Trial,
     "2024-01-02T00:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    None,
-    date ! (2024 - 01 - 03),
-    None
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        None,
+    "2024-01-03",
+        None
     )]
     #[case(
-    SubscriptionStatus::Active,
+        SubscriptionStatus::Active,
     "2024-01-03T00:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    None,
-    date ! (2024 - 01 - 03),
-    None
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        None,
+    "2024-01-03",
+        None
     )]
     #[case(
-    SubscriptionStatus::Active,
+        SubscriptionStatus::Active,
     "2024-01-10T23:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    None,
-    date ! (2024 - 01 - 03),
-    Some(date ! (2024 - 01 - 10)),
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        None,
+    "2024-01-03",
+        Some(NaiveDate::from_str("2024-01-10").unwrap()),
     )]
     #[case(
-    SubscriptionStatus::Active,
+        SubscriptionStatus::Active,
     "2024-01-10T23:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    Some(datetime ! (2024 - 01 - 08 10: 00: 20)),
-    date ! (2024 - 01 - 03),
-    Some(date ! (2024 - 01 - 10)),
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-08T10:00:20").unwrap()),
+    "2024-01-03",
+        Some(NaiveDate::from_str("2024-01-10").unwrap()),
     )]
     #[case(
-    SubscriptionStatus::Canceled,
+        SubscriptionStatus::Canceled,
     "2024-01-11T23:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    Some(datetime ! (2024 - 01 - 08 10: 00: 20)),
-    date ! (2024 - 01 - 03),
-    Some(date ! (2024 - 01 - 10)),
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-08T10:00:20").unwrap()),
+    "2024-01-03",
+        Some(NaiveDate::from_str("2024-01-10").unwrap()),
     )]
     #[case(
-    SubscriptionStatus::Ended,
+        SubscriptionStatus::Ended,
     "2024-01-11T23:00:00",
-    Some(date ! (2024 - 01 - 01)),
-    Some(datetime ! (2024 - 01 - 03 00: 00: 00)),
-    None,
-    date ! (2024 - 01 - 03),
-    Some(date ! (2024 - 01 - 10)),
+        Some(NaiveDate::from_str("2024-01-01").unwrap()),
+        Some(NaiveDateTime::from_str("2024-01-03T00:00:00").unwrap()),
+        None,
+    "2024-01-03",
+        Some(NaiveDate::from_str("2024-01-10").unwrap()),
     )]
     #[trace]
     fn test_derive_subscription_status(
         #[case] expected_status: SubscriptionStatus,
         #[case] timestamp: NaiveDateTime,
-        #[case] trial_start_date: Option<time::Date>,
-        #[case] activated_at: Option<PrimitiveDateTime>,
-        #[case] canceled_at: Option<PrimitiveDateTime>,
-        #[case] billing_start_date: time::Date,
-        #[case] billing_end_date: Option<time::Date>,
+        #[case] trial_start_date: Option<NaiveDate>,
+        #[case] activated_at: Option<NaiveDateTime>,
+        #[case] canceled_at: Option<NaiveDateTime>,
+        #[case] billing_start_date: NaiveDate,
+        #[case] billing_end_date: Option<NaiveDate>,
     ) {
-        let status = derive_subscription_status(
+        let status = derive_subscription_status_chrono(
             timestamp,
             trial_start_date,
             activated_at,

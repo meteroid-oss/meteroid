@@ -11,7 +11,7 @@ use tonic::transport::Channel;
 
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use meteroid_repository::migrations;
+use meteroid_migrations::migrations;
 
 use crate::helpers;
 
@@ -40,7 +40,7 @@ pub async fn start_meteroid_with_port(
         metering_port,
     );
 
-    let pool = meteroid_repository::create_pool(&config.database_url);
+    let pool = common_repository::create_pool(&config.database_url);
 
     populate_postgres(pool.clone(), seed_level).await;
 

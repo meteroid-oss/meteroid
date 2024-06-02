@@ -4,7 +4,7 @@ members = [
   # meteroid
   "modules/meteroid",
   "modules/meteroid/crates/meteroid-grpc",
-  "modules/meteroid/crates/meteroid-repository",
+  "modules/meteroid/crates/meteroid-migrations",
   "modules/meteroid/crates/stripe-client",
   "modules/meteroid/crates/diesel-models",
   "modules/meteroid/crates/meteroid-store",
@@ -21,7 +21,6 @@ members = [
   "crates/common-grpc-error-as-tonic-macros",
   "crates/common-grpc-error-as-tonic-macros-impl",
   "crates/common-logging",
-  "crates/cornucopia-build",
   "crates/common-repository",
   "crates/common-utils",
   "crates/distributed-lock",
@@ -53,9 +52,7 @@ chacha20poly1305 = "0.10.1"
 chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
 clickhouse-rs = "1.1.0-alpha.1"
-cornucopia = { version = "0.9" }
-cornucopia_async = { version = "0.6.0", default-features = false }
-deadpool-postgres = "0.12.1"
+deadpool-postgres = "0.13.2"
 diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
 diesel-async = { version = "0.3.2", features = ["postgres", "deadpool"] } # avoid updating while waiting for https://github.com/weiznich/diesel_async/issues/103. This impacts PlanVersion and WebhookOutEndpoint
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
@@ -173,8 +170,7 @@ common-grpc-error-as-tonic-macros = { path = "crates/common-grpc-error-as-tonic-
 common-grpc-error-as-tonic-macros-impl = { path = "crates/common-grpc-error-as-tonic-macros-impl" }
 metering-grpc = { path = "modules/metering/crates/metering-grpc" }
 meteroid-grpc = { path = "modules/meteroid/crates/meteroid-grpc" }
-meteroid-repository = { path = "modules/meteroid/crates/meteroid-repository" }
-cornucopia-build = { path = "crates/cornucopia-build" }
+meteroid-migrations = { path = "modules/meteroid/crates/meteroid-migrations" }
 common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }
