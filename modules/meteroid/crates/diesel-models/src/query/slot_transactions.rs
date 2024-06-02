@@ -59,17 +59,15 @@ GROUP BY
     X.prev_active_slots;
 "#;
 
-        let result = diesel::sql_query(raw_sql)
-            .bind::<sql_types::Uuid, _>(subscription_uid.clone())
-            .bind::<sql_types::Uuid, _>(price_component_uid.clone())
-            .bind::<sql_types::Timestamp, _>(ts.clone())
-            .bind::<sql_types::Timestamp, _>(ts.clone())
+        diesel::sql_query(raw_sql)
+            .bind::<sql_types::Uuid, _>(subscription_uid)
+            .bind::<sql_types::Uuid, _>(price_component_uid)
+            .bind::<sql_types::Timestamp, _>(ts)
+            .bind::<sql_types::Timestamp, _>(ts)
             .get_result::<FetchTransactionResult>(conn)
             .await
             .attach_printable("Error while fetching slot transaction by id")
-            .into_db_result();
-
-        result
+            .into_db_result()
     }
 }
 

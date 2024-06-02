@@ -5,15 +5,16 @@ use testcontainers::clients::Cli;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use meteroid::db::get_connection;
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::customers::v1::CustomerBillingConfig;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
+use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::InvoiceInterface;
 
 #[tokio::test]
-#[ignore] // needs to be revisited + remove cornucopia code
+#[ignore] // needs to be revisited
 async fn test_main() {
     // Generic setup
     helpers::init::logging();
@@ -172,16 +173,8 @@ async fn test_main() {
         ))
         .await
         .unwrap()
-        .into_inner();
-
-    let db_subscription = meteroid_repository::subscriptions::get_subscription_by_id()
-        .bind(
-            &get_connection(&setup.pool).await.unwrap(),
-            &uuid::Uuid::parse_str(subscription.subscription.clone().unwrap().id.as_str()).unwrap(),
-            &uuid::Uuid::parse_str(tenant.id.as_str()).unwrap(),
-        )
-        .one()
-        .await
+        .into_inner()
+        .subscription
         .unwrap();
 
     let tenant_billing = clients
@@ -220,18 +213,22 @@ async fn test_main() {
     );
 
     // check DB state
-    assert_eq!(
-        db_subscription.customer_id.clone().to_string(),
-        customer.id.clone()
-    );
-    assert_eq!(db_subscription.billing_day, 1);
-    assert_eq!(db_subscription.plan_version_id.to_string(), plan_version.id);
+    assert_eq!(subscription.customer_id.clone(), customer.id.clone());
+    assert_eq!(subscription.billing_day, 1);
+    assert_eq!(subscription.plan_version_id, plan_version.id);
 
-    let db_invoices = meteroid_repository::invoices::get_invoices_to_issue()
-        .bind(&get_connection(&setup.pool).await.unwrap(), &1)
-        .all()
+    let db_invoices = setup
+        .store
+        .list_invoices_to_issue(
+            1,
+            CursorPaginationRequest {
+                limit: Some(1000),
+                cursor: None,
+            },
+        )
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert_eq!(db_invoices.len(), 1);
 
@@ -241,7 +238,7 @@ async fn test_main() {
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer.id);
     assert_eq!(
         db_invoice.subscription_id.to_string(),
-        subscription.subscription.clone().unwrap().id
+        subscription.id.clone()
     );
 
     // teardown
