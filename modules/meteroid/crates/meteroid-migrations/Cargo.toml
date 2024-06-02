@@ -1,5 +1,5 @@
 [package]
-name = "meteroid-repository"
+name = "meteroid-migrations"
 version = "0.1.0"
 rust-version.workspace = true
 edition.workspace = true
@@ -11,11 +11,10 @@ serde_json = { workspace = true, features = ["raw_value"] }
 log.workspace = true
 serde.workspace = true
 futures.workspace = true
-cornucopia_async = { workspace = true, features = ["with-serde_json-1"] }
 tokio-postgres = { workspace = true, features = [
-    "with-serde_json-1",
-    "with-time-0_3",
-    "with-uuid-1",
+  "with-serde_json-1",
+  "with-time-0_3",
+  "with-uuid-1",
 ] }
 deadpool-postgres.workspace = true
 postgres-types = { workspace = true, features = ["derive"] }
@@ -29,7 +28,7 @@ error-stack.workspace = true
 thiserror.workspace = true
 tracing = { workspace = true }
 common-repository.workspace = true
-rust_decimal = {workspace = true, features = ["db-postgres"] }
+rust_decimal = { workspace = true, features = ["db-postgres"] }
 
 ## TODO drop
 lazy_static.workspace = true
@@ -37,5 +36,4 @@ regex.workspace = true
 
 
 [build-dependencies]
-cornucopia-build = { workspace = true }
 miette = { workspace = true, features = ["fancy", "derive"] }

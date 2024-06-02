@@ -4,7 +4,7 @@
 SCRIPT_DIR="$(dirname $(realpath $0))"
 BASE_DIR="$(dirname $SCRIPT_DIR)"
 
-MODULE_PATH="$BASE_DIR/modules/meteroid/crates/meteroid-repository"
+MODULE_PATH="$BASE_DIR/modules/meteroid/crates/meteroid-migrations"
 TEMP_DIR="_migrations"
 
 # Set current directory to module path
