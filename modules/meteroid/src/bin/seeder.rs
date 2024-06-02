@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 
 use tokio::signal;
@@ -10,7 +11,10 @@ use meteroid::seeder::errors::SeederError;
 use meteroid::seeder::runner;
 use meteroid::seeder::utils::slugify;
 use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
+use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
+use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
+use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
@@ -34,18 +38,39 @@ async fn main() -> error_stack::Result<(), SeederError> {
     )
     .change_context(SeederError::InitializationError)?;
 
-    let organization_id = uuid::uuid!("018dfa06-2e9b-7c70-a6a9-7a9e4dc7ce70");
-    let user_id = uuid::uuid!("018dfa06-2e9c-74b8-a6ea-247967b75a63");
+    let organization = store
+        .find_organization_as_instance()
+        .await
+        .change_context(SeederError::InitializationError)?
+        .ok_or(SeederError::InitializationError)?;
 
-    let rand_tenant_name = format!("Seedtest / {}", rand::random::<u32>());
+    let tenant_currency = "EUR".to_string();
 
-    log::info!("Creating tenant '{}'", rand_tenant_name);
+    let now = chrono::Utc::now().naive_utc();
+
+    store
+        .create_historical_rate_from_usd(HistoricalRatesFromUsdNew {
+            date: now
+                .date()
+                .checked_sub_months(chrono::Months::new(5 * 12))
+                .unwrap(),
+            rates: BTreeMap::from([(tenant_currency.clone(), 0.92)]),
+        })
+        .await
+        .change_context(SeederError::InitializationError)?;
+
+    let organization_id = organization.id;
+    let user_id = uuid::uuid!("00000000-0000-0000-0000-000000000000");
+
+    let tenant_name = format!("Seedtest / {}", now.format("%Y%m%d%H%M%S"));
+
+    log::info!("Creating tenant '{}'", tenant_name);
 
     let scenario = domain::Scenario {
         tenant: domain::Tenant {
-            slug: slugify(&rand_tenant_name),
-            name: rand_tenant_name,
-            currency: "EUR".to_string(),
+            slug: slugify(&tenant_name),
+            name: tenant_name,
+            currency: tenant_currency.clone(),
         },
         plans: vec![
             domain::Plan {
@@ -58,7 +83,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     trial_duration_days: None,
                     trial_fallback_plan_id: None,
                     period_start_day: None,
-                    currency: "EUR".to_string(),
+                    currency: tenant_currency.clone(),
                     billing_cycles: None,
                     billing_periods: vec![],
                     net_terms: 0,
@@ -76,7 +101,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     trial_duration_days: None,
                     trial_fallback_plan_id: None,
                     period_start_day: None,
-                    currency: "EUR".to_string(),
+                    currency: tenant_currency.clone(),
                     billing_cycles: None,
                     billing_periods: vec![BillingPeriodEnum::Monthly, BillingPeriodEnum::Annual],
                     net_terms: 0,
@@ -109,7 +134,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     trial_duration_days: None,
                     trial_fallback_plan_id: None,
                     period_start_day: None,
-                    currency: "EUR".to_string(),
+                    currency: tenant_currency.clone(),
                     billing_cycles: None,
                     billing_periods: vec![BillingPeriodEnum::Annual],
                     net_terms: 90,
