@@ -1,4 +1,3 @@
-use crate::datetime::chrono_utc_now;
 use crate::mapping::MappingError;
 use chrono::{NaiveDateTime, NaiveTime};
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
@@ -10,7 +9,7 @@ pub trait DbSubscriptionExt {
 impl DbSubscriptionExt for meteroid_store::domain::Subscription {
     fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
         derive_subscription_status_chrono(
-            chrono_utc_now().naive_utc(),
+            chrono::Utc::now().naive_utc(),
             self.trial_start_date,
             self.activated_at,
             self.canceled_at,
@@ -23,7 +22,7 @@ impl DbSubscriptionExt for meteroid_store::domain::Subscription {
 impl DbSubscriptionExt for meteroid_store::domain::SubscriptionDetails {
     fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
         derive_subscription_status_chrono(
-            chrono_utc_now().naive_utc(),
+            chrono::Utc::now().naive_utc(),
             self.trial_start_date,
             self.activated_at,
             self.canceled_at,

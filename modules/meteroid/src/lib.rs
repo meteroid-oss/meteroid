@@ -3,7 +3,6 @@ pub mod api;
 pub mod compute;
 pub mod config;
 pub mod constants;
-mod datetime;
 pub mod db;
 pub mod encoding;
 mod errors;
