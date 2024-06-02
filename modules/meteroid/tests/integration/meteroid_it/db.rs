@@ -58,18 +58,3 @@ pub mod slot_transaction {
             .unwrap_or(0) as i32
     }
 }
-
-pub mod invoice {
-    use deadpool_postgres::Pool;
-    use meteroid_repository::invoices::Invoice;
-
-    pub async fn all(pool: &Pool) -> Vec<Invoice> {
-        let conn = meteroid::db::get_connection(&pool).await.unwrap();
-
-        meteroid_repository::invoices::get_invoices_to_issue()
-            .bind(&conn, &1)
-            .all()
-            .await
-            .unwrap()
-    }
-}

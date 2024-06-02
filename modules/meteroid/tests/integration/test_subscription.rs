@@ -21,6 +21,7 @@ use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
+use meteroid_store::repositories::InvoiceInterface;
 
 struct TestContext<'a> {
     setup: MeteroidSetup,
@@ -498,13 +499,13 @@ async fn test_subscription_create_invoice_seats() {
         uuid::Uuid::parse_str(subscription.subscription.map(|s| s.id).unwrap().as_str()).unwrap();
     let price_component_id = uuid::Uuid::parse_str(component_id.as_str()).unwrap();
 
-    let db_invoices = meteroid_it::db::invoice::all(&setup.pool).await;
+    let db_invoices = setup.store.find_all_invoices_to_issue(1).await.unwrap();
 
     assert_eq!(db_invoices.len(), 1);
 
     let db_invoice = db_invoices.get(0).unwrap();
 
-    assert_eq!(db_invoice.invoice_date, chrono_to_date(start).unwrap());
+    assert_eq!(db_invoice.invoice_date, start);
 
     let invoice_lines: Vec<InvoiceLine> =
         serde_json::from_value(db_invoice.line_items.clone()).unwrap();

@@ -116,6 +116,28 @@ impl Invoice {
             .into_db_result()
     }
 
+    pub async fn find_all_to_issue(
+        conn: &mut PgConn,
+        issue_attempts: u16,
+    ) -> DbResult<Vec<Invoice>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .filter(i_dsl::issued.eq(false))
+            .filter(i_dsl::issue_attempts.lt(issue_attempts as i32))
+            .select(Invoice::as_select())
+            .into_boxed();
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while fetching invoices")
+            .into_db_result()
+    }
     pub async fn insert_invoice_batch(
         conn: &mut PgConn,
         invoices: Vec<InvoiceNew>,

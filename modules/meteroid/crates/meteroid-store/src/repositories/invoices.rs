@@ -8,8 +8,8 @@ use diesel_models::PgConn;
 use error_stack::Report;
 
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, InvoiceWithCustomer, InvoiceWithPlanDetails,
-    OrderByRequest, PaginatedVec, PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, Invoice, InvoiceWithCustomer,
+    InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use common_eventbus::Event;
 use tracing_log::log;
@@ -32,6 +32,8 @@ pub trait InvoiceInterface {
         order_by: OrderByRequest,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<domain::InvoiceWithCustomer>>;
+
+    async fn find_all_invoices_to_issue(&self, attempts: u16) -> StoreResult<Vec<domain::Invoice>>;
 
     async fn insert_invoice(&self, invoice: domain::InvoiceNew) -> StoreResult<domain::Invoice>;
 
@@ -134,6 +136,19 @@ impl InvoiceInterface for Store {
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         };
+
+        Ok(res)
+    }
+
+    async fn find_all_invoices_to_issue(&self, issue_attempts: u16) -> StoreResult<Vec<Invoice>> {
+        let mut conn = self.get_conn().await?;
+
+        let res = diesel_models::invoices::Invoice::find_all_to_issue(&mut conn, issue_attempts)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
 
         Ok(res)
     }
