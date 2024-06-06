@@ -7,7 +7,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 #[derive(Queryable, Debug, Identifiable, Insertable)]
 #[diesel(table_name = crate::schema::invoicing_config)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct InvoicingConfig {
+pub struct InvoicingConfigRow {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub grace_period_hours: i32,
@@ -16,7 +16,7 @@ pub struct InvoicingConfig {
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::provider_config)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ProviderConfig {
+pub struct ProviderConfigRow {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
     pub tenant_id: Uuid,
@@ -28,7 +28,7 @@ pub struct ProviderConfig {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::provider_config)]
-pub struct ProviderConfigNew {
+pub struct ProviderConfigRowNew {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub invoicing_provider: InvoicingProviderEnum,

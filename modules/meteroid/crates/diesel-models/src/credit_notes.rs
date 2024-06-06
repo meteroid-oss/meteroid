@@ -7,7 +7,7 @@ use diesel::{Identifiable, Queryable};
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::credit_note)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct CreditNote {
+pub struct CreditNoteRow {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,

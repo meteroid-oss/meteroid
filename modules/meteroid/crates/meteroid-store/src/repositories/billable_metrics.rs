@@ -2,6 +2,8 @@ use error_stack::Report;
 use uuid::Uuid;
 
 use common_eventbus::Event;
+use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
+use diesel_models::product_families::ProductFamilyRow;
 
 use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
@@ -39,7 +41,7 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<domain::BillableMetric> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::billable_metrics::BillableMetric::find_by_id(&mut conn, id, tenant_id)
+        BillableMetricRow::find_by_id(&mut conn, id, tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -50,10 +52,10 @@ impl BillableMetricInterface for Store {
         tenant_id: Uuid,
         pagination: PaginationRequest,
         product_family_external_id: String,
-    ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>> {
+    ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::billable_metrics::BillableMetric::list(
+        let rows = BillableMetricRow::list(
             &mut conn,
             tenant_id,
             pagination.into(),
@@ -77,16 +79,15 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<BillableMetric> {
         let mut conn = self.get_conn().await?;
 
-        let family =
-            diesel_models::product_families::ProductFamily::find_by_external_id_and_tenant_id(
-                &mut conn,
-                &billable_metric.family_external_id,
-                billable_metric.tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let family = ProductFamilyRow::find_by_external_id_and_tenant_id(
+            &mut conn,
+            &billable_metric.family_external_id,
+            billable_metric.tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        let insertable_entity = diesel_models::billable_metrics::BillableMetricNew {
+        let insertable_entity = BillableMetricRowNew {
             id: Uuid::now_v7(),
             name: billable_metric.name,
             description: billable_metric.description,
@@ -102,7 +103,7 @@ impl BillableMetricInterface for Store {
             product_family_id: family.id,
         };
 
-        let res: domain::BillableMetric = insertable_entity
+        let res: BillableMetric = insertable_entity
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)

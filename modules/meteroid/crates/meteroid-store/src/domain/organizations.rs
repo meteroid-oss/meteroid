@@ -2,9 +2,12 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 
+use diesel_models::organizations::OrganizationRow;
+use diesel_models::organizations::OrganizationRowNew;
+
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::organizations::Organization)]
-#[owned_into(diesel_models::organizations::Organization)]
+#[from_owned(OrganizationRow)]
+#[owned_into(OrganizationRow)]
 pub struct Organization {
     pub id: Uuid,
     pub name: String,
@@ -15,7 +18,7 @@ pub struct Organization {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::organizations::OrganizationNew)]
+#[from_owned(OrganizationRowNew)]
 pub struct OrganizationNew {
     pub name: String,
     pub slug: String,

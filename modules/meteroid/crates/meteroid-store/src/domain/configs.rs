@@ -2,6 +2,7 @@ use crate::domain::enums::InvoicingProviderEnum;
 use crate::errors::StoreError;
 use crate::StoreResult;
 use chrono::NaiveDateTime;
+use diesel_models::configs::{ProviderConfigRow, ProviderConfigRowNew};
 use error_stack::ResultExt;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -29,10 +30,7 @@ pub struct ProviderConfig {
 }
 
 impl ProviderConfig {
-    pub fn from_row(
-        key: &SecretString,
-        row: diesel_models::configs::ProviderConfig,
-    ) -> StoreResult<ProviderConfig> {
+    pub fn from_row(key: &SecretString, row: ProviderConfigRow) -> StoreResult<ProviderConfig> {
         let enc_wh_sec: WebhookSecurity =
             serde_json::from_value(row.webhook_security).map_err(|e| {
                 StoreError::SerdeError("Failed to deserialize webhook_security".to_string(), e)
@@ -82,10 +80,7 @@ pub struct ProviderConfigNew {
 }
 
 impl ProviderConfigNew {
-    pub fn to_row(
-        &self,
-        key: &SecretString,
-    ) -> StoreResult<diesel_models::configs::ProviderConfigNew> {
+    pub fn to_row(&self, key: &SecretString) -> StoreResult<ProviderConfigRowNew> {
         let wh_sec_enc = WebhookSecurity {
             secret: crate::crypt::encrypt(key, self.webhook_security.secret.as_str())
                 .change_context(StoreError::CryptError(
@@ -108,7 +103,7 @@ impl ProviderConfigNew {
             StoreError::SerdeError("Failed to serialize api_security".to_string(), e)
         })?;
 
-        Ok(diesel_models::configs::ProviderConfigNew {
+        Ok(ProviderConfigRowNew {
             id: Uuid::now_v7(),
             tenant_id: self.tenant_id,
             invoicing_provider: self.invoicing_provider.clone().into(),

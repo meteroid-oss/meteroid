@@ -1,3 +1,4 @@
+use diesel_models::configs::ProviderConfigRow;
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -45,13 +46,9 @@ impl ConfigsInterface for Store {
     ) -> StoreResult<ProviderConfig> {
         let mut conn = self.get_conn().await?;
 
-        let row = diesel_models::configs::ProviderConfig::find_provider_config(
-            &mut conn,
-            tenant_id,
-            provider.into(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let row = ProviderConfigRow::find_provider_config(&mut conn, tenant_id, provider.into())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         ProviderConfig::from_row(&self.crypt_key, row)
     }

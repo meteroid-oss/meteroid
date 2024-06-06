@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::price_components::{PriceComponent, PriceComponentNew};
+use crate::price_components::{PriceComponentRow, PriceComponentRowNew};
 use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
@@ -11,8 +11,8 @@ use error_stack::ResultExt;
 use itertools::Itertools;
 use tap::prelude::*;
 
-impl PriceComponentNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PriceComponent> {
+impl PriceComponentRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PriceComponentRow> {
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -30,12 +30,12 @@ impl PriceComponentNew {
 }
 
 // TODO check tenants in all methods
-impl PriceComponent {
+impl PriceComponentRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
         param_tenant_id: uuid::Uuid,
         param_id: uuid::Uuid,
-    ) -> DbResult<PriceComponent> {
+    ) -> DbResult<PriceComponentRow> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::price_component::dsl as pc_dsl;
         use diesel_async::RunQueryDsl;
@@ -44,7 +44,7 @@ impl PriceComponent {
             .inner_join(pv_dsl::plan_version)
             .filter(pv_dsl::tenant_id.eq(param_tenant_id))
             .filter(pc_dsl::id.eq(param_id))
-            .select(PriceComponent::as_select());
+            .select(PriceComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -57,8 +57,8 @@ impl PriceComponent {
 
     pub async fn insert(
         conn: &mut PgConn,
-        price_component_param: PriceComponentNew,
-    ) -> DbResult<PriceComponent> {
+        price_component_param: PriceComponentRowNew,
+    ) -> DbResult<PriceComponentRow> {
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -76,8 +76,8 @@ impl PriceComponent {
 
     pub async fn insert_batch(
         conn: &mut PgConn,
-        price_components: Vec<PriceComponentNew>,
-    ) -> DbResult<Vec<PriceComponent>> {
+        price_components: Vec<PriceComponentRowNew>,
+    ) -> DbResult<Vec<PriceComponentRow>> {
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -97,7 +97,7 @@ impl PriceComponent {
         conn: &mut PgConn,
         tenant_id_param: uuid::Uuid,
         plan_version_id_param: uuid::Uuid,
-    ) -> DbResult<Vec<PriceComponent>> {
+    ) -> DbResult<Vec<PriceComponentRow>> {
         use crate::schema::plan_version::dsl as plan_version_dsl;
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -106,7 +106,7 @@ impl PriceComponent {
             .inner_join(plan_version_dsl::plan_version)
             .filter(plan_version_id.eq(plan_version_id_param))
             .filter(plan_version_dsl::tenant_id.eq(tenant_id_param))
-            .select(PriceComponent::as_select());
+            .select(PriceComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -121,7 +121,7 @@ impl PriceComponent {
     pub async fn get_by_plan_ids(
         conn: &mut PgConn,
         plan_version_ids: &[uuid::Uuid],
-    ) -> DbResult<HashMap<uuid::Uuid, Vec<PriceComponent>>> {
+    ) -> DbResult<HashMap<uuid::Uuid, Vec<PriceComponentRow>>> {
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -129,7 +129,7 @@ impl PriceComponent {
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
-        let res: Vec<PriceComponent> = query
+        let res: Vec<PriceComponentRow> = query
             .get_results(conn)
             .await
             .tap_err(|e| log::error!("Error while fetching price components: {:?}", e))
@@ -145,7 +145,7 @@ impl PriceComponent {
         &self,
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<Option<PriceComponent>> {
+    ) -> DbResult<Option<PriceComponentRow>> {
         use crate::schema::plan_version::dsl as plan_version_dsl;
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;

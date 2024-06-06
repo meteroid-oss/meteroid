@@ -5,7 +5,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 #[derive(QueryableByName, Debug)]
-pub struct RevenueTrend {
+pub struct RevenueTrendRow {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub total_ytd: i64,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -15,19 +15,19 @@ pub struct RevenueTrend {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct NewSignupsTrend90Days {
+pub struct NewSignupsTrend90DaysRow {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub total_last_90_days: i64,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub total_previous_90_days: i64,
 }
 
-pub struct ActiveSubscriptionsCount {
+pub struct ActiveSubscriptionsCountRow {
     pub count: i32,
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct PendingInvoicesTotal {
+pub struct PendingInvoicesTotalRow {
     #[diesel(sql_type = diesel::sql_types::Integer)]
     pub total: i32,
     #[diesel(sql_type = diesel::sql_types::Decimal)]
@@ -35,7 +35,7 @@ pub struct PendingInvoicesTotal {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct DailyNewSignups90Days {
+pub struct DailyNewSignups90DaysRow {
     #[diesel(sql_type = diesel::sql_types::Date)]
     pub signup_date: NaiveDate,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -45,13 +45,13 @@ pub struct DailyNewSignups90Days {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct SubscriptionTrialConversionRate {
+pub struct SubscriptionTrialConversionRateRow {
     #[diesel(sql_type = diesel::sql_types::Decimal)]
     pub all_time_conversion_rate_percentage: Decimal,
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct SubscriptionTrialToPaidConversion {
+pub struct SubscriptionTrialToPaidConversionRow {
     #[diesel(sql_type = diesel::sql_types::Timestamp)]
     pub month: NaiveDateTime,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -71,7 +71,7 @@ pub struct SubscriptionTrialToPaidConversion {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct CustomerTopRevenue {
+pub struct CustomerTopRevenueRow {
     #[diesel(sql_type = diesel::sql_types::Uuid)]
     pub id: Uuid,
     #[diesel(sql_type = diesel::sql_types::Text)]
@@ -83,13 +83,13 @@ pub struct CustomerTopRevenue {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct TotalMrr {
+pub struct TotalMrrRow {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub total_net_mrr_cents: i64,
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct TotalMrrChart {
+pub struct TotalMrrChartRow {
     #[diesel(sql_type = diesel::sql_types::Date)]
     pub period: NaiveDate,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -119,7 +119,7 @@ pub struct TotalMrrChart {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct MrrBreakdown {
+pub struct MrrBreakdownRow {
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     pub net_new_mrr: i64,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -145,7 +145,7 @@ pub struct MrrBreakdown {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct LastMrrMovements {
+pub struct LastMrrMovementsRow {
     #[diesel(sql_type = diesel::sql_types::Uuid)]
     pub id: Uuid,
     #[diesel(sql_type = crate::schema::sql_types::MrrMovementType)]
@@ -179,7 +179,7 @@ pub struct LastMrrMovements {
 }
 
 #[derive(QueryableByName, Debug)]
-pub struct TotalMrrByPlan {
+pub struct TotalMrrByPlanRow {
     #[diesel(sql_type = diesel::sql_types::Date)]
     pub date: NaiveDate,
     #[diesel(sql_type = diesel::sql_types::Uuid)]

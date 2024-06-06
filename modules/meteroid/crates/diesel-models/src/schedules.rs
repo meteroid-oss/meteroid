@@ -1,14 +1,14 @@
 use uuid::Uuid;
 
-use super::plan_versions::PlanVersion;
+use super::plan_versions::PlanVersionRow;
 use crate::enums::BillingPeriodEnum;
 use diesel::{AsChangeset, Associations, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Associations, Selectable, Debug)]
 #[diesel(table_name = crate::schema::schedule)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-#[diesel(belongs_to(PlanVersion))]
-pub struct Schedule {
+#[diesel(belongs_to(PlanVersionRow, foreign_key = plan_version_id))]
+pub struct ScheduleRow {
     pub id: Uuid,
     pub billing_period: BillingPeriodEnum,
     pub plan_version_id: Uuid,
@@ -18,7 +18,7 @@ pub struct Schedule {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::schedule)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ScheduleNew {
+pub struct ScheduleRowNew {
     pub id: Uuid,
     pub billing_period: BillingPeriodEnum,
     pub plan_version_id: Uuid,
@@ -28,7 +28,7 @@ pub struct ScheduleNew {
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = crate::schema::schedule)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SchedulePatch {
+pub struct SchedulePatchRow {
     pub id: Uuid,
     pub ramps: Option<serde_json::Value>,
 }

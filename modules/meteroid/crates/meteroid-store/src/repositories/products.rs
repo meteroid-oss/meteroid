@@ -2,6 +2,8 @@ use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, Product, Pr
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::StoreResult;
+use diesel_models::product_families::ProductFamilyRow;
+use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -31,16 +33,15 @@ impl ProductInterface for Store {
     async fn create_product(&self, product: ProductNew) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
-        let family =
-            diesel_models::product_families::ProductFamily::find_by_external_id_and_tenant_id(
-                &mut conn,
-                product.family_external_id.as_str(),
-                product.tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let family = ProductFamilyRow::find_by_external_id_and_tenant_id(
+            &mut conn,
+            product.family_external_id.as_str(),
+            product.tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        let insertable = diesel_models::products::ProductNew {
+        let insertable = ProductRowNew {
             id: Uuid::now_v7(),
             name: product.name,
             description: product.description,
@@ -59,7 +60,7 @@ impl ProductInterface for Store {
     async fn find_product_by_id(&self, id: Uuid, auth_tenant_id: Uuid) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::products::Product::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
+        ProductRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -74,7 +75,7 @@ impl ProductInterface for Store {
     ) -> StoreResult<PaginatedVec<Product>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::products::Product::list(
+        let rows = ProductRow::list(
             &mut conn,
             auth_tenant_id,
             family_external_id,
@@ -103,7 +104,7 @@ impl ProductInterface for Store {
     ) -> StoreResult<PaginatedVec<Product>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::products::Product::search(
+        let rows = ProductRow::search(
             &mut conn,
             auth_tenant_id,
             family_external_id,

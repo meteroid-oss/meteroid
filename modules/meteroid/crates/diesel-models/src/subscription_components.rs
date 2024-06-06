@@ -6,7 +6,7 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::subscription_component)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionComponent {
+pub struct SubscriptionComponentRow {
     pub id: Uuid,
     pub name: String,
     pub subscription_id: Uuid,
@@ -19,7 +19,7 @@ pub struct SubscriptionComponent {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::subscription_component)]
-pub struct SubscriptionComponentNew {
+pub struct SubscriptionComponentRowNew {
     pub id: Uuid,
     pub name: String,
     pub subscription_id: Uuid,

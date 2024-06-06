@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::schedules::{Schedule, ScheduleNew, SchedulePatch};
+use crate::schedules::{SchedulePatchRow, ScheduleRow, ScheduleRowNew};
 use crate::schema::schedule;
 use crate::{DbResult, PgConn};
 
@@ -7,8 +7,8 @@ use error_stack::ResultExt;
 
 use diesel::{debug_query, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper};
 
-impl ScheduleNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Schedule> {
+impl ScheduleRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ScheduleRow> {
         use crate::schema::schedule::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -24,7 +24,7 @@ impl ScheduleNew {
     }
 }
 
-impl Schedule {
+impl ScheduleRow {
     pub async fn delete(
         conn: &mut PgConn,
         id: uuid::Uuid,
@@ -56,8 +56,8 @@ impl Schedule {
 
     pub async fn insert_schedule_batch(
         conn: &mut PgConn,
-        batch: Vec<ScheduleNew>,
-    ) -> DbResult<Vec<Schedule>> {
+        batch: Vec<ScheduleRowNew>,
+    ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::schedule::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -76,7 +76,7 @@ impl Schedule {
         conn: &mut PgConn,
         tenant_id_params: &uuid::Uuid,
         subscription_id: &uuid::Uuid,
-    ) -> DbResult<Vec<Schedule>> {
+    ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::schedule::dsl as schedule_dsl;
         use crate::schema::subscription;
 
@@ -88,7 +88,7 @@ impl Schedule {
             )
             .filter(subscription::id.eq(subscription_id))
             .filter(subscription::tenant_id.eq(tenant_id_params))
-            .select(Schedule::as_select());
+            .select(ScheduleRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -103,7 +103,7 @@ impl Schedule {
         conn: &mut PgConn,
         plan_version_id: uuid::Uuid,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<Vec<Schedule>> {
+    ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::schedule::dsl as s_dsl;
 
@@ -113,7 +113,7 @@ impl Schedule {
             .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .filter(pv_dsl::id.eq(plan_version_id))
             .filter(pv_dsl::tenant_id.eq(tenant_id))
-            .select(Schedule::as_select());
+            .select(ScheduleRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -164,8 +164,8 @@ impl Schedule {
     }
 }
 
-impl SchedulePatch {
-    pub async fn update(&self, conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<Schedule> {
+impl SchedulePatchRow {
+    pub async fn update(&self, conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<ScheduleRow> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::schedule::dsl as s_dsl;
         use diesel_async::RunQueryDsl;

@@ -2,8 +2,11 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 
+use diesel_models::api_tokens::ApiTokenRow;
+use diesel_models::api_tokens::ApiTokenRowNew;
+
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::api_tokens::ApiTokenNew)]
+#[from_owned(ApiTokenRowNew)]
 pub struct ApiTokenNew {
     pub name: String,
     pub created_by: Uuid,
@@ -11,8 +14,8 @@ pub struct ApiTokenNew {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::api_tokens::ApiToken)]
-#[owned_into(diesel_models::api_tokens::ApiToken)]
+#[from_owned(ApiTokenRow)]
+#[owned_into(ApiTokenRow)]
 pub struct ApiToken {
     pub id: Uuid,
     pub name: String,

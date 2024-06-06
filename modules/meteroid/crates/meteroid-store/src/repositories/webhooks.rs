@@ -5,6 +5,9 @@ use crate::domain::webhooks::{
 use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
+use diesel_models::webhooks::{
+    WebhookInEventRowNew, WebhookOutEndpointRow, WebhookOutEventRow, WebhookOutEventRowNew,
+};
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -63,10 +66,9 @@ impl WebhooksInterface for Store {
     ) -> StoreResult<Vec<WebhookOutEndpoint>> {
         let mut conn = self.get_conn().await?;
 
-        let vec_rows =
-            diesel_models::webhooks::WebhookOutEndpoint::list_by_tenant_id(&mut conn, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let vec_rows = WebhookOutEndpointRow::list_by_tenant_id(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         vec_rows
             .into_iter()
@@ -80,7 +82,7 @@ impl WebhooksInterface for Store {
     ) -> StoreResult<WebhookOutEvent> {
         let mut conn = self.get_conn().await?;
 
-        let insertable: diesel_models::webhooks::WebhookOutEventNew = endpoint.into();
+        let insertable: WebhookOutEventRowNew = endpoint.into();
 
         let row = insertable
             .insert(&mut conn)
@@ -99,7 +101,7 @@ impl WebhooksInterface for Store {
     ) -> StoreResult<PaginatedVec<WebhookOutEvent>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::webhooks::WebhookOutEvent::list_events(
+        let rows = WebhookOutEventRow::list_events(
             &mut conn,
             tenant_id,
             endpoint_id,
@@ -124,7 +126,7 @@ impl WebhooksInterface for Store {
     ) -> StoreResult<WebhookInEvent> {
         let mut conn = self.get_conn().await?;
 
-        let insertable: diesel_models::webhooks::WebhookInEventNew = event.into();
+        let insertable: WebhookInEventRowNew = event.into();
 
         insertable
             .insert(&mut conn)

@@ -1,4 +1,4 @@
-use crate::billable_metrics::{BillableMetric, BillableMetricMeta, BillableMetricNew};
+use crate::billable_metrics::{BillableMetricMetaRow, BillableMetricRow, BillableMetricRowNew};
 use crate::errors::IntoDbResult;
 
 use crate::{DbResult, PgConn};
@@ -8,8 +8,8 @@ use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
-impl BillableMetricNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<BillableMetric> {
+impl BillableMetricRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<BillableMetricRow> {
         use crate::schema::billable_metric::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -25,12 +25,12 @@ impl BillableMetricNew {
     }
 }
 
-impl BillableMetric {
+impl BillableMetricRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
         param_billable_metric_id: uuid::Uuid,
         param_tenant_id: uuid::Uuid,
-    ) -> DbResult<BillableMetric> {
+    ) -> DbResult<BillableMetricRow> {
         use crate::schema::billable_metric::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -50,7 +50,7 @@ impl BillableMetric {
         conn: &mut PgConn,
         metric_ids: &[uuid::Uuid],
         tenant_id_param: &uuid::Uuid,
-    ) -> DbResult<Vec<BillableMetric>> {
+    ) -> DbResult<Vec<BillableMetricRow>> {
         use crate::schema::billable_metric::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -68,7 +68,7 @@ impl BillableMetric {
         param_tenant_id: uuid::Uuid,
         pagination: PaginationRequest,
         param_product_family_external_id: String,
-    ) -> DbResult<PaginatedVec<BillableMetricMeta>> {
+    ) -> DbResult<PaginatedVec<BillableMetricMetaRow>> {
         use crate::schema::billable_metric::dsl as bm_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
 
@@ -77,7 +77,7 @@ impl BillableMetric {
             .filter(bm_dsl::tenant_id.eq(param_tenant_id))
             .filter(pf_dsl::external_id.eq(param_product_family_external_id))
             .order(bm_dsl::created_at.asc())
-            .select(BillableMetricMeta::as_select());
+            .select(BillableMetricMetaRow::as_select());
 
         let paginated_query = query.paginate(pagination);
 

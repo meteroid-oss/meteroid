@@ -8,7 +8,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 #[derive(Queryable, Debug, Identifiable, Insertable)]
 #[diesel(table_name = crate::schema::bi_customer_ytd_summary, primary_key(tenant_id, customer_id, currency, revenue_year))]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct BiCustomerYtdSummary {
+pub struct BiCustomerYtdSummaryRow {
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
     pub revenue_year: i32,
@@ -18,7 +18,7 @@ pub struct BiCustomerYtdSummary {
 
 #[derive(Queryable, Debug, Identifiable, Insertable)]
 #[diesel(table_name = crate::schema::bi_delta_mrr_daily, primary_key(tenant_id, plan_version_id, currency, date))]
-pub struct BiDeltaMrrDaily {
+pub struct BiDeltaMrrDailyRow {
     pub tenant_id: Uuid,
     pub plan_version_id: Uuid,
     pub date: NaiveDate,
@@ -45,7 +45,7 @@ pub struct BiDeltaMrrDaily {
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::bi_mrr_movement_log)]
-pub struct BiMrrMovementLog {
+pub struct BiMrrMovementLogRow {
     pub id: Uuid,
     pub description: String,
     pub movement_type: MrrMovementType,
@@ -61,7 +61,7 @@ pub struct BiMrrMovementLog {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::bi_mrr_movement_log)]
-pub struct BiMrrMovementLogNew {
+pub struct BiMrrMovementLogRowNew {
     pub id: Uuid,
     pub description: String,
     pub movement_type: MrrMovementType,
@@ -77,7 +77,7 @@ pub struct BiMrrMovementLogNew {
 #[derive(Queryable, Debug, Identifiable, Insertable)]
 #[diesel(table_name = crate::schema::bi_revenue_daily)]
 #[diesel(primary_key(tenant_id, plan_version_id, currency, revenue_date))]
-pub struct BiRevenueDaily {
+pub struct BiRevenueDailyRow {
     pub tenant_id: Uuid,
     pub plan_version_id: Uuid,
     pub currency: String,

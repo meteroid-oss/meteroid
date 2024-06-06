@@ -3,8 +3,10 @@ use o2o::o2o;
 use secrecy::SecretString;
 use uuid::Uuid;
 
+use diesel_models::users::UserRow;
+
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::users::User)]
+#[from_owned(UserRow)]
 pub struct User {
     pub id: Uuid,
     pub email: String,

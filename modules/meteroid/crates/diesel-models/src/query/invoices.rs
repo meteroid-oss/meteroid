@@ -1,5 +1,7 @@
 use crate::errors::IntoDbResult;
-use crate::invoices::{Invoice, InvoiceNew, InvoiceWithCustomer, InvoiceWithPlanDetails};
+use crate::invoices::{
+    InvoiceRow, InvoiceRowNew, InvoiceWithCustomerRow, InvoiceWithPlanDetailsRow,
+};
 use chrono::NaiveDateTime;
 
 use crate::{DbResult, PgConn};
@@ -17,8 +19,8 @@ use diesel::{
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
-impl InvoiceNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Invoice> {
+impl InvoiceRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<InvoiceRow> {
         use crate::schema::invoice::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -33,12 +35,12 @@ impl InvoiceNew {
             .into_db_result()
     }
 }
-impl Invoice {
+impl InvoiceRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
         param_tenant_id: uuid::Uuid,
         param_invoice_id: uuid::Uuid,
-    ) -> DbResult<InvoiceWithPlanDetails> {
+    ) -> DbResult<InvoiceWithPlanDetailsRow> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::plan::dsl as p_dsl;
@@ -54,7 +56,7 @@ impl Invoice {
             .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
-            .select(InvoiceWithPlanDetails::as_select());
+            .select(InvoiceWithPlanDetailsRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -73,14 +75,14 @@ impl Invoice {
         param_query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
-    ) -> DbResult<PaginatedVec<InvoiceWithCustomer>> {
+    ) -> DbResult<PaginatedVec<InvoiceWithCustomerRow>> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
 
         let mut query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
-            .select(InvoiceWithCustomer::as_select())
+            .select(InvoiceWithCustomerRow::as_select())
             .into_boxed();
 
         if let Some(param_customer_id) = param_customer_id {
@@ -119,8 +121,8 @@ impl Invoice {
 
     pub async fn insert_invoice_batch(
         conn: &mut PgConn,
-        invoices: Vec<InvoiceNew>,
-    ) -> DbResult<Vec<Invoice>> {
+        invoices: Vec<InvoiceRowNew>,
+    ) -> DbResult<Vec<InvoiceRow>> {
         use crate::schema::invoice::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -164,7 +166,7 @@ impl Invoice {
     pub async fn list_to_finalize(
         conn: &mut PgConn,
         pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<Invoice>> {
+    ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::invoicing_config::dsl as ic_dsl;
 
@@ -177,7 +179,7 @@ impl Invoice {
                 + diesel::dsl::sql::<diesel::sql_types::Interval>(
                     "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
                 )))
-            .select(Invoice::as_select())
+            .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, i_dsl::id, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -258,7 +260,7 @@ impl Invoice {
     pub async fn list_outdated(
         conn: &mut PgConn,
         pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<Invoice>> {
+    ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
         use crate::schema::invoice::dsl as i_dsl;
 
         let query = i_dsl::invoice
@@ -270,7 +272,7 @@ impl Invoice {
                     .is_null()
                     .or(diesel::dsl::now.gt(i_dsl::invoice_date + 1.hour())),
             )
-            .select(Invoice::as_select())
+            .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, i_dsl::id, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -286,14 +288,14 @@ impl Invoice {
         conn: &mut PgConn,
         max_attempts: i32,
         pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<Invoice>> {
+    ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
         use crate::schema::invoice::dsl as i_dsl;
 
         let query = i_dsl::invoice
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
             .filter(i_dsl::issued.eq(false))
             .filter(i_dsl::issue_attempts.lt(max_attempts))
-            .select(Invoice::as_select())
+            .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, i_dsl::id, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

@@ -1,6 +1,7 @@
 use crate::store::Store;
 use crate::{domain, StoreResult};
 use common_eventbus::Event;
+use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -13,7 +14,7 @@ pub trait ProductFamilyInterface {
 
     async fn list_product_families(
         &self,
-        auth_tenant_id: uuid::Uuid,
+        auth_tenant_id: Uuid,
     ) -> StoreResult<Vec<domain::ProductFamily>>;
 
     async fn find_product_family_by_external_id(
@@ -32,8 +33,7 @@ impl ProductFamilyInterface for Store {
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_product_family: diesel_models::product_families::ProductFamilyNew =
-            product_family.into();
+        let insertable_product_family: ProductFamilyRowNew = product_family.into();
 
         let res = insertable_product_family
             .insert(&mut conn)
@@ -59,7 +59,7 @@ impl ProductFamilyInterface for Store {
     ) -> StoreResult<Vec<domain::ProductFamily>> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::product_families::ProductFamily::list(&mut conn, auth_tenant_id)
+        ProductFamilyRow::list(&mut conn, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())
@@ -72,13 +72,9 @@ impl ProductFamilyInterface for Store {
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::product_families::ProductFamily::find_by_external_id_and_tenant_id(
-            &mut conn,
-            external_id,
-            auth_tenant_id,
-        )
-        .await
-        .map_err(Into::into)
-        .map(Into::into)
+        ProductFamilyRow::find_by_external_id_and_tenant_id(&mut conn, external_id, auth_tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 }

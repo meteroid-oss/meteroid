@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::product_families::{ProductFamily, ProductFamilyNew};
+use crate::product_families::{ProductFamilyRow, ProductFamilyRowNew};
 
 use crate::{DbResult, PgConn};
 
@@ -7,8 +7,8 @@ use diesel::{debug_query, ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
-impl ProductFamilyNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductFamily> {
+impl ProductFamilyRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductFamilyRow> {
         use crate::schema::product_family::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -24,8 +24,8 @@ impl ProductFamilyNew {
     }
 }
 
-impl ProductFamily {
-    pub async fn list(conn: &mut PgConn, tenant_id: Uuid) -> DbResult<Vec<ProductFamily>> {
+impl ProductFamilyRow {
+    pub async fn list(conn: &mut PgConn, tenant_id: Uuid) -> DbResult<Vec<ProductFamilyRow>> {
         use crate::schema::product_family::dsl as pf_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -44,7 +44,7 @@ impl ProductFamily {
         conn: &mut PgConn,
         external_id: &str,
         tenant_id: Uuid,
-    ) -> DbResult<ProductFamily> {
+    ) -> DbResult<ProductFamilyRow> {
         use crate::schema::product_family::dsl as pf_dsl;
         use diesel_async::RunQueryDsl;
 

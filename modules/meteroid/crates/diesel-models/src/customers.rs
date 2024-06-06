@@ -6,7 +6,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Customer {
+pub struct CustomerRow {
     pub id: Uuid,
     pub name: String,
     pub created_at: NaiveDateTime,
@@ -29,7 +29,7 @@ pub struct Customer {
 #[derive(Clone, Debug, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct CustomerBrief {
+pub struct CustomerBriefRow {
     pub id: Uuid,
     pub name: String,
     pub alias: Option<String>,
@@ -38,7 +38,7 @@ pub struct CustomerBrief {
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct CustomerNew {
+pub struct CustomerRowNew {
     pub id: Uuid,
     pub name: String,
     pub created_by: Uuid,
@@ -59,7 +59,7 @@ pub struct CustomerNew {
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct CustomerPatch {
+pub struct CustomerRowPatch {
     pub id: Uuid,
     pub name: Option<String>,
     pub alias: Option<String>,
@@ -74,7 +74,7 @@ pub struct CustomerPatch {
 
 #[derive(AsChangeset, Debug)]
 #[diesel(table_name = crate::schema::customer)]
-pub struct CustomerAsChangeset {
+pub struct CustomerRowAsChangeset {
     pub name: String,
     pub billing_config: Option<serde_json::Value>,
     pub alias: Option<String>,

@@ -7,7 +7,7 @@ use uuid::Uuid;
 #[derive(Queryable, Identifiable, Debug, Selectable)]
 #[diesel(table_name = crate::schema::webhook_in_event)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct WebhookInEvent {
+pub struct WebhookInEventRow {
     pub id: Uuid,
     pub received_at: NaiveDateTime,
     pub action: Option<String>,
@@ -21,7 +21,7 @@ pub struct WebhookInEvent {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::webhook_in_event)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct WebhookInEventNew {
+pub struct WebhookInEventRowNew {
     pub id: Uuid,
     pub received_at: NaiveDateTime,
     pub action: Option<String>,
@@ -35,7 +35,7 @@ pub struct WebhookInEventNew {
 #[derive(Queryable, Identifiable, Debug)]
 #[diesel(table_name = crate::schema::webhook_out_endpoint)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct WebhookOutEndpoint {
+pub struct WebhookOutEndpointRow {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub url: String,
@@ -49,7 +49,7 @@ pub struct WebhookOutEndpoint {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::webhook_out_endpoint)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct WebhookOutEndpointNew {
+pub struct WebhookOutEndpointRowNew {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub url: String,
@@ -61,7 +61,7 @@ pub struct WebhookOutEndpointNew {
 
 #[derive(Queryable, Identifiable, Debug, Selectable)]
 #[diesel(table_name = crate::schema::webhook_out_event)]
-pub struct WebhookOutEvent {
+pub struct WebhookOutEventRow {
     pub id: Uuid,
     pub endpoint_id: Uuid,
     pub created_at: NaiveDateTime,
@@ -74,7 +74,7 @@ pub struct WebhookOutEvent {
 
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::webhook_out_event)]
-pub struct WebhookOutEventNew {
+pub struct WebhookOutEventRowNew {
     pub id: Uuid,
     pub endpoint_id: Uuid,
     pub created_at: NaiveDateTime,

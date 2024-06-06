@@ -1,13 +1,13 @@
 use crate::errors::IntoDbResult;
-use crate::tenants::{Tenant, TenantNew};
+use crate::tenants::{TenantRow, TenantRowNew};
 use crate::{DbResult, PgConn};
 
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use error_stack::ResultExt;
 
-impl TenantNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Tenant> {
+impl TenantRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -22,8 +22,8 @@ impl TenantNew {
     }
 }
 
-impl Tenant {
-    pub async fn find_by_id(conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<Tenant> {
+impl TenantRow {
+    pub async fn find_by_id(conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -37,7 +37,7 @@ impl Tenant {
             .into_db_result()
     }
 
-    pub async fn find_by_slug(conn: &mut PgConn, param_tenant_slug: String) -> DbResult<Tenant> {
+    pub async fn find_by_slug(conn: &mut PgConn, param_tenant_slug: String) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -51,7 +51,10 @@ impl Tenant {
             .into_db_result()
     }
 
-    pub async fn list_by_user_id(conn: &mut PgConn, user_id: uuid::Uuid) -> DbResult<Vec<Tenant>> {
+    pub async fn list_by_user_id(
+        conn: &mut PgConn,
+        user_id: uuid::Uuid,
+    ) -> DbResult<Vec<TenantRow>> {
         use crate::schema::organization::dsl as o_dsl;
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::tenant::dsl as t_dsl;
@@ -63,7 +66,7 @@ impl Tenant {
             .inner_join(om_dsl::organization_member.on(om_dsl::organization_id.eq(o_dsl::id)))
             .inner_join(u_dsl::user.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(u_dsl::id.eq(user_id))
-            .select(Tenant::as_select());
+            .select(TenantRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

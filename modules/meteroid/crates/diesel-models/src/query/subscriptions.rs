@@ -2,8 +2,8 @@ use crate::errors::IntoDbResult;
 use chrono::NaiveDate;
 
 use crate::subscriptions::{
-    CancelSubscriptionParams, Subscription, SubscriptionForDisplay, SubscriptionInvoiceCandidate,
-    SubscriptionNew,
+    CancelSubscriptionParams, SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow,
+    SubscriptionRow, SubscriptionRowNew,
 };
 use crate::{DbResult, PgConn};
 
@@ -21,8 +21,8 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
-impl SubscriptionNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Subscription> {
+impl SubscriptionRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionRow> {
         use crate::schema::subscription::dsl::*;
 
         let query = diesel::insert_into(subscription).values(self);
@@ -37,11 +37,11 @@ impl SubscriptionNew {
     }
 }
 
-impl Subscription {
+impl SubscriptionRow {
     pub async fn insert_subscription_batch(
         conn: &mut PgConn,
-        batch: Vec<&SubscriptionNew>,
-    ) -> DbResult<Vec<Subscription>> {
+        batch: Vec<&SubscriptionRowNew>,
+    ) -> DbResult<Vec<SubscriptionRow>> {
         use crate::schema::subscription::dsl::*;
 
         let query = diesel::insert_into(subscription).values(batch);
@@ -59,7 +59,7 @@ impl Subscription {
         conn: &mut PgConn,
         tenant_id_param: &uuid::Uuid,
         subscription_id: &uuid::Uuid,
-    ) -> DbResult<SubscriptionForDisplay> {
+    ) -> DbResult<SubscriptionForDisplayRow> {
         use crate::schema::subscription::dsl::*;
 
         let query = subscription
@@ -67,12 +67,12 @@ impl Subscription {
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
             .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
-            .select(SubscriptionForDisplay::as_select());
+            .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .get_result::<SubscriptionForDisplay>(conn)
+            .get_result::<SubscriptionForDisplayRow>(conn)
             .await
             .attach_printable("Error while fetching subscription by ID")
             .into_db_result()
@@ -82,7 +82,7 @@ impl Subscription {
         conn: &mut PgConn,
         tenant_id_param: &uuid::Uuid,
         subscription_ids: &[uuid::Uuid],
-    ) -> DbResult<Vec<SubscriptionForDisplay>> {
+    ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
         use crate::schema::subscription::dsl::*;
 
         let query = subscription
@@ -90,7 +90,7 @@ impl Subscription {
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
             .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
-            .select(SubscriptionForDisplay::as_select());
+            .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -158,7 +158,7 @@ impl Subscription {
         customer_id_opt: Option<uuid::Uuid>,
         plan_id_param_opt: Option<uuid::Uuid>,
         pagination: PaginationRequest,
-    ) -> DbResult<PaginatedVec<SubscriptionForDisplay>> {
+    ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
         use crate::schema::subscription::dsl::*;
 
         let mut query = subscription
@@ -183,7 +183,7 @@ impl Subscription {
         //     .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table));
 
         let paginated_query = query
-            .select(SubscriptionForDisplay::as_select())
+            .select(SubscriptionForDisplayRow::as_select())
             .paginate(pagination);
 
         log::debug!(
@@ -192,7 +192,7 @@ impl Subscription {
         );
 
         paginated_query
-            .load_and_count_pages::<SubscriptionForDisplay>(conn)
+            .load_and_count_pages::<SubscriptionForDisplayRow>(conn)
             .await
             .attach_printable("Error while fetching subscriptions")
             .into_db_result()
@@ -202,7 +202,7 @@ impl Subscription {
         conn: &mut PgConn,
         input_date_param: NaiveDate,
         pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>> {
+    ) -> DbResult<CursorPaginatedVec<SubscriptionInvoiceCandidateRow>> {
         use crate::schema::invoice::dsl as i_dsl;
 
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -260,7 +260,7 @@ impl Subscription {
                 pv_dsl::net_terms,
                 pv_dsl::version,
             ))
-            .select(SubscriptionInvoiceCandidate::as_select())
+            .select(SubscriptionInvoiceCandidateRow::as_select())
             .cursor_paginate(pagination, s_dsl::id, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

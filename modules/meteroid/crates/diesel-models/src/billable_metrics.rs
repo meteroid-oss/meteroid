@@ -8,7 +8,7 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct BillableMetric {
+pub struct BillableMetricRow {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
@@ -30,7 +30,7 @@ pub struct BillableMetric {
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct BillableMetricNew {
+pub struct BillableMetricRowNew {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
@@ -49,7 +49,7 @@ pub struct BillableMetricNew {
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct BillableMetricMeta {
+pub struct BillableMetricMetaRow {
     pub id: Uuid,
     pub name: String,
     pub code: String,

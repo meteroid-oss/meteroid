@@ -1,4 +1,4 @@
-use crate::configs::{InvoicingConfig, ProviderConfig, ProviderConfigNew};
+use crate::configs::{InvoicingConfigRow, ProviderConfigRow, ProviderConfigRowNew};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 
@@ -7,8 +7,8 @@ use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{debug_query, DecoratableTarget};
 use error_stack::ResultExt;
 
-impl ProviderConfigNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProviderConfig> {
+impl ProviderConfigRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProviderConfigRow> {
         use crate::schema::provider_config::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -33,8 +33,8 @@ impl ProviderConfigNew {
     }
 }
 
-impl InvoicingConfig {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<InvoicingConfig> {
+impl InvoicingConfigRow {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<InvoicingConfigRow> {
         use crate::schema::invoicing_config::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -50,12 +50,12 @@ impl InvoicingConfig {
     }
 }
 
-impl ProviderConfig {
+impl ProviderConfigRow {
     pub async fn find_provider_config(
         conn: &mut PgConn,
         tenant_uid: uuid::Uuid,
         provider: InvoicingProviderEnum,
-    ) -> DbResult<ProviderConfig> {
+    ) -> DbResult<ProviderConfigRow> {
         use crate::schema::provider_config::dsl::*;
         use diesel_async::RunQueryDsl;
 

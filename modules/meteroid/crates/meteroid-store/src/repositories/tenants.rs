@@ -2,27 +2,28 @@ use crate::domain::{OrgTenantNew, Tenant, TenantNew};
 use error_stack::Report;
 
 use crate::store::Store;
-use crate::{domain, errors, StoreResult};
-use diesel_models::organizations::Organization;
+use crate::{errors, StoreResult};
+use diesel_models::organizations::OrganizationRow;
+use diesel_models::tenants::{TenantRow, TenantRowNew};
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait TenantInterface {
-    async fn insert_tenant(&self, tenant: domain::TenantNew) -> StoreResult<domain::Tenant>;
-    async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<domain::Tenant>;
-    async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<domain::Tenant>;
-    async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<domain::Tenant>>;
+    async fn insert_tenant(&self, tenant: TenantNew) -> StoreResult<Tenant>;
+    async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<Tenant>;
+    async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<Tenant>;
+    async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<Tenant>>;
 }
 
 #[async_trait::async_trait]
 impl TenantInterface for Store {
-    async fn insert_tenant(&self, tenant: domain::TenantNew) -> StoreResult<domain::Tenant> {
+    async fn insert_tenant(&self, tenant: TenantNew) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_tenant: diesel_models::tenants::TenantNew = match tenant {
+        let insertable_tenant: TenantRowNew = match tenant {
             TenantNew::ForOrg(tenant_new) => tenant_new.into(),
             TenantNew::ForUser(tenant_new) => {
-                let org = Organization::find_by_user_id(&mut conn, tenant_new.user_id)
+                let org = OrganizationRow::find_by_user_id(&mut conn, tenant_new.user_id)
                     .await
                     .map_err(Into::<Report<errors::StoreError>>::into)?;
 
@@ -48,7 +49,7 @@ impl TenantInterface for Store {
     async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::tenants::Tenant::find_by_id(&mut conn, tenant_id)
+        TenantRow::find_by_id(&mut conn, tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -57,16 +58,16 @@ impl TenantInterface for Store {
     async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::tenants::Tenant::find_by_slug(&mut conn, slug)
+        TenantRow::find_by_slug(&mut conn, slug)
             .await
             .map_err(Into::into)
             .map(Into::into)
     }
 
-    async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<domain::Tenant>> {
+    async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<Tenant>> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::tenants::Tenant::list_by_user_id(&mut conn, user_id)
+        TenantRow::list_by_user_id(&mut conn, user_id)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())

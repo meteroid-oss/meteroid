@@ -8,7 +8,7 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 #[derive(Clone, Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::tenant)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Tenant {
+pub struct TenantRow {
     pub id: Uuid,
     pub name: String,
     pub slug: String,
@@ -23,7 +23,7 @@ pub struct Tenant {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::tenant)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct TenantNew {
+pub struct TenantRowNew {
     pub id: Uuid,
     pub name: String,
     pub slug: String,

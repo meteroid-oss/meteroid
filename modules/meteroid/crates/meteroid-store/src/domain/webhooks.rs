@@ -3,6 +3,10 @@ use crate::errors::StoreError;
 use crate::utils::gen::webhook_security;
 use crate::StoreResult;
 use chrono::NaiveDateTime;
+use diesel_models::webhooks::{
+    WebhookInEventRow, WebhookInEventRowNew, WebhookOutEndpointRow, WebhookOutEndpointRowNew,
+    WebhookOutEventRow, WebhookOutEventRowNew,
+};
 use error_stack::ResultExt;
 use itertools::Itertools;
 use o2o::o2o;
@@ -25,7 +29,7 @@ pub struct WebhookOutEndpoint {
 impl WebhookOutEndpoint {
     pub fn from_row(
         key: &SecretString,
-        row: diesel_models::webhooks::WebhookOutEndpoint,
+        row: WebhookOutEndpointRow,
     ) -> StoreResult<WebhookOutEndpoint> {
         let dec_sec = crate::crypt::decrypt(key, row.secret.as_str())
             .change_context(StoreError::CryptError("secret decryption error".into()))?;
@@ -56,15 +60,12 @@ pub struct WebhookOutEndpointNew {
 }
 
 impl WebhookOutEndpointNew {
-    pub fn to_row(
-        &self,
-        key: &SecretString,
-    ) -> StoreResult<diesel_models::webhooks::WebhookOutEndpointNew> {
+    pub fn to_row(&self, key: &SecretString) -> StoreResult<WebhookOutEndpointRowNew> {
         let enc_secret =
             crate::crypt::encrypt(key, webhook_security::gen().expose_secret().as_str())
                 .change_context(StoreError::CryptError("secret decryption error".into()))?;
 
-        Ok(diesel_models::webhooks::WebhookOutEndpointNew {
+        Ok(WebhookOutEndpointRowNew {
             id: Uuid::now_v7(),
             tenant_id: self.tenant_id,
             url: self.url.to_string(),
@@ -82,8 +83,8 @@ impl WebhookOutEndpointNew {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::webhooks::WebhookOutEvent)]
-#[owned_into(diesel_models::webhooks::WebhookOutEvent)]
+#[from_owned(WebhookOutEventRow)]
+#[owned_into(WebhookOutEventRow)]
 pub struct WebhookOutEvent {
     pub id: Uuid,
     pub endpoint_id: Uuid,
@@ -97,8 +98,8 @@ pub struct WebhookOutEvent {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::webhooks::WebhookOutEventNew)]
-#[owned_into(diesel_models::webhooks::WebhookOutEventNew)]
+#[from_owned(WebhookOutEventRowNew)]
+#[owned_into(WebhookOutEventRowNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct WebhookOutEventNew {
     pub endpoint_id: Uuid,
@@ -112,7 +113,7 @@ pub struct WebhookOutEventNew {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[owned_into(diesel_models::webhooks::WebhookInEventNew)]
+#[owned_into(WebhookInEventRowNew)]
 pub struct WebhookInEventNew {
     pub id: Uuid,
     pub received_at: NaiveDateTime,
@@ -125,7 +126,7 @@ pub struct WebhookInEventNew {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::webhooks::WebhookInEvent)]
+#[from_owned(WebhookInEventRow)]
 pub struct WebhookInEvent {
     pub id: Uuid,
     pub received_at: NaiveDateTime,

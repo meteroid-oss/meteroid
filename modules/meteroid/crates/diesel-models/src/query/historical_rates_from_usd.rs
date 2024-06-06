@@ -1,12 +1,12 @@
 use crate::errors::IntoDbResult;
-use crate::historical_rates_from_usd::{HistoricalRatesFromUsd, HistoricalRatesFromUsdNew};
+use crate::historical_rates_from_usd::{HistoricalRatesFromUsdRow, HistoricalRatesFromUsdRowNew};
 
 use crate::{DbResult, PgConn};
 use diesel::{debug_query, ExpressionMethods};
 use error_stack::ResultExt;
 
-impl HistoricalRatesFromUsdNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<HistoricalRatesFromUsd> {
+impl HistoricalRatesFromUsdRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<HistoricalRatesFromUsdRow> {
         use crate::schema::historical_rates_from_usd::dsl as r_dsl;
         use diesel_async::RunQueryDsl;
 

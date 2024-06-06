@@ -7,7 +7,7 @@ use diesel::{Insertable, Queryable, Selectable};
 #[derive(Queryable, Debug, Selectable)]
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct User {
+pub struct UserRow {
     pub id: Uuid,
     pub email: String,
     pub created_at: NaiveDateTime,
@@ -21,7 +21,7 @@ pub struct User {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct UserNew {
+pub struct UserRowNew {
     pub id: Uuid,
     pub email: String,
     pub password_hash: Option<String>,

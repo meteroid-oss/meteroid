@@ -2,13 +2,13 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
-use crate::plan_versions::PlanVersion;
+use crate::plan_versions::PlanVersionRow;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Plan {
+pub struct PlanRow {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
@@ -26,7 +26,7 @@ pub struct Plan {
 #[derive(Debug, Default, Insertable)]
 #[diesel(table_name = crate::schema::plan)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanNew {
+pub struct PlanRowNew {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
@@ -42,7 +42,7 @@ pub struct PlanNew {
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanForList {
+pub struct PlanRowForList {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
@@ -62,18 +62,18 @@ pub struct PlanForList {
 
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanWithVersion {
+pub struct PlanWithVersionRow {
     #[diesel(embed)]
-    pub plan: Plan,
+    pub plan: PlanRow,
     #[diesel(embed)]
-    pub version: PlanVersion,
+    pub version: PlanVersionRow,
 }
 
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = crate::schema::plan)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
-pub struct PlanPatch {
+pub struct PlanRowPatch {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub name: Option<String>,

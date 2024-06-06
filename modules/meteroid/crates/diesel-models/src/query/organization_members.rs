@@ -1,13 +1,13 @@
 use crate::errors::IntoDbResult;
-use crate::organization_members::OrganizationMember;
+use crate::organization_members::OrganizationMemberRow;
 
 use crate::{DbResult, PgConn};
 
 use diesel::debug_query;
 use error_stack::ResultExt;
 
-impl OrganizationMember {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationMember> {
+impl OrganizationMemberRow {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationMemberRow> {
         use crate::schema::organization_member::dsl::*;
         use diesel_async::RunQueryDsl;
 

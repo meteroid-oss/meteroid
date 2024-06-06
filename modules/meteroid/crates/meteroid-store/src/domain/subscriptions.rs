@@ -7,11 +7,13 @@ use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::{
     BillableMetric, CreateSubscriptionComponents, Schedule, SubscriptionComponent,
 };
-use diesel_models::subscriptions::Subscription as DieselSubscription;
-use diesel_models::subscriptions::SubscriptionNew as DieselSubscriptionNew;
+use diesel_models::subscriptions::SubscriptionRowNew;
+use diesel_models::subscriptions::{
+    SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
+};
 
 #[derive(Debug, Clone, o2o)]
-#[from_owned(DieselSubscription)]
+#[from_owned(SubscriptionRow)]
 pub struct CreatedSubscription {
     pub id: Uuid,
     pub customer_id: Uuid,
@@ -61,7 +63,7 @@ pub struct Subscription {
     pub mrr_cents: u64,
 }
 
-impl Into<Subscription> for diesel_models::subscriptions::SubscriptionForDisplay {
+impl Into<Subscription> for SubscriptionForDisplayRow {
     fn into(self) -> Subscription {
         Subscription {
             id: self.subscription.id,
@@ -92,7 +94,7 @@ impl Into<Subscription> for diesel_models::subscriptions::SubscriptionForDisplay
 }
 
 #[derive(Debug, Clone, o2o)]
-#[owned_into(DieselSubscriptionNew)]
+#[owned_into(SubscriptionRowNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()}, mrr_cents: {0})]
 pub struct SubscriptionNew {
     pub customer_id: Uuid,
@@ -168,9 +170,7 @@ pub struct SubscriptionInvoiceCandidate {
     pub periods: Vec<SubscriptionFeeBillingPeriod>,
 }
 
-impl Into<SubscriptionInvoiceCandidate>
-    for diesel_models::subscriptions::SubscriptionInvoiceCandidate
-{
+impl Into<SubscriptionInvoiceCandidate> for SubscriptionInvoiceCandidateRow {
     fn into(self) -> SubscriptionInvoiceCandidate {
         SubscriptionInvoiceCandidate {
             id: self.subscription.id,

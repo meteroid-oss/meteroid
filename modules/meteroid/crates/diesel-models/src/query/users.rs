@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 
-use crate::users::{User, UserNew};
+use crate::users::{UserRow, UserRowNew};
 use crate::{DbResult, PgConn};
 
 use diesel::{
@@ -9,7 +9,7 @@ use diesel::{
 use error_stack::ResultExt;
 use uuid::Uuid;
 
-impl UserNew {
+impl UserRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<()> {
         use crate::schema::user::dsl;
         use diesel_async::RunQueryDsl;
@@ -27,8 +27,8 @@ impl UserNew {
     }
 }
 
-impl User {
-    pub async fn find_by_id(conn: &mut PgConn, id: Uuid) -> DbResult<User> {
+impl UserRow {
+    pub async fn find_by_id(conn: &mut PgConn, id: Uuid) -> DbResult<UserRow> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
@@ -36,7 +36,7 @@ impl User {
         let query = u_dsl::user
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(u_dsl::id.eq(id))
-            .select(User::as_select());
+            .select(UserRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -51,7 +51,7 @@ impl User {
         conn: &mut PgConn,
         id: Uuid,
         organization_id: Uuid,
-    ) -> DbResult<User> {
+    ) -> DbResult<UserRow> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
@@ -60,7 +60,7 @@ impl User {
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(u_dsl::id.eq(id))
             .filter(om_dsl::organization_id.eq(organization_id))
-            .select(User::as_select());
+            .select(UserRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -75,7 +75,7 @@ impl User {
         conn: &mut PgConn,
         email: String,
         organization_id: Uuid,
-    ) -> DbResult<User> {
+    ) -> DbResult<UserRow> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
@@ -84,7 +84,7 @@ impl User {
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(u_dsl::email.eq(email))
             .filter(om_dsl::organization_id.eq(organization_id))
-            .select(User::as_select());
+            .select(UserRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -95,7 +95,7 @@ impl User {
             .into_db_result()
     }
 
-    pub async fn find_by_email(conn: &mut PgConn, email: String) -> DbResult<Option<User>> {
+    pub async fn find_by_email(conn: &mut PgConn, email: String) -> DbResult<Option<UserRow>> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
@@ -103,7 +103,7 @@ impl User {
         let query = u_dsl::user
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(u_dsl::email.eq(email))
-            .select(User::as_select());
+            .select(UserRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -115,7 +115,10 @@ impl User {
             .into_db_result()
     }
 
-    pub async fn list_by_org_id(conn: &mut PgConn, organization_id: Uuid) -> DbResult<Vec<User>> {
+    pub async fn list_by_org_id(
+        conn: &mut PgConn,
+        organization_id: Uuid,
+    ) -> DbResult<Vec<UserRow>> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
@@ -123,7 +126,7 @@ impl User {
         let query = u_dsl::user
             .inner_join(om_dsl::organization_member.on(u_dsl::id.eq(om_dsl::user_id)))
             .filter(om_dsl::organization_id.eq(organization_id))
-            .select(User::as_select());
+            .select(UserRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

@@ -1,5 +1,7 @@
 use crate::errors::StoreError;
 use crate::{domain, Store, StoreResult};
+use diesel_models::plan_versions::PlanVersionRow;
+use diesel_models::schedules::{SchedulePatchRow, ScheduleRow, ScheduleRowNew};
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -30,7 +32,7 @@ impl ScheduleInterface for Store {
     async fn delete_schedule(&self, id: Uuid, auth_tenant_id: Uuid) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::schedules::Schedule::delete(&mut conn, id, auth_tenant_id)
+        ScheduleRow::delete(&mut conn, id, auth_tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(|_| ())
@@ -43,7 +45,7 @@ impl ScheduleInterface for Store {
     ) -> StoreResult<Vec<domain::Schedule>> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::schedules::Schedule::list(&mut conn, plan_version_id, auth_tenant_id)
+        ScheduleRow::list(&mut conn, plan_version_id, auth_tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
@@ -58,10 +60,10 @@ impl ScheduleInterface for Store {
     ) -> StoreResult<domain::Schedule> {
         let mut conn = self.get_conn().await?;
 
-        let insertable: diesel_models::schedules::ScheduleNew = schedule.try_into()?;
+        let insertable: ScheduleRowNew = schedule.try_into()?;
 
         // make sure the plan version exists and belongs to auth tenant
-        diesel_models::plan_versions::PlanVersion::find_by_id_and_tenant_id(
+        PlanVersionRow::find_by_id_and_tenant_id(
             &mut conn,
             insertable.plan_version_id,
             auth_tenant_id,
@@ -83,7 +85,7 @@ impl ScheduleInterface for Store {
     ) -> StoreResult<domain::Schedule> {
         let mut conn = self.get_conn().await?;
 
-        let patch: diesel_models::schedules::SchedulePatch = schedule.try_into()?;
+        let patch: SchedulePatchRow = schedule.try_into()?;
 
         patch
             .update(&mut conn, auth_tenant_id)

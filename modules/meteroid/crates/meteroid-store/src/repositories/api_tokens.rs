@@ -3,6 +3,7 @@ use argon2::{
     Argon2,
 };
 use common_eventbus::Event;
+use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew};
 use error_stack::Report;
 use nanoid::nanoid;
 use tracing_log::log;
@@ -32,10 +33,9 @@ impl ApiTokensInterface for Store {
     ) -> StoreResult<Vec<ApiToken>> {
         let mut conn = self.get_conn().await?;
 
-        let api_tokens =
-            diesel_models::api_tokens::ApiToken::find_by_tenant_id(&mut conn, tenant_id)
-                .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let api_tokens = ApiTokenRow::find_by_tenant_id(&mut conn, tenant_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         Ok(api_tokens.into_iter().map(Into::into).collect())
     }
@@ -43,7 +43,7 @@ impl ApiTokensInterface for Store {
     async fn get_api_token_by_id(&self, id: &Uuid) -> StoreResult<ApiToken> {
         let mut conn = self.get_conn().await?;
 
-        let api_token = diesel_models::api_tokens::ApiToken::find_by_id(&mut conn, id)
+        let api_token = ApiTokenRow::find_by_id(&mut conn, id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -92,14 +92,14 @@ impl ApiTokensInterface for Store {
             &id_part[id_part.len() - 4..]
         );
 
-        let insertable_entity = diesel_models::api_tokens::ApiTokenNew {
+        let insertable_entity = ApiTokenRowNew {
             id,
             name: entity.name,
             created_at: chrono::Utc::now().naive_utc(),
             created_by: entity.created_by,
             tenant_id: entity.tenant_id,
             hash: api_key_hash,
-            hint: hint,
+            hint,
         };
 
         let result: Result<ApiToken, Report<StoreError>> = insertable_entity

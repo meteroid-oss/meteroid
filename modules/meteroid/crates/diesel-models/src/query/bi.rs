@@ -1,4 +1,4 @@
-use crate::bi::{BiMrrMovementLog, BiMrrMovementLogNew};
+use crate::bi::{BiMrrMovementLogRow, BiMrrMovementLogRowNew};
 use crate::errors::IntoDbResult;
 
 use crate::{DbResult, PgConn};
@@ -6,8 +6,8 @@ use crate::{DbResult, PgConn};
 use diesel::debug_query;
 use error_stack::ResultExt;
 
-impl BiMrrMovementLogNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<BiMrrMovementLog> {
+impl BiMrrMovementLogRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<BiMrrMovementLogRow> {
         use crate::schema::bi_mrr_movement_log::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -22,11 +22,11 @@ impl BiMrrMovementLogNew {
             .into_db_result()
     }
 }
-impl BiMrrMovementLog {
+impl BiMrrMovementLogRow {
     pub async fn insert_movement_log_batch(
         conn: &mut PgConn,
-        invoices: Vec<BiMrrMovementLogNew>,
-    ) -> DbResult<Vec<BiMrrMovementLog>> {
+        invoices: Vec<BiMrrMovementLogRowNew>,
+    ) -> DbResult<Vec<BiMrrMovementLogRow>> {
         use crate::schema::bi_mrr_movement_log::dsl::*;
         use diesel_async::RunQueryDsl;
 

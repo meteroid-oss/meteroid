@@ -4,16 +4,16 @@ use super::enums::{
 use crate::domain::Customer;
 use crate::errors::StoreError;
 use chrono::{NaiveDate, NaiveDateTime};
-use diesel_models::invoices::Invoice as DieselInvoice;
-use diesel_models::invoices::InvoiceNew as DieselInvoiceNew;
-use diesel_models::invoices::InvoiceWithCustomer as DieselInvoiceBrief;
-use diesel_models::invoices::InvoiceWithPlanDetails as DieselInvoiceWithPlanDetails;
+use diesel_models::invoices::InvoiceRow;
+use diesel_models::invoices::InvoiceRowNew;
+use diesel_models::invoices::InvoiceWithCustomerRow;
+use diesel_models::invoices::InvoiceWithPlanDetailsRow;
 use error_stack::Report;
 use o2o::o2o;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
-#[from_owned(DieselInvoice)]
+#[from_owned(InvoiceRow)]
 pub struct Invoice {
     pub id: Uuid,
     #[from(~.into())]
@@ -46,7 +46,7 @@ pub struct Invoice {
 }
 
 #[derive(Debug, o2o)]
-#[owned_into(DieselInvoiceNew)]
+#[owned_into(InvoiceRowNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct InvoiceNew {
     #[into(~.into())]
@@ -77,9 +77,9 @@ pub struct InvoiceNew {
 }
 
 #[derive(Debug, Clone, o2o)]
-#[from_owned(DieselInvoiceWithPlanDetails)]
+#[from_owned(InvoiceWithPlanDetailsRow)]
 pub struct InvoiceWithPlanDetails {
-    pub id: uuid::Uuid,
+    pub id: Uuid,
     #[from(~.into())]
     pub status: InvoiceStatusEnum,
     #[from(~.map(|x| x.into()))]
@@ -115,10 +115,10 @@ pub struct InvoiceWithCustomer {
     pub customer: Customer,
 }
 
-impl TryFrom<diesel_models::invoices::InvoiceWithCustomer> for InvoiceWithCustomer {
+impl TryFrom<InvoiceWithCustomerRow> for InvoiceWithCustomer {
     type Error = Report<StoreError>;
 
-    fn try_from(value: DieselInvoiceBrief) -> Result<Self, Self::Error> {
+    fn try_from(value: InvoiceWithCustomerRow) -> Result<Self, Self::Error> {
         Ok(InvoiceWithCustomer {
             invoice: value.invoice.into(),
             customer: value.customer.try_into()?,

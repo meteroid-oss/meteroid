@@ -4,14 +4,14 @@ use crate::enums::{
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
-use crate::customers::Customer;
+use crate::customers::CustomerRow;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::invoice)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Invoice {
+pub struct InvoiceRow {
     pub id: Uuid,
     pub status: InvoiceStatusEnum,
     pub external_status: Option<InvoiceExternalStatusEnum>,
@@ -40,7 +40,7 @@ pub struct Invoice {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::invoice)]
-pub struct InvoiceNew {
+pub struct InvoiceRowNew {
     pub id: Uuid,
     pub status: InvoiceStatusEnum,
     pub external_status: Option<InvoiceExternalStatusEnum>,
@@ -68,7 +68,7 @@ pub struct InvoiceNew {
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::invoice)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct InvoiceWithPlanDetails {
+pub struct InvoiceWithPlanDetailsRow {
     pub id: Uuid,
     pub status: InvoiceStatusEnum,
     pub external_status: Option<InvoiceExternalStatusEnum>,
@@ -106,9 +106,9 @@ pub struct InvoiceWithPlanDetails {
 
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct InvoiceWithCustomer {
+pub struct InvoiceWithCustomerRow {
     #[diesel(embed)]
-    pub invoice: Invoice,
+    pub invoice: InvoiceRow,
     #[diesel(embed)]
-    pub customer: Customer,
+    pub customer: CustomerRow,
 }
