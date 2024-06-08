@@ -1,9 +1,10 @@
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionEventType};
 use crate::domain::{
-    CreateSubscriptionComponents, CursorPaginatedVec, CursorPaginationRequest, FeeType,
-    PaginatedVec, PaginationRequest, Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
-    SubscriptionInvoiceCandidate, SubscriptionNew,
+    BillableMetric, ComponentParameters, CreateSubscription, CreateSubscriptionComponents,
+    CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest, FeeType, PaginatedVec,
+    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionComponent,
+    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails,
+    SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
@@ -20,6 +21,15 @@ use uuid::Uuid;
 use rust_decimal::prelude::*;
 
 use common_eventbus::Event;
+use diesel_models::billable_metrics::BillableMetricRow;
+use diesel_models::price_components::PriceComponentRow;
+use diesel_models::schedules::ScheduleRow;
+use diesel_models::slot_transactions::SlotTransactionRow;
+use diesel_models::subscription_components::{
+    SubscriptionComponentRow, SubscriptionComponentRowNew,
+};
+use diesel_models::subscription_events::SubscriptionEventRow;
+use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use itertools::Itertools;
 
 pub enum CancellationEffectiveAt {
@@ -31,25 +41,25 @@ pub enum CancellationEffectiveAt {
 pub trait SubscriptionInterface {
     async fn insert_subscription(
         &self,
-        subscription: domain::CreateSubscription,
-    ) -> StoreResult<domain::CreatedSubscription>;
+        subscription: CreateSubscription,
+    ) -> StoreResult<CreatedSubscription>;
 
     async fn insert_subscription_batch(
         &self,
-        batch: Vec<domain::CreateSubscription>,
-    ) -> StoreResult<Vec<domain::CreatedSubscription>>;
+        batch: Vec<CreateSubscription>,
+    ) -> StoreResult<Vec<CreatedSubscription>>;
 
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
         subscription_id: Uuid,
-    ) -> StoreResult<domain::SubscriptionDetails>;
+    ) -> StoreResult<SubscriptionDetails>;
 
     async fn insert_subscription_components(
         &self,
         tenant_id: Uuid,
-        batch: Vec<domain::SubscriptionComponentNew>,
-    ) -> StoreResult<Vec<domain::SubscriptionComponent>>;
+        batch: Vec<SubscriptionComponentNew>,
+    ) -> StoreResult<Vec<SubscriptionComponent>>;
 
     async fn cancel_subscription(
         &self,
@@ -57,15 +67,15 @@ pub trait SubscriptionInterface {
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
-    ) -> StoreResult<domain::Subscription>;
+    ) -> StoreResult<Subscription>;
 
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
         customer_id: Option<Uuid>,
         plan_id: Option<Uuid>,
-        pagination: domain::PaginationRequest,
-    ) -> StoreResult<domain::PaginatedVec<domain::Subscription>>;
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<Subscription>>;
 
     async fn list_subscription_invoice_candidates(
         &self,
@@ -77,7 +87,7 @@ pub trait SubscriptionInterface {
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 
-fn calculate_mrr_for_new_component(component: &domain::SubscriptionComponentNewInternal) -> i64 {
+fn calculate_mrr_for_new_component(component: &SubscriptionComponentNewInternal) -> i64 {
     let mut total_cents = 0;
 
     let period_as_months = component.period.as_months() as i64;
@@ -142,15 +152,15 @@ impl SubscriptionSlotsInterface for Store {
     ) -> StoreResult<u32> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::slot_transactions::SlotTransaction::fetch_by_subscription_id_and_price_component_id(
+        SlotTransactionRow::fetch_by_subscription_id_and_price_component_id(
             &mut conn,
             subscription_id,
             price_component_id,
             ts,
         )
-            .await
-            .map(|c| c.current_active_slots as u32)
-            .map_err(Into::into)
+        .await
+        .map(|c| c.current_active_slots as u32)
+        .map_err(Into::into)
     }
 
     async fn add_slot_transaction(
@@ -198,8 +208,8 @@ impl SubscriptionSlotsInterface for Store {
 impl SubscriptionInterface for Store {
     async fn insert_subscription(
         &self,
-        params: domain::CreateSubscription,
-    ) -> StoreResult<domain::CreatedSubscription> {
+        params: CreateSubscription,
+    ) -> StoreResult<CreatedSubscription> {
         self.insert_subscription_batch(vec![params])
             .await?
             .pop()
@@ -208,33 +218,32 @@ impl SubscriptionInterface for Store {
 
     async fn insert_subscription_batch(
         &self,
-        batch: Vec<domain::CreateSubscription>,
-    ) -> StoreResult<Vec<domain::CreatedSubscription>> {
+        batch: Vec<CreateSubscription>,
+    ) -> StoreResult<Vec<CreatedSubscription>> {
         let mut conn: PgConn = self.get_conn().await?;
 
         struct DieselModelWrapper {
-            subscription: diesel_models::subscriptions::SubscriptionNew,
-            price_components: Vec<diesel_models::subscription_components::SubscriptionComponentNew>,
-            event: diesel_models::subscription_events::SubscriptionEvent,
+            subscription: SubscriptionRowNew,
+            price_components: Vec<SubscriptionComponentRowNew>,
+            event: SubscriptionEventRow,
         }
 
-        let db_price_components_by_plan_version =
-            diesel_models::price_components::PriceComponent::get_by_plan_ids(
-                &mut conn,
-                &batch
-                    .iter()
-                    .map(|c| c.subscription.plan_version_id)
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let db_price_components_by_plan_version = PriceComponentRow::get_by_plan_ids(
+            &mut conn,
+            &batch
+                .iter()
+                .map(|c| c.subscription.plan_version_id)
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         // map the price compoennts thanks to .try_into
-        let price_components_by_plan_version: HashMap<Uuid, Vec<domain::PriceComponent>> =
+        let price_components_by_plan_version: HashMap<Uuid, Vec<PriceComponent>> =
             db_price_components_by_plan_version
                 .into_iter()
                 .map(|(k, v)| {
-                    let converted_vec: Result<Vec<domain::PriceComponent>, _> =
+                    let converted_vec: Result<Vec<PriceComponent>, _> =
                         v.into_iter().map(|c| c.try_into()).collect();
                     converted_vec.map(|vec| (k, vec))
                 })
@@ -243,7 +252,7 @@ impl SubscriptionInterface for Store {
         let insertable = batch
             .into_iter()
             .map(|params| {
-                let domain::CreateSubscription {
+                let CreateSubscription {
                     subscription,
                     price_components,
                 } = params;
@@ -257,8 +266,7 @@ impl SubscriptionInterface for Store {
                     &subscription,
                 )?;
 
-                let insertable_subscription: diesel_models::subscriptions::SubscriptionNew =
-                    subscription.into();
+                let insertable_subscription: SubscriptionRowNew = subscription.into();
 
                 let cmrr = insertable_subscription_components
                     .iter()
@@ -267,13 +275,13 @@ impl SubscriptionInterface for Store {
 
                 let insertable_subscription_components = insertable_subscription_components
                     .into_iter()
-                    .map(|c| domain::SubscriptionComponentNew {
+                    .map(|c| SubscriptionComponentNew {
                         subscription_id: insertable_subscription.id,
                         internal: c,
                     })
                     .collect::<Vec<_>>();
 
-                let insertable_event = diesel_models::subscription_events::SubscriptionEvent {
+                let insertable_event = SubscriptionEventRow {
                     id: Uuid::now_v7(),
                     subscription_id: insertable_subscription.id,
                     event_type: SubscriptionEventType::Created.into(),
@@ -302,37 +310,34 @@ impl SubscriptionInterface for Store {
 
         let insertable_subscriptions = insertable.iter().map(|c| &c.subscription).collect();
 
-        let insertable_subscription_events: Vec<
-            &diesel_models::subscription_events::SubscriptionEvent,
-        > = insertable.iter().map(|c| &c.event).collect();
+        let insertable_subscription_events: Vec<&SubscriptionEventRow> =
+            insertable.iter().map(|c| &c.event).collect();
 
-        let inserted_subscriptions = conn.transaction(|conn| async move {
-            let inserted_subscriptions: Vec<domain::CreatedSubscription> =
-                diesel_models::subscriptions::Subscription::insert_subscription_batch(
-                    conn,
-                    insertable_subscriptions,
-                )
+        let inserted_subscriptions = conn
+            .transaction(|conn| {
+                async move {
+                    let inserted_subscriptions: Vec<CreatedSubscription> =
+                        SubscriptionRow::insert_subscription_batch(conn, insertable_subscriptions)
+                            .await
+                            .map_err(Into::<DatabaseErrorContainer>::into)
+                            .map(|v| v.into_iter().map(Into::into).collect())?;
+
+                    SubscriptionComponentRow::insert_subscription_component_batch(
+                        conn,
+                        insertable_subscription_components,
+                    )
                     .await
-                    .map_err(Into::<DatabaseErrorContainer>::into)
-                    .map(|v| v.into_iter().map(Into::into).collect())?;
+                    .map_err(Into::<DatabaseErrorContainer>::into)?;
 
+                    SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
+                        .await
+                        .map_err(Into::<DatabaseErrorContainer>::into)?;
 
-            diesel_models::subscription_components::SubscriptionComponent::insert_subscription_component_batch(
-                conn,
-                insertable_subscription_components,
-            )
-                .await
-                .map_err(Into::<DatabaseErrorContainer>::into)?;
-
-            diesel_models::subscription_events::SubscriptionEvent::insert_batch(
-                conn,
-                insertable_subscription_events,
-            )
-                .await
-                .map_err(Into::<DatabaseErrorContainer>::into)?;
-
-            Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
-        }.scope_boxed()).await?;
+                    Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         // TODO create invoice ? in the sequence flow I guess it only happens after the payment is confirmed
 
@@ -354,21 +359,26 @@ impl SubscriptionInterface for Store {
         &self,
         tenant_id: Uuid,
         subscription_id: Uuid,
-    ) -> StoreResult<domain::SubscriptionDetails> {
+    ) -> StoreResult<SubscriptionDetails> {
         let mut conn = self.get_conn().await?;
 
-        let db_subscription = diesel_models::subscriptions::Subscription::get_subscription_by_id(
-            &mut conn,
-            &tenant_id,
-            &subscription_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let db_subscription =
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, &subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
-        let subscription: domain::Subscription = db_subscription.into();
+        let subscription: Subscription = db_subscription.into();
 
-        let schedules: Vec<domain::Schedule> =
-            diesel_models::schedules::Schedule::list_schedules_by_subscription(
+        let schedules: Vec<Schedule> =
+            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let subscription_components: Vec<SubscriptionComponent> =
+            SubscriptionComponentRow::list_subscription_components_by_subscription(
                 &mut conn,
                 &tenant_id,
                 &subscription_id,
@@ -379,36 +389,20 @@ impl SubscriptionInterface for Store {
             .map(|s| s.try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        let subscription_components: Vec<domain::SubscriptionComponent> =
-            diesel_models::subscription_components::SubscriptionComponent::list_subscription_components_by_subscription(
-                &mut conn,
-                &tenant_id,
-                &subscription_id,
-            )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Result<Vec<_>, _>>()?;
-
         let metric_ids = subscription_components
             .iter()
             .filter_map(|sc| sc.metric_id())
             .collect::<Vec<_>>();
 
-        let billable_metrics: Vec<domain::BillableMetric> =
-            diesel_models::billable_metrics::BillableMetric::get_by_ids(
-                &mut conn,
-                &metric_ids,
-                &subscription.tenant_id,
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .into_iter()
-            .map(|m| m.into())
-            .collect();
+        let billable_metrics: Vec<BillableMetric> =
+            BillableMetricRow::get_by_ids(&mut conn, &metric_ids, &subscription.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|m| m.into())
+                .collect();
 
-        Ok(domain::SubscriptionDetails {
+        Ok(SubscriptionDetails {
             id: subscription.id,
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
@@ -447,21 +441,22 @@ impl SubscriptionInterface for Store {
 
         // TODO update mrr
 
-        let insertable_batch: Vec<
-            diesel_models::subscription_components::SubscriptionComponentNew,
-        > = batch
+        let insertable_batch: Vec<SubscriptionComponentRowNew> = batch
             .into_iter()
             .map(|c| c.try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        diesel_models::subscription_components::SubscriptionComponent::insert_subscription_component_batch(
+        SubscriptionComponentRow::insert_subscription_component_batch(
             &mut conn,
             insertable_batch.iter().collect(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|v| v.into_iter()
-                .map(|e| e.try_into().map_err(Report::from)).collect::<Result<Vec<_>, _>>())?
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .map(|v| {
+            v.into_iter()
+                .map(|e| e.try_into().map_err(Report::from))
+                .collect::<Result<Vec<_>, _>>()
+        })?
     }
 
     async fn cancel_subscription(
@@ -470,7 +465,7 @@ impl SubscriptionInterface for Store {
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
-    ) -> StoreResult<domain::Subscription> {
+    ) -> StoreResult<Subscription> {
         let db_subscription = self
             .transaction(|conn| {
                 async move {
@@ -487,7 +482,7 @@ impl SubscriptionInterface for Store {
                         CancellationEffectiveAt::Date(date) => date,
                     };
 
-                    diesel_models::subscriptions::Subscription::cancel_subscription(
+                    SubscriptionRow::cancel_subscription(
                         conn,
                         diesel_models::subscriptions::CancelSubscriptionParams {
                             subscription_id: subscription_id.clone(),
@@ -500,7 +495,7 @@ impl SubscriptionInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                    let res = diesel_models::subscriptions::Subscription::get_subscription_by_id(
+                    let res = SubscriptionRow::get_subscription_by_id(
                         conn,
                         &context.tenant_id,
                         &subscription_id,
@@ -510,7 +505,7 @@ impl SubscriptionInterface for Store {
 
                     let mrr = subscription.mrr_cents;
 
-                    let event = diesel_models::subscription_events::SubscriptionEvent {
+                    let event = SubscriptionEventRow {
                         id: Uuid::now_v7(),
                         subscription_id,
                         event_type: SubscriptionEventType::Cancelled.into(),
@@ -532,7 +527,7 @@ impl SubscriptionInterface for Store {
             })
             .await?;
 
-        let subscription: domain::Subscription = db_subscription.into();
+        let subscription: Subscription = db_subscription.into();
 
         let _ = self
             .eventbus
@@ -555,7 +550,7 @@ impl SubscriptionInterface for Store {
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
 
-        let db_subscriptions = diesel_models::subscriptions::Subscription::list_subscriptions(
+        let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
             customer_id,
@@ -585,14 +580,13 @@ impl SubscriptionInterface for Store {
     ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>> {
         let mut conn = self.get_conn().await?;
 
-        let db_subscriptions =
-            diesel_models::subscriptions::Subscription::list_subscription_to_invoice_candidates(
-                &mut conn,
-                date,
-                pagination.into(),
-            )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let db_subscriptions = SubscriptionRow::list_subscription_to_invoice_candidates(
+            &mut conn,
+            date,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: CursorPaginatedVec<SubscriptionInvoiceCandidate> = CursorPaginatedVec {
             items: db_subscriptions
@@ -609,7 +603,7 @@ impl SubscriptionInterface for Store {
 
 fn process_create_subscription_components(
     param: &Option<CreateSubscriptionComponents>,
-    map: &HashMap<Uuid, Vec<domain::PriceComponent>>,
+    map: &HashMap<Uuid, Vec<PriceComponent>>,
     sub: &SubscriptionNew,
 ) -> Result<Vec<SubscriptionComponentNewInternal>, StoreError> {
     if param.is_none() {
@@ -797,9 +791,9 @@ fn process_create_subscription_components(
 }
 
 fn apply_parameterization(
-    component: &domain::PriceComponent,
-    parameters: &domain::ComponentParameters,
-) -> Result<domain::SubscriptionComponentNewInternal, StoreError> {
+    component: &PriceComponent,
+    parameters: &ComponentParameters,
+) -> Result<SubscriptionComponentNewInternal, StoreError> {
     match &component.fee {
         FeeType::Rate { rates } => {
             if parameters.initial_slot_count.is_some() || parameters.committed_capacity.is_some() {
@@ -818,7 +812,7 @@ fn apply_parameterization(
                             billing_period
                         ))
                     })?;
-                Ok(domain::SubscriptionComponentNewInternal {
+                Ok(SubscriptionComponentNewInternal {
                     price_component_id: Some(component.id),
                     product_item_id: component.product_item_id.clone(),
                     name: component.name.clone(),
@@ -835,7 +829,7 @@ fn apply_parameterization(
                 }
 
                 let rate = &rates[0];
-                Ok(domain::SubscriptionComponentNewInternal {
+                Ok(SubscriptionComponentNewInternal {
                     price_component_id: Some(component.id),
                     product_item_id: component.product_item_id.clone(),
                     name: component.name.clone(),
@@ -875,7 +869,7 @@ fn apply_parameterization(
                     "Unexpected committed capacity for slot fee".to_string(),
                 ));
             }
-            Ok(domain::SubscriptionComponentNewInternal {
+            Ok(SubscriptionComponentNewInternal {
                 price_component_id: Some(component.id),
                 product_item_id: component.product_item_id.clone(),
                 name: component.name.clone(),
@@ -914,7 +908,7 @@ fn apply_parameterization(
                 ));
             }
 
-            Ok(domain::SubscriptionComponentNewInternal {
+            Ok(SubscriptionComponentNewInternal {
                 price_component_id: Some(component.id),
                 product_item_id: component.product_item_id.clone(),
                 name: component.name.clone(),

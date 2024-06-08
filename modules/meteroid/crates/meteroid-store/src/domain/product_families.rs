@@ -2,12 +2,12 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 
-use diesel_models::product_families::ProductFamily as DieselProductFamily;
-use diesel_models::product_families::ProductFamilyNew as DieselProductFamilyNew;
+use diesel_models::product_families::ProductFamilyRow;
+use diesel_models::product_families::ProductFamilyRowNew;
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(DieselProductFamily)]
-#[owned_into(DieselProductFamily)]
+#[from_owned(ProductFamilyRow)]
+#[owned_into(ProductFamilyRow)]
 pub struct ProductFamily {
     pub id: Uuid,
     pub name: String,
@@ -19,7 +19,7 @@ pub struct ProductFamily {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[owned_into(DieselProductFamilyNew)]
+#[owned_into(ProductFamilyRowNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct ProductFamilyNew {
     pub name: String,

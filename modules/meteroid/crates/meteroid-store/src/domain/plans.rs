@@ -1,4 +1,13 @@
 use chrono::NaiveDateTime;
+use diesel_models::plan_versions::PlanVersionRow;
+use diesel_models::plan_versions::PlanVersionRowLatest;
+use diesel_models::plan_versions::PlanVersionRowNew;
+use diesel_models::plan_versions::PlanVersionRowPatch;
+use diesel_models::plans::PlanRow;
+use diesel_models::plans::PlanRowForList;
+use diesel_models::plans::PlanRowNew;
+use diesel_models::plans::PlanRowPatch;
+use diesel_models::plans::PlanWithVersionRow;
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
@@ -19,8 +28,8 @@ pub struct PlanNew {
 }
 
 impl PlanNew {
-    pub fn into_raw(self, product_family_id: Uuid) -> diesel_models::plans::PlanNew {
-        diesel_models::plans::PlanNew {
+    pub fn into_raw(self, product_family_id: Uuid) -> PlanRowNew {
+        PlanRowNew {
             id: Uuid::now_v7(),
             name: self.name,
             description: self.description,
@@ -62,8 +71,8 @@ pub struct PlanVersionNew {
 }
 
 impl PlanVersionNew {
-    pub fn into_raw(self, tenant_currency: String) -> diesel_models::plan_versions::PlanVersionNew {
-        diesel_models::plan_versions::PlanVersionNew {
+    pub fn into_raw(self, tenant_currency: String) -> PlanVersionRowNew {
+        PlanVersionRowNew {
             id: Uuid::now_v7(),
             plan_id: self.plan_id,
             created_by: self.created_by,
@@ -87,7 +96,7 @@ impl PlanVersionNew {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::plans::Plan)]
+#[from_owned(PlanRow)]
 pub struct Plan {
     pub id: Uuid,
     pub name: String,
@@ -104,7 +113,7 @@ pub struct Plan {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::plan_versions::PlanVersion)]
+#[from_owned(PlanVersionRow)]
 pub struct PlanVersion {
     pub id: Uuid,
     pub is_draft_version: bool,
@@ -130,7 +139,7 @@ pub struct FullPlan {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::plans::PlanForList)]
+#[from_owned(PlanRowForList)]
 pub struct PlanForList {
     pub id: Uuid,
     pub name: String,
@@ -150,7 +159,7 @@ pub struct PlanForList {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::plan_versions::PlanVersionLatest)]
+#[from_owned(PlanVersionRowLatest)]
 pub struct PlanVersionLatest {
     pub id: Uuid,
     pub plan_id: Uuid,
@@ -167,7 +176,7 @@ pub struct PlanVersionLatest {
 }
 
 #[derive(Debug, o2o)]
-#[owned_into(diesel_models::plan_versions::PlanVersionPatch)]
+#[owned_into(PlanVersionRowPatch)]
 pub struct PlanVersionPatch {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -184,7 +193,7 @@ pub struct PlanAndVersionPatch {
 }
 
 #[derive(Debug, o2o)]
-#[owned_into(diesel_models::plans::PlanPatch)]
+#[owned_into(PlanRowPatch)]
 pub struct PlanPatch {
     pub id: Uuid,
     pub tenant_id: Uuid,
@@ -193,7 +202,7 @@ pub struct PlanPatch {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(diesel_models::plans::PlanWithVersion)]
+#[from_owned(PlanWithVersionRow)]
 pub struct PlanWithVersion {
     #[from(~.into())]
     pub plan: Plan,

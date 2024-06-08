@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::plans::{Plan, PlanForList, PlanNew, PlanPatch, PlanWithVersion};
+use crate::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow};
 
 use crate::{DbResult, PgConn};
 
@@ -13,8 +13,8 @@ use diesel::{
 use error_stack::ResultExt;
 use uuid::Uuid;
 
-impl PlanNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Plan> {
+impl PlanRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -30,12 +30,12 @@ impl PlanNew {
     }
 }
 
-impl Plan {
+impl PlanRow {
     pub async fn get_by_external_id_and_tenant_id(
         conn: &mut PgConn,
         external_id: &str,
         tenant_id: Uuid,
-    ) -> DbResult<Plan> {
+    ) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -52,7 +52,7 @@ impl Plan {
             .into_db_result()
     }
 
-    pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<Plan> {
+    pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -63,7 +63,7 @@ impl Plan {
                 p_dsl::status.eq(PlanStatusEnum::Active),
                 p_dsl::updated_at.eq(diesel::dsl::now),
             ))
-            .returning(Plan::as_select());
+            .returning(PlanRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -102,7 +102,7 @@ impl Plan {
         conn: &mut PgConn,
         version_id: Uuid,
         tenant_id: Uuid,
-    ) -> DbResult<PlanWithVersion> {
+    ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
@@ -111,7 +111,7 @@ impl Plan {
             .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
             .filter(pv_dsl::id.eq(version_id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .select(PlanWithVersion::as_select());
+            .select(PlanWithVersionRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -126,7 +126,7 @@ impl Plan {
         conn: &mut PgConn,
         external_id: &str,
         tenant_id: Uuid,
-    ) -> DbResult<PlanWithVersion> {
+    ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
@@ -136,7 +136,7 @@ impl Plan {
             .filter(p_dsl::external_id.eq(external_id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .order(pv_dsl::version.desc())
-            .select(PlanWithVersion::as_select());
+            .select(PlanWithVersionRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -148,7 +148,7 @@ impl Plan {
     }
 }
 
-impl PlanForList {
+impl PlanRowForList {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: Uuid,
@@ -156,14 +156,14 @@ impl PlanForList {
         product_family_external_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> DbResult<PaginatedVec<PlanForList>> {
+    ) -> DbResult<PaginatedVec<PlanRowForList>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
 
         let mut query = p_dsl::plan
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .select(PlanForList::as_select())
+            .select(PlanRowForList::as_select())
             .into_boxed();
 
         if let Some(product_family_external_id) = product_family_external_id {
@@ -201,8 +201,8 @@ impl PlanForList {
     }
 }
 
-impl PlanPatch {
-    pub async fn update(&self, conn: &mut PgConn) -> DbResult<Plan> {
+impl PlanRowPatch {
+    pub async fn update(&self, conn: &mut PgConn) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 

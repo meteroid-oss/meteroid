@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 
-use crate::subscription_events::SubscriptionEvent;
+use crate::subscription_events::SubscriptionEventRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDate;
 
@@ -8,8 +8,8 @@ use diesel::debug_query;
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
-impl SubscriptionEvent {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionEvent> {
+impl SubscriptionEventRow {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionEventRow> {
         use crate::schema::subscription_event::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -26,8 +26,8 @@ impl SubscriptionEvent {
 
     pub async fn insert_batch(
         conn: &mut PgConn,
-        events: Vec<&SubscriptionEvent>,
-    ) -> DbResult<Vec<SubscriptionEvent>> {
+        events: Vec<&SubscriptionEventRow>,
+    ) -> DbResult<Vec<SubscriptionEventRow>> {
         use crate::schema::subscription_event::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -46,7 +46,7 @@ impl SubscriptionEvent {
         conn: &mut PgConn,
         subscription_uid: uuid::Uuid,
         date: NaiveDate,
-    ) -> DbResult<Vec<SubscriptionEvent>> {
+    ) -> DbResult<Vec<SubscriptionEventRow>> {
         use crate::schema::subscription_event::dsl::*;
         use diesel_async::RunQueryDsl;
 

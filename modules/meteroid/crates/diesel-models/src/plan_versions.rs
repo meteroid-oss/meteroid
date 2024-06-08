@@ -8,7 +8,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanVersion {
+pub struct PlanVersionRow {
     pub id: Uuid,
     pub is_draft_version: bool,
     pub plan_id: Uuid,
@@ -28,7 +28,7 @@ pub struct PlanVersion {
 #[derive(Debug, Insertable, Default)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanVersionNew {
+pub struct PlanVersionRowNew {
     pub id: Uuid,
     pub is_draft_version: bool,
     pub plan_id: Uuid,
@@ -47,7 +47,7 @@ pub struct PlanVersionNew {
 #[derive(Debug, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanVersionLatest {
+pub struct PlanVersionRowLatest {
     pub id: Uuid,
     pub plan_id: Uuid,
     #[diesel(select_expression = crate::schema::plan::name)]
@@ -72,7 +72,7 @@ pub struct PlanVersionLatest {
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
-pub struct PlanVersionPatch {
+pub struct PlanVersionRowPatch {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub currency: Option<String>,

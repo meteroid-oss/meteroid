@@ -1,10 +1,12 @@
 use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
+use diesel_models::subscription_components::{
+    SubscriptionComponentRow, SubscriptionComponentRowNew,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::UsagePricingModel;
 use crate::errors::StoreError;
-use diesel_models::subscription_components as db;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionComponent {
@@ -17,7 +19,7 @@ pub struct SubscriptionComponent {
     pub fee: SubscriptionFee,
 }
 
-impl TryInto<SubscriptionComponent> for db::SubscriptionComponent {
+impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
     type Error = StoreError;
 
     fn try_into(self) -> Result<SubscriptionComponent, Self::Error> {
@@ -66,14 +68,14 @@ pub struct SubscriptionComponentNew {
     pub internal: SubscriptionComponentNewInternal,
 }
 
-impl TryInto<db::SubscriptionComponentNew> for SubscriptionComponentNew {
+impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
     type Error = StoreError;
 
-    fn try_into(self) -> Result<db::SubscriptionComponentNew, Self::Error> {
+    fn try_into(self) -> Result<SubscriptionComponentRowNew, Self::Error> {
         let fee = serde_json::to_value(self.internal.fee)
             .map_err(|e| StoreError::SerdeError("Failed to serialize fee".to_string(), e))?;
 
-        Ok(db::SubscriptionComponentNew {
+        Ok(SubscriptionComponentRowNew {
             id: Uuid::now_v7(),
             subscription_id: self.subscription_id,
             price_component_id: self.internal.price_component_id,

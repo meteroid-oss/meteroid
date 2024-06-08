@@ -7,7 +7,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 #[diesel(primary_key(user_id, organization_id))]
 #[diesel(table_name = crate::schema::organization_member)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct OrganizationMember {
+pub struct OrganizationMemberRow {
     pub user_id: Uuid,
     pub organization_id: Uuid,
     pub role: OrganizationUserRole,

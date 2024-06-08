@@ -6,7 +6,7 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::product)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Product {
+pub struct ProductRow {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
@@ -21,7 +21,7 @@ pub struct Product {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::product)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ProductNew {
+pub struct ProductRowNew {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,

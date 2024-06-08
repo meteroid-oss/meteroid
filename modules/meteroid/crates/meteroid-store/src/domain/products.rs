@@ -1,11 +1,11 @@
 use chrono::NaiveDateTime;
-use diesel_models::products::Product as DieselProduct;
+use diesel_models::products::ProductRow;
 use o2o::o2o;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(DieselProduct)]
-#[owned_into(DieselProduct)]
+#[from_owned(ProductRow)]
+#[owned_into(ProductRow)]
 pub struct Product {
     pub id: Uuid,
     pub name: String,

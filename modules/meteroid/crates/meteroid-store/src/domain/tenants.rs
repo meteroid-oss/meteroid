@@ -3,12 +3,12 @@ use o2o::o2o;
 use uuid::Uuid;
 
 use crate::domain::enums::TenantEnvironmentEnum;
-use diesel_models::tenants::Tenant as DieselTenant;
-use diesel_models::tenants::TenantNew as DieselTenantNew;
+use diesel_models::tenants::TenantRow;
+use diesel_models::tenants::TenantRowNew;
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(DieselTenant)]
-#[owned_into(DieselTenant)]
+#[from_owned(TenantRow)]
+#[owned_into(TenantRow)]
 pub struct Tenant {
     pub id: Uuid,
     pub name: String,
@@ -23,7 +23,7 @@ pub struct Tenant {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[owned_into(DieselTenantNew)]
+#[owned_into(TenantRowNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct OrgTenantNew {
     pub name: String,

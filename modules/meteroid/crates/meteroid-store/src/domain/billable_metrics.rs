@@ -1,15 +1,13 @@
 use super::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 use chrono::NaiveDateTime;
 
-use diesel_models::billable_metrics::{
-    BillableMetric as DieselBillableMetric, BillableMetricMeta as DieselBillableMetricMeta,
-};
+use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
 use o2o::o2o;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(DieselBillableMetric)]
-#[owned_into(DieselBillableMetric)]
+#[from_owned(BillableMetricRow)]
+#[owned_into(BillableMetricRow)]
 pub struct BillableMetric {
     pub id: Uuid,
     pub name: String,
@@ -48,8 +46,8 @@ pub struct BillableMetricNew {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(DieselBillableMetricMeta)]
-#[owned_into(DieselBillableMetricMeta)]
+#[from_owned(BillableMetricMetaRow)]
+#[owned_into(BillableMetricMetaRow)]
 pub struct BillableMetricMeta {
     pub id: Uuid,
     pub name: String,

@@ -2,15 +2,15 @@ use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::webhooks::{
-    WebhookInEvent, WebhookInEventNew, WebhookOutEndpoint, WebhookOutEndpointNew, WebhookOutEvent,
-    WebhookOutEventNew,
+    WebhookInEventRow, WebhookInEventRowNew, WebhookOutEndpointRow, WebhookOutEndpointRowNew,
+    WebhookOutEventRow, WebhookOutEventRowNew,
 };
 use crate::{DbResult, PgConn};
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
-impl WebhookOutEndpointNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookOutEndpoint> {
+impl WebhookOutEndpointRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookOutEndpointRow> {
         use crate::schema::webhook_out_endpoint::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -25,8 +25,8 @@ impl WebhookOutEndpointNew {
     }
 }
 
-impl WebhookOutEventNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookOutEvent> {
+impl WebhookOutEventRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookOutEventRow> {
         use crate::schema::webhook_out_event::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -41,11 +41,11 @@ impl WebhookOutEventNew {
     }
 }
 
-impl WebhookOutEndpoint {
+impl WebhookOutEndpointRow {
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<Vec<WebhookOutEndpoint>> {
+    ) -> DbResult<Vec<WebhookOutEndpointRow>> {
         use crate::schema::webhook_out_endpoint::dsl;
         use diesel_async::RunQueryDsl;
 
@@ -64,7 +64,7 @@ impl WebhookOutEndpoint {
         conn: &mut PgConn,
         id: uuid::Uuid,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<WebhookOutEndpoint> {
+    ) -> DbResult<WebhookOutEndpointRow> {
         use crate::schema::webhook_out_endpoint::dsl;
         use diesel_async::RunQueryDsl;
 
@@ -82,14 +82,14 @@ impl WebhookOutEndpoint {
     }
 }
 
-impl WebhookOutEvent {
+impl WebhookOutEventRow {
     pub async fn list_events(
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
         endpoint_id: uuid::Uuid,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> DbResult<PaginatedVec<WebhookOutEvent>> {
+    ) -> DbResult<PaginatedVec<WebhookOutEventRow>> {
         use crate::schema::webhook_out_endpoint::dsl as end_dsl;
         use crate::schema::webhook_out_event::dsl as ev_dsl;
 
@@ -97,7 +97,7 @@ impl WebhookOutEvent {
             .inner_join(end_dsl::webhook_out_endpoint.on(ev_dsl::endpoint_id.eq(end_dsl::id)))
             .filter(ev_dsl::endpoint_id.eq(endpoint_id))
             .filter(end_dsl::tenant_id.eq(tenant_id))
-            .select(WebhookOutEvent::as_select())
+            .select(WebhookOutEventRow::as_select())
             .into_boxed();
 
         match order_by {
@@ -123,8 +123,8 @@ impl WebhookOutEvent {
     }
 }
 
-impl WebhookInEventNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookInEvent> {
+impl WebhookInEventRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<WebhookInEventRow> {
         use crate::schema::webhook_in_event::dsl as wi_dsl;
         use diesel_async::RunQueryDsl;
 

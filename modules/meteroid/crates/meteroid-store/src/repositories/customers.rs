@@ -2,19 +2,21 @@ use error_stack::Report;
 use uuid::Uuid;
 
 use common_eventbus::Event;
+use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
 
 use crate::domain::{
-    Customer, CustomerBrief, CustomerPatch, OrderByRequest, PaginatedVec, PaginationRequest,
+    Customer, CustomerBrief, CustomerNew, CustomerPatch, OrderByRequest, PaginatedVec,
+    PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::StoreResult;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: Uuid) -> StoreResult<domain::Customer>;
+    async fn find_customer_by_id(&self, id: Uuid) -> StoreResult<Customer>;
 
-    async fn find_customer_by_alias(&self, alias: String) -> StoreResult<domain::Customer>;
+    async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
     async fn find_customer_ids_by_aliases(
         &self,
@@ -28,39 +30,35 @@ pub trait CustomersInterface {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
-    ) -> StoreResult<PaginatedVec<domain::Customer>>;
+    ) -> StoreResult<PaginatedVec<Customer>>;
 
-    async fn insert_customer(&self, customer: domain::CustomerNew)
-        -> StoreResult<domain::Customer>;
+    async fn insert_customer(&self, customer: CustomerNew) -> StoreResult<Customer>;
 
-    async fn insert_customer_batch(
-        &self,
-        batch: Vec<domain::CustomerNew>,
-    ) -> StoreResult<Vec<domain::Customer>>;
+    async fn insert_customer_batch(&self, batch: Vec<CustomerNew>) -> StoreResult<Vec<Customer>>;
 
     async fn patch_customer(
         &self,
         actor: Uuid,
         tenant_id: Uuid,
-        customer: domain::CustomerPatch,
-    ) -> StoreResult<Option<domain::Customer>>;
+        customer: CustomerPatch,
+    ) -> StoreResult<Option<Customer>>;
 }
 
 #[async_trait::async_trait]
 impl CustomersInterface for Store {
-    async fn find_customer_by_id(&self, customer_id: Uuid) -> StoreResult<domain::Customer> {
+    async fn find_customer_by_id(&self, customer_id: Uuid) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::customers::Customer::find_by_id(&mut conn, customer_id)
+        CustomerRow::find_by_id(&mut conn, customer_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
     }
 
-    async fn find_customer_by_alias(&self, alias: String) -> StoreResult<domain::Customer> {
+    async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::customers::Customer::find_by_alias(&mut conn, alias)
+        CustomerRow::find_by_alias(&mut conn, alias)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -73,7 +71,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Vec<CustomerBrief>> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::customers::Customer::find_by_aliases(&mut conn, tenant_id, aliases)
+        CustomerRow::find_by_aliases(&mut conn, tenant_id, aliases)
             .await
             .map_err(Into::into)
             .map(|v| {
@@ -92,7 +90,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<PaginatedVec<Customer>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::customers::Customer::list(
+        let rows = CustomerRow::list(
             &mut conn,
             tenant_id,
             pagination.into(),
@@ -117,15 +115,12 @@ impl CustomersInterface for Store {
         Ok(res)
     }
 
-    async fn insert_customer(
-        &self,
-        customer: domain::CustomerNew,
-    ) -> StoreResult<domain::Customer> {
+    async fn insert_customer(&self, customer: CustomerNew) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_entity: diesel_models::customers::CustomerNew = customer.try_into()?;
+        let insertable_entity: CustomerRowNew = customer.try_into()?;
 
-        let res: domain::Customer = insertable_entity
+        let res: Customer = insertable_entity
             .insert(&mut conn)
             .await
             .map_err(Into::into)
@@ -143,24 +138,20 @@ impl CustomersInterface for Store {
         Ok(res)
     }
 
-    async fn insert_customer_batch(
-        &self,
-        batch: Vec<domain::CustomerNew>,
-    ) -> StoreResult<Vec<domain::Customer>> {
+    async fn insert_customer_batch(&self, batch: Vec<CustomerNew>) -> StoreResult<Vec<Customer>> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_batch: Vec<diesel_models::customers::CustomerNew> = batch
+        let insertable_batch: Vec<CustomerRowNew> = batch
             .into_iter()
             .map(|c| c.try_into())
-            .collect::<Vec<Result<diesel_models::customers::CustomerNew, Report<StoreError>>>>()
+            .collect::<Vec<Result<CustomerRowNew, Report<StoreError>>>>()
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        let res: Vec<Customer> =
-            diesel_models::customers::Customer::insert_customer_batch(&mut conn, insertable_batch)
-                .await
-                .map_err(Into::into)
-                .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+        let res: Vec<Customer> = CustomerRow::insert_customer_batch(&mut conn, insertable_batch)
+            .await
+            .map_err(Into::into)
+            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
 
         let _ = futures::future::join_all(res.clone().into_iter().map(|res| {
             self.eventbus.publish(Event::customer_created(
@@ -184,19 +175,18 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Option<Customer>> {
         let mut conn = self.get_conn().await?;
 
-        let patch_model: diesel_models::customers::CustomerPatch =
-            diesel_models::customers::CustomerPatch {
-                id: customer.id,
-                name: customer.name,
-                alias: customer.alias,
-                email: customer.email,
-                invoicing_email: customer.invoicing_email,
-                phone: customer.phone,
-                balance_value_cents: customer.balance_value_cents,
-                balance_currency: customer.balance_currency,
-                billing_address: customer.billing_address,
-                shipping_address: customer.shipping_address,
-            };
+        let patch_model: CustomerRowPatch = CustomerRowPatch {
+            id: customer.id,
+            name: customer.name,
+            alias: customer.alias,
+            email: customer.email,
+            invoicing_email: customer.invoicing_email,
+            phone: customer.phone,
+            balance_value_cents: customer.balance_value_cents,
+            balance_currency: customer.balance_currency,
+            billing_address: customer.billing_address,
+            shipping_address: customer.shipping_address,
+        };
 
         let updated = patch_model
             .update(&mut conn, customer.id)

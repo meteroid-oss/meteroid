@@ -5,7 +5,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 #[derive(Queryable, Debug, Identifiable, AsChangeset, Selectable)]
 #[diesel(table_name = crate::schema::price_component)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PriceComponent {
+pub struct PriceComponentRow {
     pub id: Uuid,
     pub name: String,
     pub fee: serde_json::Value,
@@ -17,7 +17,7 @@ pub struct PriceComponent {
 #[derive(Debug, Default, Insertable)]
 #[diesel(table_name = crate::schema::price_component)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PriceComponentNew {
+pub struct PriceComponentRowNew {
     pub id: Uuid,
     pub name: String,
     pub fee: serde_json::Value,

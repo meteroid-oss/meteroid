@@ -11,6 +11,10 @@ use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::organization_members::OrganizationMemberRow;
+use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
+use diesel_models::tenants::TenantRowNew;
+use diesel_models::users::{UserRow, UserRowNew};
 use error_stack::Report;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
@@ -31,8 +35,7 @@ impl UserInterface for Store {
     async fn register_user(&self, req: RegisterUserRequest) -> StoreResult<RegisterUserResponse> {
         let mut conn = self.get_conn().await?;
 
-        let user_opt =
-            diesel_models::users::User::find_by_email(&mut conn, req.email.clone()).await?;
+        let user_opt = UserRow::find_by_email(&mut conn, req.email.clone()).await?;
 
         if user_opt.is_some() {
             return Err(StoreError::DuplicateValue {
@@ -51,7 +54,7 @@ impl UserInterface for Store {
             // Hash password
             let hashed_password = hash_password(&req.password.expose_secret())?;
 
-            let user_new = diesel_models::users::UserNew {
+            let user_new = UserRowNew {
                 id: Uuid::now_v7(),
                 email: req.email.clone(),
                 password_hash: Some(hashed_password),
@@ -62,7 +65,7 @@ impl UserInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            let om = diesel_models::organization_members::OrganizationMember {
+            let om = OrganizationMemberRow {
                 user_id: user_new.id,
                 organization_id,
                 role: role.into(),
@@ -77,7 +80,7 @@ impl UserInterface for Store {
 
         let user_id = match req.invite_key {
             None => {
-                let users_non_empty = diesel_models::users::User::any_exists(&mut conn).await?;
+                let users_non_empty = UserRow::any_exists(&mut conn).await?;
 
                 if users_non_empty {
                     return Err(Report::new(StoreError::UserRegistrationClosed("registration is currently closed. Please request an invite key from your administrator.".into())));
@@ -86,7 +89,7 @@ impl UserInterface for Store {
                 // This is the first user. We allow invite-less registration & init the instance
                 self.transaction(|conn| {
                     async move {
-                        let org = diesel_models::organizations::OrganizationNew {
+                        let org = OrganizationRowNew {
                             id: Uuid::now_v7(),
                             name: "ACME Inc.".into(),
                             slug: "instance".into(),
@@ -99,7 +102,7 @@ impl UserInterface for Store {
                         let user_id =
                             create_user(conn, &req, org.id, OrganizationUserRole::Admin).await?;
 
-                        let tenant: diesel_models::tenants::TenantNew = OrgTenantNew {
+                        let tenant: TenantRowNew = OrgTenantNew {
                             name: "Sandbox".into(),
                             slug: "sandbox".into(),
                             organization_id: org.id,
@@ -120,7 +123,7 @@ impl UserInterface for Store {
                 .await?
             }
             Some(ref invite_link) => {
-                let org_id = diesel_models::organizations::Organization::find_by_invite_link(
+                let org_id = OrganizationRow::find_by_invite_link(
                     &mut conn,
                     invite_link.expose_secret().clone(),
                 )
@@ -142,7 +145,7 @@ impl UserInterface for Store {
             .publish(Event::user_created(None, user_id))
             .await;
 
-        let user: User = diesel_models::users::User::find_by_id(&mut conn, user_id)
+        let user: User = UserRow::find_by_id(&mut conn, user_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(Into::into)?;
@@ -156,11 +159,12 @@ impl UserInterface for Store {
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse> {
         let mut conn = self.get_conn().await?;
 
-        let user = diesel_models::users::User::find_by_email(&mut conn, req.email)
-            .await?
-            .ok_or(StoreError::LoginError(
-                "incorrect email and/or password".into(),
-            ))?;
+        let user =
+            UserRow::find_by_email(&mut conn, req.email)
+                .await?
+                .ok_or(StoreError::LoginError(
+                    "incorrect email and/or password".into(),
+                ))?;
 
         let password_hash = user.password_hash.clone().ok_or(StoreError::LoginError(
             "Password is not set. Login is forbidden".into(),
@@ -184,7 +188,7 @@ impl UserInterface for Store {
     async fn me(&self, auth_user_id: Uuid) -> StoreResult<User> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::users::User::find_by_id(&mut conn, auth_user_id)
+        UserRow::find_by_id(&mut conn, auth_user_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -193,11 +197,9 @@ impl UserInterface for Store {
     async fn find_user_by_id(&self, id: Uuid, auth_user_id: Uuid) -> StoreResult<User> {
         let mut conn = self.get_conn().await?;
 
-        let org =
-            diesel_models::organizations::Organization::find_by_user_id(&mut conn, auth_user_id)
-                .await?;
+        let org = OrganizationRow::find_by_user_id(&mut conn, auth_user_id).await?;
 
-        diesel_models::users::User::find_by_id_and_org_id(&mut conn, id, org.id)
+        UserRow::find_by_id_and_org_id(&mut conn, id, org.id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -206,11 +208,9 @@ impl UserInterface for Store {
     async fn find_user_by_email(&self, email: String, auth_user_id: Uuid) -> StoreResult<User> {
         let mut conn = self.get_conn().await?;
 
-        let org =
-            diesel_models::organizations::Organization::find_by_user_id(&mut conn, auth_user_id)
-                .await?;
+        let org = OrganizationRow::find_by_user_id(&mut conn, auth_user_id).await?;
 
-        diesel_models::users::User::find_by_email_and_org_id(&mut conn, email, org.id)
+        UserRow::find_by_email_and_org_id(&mut conn, email, org.id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -219,11 +219,9 @@ impl UserInterface for Store {
     async fn list_users(&self, auth_user_id: Uuid) -> StoreResult<Vec<User>> {
         let mut conn = self.get_conn().await?;
 
-        let org =
-            diesel_models::organizations::Organization::find_by_user_id(&mut conn, auth_user_id)
-                .await?;
+        let org = OrganizationRow::find_by_user_id(&mut conn, auth_user_id).await?;
 
-        diesel_models::users::User::list_by_org_id(&mut conn, org.id)
+        UserRow::list_by_org_id(&mut conn, org.id)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())

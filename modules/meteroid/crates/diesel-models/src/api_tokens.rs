@@ -6,7 +6,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 #[derive(Debug, Queryable, Identifiable)]
 #[diesel(table_name = crate::schema::api_token)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ApiToken {
+pub struct ApiTokenRow {
     pub id: Uuid,
     pub name: String,
     pub created_at: NaiveDateTime,
@@ -19,7 +19,7 @@ pub struct ApiToken {
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::api_token)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ApiTokenNew {
+pub struct ApiTokenRowNew {
     pub id: Uuid,
     pub name: String,
     pub created_at: NaiveDateTime,

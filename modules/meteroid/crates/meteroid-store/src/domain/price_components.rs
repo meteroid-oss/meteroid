@@ -5,6 +5,7 @@ use uuid::Uuid;
 use super::enums::{BillingPeriodEnum, BillingType};
 
 use crate::errors::StoreError;
+use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
@@ -15,7 +16,7 @@ pub struct PriceComponent {
     pub product_item_id: Option<Uuid>,
 }
 
-impl TryInto<PriceComponent> for diesel_models::price_components::PriceComponent {
+impl TryInto<PriceComponent> for PriceComponentRow {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<PriceComponent, Self::Error> {
@@ -48,15 +49,15 @@ pub struct PriceComponentNewInternal {
     pub product_item_id: Option<Uuid>,
 }
 
-impl TryInto<diesel_models::price_components::PriceComponentNew> for PriceComponentNew {
+impl TryInto<PriceComponentRowNew> for PriceComponentNew {
     type Error = StoreError;
 
-    fn try_into(self) -> Result<diesel_models::price_components::PriceComponentNew, StoreError> {
+    fn try_into(self) -> Result<PriceComponentRowNew, StoreError> {
         let json_fee = serde_json::to_value(&self.fee).map_err(|e| {
             StoreError::SerdeError("Failed to serialize price component fee".to_string(), e)
         })?;
 
-        Ok(diesel_models::price_components::PriceComponentNew {
+        Ok(PriceComponentRowNew {
             id: Uuid::now_v7(),
             plan_version_id: self.plan_version_id,
             name: self.name,

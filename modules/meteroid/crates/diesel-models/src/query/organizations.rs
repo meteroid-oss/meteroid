@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::organizations::{Organization, OrganizationNew};
+use crate::organizations::{OrganizationRow, OrganizationRowNew};
 
 use crate::{DbResult, PgConn};
 
@@ -7,8 +7,8 @@ use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelp
 use error_stack::ResultExt;
 use tap::TapFallible;
 
-impl OrganizationNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Organization> {
+impl OrganizationRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -24,12 +24,12 @@ impl OrganizationNew {
     }
 }
 
-impl Organization {
-    pub async fn find_all(conn: &mut PgConn) -> DbResult<Vec<Organization>> {
+impl OrganizationRow {
+    pub async fn find_all(conn: &mut PgConn) -> DbResult<Vec<OrganizationRow>> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = o_dsl::organization.select(Organization::as_select());
+        let query = o_dsl::organization.select(OrganizationRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -40,7 +40,10 @@ impl Organization {
             .into_db_result()
     }
 
-    pub async fn find_by_user_id(conn: &mut PgConn, user_id: uuid::Uuid) -> DbResult<Organization> {
+    pub async fn find_by_user_id(
+        conn: &mut PgConn,
+        user_id: uuid::Uuid,
+    ) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl as o_dsl;
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
@@ -50,7 +53,7 @@ impl Organization {
             .inner_join(om_dsl::organization_member.on(o_dsl::id.eq(om_dsl::organization_id)))
             .inner_join(u_dsl::user.on(om_dsl::user_id.eq(u_dsl::id)))
             .filter(u_dsl::id.eq(user_id))
-            .select(Organization::as_select());
+            .select(OrganizationRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -64,7 +67,7 @@ impl Organization {
     pub async fn find_by_invite_link(
         conn: &mut PgConn,
         invite_link_hash: String,
-    ) -> DbResult<Organization> {
+    ) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 

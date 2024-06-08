@@ -1,5 +1,6 @@
 use crate::domain::historical_rates::{HistoricalRatesFromUsd, HistoricalRatesFromUsdNew};
 use crate::{Store, StoreResult};
+use diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdRowNew;
 
 #[async_trait::async_trait]
 pub trait HistoricalRatesInterface {
@@ -17,8 +18,7 @@ impl HistoricalRatesInterface for Store {
     ) -> StoreResult<HistoricalRatesFromUsd> {
         let mut conn = self.get_conn().await?;
 
-        let insertable: diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdNew =
-            rate.try_into()?;
+        let insertable: HistoricalRatesFromUsdRowNew = rate.try_into()?;
 
         insertable
             .insert(&mut conn)

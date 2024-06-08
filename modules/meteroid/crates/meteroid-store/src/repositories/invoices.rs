@@ -9,10 +9,12 @@ use diesel_models::PgConn;
 use error_stack::Report;
 
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, InvoiceWithCustomer, InvoiceWithPlanDetails,
-    OrderByRequest, PaginatedVec, PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, Invoice, InvoiceNew, InvoiceWithCustomer,
+    InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use common_eventbus::Event;
+use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
+use diesel_models::subscriptions::SubscriptionRow;
 use tracing_log::log;
 use uuid::Uuid;
 
@@ -22,7 +24,7 @@ pub trait InvoiceInterface {
         &self,
         tenant_id: Uuid,
         invoice_id: Uuid,
-    ) -> StoreResult<domain::InvoiceWithPlanDetails>;
+    ) -> StoreResult<InvoiceWithPlanDetails>;
 
     async fn list_invoices(
         &self,
@@ -32,14 +34,11 @@ pub trait InvoiceInterface {
         query: Option<String>,
         order_by: OrderByRequest,
         pagination: PaginationRequest,
-    ) -> StoreResult<PaginatedVec<domain::InvoiceWithCustomer>>;
+    ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>>;
 
-    async fn insert_invoice(&self, invoice: domain::InvoiceNew) -> StoreResult<domain::Invoice>;
+    async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice>;
 
-    async fn insert_invoice_batch(
-        &self,
-        invoice: Vec<domain::InvoiceNew>,
-    ) -> StoreResult<Vec<domain::Invoice>>;
+    async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>>;
 
     async fn update_invoice_external_status(
         &self,
@@ -51,7 +50,7 @@ pub trait InvoiceInterface {
     async fn list_invoices_to_finalize(
         &self,
         pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>>;
+    ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
     async fn finalize_invoice(
         &self,
@@ -63,7 +62,7 @@ pub trait InvoiceInterface {
     async fn list_outdated_invoices(
         &self,
         pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>>;
+    ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
     async fn update_invoice_lines(
         &self,
@@ -76,7 +75,7 @@ pub trait InvoiceInterface {
         &self,
         max_attempts: i32,
         pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>>;
+    ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
     async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
 
@@ -99,7 +98,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<InvoiceWithPlanDetails> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::invoices::Invoice::find_by_id(&mut conn, tenant_id, invoice_id)
+        InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -116,7 +115,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<PaginatedVec<InvoiceWithCustomer>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::invoices::Invoice::list(
+        let rows = InvoiceRow::list(
             &mut conn,
             tenant_id,
             customer_id,
@@ -141,12 +140,12 @@ impl InvoiceInterface for Store {
         Ok(res)
     }
 
-    async fn insert_invoice(&self, invoice: domain::InvoiceNew) -> StoreResult<domain::Invoice> {
+    async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_invoice: diesel_models::invoices::InvoiceNew = invoice.into();
+        let insertable_invoice: InvoiceRowNew = invoice.into();
 
-        let inserted: domain::Invoice = insertable_invoice
+        let inserted: Invoice = insertable_invoice
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
@@ -157,17 +156,14 @@ impl InvoiceInterface for Store {
         Ok(inserted)
     }
 
-    async fn insert_invoice_batch(
-        &self,
-        invoice: Vec<domain::InvoiceNew>,
-    ) -> StoreResult<Vec<domain::Invoice>> {
+    async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_invoice: Vec<diesel_models::invoices::InvoiceNew> =
+        let insertable_invoice: Vec<InvoiceRowNew> =
             invoice.into_iter().map(|c| c.into()).collect();
 
-        let inserted: Vec<domain::Invoice> =
-            diesel_models::invoices::Invoice::insert_invoice_batch(&mut conn, insertable_invoice)
+        let inserted: Vec<Invoice> =
+            InvoiceRow::insert_invoice_batch(&mut conn, insertable_invoice)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
                 .map(|v| v.into_iter().map(Into::into).collect())?;
@@ -189,7 +185,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<()> {
         self.transaction(|conn| {
             async move {
-                diesel_models::invoices::Invoice::update_external_status(
+                InvoiceRow::update_external_status(
                     conn,
                     invoice_id,
                     tenant_id,
@@ -199,12 +195,11 @@ impl InvoiceInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
                 if external_status == InvoiceExternalStatusEnum::Paid {
-                    let invoice =
-                        diesel_models::invoices::Invoice::find_by_id(conn, tenant_id, invoice_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
+                    let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                    diesel_models::subscriptions::Subscription::activate_subscription(
+                    SubscriptionRow::activate_subscription(
                         conn,
                         invoice.subscription_id,
                         tenant_id,
@@ -223,15 +218,14 @@ impl InvoiceInterface for Store {
     async fn list_invoices_to_finalize(
         &self,
         pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>> {
+    ) -> StoreResult<CursorPaginatedVec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
-        let invoices =
-            diesel_models::invoices::Invoice::list_to_finalize(&mut conn, pagination.into())
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let invoices = InvoiceRow::list_to_finalize(&mut conn, pagination.into())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res: CursorPaginatedVec<domain::Invoice> = CursorPaginatedVec {
+        let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
             items: invoices.items.into_iter().map(|s| s.into()).collect(),
             next_cursor: invoices.next_cursor,
         };
@@ -247,7 +241,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        let _ = diesel_models::invoices::Invoice::finalize(&mut conn, id, tenant_id, lines)
+        let _ = InvoiceRow::finalize(&mut conn, id, tenant_id, lines)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -262,15 +256,14 @@ impl InvoiceInterface for Store {
     async fn list_outdated_invoices(
         &self,
         pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>> {
+    ) -> StoreResult<CursorPaginatedVec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
-        let invoices =
-            diesel_models::invoices::Invoice::list_outdated(&mut conn, pagination.into())
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let invoices = InvoiceRow::list_outdated(&mut conn, pagination.into())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res: CursorPaginatedVec<domain::Invoice> = CursorPaginatedVec {
+        let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
             items: invoices.items.into_iter().map(|s| s.into()).collect(),
             next_cursor: invoices.next_cursor,
         };
@@ -286,7 +279,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::invoices::Invoice::update_lines(&mut conn, id, tenant_id, lines)
+        InvoiceRow::update_lines(&mut conn, id, tenant_id, lines)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
@@ -296,18 +289,14 @@ impl InvoiceInterface for Store {
         &self,
         max_attempts: i32,
         pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<domain::Invoice>> {
+    ) -> StoreResult<CursorPaginatedVec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
-        let invoices = diesel_models::invoices::Invoice::list_to_issue(
-            &mut conn,
-            max_attempts,
-            pagination.into(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let invoices = InvoiceRow::list_to_issue(&mut conn, max_attempts, pagination.into())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res: CursorPaginatedVec<domain::Invoice> = CursorPaginatedVec {
+        let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
             items: invoices.items.into_iter().map(|s| s.into()).collect(),
             next_cursor: invoices.next_cursor,
         };
@@ -318,7 +307,7 @@ impl InvoiceInterface for Store {
     async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::invoices::Invoice::issue_success(&mut conn, id, tenant_id)
+        InvoiceRow::issue_success(&mut conn, id, tenant_id)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
@@ -332,7 +321,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::invoices::Invoice::issue_error(&mut conn, id, tenant_id, last_issue_error)
+        InvoiceRow::issue_error(&mut conn, id, tenant_id, last_issue_error)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
@@ -341,7 +330,7 @@ impl InvoiceInterface for Store {
     async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::invoices::Invoice::update_pending_finalization(&mut conn, now)
+        InvoiceRow::update_pending_finalization(&mut conn, now)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
@@ -360,7 +349,7 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
     if inserted.invoice_type == InvoiceType::Recurring
         || inserted.invoice_type == InvoiceType::Adjustment
     {
-        let subscription_events = diesel_models::subscription_events::SubscriptionEvent::fetch_by_subscription_id_and_date(
+        let subscription_events = diesel_models::subscription_events::SubscriptionEventRow::fetch_by_subscription_id_and_date(
             conn,
             inserted.subscription_id,
             inserted.invoice_date,
@@ -411,7 +400,7 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
                 SubscriptionEventType::Updated => "Subscription updated",
             };
 
-            let new_log = diesel_models::bi::BiMrrMovementLogNew {
+            let new_log = diesel_models::bi::BiMrrMovementLogRowNew {
                 id: Uuid::now_v7(),
                 description: description.to_string(),
                 movement_type,
@@ -429,11 +418,11 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
 
         let mrr_delta_cents: i64 = mrr_logs.iter().map(|l| l.net_mrr_change).sum();
 
-        diesel_models::bi::BiMrrMovementLog::insert_movement_log_batch(conn, mrr_logs)
+        diesel_models::bi::BiMrrMovementLogRow::insert_movement_log_batch(conn, mrr_logs)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        diesel_models::subscriptions::Subscription::update_subscription_mrr_delta(
+        diesel_models::subscriptions::SubscriptionRow::update_subscription_mrr_delta(
             conn,
             inserted.subscription_id,
             mrr_delta_cents,

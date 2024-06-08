@@ -2,6 +2,13 @@ use crate::domain::stats::*;
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use common_utils::decimal::ToCent;
+use diesel_models::stats::{
+    ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
+    LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,
+    RevenueTrendRow, SubscriptionTrialConversionRateRow, SubscriptionTrialToPaidConversionRow,
+    TotalMrrByPlanRow, TotalMrrChartRow, TotalMrrRow,
+};
+use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
@@ -34,7 +41,7 @@ impl StatsInterface for Store {
     async fn net_revenue(&self, tenant_id: Uuid) -> StoreResult<Trend> {
         let mut conn = self.get_conn().await?;
 
-        let trend = diesel_models::stats::RevenueTrend::get(&mut conn, 7, tenant_id)
+        let trend = RevenueTrendRow::get(&mut conn, 7, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -52,7 +59,7 @@ impl StatsInterface for Store {
     async fn active_subscriptions(&self, tenant_id: Uuid) -> StoreResult<i64> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::stats::ActiveSubscriptionsCount::get(&mut conn, tenant_id, None)
+        ActiveSubscriptionsCountRow::get(&mut conn, tenant_id, None)
             .await
             .map_err(Into::into)
             .map(|x| x.count.into())
@@ -61,7 +68,7 @@ impl StatsInterface for Store {
     async fn pending_invoices(&self, tenant_id: Uuid) -> StoreResult<CountAndValue> {
         let mut conn = self.get_conn().await?;
 
-        let trend = diesel_models::stats::PendingInvoicesTotal::get(&mut conn, tenant_id)
+        let trend = PendingInvoicesTotalRow::get(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -79,7 +86,7 @@ impl StatsInterface for Store {
     async fn signups(&self, tenant_id: Uuid) -> StoreResult<Trend> {
         let mut conn = self.get_conn().await?;
 
-        let trend = diesel_models::stats::NewSignupsTrend90Days::get(&mut conn, tenant_id)
+        let trend = NewSignupsTrend90DaysRow::get(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -98,7 +105,7 @@ impl StatsInterface for Store {
     async fn signups_sparkline(&self, tenant_id: Uuid) -> StoreResult<SignupSparklineResponse> {
         let mut conn = self.get_conn().await?;
 
-        let chart_data = diesel_models::stats::DailyNewSignups90Days::list(&mut conn, tenant_id)
+        let chart_data = DailyNewSignups90DaysRow::list(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -121,10 +128,9 @@ impl StatsInterface for Store {
     async fn trial_conversion_rate(&self, tenant_id: Uuid) -> StoreResult<f32> {
         let mut conn = self.get_conn().await?;
 
-        let all_time =
-            diesel_models::stats::SubscriptionTrialConversionRate::get(&mut conn, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let all_time = SubscriptionTrialConversionRateRow::get(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(all_time
             .all_time_conversion_rate_percentage
@@ -139,10 +145,9 @@ impl StatsInterface for Store {
     ) -> StoreResult<TrialConversionRateResponse> {
         let mut conn = self.get_conn().await?;
 
-        let chart_data =
-            diesel_models::stats::SubscriptionTrialToPaidConversion::list(&mut conn, tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let chart_data = SubscriptionTrialToPaidConversionRow::list(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let mut conversions_series = TrialConversionSeries {
             name: "Trial conversion rate".into(),
@@ -223,14 +228,14 @@ impl StatsInterface for Store {
         let currency = match request.currency {
             Some(currency) => currency,
             None => {
-                diesel_models::tenants::Tenant::find_by_id(&mut conn, request.tenant_id)
+                TenantRow::find_by_id(&mut conn, request.tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?
                     .currency
             }
         };
 
-        let data = diesel_models::stats::CustomerTopRevenue::list(
+        let data = CustomerTopRevenueRow::list(
             &mut conn,
             request.tenant_id,
             currency.as_str(),
@@ -253,20 +258,16 @@ impl StatsInterface for Store {
     async fn total_mrr(&self, tenant_id: Uuid) -> StoreResult<i64> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::stats::TotalMrr::get(
-            &mut conn,
-            tenant_id,
-            chrono::Utc::now().naive_utc().date(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .map(|x| x.total_net_mrr_cents)
+        TotalMrrRow::get(&mut conn, tenant_id, chrono::Utc::now().naive_utc().date())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .map(|x| x.total_net_mrr_cents)
     }
 
     async fn total_mrr_chart(&self, request: MrrChartRequest) -> StoreResult<MrrChartResponse> {
         let mut conn = self.get_conn().await?;
 
-        let total = diesel_models::stats::TotalMrrChart::list(
+        let total = TotalMrrChartRow::list(
             &mut conn,
             request.tenant_id,
             request.start_date,
@@ -313,7 +314,7 @@ impl StatsInterface for Store {
 
         let mut series_map: HashMap<String, MrrChartSeries> = HashMap::new();
         if request.plans_id.is_some() {
-            let plans_data = diesel_models::stats::TotalMrrByPlan::list(
+            let plans_data = TotalMrrByPlanRow::list(
                 &mut conn,
                 request.tenant_id,
                 &request.plans_id.unwrap(),
@@ -379,14 +380,9 @@ impl StatsInterface for Store {
         let now = chrono::Utc::now().naive_utc().date();
         let (start_date, end_date) = request.scope.to_date_range(now);
 
-        let breakdown = diesel_models::stats::MrrBreakdown::get(
-            &mut conn,
-            request.tenant_id,
-            start_date,
-            end_date,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let breakdown = MrrBreakdownRow::get(&mut conn, request.tenant_id, start_date, end_date)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         match breakdown {
             None => Ok(MRRBreakdown {
@@ -428,7 +424,7 @@ impl StatsInterface for Store {
     async fn mrr_log(&self, request: MrrLogRequest) -> StoreResult<MrrLogResponse> {
         let mut conn = self.get_conn().await?;
 
-        let data = diesel_models::stats::LastMrrMovements::list(
+        let data = LastMrrMovementsRow::list(
             &mut conn,
             request.tenant_id,
             request

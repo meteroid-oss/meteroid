@@ -6,7 +6,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::product_family)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ProductFamily {
+pub struct ProductFamilyRow {
     pub id: Uuid,
     pub name: String,
     pub external_id: String,
@@ -19,7 +19,7 @@ pub struct ProductFamily {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::product_family)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct ProductFamilyNew {
+pub struct ProductFamilyRowNew {
     pub id: Uuid,
     pub name: String,
     pub external_id: String,

@@ -3,21 +3,22 @@ use tracing_log::log;
 use uuid::Uuid;
 
 use common_eventbus::Event;
+use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
 
 use crate::domain::{Organization, OrganizationNew};
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::StoreResult;
 
 #[async_trait::async_trait]
 pub trait OrganizationsInterface {
     async fn insert_organization(
         &self,
-        organization: domain::OrganizationNew,
+        organization: OrganizationNew,
         actor: Uuid,
-    ) -> StoreResult<domain::Organization>;
+    ) -> StoreResult<Organization>;
 
-    async fn find_organization_as_instance(&self) -> StoreResult<Option<domain::Organization>>;
+    async fn find_organization_as_instance(&self) -> StoreResult<Option<Organization>>;
     async fn organization_get_or_create_invite_link(&self) -> StoreResult<String>;
 }
 
@@ -30,13 +31,13 @@ impl OrganizationsInterface for Store {
     ) -> StoreResult<Organization> {
         let mut conn = self.get_conn().await?;
 
-        let insertable = diesel_models::organizations::OrganizationNew {
+        let insertable = OrganizationRowNew {
             id: Uuid::now_v7(),
             name: organization.name,
             slug: organization.slug,
         };
 
-        let res: domain::Organization = insertable
+        let res: Organization = insertable
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
@@ -50,10 +51,10 @@ impl OrganizationsInterface for Store {
         Ok(res)
     }
 
-    async fn find_organization_as_instance(&self) -> StoreResult<Option<domain::Organization>> {
+    async fn find_organization_as_instance(&self) -> StoreResult<Option<Organization>> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::organizations::Organization::find_all(&mut conn)
+        OrganizationRow::find_all(&mut conn)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())
@@ -87,11 +88,9 @@ impl OrganizationsInterface for Store {
                 let id = Uuid::new_v4();
                 let hash = base62::encode_alternative(id.as_u128());
 
-                let _ = diesel_models::organizations::Organization::update_invite_link(
-                    &mut conn, org_id, &hash,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                let _ = OrganizationRow::update_invite_link(&mut conn, org_id, &hash)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 Ok(hash)
             }

@@ -8,7 +8,7 @@ use rust_decimal::Decimal;
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::subscription)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Subscription {
+pub struct SubscriptionRow {
     pub id: Uuid,
     pub customer_id: Uuid,
     pub billing_day: i16,
@@ -31,7 +31,7 @@ pub struct Subscription {
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::subscription)]
-pub struct SubscriptionNew {
+pub struct SubscriptionRowNew {
     pub id: Uuid,
     pub customer_id: Uuid,
     pub billing_day: i16,
@@ -63,9 +63,9 @@ use crate::schema::plan_version;
 
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionForDisplay {
+pub struct SubscriptionForDisplayRow {
     #[diesel(embed)]
-    pub subscription: Subscription,
+    pub subscription: SubscriptionRow,
     #[diesel(select_expression = customer::alias)]
     #[diesel(select_expression_type = customer::alias)]
     pub customer_external_id: Option<String>,
@@ -85,22 +85,22 @@ pub struct SubscriptionForDisplay {
 
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionInvoiceCandidate {
+pub struct SubscriptionInvoiceCandidateRow {
     #[diesel(embed)]
-    pub subscription: subscription_invoice_candidate::SubscriptionEmbed,
+    pub subscription: subscription_invoice_candidate::SubscriptionEmbedRow,
     #[diesel(embed)]
-    pub plan_version: subscription_invoice_candidate::PlanVersionEmbed,
+    pub plan_version: subscription_invoice_candidate::PlanVersionEmbedRow,
     #[diesel(embed)]
-    pub subscription_components: subscription_invoice_candidate::SubscriptionComponentsEmbed,
+    pub subscription_components: subscription_invoice_candidate::SubscriptionComponentsEmbedRow,
 }
 
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionInvoiceCandidateGroupBy {
+pub struct SubscriptionInvoiceCandidateGroupByRow {
     #[diesel(embed)]
-    pub subscription: subscription_invoice_candidate::SubscriptionEmbed,
+    pub subscription: subscription_invoice_candidate::SubscriptionEmbedRow,
     #[diesel(embed)]
-    pub plan_version: subscription_invoice_candidate::PlanVersionEmbed,
+    pub plan_version: subscription_invoice_candidate::PlanVersionEmbedRow,
 }
 
 mod subscription_invoice_candidate {
@@ -116,7 +116,7 @@ mod subscription_invoice_candidate {
     #[derive(Debug, Queryable, Selectable)]
     #[diesel(table_name = crate::schema::subscription)]
     #[diesel(check_for_backend(diesel::pg::Pg))]
-    pub struct SubscriptionEmbed {
+    pub struct SubscriptionEmbedRow {
         pub id: Uuid,
         pub tenant_id: Uuid,
         pub customer_id: Uuid,
@@ -131,7 +131,7 @@ mod subscription_invoice_candidate {
     #[derive(Debug, Queryable, Selectable)]
     #[diesel(table_name = crate::schema::plan_version)]
     #[diesel(check_for_backend(diesel::pg::Pg))]
-    pub struct PlanVersionEmbed {
+    pub struct PlanVersionEmbedRow {
         pub plan_id: Uuid,
         pub currency: String,
         pub net_terms: i32,
@@ -141,7 +141,7 @@ mod subscription_invoice_candidate {
     #[derive(Debug, Queryable, Selectable)]
     #[diesel(table_name = crate::schema::subscription_component)]
     #[diesel(check_for_backend(diesel::pg::Pg))]
-    pub struct SubscriptionComponentsEmbed {
+    pub struct SubscriptionComponentsEmbedRow {
         #[diesel(select_expression = sql("array_agg(distinct(subscription_component.period)) periods"))]
         #[diesel(
         select_expression_type = SqlLiteral::< sql_types::Array < sql_types::Nullable < SubscriptionFeeBillingPeriodSql >> >

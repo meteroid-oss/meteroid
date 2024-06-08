@@ -5,9 +5,9 @@ use uuid::Uuid;
 use crate::domain::adjustments::discount::{Amount, StandardDiscount};
 use crate::domain::enums::BillingPeriodEnum;
 use crate::errors::StoreError;
-use diesel_models::schedules::Schedule as DieselSchedule;
-use diesel_models::schedules::ScheduleNew as DieselScheduleNew;
-use diesel_models::schedules::SchedulePatch as DieselSchedulePatch;
+use diesel_models::schedules::SchedulePatchRow;
+use diesel_models::schedules::ScheduleRow;
+use diesel_models::schedules::ScheduleRowNew;
 
 #[derive(Clone, Debug)]
 pub struct Schedule {
@@ -68,10 +68,10 @@ impl TryInto<serde_json::Value> for PlanRamps {
     }
 }
 
-impl TryFrom<DieselSchedule> for Schedule {
+impl TryFrom<ScheduleRow> for Schedule {
     type Error = Report<StoreError>;
 
-    fn try_from(value: DieselSchedule) -> Result<Self, Self::Error> {
+    fn try_from(value: ScheduleRow) -> Result<Self, Self::Error> {
         Ok(Schedule {
             id: value.id,
             billing_period: value.billing_period.into(),
@@ -81,11 +81,11 @@ impl TryFrom<DieselSchedule> for Schedule {
     }
 }
 
-impl TryInto<DieselScheduleNew> for ScheduleNew {
+impl TryInto<ScheduleRowNew> for ScheduleNew {
     type Error = Report<StoreError>;
 
-    fn try_into(self) -> Result<DieselScheduleNew, Self::Error> {
-        Ok(DieselScheduleNew {
+    fn try_into(self) -> Result<ScheduleRowNew, Self::Error> {
+        Ok(ScheduleRowNew {
             id: Uuid::now_v7(),
             billing_period: self.billing_period.into(),
             plan_version_id: self.plan_version_id,
@@ -94,11 +94,11 @@ impl TryInto<DieselScheduleNew> for ScheduleNew {
     }
 }
 
-impl TryInto<DieselSchedulePatch> for SchedulePatch {
+impl TryInto<SchedulePatchRow> for SchedulePatch {
     type Error = Report<StoreError>;
 
-    fn try_into(self) -> Result<DieselSchedulePatch, Self::Error> {
-        Ok(DieselSchedulePatch {
+    fn try_into(self) -> Result<SchedulePatchRow, Self::Error> {
+        Ok(SchedulePatchRow {
             id: self.id,
             ramps: self.ramps.map(|r| r.try_into()).transpose()?,
         })

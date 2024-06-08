@@ -1,5 +1,8 @@
 use crate::errors::StoreError;
 use chrono::NaiveDate;
+use diesel_models::historical_rates_from_usd::{
+    HistoricalRatesFromUsdRow, HistoricalRatesFromUsdRowNew,
+};
 use error_stack::Report;
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -10,14 +13,10 @@ pub struct HistoricalRatesFromUsd {
     pub rates: BTreeMap<String, f32>,
 }
 
-impl TryFrom<diesel_models::historical_rates_from_usd::HistoricalRatesFromUsd>
-    for HistoricalRatesFromUsd
-{
+impl TryFrom<HistoricalRatesFromUsdRow> for HistoricalRatesFromUsd {
     type Error = Report<StoreError>;
 
-    fn try_from(
-        value: diesel_models::historical_rates_from_usd::HistoricalRatesFromUsd,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(value: HistoricalRatesFromUsdRow) -> Result<Self, Self::Error> {
         Ok(Self {
             id: value.id,
             date: value.date,
@@ -33,23 +32,16 @@ pub struct HistoricalRatesFromUsdNew {
     pub rates: BTreeMap<String, f32>,
 }
 
-impl TryInto<diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdNew>
-    for HistoricalRatesFromUsdNew
-{
+impl TryInto<HistoricalRatesFromUsdRowNew> for HistoricalRatesFromUsdNew {
     type Error = Report<StoreError>;
 
-    fn try_into(
-        self,
-    ) -> Result<diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdNew, Self::Error>
-    {
-        Ok(
-            diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdNew {
-                id: Uuid::now_v7(),
-                date: self.date,
-                rates: serde_json::to_value::<BTreeMap<String, f32>>(self.rates).map_err(|e| {
-                    StoreError::SerdeError("Failed to serialize currency rates".to_string(), e)
-                })?,
-            },
-        )
+    fn try_into(self) -> Result<HistoricalRatesFromUsdRowNew, Self::Error> {
+        Ok(HistoricalRatesFromUsdRowNew {
+            id: Uuid::now_v7(),
+            date: self.date,
+            rates: serde_json::to_value::<BTreeMap<String, f32>>(self.rates).map_err(|e| {
+                StoreError::SerdeError("Failed to serialize currency rates".to_string(), e)
+            })?,
+        })
     }
 }

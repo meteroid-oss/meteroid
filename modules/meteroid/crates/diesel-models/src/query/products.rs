@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::products::{Product, ProductNew};
+use crate::products::{ProductRow, ProductRowNew};
 
 use crate::{DbResult, PgConn};
 
@@ -11,8 +11,8 @@ use diesel::{
 use error_stack::ResultExt;
 use uuid::Uuid;
 
-impl ProductNew {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<Product> {
+impl ProductRowNew {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductRow> {
         use crate::schema::product::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -28,12 +28,12 @@ impl ProductNew {
     }
 }
 
-impl Product {
+impl ProductRow {
     pub async fn find_by_id_and_tenant_id(
         conn: &mut PgConn,
         id: Uuid,
         tenant_id: Uuid,
-    ) -> DbResult<Product> {
+    ) -> DbResult<ProductRow> {
         use crate::schema::product::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -56,7 +56,7 @@ impl Product {
         family_external_id: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> DbResult<PaginatedVec<Product>> {
+    ) -> DbResult<PaginatedVec<ProductRow>> {
         use crate::schema::product::dsl as p_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
 
@@ -64,7 +64,7 @@ impl Product {
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(pf_dsl::external_id.eq(family_external_id))
-            .select(Product::as_select())
+            .select(ProductRow::as_select())
             .into_boxed();
 
         match order_by {
@@ -97,7 +97,7 @@ impl Product {
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> DbResult<PaginatedVec<Product>> {
+    ) -> DbResult<PaginatedVec<ProductRow>> {
         use crate::schema::product::dsl as p_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
 
@@ -106,7 +106,7 @@ impl Product {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .filter(pf_dsl::external_id.eq(family_external_id))
             .filter(p_dsl::name.ilike(format!("%{}%", query)))
-            .select(Product::as_select())
+            .select(ProductRow::as_select())
             .into_boxed();
 
         match order_by {

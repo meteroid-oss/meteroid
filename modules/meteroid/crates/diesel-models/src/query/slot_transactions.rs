@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 
-use crate::slot_transactions::SlotTransaction;
+use crate::slot_transactions::SlotTransactionRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 
@@ -8,8 +8,8 @@ use diesel::sql_types;
 use diesel::{debug_query, QueryableByName};
 use error_stack::ResultExt;
 
-impl SlotTransaction {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SlotTransaction> {
+impl SlotTransactionRow {
+    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SlotTransactionRow> {
         use crate::schema::slot_transaction::dsl::*;
         use diesel_async::RunQueryDsl;
 

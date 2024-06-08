@@ -5,14 +5,14 @@ use diesel::{
 use error_stack::ResultExt;
 use tap::TapFallible;
 
-use crate::customers::{Customer, CustomerBrief, CustomerNew, CustomerPatch};
+use crate::customers::{CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 
-impl CustomerNew {
-    pub async fn insert(self, conn: &mut PgConn) -> DbResult<Customer> {
+impl CustomerRowNew {
+    pub async fn insert(self, conn: &mut PgConn) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -27,8 +27,8 @@ impl CustomerNew {
     }
 }
 
-impl Customer {
-    pub async fn find_by_id(conn: &mut PgConn, customer_id: uuid::Uuid) -> DbResult<Customer> {
+impl CustomerRow {
+    pub async fn find_by_id(conn: &mut PgConn, customer_id: uuid::Uuid) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -42,7 +42,7 @@ impl Customer {
             .into_db_result()
     }
 
-    pub async fn find_by_alias(conn: &mut PgConn, customer_alias: String) -> DbResult<Customer> {
+    pub async fn find_by_alias(conn: &mut PgConn, customer_alias: String) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -60,14 +60,14 @@ impl Customer {
         conn: &mut PgConn,
         param_tenant_id: uuid::Uuid,
         param_customer_aliases: Vec<String>,
-    ) -> DbResult<Vec<CustomerBrief>> {
+    ) -> DbResult<Vec<CustomerBriefRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
         let query = customer
             .filter(tenant_id.eq(param_tenant_id))
             .filter(alias.eq_any(param_customer_aliases))
-            .select(CustomerBrief::as_select());
+            .select(CustomerBriefRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -84,12 +84,12 @@ impl Customer {
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
-    ) -> DbResult<PaginatedVec<Customer>> {
+    ) -> DbResult<PaginatedVec<CustomerRow>> {
         use crate::schema::customer::dsl::*;
 
         let mut query = customer
             .filter(tenant_id.eq(param_tenant_id))
-            .select(Customer::as_select())
+            .select(CustomerRow::as_select())
             .into_boxed();
 
         if let Some(param_query) = param_query {
@@ -123,8 +123,8 @@ impl Customer {
 
     pub async fn insert_customer_batch(
         conn: &mut PgConn,
-        batch: Vec<CustomerNew>,
-    ) -> DbResult<Vec<Customer>> {
+        batch: Vec<CustomerRowNew>,
+    ) -> DbResult<Vec<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -139,8 +139,12 @@ impl Customer {
     }
 }
 
-impl CustomerPatch {
-    pub async fn update(&self, conn: &mut PgConn, _id: uuid::Uuid) -> DbResult<Option<Customer>> {
+impl CustomerRowPatch {
+    pub async fn update(
+        &self,
+        conn: &mut PgConn,
+        _id: uuid::Uuid,
+    ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 

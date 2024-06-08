@@ -9,6 +9,13 @@ use crate::domain::{
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
+use diesel_models::plan_versions::{
+    PlanVersionRow, PlanVersionRowLatest, PlanVersionRowNew, PlanVersionRowPatch,
+};
+use diesel_models::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch};
+use diesel_models::price_components::PriceComponentRow;
+use diesel_models::product_families::ProductFamilyRow;
+use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -95,39 +102,36 @@ impl PlansInterface for Store {
             price_components,
         } = full_plan;
 
-        let product_family =
-            diesel_models::product_families::ProductFamily::find_by_external_id_and_tenant_id(
-                &mut conn,
-                plan.product_family_external_id.as_str(),
-                plan.tenant_id,
-            )
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let product_family = ProductFamilyRow::find_by_external_id_and_tenant_id(
+            &mut conn,
+            plan.product_family_external_id.as_str(),
+            plan.tenant_id,
+        )
+        .await
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let tenant = diesel_models::tenants::Tenant::find_by_id(&mut conn, plan.tenant_id)
+        let tenant = TenantRow::find_by_id(&mut conn, plan.tenant_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let res = conn
             .transaction(|conn| {
                 async move {
-                    let plan_to_insert: diesel_models::plans::PlanNew =
-                        plan.into_raw(product_family.id);
+                    let plan_to_insert: PlanRowNew = plan.into_raw(product_family.id);
                     let inserted: Plan = plan_to_insert
                         .insert(conn)
                         .await
                         .map(Into::into)
                         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-                    let plan_version_to_insert: diesel_models::plan_versions::PlanVersionNew =
-                        PlanVersionNew {
-                            tenant_id: inserted.tenant_id,
-                            internal: version,
-                            plan_id: inserted.id,
-                            version: 1,
-                            created_by: inserted.created_by,
-                        }
-                        .into_raw(tenant.currency);
+                    let plan_version_to_insert: PlanVersionRowNew = PlanVersionNew {
+                        tenant_id: inserted.tenant_id,
+                        internal: version,
+                        plan_id: inserted.id,
+                        version: 1,
+                        created_by: inserted.created_by,
+                    }
+                    .into_raw(tenant.currency);
 
                     let inserted_plan_version_new: PlanVersion = plan_version_to_insert
                         .insert(conn)
@@ -136,28 +140,27 @@ impl PlansInterface for Store {
                         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
                     // insert price component as batch, etc
-                    let inserted_price_components =
-                        diesel_models::price_components::PriceComponent::insert_batch(
-                            conn,
-                            price_components
-                                .into_iter()
-                                .map(|p| {
-                                    PriceComponentNew {
-                                        plan_version_id: inserted_plan_version_new.id,
-                                        name: p.name,
-                                        product_item_id: p.product_item_id,
-                                        fee: p.fee,
-                                    }
-                                    .try_into()
-                                })
-                                .collect::<Result<Vec<_>, _>>()?,
-                        )
-                        .await
-                        .map_err(|err| StoreError::DatabaseError(err.error))?
-                        .into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(|err| StoreError::TransactionStoreError(err))?;
+                    let inserted_price_components = PriceComponentRow::insert_batch(
+                        conn,
+                        price_components
+                            .into_iter()
+                            .map(|p| {
+                                PriceComponentNew {
+                                    plan_version_id: inserted_plan_version_new.id,
+                                    name: p.name,
+                                    product_item_id: p.product_item_id,
+                                    fee: p.fee,
+                                }
+                                .try_into()
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                    )
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::TransactionStoreError)?;
 
                     Ok::<_, StoreError>(FullPlan {
                         price_components: inserted_price_components,
@@ -190,37 +193,29 @@ impl PlansInterface for Store {
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
 
-        let plan: Plan = diesel_models::plans::Plan::get_by_external_id_and_tenant_id(
+        let plan: Plan =
+            PlanRow::get_by_external_id_and_tenant_id(&mut conn, external_id, auth_tenant_id)
+                .await
+                .map(Into::into)
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let version: PlanVersion = PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
             &mut conn,
-            external_id,
+            plan.id,
             auth_tenant_id,
+            is_draft,
         )
         .await
         .map(Into::into)
         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let version: PlanVersion =
-            diesel_models::plan_versions::PlanVersion::find_latest_by_plan_id_and_tenant_id(
-                &mut conn,
-                plan.id,
-                auth_tenant_id,
-                is_draft,
-            )
-            .await
-            .map(Into::into)
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-
         let price_components: Vec<PriceComponent> =
-            diesel_models::price_components::PriceComponent::list_by_plan_version_id(
-                &mut conn,
-                auth_tenant_id,
-                version.id,
-            )
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))?
-            .into_iter()
-            .map(TryInto::try_into)
-            .collect::<Result<Vec<_>, _>>()?;
+            PriceComponentRow::list_by_plan_version_id(&mut conn, auth_tenant_id, version.id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?;
 
         Ok(FullPlan {
             plan,
@@ -239,7 +234,7 @@ impl PlansInterface for Store {
     ) -> StoreResult<PaginatedVec<PlanForList>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::plans::PlanForList::list(
+        let rows = PlanRowForList::list(
             &mut conn,
             auth_tenant_id,
             search,
@@ -265,7 +260,7 @@ impl PlansInterface for Store {
     ) -> StoreResult<Vec<PlanVersionLatest>> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::plan_versions::PlanVersionLatest::list(&mut conn, auth_tenant_id)
+        PlanVersionRowLatest::list(&mut conn, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())
@@ -277,14 +272,10 @@ impl PlansInterface for Store {
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanVersion> {
         let mut conn = self.get_conn().await?;
-        diesel_models::plan_versions::PlanVersion::find_by_id_and_tenant_id(
-            &mut conn,
-            id,
-            auth_tenant_id,
-        )
-        .await
-        .map(Into::into)
-        .map_err(Into::into)
+        PlanVersionRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
+            .await
+            .map(Into::into)
+            .map_err(Into::into)
     }
 
     async fn list_plan_versions(
@@ -295,7 +286,7 @@ impl PlansInterface for Store {
     ) -> StoreResult<PaginatedVec<PlanVersion>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = diesel_models::plan_versions::PlanVersion::list_by_plan_id_and_tenant_id(
+        let rows = PlanVersionRow::list_by_plan_id_and_tenant_id(
             &mut conn,
             plan_id,
             auth_tenant_id,
@@ -321,15 +312,12 @@ impl PlansInterface for Store {
     ) -> StoreResult<PlanVersion> {
         self.transaction(|conn| {
             async move {
-                let original = diesel_models::plan_versions::PlanVersion::find_by_id_and_tenant_id(
-                    conn,
-                    plan_version_id,
-                    auth_tenant_id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                let original =
+                    PlanVersionRow::find_by_id_and_tenant_id(conn, plan_version_id, auth_tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                diesel_models::plan_versions::PlanVersion::delete_others_draft(
+                PlanVersionRow::delete_others_draft(
                     conn,
                     original.id,
                     original.plan_id,
@@ -338,7 +326,7 @@ impl PlansInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                let new = diesel_models::plan_versions::PlanVersionNew {
+                let new = PlanVersionRowNew {
                     id: Uuid::now_v7(),
                     is_draft_version: true,
                     plan_id: original.plan_id,
@@ -357,15 +345,11 @@ impl PlansInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-                diesel_models::price_components::PriceComponent::clone_all(
-                    conn,
-                    original.id,
-                    new.id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                PriceComponentRow::clone_all(conn, original.id, new.id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-                diesel_models::schedules::Schedule::clone_all(conn, original.id, new.id)
+                diesel_models::schedules::ScheduleRow::clone_all(conn, original.id, new.id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -387,15 +371,11 @@ impl PlansInterface for Store {
                 async move {
                     // TODO validations
                     // - all components on committed must have values for all periods
-                    let published = diesel_models::plan_versions::PlanVersion::publish(
-                        conn,
-                        plan_version_id,
-                        auth_tenant_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let published = PlanVersionRow::publish(conn, plan_version_id, auth_tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                    diesel_models::plans::Plan::activate(conn, published.plan_id, auth_tenant_id)
+                    PlanRow::activate(conn, published.plan_id, auth_tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -423,7 +403,7 @@ impl PlansInterface for Store {
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanVersion> {
         let mut conn = self.get_conn().await?;
-        diesel_models::plan_versions::PlanVersion::find_latest_by_plan_id_and_tenant_id(
+        PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
             &mut conn,
             plan_id,
             auth_tenant_id,
@@ -443,16 +423,7 @@ impl PlansInterface for Store {
         let res = self
             .transaction(|conn| {
                 async move {
-                    let original =
-                        diesel_models::plan_versions::PlanVersion::find_by_id_and_tenant_id(
-                            conn,
-                            plan_version_id,
-                            auth_tenant_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    diesel_models::plan_versions::PlanVersion::delete_draft(
+                    let original = PlanVersionRow::find_by_id_and_tenant_id(
                         conn,
                         plan_version_id,
                         auth_tenant_id,
@@ -460,7 +431,11 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                    diesel_models::plans::Plan::delete(conn, original.plan_id, auth_tenant_id)
+                    PlanVersionRow::delete_draft(conn, plan_version_id, auth_tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    PlanRow::delete(conn, original.plan_id, auth_tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -485,14 +460,14 @@ impl PlansInterface for Store {
     async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
-        let patch: diesel_models::plans::PlanPatch = patch.into();
+        let patch: PlanRowPatch = patch.into();
 
         let plan = patch
             .update(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        diesel_models::plans::Plan::get_with_version_by_external_id(
+        PlanRow::get_with_version_by_external_id(
             &mut conn,
             plan.external_id.as_str(),
             plan.tenant_id,
@@ -509,14 +484,10 @@ impl PlansInterface for Store {
     ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
-        diesel_models::plans::Plan::get_with_version_by_external_id(
-            &mut conn,
-            external_id,
-            auth_tenant_id,
-        )
-        .await
-        .map_err(Into::into)
-        .map(Into::into)
+        PlanRow::get_with_version_by_external_id(&mut conn, external_id, auth_tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 
     async fn patch_draft_plan(&self, patch: PlanAndVersionPatch) -> StoreResult<PlanWithVersion> {
@@ -525,15 +496,14 @@ impl PlansInterface for Store {
         let version = self
             .transaction(|conn| {
                 async move {
-                    let patch_version: diesel_models::plan_versions::PlanVersionPatch =
-                        patch.version.into();
+                    let patch_version: PlanVersionRowPatch = patch.version.into();
 
                     let patched_version = patch_version
                         .update_draft(conn)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    let patch_plan: diesel_models::plans::PlanPatch = PlanPatch {
+                    let patch_plan: PlanRowPatch = PlanPatch {
                         id: patched_version.plan_id,
                         tenant_id: patched_version.tenant_id,
                         name: patch.name,
@@ -552,7 +522,7 @@ impl PlansInterface for Store {
             })
             .await?;
 
-        diesel_models::plans::Plan::get_with_version(&mut conn, version.id, version.tenant_id)
+        PlanRow::get_with_version(&mut conn, version.id, version.tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)

@@ -1,4 +1,6 @@
 use chrono::NaiveDateTime;
+use diesel_models::customers::CustomerRow;
+use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -28,10 +30,10 @@ pub struct Customer {
     pub shipping_address: Option<ShippingAddress>,
 }
 
-impl TryFrom<diesel_models::customers::Customer> for Customer {
+impl TryFrom<CustomerRow> for Customer {
     type Error = Report<StoreError>;
 
-    fn try_from(value: diesel_models::customers::Customer) -> Result<Self, Self::Error> {
+    fn try_from(value: CustomerRow) -> Result<Self, Self::Error> {
         Ok(Customer {
             id: value.id,
             name: value.name,
@@ -54,11 +56,11 @@ impl TryFrom<diesel_models::customers::Customer> for Customer {
     }
 }
 
-impl TryInto<diesel_models::customers::Customer> for Customer {
+impl TryInto<CustomerRow> for Customer {
     type Error = Report<StoreError>;
 
-    fn try_into(self) -> Result<diesel_models::customers::Customer, Self::Error> {
-        Ok(diesel_models::customers::Customer {
+    fn try_into(self) -> Result<CustomerRow, Self::Error> {
+        Ok(CustomerRow {
             id: self.id,
             name: self.name,
             created_at: self.created_at,
@@ -81,8 +83,8 @@ impl TryInto<diesel_models::customers::Customer> for Customer {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[from_owned(diesel_models::customers::CustomerBrief)]
-#[owned_into(diesel_models::customers::CustomerBrief)]
+#[from_owned(CustomerBriefRow)]
+#[owned_into(CustomerBriefRow)]
 pub struct CustomerBrief {
     pub id: Uuid,
     pub name: String,
@@ -106,10 +108,10 @@ pub struct CustomerNew {
     pub created_at: Option<NaiveDateTime>,
 }
 
-impl TryFrom<diesel_models::customers::CustomerNew> for CustomerNew {
+impl TryFrom<CustomerRowNew> for CustomerNew {
     type Error = Report<StoreError>;
 
-    fn try_from(value: diesel_models::customers::CustomerNew) -> Result<Self, Self::Error> {
+    fn try_from(value: CustomerRowNew) -> Result<Self, Self::Error> {
         Ok(CustomerNew {
             name: value.name,
             created_at: value.created_at,
@@ -128,12 +130,12 @@ impl TryFrom<diesel_models::customers::CustomerNew> for CustomerNew {
     }
 }
 
-impl TryInto<diesel_models::customers::CustomerNew> for CustomerNew {
+impl TryInto<CustomerRowNew> for CustomerNew {
     type Error = Report<StoreError>;
 
-    fn try_into(self) -> Result<diesel_models::customers::CustomerNew, Self::Error> {
-        Ok(diesel_models::customers::CustomerNew {
-            id: uuid::Uuid::now_v7(),
+    fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
+        Ok(CustomerRowNew {
+            id: Uuid::now_v7(),
             name: self.name,
             created_by: self.created_by,
             tenant_id: self.tenant_id,
@@ -152,7 +154,7 @@ impl TryInto<diesel_models::customers::CustomerNew> for CustomerNew {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[owned_into(diesel_models::customers::CustomerPatch)]
+#[owned_into(CustomerRowPatch)]
 pub struct CustomerPatch {
     pub id: Uuid,
     pub name: Option<String>,
