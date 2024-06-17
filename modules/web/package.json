@@ -8,17 +8,17 @@
     "eslint-config-meteroid": "workspace:*"
   },
   "devDependencies": {
-    "@commitlint/cli": "^18.6.0",
-    "@commitlint/config-conventional": "^18.6.0",
-    "@manypkg/cli": "^0.21.2",
-    "dependency-cruiser": "^16.2.0",
-    "dotenv-cli": "^7.3.0",
-    "husky": "^9.0.10",
+    "@commitlint/cli": "^19.3.0",
+    "@commitlint/config-conventional": "^19.2.2",
+    "@manypkg/cli": "^0.21.4",
+    "dependency-cruiser": "^16.3.3",
+    "dotenv-cli": "^7.4.2",
+    "husky": "^9.0.11",
     "kill-port": "^2.0.1",
-    "lint-staged": "^15.2.2",
-    "prettier": "^3.2.5",
-    "turbo": "^1.12.2",
-    "typescript": "^5.3.3"
+    "lint-staged": "^15.2.7",
+    "prettier": "^3.3.2",
+    "turbo": "^2.0.4",
+    "typescript": "^5.4.5"
   },
   "engines": {
     "node": ">=18.x",
