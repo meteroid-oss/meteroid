@@ -8,8 +8,8 @@
   "devDependencies": {
     "@md/tsconfig": "workspace:*",
     "@types/react": "^18.2.55",
-    "eslint-config-next": "^14.1.0",
-    "typescript": "^5.3.3",
+    "eslint-config-next": "^14.2.4",
+    "typescript": "^5.5.3",
     "ts-node": "^10.9.2"
   },
   "exports": {
