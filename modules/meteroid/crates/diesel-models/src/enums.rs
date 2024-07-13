@@ -79,6 +79,7 @@ pub enum InvoiceType {
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoicingProviderEnum {
     Stripe,
+    Manual,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

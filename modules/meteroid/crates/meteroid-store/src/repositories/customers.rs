@@ -32,6 +32,8 @@ pub trait CustomersInterface {
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<Customer>>;
 
+    async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>>;
+
     async fn insert_customer(&self, customer: CustomerNew) -> StoreResult<Customer>;
 
     async fn insert_customer_batch(&self, batch: Vec<CustomerNew>) -> StoreResult<Vec<Customer>>;
@@ -113,6 +115,19 @@ impl CustomersInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerRow::list_by_ids(&mut conn, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Vec<Result<Customer, Report<StoreError>>>>()
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
     }
 
     async fn insert_customer(&self, customer: CustomerNew) -> StoreResult<Customer> {

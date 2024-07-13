@@ -1,15 +1,15 @@
+use crate::customers::{CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch};
+use crate::errors::IntoDbResult;
+use crate::extend::order::OrderByRequest;
+use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use crate::{DbResult, PgConn};
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
     PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use tap::TapFallible;
-
-use crate::customers::{CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch};
-use crate::errors::IntoDbResult;
-use crate::extend::order::OrderByRequest;
-use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use crate::{DbResult, PgConn};
+use uuid::Uuid;
 
 impl CustomerRowNew {
     pub async fn insert(self, conn: &mut PgConn) -> DbResult<CustomerRow> {
@@ -118,6 +118,23 @@ impl CustomerRow {
             .load_and_count_pages(conn)
             .await
             .attach_printable("Error while fetching customers")
+            .into_db_result()
+    }
+
+    pub async fn list_by_ids(conn: &mut PgConn, ids: Vec<Uuid>) -> DbResult<Vec<CustomerRow>> {
+        use crate::schema::customer::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = customer
+            .filter(id.eq_any(ids))
+            .select(CustomerRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while listing customers by ids")
             .into_db_result()
     }
 

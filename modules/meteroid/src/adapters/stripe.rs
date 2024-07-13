@@ -20,7 +20,7 @@ use common_domain::StripeSecret;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
-use meteroid_store::domain::enums::{InvoiceExternalStatusEnum, InvoicingProviderEnum};
+use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
@@ -103,41 +103,36 @@ impl InvoicingAdapter for Stripe {
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), InvoicingAdapterError> {
-        match invoice.invoicing_provider {
-            InvoicingProviderEnum::Stripe => {
-                let api_key = &StripeSecret(api_key);
+        let api_key = &StripeSecret(api_key);
 
-                let invoice_lines =
-                    serde_json::from_value::<Vec<InvoiceLine>>(invoice.line_items.clone())
-                        .change_context(InvoicingAdapterError::InvalidData)?;
+        let invoice_lines = serde_json::from_value::<Vec<InvoiceLine>>(invoice.line_items.clone())
+            .change_context(InvoicingAdapterError::InvalidData)?;
 
-                let stripe_customer = Self::extract_stripe_customer_id(customer)?;
-                let collection_method = Self::extract_stripe_collection_method(customer)?;
+        let stripe_customer = Self::extract_stripe_customer_id(customer)?;
+        let collection_method = Self::extract_stripe_collection_method(customer)?;
 
-                let create_invoice =
-                    Self::db_invoice_to_external(invoice, &stripe_customer, collection_method);
+        let create_invoice =
+            Self::db_invoice_to_external(invoice, &stripe_customer, collection_method);
 
-                let created_stripe_invoice = self
-                    .client
-                    .create_invoice(create_invoice, api_key, invoice.id.to_string())
-                    .await
-                    .change_context(InvoicingAdapterError::StripeError)?;
+        let created_stripe_invoice = self
+            .client
+            .create_invoice(create_invoice, api_key, invoice.id.to_string())
+            .await
+            .change_context(InvoicingAdapterError::StripeError)?;
 
-                for line in invoice_lines.iter() {
-                    let create_invoice_line =
-                        Self::db_invoice_item_to_external(&created_stripe_invoice, invoice, line)?;
+        for line in invoice_lines.iter() {
+            let create_invoice_line =
+                Self::db_invoice_item_to_external(&created_stripe_invoice, invoice, line)?;
 
-                    let idempotency_key = format!("{}-{}", invoice.id, line.name);
+            let idempotency_key = format!("{}-{}", invoice.id, line.name);
 
-                    self.client
-                        .create_invoice_item(create_invoice_line, api_key, idempotency_key)
-                        .await
-                        .change_context(InvoicingAdapterError::StripeError)?;
-                }
-
-                Ok(())
-            }
+            self.client
+                .create_invoice_item(create_invoice_line, api_key, idempotency_key)
+                .await
+                .change_context(InvoicingAdapterError::StripeError)?;
         }
+
+        Ok(())
     }
 }
 

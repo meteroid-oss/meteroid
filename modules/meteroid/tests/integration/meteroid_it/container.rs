@@ -20,7 +20,6 @@ pub struct MeteroidSetup {
     pub join_handle: JoinHandle<()>,
     pub channel: Channel,
     pub config: Config,
-    pub pool: Pool,
     pub store: meteroid_store::Store,
 }
 
@@ -80,12 +79,11 @@ pub async fn start_meteroid_with_port(
         .connect_lazy();
 
     MeteroidSetup {
-        token: token,
+        token,
         join_handle: join_handle_meteroid,
-        channel: channel,
+        channel,
         config: config.clone(),
-        pool: pool,
-        store: store,
+        store,
     }
 }
 

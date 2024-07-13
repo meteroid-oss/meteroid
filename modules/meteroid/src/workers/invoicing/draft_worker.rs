@@ -12,8 +12,10 @@ use common_eventbus::Event;
 use meteroid_store::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
 };
-use meteroid_store::domain::{CursorPaginationRequest, SubscriptionInvoiceCandidate};
-use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
+use meteroid_store::domain::{
+    BillingConfig, CursorPaginationRequest, SubscriptionInvoiceCandidate,
+};
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::Store;
 
 const BATCH_SIZE: usize = 100;
@@ -75,10 +77,28 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
             break;
         }
 
+        let customer_ids = paginated_vec
+            .items
+            .iter()
+            .map(|x| x.customer_id)
+            .collect::<Vec<_>>();
+
+        let customers = &store
+            .list_customers_by_ids(customer_ids)
+            .await
+            .change_context(errors::WorkerError::DatabaseError)?;
+
         let params = paginated_vec
             .items
             .iter()
-            .map(subscription_to_draft)
+            .map(|x| {
+                let cust_bill_cfg = customers
+                    .iter()
+                    .find(|c| c.id == x.customer_id)
+                    .and_then(|x| x.billing_config.as_ref());
+
+                subscription_to_draft(x, cust_bill_cfg)
+            })
             .collect::<Result<Vec<Option<_>>, _>>()?
             .into_iter()
             .flatten()
@@ -111,6 +131,7 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
 #[tracing::instrument]
 fn subscription_to_draft(
     subscription: &SubscriptionInvoiceCandidate,
+    cust_bill_cfg: Option<&BillingConfig>,
 ) -> Result<Option<meteroid_store::domain::invoices::InvoiceNew>, errors::WorkerError> {
     let billing_start_date = subscription.billing_start_date;
     let billing_day = subscription.billing_day as u32;
@@ -131,8 +152,13 @@ fn subscription_to_draft(
         billing_start_date,
         billing_day,
         0,
-        &period.unwrap(),
+        period.unwrap(),
     );
+
+    let invoicing_provider = match cust_bill_cfg {
+        Some(BillingConfig::Stripe(_)) => InvoicingProviderEnum::Stripe,
+        None => InvoicingProviderEnum::Manual,
+    };
 
     let invoice = meteroid_store::domain::invoices::InvoiceNew {
         tenant_id: subscription.tenant_id,
@@ -144,9 +170,9 @@ fn subscription_to_draft(
         currency: subscription.currency.clone(),
         days_until_due: Some(subscription.net_terms),
         external_invoice_id: None,
-        invoice_id: None,                                  // TODO
-        invoicing_provider: InvoicingProviderEnum::Stripe, // TODO
-        line_items: serde_json::Value::Null,               // TODO
+        invoice_id: None, // TODO
+        invoicing_provider,
+        line_items: serde_json::Value::Null, // TODO
         issued: false,
         issue_attempts: 0,
         last_issue_attempt_at: None,
