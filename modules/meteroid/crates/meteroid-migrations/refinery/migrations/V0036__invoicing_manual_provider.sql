@@ -1,1 +1,1 @@
-ALTER TYPE InvoicingProviderEnum ADD VALUE 'MANUAL';
+ALTER TYPE "InvoicingProviderEnum" ADD VALUE 'MANUAL';
