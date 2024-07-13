@@ -144,6 +144,9 @@ async fn handler(
     // - get adapter
     let adapter = match provider {
         InvoicingProviderEnum::Stripe => app_state.stripe_adapter,
+        InvoicingProviderEnum::Manual => bail!(errors::AdapterWebhookError::ProviderNotSupported(
+            "Manual".into()
+        )),
     };
 
     // - decode body

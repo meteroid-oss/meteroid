@@ -13,6 +13,7 @@ enum InvoiceStatus {
 
 enum InvoicingProvider {
   STRIPE = 0;
+  MANUAL = 1;
 }
 
 message Invoice {

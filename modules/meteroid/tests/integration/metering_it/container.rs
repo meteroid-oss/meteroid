@@ -50,9 +50,9 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
         .connect_lazy();
 
     MeteringSetup {
-        token: token,
+        token,
         join_handle: join_handle_meteroid,
-        channel: channel,
+        channel,
         config: config.clone(),
     }
 }

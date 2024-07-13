@@ -106,6 +106,7 @@ pub enum InvoiceType {
 #[map_owned(diesel_enums::InvoicingProviderEnum)]
 pub enum InvoicingProviderEnum {
     Stripe,
+    Manual,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]

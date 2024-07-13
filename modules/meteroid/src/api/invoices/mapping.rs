@@ -35,6 +35,7 @@ pub mod invoices {
     ) -> InvoicingProvider {
         match value {
             domain::enums::InvoicingProviderEnum::Stripe => InvoicingProvider::Stripe,
+            domain::enums::InvoicingProviderEnum::Manual => InvoicingProvider::Manual,
         }
     }
 

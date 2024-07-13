@@ -172,5 +172,9 @@ async fn issue_invoice(
 
             Ok(())
         }
+        InvoicingProviderEnum::Manual => {
+            log::warn!("Invoice has Manual provider so shouldn't be picked-up by issue_worker");
+            Ok(())
+        }
     }
 }
