@@ -109,7 +109,7 @@ impl UsageClient for MeteringUsageClient {
             .first()
             .and_then(|u| u.value.as_ref())
             .and_then(|u| u.clone().try_into().ok())
-            .unwrap_or_else(|| Decimal::ZERO);
+            .unwrap_or(Decimal::ZERO);
 
         Ok(UsageData {
             total_usage,
