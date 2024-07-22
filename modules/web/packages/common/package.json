@@ -7,7 +7,7 @@
   "devDependencies": {
     "eslint-config-meteroid": "workspace:*",
     "@md/tsconfig": "workspace:*",
-    "tsup": "^8.0.1"
+    "tsup": "^8.2.2"
   },
   "private": true,
   "sideEffects": false,
