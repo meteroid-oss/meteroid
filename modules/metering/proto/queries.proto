@@ -2,72 +2,72 @@ syntax = "proto3";
 
 package meteroid.metering.v1;
 
-import "common/v1/decimal.proto";
 import "common/v1/date.proto";
+import "common/v1/decimal.proto";
 import "google/protobuf/timestamp.proto";
-
+import "google/protobuf/wrappers.proto";
 import "models.proto";
 
-
 message Filter {
-    string property_name = 1;
-    repeated string property_value = 2;
+  string property_name = 1;
+  repeated string property_value = 2;
 }
 
 // TODO this is for Usage meters. Does Cost meters have a different format ? (do we have subjects ?)
 message QueryMeterRequest {
-    string tenant_id = 1;
-    string meter_slug = 2;
-    Meter.AggregationType meter_aggregation_type = 3;
-    repeated ResourceIdentifier customers = 4;
-    google.protobuf.Timestamp from = 5;
-    google.protobuf.Timestamp to = 6;
-    // If null, default to WindowSize.AGGREGATE_ALL
-    repeated string group_by_properties = 7;
-    repeated Filter filter_properties = 8;
-    QueryWindowSize window_size = 9;
-    optional string timezone = 10;
+  string tenant_id = 1;
+  string meter_slug = 2;
+  Meter.AggregationType meter_aggregation_type = 3;
+  repeated ResourceIdentifier customers = 4;
+  google.protobuf.Timestamp from = 5;
+  google.protobuf.Timestamp to = 6;
+  // If null, default to WindowSize.AGGREGATE_ALL
+  repeated string group_by_properties = 7;
+  repeated Filter filter_properties = 8;
+  QueryWindowSize window_size = 9;
+  optional string timezone = 10;
 
-    enum QueryWindowSize {
-        MINUTE = 0;
-        HOUR = 1;
-        DAY = 2;
-        AGGREGATE_ALL = 4;
-    }
+  enum QueryWindowSize {
+    MINUTE = 0;
+    HOUR = 1;
+    DAY = 2;
+    AGGREGATE_ALL = 4;
+  }
 }
 
-
 message QueryMeterResponse {
-    repeated Usage usage = 1;
+  repeated Usage usage = 1;
 
-    message Usage {
-        string customer_id = 1; // or external id, whichever is configured. TODO what about cost meters ?
-        meteroid.common.v1.Decimal value = 2;
-        google.protobuf.Timestamp window_start = 3;
-        google.protobuf.Timestamp window_end = 4;
+  message Usage {
+    string customer_id = 1; // or external id, whichever is configured. TODO what about cost meters ?
+    meteroid.common.v1.Decimal value = 2;
+    google.protobuf.Timestamp window_start = 3;
+    google.protobuf.Timestamp window_end = 4;
+    map<string, DimensionValueField> dimensions = 5;
 
+    message DimensionValueField {
+      optional string value = 1;
     }
+  }
 }
 
 message QueryRawEventsRequest {
-    string tenant_id = 1;
-    // TODO filters, pagination etc etc
-    google.protobuf.Timestamp from = 2;
-    google.protobuf.Timestamp to = 3;
-    // max 100
-    uint32 limit = 4;
+  string tenant_id = 1;
+  // TODO filters, pagination etc etc
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+  // max 100
+  uint32 limit = 4;
 }
 
 message QueryRawEventsResponse {
-    repeated Event events = 1;
-    uint32 total_count = 2;
+  repeated Event events = 1;
+  uint32 total_count = 2;
 }
 
-
 service UsageQueryService {
-    rpc QueryMeter(QueryMeterRequest) returns (QueryMeterResponse);
-    // TODO add simpler impl for extensions ? (daily only etc) => look at what is required in code, and separate Query & Explore
+  rpc QueryMeter(QueryMeterRequest) returns (QueryMeterResponse);
+  // TODO add simpler impl for extensions ? (daily only etc) => look at what is required in code, and separate Query & Explore
 
-    rpc QueryRawEvents(QueryRawEventsRequest) returns (QueryRawEventsResponse);
-
+  rpc QueryRawEvents(QueryRawEventsRequest) returns (QueryRawEventsResponse);
 }

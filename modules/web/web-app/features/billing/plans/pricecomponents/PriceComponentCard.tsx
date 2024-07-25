@@ -176,6 +176,7 @@ const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
       .with({ model: 'volume' }, () => 'Volume')
       .with({ model: 'package' }, () => 'Package')
       .with({ model: 'per_unit' }, () => 'Per Unit')
+      .with({ model: 'matrix' }, () => 'Matrix')
       .exhaustive()
 
   return match<FeeType, PriceElement | undefined>(feeType ?? undefined)
@@ -324,6 +325,24 @@ const renderUsageBased = (rate: UsageFee) => {
         data={[data]}
       />
     ))
+    .with({ model: 'matrix' }, ({ data }) => {
+      const dimensionHeader = data.dimensionRates[0]
+        ? Array.from(data.dimensionRates[0].dimensions.keys()).join(',')
+        : 'Dimensions'
+
+      return (
+        <SimpleTable
+          columns={[
+            { header: dimensionHeader, accessorFn: row => [...row.dimensions.values()].join(',') },
+            {
+              header: 'Unit price',
+              cell: ({ row }) => <DisplayPrice price={row.original.price} />,
+            },
+          ]}
+          data={data.dimensionRates}
+        />
+      )
+    })
     .with(P.union({ model: 'tiered' }, { model: 'volume' }), ({ data }) => {
       const hasFlatFee = data.rows.some(row => row.flatFee != null)
       const hasFlatCap = data.rows.some(row => row.flatCap != null)

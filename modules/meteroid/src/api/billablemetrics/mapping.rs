@@ -59,7 +59,6 @@ pub mod aggregation_type {
 }
 
 pub mod unit_conversion_rounding {
-
     use meteroid_grpc::meteroid::api::billablemetrics::v1::aggregation::unit_conversion as server;
     use meteroid_store::domain;
 
@@ -94,10 +93,12 @@ pub mod unit_conversion_rounding {
 pub mod metric {
     use error_stack::Report;
     use meteroid_grpc::meteroid::api::billablemetrics::v1 as server;
+    use std::collections::HashMap;
 
     use metering_grpc::meteroid::metering::v1 as metering;
     use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::Matrix;
     use meteroid_store::domain;
+    use meteroid_store::domain::{Dimension, SegmentationMatrix};
     use meteroid_store::errors::StoreError;
 
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
@@ -128,9 +129,7 @@ pub mod metric {
                                 .into(),
                         }),
                 }),
-                segmentation_matrix: value
-                    .segmentation_matrix
-                    .map(|s| serde_json::from_value(s).unwrap()),
+                segmentation_matrix: map_segmentation_matrix(value.segmentation_matrix),
                 archived_at: value.archived_at.map(chrono_to_timestamp),
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
@@ -139,6 +138,7 @@ pub mod metric {
     }
 
     pub struct ServerBillableMetricMetaWrapper(pub server::BillableMetricMeta);
+
     impl TryFrom<domain::BillableMetricMeta> for ServerBillableMetricMetaWrapper {
         type Error = Report<StoreError>;
 
@@ -160,10 +160,79 @@ pub mod metric {
         }
     }
 
+    pub fn map_segmentation_matrix_from_server(
+        segmentation_matrix: Option<server::SegmentationMatrix>,
+    ) -> Option<SegmentationMatrix> {
+        segmentation_matrix.and_then(|sm| match sm.matrix {
+            Some(Matrix::Single(s)) => Some(SegmentationMatrix::Single {
+                key: s.dimension.as_ref().unwrap().key.clone(),
+                values: s.dimension.as_ref().unwrap().values.clone(),
+            }),
+            Some(Matrix::Double(d)) => Some(SegmentationMatrix::Multiple {
+                dimension1: Dimension {
+                    key: d.dimension1.as_ref().unwrap().key.clone(),
+                    values: d.dimension1.as_ref().unwrap().values.clone(),
+                },
+                dimension2: Dimension {
+                    key: d.dimension2.as_ref().unwrap().key.clone(),
+                    values: d.dimension2.as_ref().unwrap().values.clone(),
+                },
+            }),
+            Some(Matrix::Linked(l)) => Some(SegmentationMatrix::Linked {
+                dimension1_key: l.dimension_key.clone(),
+                dimension2_key: l.linked_dimension_key.clone(),
+                values: l
+                    .values
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.values.clone()))
+                    .collect::<HashMap<String, Vec<String>>>(),
+            }),
+            _ => None,
+        })
+    }
+
+    pub fn map_segmentation_matrix(
+        segmentation_matrix: Option<SegmentationMatrix>,
+    ) -> Option<server::SegmentationMatrix> {
+        segmentation_matrix
+            .map(|sm| server::SegmentationMatrix {
+                matrix: match sm {
+                    SegmentationMatrix::Single { key, values } => Some(
+                        server::segmentation_matrix::Matrix::Single(server::segmentation_matrix::SegmentationMatrixSingle {
+                            dimension: Some(server::segmentation_matrix::Dimension {
+                                key,
+                                values,
+                            })
+                        })
+                    ),
+                    SegmentationMatrix::Multiple { dimension1, dimension2 } => {
+                        Some(server::segmentation_matrix::Matrix::Double(server::segmentation_matrix::SegmentationMatrixDouble {
+                            dimension1: Some(server::segmentation_matrix::Dimension {
+                                key: dimension1.key,
+                                values: dimension1.values,
+                            }),
+                            dimension2: Some(server::segmentation_matrix::Dimension {
+                                key: dimension2.key,
+                                values: dimension2.values,
+                            }),
+                        }))
+                    }
+                    SegmentationMatrix::Linked { dimension1_key, dimension2_key, values } => {
+                        Some(server::segmentation_matrix::Matrix::Linked(server::segmentation_matrix::SegmentationMatrixLinked {
+                            dimension_key: dimension1_key,
+                            linked_dimension_key: dimension2_key,
+                            values: values.iter()
+                                .map(|(k, v)| (k.clone(), server::segmentation_matrix::segmentation_matrix_linked::DimensionValues { values: v.clone() }))
+                                .collect::<HashMap<String, server::segmentation_matrix::segmentation_matrix_linked::DimensionValues>>(),
+                        }))
+                    }
+                }
+            })
+    }
+
     pub fn domain_to_metering(metric: domain::BillableMetric) -> metering::Meter {
-        let segmentation: Option<server::SegmentationMatrix> = metric
-            .segmentation_matrix
-            .map(|s| serde_json::from_value(s).unwrap()); // TODO not raw json
+        let segmentation: Option<server::SegmentationMatrix> =
+            map_segmentation_matrix(metric.segmentation_matrix);
 
         let dimensions = segmentation
             .and_then(|s| s.matrix)

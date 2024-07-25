@@ -34,11 +34,11 @@ impl CustomersService for CustomerServiceComponents {
 
         let inner = request.into_inner();
 
-        let billing_config = inner
+        let billing_config_opt = inner
             .billing_config
-            .ok_or_else(|| CustomerApiError::MissingArgument("billing_config".to_string()))
-            .and_then(DomainBillingConfigWrapper::try_from)?
-            .0;
+            .map(|c| DomainBillingConfigWrapper::try_from(c))
+            .transpose()?
+            .map(|c| c.0);
 
         let customer = self
             .store
@@ -46,7 +46,7 @@ impl CustomersService for CustomerServiceComponents {
                 name: inner.name,
                 created_by: actor,
                 tenant_id: tenant_id,
-                billing_config: Some(billing_config),
+                billing_config: billing_config_opt,
                 alias: inner.alias,
                 email: inner.email,
                 invoicing_email: None,

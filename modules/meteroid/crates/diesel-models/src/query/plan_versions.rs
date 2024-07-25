@@ -7,7 +7,7 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::prelude::{ExpressionMethods, QueryDsl};
-use diesel::{debug_query, JoinOnDsl, SelectableHelper};
+use diesel::{debug_query, JoinOnDsl, OptionalExtension, SelectableHelper};
 use error_stack::ResultExt;
 
 impl PlanVersionRowNew {
@@ -53,7 +53,7 @@ impl PlanVersionRow {
         plan_id: uuid::Uuid,
         tenant_id: uuid::Uuid,
         is_draft: Option<bool>,
-    ) -> DbResult<PlanVersionRow> {
+    ) -> DbResult<Option<PlanVersionRow>> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -65,6 +65,33 @@ impl PlanVersionRow {
         if let Some(is_draft) = is_draft {
             query = query.filter(pv_dsl::is_draft_version.eq(is_draft));
         }
+
+        query = query.order_by(pv_dsl::version.desc());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query = query.limit(1);
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach_printable("Error while finding latest plan version")
+            .into_db_result()
+    }
+
+    pub async fn get_latest_by_plan_id_and_tenant_id(
+        conn: &mut PgConn,
+        plan_id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<PlanVersionRow> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let mut query = pv_dsl::plan_version
+            .filter(pv_dsl::plan_id.eq(plan_id))
+            .filter(pv_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
 
         query = query.order_by(pv_dsl::version.desc());
 

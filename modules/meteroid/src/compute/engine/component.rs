@@ -8,6 +8,7 @@ use uuid::Uuid;
 use meteroid_store::domain::*;
 
 use crate::compute::clients::slots::SlotClient;
+use crate::compute::clients::usage::UsageData;
 use crate::compute::engine::shared::{only_positive, ToCents};
 use crate::models::{InvoiceLine, InvoiceLinePeriod};
 
@@ -124,8 +125,11 @@ impl ComponentEngine {
 
                 if let Some(arrear_period) = periods.arrear {
                     if overage_rate > &Decimal::ZERO {
-                        let overage_units =
-                            self.fetch_usage(arrear_period.clone(), *metric_id).await?;
+                        let overage_units = self
+                            .fetch_usage(arrear_period.clone(), *metric_id)
+                            .await?
+                            .single()?;
+
                         if overage_units > Decimal::ZERO {
                             let overage_price = overage_rate.to_cents()?;
                             let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
@@ -145,35 +149,76 @@ impl ComponentEngine {
             }
             SubscriptionFee::Usage { metric_id, model } => {
                 if let Some(arrear_period) = periods.arrear {
-                    let usage_units = self.fetch_usage(arrear_period.clone(), *metric_id).await?;
-                    if usage_units > Decimal::ZERO {
-                        let price_total = match model {
-                            UsagePricingModel::PerUnit { rate } => *rate * usage_units,
-                            UsagePricingModel::Tiered { tiers, block_size } => {
-                                fees::compute_tier_price(usage_units, tiers, block_size)
-                            }
-                            UsagePricingModel::Volume { tiers, block_size } => {
-                                fees::compute_volume_price(usage_units, tiers, block_size)
-                            }
-                            UsagePricingModel::Package { block_size, rate } => {
-                                let package_size_decimal = Decimal::from(*block_size);
-                                let total_packages = (usage_units / package_size_decimal).ceil();
+                    let usage = self.fetch_usage(arrear_period.clone(), *metric_id).await?;
 
-                                total_packages * *rate
+                    match model {
+                        UsagePricingModel::Matrix { rates } => {
+                            for rate in rates {
+                                let period = arrear_period.clone();
+
+                                // for each rate, we get the quantity matching that rate
+                                let quantity = usage
+                                    .data
+                                    .iter()
+                                    .find(|usage| usage.dimensions == rate.dimensions)
+                                    .map(|usage| usage.value.clone())
+                                    .unwrap_or(Decimal::ZERO);
+
+                                let price_total = rate.rate * quantity;
+
+                                let price_cents = only_positive(price_total.to_cents()?);
+
+                                if price_cents > 0 {
+                                    let usage_line = InvoiceLineInner {
+                                        quantity: quantity.to_u64(),
+                                        unit_price: None,
+                                        total: price_cents,
+                                        period: Some(period),
+                                        custom_line_name: None,
+                                    };
+
+                                    lines.push(usage_line);
+                                }
                             }
-                        };
-                        let price_cents = only_positive(price_total.to_cents()?);
+                        }
+                        model => {
+                            let usage_units = usage.single()?;
 
-                        let usage_line = InvoiceLineInner {
-                            quantity: usage_units.to_u64(),
-                            unit_price: None,
-                            total: price_cents,
-                            period: Some(arrear_period),
-                            custom_line_name: None,
-                        };
+                            let price_total = match model {
+                                UsagePricingModel::PerUnit { rate } => *rate * usage_units,
+                                UsagePricingModel::Tiered { tiers, block_size } => {
+                                    fees::compute_tier_price(usage_units, tiers, block_size)
+                                }
+                                UsagePricingModel::Volume { tiers, block_size } => {
+                                    fees::compute_volume_price(usage_units, tiers, block_size)
+                                }
+                                UsagePricingModel::Package { block_size, rate } => {
+                                    let package_size_decimal = Decimal::from(*block_size);
+                                    let total_packages =
+                                        (usage_units / package_size_decimal).ceil();
 
-                        lines.push(usage_line);
+                                    total_packages * *rate
+                                }
+                                UsagePricingModel::Matrix { .. } => unreachable!(),
+                            };
+
+                            let price_cents = only_positive(price_total.to_cents()?);
+
+                            if price_cents > 0 {
+                                let usage_line = InvoiceLineInner {
+                                    quantity: usage_units.to_u64(),
+                                    unit_price: None,
+                                    total: price_cents,
+                                    period: Some(arrear_period),
+                                    custom_line_name: None,
+                                };
+
+                                lines.push(usage_line);
+                            }
+                        }
                     }
+
+                    // if usage_units > Decimal::ZERO {
                 }
             }
         }
@@ -196,7 +241,11 @@ impl ComponentEngine {
             .collect())
     }
 
-    async fn fetch_usage(&self, period: Period, metric_id: Uuid) -> Result<Decimal, ComputeError> {
+    async fn fetch_usage(
+        &self,
+        period: Period,
+        metric_id: Uuid,
+    ) -> Result<UsageData, ComputeError> {
         let metric = self
             .subscription_details
             .metrics
@@ -215,7 +264,7 @@ impl ComponentEngine {
             )
             .await?;
 
-        Ok(usage.total_usage)
+        Ok(usage)
     }
 
     async fn fetch_slots(

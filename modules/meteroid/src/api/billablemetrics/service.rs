@@ -61,9 +61,9 @@ impl BillableMetricsService for BillableMetricsComponents {
                     Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
                     Err(_) => domain::enums::UnitConversionRoundingEnum::None,
                 }),
-                segmentation_matrix: inner
-                    .segmentation_matrix
-                    .map(|s| serde_json::to_value(s).unwrap()),
+                segmentation_matrix: mapping::metric::map_segmentation_matrix_from_server(
+                    inner.segmentation_matrix,
+                ),
                 usage_group_key: inner.usage_group_key,
                 created_by: actor,
                 tenant_id,

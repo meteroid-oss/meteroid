@@ -28,8 +28,15 @@ pub trait PlansInterface {
         &self,
         external_id: &str,
         auth_tenant_id: Uuid,
-        is_draft: Option<bool>,
     ) -> StoreResult<FullPlan>;
+
+    async fn find_plan_by_external_id_and_status(
+        &self,
+        external_id: &str,
+        auth_tenant_id: Uuid,
+        is_draft: Option<bool>,
+    ) -> StoreResult<Option<FullPlan>>;
+
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
@@ -71,7 +78,7 @@ pub trait PlansInterface {
         &self,
         plan_id: Uuid,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<PlanVersion>;
+    ) -> StoreResult<Option<PlanVersion>>;
 
     async fn discard_draft_plan_version(
         &self,
@@ -189,7 +196,6 @@ impl PlansInterface for Store {
         &self,
         external_id: &str,
         auth_tenant_id: Uuid,
-        is_draft: Option<bool>,
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
 
@@ -199,15 +205,11 @@ impl PlansInterface for Store {
                 .map(Into::into)
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let version: PlanVersion = PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
-            &mut conn,
-            plan.id,
-            auth_tenant_id,
-            is_draft,
-        )
-        .await
-        .map(Into::into)
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+        let version: PlanVersion =
+            PlanVersionRow::get_latest_by_plan_id_and_tenant_id(&mut conn, plan.id, auth_tenant_id)
+                .await
+                .map(Into::into)
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let price_components: Vec<PriceComponent> =
             PriceComponentRow::list_by_plan_version_id(&mut conn, auth_tenant_id, version.id)
@@ -222,6 +224,54 @@ impl PlansInterface for Store {
             version,
             price_components,
         })
+    }
+
+    async fn find_plan_by_external_id_and_status(
+        &self,
+        external_id: &str,
+        auth_tenant_id: Uuid,
+        is_draft: Option<bool>,
+    ) -> StoreResult<Option<FullPlan>> {
+        let mut conn = self.get_conn().await?;
+
+        let plan: Plan =
+            PlanRow::get_by_external_id_and_tenant_id(&mut conn, external_id, auth_tenant_id)
+                .await
+                .map(Into::into)
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let version: Option<PlanVersion> = PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
+            &mut conn,
+            plan.id,
+            auth_tenant_id,
+            is_draft,
+        )
+        .await
+        .map(|opt| opt.map(Into::into))
+        .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        match version {
+            Some(version) => {
+                let price_components: Vec<PriceComponent> =
+                    PriceComponentRow::list_by_plan_version_id(
+                        &mut conn,
+                        auth_tenant_id,
+                        version.id,
+                    )
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(Some(FullPlan {
+                    plan,
+                    version,
+                    price_components,
+                }))
+            }
+            None => Ok(None),
+        }
     }
 
     async fn list_plans(
@@ -401,7 +451,7 @@ impl PlansInterface for Store {
         &self,
         plan_id: Uuid,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<PlanVersion> {
+    ) -> StoreResult<Option<PlanVersion>> {
         let mut conn = self.get_conn().await?;
         PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
             &mut conn,
@@ -410,7 +460,7 @@ impl PlansInterface for Store {
             Some(false),
         )
         .await
-        .map(Into::into)
+        .map(|opt| opt.map(Into::into))
         .map_err(Into::into)
     }
 

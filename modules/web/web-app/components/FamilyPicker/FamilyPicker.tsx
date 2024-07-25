@@ -31,7 +31,7 @@ const FamilyPicker: FunctionComponent = () => {
         <Button variant="special" className=" rounded-full ">
           <div className="flex flex-row space-x-2 items-center ">
             <span>
-              <span className="text-xs text-muted-foreground">Family: </span>
+              <span className="text-xs text-muted-foreground">Product line: </span>
               <span>{selected?.name}</span>
             </span>
 

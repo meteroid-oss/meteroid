@@ -31,13 +31,13 @@ const precisionValidation = (str: string, precision: number) => {
 }
 
 const pricePrecision2Schema = z.string().refine(price => precisionValidation(price, 2), {
-  message: 'Price can have a maximum of 2 decimal places',
+  message: 'Price must be defined and have a maximum of 2 decimal places',
   path: [],
 })
 
 // For 8 decimal places
 const pricePrecision8Schema = z.string().refine(price => precisionValidation(price, 8), {
-  message: 'Price can have a maximum of 8 decimal places',
+  message: 'Price must be defined and have a maximum of 8 decimal places',
   path: [],
 })
 
@@ -105,6 +105,13 @@ const TieredAndVolumeSchema = z
     blockSize: z.bigint().positive().optional(),
   })
   .superRefine((data, ctx) => {
+    if (data.rows[0].firstUnit !== BigInt(0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'First unit of first row must be zero',
+        path: ['rows', 0, 'firstUnit'],
+      })
+    }
     for (let i = 1; i < data.rows.length; i++) {
       if (data.rows[i].firstUnit <= data.rows[i - 1].firstUnit) {
         ctx.addIssue({
@@ -130,6 +137,16 @@ const PackageSchema = z.object({
 })
 export type Package = z.infer<typeof PackageSchema>
 
+const MatrixSchema = z.object({
+  dimensionRates: z.array(
+    z.object({
+      dimensions: z.map(z.string(), z.string()),
+      price: pricePrecision2Schema,
+    })
+  ),
+})
+export type Matrix = z.infer<typeof MatrixSchema>
+
 const UsagePricingModelSchema = z.discriminatedUnion('model', [
   z.object({ model: z.literal('per_unit'), data: PerUnitSchema }),
   z.object({
@@ -141,6 +158,7 @@ const UsagePricingModelSchema = z.discriminatedUnion('model', [
     data: TieredAndVolumeSchema,
   }),
   z.object({ model: z.literal('package'), data: PackageSchema }),
+  z.object({ model: z.literal('matrix'), data: MatrixSchema }),
 ])
 
 export type UsagePricingModel = z.infer<typeof UsagePricingModelSchema>

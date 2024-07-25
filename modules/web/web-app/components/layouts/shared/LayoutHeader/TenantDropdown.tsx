@@ -14,17 +14,25 @@ import { Link } from 'react-router-dom'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { listTenants } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
+import React, { useEffect } from 'react'
 
 export const TenantDropdown = () => {
   const tenants = useQuery(listTenants).data?.tenants ?? []
 
   const { tenant } = useTenant()
 
+  const [open, setOpen] = React.useState(false)
+
+  useEffect(() => {
+    setOpen(false)
+  }, [tenant])
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger>
         <Button variant="special" className=" rounded-full">
           <div className="flex flex-row space-x-2 items-center ">
+            <span className="text-xs text-muted-foreground">Tenant: </span>
             <span className=" rounded-full p-1 bg-cyan-600" />
             <span>{tenant?.name}</span>
             <ChevronsUpDownIcon size="10" />

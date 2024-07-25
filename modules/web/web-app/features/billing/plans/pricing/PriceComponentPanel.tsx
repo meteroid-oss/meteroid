@@ -1,20 +1,21 @@
 import {
   Badge,
+  Button,
+  ScrollArea,
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
-  Button,
 } from '@md/ui'
 import {
   ActivityIcon,
   ArmchairIcon,
   ArrowDownIcon,
+  CircleDollarSignIcon,
   Clock4Icon,
   ParkingMeterIcon,
   UngroupIcon,
-  CircleDollarSignIcon,
 } from 'lucide-react'
 import { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -30,66 +31,68 @@ export const PriceComponentPanel: React.FC = () => {
           <SheetTitle>Pick a pricing model</SheetTitle>
           <SheetDescription>Add a new price component to your plan</SheetDescription>
         </SheetHeader>
-        <div className="px-2">
-          <div className="p-6 pt-0 text-sm text-foreground">
-            <Button disabled variant="secondary">
-              Import from another plan (soon)
-            </Button>
-          </div>
+        <div>
+          <ScrollArea className="max-h-[calc(100vh-130px)] h-full px-2">
+            <div className="p-6 pt-0 text-sm text-foreground">
+              <Button disabled variant="secondary">
+                Import from another plan (soon)
+              </Button>
+            </div>
 
-          <div className="pl-4 pb-2  text-sm font-semibold text-muted-foreground">
-            Standard models
-          </div>
-          <Row
-            to="rate"
-            label="Subscription Rate"
-            description="Standard subscription price with a fixed rate per billing period. You can define different rates per committed period."
-            icon={<UngroupIcon size={14} />}
-          />
-          <Row
-            to="slot"
-            label="Slot-based"
-            description="Perfect for Seats, Licenses or other purchasable entities. Price is based on the number of active slots. You can define different rates per committed period."
-            icon={<ArmchairIcon size={14} />}
-          />
-          <Row
-            to="capacity"
-            label="Capacity commitment"
-            description="Threshold-based pricing system where users pay based on the capacity they purchase, with overage charges for additional usage or upsell opportunities."
-            icon={<ParkingMeterIcon size={14} />}
-          />
-          <div className="pl-4 pt-6 pb-2  text-sm font-semibold text-muted-foreground">
-            Pay-as-you-go models
-          </div>
+            <div className="pl-4 pb-2  text-sm font-semibold text-muted-foreground">
+              Standard models
+            </div>
+            <Row
+              to="rate"
+              label="Subscription Rate"
+              description="Standard subscription price with a fixed rate per billing period. You can define different rates per committed period."
+              icon={<UngroupIcon size={14} />}
+            />
+            <Row
+              to="slot"
+              label="Slot-based"
+              description="Perfect for Seats, Licenses or other purchasable entities. Price is based on the number of active slots. You can define different rates per committed period."
+              icon={<ArmchairIcon size={14} />}
+            />
+            <Row
+              to="capacity"
+              label="Capacity commitment"
+              description="Threshold-based pricing system where users pay based on the capacity they purchase, with overage charges for additional usage or upsell opportunities."
+              icon={<ParkingMeterIcon size={14} />}
+            />
+            <div className="pl-4 pt-6 pb-2  text-sm font-semibold text-muted-foreground">
+              Pay-as-you-go models
+            </div>
 
-          <Row
-            to="usage"
-            label="Usage-based"
-            description="Charge your customers based on their usage of your product during the last billing period."
-            icon={<ActivityIcon size={14} />}
-          />
-          <Row
-            label="Basis points"
-            description="Designed for fintechs, charge your customers instantly a percentage for each transactional event."
-            icon={<CircleDollarSignIcon size={14} />}
-            disabled
-          />
+            <Row
+              to="usage"
+              label="Usage-based"
+              description="Charge your customers based on their usage of your product during the last billing period."
+              icon={<ActivityIcon size={14} />}
+            />
+            <Row
+              label="Basis points"
+              description="Designed for fintechs, charge your customers instantly a percentage for each transactional event."
+              icon={<CircleDollarSignIcon size={14} />}
+              disabled
+            />
 
-          <div className="pl-4 pt-6 pb-2 text-sm font-semibold text-muted-foreground">
-            Additional charges
-          </div>
-          <Row
-            to="oneTime"
-            label="One-time charge"
-            description="Charge your customers once when their subscription starts. Ideal for an implementation fee."
-            icon={<ArrowDownIcon size={14} />}
-          />
-          <Row
-            to="extraRecurring"
-            label="Recurring charge"
-            description="A recurring fee outside of the standard subscription rate or period, ex: a quarterly maintenance fee"
-            icon={<Clock4Icon size={14} />}
-          />
+            <div className="pl-4 pt-6 pb-2 text-sm font-semibold text-muted-foreground">
+              Additional charges
+            </div>
+            <Row
+              to="oneTime"
+              label="One-time charge"
+              description="Charge your customers once when their subscription starts. Ideal for an implementation fee."
+              icon={<ArrowDownIcon size={14} />}
+            />
+            <Row
+              to="extraRecurring"
+              label="Recurring charge"
+              description="A recurring fee outside of the standard subscription rate or period, ex: a quarterly maintenance fee"
+              icon={<Clock4Icon size={14} />}
+            />
+          </ScrollArea>
         </div>
       </SheetContent>
     </Sheet>

@@ -11,18 +11,34 @@ use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
-    QueryMeterRequest, QueryMeterResponse, ResourceIdentifier,
+    Filter, QueryMeterRequest, QueryMeterResponse, ResourceIdentifier,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::BillableMetric;
 
-use crate::models::UsageDetails;
-
 #[derive(Debug, Clone)]
 pub struct UsageData {
-    pub total_usage: Decimal,
-    pub usage_details: Vec<UsageDetails>,
+    pub data: Vec<GroupedUsageData>,
     pub period: Period,
+}
+
+impl UsageData {
+    pub(crate) fn single(&self) -> Result<Decimal, ComputeError> {
+        if self.data.len() > 1 {
+            return Err(ComputeError::TooManyResults);
+        }
+        Ok(self
+            .data
+            .first()
+            .map(|usage| usage.value.clone())
+            .unwrap_or(Decimal::ZERO))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupedUsageData {
+    pub value: Decimal,
+    pub dimensions: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug)]
@@ -76,6 +92,49 @@ impl UsageClient for MeteringUsageClient {
             }
         } as i32;
 
+        let filter_properties = match metric.segmentation_matrix.clone() {
+            Some(domain::SegmentationMatrix::Single { key, values }) => {
+                vec![Filter {
+                    property_name: key,
+                    property_value: values,
+                }]
+            }
+            Some(domain::SegmentationMatrix::Multiple {
+                dimension1,
+                dimension2,
+            }) => {
+                vec![
+                    Filter {
+                        property_name: dimension1.key,
+                        property_value: dimension1.values,
+                    },
+                    Filter {
+                        property_name: dimension2.key,
+                        property_value: dimension2.values,
+                    },
+                ]
+            }
+            Some(domain::SegmentationMatrix::Linked {
+                dimension1_key,
+                dimension2_key,
+                values,
+            }) => {
+                let mut filter_properties = vec![];
+                for (key, values) in values.iter() {
+                    filter_properties.push(Filter {
+                        property_name: dimension1_key.clone(),
+                        property_value: vec![key.clone()],
+                    });
+                    filter_properties.push(Filter {
+                        property_name: dimension2_key.clone(),
+                        property_value: values.clone(),
+                    });
+                }
+                filter_properties
+            }
+            None => vec![],
+        };
+
         let request = QueryMeterRequest {
             tenant_id: tenant_id.to_string(),
             meter_slug: metric.id.to_string(),
@@ -91,31 +150,39 @@ impl UsageClient for MeteringUsageClient {
             // not used here, defaults to customer_id
             group_by_properties: vec![],
             // the segmentation dimensions TODO
-            filter_properties: vec![],
+            filter_properties,
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
         };
 
         let mut metering_client_mut = self.metering_client.clone();
-        let usage_data: QueryMeterResponse = metering_client_mut
+        let response: QueryMeterResponse = metering_client_mut
             .query_meter(request)
             .await
             .map_err(|_status| ComputeError::MeteringGrpcError)?
             .into_inner();
 
-        //TODO check that length is 1. Alternatively, do a purpose-built query
-        let total_usage: Decimal = usage_data
+        let data: Vec<GroupedUsageData> = response
             .usage
-            .first()
-            .and_then(|u| u.value.as_ref())
-            .and_then(|u| u.clone().try_into().ok())
-            .unwrap_or_else(|| Decimal::ZERO);
+            .into_iter()
+            .map(|usage| {
+                let value: Decimal = usage
+                    .value
+                    .as_ref()
+                    .and_then(|v| v.clone().try_into().ok())
+                    .unwrap_or(Decimal::ZERO);
+                GroupedUsageData {
+                    value,
+                    dimensions: usage
+                        .dimensions
+                        .into_iter()
+                        .map(|(k, v)| (k, v.value.unwrap_or(String::new())))
+                        .collect(),
+                }
+            })
+            .collect();
 
-        Ok(UsageData {
-            total_usage,
-            usage_details: vec![], // we no longer have the day by day unless we decide to fetch separately. We could do that on demand + on finalize
-            period,
-        })
+        Ok(UsageData { data, period })
     }
 }
 
@@ -156,8 +223,7 @@ impl UsageClient for MockUsageClient {
             .get(&params)
             .map(|data| data.clone())
             .unwrap_or_else(|| UsageData {
-                total_usage: Decimal::ZERO,
-                usage_details: vec![],
+                data: vec![],
                 period: period.clone(),
             });
         Ok(usage_data)

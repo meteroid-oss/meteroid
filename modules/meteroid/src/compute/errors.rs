@@ -14,4 +14,6 @@ pub enum ComputeError {
     MetricNotFound,
     #[error("Metering gRPC error occurred while fetching usage data")]
     MeteringGrpcError,
+    #[error("Metering returned too many results")]
+    TooManyResults,
 }
