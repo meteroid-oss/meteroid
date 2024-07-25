@@ -138,13 +138,16 @@ const PackageSchema = z.object({
 export type Package = z.infer<typeof PackageSchema>
 
 const MatrixSchema = z.object({
-  dimensionRates: z.array(
-    z.object({
-      dimensions: z.map(z.string(), z.string()),
-      price: pricePrecision2Schema,
-    })
-  ),
+  dimensionRates: z
+    .array(
+      z.object({
+        dimensions: z.map(z.string(), z.string()),
+        price: pricePrecision2Schema,
+      })
+    )
+    .min(1),
 })
+
 export type Matrix = z.infer<typeof MatrixSchema>
 
 const UsagePricingModelSchema = z.discriminatedUnion('model', [

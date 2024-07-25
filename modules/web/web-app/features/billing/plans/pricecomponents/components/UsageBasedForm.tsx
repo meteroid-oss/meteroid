@@ -294,7 +294,11 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
   const segmentationMatrix = metric.billableMetric.segmentationMatrix
 
   if (!segmentationMatrix) {
-    return <>This metric doesn't have a segmentation matrix</>
+    return (
+      <div className="py-4 text-sm text-muted-foreground">
+        This metric doesn't have a segmentation matrix
+      </div>
+    )
   }
 
   return (
