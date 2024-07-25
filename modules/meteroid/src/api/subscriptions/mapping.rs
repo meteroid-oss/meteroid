@@ -409,7 +409,7 @@ mod price_components {
                             .iter()
                             .map(|r| api_components::usage_fee::matrix::MatrixRow {
                                 dimensions: r.dimensions.clone(),
-                                per_unit_price: r.rate.as_proto(),
+                                per_unit_price: r.per_unit_price.as_proto(),
                             })
                             .collect(),
                     },
@@ -528,7 +528,9 @@ mod price_components {
                     .map(|r| {
                         Ok::<_, Status>(domain::MatrixRow {
                             dimensions: r.dimensions.clone(),
-                            rate: rust_decimal::Decimal::from_proto_ref(&r.per_unit_price)?,
+                            per_unit_price: rust_decimal::Decimal::from_proto_ref(
+                                &r.per_unit_price,
+                            )?,
                         })
                     })
                     .collect::<Result<Vec<_>, _>>()?;

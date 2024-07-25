@@ -93,13 +93,13 @@ impl UsageClient for MeteringUsageClient {
         } as i32;
 
         let filter_properties = match metric.segmentation_matrix.clone() {
-            Some(domain::SegmentationMatrix::Single { key, values }) => {
+            Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values })) => {
                 vec![Filter {
                     property_name: key,
                     property_value: values,
                 }]
             }
-            Some(domain::SegmentationMatrix::Multiple {
+            Some(domain::SegmentationMatrix::Double {
                 dimension1,
                 dimension2,
             }) => {

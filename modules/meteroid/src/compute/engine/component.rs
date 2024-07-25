@@ -164,7 +164,7 @@ impl ComponentEngine {
                                     .map(|usage| usage.value.clone())
                                     .unwrap_or(Decimal::ZERO);
 
-                                let price_total = rate.rate * quantity;
+                                let price_total = rate.per_unit_price * quantity;
 
                                 let price_cents = only_positive(price_total.to_cents()?);
 

@@ -95,7 +95,7 @@ pub enum UsagePricingModel {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MatrixRow {
     pub dimensions: HashMap<String, String>,
-    pub rate: rust_decimal::Decimal,
+    pub per_unit_price: rust_decimal::Decimal,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

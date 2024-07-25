@@ -164,11 +164,11 @@ pub mod metric {
         segmentation_matrix: Option<server::SegmentationMatrix>,
     ) -> Option<SegmentationMatrix> {
         segmentation_matrix.and_then(|sm| match sm.matrix {
-            Some(Matrix::Single(s)) => Some(SegmentationMatrix::Single {
+            Some(Matrix::Single(s)) => Some(SegmentationMatrix::Single(Dimension {
                 key: s.dimension.as_ref().unwrap().key.clone(),
                 values: s.dimension.as_ref().unwrap().values.clone(),
-            }),
-            Some(Matrix::Double(d)) => Some(SegmentationMatrix::Multiple {
+            })),
+            Some(Matrix::Double(d)) => Some(SegmentationMatrix::Double {
                 dimension1: Dimension {
                     key: d.dimension1.as_ref().unwrap().key.clone(),
                     values: d.dimension1.as_ref().unwrap().values.clone(),
@@ -197,7 +197,7 @@ pub mod metric {
         segmentation_matrix
             .map(|sm| server::SegmentationMatrix {
                 matrix: match sm {
-                    SegmentationMatrix::Single { key, values } => Some(
+                    SegmentationMatrix::Single(Dimension  { key, values }) => Some(
                         server::segmentation_matrix::Matrix::Single(server::segmentation_matrix::SegmentationMatrixSingle {
                             dimension: Some(server::segmentation_matrix::Dimension {
                                 key,
@@ -205,7 +205,7 @@ pub mod metric {
                             })
                         })
                     ),
-                    SegmentationMatrix::Multiple { dimension1, dimension2 } => {
+                    SegmentationMatrix::Double { dimension1, dimension2 } => {
                         Some(server::segmentation_matrix::Matrix::Double(server::segmentation_matrix::SegmentationMatrixDouble {
                             dimension1: Some(server::segmentation_matrix::Dimension {
                                 key: dimension1.key,

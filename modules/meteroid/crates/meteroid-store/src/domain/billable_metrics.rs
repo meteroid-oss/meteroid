@@ -52,11 +52,8 @@ pub struct Dimension {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SegmentationMatrix {
-    Single {
-        key: String,
-        values: Vec<String>,
-    },
-    Multiple {
+    Single(Dimension),
+    Double {
         dimension1: Dimension,
         dimension2: Dimension,
     },
