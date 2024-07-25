@@ -1,13 +1,12 @@
-import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 import { useMutation } from '@connectrpc/connect-query'
-import { FunctionComponent } from 'react'
-
 import { Button, Card, Form, InputFormField, SelectFormField, SelectItem } from '@md/ui'
+import { ChevronLeft } from 'lucide-react'
+import { FunctionComponent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
-import { ChevronLeft } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 const tenantSchema = z.object({
   name: z.string().min(1),
@@ -32,7 +31,7 @@ export const TenantNew: FunctionComponent = () => {
     <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">
       <div className="pt-4">
         <div className="flex space-x-4 items-center">
-          <Button variant={'ghost'} onClick={() => navigate(-1)} className="">
+          <Button variant="ghost" onClick={() => navigate(-1)} className="">
             <ChevronLeft size={16} />
           </Button>
 

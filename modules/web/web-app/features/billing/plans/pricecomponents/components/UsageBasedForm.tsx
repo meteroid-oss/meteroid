@@ -15,7 +15,7 @@ import {
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom, useSetAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { match } from 'ts-pattern'
@@ -44,7 +44,6 @@ import {
   listBillableMetrics,
 } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import React from 'react'
 
 // type UsagePricingModelType = "per_unit" | "tiered" | "volume" | "package"
 
@@ -296,7 +295,7 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
   if (!segmentationMatrix) {
     return (
       <div className="py-4 text-sm text-muted-foreground">
-        This metric doesn't have a segmentation matrix
+        This metric does not have a segmentation matrix
       </div>
     )
   }
@@ -489,7 +488,7 @@ const TierTable = ({
   )
 }
 
-const FirstUnitField = React.memo(
+const FirstUnitField = memo(
   ({ methods, rowIndex }: { methods: Methods<typeof UsageFeeSchema>; rowIndex: number }) => {
     const { control } = methods
     const prevRowValue = useWatch({

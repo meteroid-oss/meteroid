@@ -1,10 +1,10 @@
 import { disableQuery } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
 import { useTypedParams } from '@/lib/utils/params'
 import { activeTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
-import { useEffect } from 'react'
 
 export const useTenant = () => {
   const { tenantSlug } = useTypedParams()
