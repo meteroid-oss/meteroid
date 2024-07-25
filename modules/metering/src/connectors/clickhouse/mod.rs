@@ -129,11 +129,18 @@ impl Connector for ClickhouseConnector {
             .rows()
             .into_iter()
             .map(|row| {
-                // TODO unwraps
-                let window_start: DateTime<Tz> = row.get(window_start_col).unwrap();
-                let window_end: DateTime<Tz> = row.get(window_end_col).unwrap();
-                let value: f64 = row.get("value").unwrap();
-                let customer_id: String = row.get("customer_id").unwrap();
+                let window_start: DateTime<Tz> = row
+                    .get(window_start_col)
+                    .change_context(ConnectorError::QueryError)?;
+                let window_end: DateTime<Tz> = row
+                    .get(window_end_col)
+                    .change_context(ConnectorError::QueryError)?;
+                let value: f64 = row
+                    .get("value")
+                    .change_context(ConnectorError::QueryError)?;
+                let customer_id: String = row
+                    .get("customer_id")
+                    .change_context(ConnectorError::QueryError)?;
 
                 let window_start = window_start.with_timezone(&Utc);
                 let window_end = window_end.with_timezone(&Utc);
@@ -143,7 +150,9 @@ impl Connector for ClickhouseConnector {
                 // TODO test
                 for c in params.group_by.iter() {
                     let column_name = c.to_string();
-                    let column_value: Option<String> = row.get(column_name.as_str()).unwrap();
+                    let column_value: Option<String> = row
+                        .get(column_name.as_str())
+                        .change_context(ConnectorError::QueryError)?;
                     group_by.insert(column_name, column_value);
                 }
 

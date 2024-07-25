@@ -7,8 +7,9 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
     CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest,
     ListTenantsResponse,
 };
+use meteroid_store::domain;
 use meteroid_store::repositories::configs::ConfigsInterface;
-use meteroid_store::repositories::TenantInterface;
+use meteroid_store::repositories::{ProductFamilyInterface, TenantInterface};
 
 use crate::api::tenants::error::TenantApiError;
 use crate::{api::utils::parse_uuid, parse_uuid};
@@ -90,10 +91,23 @@ impl TenantsService for TenantServiceComponents {
             .store
             .insert_tenant(req)
             .await
-            .map(mapping::tenants::domain_to_server)
             .map_err(Into::<TenantApiError>::into)?;
 
-        Ok(Response::new(CreateTenantResponse { tenant: Some(res) }))
+        self.store
+            .insert_product_family(
+                domain::ProductFamilyNew {
+                    name: "Default".to_string(),
+                    external_id: "default".to_string(),
+                    tenant_id: res.id.clone(),
+                },
+                Some(actor),
+            )
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        Ok(Response::new(CreateTenantResponse {
+            tenant: Some(mapping::tenants::domain_to_server(res)),
+        }))
     }
 
     #[tracing::instrument(skip_all)]

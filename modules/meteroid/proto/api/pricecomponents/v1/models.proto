@@ -11,6 +11,7 @@ message UsageFee {
     TieredAndVolume tiered = 3;
     TieredAndVolume volume = 4;
     Package package = 5;
+    Matrix matrix = 6;
   }
 
   message TieredAndVolume {
@@ -29,10 +30,17 @@ message UsageFee {
     string package_price = 1;
     uint64 block_size = 2;
   }
+
+  message Matrix {
+    repeated MatrixRow rows = 1;
+    message MatrixRow {
+      string per_unit_price = 1;
+      map<string, string> dimensions = 2;
+    }
+  }
 }
 
 message Fee {
-
   message RateFee {
     repeated TermRate rates = 1;
   }
@@ -74,7 +82,6 @@ message Fee {
     string unit_price = 1;
     uint32 quantity = 2;
   }
-
 
   enum BillingType {
     ARREAR = 0;

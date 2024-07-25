@@ -9,6 +9,7 @@ import {
   PopoverTrigger,
 } from '@md/ui'
 import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useTenant } from '@/hooks/useTenant'
@@ -20,11 +21,18 @@ export const TenantDropdown = () => {
 
   const { tenant } = useTenant()
 
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    setOpen(false)
+  }, [tenant])
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger>
         <Button variant="special" className=" rounded-full">
           <div className="flex flex-row space-x-2 items-center ">
+            <span className="text-xs text-muted-foreground">Tenant: </span>
             <span className=" rounded-full p-1 bg-cyan-600" />
             <span>{tenant?.name}</span>
             <ChevronsUpDownIcon size="10" />

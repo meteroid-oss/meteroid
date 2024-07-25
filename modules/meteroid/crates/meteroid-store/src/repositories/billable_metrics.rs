@@ -44,7 +44,7 @@ impl BillableMetricInterface for Store {
         BillableMetricRow::find_by_id(&mut conn, id, tenant_id)
             .await
             .map_err(Into::into)
-            .map(Into::into)
+            .and_then(TryInto::try_into)
     }
 
     async fn list_billable_metrics(
@@ -96,7 +96,17 @@ impl BillableMetricInterface for Store {
             aggregation_key: billable_metric.aggregation_key,
             unit_conversion_factor: billable_metric.unit_conversion_factor,
             unit_conversion_rounding: billable_metric.unit_conversion_rounding.map(Into::into),
-            segmentation_matrix: billable_metric.segmentation_matrix,
+            segmentation_matrix: billable_metric
+                .segmentation_matrix
+                .map(|x| {
+                    serde_json::to_value(&x).map_err(|e| {
+                        StoreError::SerdeError(
+                            "Failed to serialize segmentation_matrix".to_string(),
+                            e,
+                        )
+                    })
+                })
+                .transpose()?,
             usage_group_key: billable_metric.usage_group_key,
             created_by: billable_metric.created_by,
             tenant_id: billable_metric.tenant_id,
@@ -107,7 +117,7 @@ impl BillableMetricInterface for Store {
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(Into::into)?;
+            .and_then(TryInto::try_into)?;
 
         let _ = self
             .eventbus

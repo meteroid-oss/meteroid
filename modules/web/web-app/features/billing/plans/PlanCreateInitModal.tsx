@@ -22,8 +22,7 @@ export const PlanCreateInitModal: FC<Props> = ({ modalVisible, setModalVisible }
       visible={modalVisible}
       header={
         <>
-          <>Create a new plan in product family: </>
-
+          <>Create a new plan in product line </>
           <Badge variant="outline">{productFamily?.name}</Badge>
         </>
       }

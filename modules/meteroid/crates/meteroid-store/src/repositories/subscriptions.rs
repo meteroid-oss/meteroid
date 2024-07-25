@@ -399,8 +399,8 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|m| m.into())
-                .collect();
+                .map(|m| m.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
 
         Ok(SubscriptionDetails {
             id: subscription.id,

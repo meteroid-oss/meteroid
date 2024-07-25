@@ -401,6 +401,20 @@ mod price_components {
                     },
                 )),
             },
+            domain::UsagePricingModel::Matrix { rates } => api_components::UsageFee {
+                metric_id: metric_id.as_proto(),
+                model: Some(api_components::usage_fee::Model::Matrix(
+                    api_components::usage_fee::Matrix {
+                        rows: rates
+                            .iter()
+                            .map(|r| api_components::usage_fee::matrix::MatrixRow {
+                                dimensions: r.dimensions.clone(),
+                                per_unit_price: r.per_unit_price.as_proto(),
+                            })
+                            .collect(),
+                    },
+                )),
+            },
         }
     }
 
@@ -506,6 +520,21 @@ mod price_components {
                 let block_size = package.block_size;
                 let rate = rust_decimal::Decimal::from_proto_ref(&package.package_price)?;
                 Ok(domain::UsagePricingModel::Package { block_size, rate })
+            }
+            Some(api_components::usage_fee::Model::Matrix(matrix)) => {
+                let rates = matrix
+                    .rows
+                    .iter()
+                    .map(|r| {
+                        Ok::<_, Status>(domain::MatrixRow {
+                            dimensions: r.dimensions.clone(),
+                            per_unit_price: rust_decimal::Decimal::from_proto_ref(
+                                &r.per_unit_price,
+                            )?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(domain::UsagePricingModel::Matrix { rates })
             }
             None => Err(Status::new(
                 Code::InvalidArgument,

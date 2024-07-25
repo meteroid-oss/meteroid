@@ -93,7 +93,7 @@ impl PlansService for PlanServiceComponents {
 
         let plan_details = self
             .store
-            .get_plan_by_external_id(req.external_id.as_str(), tenant_id, None)
+            .get_plan_by_external_id(req.external_id.as_str(), tenant_id)
             .await
             .map(|x| PlanDetailsWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
@@ -290,10 +290,10 @@ impl PlansService for PlanServiceComponents {
             .get_last_published_plan_version(plan_id, tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)
-            .map(|x| PlanVersionWrapper::from(x).0)?;
+            .map(|x| x.map(|x| PlanVersionWrapper::from(x).0))?;
 
         Ok(Response::new(GetLastPublishedPlanVersionResponse {
-            version: Some(res),
+            version: res,
         }))
     }
 
