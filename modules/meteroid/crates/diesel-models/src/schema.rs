@@ -219,33 +219,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    customer_balance_pending_tx (id) {
-        id -> Uuid,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        amount_cents -> Int4,
-        note -> Nullable<Text>,
-        invoice_id -> Nullable<Uuid>,
-        tenant_id -> Uuid,
-        customer_id -> Uuid,
-        tx_id -> Nullable<Uuid>,
-    }
-}
-
-diesel::table! {
-    customer_balance_tx (id) {
-        id -> Uuid,
-        created_at -> Timestamp,
-        amount_cents -> Int4,
-        balance_cents_after -> Int4,
-        note -> Nullable<Text>,
-        invoice_id -> Nullable<Uuid>,
-        tenant_id -> Uuid,
-        customer_id -> Uuid,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::FangTaskState;
 
@@ -631,13 +604,6 @@ diesel::joinable!(credit_note -> tenant (tenant_id));
 diesel::joinable!(customer -> tenant (tenant_id));
 diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
-diesel::joinable!(customer_balance_pending_tx -> customer (customer_id));
-diesel::joinable!(customer_balance_pending_tx -> customer_balance_tx (tx_id));
-diesel::joinable!(customer_balance_pending_tx -> invoice (invoice_id));
-diesel::joinable!(customer_balance_pending_tx -> tenant (tenant_id));
-diesel::joinable!(customer_balance_tx -> customer (customer_id));
-diesel::joinable!(customer_balance_tx -> invoice (invoice_id));
-diesel::joinable!(customer_balance_tx -> tenant (tenant_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
@@ -675,8 +641,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     billable_metric,
     credit_note,
     customer,
-    customer_balance_pending_tx,
-    customer_balance_tx,
     fang_tasks,
     fang_tasks_archive,
     historical_rates_from_usd,
