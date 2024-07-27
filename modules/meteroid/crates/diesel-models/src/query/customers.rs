@@ -177,7 +177,7 @@ impl CustomerRow {
 
         let query = diesel::update(c_dsl::customer)
             .filter(c_dsl::id.eq(id))
-            .filter(c_dsl::balance_value_cents.add(delta_cents).le(0))
+            .filter(c_dsl::balance_value_cents.add(delta_cents).ge(0))
             .set((
                 c_dsl::balance_value_cents.eq(c_dsl::balance_value_cents.add(delta_cents)),
                 c_dsl::updated_at.eq(diesel::dsl::now),
