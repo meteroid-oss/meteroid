@@ -51,9 +51,9 @@ impl InvoiceRow {
 
         let query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
-            .inner_join(s_dsl::subscription.on(i_dsl::subscription_id.eq(s_dsl::id)))
-            .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
-            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .left_join(s_dsl::subscription.on(i_dsl::subscription_id.eq(s_dsl::id.nullable())))
+            .left_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
+            .left_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
             .select(InvoiceWithPlanDetailsRow::as_select());

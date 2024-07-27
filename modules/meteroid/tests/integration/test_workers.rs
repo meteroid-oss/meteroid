@@ -55,29 +55,31 @@ async fn test_draft_worker() {
     ]);
 
     let actual_sub_ids: HashSet<Uuid> =
-        HashSet::from_iter(invoices.iter().map(|i| i.invoice.subscription_id));
+        HashSet::from_iter(invoices.iter().map(|i| i.invoice.subscription_id.unwrap()));
 
     assert_eq!(expected_sub_ids, actual_sub_ids);
 
     for invoice in invoices.iter().map(|x| &x.invoice) {
         assert_eq!(invoice.status, InvoiceStatusEnum::Draft);
 
-        if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID1 {
+        let subscription_id = invoice.subscription_id.unwrap();
+
+        if subscription_id == SUBSCRIPTION_SPORTIFY_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
+        } else if subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if invoice.subscription_id == SUBSCRIPTION_UBER_ID1 {
+        } else if subscription_id == SUBSCRIPTION_UBER_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
             assert_eq!(invoice.invoice_date, date("2024-11-01"));
-        } else if invoice.subscription_id == SUBSCRIPTION_UBER_ID2 {
+        } else if subscription_id == SUBSCRIPTION_UBER_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
             assert_eq!(invoice.invoice_date, date("2023-11-15"));
-        } else if invoice.subscription_id == SUBSCRIPTION_COMODO_ID1 {
+        } else if subscription_id == SUBSCRIPTION_COMODO_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if invoice.subscription_id == SUBSCRIPTION_COMODO_ID2 {
+        } else if subscription_id == SUBSCRIPTION_COMODO_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
             assert_eq!(invoice.invoice_date, date("2023-11-30"));
         } else {

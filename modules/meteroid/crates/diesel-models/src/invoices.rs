@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use diesel::{Identifiable, Insertable, NullableExpressionMethods, Queryable, Selectable};
 use uuid::Uuid;
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
@@ -19,7 +19,7 @@ pub struct InvoiceRow {
     pub updated_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
-    pub subscription_id: Uuid,
+    pub subscription_id: Option<Uuid>,
     pub currency: String,
     pub days_until_due: Option<i32>,
     pub external_invoice_id: Option<String>,
@@ -46,7 +46,7 @@ pub struct InvoiceRowNew {
     pub external_status: Option<InvoiceExternalStatusEnum>,
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
-    pub subscription_id: Uuid,
+    pub subscription_id: Option<Uuid>,
     pub currency: String,
     pub days_until_due: Option<i32>,
     pub external_invoice_id: Option<String>,
@@ -76,7 +76,7 @@ pub struct InvoiceWithPlanDetailsRow {
     pub updated_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
-    pub subscription_id: Uuid,
+    pub subscription_id: Option<Uuid>,
     pub currency: String,
     pub days_until_due: Option<i32>,
     pub external_invoice_id: Option<String>,
@@ -93,15 +93,15 @@ pub struct InvoiceWithPlanDetailsRow {
     #[diesel(select_expression = crate::schema::customer::name)]
     #[diesel(select_expression_type = crate::schema::customer::name)]
     pub customer_name: String,
-    #[diesel(select_expression = crate::schema::plan::name)]
-    #[diesel(select_expression_type = crate::schema::plan::name)]
-    pub plan_name: String,
-    #[diesel(select_expression = crate::schema::plan::external_id)]
-    #[diesel(select_expression_type = crate::schema::plan::external_id)]
-    pub plan_external_id: String,
-    #[diesel(select_expression = crate::schema::plan_version::version)]
-    #[diesel(select_expression_type = crate::schema::plan_version::version)]
-    pub plan_version: i32,
+    #[diesel(select_expression = crate::schema::plan::name.nullable())]
+    #[diesel(select_expression_type = diesel::dsl::Nullable<crate::schema::plan::name>)]
+    pub plan_name: Option<String>,
+    #[diesel(select_expression = crate::schema::plan::external_id.nullable())]
+    #[diesel(select_expression_type = diesel::dsl::Nullable<crate::schema::plan::external_id>)]
+    pub plan_external_id: Option<String>,
+    #[diesel(select_expression = crate::schema::plan_version::version.nullable())]
+    #[diesel(select_expression_type = diesel::dsl::Nullable<crate::schema::plan_version::version>)]
+    pub plan_version: Option<i32>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

@@ -280,7 +280,7 @@ diesel::table! {
         updated_at -> Nullable<Timestamptz>,
         tenant_id -> Uuid,
         customer_id -> Uuid,
-        subscription_id -> Uuid,
+        subscription_id -> Nullable<Uuid>,
         currency -> Text,
         days_until_due -> Nullable<Int4>,
         external_invoice_id -> Nullable<Text>,
@@ -462,9 +462,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::BillingPeriodEnum;
-
     subscription (id) {
         id -> Uuid,
         customer_id -> Uuid,

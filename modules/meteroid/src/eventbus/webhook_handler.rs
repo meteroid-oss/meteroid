@@ -369,7 +369,7 @@ struct InvoiceData {
     pub status: String,
     pub invoice_date: chrono::NaiveDate,
     pub amount_cents: Option<i64>,
-    pub plan_name: String,
+    pub plan_name: Option<String>,
 }
 
 fn to_json<T: Serialize>(data: T) -> Result<serde_json::Value, EventBusError> {

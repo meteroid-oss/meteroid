@@ -9,7 +9,7 @@ use crate::{DbResult, PgConn};
 
 use diesel::{
     allow_columns_to_appear_in_same_group_by_clause, debug_query, BoolExpressionMethods,
-    ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper,
+    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, SelectableHelper,
 };
 use diesel_async::RunQueryDsl;
 
@@ -238,6 +238,7 @@ impl SubscriptionRow {
             // (requires a single recurring invoice in parallel. For now, this is true)
             .left_join(
                 i_dsl::invoice.on(s_dsl::id
+                    .nullable()
                     .eq(i_dsl::subscription_id)
                     .and(i_dsl::invoice_type.eq(InvoiceType::Recurring))
                     .and(i_dsl::invoice_date.gt(input_date_param))),
