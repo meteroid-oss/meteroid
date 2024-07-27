@@ -431,7 +431,7 @@ pub async fn run(
             let invoice = store_domain::InvoiceNew {
                 tenant_id: tenant.id,
                 customer_id: subscription.customer_id,
-                subscription_id: subscription.id,
+                subscription_id: Some(subscription.id),
                 amount_cents: Some(amount_cents),
                 plan_version_id: Some(subscription.plan_version_id),
                 invoice_type: InvoiceType::Recurring,

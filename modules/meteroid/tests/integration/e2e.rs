@@ -444,7 +444,7 @@ async fn test_metering_e2e() {
             external_status: None,
             tenant_id: tenant_uuid,
             customer_id: Uuid::from_str(&customer_1).unwrap(),
-            subscription_id: Uuid::from_str(&subscription.id).unwrap(),
+            subscription_id: Some(Uuid::from_str(&subscription.id).unwrap()),
             currency: subscription.currency.clone(),
             days_until_due: Some(subscription.net_terms as i32),
             external_invoice_id: None,

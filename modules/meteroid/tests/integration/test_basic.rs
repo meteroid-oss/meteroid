@@ -237,8 +237,8 @@ async fn test_main() {
     assert_eq!(db_invoice.tenant_id.to_string(), tenant.id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer.id);
     assert_eq!(
-        db_invoice.subscription_id.to_string(),
-        subscription.id.clone()
+        db_invoice.subscription_id.map(|x| x.to_string()),
+        Some(subscription.id.clone())
     );
 
     // teardown

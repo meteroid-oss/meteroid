@@ -199,13 +199,11 @@ impl InvoiceInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
-                    SubscriptionRow::activate_subscription(
-                        conn,
-                        invoice.subscription_id,
-                        tenant_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    if let Some(subscription_id) = invoice.subscription_id {
+                        SubscriptionRow::activate_subscription(conn, subscription_id, tenant_id)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
                 }
 
                 Ok(())
@@ -349,9 +347,13 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
     if inserted.invoice_type == InvoiceType::Recurring
         || inserted.invoice_type == InvoiceType::Adjustment
     {
+        let subscription_id = inserted
+            .subscription_id
+            .ok_or(StoreError::ValueNotFound("subscription_id is null".into()))?;
+
         let subscription_events = diesel_models::subscription_events::SubscriptionEventRow::fetch_by_subscription_id_and_date(
             conn,
-            inserted.subscription_id,
+            subscription_id,
             inserted.invoice_date,
         )
             .await
@@ -422,13 +424,9 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        diesel_models::subscriptions::SubscriptionRow::update_subscription_mrr_delta(
-            conn,
-            inserted.subscription_id,
-            mrr_delta_cents,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        SubscriptionRow::update_subscription_mrr_delta(conn, subscription_id, mrr_delta_cents)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
 }

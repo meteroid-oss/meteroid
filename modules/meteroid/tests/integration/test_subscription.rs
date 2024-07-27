@@ -208,8 +208,8 @@ async fn test_subscription_create() {
     assert_eq!(db_invoice.tenant_id.to_string(), tenant_id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer_id);
     assert_eq!(
-        db_invoice.subscription_id.to_string(),
-        subscription.subscription.clone().unwrap().id
+        db_invoice.subscription_id.map(|x| x.to_string()),
+        subscription.subscription.clone().map(|x| x.id)
     );
 
     // teardown
@@ -713,7 +713,9 @@ async fn test_subscription_create_invoice_rate() {
 
     let db_invoice_monthly = db_invoices
         .iter()
-        .find(|i| i.subscription_id.to_string() == sub_monthly.subscription.clone().unwrap().id)
+        .find(|i| {
+            i.subscription_id.unwrap().to_string() == sub_monthly.subscription.clone().unwrap().id
+        })
         .unwrap();
 
     let invoice_lines_monthly: Vec<InvoiceLine> =
@@ -731,7 +733,9 @@ async fn test_subscription_create_invoice_rate() {
 
     let db_invoice_annual = db_invoices
         .iter()
-        .find(|i| i.subscription_id.to_string() == sub_annual.subscription.clone().unwrap().id)
+        .find(|i| {
+            i.subscription_id.unwrap().to_string() == sub_annual.subscription.clone().unwrap().id
+        })
         .unwrap();
 
     let invoice_lines_annual: Vec<InvoiceLine> =
@@ -754,7 +758,8 @@ async fn test_subscription_create_invoice_rate() {
     let db_invoice_monthly = db_invoices
         .iter()
         .find(|i| {
-            i.subscription_id.to_string() == sub_monthly_prorated.subscription.clone().unwrap().id
+            i.subscription_id.unwrap().to_string()
+                == sub_monthly_prorated.subscription.clone().unwrap().id
         })
         .unwrap();
 

@@ -33,7 +33,7 @@ impl InvoiceEngine {
     }
 
     // Here we consider that we HAVE the invoice_date, and we want to compute the invoice that need to be produced for a billing on that date.
-    // However, this may not be the right/the only approach, and we may prefer an alternatvie approach where we compute the next invoices following the current date. (so the next invoice for each component)
+    // However, this may not be the right/the only approach, and we may prefer an alternative approach where we compute the next invoices following the current date. (so the next invoice for each component)
     // => I guess that this ends up being similar ? we just compute these "invoice_dates" right ?
     pub async fn compute_dated_invoice_lines(
         &self,

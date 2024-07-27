@@ -23,7 +23,7 @@ message Invoice {
   string invoice_date = 4;
   string customer_id = 5;
   string customer_name = 6;
-  string subscription_id = 7;
+  optional string subscription_id = 7;
   string currency = 8;
   optional int32 days_until_due = 9;
   optional int64 amount_cents = 10;
@@ -38,13 +38,13 @@ message DetailedInvoice {
   string invoice_date = 6;
   string customer_id = 7;
   string customer_name = 8;
-  string subscription_id = 9;
+  optional string subscription_id = 9;
   string currency = 10;
   optional int32 days_until_due = 11;
   bool issued = 12;
   int32 issue_attempts = 13;
-  string plan_name = 14;
-  int32 plan_version = 15;
-  string plan_external_id = 16;
+  optional string plan_name = 14;
+  optional int32 plan_version = 15;
+  optional string plan_external_id = 16;
   optional int64 amount_cents = 17;
 }
