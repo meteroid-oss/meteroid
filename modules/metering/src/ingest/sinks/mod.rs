@@ -3,6 +3,7 @@ use crate::ingest::errors::IngestError;
 use opentelemetry::KeyValue;
 use tonic::async_trait;
 
+#[cfg(feature = "kafka")]
 pub mod kafka;
 pub mod print;
 

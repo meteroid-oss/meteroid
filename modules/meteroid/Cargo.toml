@@ -105,7 +105,7 @@ testcontainers-modules = { workspace = true, features = ["postgres"] }
 tokio-util = { workspace = true }
 clickhouse-rs = { workspace = true }
 rdkafka = { workspace = true }
-metering = { workspace = true }
+metering = { workspace = true, features = ["clickhouse", "kafka"] }
 kafka = { workspace = true }
 mockito = { workspace = true }
 
