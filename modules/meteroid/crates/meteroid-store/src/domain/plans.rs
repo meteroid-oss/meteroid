@@ -158,12 +158,13 @@ pub struct PlanForList {
     pub product_family_name: String,
 }
 
-#[derive(Debug, o2o)]
+#[derive(Debug, Clone, PartialEq, Eq, o2o)]
 #[from_owned(PlanVersionRowLatest)]
 pub struct PlanVersionLatest {
     pub id: Uuid,
     pub plan_id: Uuid,
     pub plan_name: String,
+    pub external_id: String,
     pub version: i32,
     pub created_by: Uuid,
     pub trial_duration_days: Option<i32>,
@@ -182,7 +183,7 @@ pub struct PlanVersionPatch {
     pub tenant_id: Uuid,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
-    #[into(~.map(|x| x.into_iter().map(| v | v.into()).collect::< Vec < _ >> ()))]
+    #[into(~.map(| x | x.into_iter().map(| v | v.into()).collect::< Vec < _ >> ()))]
     pub billing_periods: Option<Vec<BillingPeriodEnum>>,
 }
 

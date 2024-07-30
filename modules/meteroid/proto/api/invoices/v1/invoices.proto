@@ -32,7 +32,16 @@ message GetInvoiceResponse {
   DetailedInvoice invoice = 1;
 }
 
+message RefreshInvoiceDataRequest {
+  string id = 1;
+}
+
+message RefreshInvoiceDataResponse {
+  DetailedInvoice invoice = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
+  rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
 }

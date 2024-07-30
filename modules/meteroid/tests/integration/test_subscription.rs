@@ -1,4 +1,7 @@
 use chrono::{Datelike, Months, NaiveDate, NaiveDateTime};
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
 
@@ -9,7 +12,6 @@ use testcontainers::Container;
 use testcontainers_modules::postgres::Postgres;
 use tonic::Code;
 
-use meteroid::models::InvoiceLine;
 use meteroid_grpc::meteroid::api;
 
 use crate::meteroid_it;
@@ -19,7 +21,7 @@ use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
-use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::domain::{CursorPaginationRequest, LineItem};
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::repositories::InvoiceInterface;
 
@@ -524,25 +526,26 @@ async fn test_subscription_create_invoice_seats() {
 
     assert_eq!(db_invoice.invoice_date, start);
 
-    let invoice_lines: Vec<InvoiceLine> =
-        serde_json::from_value(db_invoice.line_items.clone()).unwrap();
+    let invoice_lines: Vec<LineItem> = db_invoice.line_items.clone();
     assert_eq!(invoice_lines.len(), 1);
 
     let invoice_line = invoice_lines.get(0).unwrap();
     assert_eq!(invoice_line.name, "Seats");
-    assert_eq!(invoice_line.quantity, Some(seats_quantity as u64));
+    assert_eq!(invoice_line.quantity, Some(Decimal::from(seats_quantity)));
 
     // Monthly unit price (1000) * num_days (10 - 1) / total_days_in_month (31)
-    let prorated_unit_price: i64 = (1000.0 * (10 - 1) as f64 / 31.0).round() as i64;
-    assert_eq!(invoice_line.unit_price, Some(prorated_unit_price as f64));
+    let prorated_unit_price = (1000.0 * (10 - 1) as f64 / 31.0).round();
+    assert_eq!(
+        invoice_line.unit_price,
+        Decimal::from_f64(prorated_unit_price)
+    );
     assert_eq!(
         invoice_line.total,
-        prorated_unit_price * seats_quantity as i64
+        (prorated_unit_price * seats_quantity as f64) as i64
     );
 
-    let period = invoice_line.period.as_ref().unwrap();
-    assert_eq!(period.from, start);
-    assert_eq!(period.to, start.with_day(10).unwrap());
+    assert_eq!(invoice_line.start_date, start);
+    assert_eq!(invoice_line.end_date, start.with_day(10).unwrap());
 
     let current_active_seats = setup
         .store
@@ -718,18 +721,19 @@ async fn test_subscription_create_invoice_rate() {
         })
         .unwrap();
 
-    let invoice_lines_monthly: Vec<InvoiceLine> =
-        serde_json::from_value(db_invoice_monthly.line_items.clone()).unwrap();
+    let invoice_lines_monthly: Vec<LineItem> = db_invoice_monthly.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
     let invoice_line_monthly = invoice_lines_monthly.get(0).unwrap();
     assert_eq!(invoice_line_monthly.name, "Subscription Rate");
-    assert_eq!(invoice_line_monthly.quantity, Some(1));
-    assert_eq!(invoice_line_monthly.unit_price, Some(3500.0));
+    assert_eq!(invoice_line_monthly.quantity, Some(dec!(1)));
+    assert_eq!(invoice_line_monthly.unit_price, Some(dec!(3500.0)));
     assert_eq!(invoice_line_monthly.total, 3500);
 
-    let period = invoice_line_monthly.period.as_ref().unwrap();
-    assert_eq!(period.from, start);
-    assert_eq!(period.to, start.checked_add_months(Months::new(1)).unwrap());
+    assert_eq!(invoice_line_monthly.start_date, start);
+    assert_eq!(
+        invoice_line_monthly.end_date,
+        start.checked_add_months(Months::new(1)).unwrap()
+    );
 
     let db_invoice_annual = db_invoices
         .iter()
@@ -738,19 +742,17 @@ async fn test_subscription_create_invoice_rate() {
         })
         .unwrap();
 
-    let invoice_lines_annual: Vec<InvoiceLine> =
-        serde_json::from_value(db_invoice_annual.line_items.clone()).unwrap();
+    let invoice_lines_annual = db_invoice_annual.line_items.clone();
     assert_eq!(invoice_lines_annual.len(), 1);
     let invoice_line_annual = invoice_lines_annual.get(0).unwrap();
     assert_eq!(invoice_line_annual.name, "Subscription Rate");
-    assert_eq!(invoice_line_annual.quantity, Some(1));
-    assert_eq!(invoice_line_annual.unit_price, Some(15900.0));
+    assert_eq!(invoice_line_annual.quantity, Some(dec!(1)));
+    assert_eq!(invoice_line_annual.unit_price, Some(dec!(15900.0)));
     assert_eq!(invoice_line_annual.total, 15900);
 
-    let period = invoice_line_annual.period.as_ref().unwrap();
-    assert_eq!(period.from, start);
+    assert_eq!(invoice_line_annual.start_date, start);
     assert_eq!(
-        period.to,
+        invoice_line_annual.end_date,
         start.checked_add_months(Months::new(12)).unwrap()
     );
 
@@ -763,24 +765,22 @@ async fn test_subscription_create_invoice_rate() {
         })
         .unwrap();
 
-    let invoice_lines_monthly: Vec<InvoiceLine> =
-        serde_json::from_value(db_invoice_monthly.line_items.clone()).unwrap();
+    let invoice_lines_monthly = db_invoice_monthly.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
     let invoice_line_monthly = invoice_lines_monthly.get(0).unwrap();
     assert_eq!(invoice_line_monthly.name, "Subscription Rate");
-    assert_eq!(invoice_line_monthly.quantity, Some(1));
+    assert_eq!(invoice_line_monthly.quantity, Some(dec!(1)));
 
     let prorated_unit_price: i64 = (3500.0 * (30 - 1) as f64 / 31.0).round() as i64;
 
     assert_eq!(
         invoice_line_monthly.unit_price,
-        Some(prorated_unit_price as f64)
+        Some(Decimal::from(prorated_unit_price))
     );
     assert_eq!(invoice_line_monthly.total, prorated_unit_price);
 
-    let period = invoice_line_monthly.period.as_ref().unwrap();
-    assert_eq!(period.from, start);
-    assert_eq!(period.to, start.with_day(30).unwrap());
+    assert_eq!(invoice_line_monthly.start_date, start);
+    assert_eq!(invoice_line_monthly.end_date, start.with_day(30).unwrap());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
@@ -853,8 +853,7 @@ async fn test_subscription_create_invoice_usage() {
 
     assert_eq!(db_invoice.invoice_date, start);
 
-    let invoice_lines: Vec<InvoiceLine> =
-        serde_json::from_value(db_invoice.line_items.clone()).unwrap();
+    let invoice_lines = db_invoice.line_items.clone();
 
     assert_eq!(
         invoice_lines.len(),
@@ -867,19 +866,21 @@ async fn test_subscription_create_invoice_usage() {
         .find(|l| l.name == "Organization Slots")
         .unwrap();
     assert_eq!(invoice_line.name, "Organization Slots");
-    assert_eq!(invoice_line.quantity, Some(slots_quantity as u64));
+    assert_eq!(invoice_line.quantity, Some(Decimal::from(slots_quantity)));
 
     // Monthly unit price (1000) * num_days (10 - 1) / total_days_in_month (31)
     let prorated_unit_price: i64 = (2500.0 * (10 - 1) as f64 / 31.0).round() as i64;
-    assert_eq!(invoice_line.unit_price, Some(prorated_unit_price as f64));
+    assert_eq!(
+        invoice_line.unit_price,
+        Some(Decimal::from(prorated_unit_price))
+    );
     assert_eq!(
         invoice_line.total,
         prorated_unit_price * slots_quantity as i64
     );
 
-    let period = invoice_line.period.as_ref().unwrap();
-    assert_eq!(period.from, start);
-    assert_eq!(period.to, start.with_day(10).unwrap());
+    assert_eq!(invoice_line.start_date, start);
+    assert_eq!(invoice_line.end_date, start.with_day(10).unwrap());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

@@ -2,11 +2,12 @@ syntax = "proto3";
 
 package meteroid.api.invoices.v1;
 
-import "google/protobuf/timestamp.proto";
+import "api/customers/v1/models.proto";
 
 enum InvoiceStatus {
   DRAFT = 0;
   FINALIZED = 1;
+  // PAID/ISSUED ?
   PENDING = 2;
   VOID = 3;
 }
@@ -18,33 +19,140 @@ enum InvoicingProvider {
 
 message Invoice {
   string id = 1;
-  InvoiceStatus status = 2;
-  InvoicingProvider invoicing_provider = 3;
+  string invoice_number = 2;
+  InvoiceStatus status = 3;
   string invoice_date = 4;
   string customer_id = 5;
   string customer_name = 6;
   optional string subscription_id = 7;
   string currency = 8;
-  optional int32 days_until_due = 9;
-  optional int64 amount_cents = 10;
+  optional string due_at = 9;
+  int64 total = 10;
+  InvoicingProvider invoicing_provider = 11;
+}
+
+//message Account {
+//  string id = 1;
+//  string name = 2;
+//  optional string email = 3;
+//  api.customers.v1.Address address = 4;
+//}
+
+message InlineCustomer {
+  string id = 1;
+  string name = 2;
+  api.customers.v1.Address billing_address = 3;
+  string snapshot_at = 4;
 }
 
 message DetailedInvoice {
   string id = 1;
   InvoiceStatus status = 2;
-  InvoicingProvider invoicing_provider = 3;
-  google.protobuf.Timestamp created_at = 4;
-  google.protobuf.Timestamp updated_at = 5;
-  string invoice_date = 6;
+  //  optional InvoiceExternalStatusEnum external_status = 3;
+  string created_at = 4;
+  optional string updated_at = 5;
+  string tenant_id = 6;
   string customer_id = 7;
-  string customer_name = 8;
-  optional string subscription_id = 9;
-  string currency = 10;
-  optional int32 days_until_due = 11;
-  bool issued = 12;
-  int32 issue_attempts = 13;
-  optional string plan_name = 14;
-  optional int32 plan_version = 15;
-  optional string plan_external_id = 16;
-  optional int64 amount_cents = 17;
+  optional string subscription_id = 8;
+  string currency = 9;
+  optional string external_invoice_id = 10;
+  string invoice_number = 11;
+  InvoicingProvider invoicing_provider = 12;
+  repeated LineItem line_items = 13;
+  bool issued = 14;
+  int32 issue_attempts = 15;
+  optional string last_issue_attempt_at = 16;
+  optional string last_issue_error = 17;
+  optional string data_updated_at = 18;
+  string invoice_date = 19;
+  optional string plan_version_id = 20;
+  InvoiceType invoice_type = 21;
+  optional string finalized_at = 22;
+  int64 subtotal = 23;
+  int64 subtotal_recurring = 24;
+  int32 tax_rate = 25;
+  int64 tax_amount = 26;
+  int64 total = 27;
+  int64 amount_due = 28;
+  int32 net_terms = 29;
+  optional string reference = 30;
+  optional string memo = 31;
+  string local_id = 32;
+  optional string due_at = 33;
+  optional string plan_name = 34;
+  InlineCustomer customer_details = 35;
+}
+
+/*
+
+*/
+
+message LineItem {
+  string id = 1;
+  string name = 2;
+  int64 total = 3;
+  // before discounts/minimums
+  int64 subtotal = 4;
+  optional string quantity = 10; // decimal
+  optional string unit_price = 5;
+
+  string start_date = 8;
+  string end_date = 9;
+
+  //  Minimum minimum = 1;
+  //  Discount discount = 1;
+  // ref to the price component, or even embed it
+  // tax
+  repeated SubLineItem sub_line_items = 11;
+  bool is_prorated = 12;
+
+  optional string price_component_id = 13;
+  optional string product_id = 14;
+  optional string metric_id = 15; // TODO same as product id ?
+  optional string description = 16;
+}
+//message Discount {}
+//message Minimum {
+//  optional int64 quantity = 1;
+//  optional int64 amount_cents = 2;
+//}
+
+message SubLineItem {
+  string id = 1;
+  string name = 2;
+  int64 total = 3;
+  string quantity = 4;
+  string unit_price = 5;
+
+  oneof subline_attributes {
+    TieredOrVolume tiered = 6;
+    TieredOrVolume volume = 7;
+    Matrix matrix = 8;
+    Package package = 9;
+  }
+
+  message TieredOrVolume {
+    uint64 first_unit = 1;
+    optional uint64 last_unit = 2;
+    optional string flat_cap = 3;
+    optional string flat_fee = 4;
+  }
+
+  message Matrix {
+    string dimension1_key = 1;
+    string dimension1_value = 2;
+    optional string dimension2_key = 3;
+    optional string dimension2_value = 4;
+  }
+
+  message Package {
+    string raw_usage = 1;
+  }
+}
+
+enum InvoiceType {
+  RECURRING = 0;
+  ONE_OFF = 1;
+  ADJUSTMENT = 2;
+  USAGE_THRESHOLD = 3;
 }

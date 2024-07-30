@@ -2,7 +2,6 @@ use error_stack::Report;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
-use metering_grpc::meteroid::metering::v1::RegisterMeterRequest;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     billable_metrics_service_server::BillableMetricsService, BillableMetricMeta,
     CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
@@ -56,7 +55,7 @@ impl BillableMetricsService for BillableMetricsComponents {
                 code: inner.code,
                 aggregation_type: aggregation_type.unwrap(),
                 aggregation_key,
-                unit_conversion_factor: Some(1), // todo fix?
+                unit_conversion_factor: unit_conversion.as_ref().map(|u| u.factor as i32), // TODO allow float
                 unit_conversion_rounding: unit_conversion.map(|u| match u.rounding.try_into() {
                     Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
                     Err(_) => domain::enums::UnitConversionRoundingEnum::None,
@@ -77,16 +76,21 @@ impl BillableMetricsService for BillableMetricsComponents {
                 .map(|v| v.0)
                 .map_err(Into::<BillableMetricApiError>::into)?;
 
-        let metering_meter = mapping::metric::domain_to_metering(domain_billable_metric.clone());
-
         let _ = &self
-            .meters_service_client
-            .clone()
-            .register_meter(Request::new(RegisterMeterRequest {
-                meter: Some(metering_meter),
-                tenant_id: tenant_id.to_string(),
-            }))
-            .await; // TODO add in db/response the register , error and allow retrying
+            .store
+            .usage_client
+            .register_meter(&tenant_id, &domain_billable_metric)
+            .await
+            // .tap_err(|e| {
+            // delete the billable metric ?
+            // })
+            .map_err(|x| {
+                BillableMetricApiError::MeteringServiceError(
+                    "Failed to register meter".to_string(),
+                    x,
+                )
+            })?;
+        // TODO also store the metadata
 
         Ok(Response::new(CreateBillableMetricResponse {
             billable_metric: Some(server_billable_metric),

@@ -137,11 +137,19 @@ const PackageSchema = z.object({
 })
 export type Package = z.infer<typeof PackageSchema>
 
+const dimensionSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+})
+
+export type Dimension = z.infer<typeof dimensionSchema>
+
 const MatrixSchema = z.object({
   dimensionRates: z
     .array(
       z.object({
-        dimensions: z.map(z.string(), z.string()),
+        dimension1: dimensionSchema,
+        dimension2: dimensionSchema.optional(),
         price: pricePrecision2Schema,
       })
     )

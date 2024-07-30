@@ -1,9 +1,9 @@
-use chrono::{Datelike, Days, NaiveDate};
+use chrono::{Datelike, Days, NaiveDate, NaiveTime};
 use error_stack::ResultExt;
 use fake::Fake;
 use meteroid_store::domain::enums::{
-    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum, PlanStatusEnum,
-    PlanTypeEnum, TenantEnvironmentEnum,
+    BillingMetricAggregateEnum, BillingPeriodEnum, InvoiceStatusEnum, InvoiceType,
+    InvoicingProviderEnum, PlanStatusEnum, PlanTypeEnum, TenantEnvironmentEnum,
 };
 
 use meteroid_store::domain as store_domain;
@@ -15,25 +15,23 @@ use super::growth::generate_smooth_growth;
 use super::utils::slugify;
 use meteroid_store::Store;
 
+use fake::faker::address::en as fake_address;
 use fake::faker::company::en::CompanyName;
 use fake::faker::internet::en::SafeEmail;
 
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
-use crate::compute::calculate_period_range;
-use crate::compute::clients::slots::MockSlotClient;
-use crate::compute::clients::usage::MockUsageClient;
-use crate::compute::InvoiceEngine;
+use meteroid_store::compute::{calculate_period_range, InvoiceLineInterface};
 
 use chrono::Utc;
 
 use nanoid::nanoid;
 
-use meteroid_store::domain::TenantContext;
+use meteroid_store::domain::{Address, InlineCustomer, TenantContext};
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use std::collections::HashMap;
-use std::sync::Arc;
+use meteroid_store::utils::local_id::{IdType, LocalId};
 
 pub async fn run(
     store: Store,
@@ -79,6 +77,26 @@ pub async fn run(
         .change_context(SeederError::TempError)?;
 
     log::info!("Created product family '{}'", &product_family.name);
+
+    for metric in scenario.metrics {
+        store
+            .insert_billable_metric(store_domain::BillableMetricNew {
+                tenant_id: tenant.id,
+                name: metric.name,
+                code: metric.code,
+                aggregation_type: BillingMetricAggregateEnum::Sum, // TODO
+                aggregation_key: None,
+                unit_conversion_factor: None,
+                unit_conversion_rounding: None,
+                segmentation_matrix: None,
+                usage_group_key: None,
+                description: None,
+                created_by: user_id,
+                family_external_id: product_family.external_id.clone(),
+            })
+            .await
+            .change_context(SeederError::TempError)?;
+    }
 
     let mut created_plans = vec![];
 
@@ -155,7 +173,14 @@ pub async fn run(
                 phone: None,
                 balance_value_cents: 0,
                 balance_currency: "EUR".to_string(),
-                billing_address: None, // TODO
+                billing_address: Some(Address {
+                    line1: Some(fake_address::StreetName().fake()),
+                    line2: None,
+                    city: Some(fake_address::CityName().fake()),
+                    country: Some(fake_address::CountryName().fake()),
+                    state: None,
+                    zip_code: Some(fake_address::PostCode().fake()),
+                }),
                 created_by: user_id,
                 created_at: date.and_hms_opt(0, 0, 0),
                 alias: Some(alias),
@@ -172,7 +197,7 @@ pub async fn run(
 
     let mut subscriptions_to_create = vec![];
 
-    for customer in created_customers {
+    for customer in &created_customers {
         // for now, the customer lifecycle is defined only by a single subscription.
 
         let _plan = &scenario
@@ -210,22 +235,6 @@ pub async fn run(
         log::info!("Creating subscription for plan '{}'", plan.name);
 
         let billing_end_date = None;
-
-        let subscription = store_domain::SubscriptionNew {
-            customer_id: customer.id,
-            currency: "EUR".to_string(), // TODO
-            billing_day: version.period_start_day.unwrap_or(1),
-            tenant_id: tenant.id,
-            trial_start_date,
-            billing_start_date,
-            billing_end_date,
-            plan_version_id: version.id,
-            created_by: user_id,
-            net_terms: version.net_terms,
-            invoice_memo: None,
-            invoice_threshold: None,
-            activated_at,
-        };
 
         let mut parameterized_components = vec![];
         // here we decide wether we need to provide parameters or not
@@ -280,6 +289,22 @@ pub async fn run(
                 _ => {}
             }
         }
+
+        let subscription = store_domain::SubscriptionNew {
+            customer_id: customer.id,
+            currency: "EUR".to_string(), // TODO
+            billing_day: version.period_start_day.unwrap_or(1),
+            tenant_id: tenant.id,
+            trial_start_date,
+            billing_start_date,
+            billing_end_date,
+            plan_version_id: version.id,
+            created_by: user_id,
+            net_terms: version.net_terms,
+            invoice_memo: None,
+            invoice_threshold: None,
+            activated_at,
+        };
 
         let create_subscription_components = if parameterized_components.is_empty() {
             None
@@ -389,15 +414,6 @@ pub async fn run(
             &BillingPeriodEnum::Monthly,
         );
 
-        let invoice_engine = InvoiceEngine::new(
-            Arc::new(MockUsageClient {
-                data: HashMap::new(),
-            }),
-            Arc::new(MockSlotClient {
-                data: HashMap::new(),
-            }),
-        );
-
         // TODO don't refetch the details, we should have everything, or at the least do it in a batch
         let details = store
             .get_subscription_details(subscription.tenant_id, subscription.id)
@@ -408,9 +424,17 @@ pub async fn run(
 
         let mut invoices_to_create = vec![];
 
+        let customer = created_customers
+            .iter()
+            .find(|c| c.id == subscription.customer_id)
+            .unwrap();
+
+        let invoice_number_prefix = nanoid!(6, &INVOICE_NUMBER_ALPHABET);
+        let mut i = 0;
         for invoice_date in invoice_dates {
+            i += 1;
             // we get all components that need to be invoiced for this date
-            let invoice_lines = invoice_engine
+            let invoice_lines = store
                 .compute_dated_invoice_lines(&invoice_date, subscription_details.clone())
                 .await
                 .change_context(SeederError::TempError)?;
@@ -432,15 +456,12 @@ pub async fn run(
                 tenant_id: tenant.id,
                 customer_id: subscription.customer_id,
                 subscription_id: Some(subscription.id),
-                amount_cents: Some(amount_cents),
                 plan_version_id: Some(subscription.plan_version_id),
                 invoice_type: InvoiceType::Recurring,
                 currency: "EUR".to_string(),
-                days_until_due: None,
                 external_invoice_id: None,
-                invoice_id: None,
                 invoicing_provider: InvoicingProviderEnum::Stripe,
-                line_items: serde_json::to_value(invoice_lines).unwrap(),
+                line_items: invoice_lines,
                 issued: false,
                 issue_attempts: 0,
                 last_issue_attempt_at: None,
@@ -457,6 +478,25 @@ pub async fn run(
                     None
                 } else {
                     invoice_date.and_hms_opt(0, 0, 0)
+                },
+                subtotal: amount_cents,
+                subtotal_recurring: amount_cents, // TODO
+                tax_rate: 0,
+                tax_amount: 0,
+                total: amount_cents,
+                amount_due: amount_cents,
+                net_terms: 30,
+                reference: None,
+                memo: None,
+                local_id: LocalId::generate_for(IdType::Invoice),
+                due_at: Some((invoice_date + chrono::Duration::days(30)).and_time(NaiveTime::MIN)),
+                plan_name: Some(subscription_details.plan_name.clone()),
+                invoice_number: format!("{}-{:0>8}", invoice_number_prefix, i.to_string()),
+                customer_details: InlineCustomer {
+                    id: subscription.customer_id,
+                    name: subscription_details.customer_name.clone(),
+                    snapshot_at: subscription.created_at,
+                    billing_address: customer.billing_address.as_ref().map(|a| a.clone()),
                 },
             };
 
@@ -500,3 +540,7 @@ fn calculate_period_end_dates(
 
     end_dates
 }
+
+const INVOICE_NUMBER_ALPHABET: [char; 16] = [
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', 'A', 'B', 'C', 'D', 'E', 'F',
+];

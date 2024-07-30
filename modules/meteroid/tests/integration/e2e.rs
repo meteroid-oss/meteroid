@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use chrono::{Datelike, Days, Months};
 use opentelemetry::propagation::Injector;
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use testcontainers::clients::Cli;
 use tonic::Request;
 use uuid::{uuid, Uuid};
 
 use metering::utils::datetime_to_timestamp;
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
+use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
-use meteroid::models::{InvoiceLine, InvoiceLinePeriod};
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::aggregation::AggregationType;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::{
@@ -22,8 +24,11 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
-use meteroid_store::domain::{Invoice, InvoiceNew, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{
+    InlineCustomer, Invoice, InvoiceNew, LineItem, OrderByRequest, PaginationRequest,
+};
 use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::utils::local_id::LocalId;
 use meteroid_store::Store;
 
 use crate::metering_it;
@@ -73,24 +78,6 @@ async fn test_metering_e2e() {
     let meteroid_port = helpers::network::free_local_port().expect("Could not get free port");
     let metering_port = helpers::network::free_local_port().expect("Could not get free port");
 
-    let meteroid_setup = meteroid_it::container::start_meteroid_with_port(
-        meteroid_port,
-        metering_port,
-        postgres_connection_string,
-        meteroid_it::container::SeedLevel::PRODUCT,
-    )
-    .await;
-
-    let store = meteroid_setup.store;
-
-    let jwt_auth = meteroid_it::svc_auth::login(meteroid_setup.channel.clone()).await;
-
-    let mut meteroid_clients = meteroid_it::clients::AllClients::from_channel(
-        meteroid_setup.channel.clone(),
-        jwt_auth.token.clone().as_str(),
-        "a712afi5lzhk",
-    );
-
     let metering_config = metering_it::config::mocked_config(
         meteroid_port,
         metering_port,
@@ -107,6 +94,30 @@ async fn test_metering_e2e() {
         metering_setup.channel.clone(),
         api_key,
         &metering_config.internal_auth,
+    );
+
+    let metering_client = MeteringUsageClient::from_channel(
+        metering_setup.channel.clone(),
+        &metering_config.internal_auth,
+    );
+
+    let meteroid_setup = meteroid_it::container::start_meteroid_with_port(
+        meteroid_port,
+        metering_port,
+        postgres_connection_string,
+        meteroid_it::container::SeedLevel::PRODUCT,
+        Arc::new(metering_client),
+    )
+    .await;
+
+    let store = meteroid_setup.store;
+
+    let jwt_auth = meteroid_it::svc_auth::login(meteroid_setup.channel.clone()).await;
+
+    let mut meteroid_clients = meteroid_it::clients::AllClients::from_channel(
+        meteroid_setup.channel.clone(),
+        jwt_auth.token.clone().as_str(),
+        "a712afi5lzhk",
     );
 
     let tenant_uuid = uuid!("018c2c82-3df1-7e84-9e05-6e141d0e751a");
@@ -446,21 +457,39 @@ async fn test_metering_e2e() {
             customer_id: Uuid::from_str(&customer_1).unwrap(),
             subscription_id: Some(Uuid::from_str(&subscription.id).unwrap()),
             currency: subscription.currency.clone(),
-            days_until_due: Some(subscription.net_terms as i32),
+            due_at: Some(
+                period_2_start.naive_utc() + chrono::Duration::days(subscription.net_terms as i64),
+            ),
+            plan_name: None,
             external_invoice_id: None,
-            invoice_id: None,
+            invoice_number: "2021-0001".to_string(),
             invoicing_provider: InvoicingProviderEnum::Stripe,
-            line_items: serde_json::Value::Null,
+            line_items: Vec::new(),
             issued: false,
             issue_attempts: 0,
             last_issue_attempt_at: None,
             last_issue_error: None,
             data_updated_at: None,
             invoice_date: period_2_start.date_naive(),
-            amount_cents: Some(100),
+            total: 100,
+            amount_due: 100,
+            net_terms: 0,
+            reference: None,
+            memo: None,
             plan_version_id: Some(Uuid::from_str(&plan_version_id).unwrap()),
             invoice_type: InvoiceType::Recurring,
             finalized_at: None,
+            subtotal: 100,
+            subtotal_recurring: 100,
+            tax_rate: 0,
+            tax_amount: 0,
+            local_id: LocalId::no_prefix(),
+            customer_details: InlineCustomer {
+                billing_address: None,
+                id: Uuid::from_str(&customer_1).unwrap(),
+                name: "Customer 1".to_string(),
+                snapshot_at: period_2_start.naive_utc(),
+            },
         })
         .await
         .unwrap();
@@ -473,7 +502,7 @@ async fn test_metering_e2e() {
             .into_iter()
             .map(|i| i.status)
             .collect::<Vec<_>>(),
-        vec![InvoiceStatusEnum::Finalized, InvoiceStatusEnum::Draft,]
+        vec![InvoiceStatusEnum::Finalized, InvoiceStatusEnum::Draft]
     );
 
     // DRAFT WORKER
@@ -504,48 +533,37 @@ async fn test_metering_e2e() {
     assert_eq!(invoice_p2.invoice_date, period_2_start.date_naive());
     assert_eq!(invoice_p3.invoice_date, period_2_end.date_naive());
 
-    let metering_client = meteroid::workers::clients::metering::MeteringClient::from_channel(
-        metering_setup.channel.clone(),
-        &metering_config.internal_auth,
-    );
-
     // PRICE WORKER
-    meteroid::workers::invoicing::price_worker::price_worker(&store, metering_client.clone())
+    meteroid::workers::invoicing::price_worker::price_worker(&store)
         .await
         .unwrap();
 
     let invoice_p2 = store
         .find_invoice_by_id(invoice_p2.tenant_id, invoice_p2.id)
         .await
-        .unwrap();
+        .unwrap()
+        .invoice;
 
     assert_eq!(invoice_p2.invoice_date, period_2_start.date_naive());
 
-    let invoice_lines: Vec<InvoiceLine> =
-        serde_json::from_value(invoice_p2.line_items.clone()).unwrap();
+    let invoice_lines: Vec<LineItem> = invoice_p2.line_items;
     assert_eq!(invoice_lines.len(), 2);
 
     let invoice_line = invoice_lines.get(0).unwrap();
     assert_eq!(invoice_line.total, 1200);
-    assert_eq!(invoice_line.quantity, Some(1));
+    assert_eq!(invoice_line.quantity, Some(dec!(1)));
     assert_eq!(
-        invoice_line.period,
-        Some(InvoiceLinePeriod {
-            from: period_2_start.date_naive(),
-            to: period_2_end.date_naive(),
-        })
+        (invoice_line.start_date, invoice_line.end_date),
+        (period_2_start.date_naive(), period_2_end.date_naive())
     );
 
     let invoice_line = invoice_lines.get(1).unwrap();
-    assert_eq!(invoice_line.quantity, Some(149));
-    assert_eq!(invoice_line.unit_price, Some(5.0));
+    assert_eq!(invoice_line.quantity, Some(dec!(149)));
+    assert_eq!(invoice_line.unit_price, Some(dec!(5.0)));
     assert_eq!(invoice_line.total, 745);
     assert_eq!(
-        invoice_line.period,
-        Some(InvoiceLinePeriod {
-            from: period_1_start.date_naive(),
-            to: period_1_end.date_naive(),
-        })
+        (invoice_line.start_date, invoice_line.end_date),
+        (period_1_start.date_naive(), period_1_end.date_naive())
     );
 
     meteroid::workers::invoicing::pending_status_worker::pending_worker(
@@ -569,7 +587,7 @@ async fn test_metering_e2e() {
     );
 
     // FINALIZER
-    meteroid::workers::invoicing::finalize_worker::finalize_worker(&store, metering_client.clone())
+    meteroid::workers::invoicing::finalize_worker::finalize_worker(&store)
         .await
         .unwrap();
 

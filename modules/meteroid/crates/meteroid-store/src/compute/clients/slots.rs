@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::compute::errors::ComputeError;
 
-use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
+use crate::repositories::subscriptions::SubscriptionSlotsInterface;
 
 #[async_trait::async_trait]
 pub trait SlotClient {
@@ -19,7 +19,7 @@ pub trait SlotClient {
 }
 
 #[async_trait::async_trait]
-impl SlotClient for meteroid_store::Store {
+impl SlotClient for crate::Store {
     async fn fetch_slots(
         &self,
         tenant_id: &Uuid,

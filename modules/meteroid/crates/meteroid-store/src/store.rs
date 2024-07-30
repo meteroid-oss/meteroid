@@ -3,6 +3,7 @@ use diesel_async::pooled_connection::deadpool::Object;
 use diesel_async::pooled_connection::deadpool::Pool;
 use std::sync::Arc;
 
+use crate::compute::clients::usage::UsageClient;
 use crate::StoreResult;
 use common_eventbus::{Event, EventBus};
 use diesel_async::pooled_connection::AsyncDieselConnectionManager;
@@ -19,6 +20,7 @@ pub struct Store {
     pub crypt_key: secrecy::SecretString,
     pub jwt_secret: secrecy::SecretString,
     pub eventbus: Arc<dyn EventBus<Event>>,
+    pub usage_client: Arc<dyn UsageClient>,
 }
 
 pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
@@ -38,6 +40,7 @@ impl Store {
         crypt_key: secrecy::SecretString,
         jwt_secret: secrecy::SecretString,
         eventbus: Arc<dyn EventBus<Event>>,
+        usage_client: Arc<dyn UsageClient>,
     ) -> StoreResult<Self> {
         let pool: PgPool = diesel_make_pg_pool(database_url)?;
 
@@ -46,6 +49,7 @@ impl Store {
             crypt_key,
             jwt_secret,
             eventbus,
+            usage_client,
         })
     }
 

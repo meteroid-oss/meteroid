@@ -107,7 +107,7 @@ impl PendingInvoicesTotalRow {
         converted_invoices AS (
             SELECT
                 convert_currency(
-                        i.amount_cents,
+                        i.total,
                         (SELECT (rates->>i.currency)::NUMERIC FROM latest_rate),
                         (SELECT (rates->>(SELECT currency FROM tenant_currency))::NUMERIC FROM latest_rate)
                 )::BIGINT AS converted_amount_cents

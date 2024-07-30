@@ -74,6 +74,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let response = mapping::components::domain_to_api(component.clone());
 
         let _ = self
+            .store
             .eventbus
             .publish(Event::price_component_created(
                 actor,
@@ -113,6 +114,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let response = mapping::components::domain_to_api(component.clone());
 
         let _ = self
+            .store
             .eventbus
             .publish(Event::price_component_edited(
                 actor,
@@ -148,6 +150,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             })?;
 
         let _ = self
+            .store
             .eventbus
             .publish(Event::price_component_removed(
                 actor,

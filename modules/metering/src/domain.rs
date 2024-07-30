@@ -56,6 +56,7 @@ pub struct QueryMeterParams {
     pub aggregation: MeterAggregation,
     pub namespace: String,
     pub meter_slug: String,
+    pub event_name: String,
     pub customers: Vec<Customer>,
     pub filter_group_by: HashMap<String, Vec<String>>,
     pub group_by: Vec<String>,

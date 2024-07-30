@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 chrono.workspace = true
-diesel.workspace = true
+diesel = { workspace = true, features = ["64-column-tables"] }
 deadpool-postgres.workspace = true
 diesel-derive-enum.workspace = true
 diesel-async.workspace = true

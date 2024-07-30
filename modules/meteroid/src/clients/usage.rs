@@ -1,73 +1,76 @@
-use std::collections::HashMap;
-
 use chrono::{NaiveDate, Timelike};
 use rust_decimal::Decimal;
+use tonic::Request;
 use uuid::Uuid;
 
-use crate::compute::errors::ComputeError;
-use crate::compute::Period;
+use crate::api::billablemetrics::mapping;
 use common_grpc::middleware::client::LayeredClientService;
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
+use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
-    Filter, QueryMeterRequest, QueryMeterResponse, ResourceIdentifier,
+    Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest, ResourceIdentifier,
 };
+use meteroid_store::compute::clients::usage::*;
+use meteroid_store::compute::ComputeError;
 use meteroid_store::domain;
-use meteroid_store::domain::BillableMetric;
-
-#[derive(Debug, Clone)]
-pub struct UsageData {
-    pub data: Vec<GroupedUsageData>,
-    pub period: Period,
-}
-
-impl UsageData {
-    pub(crate) fn single(&self) -> Result<Decimal, ComputeError> {
-        if self.data.len() > 1 {
-            return Err(ComputeError::TooManyResults);
-        }
-        Ok(self
-            .data
-            .first()
-            .map(|usage| usage.value.clone())
-            .unwrap_or(Decimal::ZERO))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct GroupedUsageData {
-    pub value: Decimal,
-    pub dimensions: HashMap<String, String>,
-}
+use meteroid_store::domain::{BillableMetric, Period};
 
 #[derive(Clone, Debug)]
 pub struct MeteringUsageClient {
-    metering_client: UsageQueryServiceClient<LayeredClientService>,
+    usage_grpc_client: UsageQueryServiceClient<LayeredClientService>,
+    meters_grpc_client: MetersServiceClient<LayeredClientService>,
 }
 
 impl MeteringUsageClient {
-    pub fn new(metering_client: UsageQueryServiceClient<LayeredClientService>) -> Self {
+    pub fn new(
+        usage_grpc_client: UsageQueryServiceClient<LayeredClientService>,
+        meters_grpc_client: MetersServiceClient<LayeredClientService>,
+    ) -> Self {
         Self {
-            metering_client: metering_client.clone(),
+            usage_grpc_client,
+            meters_grpc_client,
         }
     }
-}
-
-#[async_trait::async_trait]
-pub trait UsageClient {
-    async fn fetch_usage(
-        &self,
-        tenant_id: &Uuid,
-        customer_id: &Uuid,
-        customer_external_id: &Option<String>,
-        metric: &BillableMetric,
-        period: Period,
-    ) -> Result<UsageData, ComputeError>;
 }
 
 #[async_trait::async_trait]
 impl UsageClient for MeteringUsageClient {
+    async fn register_meter(
+        &self,
+        tenant_id: &Uuid,
+        metric: &BillableMetric,
+    ) -> Result<Vec<Metadata>, ComputeError> {
+        let metering_meter = mapping::metric::domain_to_metering(metric.clone());
+
+        let response = self
+            .meters_grpc_client
+            .clone()
+            .register_meter(Request::new(RegisterMeterRequest {
+                meter: Some(metering_meter),
+                tenant_id: tenant_id.to_string(),
+            }))
+            // TODO add in db/response the register , error and allow retrying
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|status| {
+                log::error!("Failed to register meter: {:?}", status);
+                ComputeError::MeteringGrpcError
+            })?;
+
+        let metadata = response
+            .metadata
+            .into_iter()
+            .map(|m| Metadata {
+                key: m.key,
+                value: m.value,
+            })
+            .collect::<Vec<Metadata>>();
+
+        Ok(metadata)
+    }
+
     async fn fetch_usage(
         &self,
         tenant_id: &Uuid,
@@ -138,6 +141,7 @@ impl UsageClient for MeteringUsageClient {
         let request = QueryMeterRequest {
             tenant_id: tenant_id.to_string(),
             meter_slug: metric.id.to_string(),
+            event_name: metric.code.clone(),
             meter_aggregation_type: aggregation_type,
             customers: vec![ResourceIdentifier {
                 meteroid_id: customer_id.to_string(),
@@ -155,11 +159,14 @@ impl UsageClient for MeteringUsageClient {
             timezone: None,
         };
 
-        let mut metering_client_mut = self.metering_client.clone();
+        let mut metering_client_mut = self.usage_grpc_client.clone();
         let response: QueryMeterResponse = metering_client_mut
             .query_meter(request)
             .await
-            .map_err(|_status| ComputeError::MeteringGrpcError)?
+            .map_err(|status| {
+                log::error!("Failed to query meter: {:?}", status);
+                ComputeError::MeteringGrpcError
+            })?
             .into_inner();
 
         let data: Vec<GroupedUsageData> = response
@@ -191,41 +198,5 @@ fn date_to_timestamp(dt: NaiveDate) -> prost_types::Timestamp {
     prost_types::Timestamp {
         seconds: dt_at_start_of_day.and_utc().timestamp(),
         nanos: dt_at_start_of_day.nanosecond() as i32,
-    }
-}
-
-#[derive(Eq, Hash, PartialEq)]
-pub struct MockUsageDataParams {
-    metric_id: Uuid,
-    invoice_date: NaiveDate,
-}
-
-pub struct MockUsageClient {
-    pub data: HashMap<MockUsageDataParams, UsageData>,
-}
-
-#[async_trait::async_trait]
-impl UsageClient for MockUsageClient {
-    async fn fetch_usage(
-        &self,
-        _tenant_id: &Uuid,
-        _customer_id: &Uuid,
-        _customer_external_id: &Option<String>,
-        metric: &BillableMetric,
-        period: Period,
-    ) -> Result<UsageData, ComputeError> {
-        let params = MockUsageDataParams {
-            metric_id: metric.id.clone(),
-            invoice_date: period.end.clone(),
-        };
-        let usage_data = self
-            .data
-            .get(&params)
-            .map(|data| data.clone())
-            .unwrap_or_else(|| UsageData {
-                data: vec![],
-                period: period.clone(),
-            });
-        Ok(usage_data)
     }
 }

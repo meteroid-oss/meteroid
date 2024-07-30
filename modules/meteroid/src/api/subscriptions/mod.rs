@@ -1,12 +1,9 @@
-use crate::compute::InvoiceEngine;
-
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsServiceServer;
 
 use meteroid_store::Store;
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
 
 mod error;
 mod mapping;
@@ -17,17 +14,10 @@ mod service;
 
 pub struct SubscriptionServiceComponents {
     pub store: Store,
-    pub compute_service: Arc<InvoiceEngine>,
 }
 
-pub fn service(
-    store: Store,
-    subscription_billing: Arc<InvoiceEngine>,
-) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
-    let inner = SubscriptionServiceComponents {
-        store,
-        compute_service: subscription_billing,
-    };
+pub fn service(store: Store) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
+    let inner = SubscriptionServiceComponents { store };
     SubscriptionsServiceServer::new(inner)
 }
 

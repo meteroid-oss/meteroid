@@ -10,6 +10,7 @@ use common_config::analytics::AnalyticsConfig;
 use common_eventbus::{Event, EventData, EventDataDetails, TenantEventDataDetails};
 use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
+use meteroid_store::domain::DetailedInvoice;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
@@ -125,7 +126,7 @@ impl AnalyticsHandler {
                 "aggregation_type": crate::api::billablemetrics::mapping::aggregation_type::domain_to_server(billable_metric.aggregation_type).as_str_name()
             }),
         )
-        .await;
+            .await;
 
         Ok(())
     }
@@ -203,7 +204,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let invoice = self
+        let DetailedInvoice {
+            invoice, customer, ..
+        } = self
             .store
             .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
@@ -214,7 +217,7 @@ impl AnalyticsHandler {
             event.actor,
             serde_json::json!({
                 "invoice_id": invoice.id,
-                "customer_id": invoice.customer_id,
+                "customer_id": customer.id,
                 "subscription_id": invoice.subscription_id,
                 "currency": invoice.currency,
             }),
@@ -230,7 +233,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let invoice = self
+        let DetailedInvoice {
+            invoice, customer, ..
+        } = self
             .store
             .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
@@ -241,7 +246,7 @@ impl AnalyticsHandler {
             event.actor,
             serde_json::json!({
                 "invoice_id": invoice.id,
-                "customer_id": invoice.customer_id,
+                "customer_id": customer.id,
                 "subscription_id": invoice.subscription_id,
                 "currency": invoice.currency,
             }),

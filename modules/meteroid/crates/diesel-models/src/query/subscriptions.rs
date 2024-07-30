@@ -8,8 +8,8 @@ use crate::subscriptions::{
 use crate::{DbResult, PgConn};
 
 use diesel::{
-    allow_columns_to_appear_in_same_group_by_clause, debug_query, BoolExpressionMethods,
-    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, SelectableHelper,
+    debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    OptionalExtension, QueryDsl, SelectableHelper,
 };
 use diesel_async::RunQueryDsl;
 
@@ -152,6 +152,30 @@ impl SubscriptionRow {
         Ok(())
     }
 
+    pub async fn get_subscription_id_by_invoice_id(
+        conn: &mut PgConn,
+        tenant_id_param: &uuid::Uuid,
+        invoice_id: &uuid::Uuid,
+    ) -> DbResult<Option<uuid::Uuid>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::id.eq(invoice_id))
+            .filter(i_dsl::tenant_id.eq(tenant_id_param))
+            .inner_join(s_dsl::subscription.on(s_dsl::id.nullable().eq(i_dsl::subscription_id)))
+            .select(s_dsl::id);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result::<uuid::Uuid>(conn)
+            .await
+            .optional()
+            .attach_printable("Error while fetching subscription by invoice ID")
+            .into_db_result()
+    }
+
     pub async fn list_subscriptions(
         conn: &mut PgConn,
         tenant_id_param: uuid::Uuid,
@@ -205,25 +229,10 @@ impl SubscriptionRow {
     ) -> DbResult<CursorPaginatedVec<SubscriptionInvoiceCandidateRow>> {
         use crate::schema::invoice::dsl as i_dsl;
 
+        use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl as s_dsl;
         use crate::schema::subscription_component::dsl as sc_dsl;
-
-        allow_columns_to_appear_in_same_group_by_clause!(
-            s_dsl::id,
-            s_dsl::tenant_id,
-            s_dsl::customer_id,
-            s_dsl::plan_version_id,
-            s_dsl::billing_start_date,
-            s_dsl::billing_end_date,
-            s_dsl::billing_day,
-            s_dsl::activated_at,
-            s_dsl::canceled_at,
-            pv_dsl::plan_id,
-            pv_dsl::currency,
-            pv_dsl::net_terms,
-            pv_dsl::version
-        );
 
         let query = s_dsl::subscription
             // only if not already ended
@@ -244,23 +253,8 @@ impl SubscriptionRow {
                     .and(i_dsl::invoice_date.gt(input_date_param))),
             )
             .filter(i_dsl::id.is_null())
-            .inner_join(pv_dsl::plan_version)
+            .inner_join(pv_dsl::plan_version.inner_join(p_dsl::plan))
             .left_join(sc_dsl::subscription_component)
-            .group_by((
-                s_dsl::id,
-                s_dsl::tenant_id,
-                s_dsl::customer_id,
-                s_dsl::plan_version_id,
-                s_dsl::billing_start_date,
-                s_dsl::billing_end_date,
-                s_dsl::billing_day,
-                s_dsl::activated_at,
-                s_dsl::canceled_at,
-                pv_dsl::plan_id,
-                pv_dsl::currency,
-                pv_dsl::net_terms,
-                pv_dsl::version,
-            ))
             .select(SubscriptionInvoiceCandidateRow::as_select())
             .cursor_paginate(pagination, s_dsl::id, "id");
 

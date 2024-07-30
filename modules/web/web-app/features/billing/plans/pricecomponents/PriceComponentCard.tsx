@@ -326,14 +326,23 @@ const renderUsageBased = (rate: UsageFee) => {
       />
     ))
     .with({ model: 'matrix' }, ({ data }) => {
-      const dimensionHeader = data.dimensionRates[0]
-        ? Array.from(data.dimensionRates[0].dimensions.keys()).join(',')
-        : 'Dimensions'
+      const dimensionHeaders = data.dimensionRates[0]
+        ? [data.dimensionRates[0].dimension1.key, data.dimensionRates[0].dimension2?.key].filter(
+            Boolean
+          )
+        : ['Dimensions']
 
       return (
         <SimpleTable
           columns={[
-            { header: dimensionHeader, accessorFn: row => [...row.dimensions.values()].join(',') },
+            {
+              header: dimensionHeaders.join(', '),
+              accessorFn: row => {
+                const values = [row.dimension1.value]
+                if (row.dimension2) values.push(row.dimension2.value)
+                return values.join(', ')
+              },
+            },
             {
               header: 'Unit price',
               cell: ({ row }) => <DisplayPrice price={row.original.price} />,

@@ -9,6 +9,7 @@ use common_eventbus::{Event, EventData, TenantEventDataDetails};
 use common_eventbus::{EventBusError, EventHandler};
 use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
 use meteroid_store::domain::webhooks::WebhookOutEventNew;
+use meteroid_store::domain::DetailedInvoice;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::{crypt, Store};
@@ -222,7 +223,11 @@ impl WebhookHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
-        let invoice = self
+        let DetailedInvoice {
+            invoice,
+            customer,
+            plan,
+        } = self
             .store
             .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
@@ -232,12 +237,12 @@ impl WebhookHandler {
             event_type: "invoice.draft".to_string(),
             timestamp: event.event_timestamp,
             data: to_json(InvoiceData {
-                customer_name: invoice.customer_name,
+                customer_name: customer.name,
                 currency: invoice.currency,
                 status: "draft".to_string(),
                 invoice_date: invoice.invoice_date,
-                amount_cents: invoice.amount_cents,
-                plan_name: invoice.plan_name,
+                amount_cents: Some(invoice.total),
+                plan_name: plan.map(|p| p.plan_name),
             })?,
         };
 
@@ -250,7 +255,11 @@ impl WebhookHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
-        let invoice = self
+        let DetailedInvoice {
+            invoice,
+            customer,
+            plan,
+        } = self
             .store
             .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
@@ -260,11 +269,11 @@ impl WebhookHandler {
             event_type: "invoice.finalized".to_string(),
             timestamp: event.event_timestamp,
             data: to_json(InvoiceData {
-                customer_name: invoice.customer_name,
+                customer_name: customer.name,
                 currency: invoice.currency,
                 status: "finalized".to_string(),
                 invoice_date: invoice.invoice_date,
-                amount_cents: invoice.amount_cents,
+                amount_cents: Some(invoice.total),
                 plan_name: invoice.plan_name,
             })?,
         };
@@ -428,11 +437,11 @@ async fn get_active_endpoints_by_tenant(
 
 #[tracing::instrument(skip_all)]
 #[cached(
-  result = true,
-  size = 20,
-  time = 120, // 2 min
-  key = "String",
-  convert = r#"{ tenant_id.to_string() }"#
+    result = true,
+    size = 20,
+    time = 120, // 2 min
+    key = "String",
+    convert = r#"{ tenant_id.to_string() }"#
 )]
 async fn get_active_endpoints_by_tenant_cached(
     store: Store,

@@ -8,12 +8,14 @@ use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::PgConn;
 use error_stack::Report;
 
+use crate::compute::InvoiceLineInterface;
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, Invoice, InvoiceNew, InvoiceWithCustomer,
-    InvoiceWithPlanDetails, OrderByRequest, PaginatedVec, PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
+    InvoiceNew, InvoiceWithCustomer, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
 };
+use crate::repositories::SubscriptionInterface;
 use common_eventbus::Event;
-use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
+use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
 use tracing_log::log;
 use uuid::Uuid;
@@ -24,7 +26,7 @@ pub trait InvoiceInterface {
         &self,
         tenant_id: Uuid,
         invoice_id: Uuid,
-    ) -> StoreResult<InvoiceWithPlanDetails>;
+    ) -> StoreResult<DetailedInvoice>;
 
     async fn list_invoices(
         &self,
@@ -56,7 +58,7 @@ pub trait InvoiceInterface {
         &self,
         id: Uuid,
         tenant_id: Uuid,
-        lines: serde_json::Value,
+        lines: Vec<LineItem>,
     ) -> StoreResult<()>;
 
     async fn list_outdated_invoices(
@@ -68,7 +70,7 @@ pub trait InvoiceInterface {
         &self,
         id: Uuid,
         tenant_id: Uuid,
-        lines: serde_json::Value,
+        patch: InvoiceLinesPatch,
     ) -> StoreResult<()>;
 
     async fn list_invoices_to_issue(
@@ -87,6 +89,9 @@ pub trait InvoiceInterface {
     ) -> StoreResult<()>;
 
     async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()>;
+
+    async fn refresh_invoice_data(&self, id: Uuid, tenant_id: Uuid)
+        -> StoreResult<DetailedInvoice>;
 }
 
 #[async_trait::async_trait]
@@ -95,13 +100,13 @@ impl InvoiceInterface for Store {
         &self,
         tenant_id: Uuid,
         invoice_id: Uuid,
-    ) -> StoreResult<InvoiceWithPlanDetails> {
+    ) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
         InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
             .await
             .map_err(Into::into)
-            .map(Into::into)
+            .and_then(|row| row.try_into())
     }
 
     async fn list_invoices(
@@ -143,13 +148,13 @@ impl InvoiceInterface for Store {
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_invoice: InvoiceRowNew = invoice.into();
+        let insertable_invoice: InvoiceRowNew = invoice.try_into()?;
 
         let inserted: Invoice = insertable_invoice
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(Into::into)?;
+            .and_then(TryInto::try_into)?;
 
         process_mrr(&inserted, &mut conn).await?;
 
@@ -159,14 +164,20 @@ impl InvoiceInterface for Store {
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_invoice: Vec<InvoiceRowNew> =
-            invoice.into_iter().map(|c| c.into()).collect();
+        let insertable_invoice: Vec<InvoiceRowNew> = invoice
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect::<Result<_, _>>()?;
 
         let inserted: Vec<Invoice> =
             InvoiceRow::insert_invoice_batch(&mut conn, insertable_invoice)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
-                .map(|v| v.into_iter().map(Into::into).collect())?;
+                .and_then(|v| {
+                    v.into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, Report<StoreError>>>()
+                })?;
 
         for inv in &inserted {
             process_mrr(inv, &mut conn).await?; // TODO batch
@@ -195,11 +206,15 @@ impl InvoiceInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
                 if external_status == InvoiceExternalStatusEnum::Paid {
-                    let invoice = InvoiceRow::find_by_id(conn, tenant_id, invoice_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    let subscription_id = SubscriptionRow::get_subscription_id_by_invoice_id(
+                        conn,
+                        &tenant_id,
+                        &invoice_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-                    if let Some(subscription_id) = invoice.subscription_id {
+                    if let Some(subscription_id) = subscription_id {
                         SubscriptionRow::activate_subscription(conn, subscription_id, tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
@@ -224,7 +239,11 @@ impl InvoiceInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
-            items: invoices.items.into_iter().map(|s| s.into()).collect(),
+            items: invoices
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
             next_cursor: invoices.next_cursor,
         };
 
@@ -235,9 +254,13 @@ impl InvoiceInterface for Store {
         &self,
         id: Uuid,
         tenant_id: Uuid,
-        lines: serde_json::Value,
+        lines: Vec<LineItem>,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
+
+        let lines = serde_json::to_value(lines).map_err(|e| {
+            StoreError::SerdeError("Failed to serialize invoice lines".to_string(), e)
+        })?;
 
         let _ = InvoiceRow::finalize(&mut conn, id, tenant_id, lines)
             .await
@@ -262,7 +285,11 @@ impl InvoiceInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
-            items: invoices.items.into_iter().map(|s| s.into()).collect(),
+            items: invoices
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
             next_cursor: invoices.next_cursor,
         };
 
@@ -273,14 +300,52 @@ impl InvoiceInterface for Store {
         &self,
         id: Uuid,
         tenant_id: Uuid,
-        lines: serde_json::Value,
+        patch: InvoiceLinesPatch,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        InvoiceRow::update_lines(&mut conn, id, tenant_id, lines)
+        let row_patch: InvoiceRowLinesPatch = patch.try_into()?;
+
+        row_patch
+            .update_lines(id, tenant_id, &mut conn)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn refresh_invoice_data(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> StoreResult<DetailedInvoice> {
+        let invoice = self.find_invoice_by_id(tenant_id, id).await?;
+
+        match invoice.invoice.subscription_id {
+            None => Err(StoreError::InvalidArgument(
+                "Cannot refresh invoice without subscription_id".into(),
+            )
+            .into()),
+            Some(subscription_id) => {
+                let subscription_details = self
+                    .get_subscription_details(tenant_id, subscription_id)
+                    .await?;
+                let lines = self
+                    .compute_dated_invoice_lines(
+                        &invoice.invoice.invoice_date,
+                        subscription_details,
+                    )
+                    .await?;
+
+                self.update_invoice_lines(
+                    id,
+                    tenant_id,
+                    InvoiceLinesPatch::from_invoice_and_lines(&invoice.invoice, lines),
+                )
+                .await?;
+
+                self.find_invoice_by_id(tenant_id, id).await
+            }
+        }
     }
 
     async fn list_invoices_to_issue(
@@ -295,7 +360,11 @@ impl InvoiceInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
-            items: invoices.items.into_iter().map(|s| s.into()).collect(),
+            items: invoices
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
             next_cursor: invoices.next_cursor,
         };
 

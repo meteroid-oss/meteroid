@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
+use std::sync::Arc;
 
 use tokio::signal;
 
@@ -10,6 +11,7 @@ use meteroid::seeder::domain;
 use meteroid::seeder::errors::SeederError;
 use meteroid::seeder::runner;
 use meteroid::seeder::utils::slugify;
+use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
@@ -18,6 +20,7 @@ use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
+use tap::TapFallible;
 
 #[tokio::main]
 async fn main() -> error_stack::Result<(), SeederError> {
@@ -35,6 +38,9 @@ async fn main() -> error_stack::Result<(), SeederError> {
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
         create_eventbus_noop().await,
+        Arc::new(MockUsageClient {
+            data: HashMap::new(),
+        }),
     )
     .change_context(SeederError::InitializationError)?;
 
@@ -67,6 +73,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
     log::info!("Creating tenant '{}'", tenant_name);
 
     let scenario = domain::Scenario {
+        metrics: Vec::new(),
         tenant: domain::Tenant {
             slug: slugify(&tenant_name),
             name: tenant_name,
@@ -180,5 +187,8 @@ async fn main() -> error_stack::Result<(), SeederError> {
 
     let service = runner::run(store, scenario, organization_id, user_id);
 
-    service.await.change_context(SeederError::StoreError)
+    service
+        .await
+        .change_context(SeederError::StoreError)
+        .tap_err(|e| log::error!("Error: {:?}", e))
 }

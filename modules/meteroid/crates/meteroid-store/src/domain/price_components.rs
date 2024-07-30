@@ -1,5 +1,4 @@
 use error_stack::Report;
-use std::collections::HashMap;
 
 use uuid::Uuid;
 // TODO duplicate as well
@@ -94,8 +93,15 @@ pub enum UsagePricingModel {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MatrixRow {
-    pub dimensions: HashMap<String, String>,
+    pub dimension1: MatrixDimension,
+    pub dimension2: Option<MatrixDimension>,
     pub per_unit_price: rust_decimal::Decimal,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MatrixDimension {
+    pub key: String,
+    pub value: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

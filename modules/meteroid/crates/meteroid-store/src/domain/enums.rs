@@ -98,7 +98,7 @@ pub enum InvoiceType {
     Recurring,
     OneOff,
     Adjustment,
-    Imported,
+    // Imported,
     UsageThreshold,
 }
 

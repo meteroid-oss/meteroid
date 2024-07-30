@@ -55,7 +55,8 @@ const mapUsageModel = (model: grpc.UsageFee['model']): api.UsagePricingModel => 
       model: 'matrix',
       data: {
         dimensionRates: value.rows.map(rate => ({
-          dimensions: new Map(Object.entries(rate.dimensions)),
+          dimension1: rate.dimension1!,
+          dimension2: rate.dimension2,
           price: rate.perUnitPrice,
         })),
       },

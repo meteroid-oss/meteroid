@@ -1,6 +1,7 @@
 pub use api_tokens::*;
 pub use billable_metrics::*;
 pub use customers::*;
+pub use invoice_lines::*;
 pub use invoices::*;
 pub use misc::*;
 pub use organizations::*;
@@ -26,6 +27,7 @@ pub mod billable_metrics;
 pub mod configs;
 pub mod enums;
 pub mod historical_rates;
+pub mod invoice_lines;
 pub mod misc;
 pub mod organizations;
 pub mod product_families;

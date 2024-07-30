@@ -11,12 +11,19 @@ pub mod plans {
     use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
 
     pub struct PlanDetailsWrapper(pub PlanDetails);
+
     pub struct PlanVersionWrapper(pub PlanVersion);
+
     pub struct PlanTypeWrapper(pub PlanType);
+
     pub struct PlanStatusWrapper(pub PlanStatus);
+
     pub struct ListPlanWrapper(pub ListPlan);
+
     pub struct ListSubscribablePlanVersionWrapper(pub ListSubscribablePlanVersion);
+
     pub struct ListPlanVersionWrapper(pub ListPlanVersion);
+
     pub struct PlanOverviewWrapper(pub PlanOverview);
 
     impl From<domain::PlanVersion> for ListPlanVersionWrapper {
@@ -191,6 +198,7 @@ pub mod plans {
                     .map(|freq| to_proto(freq) as i32)
                     .collect(),
                 is_draft: value.version.is_draft_version,
+                plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
             })
         }
     }

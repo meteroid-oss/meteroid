@@ -58,6 +58,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             aggregation: meter_aggregation,
             namespace: req.tenant_id,
             meter_slug: req.meter_slug,
+            event_name: req.event_name,
             customers: req
                 .customers
                 .iter()
@@ -81,9 +82,10 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             to: req.to.map(timestamp_to_datetime),
         };
 
-        let results = self.connector.query_meter(meter).await.map_err(|e| {
-            Status::internal(format!("Failed to register meter : {}", e.to_string()))
-        })?;
+        let results =
+            self.connector.query_meter(meter).await.map_err(|e| {
+                Status::internal(format!("Failed to query meter : {}", e.to_string()))
+            })?;
 
         let usage = results
             .into_iter()

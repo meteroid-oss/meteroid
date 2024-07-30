@@ -78,7 +78,8 @@ const mapUsageFee = (fee: api.UsageFee): grpc.UsageFee => {
     case 'matrix': {
       const rows: PlainMessage<grpc.UsageFee_Matrix_MatrixRow>[] =
         fee.model.data.dimensionRates.map(rate => ({
-          dimensions: Object.fromEntries(rate.dimensions.entries()),
+          dimension1: rate.dimension1,
+          dimension2: rate.dimension2,
           perUnitPrice: rate.price,
         }))
 

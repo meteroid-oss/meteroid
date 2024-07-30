@@ -14,13 +14,13 @@ use crate::errors;
 use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::{InvoicingAdapter, ParsedRequest};
 use crate::errors::InvoicingAdapterError;
-use crate::models::InvoiceLine;
 use axum::response::IntoResponse;
 use common_domain::StripeSecret;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
 use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
+use meteroid_store::domain::LineItem;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
@@ -105,9 +105,6 @@ impl InvoicingAdapter for Stripe {
     ) -> Result<(), InvoicingAdapterError> {
         let api_key = &StripeSecret(api_key);
 
-        let invoice_lines = serde_json::from_value::<Vec<InvoiceLine>>(invoice.line_items.clone())
-            .change_context(InvoicingAdapterError::InvalidData)?;
-
         let stripe_customer = Self::extract_stripe_customer_id(customer)?;
         let collection_method = Self::extract_stripe_collection_method(customer)?;
 
@@ -120,7 +117,7 @@ impl InvoicingAdapter for Stripe {
             .await
             .change_context(InvoicingAdapterError::StripeError)?;
 
-        for line in invoice_lines.iter() {
+        for line in invoice.line_items.iter() {
             let create_invoice_line =
                 Self::db_invoice_item_to_external(&created_stripe_invoice, invoice, line)?;
 
@@ -196,7 +193,13 @@ impl Stripe {
             currency: Some(invoice.currency.as_str()),
             collection_method: Some(collection_method),
             days_until_due: match collection_method {
-                CollectionMethod::SendInvoice => invoice.days_until_due.map(|d| d as u32),
+                CollectionMethod::SendInvoice => {
+                    if invoice.net_terms > 0 {
+                        Some(invoice.net_terms as u32)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             },
             customer: Some(stripe_customer.as_ref()),
@@ -211,7 +214,7 @@ impl Stripe {
     fn db_invoice_item_to_external<'a>(
         stripe_invoice: &'a Invoice,
         invoice: &'a domain::Invoice,
-        line: &'a InvoiceLine,
+        line: &'a LineItem,
     ) -> Result<CreateInvoiceItem<'a>, InvoicingAdapterError> {
         Ok(CreateInvoiceItem {
             amount: Some(line.total),
@@ -219,16 +222,10 @@ impl Stripe {
             customer: stripe_invoice.customer.as_deref().unwrap(),
             description: Some(line.name.as_str()),
             invoice: Some(stripe_invoice.id.as_str()),
-            period: line
-                .period
-                .as_ref()
-                .map(|period| {
-                    Ok::<Period, Report<InvoicingAdapterError>>(Period {
-                        start: Some(Self::chrono_date_to_timestamp(period.from)?),
-                        end: Some(Self::chrono_date_to_timestamp(period.to)?),
-                    })
-                })
-                .transpose()?,
+            period: Some(Period {
+                start: Some(Self::chrono_date_to_timestamp(line.start_date)?),
+                end: Some(Self::chrono_date_to_timestamp(line.end_date)?),
+            }),
         })
     }
 

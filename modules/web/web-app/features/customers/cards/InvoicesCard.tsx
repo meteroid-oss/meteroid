@@ -41,7 +41,7 @@ export const InvoicesCard = ({ customer }: Props) => {
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}
-      linkPrefix="../../invoices/"
+      linkPrefix="../../billing/invoices/"
     />
   )
 }

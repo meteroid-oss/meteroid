@@ -47,7 +47,7 @@ export const Customer = () => {
                     onClick={() => navigate('..')}
                   />
                   <h2 className="font-semibold">
-                    {data.alias || data.name}
+                    {data.name || data.alias}
                     <div className="text-sm font-light text-muted-foreground">{data.email}</div>
                   </h2>
                 </div>

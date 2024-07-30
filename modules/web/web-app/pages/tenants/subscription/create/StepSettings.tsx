@@ -53,6 +53,8 @@ export const StepSettings = () => {
         billingStartDate: mapDatev2(data.fromDate),
         billingEndDate: data.toDate && mapDatev2(data.toDate),
         billingDay: data.billingDay === 'FIRST' ? 1 : data.fromDate.getDate(),
+        currency: 'EUR',
+        netTerms: 30,
       },
     })
     toast.success('Subscription created')

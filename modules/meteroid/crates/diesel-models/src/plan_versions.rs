@@ -53,6 +53,9 @@ pub struct PlanVersionRowLatest {
     #[diesel(select_expression = crate::schema::plan::name)]
     #[diesel(select_expression_type = crate::schema::plan::name)]
     pub plan_name: String,
+    #[diesel(select_expression = crate::schema::plan::external_id)]
+    #[diesel(select_expression_type = crate::schema::plan::external_id)]
+    pub external_id: String,
     pub version: i32,
     pub created_by: Uuid,
     pub trial_duration_days: Option<i32>,

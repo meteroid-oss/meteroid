@@ -1,9 +1,8 @@
 use common_utils::date::NaiveDateExt;
 
-use super::super::{ComponentPeriods, Period};
-
+use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::{ComponentPeriods, Period};
 use chrono::{Datelike, Months, NaiveDate};
-use meteroid_store::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 
 pub fn calculate_component_period(
     billing_start_date: NaiveDate,
@@ -25,7 +24,10 @@ pub fn calculate_component_period(
     match billing_period {
         None => Some(ComponentPeriods {
             proration_factor: None,
-            advance: None,
+            advance: Period {
+                start: invoice_date,
+                end: invoice_date,
+            },
             arrear: None,
         }),
         Some(billing_period) => {
@@ -62,7 +64,7 @@ pub fn calculate_component_period(
 
             Some(ComponentPeriods {
                 proration_factor,
-                advance: Some(advance_period),
+                advance: advance_period,
                 arrear: arrear_period,
             })
         }
@@ -178,7 +180,7 @@ fn add_months_at_billing_day(
 #[cfg(test)]
 mod test {
     use super::{calculate_period_idx, calculate_period_range};
-    use meteroid_store::domain::enums::BillingPeriodEnum;
+    use crate::domain::enums::BillingPeriodEnum;
 
     use chrono::NaiveDate;
     use rstest::rstest;
