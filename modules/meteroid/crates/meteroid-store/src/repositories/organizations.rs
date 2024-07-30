@@ -64,10 +64,7 @@ impl OrganizationsInterface for Store {
                 } else if v.len() == 1 {
                     Ok(Some(v.into_iter().next().unwrap()))
                 } else {
-                    v.iter()
-                        .find(|x| x.slug == "instance")
-                        .map(|x| Some(x.clone()))
-                        .ok_or_else(|| Report::from(StoreError::InitializationError))
+                    Err(Report::from(StoreError::InitializationError))
                 }
             })
     }
