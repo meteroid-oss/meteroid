@@ -28,7 +28,5 @@ CREATE UNIQUE INDEX "invoice_external_invoice_id_key" ON "invoice" ("external_in
 ALTER TABLE "subscription"
     ADD COLUMN "period" "BillingPeriodEnum" NOT NULL;
 
-DROP INDEX "invoice_invoice_number_key";
-
 CREATE UNIQUE INDEX "invoice_invoice_number_key" ON "invoice" ("invoice_number", "tenant_id") WHERE "invoice_number" IS NOT NULL;
 
