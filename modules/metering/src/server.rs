@@ -1,8 +1,11 @@
 use crate::auth::ExternalApiAuthLayer;
 use crate::config::Config;
-use crate::connectors::clickhouse::ClickhouseConnector;
+
 use crate::ingest;
+
+#[cfg(feature = "kafka")]
 use crate::ingest::sinks::kafka::KafkaSink;
+
 
 use common_grpc::middleware::server as common_middleware;
 
@@ -11,6 +14,22 @@ use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServ
 use std::sync::Arc;
 use tonic::transport::{Channel, Endpoint, Server};
 use tonic_tracing_opentelemetry::middleware as otel_middleware;
+
+
+#[cfg(not(feature = "kafka"))]
+use crate::ingest::sinks::print::PrintSink;
+
+#[cfg(feature = "openstack")]
+use crate::connectors::openstack::OpenstackConnector;
+
+#[cfg(feature = "clickhouse")]
+use crate::connectors::clickhouse::ClickhouseConnector;
+
+#[cfg(not(any(feature = "clickhouse", feature = "openstack")))]
+use crate::connectors::PrintConnector;
+
+#[cfg(all(feature = "openstack", feature = "clickhouse"))]
+compile_error!("feature \"openstack\" and feature \"clickhouse\" cannot be enabled at the same time");
 
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
@@ -27,9 +46,32 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
         config.listen_addr.port()
     );
 
-    let clickhouse_connector =
-        Arc::new(ClickhouseConnector::init(&config.clickhouse, &config.kafka).await?);
-    let kafka_sink = Arc::new(KafkaSink::new(&config.kafka)?);
+
+    #[cfg(feature = "openstack")]
+        let connector = {
+        log::info!("Openstack connector enabled");
+        Arc::new(OpenstackConnector::init(&config.openstack_config).await?)
+    };
+
+    #[cfg(feature = "clickhouse")]
+        let connector = {
+        log::info!("Clickhouse connector enabled");
+        Arc::new(ClickhouseConnector::init(&config.clickhouse, &config.kafka).await?)
+    };
+
+
+    #[cfg(not(any(feature = "clickhouse", feature = "openstack")))]
+        let connector = {
+        log::warn!("No connector enabled. Using print connector for debugging");
+        Arc::new(PrintConnector {})
+    };
+
+    #[cfg(feature = "kafka")]
+        let sink = Arc::new(KafkaSink::new(&config.kafka)?);
+
+    #[cfg(not(feature = "kafka"))]
+        let sink = Arc::new(PrintSink {});
+
 
     // make it lazy ? we want to be able to start the server without the billing api ?
 
@@ -61,11 +103,11 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
     let api_key_auth_layer = ExternalApiAuthLayer::new(internal_client.clone()).filter(only_api);
 
     // Ingest => Api key only (though we may want a way to ingest from the  for debugging, later)
-    let event_service = ingest::service(internal_client.clone(), kafka_sink.clone());
+    let event_service = ingest::service(internal_client.clone(), sink.clone());
 
     // Meters & queries => Admin only. Some passthrough is possible via admin
-    let meter_service = crate::meters::service(clickhouse_connector.clone());
-    let query_service = crate::query::service(clickhouse_connector.clone());
+    let meter_service = crate::meters::service(connector.clone());
+    let query_service = crate::query::service(connector.clone());
 
     Server::builder()
         .layer(common_middleware::metric::create())
