@@ -46,12 +46,8 @@ impl AsyncRunnable for DraftWorker {
     }
 
     fn cron(&self) -> Option<Scheduled> {
-        // let expression = "0 0 0/1 * * * *"; // every hour
-        // TODO
-        // let expression = "0 * * * * * *";
-
-        // Some(Scheduled::CronPattern(expression.to_string()))
-        Some(Scheduled::ScheduleOnce(chrono::Utc::now()))
+        let expression = "0 0 0/1 * * * *"; // every hour
+        Some(Scheduled::CronPattern(expression.to_string()))
     }
 
     fn max_retries(&self) -> i32 {

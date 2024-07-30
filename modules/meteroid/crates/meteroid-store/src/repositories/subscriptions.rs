@@ -37,7 +37,6 @@ use diesel_models::subscription_components::{
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use itertools::Itertools;
-use tracing::log;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
@@ -275,11 +274,6 @@ impl SubscriptionInterface for Store {
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
 
-        log::info!(
-            "Before0 subscription components: {:?}",
-            price_components_by_plan_version
-        );
-
         let insertable = batch
             .into_iter()
             .map(|params| {
@@ -301,11 +295,6 @@ impl SubscriptionInterface for Store {
                     &price_components_by_plan_version,
                     &subscription,
                 )?;
-
-                log::info!(
-                    "Insertable subscription components: {:?}",
-                    insertable_subscription_components
-                );
 
                 // at this point we can know the period
                 let period = insertable_subscription_components
@@ -373,21 +362,12 @@ impl SubscriptionInterface for Store {
                             .map_err(Into::<DatabaseErrorContainer>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
-                    log::info!("Inserted subscriptions: {:?}", inserted_subscriptions);
-
-                    log::info!(
-                        "Inserting components: {:?}",
-                        insertable_subscription_components
-                    );
-
                     let res = SubscriptionComponentRow::insert_subscription_component_batch(
                         conn,
                         insertable_subscription_components,
                     )
                     .await
                     .map_err(Into::<DatabaseErrorContainer>::into)?;
-
-                    log::info!("Inserted components: {:?}", res);
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
@@ -398,10 +378,6 @@ impl SubscriptionInterface for Store {
                 .scope_boxed()
             })
             .await?;
-
-        // TODO create invoice ? in the sequence flow I guess it only happens after the payment is confirmed
-
-        // actually if invoicing mode is manual, no.
 
         // we now want to insert the invoices, ONLY for manual providers
         let insertable_invoices = inserted_subscriptions
@@ -740,8 +716,6 @@ fn process_create_subscription_components(
         let c = c.clone();
         let component_id = c.id;
 
-        log::info!("Processing component: {:?}", c);
-
         // Check parameterized_components
         if let Some(parameterized) = parameterized_components
             .iter()
@@ -767,8 +741,6 @@ fn process_create_subscription_components(
             removed_components.push(component_id);
             continue;
         }
-
-        log::info!("Still");
 
         let (period, fee) = match c.fee {
             FeeType::Rate { rates } => {
@@ -864,8 +836,6 @@ fn process_create_subscription_components(
             ),
         };
 
-        log::info!("Still2");
-
         // If the component is not in any of the lists, add it as is
         processed_components.push(SubscriptionComponentNewInternal {
             price_component_id: Some(c.id),
@@ -875,8 +845,6 @@ fn process_create_subscription_components(
             fee: fee,
             is_override: false,
         });
-
-        log::info!("Still3 : {:?}", processed_components);
     }
 
     // Add extra components
@@ -1089,7 +1057,6 @@ pub fn subscription_to_draft(
         tenant_id: subscription.tenant_id,
         customer_id: subscription.customer_id,
         subscription_id: Some(subscription.id),
-        // amount_cents: None, // TODO let's calculate here (just skipping the usage)
         plan_version_id: Some(subscription.plan_version_id),
         invoice_type: InvoiceType::Recurring,
         currency: subscription.currency.clone(),

@@ -428,8 +428,6 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        log::info!("subscription_events len {}", subscription_events.len());
-
         let mut mrr_logs = vec![];
 
         for event in subscription_events {

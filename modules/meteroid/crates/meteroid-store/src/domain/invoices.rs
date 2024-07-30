@@ -47,21 +47,16 @@ pub struct Invoice {
     #[from(~.into())]
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
-    //
-    //
     pub subtotal: i64,
     pub subtotal_recurring: i64,
     pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
-    //
     pub net_terms: i32,
-    // pub purchase_order: Option<String>,
     pub reference: Option<String>,
     pub memo: Option<String>,
     pub local_id: String,
-    // pub issued_at: Option<NaiveDateTime>,
     pub due_at: Option<NaiveDateTime>,
     pub plan_name: Option<String>,
 
@@ -97,27 +92,20 @@ pub struct InvoiceNew {
     pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
-    // pub amount_cents: Option<i64>,
     pub plan_version_id: Option<Uuid>,
     #[into(~.into())]
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
-
-    //
-    //
     pub subtotal: i64,
     pub subtotal_recurring: i64,
     pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
-    //
     pub net_terms: i32,
-    // pub purchase_order: Option<String>,
     pub reference: Option<String>,
     pub memo: Option<String>,
     pub local_id: String,
-    // pub issued_at: Option<NaiveDateTime>,
     pub due_at: Option<NaiveDateTime>,
     pub plan_name: Option<String>,
     #[into(serde_json::to_value(& ~).map_err(| e | {
@@ -143,7 +131,6 @@ pub struct InvoiceLinesPatch {
 impl InvoiceLinesPatch {
     pub fn from_invoice_and_lines(invoice: &Invoice, line_items: Vec<LineItem>) -> Self {
         let subtotal = line_items.iter().fold(0, |acc, x| acc + x.subtotal);
-        // let total = line_items.iter().fold(0, |acc, x| acc + x.total); // TODO no total in line item ?
         let tax_amount = subtotal * invoice.tax_rate as i64 / 100;
         let total = subtotal + tax_amount; // TODO discounts etc
         let already_paid = invoice.total - invoice.amount_due;

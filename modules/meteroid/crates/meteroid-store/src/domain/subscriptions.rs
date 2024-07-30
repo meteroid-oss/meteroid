@@ -198,10 +198,8 @@ pub struct SubscriptionInvoiceCandidate {
     pub billing_day: i16,
     pub activated_at: Option<NaiveDateTime>,
     pub canceled_at: Option<NaiveDateTime>,
-    // pub plan_id: Uuid,
     pub currency: String,
     pub net_terms: i32,
-    // pub version: i32,
     pub period: BillingPeriodEnum,
 }
 

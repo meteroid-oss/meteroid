@@ -4,7 +4,6 @@ use crate::compute::ComputeError;
 use crate::domain::{Period, SubLineAttributes, SubLineItem, TierRow};
 use crate::utils::local_id::LocalId;
 use rust_decimal::Decimal;
-use tracing::log;
 
 pub fn compute_volume_price(
     usage_units: Decimal,
@@ -91,11 +90,8 @@ pub fn compute_tier_price(
     let mut iter = sorted_rows.iter().peekable();
 
     let mut sub_lines = Vec::new();
-    log::info!("Tiers: {:?}", sorted_rows);
 
     while let Some(tier) = iter.next() {
-        log::info!("In tier: {:?}", tier);
-
         if remaining_usage.is_zero() {
             break;
         }
@@ -108,8 +104,6 @@ pub fn compute_tier_price(
             None => Decimal::MAX, // Handle infinite tier
         };
 
-        log::info!("tier_units: {:?}", tier_units);
-
         let units_in_this_tier = if remaining_usage > tier_units {
             tier_units
         } else {
@@ -117,8 +111,6 @@ pub fn compute_tier_price(
         };
 
         let tier_price = tier.rate;
-
-        log::info!("units_in_this_tier: {:?}", units_in_this_tier);
 
         if units_in_this_tier > Decimal::ZERO {
             let mut fee = units_in_this_tier * tier_price;
@@ -152,8 +144,6 @@ pub fn compute_tier_price(
         }
         remaining_usage -= units_in_this_tier;
     }
-
-    log::info!("sub_lines: {:?}", sub_lines);
 
     Ok(InvoiceLineInner {
         quantity: Some(usage_units),

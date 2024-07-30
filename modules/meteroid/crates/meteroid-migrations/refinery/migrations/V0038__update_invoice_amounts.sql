@@ -8,7 +8,6 @@ ALTER TABLE "invoice"
     DROP COLUMN "days_until_due",
     DROP COLUMN "invoice_id",
     ADD COLUMN "net_terms"          integer NOT NULL,
---     ADD COLUMN "purchase_order"     text        NULL,
     ADD COLUMN "memo"               text    NULL,
     ADD COLUMN "tax_rate"           integer NOT NULL,
     ADD COLUMN "local_id"           text    NOT NULL,
@@ -25,7 +24,6 @@ ALTER TABLE "invoice"
     ADD CONSTRAINT "invoice_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant" ("id") ON UPDATE CASCADE ON DELETE RESTRICT;
 -- Create index "invoice_external_invoice_id_key" to table: "invoice"
 CREATE UNIQUE INDEX "invoice_external_invoice_id_key" ON "invoice" ("external_invoice_id", "tenant_id");
--- Create index "invoice_invoice_number_key" to table: "invoice"
 
 ALTER TABLE "subscription"
     ADD COLUMN "period" "BillingPeriodEnum" NOT NULL;

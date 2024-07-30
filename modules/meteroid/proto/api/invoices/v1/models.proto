@@ -83,10 +83,6 @@ message DetailedInvoice {
   InlineCustomer customer_details = 35;
 }
 
-/*
-
-*/
-
 message LineItem {
   string id = 1;
   string name = 2;
@@ -101,7 +97,6 @@ message LineItem {
 
   //  Minimum minimum = 1;
   //  Discount discount = 1;
-  // ref to the price component, or even embed it
   // tax
   repeated SubLineItem sub_line_items = 11;
   bool is_prorated = 12;
@@ -111,11 +106,6 @@ message LineItem {
   optional string metric_id = 15; // TODO same as product id ?
   optional string description = 16;
 }
-//message Discount {}
-//message Minimum {
-//  optional int64 quantity = 1;
-//  optional int64 amount_cents = 2;
-//}
 
 message SubLineItem {
   string id = 1;

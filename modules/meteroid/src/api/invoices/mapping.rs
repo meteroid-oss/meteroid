@@ -1,6 +1,5 @@
 pub mod invoices {
-
-    use crate::api::customers::mapping::customer::{ServerAddressWrapper, ServerCustomerWrapper};
+    use crate::api::customers::mapping::customer::ServerAddressWrapper;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::invoices::v1::{
         DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType, InvoicingProvider,
@@ -55,13 +54,7 @@ pub mod invoices {
     pub fn domain_invoice_with_plan_details_to_server(
         value: domain::DetailedInvoice,
     ) -> error_stack::Result<DetailedInvoice, StoreError> {
-        let domain::DetailedInvoice {
-            customer,
-            invoice,
-            plan,
-        } = value;
-
-        let customer = ServerCustomerWrapper::try_from(customer)?.0;
+        let domain::DetailedInvoice { invoice, .. } = value;
 
         let line_items: Vec<LineItem> = invoice.line_items.into_iter()
             .map(|line| {
@@ -137,31 +130,6 @@ pub mod invoices {
             .collect();
 
         Ok(DetailedInvoice {
-            // id: invoice.id.as_proto(),
-            // status: status_domain_to_server(invoice.status).into(),
-            // invoicing_provider: invoicing_provider_domain_to_server(invoice.invoicing_provider)
-            //     .into(),
-            // created_at: Some(chrono_to_timestamp(invoice.created_at)),
-            // updated_at: invoice.updated_at.map(chrono_to_timestamp),
-            // invoice_date: invoice.invoice_date.as_proto(),
-            // customer: Some(customer),
-            //
-            // plan_name: plan.as_ref().map(|x| x.plan_name),
-            // plan_version: plan.as_ref().map(|x| x.version),
-            // plan_external_id: plan.as_ref().map(|x| x.external_id),
-            //
-            // subscription_id: invoice.subscription_id.map(|x| x.as_proto()),
-            // currency: invoice.currency,
-            // days_until_due: invoice.days_until_due,
-            // issued: invoice.issued,
-            // issue_attempts: invoice.issue_attempts,
-            // memo: None, // TODO
-            // amount_due_cents: invoice.amount_cents,
-            // subtotal_cents: None, // TODO
-            // tax_total_cents: None, // TODO
-            // line_items: line_items,
-            // invoice_number: invoice.invoice_id.unwrap_or("Default TODO".to_string()),
-            // invoice_type: invoicing_type_domain_to_server(invoice.invoice_type).into(),
             id: invoice.id.as_proto(),
             status: status_domain_to_server(invoice.status).into(),
             created_at: invoice.created_at.as_proto(),
@@ -206,7 +174,6 @@ pub mod invoices {
                     .transpose()?
                     .map(|x: ServerAddressWrapper| x.0),
             }),
-            //
             line_items,
         })
     }

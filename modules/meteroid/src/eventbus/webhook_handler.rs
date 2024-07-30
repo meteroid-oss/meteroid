@@ -256,9 +256,7 @@ impl WebhookHandler {
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
         let DetailedInvoice {
-            invoice,
-            customer,
-            plan,
+            invoice, customer, ..
         } = self
             .store
             .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)

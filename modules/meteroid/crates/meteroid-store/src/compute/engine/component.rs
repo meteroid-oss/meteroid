@@ -4,7 +4,6 @@ use chrono::NaiveDate;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use tracing::log;
 use uuid::Uuid;
 
 use crate::domain::enums::BillingType;
@@ -20,7 +19,6 @@ use super::super::errors::ComputeError;
 use super::fees;
 
 pub struct ComponentEngine {
-    // metric_client: HashMap<Uuid, Metric>,
     usage_client: Arc<dyn UsageClient + Send + Sync>,
     slots_client: Arc<dyn SlotClient + Send + Sync>,
     subscription_details: Arc<SubscriptionDetails>,
@@ -191,20 +189,7 @@ impl ComponentEngine {
                                         let d1 = usage.dimensions.get(&rate.dimension1.key)
                                             == Some(&rate.dimension1.value);
 
-                                        log::info!(
-                                            "d1: {}, usage: {:?}, rate.dimension1: {:?}",
-                                            d1,
-                                            usage,
-                                            rate.dimension1
-                                        );
-
                                         if let Some(dimension2) = &rate.dimension2 {
-                                            log::info!(
-                                                "d1: {}, usage: {:?}, rate.dimension2: {:?}",
-                                                d1,
-                                                usage,
-                                                rate.dimension2
-                                            );
                                             d1 && usage.dimensions.get(&dimension2.key)
                                                 == Some(&dimension2.value)
                                         } else {
@@ -217,8 +202,6 @@ impl ComponentEngine {
                                 let price_total = rate.per_unit_price * quantity;
 
                                 let price_cents = only_positive(price_total.to_cents()?);
-
-                                log::info!("price_cents: {}", price_cents);
 
                                 if price_cents > 0 {
                                     // we concat rate.dimension1.value and rate.dimension2.value (if defined), separed by a coma. No coma if rate.dimension2 is None
@@ -251,8 +234,6 @@ impl ComponentEngine {
                                     });
                                 }
                             }
-
-                            println!("sublines: {:?}", sublines);
 
                             lines.push(InvoiceLineInner::from_sublines(
                                 sublines,
@@ -316,8 +297,6 @@ impl ComponentEngine {
                             };
                         }
                     }
-
-                    // if usage_units > Decimal::ZERO {
                 }
             }
         }

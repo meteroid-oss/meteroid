@@ -56,9 +56,8 @@ impl AsyncRunnable for PriceWorker {
     }
 
     fn cron(&self) -> Option<Scheduled> {
-        // let expression = "0 2/10 * * * * *"; // every 10 minutes
-        // Some(Scheduled::CronPattern(expression.to_string()))
-        Some(Scheduled::ScheduleOnce(chrono::Utc::now()))
+        let expression = "0 2/10 * * * * *"; // every 10 minutes
+        Some(Scheduled::CronPattern(expression.to_string()))
     }
 
     fn max_retries(&self) -> i32 {
@@ -83,11 +82,6 @@ pub async fn price_worker(store: &Store) -> Result<(), errors::WorkerError> {
             })
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
-
-        log::info!(
-            ">>>>>>>>  Processing {} invoices",
-            paginated_vec.items.len()
-        );
 
         for invoice in paginated_vec.items.into_iter() {
             let permit = semaphore
