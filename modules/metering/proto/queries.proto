@@ -26,6 +26,7 @@ message QueryMeterRequest {
   repeated Filter filter_properties = 8;
   QueryWindowSize window_size = 9;
   optional string timezone = 10;
+  string event_name = 11;
 
   enum QueryWindowSize {
     MINUTE = 0;

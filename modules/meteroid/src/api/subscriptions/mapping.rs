@@ -158,6 +158,7 @@ mod price_components {
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
 
+    use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
     use tonic::{Code, Result, Status};
     use uuid::Uuid;
 
@@ -408,7 +409,16 @@ mod price_components {
                         rows: rates
                             .iter()
                             .map(|r| api_components::usage_fee::matrix::MatrixRow {
-                                dimensions: r.dimensions.clone(),
+                                dimension1: Some(
+                                    api_components::usage_fee::matrix::MatrixDimension {
+                                        key: r.dimension1.key.clone(),
+                                        value: r.dimension1.value.clone(),
+                                    },
+                                ),
+                                dimension2: r.dimension2.as_ref().map(|d| MatrixDimension {
+                                    key: d.key.clone(),
+                                    value: d.value.clone(),
+                                }),
                                 per_unit_price: r.per_unit_price.as_proto(),
                             })
                             .collect(),
@@ -526,8 +536,20 @@ mod price_components {
                     .rows
                     .iter()
                     .map(|r| {
+                        let dimension1 = r
+                            .dimension1
+                            .as_ref()
+                            .ok_or(Status::invalid_argument("Missing dimension1"))?;
+
                         Ok::<_, Status>(domain::MatrixRow {
-                            dimensions: r.dimensions.clone(),
+                            dimension1: domain::MatrixDimension {
+                                key: dimension1.key.clone(),
+                                value: dimension1.value.clone(),
+                            },
+                            dimension2: r.dimension2.as_ref().map(|d| domain::MatrixDimension {
+                                key: d.key.clone(),
+                                value: d.value.clone(),
+                            }),
                             per_unit_price: rust_decimal::Decimal::from_proto_ref(
                                 &r.per_unit_price,
                             )?,

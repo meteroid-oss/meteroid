@@ -76,6 +76,8 @@ async fn test_customers_basic() {
         .get_invite(api::instance::v1::GetInviteRequest {})
         .await;
 
+    log::error!("{:?}", invite_res);
+
     assert_eq!(invite_res.is_err(), true);
 
     // teardown

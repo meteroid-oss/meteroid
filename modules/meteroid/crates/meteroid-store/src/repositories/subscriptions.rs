@@ -1,15 +1,18 @@
-use crate::domain::enums::{BillingPeriodEnum, SubscriptionEventType};
+use crate::domain::enums::{
+    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum, SubscriptionEventType,
+};
 use crate::domain::{
-    BillableMetric, ComponentParameters, CreateSubscription, CreateSubscriptionComponents,
-    CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest, FeeType, PaginatedVec,
-    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionComponent,
-    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails,
-    SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
+    BillableMetric, BillingConfig, ComponentParameters, CreateSubscription,
+    CreateSubscriptionComponents, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest,
+    Customer, FeeType, InlineCustomer, PaginatedVec, PaginationRequest, PriceComponent, Schedule,
+    Subscription, SubscriptionComponent, SubscriptionComponentNew,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
+    SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
 use crate::{domain, StoreResult};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use common_utils::decimal::ToCent;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
@@ -20,9 +23,12 @@ use uuid::Uuid;
 
 use rust_decimal::prelude::*;
 
+use crate::repositories::{CustomersInterface, InvoiceInterface};
+use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::price_components::PriceComponentRow;
+use diesel_models::query::plans::get_plan_names_by_version_ids;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_components::{
@@ -228,6 +234,15 @@ impl SubscriptionInterface for Store {
             event: SubscriptionEventRow,
         }
 
+        let plan_version_ids = batch
+            .iter()
+            .map(|c| c.subscription.plan_version_id)
+            .collect::<Vec<_>>();
+
+        let plan_names = get_plan_names_by_version_ids(&mut conn, plan_version_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
         let db_price_components_by_plan_version = PriceComponentRow::get_by_plan_ids(
             &mut conn,
             &batch
@@ -237,6 +252,16 @@ impl SubscriptionInterface for Store {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
+
+        let customer_ids = batch
+            .iter()
+            .map(|c| c.subscription.customer_id)
+            .collect::<Vec<_>>();
+
+        let customers = self
+            .list_customers_by_ids(customer_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         // map the price compoennts thanks to .try_into
         let price_components_by_plan_version: HashMap<Uuid, Vec<PriceComponent>> =
@@ -260,13 +285,28 @@ impl SubscriptionInterface for Store {
                 // first we need to process the CreateSubscriptionComponents into Vec<SubscriptionComponentNew>
                 // we will need the plan version components
 
+                let customer = customers
+                    .iter()
+                    .find(|c| c.id == subscription.customer_id)
+                    .ok_or(StoreError::InsertError)?;
+
                 let insertable_subscription_components = process_create_subscription_components(
                     &price_components,
                     &price_components_by_plan_version,
                     &subscription,
                 )?;
 
-                let insertable_subscription: SubscriptionRowNew = subscription.into();
+                // at this point we can know the period
+                let period = insertable_subscription_components
+                    .iter()
+                    .map(|c| c.period.as_billing_period_opt())
+                    .flatten()
+                    .min()
+                    .unwrap_or(BillingPeriodEnum::Monthly);
+
+                let should_activate = customer.billing_config.is_none();
+                let insertable_subscription: SubscriptionRowNew =
+                    subscription.map_to_row(period, should_activate);
 
                 let cmrr = insertable_subscription_components
                     .iter()
@@ -322,7 +362,7 @@ impl SubscriptionInterface for Store {
                             .map_err(Into::<DatabaseErrorContainer>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
-                    SubscriptionComponentRow::insert_subscription_component_batch(
+                    let res = SubscriptionComponentRow::insert_subscription_component_batch(
                         conn,
                         insertable_subscription_components,
                     )
@@ -339,7 +379,50 @@ impl SubscriptionInterface for Store {
             })
             .await?;
 
-        // TODO create invoice ? in the sequence flow I guess it only happens after the payment is confirmed
+        // we now want to insert the invoices, ONLY for manual providers
+        let insertable_invoices = inserted_subscriptions
+            .iter()
+            .filter(|s| s.activated_at.is_some())
+            .map(|s| {
+                let customer = customers
+                    .iter()
+                    .find(|c| c.id == s.customer_id)
+                    .ok_or(StoreError::InsertError)?;
+
+                match customer.billing_config {
+                    Some(BillingConfig::Stripe(_)) => Ok(None),
+                    None => {
+                        let plan_name = plan_names
+                            .get(&s.plan_version_id)
+                            .ok_or(StoreError::InsertError)?;
+
+                        let sub = SubscriptionInvoiceCandidate {
+                            id: s.id,
+                            tenant_id: s.tenant_id,
+                            customer_id: s.customer_id,
+                            plan_version_id: s.plan_version_id,
+                            billing_start_date: s.billing_start_date,
+                            billing_end_date: s.billing_end_date,
+                            billing_day: s.billing_day,
+                            activated_at: s.activated_at,
+                            canceled_at: s.canceled_at,
+                            currency: s.currency.clone(),
+                            net_terms: s.net_terms,
+                            plan_name: plan_name.clone(),
+                            period: s.period.clone(),
+                        };
+
+                        subscription_to_draft(&sub, customer)
+                    }
+                }
+            })
+            .collect::<Result<Vec<Option<_>>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        // not in transaction, make sure the draft worker can pick them up
+        self.insert_invoice_batch(insertable_invoices).await?;
 
         let _ = futures::future::join_all(inserted_subscriptions.clone().into_iter().map(|res| {
             self.eventbus.publish(Event::subscription_created(
@@ -429,6 +512,7 @@ impl SubscriptionInterface for Store {
             activated_at: subscription.activated_at,
             created_by: subscription.created_by,
             trial_start_date: subscription.trial_start_date,
+            period: subscription.period,
         })
     }
 
@@ -606,46 +690,27 @@ fn process_create_subscription_components(
     map: &HashMap<Uuid, Vec<PriceComponent>>,
     sub: &SubscriptionNew,
 ) -> Result<Vec<SubscriptionComponentNewInternal>, StoreError> {
-    if param.is_none() {
-        return Ok(vec![]);
-    }
-    let param = param.as_ref().unwrap();
+    let mut processed_components = Vec::new();
 
-    let &CreateSubscriptionComponents {
-        parameterized_components,
-        overridden_components,
-        extra_components,
-        remove_components,
-    } = &param;
+    let (parameterized_components, overridden_components, extra_components, remove_components) =
+        if let Some(p) = param {
+            (
+                &p.parameterized_components,
+                &p.overridden_components,
+                &p.extra_components,
+                &p.remove_components,
+            )
+        } else {
+            (&Vec::new(), &Vec::new(), &Vec::new(), &Vec::new())
+        };
 
     let binding = vec![];
     let plan_price_components = map.get(&sub.plan_version_id).unwrap_or(&binding);
 
-    let mut processed_components = Vec::new();
     let mut removed_components = Vec::new();
 
     // TODO should we add a quick_param or something to not require the component id when creating subscription without complex parameterization ?
     // basically a top level params with period, initial slots, committed capacity, that can be overriden at the component level
-
-    let all_ids = parameterized_components
-        .iter()
-        .map(|p| p.component_id)
-        .chain(overridden_components.iter().map(|o| o.component_id))
-        .chain(remove_components.iter().cloned())
-        .sorted()
-        .collect::<Vec<_>>();
-
-    let plan_price_components_ids = plan_price_components
-        .iter()
-        .map(|c| c.id)
-        .sorted()
-        .collect::<Vec<_>>();
-
-    if all_ids != plan_price_components_ids {
-        return Err(StoreError::InvalidPriceComponents(
-            "Ids provided do not match plan price components".to_string(),
-        ));
-    }
 
     for c in plan_price_components {
         let c = c.clone();
@@ -958,6 +1023,75 @@ impl SubscriptionDetails {
             &period,
         );
 
-        periods.advance.map(|p| p.end)
+        Some(periods.advance.end)
     }
+}
+
+pub fn subscription_to_draft(
+    subscription: &SubscriptionInvoiceCandidate,
+    customer: &Customer,
+) -> StoreResult<Option<crate::domain::invoices::InvoiceNew>> {
+    let cust_bill_cfg = customer.billing_config.as_ref();
+    let billing_start_date = subscription.billing_start_date;
+    let billing_day = subscription.billing_day as u32;
+
+    let period = crate::utils::periods::calculate_period_range(
+        billing_start_date,
+        billing_day,
+        0, // TODO ???
+        &subscription.period,
+    );
+
+    let invoicing_provider = match cust_bill_cfg {
+        Some(BillingConfig::Stripe(_)) => InvoicingProviderEnum::Stripe,
+        None => InvoicingProviderEnum::Manual,
+    };
+
+    let due_date = (period.end + chrono::Duration::days(subscription.net_terms as i64))
+        .and_time(NaiveTime::MIN);
+
+    // should we have a draft number ? TODO re-set optional, and also implement it in finalize, and fetch from tenant config
+    let invoice_number = "draft";
+
+    let invoice = crate::domain::invoices::InvoiceNew {
+        tenant_id: subscription.tenant_id,
+        customer_id: subscription.customer_id,
+        subscription_id: Some(subscription.id),
+        plan_version_id: Some(subscription.plan_version_id),
+        invoice_type: InvoiceType::Recurring,
+        currency: subscription.currency.clone(),
+        external_invoice_id: None,
+        invoicing_provider,
+        line_items: vec![], // TODO
+        issued: false,
+        issue_attempts: 0,
+        last_issue_attempt_at: None,
+        last_issue_error: None,
+        data_updated_at: None,
+        status: InvoiceStatusEnum::Draft,
+        external_status: None,
+        invoice_date: period.end,
+        finalized_at: None,
+        subtotal: 0,
+        subtotal_recurring: 0,
+        tax_rate: 0,
+        tax_amount: 0,
+        total: 0,
+        amount_due: 0,
+        net_terms: subscription.net_terms,
+        reference: None,
+        memo: None,
+        local_id: LocalId::generate_for(IdType::Invoice),
+        due_at: Some(due_date),
+        plan_name: None, // TODO
+        invoice_number: invoice_number.to_string(),
+        customer_details: InlineCustomer {
+            id: subscription.customer_id,
+            name: customer.name.clone(), // TODO
+            billing_address: customer.billing_address.as_ref().map(|x| x.clone()),
+            snapshot_at: chrono::Utc::now().naive_utc(),
+        },
+    };
+
+    Ok(Some(invoice))
 }

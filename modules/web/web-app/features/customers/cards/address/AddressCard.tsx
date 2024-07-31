@@ -9,7 +9,7 @@ type Props = Pick<ComponentProps<typeof PageSection>, 'className'> & {
   customer: Customer
 }
 
-const AddressLines = ({ address }: { address: Partial<Address> }) => {
+export const AddressLines = ({ address }: { address: Partial<Address> }) => {
   return (
     <div className="flex flex-col gap-0.5">
       <span>{address.line1}</span>
@@ -18,6 +18,19 @@ const AddressLines = ({ address }: { address: Partial<Address> }) => {
       <span>{address.state}</span>
       <span>{address.country}</span>
       <span>{address.zipCode}</span>
+    </div>
+  )
+}
+
+export const AddressLinesCompact = ({ address }: { address: Partial<Address> }) => {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span>{address.line1}</span>
+      <span>{address.line2}</span>
+      <span>
+        {address.city}, {address.state} {address.zipCode}
+      </span>
+      <span>{address.country}</span>
     </div>
   )
 }

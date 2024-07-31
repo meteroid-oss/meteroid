@@ -1,8 +1,7 @@
 use common_utils::date::NaiveDateExt;
 
-use crate::domain::{ComponentPeriods, Period};
-
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
+use crate::domain::{ComponentPeriods, Period};
 use chrono::{Datelike, Months, NaiveDate};
 
 /**
@@ -38,7 +37,7 @@ pub fn calculate_periods_for_date(
 
     ComponentPeriods {
         proration_factor,
-        advance: Some(advance_period),
+        advance: advance_period,
         arrear: arrear_period,
     }
 }
@@ -61,7 +60,10 @@ pub fn calculate_component_period_for_invoice_date(
     match billing_period {
         None => Some(ComponentPeriods {
             proration_factor: None,
-            advance: None,
+            advance: Period {
+                start: invoice_date,
+                end: invoice_date,
+            },
             arrear: None,
         }),
         Some(billing_period) => {
@@ -98,7 +100,7 @@ pub fn calculate_component_period_for_invoice_date(
 
             Some(ComponentPeriods {
                 proration_factor,
-                advance: Some(advance_period),
+                advance: advance_period,
                 arrear: arrear_period,
             })
         }

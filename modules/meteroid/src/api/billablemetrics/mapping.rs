@@ -98,7 +98,7 @@ pub mod metric {
     use metering_grpc::meteroid::metering::v1 as metering;
     use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::Matrix;
     use meteroid_store::domain;
-    use meteroid_store::domain::{Dimension, SegmentationMatrix};
+    use meteroid_store::domain::billable_metrics::{Dimension, SegmentationMatrix};
     use meteroid_store::errors::StoreError;
 
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
@@ -197,7 +197,7 @@ pub mod metric {
         segmentation_matrix
             .map(|sm| server::SegmentationMatrix {
                 matrix: match sm {
-                    SegmentationMatrix::Single(Dimension  { key, values }) => Some(
+                    SegmentationMatrix::Single(Dimension { key, values }) => Some(
                         server::segmentation_matrix::Matrix::Single(server::segmentation_matrix::SegmentationMatrixSingle {
                             dimension: Some(server::segmentation_matrix::Dimension {
                                 key,

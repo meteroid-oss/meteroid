@@ -1,7 +1,11 @@
+use crate::schema::customer;
+use crate::schema::plan;
+use crate::schema::plan_version;
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use crate::enums::BillingPeriodEnum;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
@@ -27,6 +31,7 @@ pub struct SubscriptionRow {
     pub cancellation_reason: Option<String>,
     pub currency: String,
     pub mrr_cents: i64,
+    pub period: BillingPeriodEnum,
 }
 
 #[derive(Insertable, Debug)]
@@ -47,6 +52,7 @@ pub struct SubscriptionRowNew {
     pub activated_at: Option<NaiveDateTime>,
     pub currency: String,
     pub mrr_cents: i64,
+    pub period: BillingPeriodEnum,
 }
 
 pub struct CancelSubscriptionParams {
@@ -56,10 +62,6 @@ pub struct CancelSubscriptionParams {
     pub billing_end_date: chrono::NaiveDate,
     pub reason: Option<String>,
 }
-
-use crate::schema::customer;
-use crate::schema::plan;
-use crate::schema::plan_version;
 
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -90,8 +92,6 @@ pub struct SubscriptionInvoiceCandidateRow {
     pub subscription: subscription_invoice_candidate::SubscriptionEmbedRow,
     #[diesel(embed)]
     pub plan_version: subscription_invoice_candidate::PlanVersionEmbedRow,
-    #[diesel(embed)]
-    pub subscription_components: subscription_invoice_candidate::SubscriptionComponentsEmbedRow,
 }
 
 #[derive(Debug, Queryable, Selectable)]
@@ -104,12 +104,10 @@ pub struct SubscriptionInvoiceCandidateGroupByRow {
 }
 
 mod subscription_invoice_candidate {
-    use crate::enums::SubscriptionFeeBillingPeriod;
-    use crate::schema::sql_types::SubscriptionFeeBillingPeriod as SubscriptionFeeBillingPeriodSql;
+    use crate::enums::BillingPeriodEnum;
+
     use chrono::{NaiveDate, NaiveDateTime};
-    use diesel::dsl::sql;
-    use diesel::expression::SqlLiteral;
-    use diesel::sql_types;
+
     use diesel::{Queryable, Selectable};
     use uuid::Uuid;
 
@@ -126,6 +124,7 @@ mod subscription_invoice_candidate {
         pub billing_day: i16,
         pub activated_at: Option<NaiveDateTime>,
         pub canceled_at: Option<NaiveDateTime>,
+        pub period: BillingPeriodEnum,
     }
 
     #[derive(Debug, Queryable, Selectable)]
@@ -136,16 +135,8 @@ mod subscription_invoice_candidate {
         pub currency: String,
         pub net_terms: i32,
         pub version: i32,
-    }
-
-    #[derive(Debug, Queryable, Selectable)]
-    #[diesel(table_name = crate::schema::subscription_component)]
-    #[diesel(check_for_backend(diesel::pg::Pg))]
-    pub struct SubscriptionComponentsEmbedRow {
-        #[diesel(select_expression = sql("array_agg(distinct(subscription_component.period)) periods"))]
-        #[diesel(
-        select_expression_type = SqlLiteral::< sql_types::Array < sql_types::Nullable < SubscriptionFeeBillingPeriodSql >> >
-        )]
-        pub periods: Vec<Option<SubscriptionFeeBillingPeriod>>,
+        #[diesel(select_expression = crate::schema::plan::name)]
+        #[diesel(select_expression_type = crate::schema::plan::name)]
+        pub plan_name: String,
     }
 }

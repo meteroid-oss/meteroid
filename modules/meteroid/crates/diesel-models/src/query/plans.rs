@@ -1,5 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow};
+use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
@@ -219,4 +220,27 @@ impl PlanRowPatch {
             .attach_printable("Error while updating plan")
             .into_db_result()
     }
+}
+
+pub async fn get_plan_names_by_version_ids(
+    conn: &mut PgConn,
+    version_ids: Vec<Uuid>,
+) -> DbResult<HashMap<Uuid, String>> {
+    use crate::schema::plan::dsl as p_dsl;
+    use crate::schema::plan_version::dsl as pv_dsl;
+    use diesel_async::RunQueryDsl;
+
+    let query = pv_dsl::plan_version
+        .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+        .filter(pv_dsl::id.eq_any(version_ids))
+        .select((pv_dsl::id, p_dsl::name));
+
+    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+    query
+        .load(conn)
+        .await
+        .attach_printable("Error while getting plan names by version ids")
+        .into_db_result()
+        .map(|rows: Vec<(Uuid, String)>| rows.into_iter().collect())
 }

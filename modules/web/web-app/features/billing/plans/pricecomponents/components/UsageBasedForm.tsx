@@ -33,6 +33,7 @@ import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import {
+  Dimension,
   Matrix,
   TieredAndVolumeRow,
   UsageFee,
@@ -176,6 +177,20 @@ const UsageBasedDataForm = ({
     .exhaustive()
 }
 
+type DimensionCombination = { dimension1: Dimension; dimension2?: Dimension }
+
+// Helper function to compare dimensions
+const areDimensionsEqual = (dim1: DimensionCombination, dim2: DimensionCombination): boolean => {
+  return (
+    dim1.dimension1.key === dim2.dimension1.key &&
+    dim1.dimension1.value === dim2.dimension1.value &&
+    (!dim1.dimension2 ||
+      !dim2.dimension2 ||
+      (dim1.dimension2.key === dim2.dimension2.key &&
+        dim1.dimension2.value === dim2.dimension2.value))
+  )
+}
+
 const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) => {
   const currency = useCurrency()
 
@@ -198,35 +213,34 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
 
     const segmentationMatrix = metric.billableMetric.segmentationMatrix
     let headers: string[] = []
-    let dimensionCombinations: Map<string, string>[] = []
+    let dimensionCombinations: {
+      dimension1: { key: string; value: string }
+      dimension2?: { key: string; value: string }
+    }[] = []
 
     match(segmentationMatrix.matrix)
       .with({ case: 'single' }, ({ value }) => {
         headers = [value.dimension?.key ?? '']
-        dimensionCombinations = (value.dimension?.values ?? []).map(v => new Map([[headers[0], v]]))
+        dimensionCombinations = (value.dimension?.values ?? []).map(v => ({
+          dimension1: { key: headers[0], value: v },
+        }))
       })
       .with({ case: 'double' }, ({ value }) => {
         headers = [value.dimension1?.key ?? '', value.dimension2?.key ?? '']
         dimensionCombinations = (value.dimension1?.values ?? []).flatMap(v1 =>
-          (value.dimension2?.values ?? []).map(
-            v2 =>
-              new Map([
-                [headers[0], v1],
-                [headers[1], v2],
-              ])
-          )
+          (value.dimension2?.values ?? []).map(v2 => ({
+            dimension1: { key: headers[0], value: v1 },
+            dimension2: { key: headers[1], value: v2 },
+          }))
         )
       })
       .with({ case: 'linked' }, ({ value }) => {
         headers = [value.dimensionKey, value.linkedDimensionKey]
         dimensionCombinations = Object.entries(value.values).flatMap(([k, v]) =>
-          v.values.map(
-            linkedV =>
-              new Map([
-                [headers[0], k],
-                [headers[1], linkedV],
-              ])
-          )
+          v.values.map(linkedV => ({
+            dimension1: { key: headers[0], value: k },
+            dimension2: { key: headers[1], value: linkedV },
+          }))
         )
       })
       .otherwise(() => {})
@@ -234,43 +248,40 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
     setDimensionHeaders(headers)
 
     // Update or create rows based on the current state
-    const currentDimensions = fields.map(field => field.dimensions)
+    const currentDimensions = fields.map(field => ({
+      dimension1: field.dimension1,
+      dimension2: field.dimension2,
+    }))
     const newRows = dimensionCombinations.filter(
-      combo =>
-        !currentDimensions.some(dim =>
-          Array.from(combo.entries()).every(([key, value]) => dim.get(key) === value)
-        )
+      combo => !currentDimensions.some(dim => areDimensionsEqual(dim, combo))
     )
     const removedRows = currentDimensions.filter(
-      dim =>
-        !dimensionCombinations.some(combo =>
-          Array.from(combo.entries()).every(([key, value]) => dim.get(key) === value)
-        )
+      dim => !dimensionCombinations.some(combo => areDimensionsEqual(dim, combo))
     )
-
     newRows.forEach(dimensions => {
-      append({ dimensions, price: '0' })
+      append({ ...dimensions, price: '0' })
     })
 
     removedRows.forEach(dimensions => {
-      const index = fields.findIndex(field =>
-        Array.from(dimensions.entries()).every(
-          ([key, value]) => field.dimensions.get(key) === value
-        )
-      )
+      const index = fields.findIndex(field => areDimensionsEqual(field, dimensions))
       if (index !== -1) remove(index)
     })
   }, [metric, fields, append, remove])
 
   const columns = useMemo<ColumnDef<Matrix['dimensionRates'][number]>[]>(
     () => [
-      ...dimensionHeaders.map(
-        header =>
-          ({
-            header,
-            accessorFn: row => row.dimensions.get(header),
-          }) as ColumnDef<Matrix['dimensionRates'][number]>
-      ),
+      {
+        header: dimensionHeaders[0] || 'Dimension 1',
+        accessorFn: row => row.dimension1.value,
+      },
+      ...((dimensionHeaders[1]
+        ? [
+            {
+              header: dimensionHeaders[1],
+              accessorFn: row => row.dimension2?.value,
+            },
+          ]
+        : []) as ColumnDef<Matrix['dimensionRates'][number]>[]),
       {
         header: 'Unit price',
         accessor: 'price',
@@ -427,7 +438,7 @@ const TierTable = ({
 
   const addTier = useCallback(() => {
     const lastTier = fields[fields.length - 1]
-    const firstUnit = lastTier ? BigInt(lastTier.firstUnit) + BigInt(2) : BigInt(0)
+    const firstUnit = lastTier ? BigInt(lastTier.firstUnit) + BigInt(1) : BigInt(0)
     append({ firstUnit, unitPrice: '' })
   }, [fields, append])
 
@@ -504,7 +515,7 @@ const FirstUnitField = memo(
           control={control}
           name={`model.data.rows.${rowIndex}.firstUnit`}
           rules={{
-            min: isFirst ? 0 : Number(prevRowValue?.firstUnit ?? 0) + 2,
+            min: isFirst ? 0 : Number(prevRowValue?.firstUnit ?? 0) + 1,
           }}
           render={({ field }) => (
             <FormItem>
@@ -512,7 +523,7 @@ const FirstUnitField = memo(
                 <Input
                   {...field}
                   type="number"
-                  min={isFirst ? 0 : Number(prevRowValue?.firstUnit ?? 0) + 2}
+                  min={isFirst ? 0 : Number(prevRowValue?.firstUnit ?? 0) + 1}
                   onChange={e => {
                     const value = e.target.value
                     field.onChange(BigInt(value))
@@ -545,5 +556,5 @@ const LastUnitCell = ({
 
   const isLast = !nextRow
 
-  return isLast ? '∞' : `${BigInt(nextRow.firstUnit) - BigInt(1)}`
+  return isLast ? '∞' : `${BigInt(nextRow.firstUnit)}`
 }

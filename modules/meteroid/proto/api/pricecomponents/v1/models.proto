@@ -35,7 +35,13 @@ message UsageFee {
     repeated MatrixRow rows = 1;
     message MatrixRow {
       string per_unit_price = 1;
-      map<string, string> dimensions = 2;
+      MatrixDimension dimension1 = 2;
+      optional MatrixDimension dimension2 = 3;
+    }
+
+    message MatrixDimension {
+      string key = 1;
+      string value = 2;
     }
   }
 }

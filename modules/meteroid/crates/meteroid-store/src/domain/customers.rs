@@ -189,6 +189,7 @@ impl TryFrom<serde_json::Value> for Address {
         Ok(address)
     }
 }
+
 impl TryInto<serde_json::Value> for Address {
     type Error = Report<StoreError>;
 
@@ -221,6 +222,7 @@ impl TryFrom<serde_json::Value> for ShippingAddress {
         Ok(shipping_address)
     }
 }
+
 impl TryInto<serde_json::Value> for ShippingAddress {
     type Error = Report<StoreError>;
 
@@ -261,6 +263,7 @@ impl TryFrom<serde_json::Value> for BillingConfig {
         Ok(billing_config)
     }
 }
+
 impl TryInto<serde_json::Value> for BillingConfig {
     type Error = Report<StoreError>;
 

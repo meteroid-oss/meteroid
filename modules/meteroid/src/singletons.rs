@@ -1,7 +1,8 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use deadpool_postgres::Pool;
 
+use crate::clients::usage::MeteringUsageClient;
 use meteroid_store::Store;
 
 use crate::config::Config;
@@ -17,6 +18,7 @@ pub fn get_pool() -> &'static Pool {
 }
 
 static STORE: tokio::sync::OnceCell<Store> = tokio::sync::OnceCell::const_new();
+
 pub async fn get_store() -> &'static Store {
     STORE
         .get_or_init(|| async {
@@ -27,6 +29,7 @@ pub async fn get_store() -> &'static Store {
                 config.secrets_crypt_key.clone(),
                 config.jwt_secret.clone(),
                 create_eventbus_memory(),
+                Arc::new(MeteringUsageClient::get().clone()),
             )
             .expect("Failed to initialize store");
 

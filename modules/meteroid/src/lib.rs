@@ -1,6 +1,6 @@
 pub mod adapters;
 pub mod api;
-pub mod compute;
+pub mod clients;
 pub mod config;
 pub mod constants;
 pub mod db;
@@ -8,7 +8,6 @@ pub mod encoding;
 mod errors;
 pub mod eventbus;
 pub mod mapping;
-pub mod models;
 pub mod seeder;
 pub mod services;
 pub mod singletons;

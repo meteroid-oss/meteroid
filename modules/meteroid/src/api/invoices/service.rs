@@ -4,6 +4,7 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
     GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse,
+    RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
@@ -81,10 +82,32 @@ impl InvoicesService for InvoiceServiceComponents {
             .store
             .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
             .await
-            .map(mapping::invoices::domain_invoice_with_plan_details_to_server)
+            .and_then(mapping::invoices::domain_invoice_with_plan_details_to_server)
             .map_err(Into::<InvoiceApiError>::into)?;
 
         let response = GetInvoiceResponse {
+            invoice: Some(invoice),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn refresh_invoice_data(
+        &self,
+        request: Request<RefreshInvoiceDataRequest>,
+    ) -> Result<Response<RefreshInvoiceDataResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let invoice = self
+            .store
+            .refresh_invoice_data(parse_uuid(&req.id, "id")?, tenant_id)
+            .await
+            .and_then(mapping::invoices::domain_invoice_with_plan_details_to_server)
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        let response = RefreshInvoiceDataResponse {
             invoice: Some(invoice),
         };
 

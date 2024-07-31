@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use deadpool_postgres::Pool;
@@ -12,6 +13,7 @@ use tonic::transport::Channel;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid_migrations::migrations;
+use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
 
 use crate::helpers;
 
@@ -28,6 +30,7 @@ pub async fn start_meteroid_with_port(
     metering_port: u16,
     postgres_connection_string: String,
     seed_level: SeedLevel,
+    usage_client: Arc<dyn UsageClient>,
 ) -> MeteroidSetup {
     let invoicing_webhook_addr =
         helpers::network::free_local_socket().expect("Could not get webhook addr");
@@ -51,6 +54,7 @@ pub async fn start_meteroid_with_port(
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
         create_eventbus_memory(),
+        usage_client,
     )
     .expect("Could not create store");
 
@@ -99,6 +103,7 @@ pub async fn start_meteroid(
         metering_port,
         postgres_connection_string,
         seed_level,
+        Arc::new(MockUsageClient::noop()),
     )
     .await
 }

@@ -53,7 +53,7 @@ pub mod sql_types {
     #[diesel(postgres_type(name = "SubscriptionEventType"))]
     pub struct SubscriptionEventType;
 
-    #[derive(Debug, diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionFeeBillingPeriod"))]
     pub struct SubscriptionFeeBillingPeriod;
 
@@ -282,9 +282,7 @@ diesel::table! {
         customer_id -> Uuid,
         subscription_id -> Nullable<Uuid>,
         currency -> Text,
-        days_until_due -> Nullable<Int4>,
         external_invoice_id -> Nullable<Text>,
-        invoice_id -> Nullable<Text>,
         invoicing_provider -> InvoicingProviderEnum,
         line_items -> Jsonb,
         issued -> Bool,
@@ -293,10 +291,24 @@ diesel::table! {
         last_issue_error -> Nullable<Text>,
         data_updated_at -> Nullable<Timestamp>,
         invoice_date -> Date,
-        amount_cents -> Nullable<Int8>,
         plan_version_id -> Nullable<Uuid>,
         invoice_type -> InvoiceType,
         finalized_at -> Nullable<Timestamp>,
+
+        net_terms -> Int4,
+        memo -> Nullable<Text>,
+        tax_rate -> Int4,
+        local_id -> Text,
+        reference -> Nullable<Text>,
+        total -> Int8,
+        invoice_number -> Text,
+        tax_amount -> Int8,
+        subtotal_recurring -> Int8,
+        plan_name -> Nullable<Text>,
+        due_at -> Nullable<Timestamptz>,
+        customer_details -> Jsonb,
+        amount_due -> Int8,
+        subtotal -> Int8,
     }
 }
 
@@ -462,6 +474,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BillingPeriodEnum;
+
     subscription (id) {
         id -> Uuid,
         customer_id -> Uuid,
@@ -482,6 +497,7 @@ diesel::table! {
         #[max_length = 3]
         currency -> Varchar,
         mrr_cents -> Int8,
+        period -> BillingPeriodEnum
     }
 }
 
@@ -603,8 +619,8 @@ diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
 diesel::joinable!(customer -> tenant (tenant_id));
 diesel::joinable!(invoice -> customer (customer_id));
-diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
+diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(plan -> product_family (product_family_id));

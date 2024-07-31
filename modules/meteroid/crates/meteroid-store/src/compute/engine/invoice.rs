@@ -3,43 +3,34 @@ use std::sync::Arc;
 
 use chrono::NaiveDate;
 
-use meteroid_store::domain::enums::SubscriptionFeeBillingPeriod;
-use meteroid_store::domain::*;
+use crate::domain::enums::SubscriptionFeeBillingPeriod;
+use crate::domain::*;
 
-use crate::compute::clients::slots::SlotClient;
-use crate::compute::clients::usage::UsageClient;
 use crate::compute::engine::component::ComponentEngine;
 use crate::compute::errors::ComputeError;
-use crate::compute::ComponentPeriods;
-use crate::models::InvoiceLine;
+use crate::Store;
 
 use super::period::calculate_component_period;
 
-pub struct InvoiceEngine {
-    // metric_client: HashMap<Uuid, Metric>,
-    usage_client: Arc<dyn UsageClient + Send + Sync>,
-    slots_client: Arc<dyn SlotClient + Send + Sync>,
-}
-
-impl InvoiceEngine {
-    pub fn new(
-        usage_client: Arc<dyn UsageClient + Send + Sync>,
-        slots_client: Arc<dyn SlotClient + Send + Sync>,
-    ) -> Self {
-        Self {
-            usage_client,
-            slots_client,
-        }
-    }
-
-    // Here we consider that we HAVE the invoice_date, and we want to compute the invoice that need to be produced for a billing on that date.
-    // However, this may not be the right/the only approach, and we may prefer an alternative approach where we compute the next invoices following the current date. (so the next invoice for each component)
-    // => I guess that this ends up being similar ? we just compute these "invoice_dates" right ?
-    pub async fn compute_dated_invoice_lines(
+#[async_trait::async_trait]
+pub trait InvoiceLineInterface {
+    async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
         subscription_details: SubscriptionDetails,
-    ) -> Result<Vec<InvoiceLine>, ComputeError> {
+    ) -> Result<Vec<LineItem>, ComputeError>;
+}
+
+#[async_trait::async_trait]
+impl InvoiceLineInterface for Store {
+    // Here we consider that we HAVE the invoice_date, and we want to compute the invoice that need to be produced for a billing on that date.
+    // However, this may not be the right/the only approach, and we may prefer an alternative approach where we compute the next invoices following the current date. (so the next invoice for each component)
+    // => I guess that this ends up being similar ? we just compute these "invoice_dates" right ?
+    async fn compute_dated_invoice_lines(
+        &self,
+        invoice_date: &NaiveDate,
+        subscription_details: SubscriptionDetails,
+    ) -> Result<Vec<LineItem>, ComputeError> {
         if *invoice_date < subscription_details.billing_start_date {
             return Err(ComputeError::InvalidInvoiceDate);
         }
@@ -66,7 +57,7 @@ impl InvoiceEngine {
 
         let component_engine = ComponentEngine::new(
             self.usage_client.clone(),
-            self.slots_client.clone(),
+            Arc::new(self.clone()), // TODO just use store
             Arc::new(subscription_details.clone()),
         );
 

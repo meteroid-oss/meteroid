@@ -6,6 +6,7 @@ pub mod customer {
     use meteroid_store::errors::StoreError;
 
     use crate::api::customers::error::CustomerApiError;
+    use crate::api::shared::conversions::ProtoConv;
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
 
     pub struct ServerBillingConfigWrapper(pub server::CustomerBillingConfig);
@@ -122,12 +123,13 @@ pub mod customer {
     }
 
     pub struct ServerCustomerWrapper(pub server::Customer);
+
     impl TryFrom<domain::Customer> for ServerCustomerWrapper {
         type Error = Report<StoreError>;
 
         fn try_from(value: domain::Customer) -> Result<Self, Self::Error> {
             Ok(ServerCustomerWrapper(server::Customer {
-                id: value.id.to_string(),
+                id: value.id.as_proto(),
                 billing_config: value
                     .billing_config
                     .map(ServerBillingConfigWrapper::try_from)
@@ -157,6 +159,7 @@ pub mod customer {
     }
 
     pub struct ServerCustomerBriefWrapper(pub server::CustomerBrief);
+
     impl TryFrom<domain::Customer> for ServerCustomerBriefWrapper {
         type Error = Report<StoreError>;
 
@@ -165,7 +168,12 @@ pub mod customer {
                 id: value.id.to_string(),
                 name: value.name,
                 alias: value.alias,
+                country: value
+                    .billing_address
+                    .as_ref()
+                    .and_then(|v| v.country.clone()),
                 email: value.email,
+                created_at: value.created_at.as_proto(),
             }))
         }
     }

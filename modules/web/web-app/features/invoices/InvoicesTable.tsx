@@ -1,5 +1,3 @@
-
-
 import { Popover, PopoverContent, PopoverTrigger } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
 import { MoreVerticalIcon } from 'lucide-react'
@@ -31,9 +29,15 @@ export const InvoicesTable = ({
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [
       {
+        header: 'Invoice Number',
+        cell: ({ row }) => (
+          <Link to={`${linkPrefix}${row.original.id}`}>{row.original.invoiceNumber}</Link>
+        ),
+      },
+      {
         header: 'Customer',
         cell: ({ row }) => (
-          <Link to={`${linkPrefix}${row.original.id}`}>{row.original.customerName}</Link>
+          <Link to={`../../customers/${row.original.customerId}`}>{row.original.customerName}</Link>
         ),
       },
       {

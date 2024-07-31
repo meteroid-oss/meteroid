@@ -1,11 +1,13 @@
 use chrono::NaiveDate;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use meteroid::eventbus::create_eventbus_noop;
 use testcontainers::clients::Cli;
 use uuid::Uuid;
 
 use meteroid::workers::invoicing::draft_worker::draft_worker;
+use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{InvoiceWithCustomer, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
@@ -36,6 +38,7 @@ async fn test_draft_worker() {
         secrecy::SecretString::new("test-key".into()),
         secrecy::SecretString::new("test-jwt-key".into()),
         create_eventbus_noop().await,
+        Arc::new(MockUsageClient::noop()),
     )
     .unwrap();
 

@@ -141,8 +141,9 @@ where
         self.query.walk_ast(out.reborrow())?;
         out.push_sql(") t");
         if let Some(ref cursor) = self.cursor {
-            out.push_sql(" WHERE ");
-            self.cursor_column.walk_ast(out.reborrow())?;
+            out.push_sql(" WHERE t.");
+            // self.cursor_column.walk_ast(out.reborrow())?;
+            out.push_sql(&self.cursor_column_name);
             out.push_sql(" >= ");
             out.push_bind_param::<sql_types::Uuid, _>(cursor)?;
         }

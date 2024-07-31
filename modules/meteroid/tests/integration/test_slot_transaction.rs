@@ -3,10 +3,12 @@ use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 use chrono::NaiveDateTime;
 use meteroid::eventbus::create_eventbus_memory;
+use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::Store;
 use secrecy::SecretString;
 use std::str::FromStr;
+use std::sync::Arc;
 use testcontainers::clients::Cli;
 use uuid::{uuid, Uuid};
 
@@ -33,6 +35,7 @@ async fn test_slot_transaction_active_slots() {
         SecretString::new("00000000000000000000000000000000".into()),
         SecretString::new("secret".into()),
         create_eventbus_memory(),
+        Arc::new(MockUsageClient::noop()),
     )
     .expect("Could not create store");
 

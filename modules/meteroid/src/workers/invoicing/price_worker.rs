@@ -4,17 +4,15 @@
 */
 use std::sync::Arc;
 
-use crate::{compute::InvoiceEngine, errors, singletons};
+use crate::{errors, singletons};
 
-use crate::compute::clients::usage::MeteringUsageClient;
-use crate::workers::clients::metering::MeteringClient;
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::future::join_all;
 
-use meteroid_store::domain::{CursorPaginationRequest, Invoice};
+use meteroid_store::domain::{CursorPaginationRequest, Invoice, InvoiceLinesPatch};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 use tokio::sync::Semaphore;
@@ -42,7 +40,7 @@ pub struct PriceWorker;
 impl AsyncRunnable for PriceWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        price_worker(singletons::get_store().await, MeteringClient::get().clone())
+        price_worker(singletons::get_store().await)
             .timed(|res, elapsed| record_call("price", res, elapsed))
             .await
             .map_err(|err| {
@@ -68,16 +66,8 @@ impl AsyncRunnable for PriceWorker {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn price_worker(
-    store: &Store,
-    metering_client: MeteringClient,
-) -> Result<(), errors::WorkerError> {
+pub async fn price_worker(store: &Store) -> Result<(), errors::WorkerError> {
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
-
-    let compute_service = Arc::new(InvoiceEngine::new(
-        Arc::new(MeteringUsageClient::new(metering_client.queries)),
-        Arc::new(store.clone()),
-    ));
 
     let mut tasks = Vec::new();
 
@@ -100,14 +90,12 @@ pub async fn price_worker(
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 
-            let compute_service_clone = compute_service.clone();
             let store = store.clone();
 
             let task = tokio::spawn(async move {
                 let _permit = permit; // Moves permit into the async block
 
-                let lines_result =
-                    update_invoice_lines(&invoice, store, compute_service_clone).await;
+                let lines_result = update_invoice_lines(&invoice, store).await;
 
                 if let Err(e) = lines_result {
                     // TODO this will retry, but we need to track/alert
@@ -135,15 +123,15 @@ pub async fn price_worker(
     Ok(())
 }
 
-async fn update_invoice_lines(
-    invoice: &Invoice,
-    store: Store,
-    compute_service: Arc<InvoiceEngine>,
-) -> Result<(), errors::WorkerError> {
-    let lines = shared::get_invoice_lines(&invoice, &compute_service, store.clone()).await?;
+async fn update_invoice_lines(invoice: &Invoice, store: Store) -> Result<(), errors::WorkerError> {
+    let lines = shared::get_invoice_lines(&invoice, store.clone()).await?;
 
     store
-        .update_invoice_lines(invoice.id, invoice.tenant_id, lines)
+        .update_invoice_lines(
+            invoice.id,
+            invoice.tenant_id,
+            InvoiceLinesPatch::from_invoice_and_lines(invoice, lines),
+        )
         .await
         .change_context(errors::WorkerError::DatabaseError)
 }

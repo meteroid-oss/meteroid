@@ -42,6 +42,10 @@ export const BillableMetricTable: FC<BillableMetricableProps> = ({
         accessorKey: 'description',
       },
       {
+        header: 'Event name',
+        accessorKey: 'code',
+      },
+      {
         header: 'Aggregation',
         maxSize: 0.1,
         cell: c => (

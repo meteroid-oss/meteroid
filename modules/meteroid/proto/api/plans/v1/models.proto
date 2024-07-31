@@ -18,7 +18,6 @@ enum PlanType {
   // template 3 ?
 }
 
-
 message PlanBillingConfiguration {
   repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 1;
   uint32 net_terms = 2;
@@ -45,15 +44,12 @@ message PlanBillingConfiguration {
   message Forever {}
 }
 
-
 // TODO allow more complexity, ex: via full Adjustment view (included units, credits, maximums/limits, discounts for some lines ,etc)
 // TODO in addition to fallback plan, maybe we want a "trial plan" or "use_trial_from_plan_id", aka a unique "entreprise_trial" no matter the selected plan, that then fallbacks on the current plan
 message TrialConfig {
   uint32 duration_in_days = 1;
   string fallback_plan_id = 2; // TODO only if no credit card added
 }
-
-
 
 message PlanVersion {
   string id = 1;
@@ -62,7 +58,6 @@ message PlanVersion {
   TrialConfig trial_config = 4;
   PlanBillingConfiguration billing_config = 5;
   string currency = 6;
-
 }
 
 message ListPlanVersion {
@@ -91,7 +86,6 @@ message Metadata {
   string key = 1;
   string value = 2;
 }
-
 
 message Plan {
   string id = 1;
@@ -122,7 +116,6 @@ message PlanDetails {
   repeated Metadata metadata = 9;
 }
 
-
 message PlanOverview {
   string plan_id = 1;
   string plan_version_id = 2;
@@ -133,6 +126,7 @@ message PlanOverview {
   uint32 net_terms = 7;
   repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 8;
   bool is_draft = 9;
+  PlanType plan_type = 10;
 }
 
 message PlanParameter {

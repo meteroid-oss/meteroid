@@ -2,6 +2,7 @@
 
 use diesel::result::Error;
 
+use crate::compute::ComputeError;
 use diesel_models::errors::DatabaseError;
 
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +30,8 @@ pub enum StoreError {
     InsertError,
     #[error("Transaction error: {0:?}")]
     TransactionStoreError(error_stack::Report<StoreError>),
+    #[error("Failed to compute invoice lines: {0:?}")]
+    InvoiceComputationError(#[source] ComputeError),
     #[error("Failed to process price components: {0}")]
     InvalidPriceComponents(String),
     #[error("Failed to serialize/deserialize data: {0}")]
@@ -39,6 +42,18 @@ pub enum StoreError {
     LoginError(String),
     #[error("Registration closed")]
     UserRegistrationClosed(String),
+}
+
+impl From<ComputeError> for StoreError {
+    fn from(err: ComputeError) -> Self {
+        StoreError::InvoiceComputationError(err)
+    }
+}
+
+impl From<ComputeError> for error_stack::Report<StoreError> {
+    fn from(err: ComputeError) -> Self {
+        error_stack::Report::from(StoreError::InvoiceComputationError(err))
+    }
 }
 
 impl From<DatabaseError> for StoreError {

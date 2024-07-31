@@ -25,6 +25,8 @@ message CustomerBrief {
   string name = 2;
   optional string email = 3;
   optional string alias = 4;
+  optional string country = 5;
+  string created_at = 6;
 }
 
 message Address {

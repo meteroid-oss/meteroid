@@ -72,6 +72,12 @@ pub struct Randomness {
 }
 
 #[derive(Clone)]
+pub struct Metric {
+    pub name: String,
+    pub code: String,
+}
+
+#[derive(Clone)]
 pub struct Scenario {
     pub name: String,
     //
@@ -82,6 +88,7 @@ pub struct Scenario {
     pub tenant: Tenant,
     pub product_family: String,
     pub customer_base: CustomerBase,
+    pub metrics: Vec<Metric>,
     pub randomness: Randomness,
 }
 

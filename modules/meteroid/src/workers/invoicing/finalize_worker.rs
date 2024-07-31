@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use crate::{compute::InvoiceEngine, errors, singletons};
+use crate::{errors, singletons};
 
-use crate::compute::clients::usage::MeteringUsageClient;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
@@ -12,7 +11,6 @@ use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 use tokio::sync::Semaphore;
 
-use crate::workers::clients::metering::MeteringClient;
 use crate::workers::metrics::record_call;
 
 use super::shared;
@@ -29,7 +27,7 @@ pub struct FinalizeWorker;
 impl AsyncRunnable for FinalizeWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        finalize_worker(singletons::get_store().await, MeteringClient::get().clone())
+        finalize_worker(singletons::get_store().await)
             .timed(|res, elapsed| record_call("finalize", res, elapsed))
             .await
             .map_err(|err| {
@@ -55,16 +53,8 @@ impl AsyncRunnable for FinalizeWorker {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn finalize_worker(
-    store: &Store,
-    metering_client: MeteringClient,
-) -> Result<(), errors::WorkerError> {
+pub async fn finalize_worker(store: &Store) -> Result<(), errors::WorkerError> {
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
-
-    let compute_service = Arc::new(InvoiceEngine::new(
-        Arc::new(MeteringUsageClient::new(metering_client.queries)),
-        Arc::new(store.clone()),
-    ));
 
     let mut tasks = Vec::new();
 
@@ -87,13 +77,12 @@ pub async fn finalize_worker(
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 
-            let compute_service_clone = compute_service.clone();
             let store = store.clone();
 
             let task = tokio::spawn(async move {
                 let _permit = permit; // Moves permit into the async block
 
-                let lines_result = finalize_invoice(&invoice, store, compute_service_clone).await;
+                let lines_result = finalize_invoice(&invoice, store).await;
 
                 if let Err(e) = lines_result {
                     // TODO this will retry, but we need to track/alert
@@ -117,12 +106,8 @@ pub async fn finalize_worker(
     Ok(())
 }
 
-async fn finalize_invoice(
-    invoice: &Invoice,
-    store: Store,
-    compute_service: Arc<InvoiceEngine>,
-) -> Result<(), errors::WorkerError> {
-    let lines = shared::get_invoice_lines(&invoice, &compute_service, store.clone()).await?;
+async fn finalize_invoice(invoice: &Invoice, store: Store) -> Result<(), errors::WorkerError> {
+    let lines = shared::get_invoice_lines(&invoice, store.clone()).await?;
 
     store
         .finalize_invoice(invoice.id, invoice.tenant_id, lines)

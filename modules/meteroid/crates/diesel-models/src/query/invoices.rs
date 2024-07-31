@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::invoices::{
-    InvoiceRow, InvoiceRowNew, InvoiceWithCustomerRow, InvoiceWithPlanDetailsRow,
+    DetailedInvoiceRow, InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew, InvoiceWithCustomerRow,
 };
 use chrono::NaiveDateTime;
 
@@ -14,7 +14,8 @@ use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::dsl::IntervalDsl;
 use diesel::{
-    debug_query, BoolExpressionMethods, JoinOnDsl, PgTextExpressionMethods, SelectableHelper,
+    debug_query, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    PgTextExpressionMethods, SelectableHelper,
 };
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -35,18 +36,20 @@ impl InvoiceRowNew {
             .into_db_result()
     }
 }
+
 impl InvoiceRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
         param_tenant_id: uuid::Uuid,
         param_invoice_id: uuid::Uuid,
-    ) -> DbResult<InvoiceWithPlanDetailsRow> {
+    ) -> DbResult<DetailedInvoiceRow> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
         use crate::schema::subscription::dsl as s_dsl;
-        use diesel::prelude::*;
+
         use diesel_async::RunQueryDsl;
 
         let query = i_dsl::invoice
@@ -54,9 +57,10 @@ impl InvoiceRow {
             .left_join(s_dsl::subscription.on(i_dsl::subscription_id.eq(s_dsl::id.nullable())))
             .left_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .left_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
-            .select(InvoiceWithPlanDetailsRow::as_select());
+            .select(DetailedInvoiceRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -191,6 +195,7 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    // TODO need to recompute !
     pub async fn finalize(
         conn: &mut PgConn,
         id: uuid::Uuid,
@@ -222,38 +227,6 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .attach_printable("Error while finalizing invoice")
-            .into_db_result()
-    }
-
-    pub async fn update_lines(
-        conn: &mut PgConn,
-        id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
-        lines: serde_json::Value,
-    ) -> DbResult<usize> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let now = chrono::Utc::now().naive_utc();
-
-        let query = diesel::update(i_dsl::invoice)
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .filter(
-                i_dsl::status.ne_all(vec![InvoiceStatusEnum::Finalized, InvoiceStatusEnum::Void]),
-            )
-            .set((
-                i_dsl::line_items.eq(lines),
-                i_dsl::updated_at.eq(now),
-                i_dsl::data_updated_at.eq(now),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while updating invoice lines")
             .into_db_result()
     }
 
@@ -401,6 +374,30 @@ WHERE invoice.tenant_id = invoicing_config.tenant_id
             .execute(conn)
             .await
             .attach_printable("Error while fetching revenue trend")
+            .into_db_result()
+    }
+}
+
+impl InvoiceRowLinesPatch {
+    pub async fn update_lines(
+        &self,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        conn: &mut PgConn,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id).and(i_dsl::tenant_id.eq(tenant_id)))
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while updating invoice lines")
             .into_db_result()
     }
 }

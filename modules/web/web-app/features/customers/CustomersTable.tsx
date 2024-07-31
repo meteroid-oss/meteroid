@@ -1,12 +1,12 @@
-import {ColumnDef, OnChangeFn, PaginationState} from '@tanstack/react-table'
-import {MoreVerticalIcon} from 'lucide-react'
-import {useMemo} from 'react'
-import {Link} from 'react-router-dom'
+import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
+import { MoreVerticalIcon } from 'lucide-react'
+import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 
-import {StandardTable} from '@/components/table/StandardTable'
-import {CustomerBrief} from '@/rpc/api/customers/v1/models_pb'
+import { StandardTable } from '@/components/table/StandardTable'
+import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 
-import type {FunctionComponent} from 'react'
+import type { FunctionComponent } from 'react'
 
 interface CustomersTableProps {
   data: CustomerBrief[]
@@ -17,21 +17,29 @@ interface CustomersTableProps {
 }
 
 export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
-                                                                         data,
-                                                                         pagination,
-                                                                         setPagination,
-                                                                         totalCount,
-                                                                         isLoading,
-                                                                       }) => {
+  data,
+  pagination,
+  setPagination,
+  totalCount,
+  isLoading,
+}) => {
   const columns = useMemo<ColumnDef<CustomerBrief>[]>(
     () => [
       {
         header: 'Name',
-        cell: ({row}) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
+        cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
       },
       {
-        header: 'Active subscriptions',
-        accessorFn: () => '-',
+        header: 'Country',
+        cell: ({ row }) => {
+          row.original.country
+        },
+      },
+      {
+        header: 'Email',
+        cell: ({ row }) => {
+          row.original.email
+        },
       },
       {
         header: 'Alias',
@@ -39,13 +47,13 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
       },
       {
         header: 'Accrued',
-        accessorFn: () => '0$',
+        accessorFn: () => '-', // TODO get only the count from db ?
       },
       {
         accessorKey: 'id',
         header: '',
         className: 'w-2',
-        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer"/>,
+        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer" />,
       },
     ],
     []
