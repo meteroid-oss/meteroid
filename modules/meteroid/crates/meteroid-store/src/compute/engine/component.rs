@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
@@ -36,6 +37,43 @@ impl ComponentEngine {
             usage_client,
             slots_client,
             subscription_details,
+        }
+    }
+
+    pub fn compute_applied_credits(
+        &self,
+        period: Period,
+        balance: i32,
+        line_items: &Vec<LineItem>,
+    ) -> Option<LineItem> {
+        let balance = balance as i64;
+
+        let invoice_total: i64 = line_items.iter().map(|c| c.total).sum();
+        if balance > 0 && invoice_total > 0 {
+            let credits = min(invoice_total, balance);
+
+            let line_item = LineItem {
+                local_id: LocalId::no_prefix(),
+                name: "Applied credits".into(),
+                quantity: None,
+                unit_price: None,
+                // todo confirm both total and subtotal can be negative
+                total: -credits,
+                subtotal: -credits,
+                start_date: period.start,
+                end_date: period.end,
+
+                sub_lines: vec![],
+                is_prorated: false,
+                price_component_id: None,
+                product_id: None,
+                metric_id: None,
+                description: None,
+            };
+
+            Some(line_item)
+        } else {
+            None
         }
     }
 

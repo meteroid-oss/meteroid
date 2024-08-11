@@ -170,7 +170,7 @@ impl WebhookHandler {
     ) -> Result<WebhookEvent, EventBusError> {
         let customer = self
             .store
-            .find_customer_by_id(event_data_details.entity_id)
+            .find_customer_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 

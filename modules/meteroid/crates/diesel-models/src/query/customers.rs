@@ -1,5 +1,5 @@
 use crate::customers::{CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch};
-use crate::errors::{DatabaseError, IntoDbResult};
+use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
@@ -7,7 +7,7 @@ use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
     PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
-use error_stack::{Report, ResultExt};
+use error_stack::ResultExt;
 use std::ops::Add;
 use tap::TapFallible;
 use uuid::Uuid;
@@ -29,11 +29,17 @@ impl CustomerRowNew {
 }
 
 impl CustomerRow {
-    pub async fn find_by_id(conn: &mut PgConn, customer_id: uuid::Uuid) -> DbResult<CustomerRow> {
+    pub async fn find_by_id(
+        conn: &mut PgConn,
+        customer_id: Uuid,
+        tenant_id_param: Uuid,
+    ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
-        let query = customer.filter(id.eq(customer_id));
+        let query = customer
+            .filter(id.eq(customer_id))
+            .filter(tenant_id.eq(tenant_id_param));
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
@@ -156,11 +162,18 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn select_for_update(conn: &mut PgConn, id: Uuid) -> DbResult<CustomerRow> {
+    pub async fn select_for_update(
+        conn: &mut PgConn,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = c_dsl::customer.for_no_key_update().filter(c_dsl::id.eq(id));
+        let query = c_dsl::customer
+            .for_no_key_update()
+            .filter(c_dsl::id.eq(id))
+            .filter(c_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -171,13 +184,12 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn update_balance(conn: &mut PgConn, id: Uuid, delta_cents: i32) -> DbResult<()> {
+    pub async fn update_balance(conn: &mut PgConn, id: Uuid, delta_cents: i32) -> DbResult<usize> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(c_dsl::customer)
             .filter(c_dsl::id.eq(id))
-            .filter(c_dsl::balance_value_cents.add(delta_cents).ge(0))
             .set((
                 c_dsl::balance_value_cents.eq(c_dsl::balance_value_cents.add(delta_cents)),
                 c_dsl::updated_at.eq(diesel::dsl::now),
@@ -190,17 +202,6 @@ impl CustomerRow {
             .await
             .attach_printable("Error while update customer balance")
             .into_db_result()
-            .and_then(|x| {
-                // probably better to add DB constraints instead for balance_value_cents?
-                if x != 1 {
-                    Err(
-                        Report::from(DatabaseError::Others("Negative customer balance".into()))
-                            .into(),
-                    )
-                } else {
-                    Ok(())
-                }
-            })
     }
 }
 

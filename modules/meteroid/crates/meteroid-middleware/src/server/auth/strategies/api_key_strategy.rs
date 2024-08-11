@@ -20,8 +20,8 @@ const FORBIDDEN_SERVICES: [&str; 4] = [
     result = true,
     size = 100,
     time = 120, // 2 min
-    key = "String",
-    convert = r#"{ api_key_id.to_string() }"#
+    key = "Uuid",
+    convert = r#"{ *api_key_id }"#
 )]
 async fn validate_api_token_by_id_cached(
     store: &Store,

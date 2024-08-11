@@ -13,6 +13,7 @@ use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
     InvoiceNew, InvoiceWithCustomer, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
 };
+use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
 use common_eventbus::Event;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
@@ -256,15 +257,33 @@ impl InvoiceInterface for Store {
         tenant_id: Uuid,
         lines: Vec<LineItem>,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
+        let applied_credits = lines
+            .iter()
+            .find(|x| x.name.as_str() == "Applied credits")
+            .map(|x| x.total.abs());
 
         let lines = serde_json::to_value(lines).map_err(|e| {
             StoreError::SerdeError("Failed to serialize invoice lines".to_string(), e)
         })?;
 
-        let _ = InvoiceRow::finalize(&mut conn, id, tenant_id, lines)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        self.transaction(|conn| {
+            async move {
+                if let Some(credits) = applied_credits {
+                    let invoice = InvoiceRow::find_by_id(conn, tenant_id, id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    CustomerBalance::update(conn, invoice.customer.id, tenant_id, credits as i32)
+                        .await?;
+                }
+
+                InvoiceRow::finalize(conn, id, tenant_id, lines)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+            }
+            .scope_boxed()
+        })
+        .await?;
 
         let _ = self
             .eventbus

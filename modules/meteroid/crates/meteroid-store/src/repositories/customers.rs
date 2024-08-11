@@ -1,20 +1,21 @@
+use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 use uuid::Uuid;
 
+use crate::domain::{
+    Customer, CustomerBrief, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
+    PaginatedVec, PaginationRequest,
+};
+use crate::errors::StoreError;
+use crate::repositories::customer_balance::CustomerBalance;
+use crate::store::Store;
+use crate::StoreResult;
 use common_eventbus::Event;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
 
-use crate::domain::{
-    Customer, CustomerBrief, CustomerNew, CustomerPatch, OrderByRequest, PaginatedVec,
-    PaginationRequest,
-};
-use crate::errors::StoreError;
-use crate::store::Store;
-use crate::StoreResult;
-
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: Uuid) -> StoreResult<Customer>;
+    async fn find_customer_by_id(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<Customer>;
 
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
@@ -44,14 +45,20 @@ pub trait CustomersInterface {
         tenant_id: Uuid,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>>;
+
+    async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer>;
 }
 
 #[async_trait::async_trait]
 impl CustomersInterface for Store {
-    async fn find_customer_by_id(&self, customer_id: Uuid) -> StoreResult<Customer> {
+    async fn find_customer_by_id(
+        &self,
+        customer_id: Uuid,
+        tenant_id: Uuid,
+    ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_id(&mut conn, customer_id)
+        CustomerRow::find_by_id(&mut conn, customer_id, tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -221,5 +228,13 @@ impl CustomersInterface for Store {
                 Ok(Some(updated))
             }
         }
+    }
+
+    async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer> {
+        self.transaction(|conn| {
+            async move { CustomerBalance::update(conn, req.customer_id, req.tenant_id, req.cents).await }
+                .scope_boxed()
+        })
+        .await
     }
 }

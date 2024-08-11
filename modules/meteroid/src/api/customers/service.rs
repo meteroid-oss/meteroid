@@ -2,14 +2,15 @@ use error_stack::Report;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, CreateCustomerRequest, CreateCustomerResponse,
     CustomerBrief, GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse,
+    PatchCustomerResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::{CustomerNew, CustomerPatch, OrderByRequest};
+use meteroid_store::domain::{CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 
@@ -27,8 +28,8 @@ impl CustomersService for CustomerServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn create_customer(
         &self,
-        request: tonic::Request<CreateCustomerRequest>,
-    ) -> std::result::Result<tonic::Response<CreateCustomerResponse>, tonic::Status> {
+        request: Request<CreateCustomerRequest>,
+    ) -> Result<Response<CreateCustomerResponse>, Status> {
         let tenant_id = request.tenant()?;
         let actor = request.actor()?;
 
@@ -60,7 +61,7 @@ impl CustomersService for CustomerServiceComponents {
             .await
             .and_then(ServerCustomerBriefWrapper::try_from)
             .map(|v| v.0)
-            .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
+            .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(CreateCustomerResponse {
             customer: Some(customer),
@@ -70,8 +71,8 @@ impl CustomersService for CustomerServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn patch_customer(
         &self,
-        request: tonic::Request<PatchCustomerRequest>,
-    ) -> std::result::Result<tonic::Response<PatchCustomerResponse>, tonic::Status> {
+        request: Request<PatchCustomerRequest>,
+    ) -> Result<Response<PatchCustomerResponse>, Status> {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
 
@@ -105,7 +106,7 @@ impl CustomersService for CustomerServiceComponents {
                 },
             )
             .await
-            .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
+            .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(PatchCustomerResponse {}))
     }
@@ -113,8 +114,8 @@ impl CustomersService for CustomerServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn list_customers(
         &self,
-        request: tonic::Request<ListCustomerRequest>,
-    ) -> std::result::Result<tonic::Response<ListCustomerResponse>, tonic::Status> {
+        request: Request<ListCustomerRequest>,
+    ) -> Result<Response<ListCustomerResponse>, Status> {
         let tenant_id = request.tenant()?;
 
         let inner = request.into_inner();
@@ -125,10 +126,10 @@ impl CustomersService for CustomerServiceComponents {
         };
 
         let order_by = match inner.sort_by.try_into() {
-            Ok(meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy::DateAsc) => OrderByRequest::DateAsc,
-            Ok(meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy::DateDesc) => OrderByRequest::DateDesc,
-            Ok(meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy::NameAsc) => OrderByRequest::NameAsc,
-            Ok(meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy::NameDesc) => OrderByRequest::NameDesc,
+            Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
+            Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
+            Ok(SortBy::NameAsc) => OrderByRequest::NameAsc,
+            Ok(SortBy::NameDesc) => OrderByRequest::NameDesc,
             Err(_) => OrderByRequest::DateDesc,
         };
 
@@ -136,7 +137,7 @@ impl CustomersService for CustomerServiceComponents {
             .store
             .list_customers(tenant_id, pagination_req, order_by, inner.search)
             .await
-            .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
+            .map_err(Into::<CustomerApiError>::into)?;
 
         let response = ListCustomerResponse {
             pagination_meta: inner.pagination.into_response(res.total_results as u32),
@@ -147,7 +148,7 @@ impl CustomersService for CustomerServiceComponents {
                 .collect::<Vec<Result<CustomerBrief, Report<StoreError>>>>()
                 .into_iter()
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?,
+                .map_err(Into::<CustomerApiError>::into)?,
         };
 
         Ok(Response::new(response))
@@ -158,16 +159,18 @@ impl CustomersService for CustomerServiceComponents {
         &self,
         request: Request<GetCustomerByIdRequest>,
     ) -> Result<Response<GetCustomerByIdResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
         let req = request.into_inner();
         let customer_id = parse_uuid(&req.id, "id")?;
 
         let customer = self
             .store
-            .find_customer_by_id(customer_id.clone())
+            .find_customer_by_id(customer_id.clone(), tenant_id)
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)
-            .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
+            .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(GetCustomerByIdResponse {
             customer: Some(customer),
@@ -187,9 +190,39 @@ impl CustomersService for CustomerServiceComponents {
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)
-            .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
+            .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(GetCustomerByAliasResponse {
+            customer: Some(customer),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn top_up_customer_balance(
+        &self,
+        request: Request<TopUpCustomerBalanceRequest>,
+    ) -> Result<Response<TopUpCustomerBalanceResponse>, Status> {
+        let actor = request.actor()?;
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
+
+        let customer = self
+            .store
+            .top_up_customer_balance(CustomerTopUpBalance {
+                created_by: actor,
+                tenant_id,
+                customer_id,
+                cents: req.cents,
+                notes: req.notes,
+            })
+            .await
+            .and_then(ServerCustomerWrapper::try_from)
+            .map(|v| v.0)
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(TopUpCustomerBalanceResponse {
             customer: Some(customer),
         }))
     }
