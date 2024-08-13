@@ -179,8 +179,6 @@ impl ComponentEngine {
                             let mut sublines = vec![];
 
                             for rate in rates {
-                                let period = arrear_period.clone();
-
                                 // for each rate, we get the quantity matching that rate
                                 let quantity = usage
                                     .data

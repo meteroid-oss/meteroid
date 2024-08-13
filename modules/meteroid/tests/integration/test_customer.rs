@@ -1,7 +1,7 @@
-use testcontainers::clients::Cli;
-
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
+use testcontainers::clients::Cli;
+use tonic::Code;
 
 use crate::helpers;
 use crate::meteroid_it;
@@ -169,6 +169,56 @@ async fn test_customers_basic() {
     assert_eq!(get_by_id_patched.id, created.id.clone());
     assert_eq!(get_by_id_patched.name, "new name".to_string());
     assert_eq!(get_by_id_patched.alias, Some(customer_alias.clone()));
+
+    // top up start
+    let topped_up = clients
+        .customers
+        .clone()
+        .top_up_customer_balance(api::customers::v1::TopUpCustomerBalanceRequest {
+            customer_id: created.id.to_string(),
+            cents: 1024,
+            notes: Some("test".into()),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .customer
+        .unwrap();
+
+    assert_eq!(topped_up.balance_value_cents, 1024);
+
+    let topped_up = clients
+        .customers
+        .clone()
+        .top_up_customer_balance(api::customers::v1::TopUpCustomerBalanceRequest {
+            customer_id: created.id.to_string(),
+            cents: -1000,
+            notes: Some("test".into()),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .customer
+        .unwrap();
+
+    assert_eq!(topped_up.balance_value_cents, 24);
+
+    let topped_up_fail = clients
+        .customers
+        .clone()
+        .top_up_customer_balance(api::customers::v1::TopUpCustomerBalanceRequest {
+            customer_id: created.id.to_string(),
+            cents: -25,
+            notes: Some("test".into()),
+        })
+        .await
+        .err()
+        .unwrap();
+
+    assert_eq!(topped_up_fail.message(), "negative customer balance");
+    assert_eq!(topped_up_fail.code(), Code::FailedPrecondition);
+
+    // top up end
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

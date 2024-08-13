@@ -11,8 +11,9 @@ use error_stack::Report;
 use crate::compute::InvoiceLineInterface;
 use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
-    InvoiceNew, InvoiceWithCustomer, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
+    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
 };
+use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
 use common_eventbus::Event;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
@@ -54,24 +55,12 @@ pub trait InvoiceInterface {
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
-    async fn finalize_invoice(
-        &self,
-        id: Uuid,
-        tenant_id: Uuid,
-        lines: Vec<LineItem>,
-    ) -> StoreResult<()>;
+    async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
 
     async fn list_outdated_invoices(
         &self,
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
-
-    async fn update_invoice_lines(
-        &self,
-        id: Uuid,
-        tenant_id: Uuid,
-        patch: InvoiceLinesPatch,
-    ) -> StoreResult<()>;
 
     async fn list_invoices_to_issue(
         &self,
@@ -250,21 +239,30 @@ impl InvoiceInterface for Store {
         Ok(res)
     }
 
-    async fn finalize_invoice(
-        &self,
-        id: Uuid,
-        tenant_id: Uuid,
-        lines: Vec<LineItem>,
-    ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
+    async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+        let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        self.transaction(|conn| {
+            async move {
+                let refreshed = refresh_invoice_data(conn, id, tenant_id, &patch).await?;
 
-        let lines = serde_json::to_value(lines).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize invoice lines".to_string(), e)
-        })?;
+                if refreshed.invoice.applied_credits > 0 {
+                    CustomerBalance::update(
+                        conn,
+                        refreshed.customer.id,
+                        tenant_id,
+                        refreshed.invoice.applied_credits as i32,
+                        Some(refreshed.invoice.id),
+                    )
+                    .await?;
+                }
 
-        let _ = InvoiceRow::finalize(&mut conn, id, tenant_id, lines)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+                InvoiceRow::finalize(conn, id, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+            }
+            .scope_boxed()
+        })
+        .await?;
 
         let _ = self
             .eventbus
@@ -296,56 +294,14 @@ impl InvoiceInterface for Store {
         Ok(res)
     }
 
-    async fn update_invoice_lines(
-        &self,
-        id: Uuid,
-        tenant_id: Uuid,
-        patch: InvoiceLinesPatch,
-    ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        let row_patch: InvoiceRowLinesPatch = patch.try_into()?;
-
-        row_patch
-            .update_lines(id, tenant_id, &mut conn)
-            .await
-            .map(|_| ())
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-
     async fn refresh_invoice_data(
         &self,
         id: Uuid,
         tenant_id: Uuid,
     ) -> StoreResult<DetailedInvoice> {
-        let invoice = self.find_invoice_by_id(tenant_id, id).await?;
-
-        match invoice.invoice.subscription_id {
-            None => Err(StoreError::InvalidArgument(
-                "Cannot refresh invoice without subscription_id".into(),
-            )
-            .into()),
-            Some(subscription_id) => {
-                let subscription_details = self
-                    .get_subscription_details(tenant_id, subscription_id)
-                    .await?;
-                let lines = self
-                    .compute_dated_invoice_lines(
-                        &invoice.invoice.invoice_date,
-                        subscription_details,
-                    )
-                    .await?;
-
-                self.update_invoice_lines(
-                    id,
-                    tenant_id,
-                    InvoiceLinesPatch::from_invoice_and_lines(&invoice.invoice, lines),
-                )
-                .await?;
-
-                self.find_invoice_by_id(tenant_id, id).await
-            }
-        }
+        let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let mut conn = self.get_conn().await?;
+        refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
     }
 
     async fn list_invoices_to_issue(
@@ -496,4 +452,47 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
             .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
+}
+
+async fn refresh_invoice_data(
+    conn: &mut PgConn,
+    id: Uuid,
+    tenant_id: Uuid,
+    row_patch: &InvoiceRowLinesPatch,
+) -> StoreResult<DetailedInvoice> {
+    row_patch
+        .update_lines(id, tenant_id, conn)
+        .await
+        .map(|_| ())
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    InvoiceRow::find_by_id(conn, tenant_id, id)
+        .await
+        .map_err(Into::into)
+        .and_then(|row| row.try_into())
+}
+
+async fn compute_invoice_patch(
+    store: &Store,
+    invoice_id: Uuid,
+    tenant_id: Uuid,
+) -> StoreResult<InvoiceRowLinesPatch> {
+    let invoice = store.find_invoice_by_id(tenant_id, invoice_id).await?;
+
+    match invoice.invoice.subscription_id {
+        None => Err(StoreError::InvalidArgument(
+            "Cannot refresh invoice without subscription_id".into(),
+        )
+        .into()),
+        Some(subscription_id) => {
+            let subscription_details = store
+                .get_subscription_details(tenant_id, subscription_id)
+                .await?;
+            let lines = store
+                .compute_dated_invoice_lines(&invoice.invoice.invoice_date, subscription_details)
+                .await?;
+
+            InvoiceLinesPatch::from_invoice_and_lines(&invoice, lines).try_into()
+        }
+    }
 }

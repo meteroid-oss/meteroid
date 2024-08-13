@@ -20,6 +20,8 @@ pub enum DatabaseError {
     NotFound,
     #[error("A unique constraint violation occurred")]
     UniqueViolation,
+    #[error("A check constraint violation occurred: {0}")]
+    CheckViolation(String),
     #[error("No fields were provided to be updated")]
     NoFieldsToUpdate,
     #[error("An error occurred when generating typed SQL query")]
@@ -36,6 +38,10 @@ impl From<&diesel::result::Error> for DatabaseError {
                 diesel::result::DatabaseErrorKind::UniqueViolation,
                 _,
             ) => Self::UniqueViolation,
+            diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::CheckViolation,
+                details,
+            ) => Self::CheckViolation(details.message().to_string()),
             diesel::result::Error::NotFound => Self::NotFound,
             diesel::result::Error::QueryBuilderError(_) => Self::QueryGenerationFailed,
             err => Self::Others(err.to_string()),

@@ -195,12 +195,10 @@ impl InvoiceRow {
             .into_db_result()
     }
 
-    // TODO need to recompute !
     pub async fn finalize(
         conn: &mut PgConn,
         id: uuid::Uuid,
         tenant_id: uuid::Uuid,
-        lines: serde_json::Value,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -215,7 +213,6 @@ impl InvoiceRow {
             )
             .set((
                 i_dsl::status.eq(InvoiceStatusEnum::Finalized),
-                i_dsl::line_items.eq(lines),
                 i_dsl::updated_at.eq(now),
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),

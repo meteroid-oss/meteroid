@@ -275,3 +275,12 @@ impl TryInto<serde_json::Value> for BillingConfig {
         Ok(billing_config_json)
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct CustomerTopUpBalance {
+    pub created_by: Uuid,
+    pub tenant_id: Uuid,
+    pub customer_id: Uuid,
+    pub cents: i32,
+    pub notes: Option<String>,
+}

@@ -1,5 +1,3 @@
-// use diesel_models::errors::DatabaseError;
-
 use diesel::result::Error;
 
 use crate::compute::ComputeError;
@@ -42,6 +40,8 @@ pub enum StoreError {
     LoginError(String),
     #[error("Registration closed")]
     UserRegistrationClosed(String),
+    #[error("Negative customer balance: {0:?}")]
+    NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
 }
 
 impl From<ComputeError> for StoreError {

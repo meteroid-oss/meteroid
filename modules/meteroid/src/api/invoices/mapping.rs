@@ -175,6 +175,7 @@ pub mod invoices {
                     .map(|x: ServerAddressWrapper| x.0),
             }),
             line_items,
+            applied_credits: invoice.applied_credits,
         })
     }
 

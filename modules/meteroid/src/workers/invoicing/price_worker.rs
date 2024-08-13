@@ -12,12 +12,10 @@ use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::future::join_all;
 
-use meteroid_store::domain::{CursorPaginationRequest, Invoice, InvoiceLinesPatch};
+use meteroid_store::domain::CursorPaginationRequest;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 use tokio::sync::Semaphore;
-
-use super::shared;
 
 /*
 We stream open invoices whose price has not been updated in the last hour/period, ordered by last update date ASC
@@ -95,7 +93,9 @@ pub async fn price_worker(store: &Store) -> Result<(), errors::WorkerError> {
             let task = tokio::spawn(async move {
                 let _permit = permit; // Moves permit into the async block
 
-                let lines_result = update_invoice_lines(&invoice, store).await;
+                let lines_result = store
+                    .refresh_invoice_data(invoice.id, invoice.tenant_id)
+                    .await;
 
                 if let Err(e) = lines_result {
                     // TODO this will retry, but we need to track/alert
@@ -121,17 +121,4 @@ pub async fn price_worker(store: &Store) -> Result<(), errors::WorkerError> {
     join_all(tasks).await;
 
     Ok(())
-}
-
-async fn update_invoice_lines(invoice: &Invoice, store: Store) -> Result<(), errors::WorkerError> {
-    let lines = shared::get_invoice_lines(&invoice, store.clone()).await?;
-
-    store
-        .update_invoice_lines(
-            invoice.id,
-            invoice.tenant_id,
-            InvoiceLinesPatch::from_invoice_and_lines(invoice, lines),
-        )
-        .await
-        .change_context(errors::WorkerError::DatabaseError)
 }

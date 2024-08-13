@@ -150,7 +150,7 @@ async fn issue_invoice(
     match invoice.invoicing_provider {
         InvoicingProviderEnum::Stripe => {
             let customer = store
-                .find_customer_by_id(invoice.customer_id)
+                .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 

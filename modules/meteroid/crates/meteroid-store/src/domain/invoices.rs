@@ -13,6 +13,7 @@ use diesel_models::invoices::InvoiceWithCustomerRow;
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use std::cmp::min;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
@@ -53,6 +54,7 @@ pub struct Invoice {
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
+    pub applied_credits: i64,
     pub net_terms: i32,
     pub reference: Option<String>,
     pub memo: Option<String>,
@@ -126,27 +128,33 @@ pub struct InvoiceLinesPatch {
     pub subtotal_recurring: i64,
     pub total: i64,
     pub tax_amount: i64,
+    pub applied_credits: i64,
 }
 
 impl InvoiceLinesPatch {
-    pub fn from_invoice_and_lines(invoice: &Invoice, line_items: Vec<LineItem>) -> Self {
+    pub fn from_invoice_and_lines(
+        detailed_invoice: &DetailedInvoice,
+        line_items: Vec<LineItem>,
+    ) -> Self {
         let subtotal = line_items.iter().fold(0, |acc, x| acc + x.subtotal);
-        let tax_amount = subtotal * invoice.tax_rate as i64 / 100;
+        let tax_amount = subtotal * detailed_invoice.invoice.tax_rate as i64 / 100;
         let total = subtotal + tax_amount; // TODO discounts etc
-        let already_paid = invoice.total - invoice.amount_due;
-        let amount_due = total - already_paid;
+        let applied_credits = min(total, detailed_invoice.customer.balance_value_cents as i64);
+        let already_paid = detailed_invoice.invoice.total - detailed_invoice.invoice.amount_due;
+        let amount_due = total - already_paid - applied_credits;
         let subtotal_recurring = line_items
             .iter()
             .filter(|x| x.metric_id.is_none())
             .fold(0, |acc, x| acc + x.subtotal);
 
         InvoiceLinesPatch {
-            line_items: line_items,
-            amount_due: amount_due,
-            subtotal: subtotal,
-            subtotal_recurring: subtotal_recurring,
-            total: total,
-            tax_amount: tax_amount,
+            line_items,
+            amount_due,
+            subtotal,
+            subtotal_recurring,
+            total,
+            tax_amount,
+            applied_credits,
         }
     }
 }

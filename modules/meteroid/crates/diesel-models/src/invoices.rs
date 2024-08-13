@@ -48,6 +48,7 @@ pub struct InvoiceRow {
     pub customer_details: serde_json::Value,
     pub amount_due: i64,
     pub subtotal: i64,
+    pub applied_credits: i64,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -60,6 +61,7 @@ pub struct InvoiceRowLinesPatch {
     pub subtotal_recurring: i64,
     pub total: i64,
     pub tax_amount: i64,
+    pub applied_credits: i64,
 }
 
 #[derive(Insertable, Debug)]

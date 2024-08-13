@@ -19,6 +19,10 @@ pub enum CustomerApiError {
     #[code(Internal)]
     MappingError(String, #[source] crate::api::errors::DatabaseError),
 
+    #[error("{0}")]
+    #[code(FailedPrecondition)]
+    FailedPrecondition(String),
+
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
@@ -26,7 +30,22 @@ pub enum CustomerApiError {
 
 impl From<Report<StoreError>> for CustomerApiError {
     fn from(value: Report<StoreError>) -> Self {
-        let err = Box::new(value.into_error());
-        Self::StoreError("Error in api customer service".to_string(), err)
+        let mut err = value.current_context();
+
+        loop {
+            if let StoreError::TransactionStoreError(inner_report) = err {
+                err = inner_report.current_context();
+                continue;
+            }
+            return match err {
+                StoreError::NegativeCustomerBalanceError(_) => {
+                    Self::FailedPrecondition("negative customer balance".into())
+                }
+                _ => Self::StoreError(
+                    "Error in customer service".to_string(),
+                    Box::new(value.into_error()),
+                ),
+            };
+        }
     }
 }

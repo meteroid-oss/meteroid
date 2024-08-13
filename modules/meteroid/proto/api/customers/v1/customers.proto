@@ -54,10 +54,21 @@ message GetCustomerByAliasResponse {
   Customer customer = 1;
 }
 
+message TopUpCustomerBalanceRequest {
+  string customer_id = 1;
+  int32 cents = 2;
+  optional string notes = 3;
+}
+
+message TopUpCustomerBalanceResponse {
+  Customer customer = 1;
+}
+
 service CustomersService {
   rpc CreateCustomer (CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc PatchCustomer (PatchCustomerRequest) returns (PatchCustomerResponse) {}
   rpc ListCustomers (ListCustomerRequest) returns (ListCustomerResponse) {}
   rpc GetCustomerById (GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
   rpc GetCustomerByAlias (GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
+  rpc TopUpCustomerBalance (TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
 }

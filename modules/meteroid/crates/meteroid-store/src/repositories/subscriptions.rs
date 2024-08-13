@@ -36,7 +36,6 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
-use itertools::Itertools;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
@@ -362,7 +361,7 @@ impl SubscriptionInterface for Store {
                             .map_err(Into::<DatabaseErrorContainer>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
-                    let res = SubscriptionComponentRow::insert_subscription_component_batch(
+                    let _ = SubscriptionComponentRow::insert_subscription_component_batch(
                         conn,
                         insertable_subscription_components,
                     )
