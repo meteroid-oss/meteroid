@@ -240,9 +240,10 @@ impl InvoiceInterface for Store {
     }
 
     async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+        let patch = compute_invoice_patch(self, id, tenant_id).await?;
         self.transaction(|conn| {
             async move {
-                let refreshed = refresh_invoice_data(conn, self, id, tenant_id).await?;
+                let refreshed = refresh_invoice_data(conn, id, tenant_id, &patch).await?;
 
                 if refreshed.invoice.applied_credits > 0 {
                     CustomerBalance::update(
@@ -298,8 +299,9 @@ impl InvoiceInterface for Store {
         id: Uuid,
         tenant_id: Uuid,
     ) -> StoreResult<DetailedInvoice> {
+        let patch = compute_invoice_patch(self, id, tenant_id).await?;
         let mut conn = self.get_conn().await?;
-        refresh_invoice_data(&mut conn, self, id, tenant_id).await
+        refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
     }
 
     async fn list_invoices_to_issue(
@@ -454,11 +456,28 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
 
 async fn refresh_invoice_data(
     conn: &mut PgConn,
-    store: &Store,
     id: Uuid,
     tenant_id: Uuid,
+    row_patch: &InvoiceRowLinesPatch,
 ) -> StoreResult<DetailedInvoice> {
-    let invoice = store.find_invoice_by_id(tenant_id, id).await?;
+    row_patch
+        .update_lines(id, tenant_id, conn)
+        .await
+        .map(|_| ())
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    InvoiceRow::find_by_id(conn, tenant_id, id)
+        .await
+        .map_err(Into::into)
+        .and_then(|row| row.try_into())
+}
+
+async fn compute_invoice_patch(
+    store: &Store,
+    invoice_id: Uuid,
+    tenant_id: Uuid,
+) -> StoreResult<InvoiceRowLinesPatch> {
+    let invoice = store.find_invoice_by_id(tenant_id, invoice_id).await?;
 
     match invoice.invoice.subscription_id {
         None => Err(StoreError::InvalidArgument(
@@ -473,19 +492,7 @@ async fn refresh_invoice_data(
                 .compute_dated_invoice_lines(&invoice.invoice.invoice_date, subscription_details)
                 .await?;
 
-            let row_patch: InvoiceRowLinesPatch =
-                InvoiceLinesPatch::from_invoice_and_lines(&invoice, lines).try_into()?;
-
-            row_patch
-                .update_lines(id, tenant_id, conn)
-                .await
-                .map(|_| ())
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-            InvoiceRow::find_by_id(conn, tenant_id, id)
-                .await
-                .map_err(Into::into)
-                .and_then(|row| row.try_into())
+            InvoiceLinesPatch::from_invoice_and_lines(&invoice, lines).try_into()
         }
     }
 }

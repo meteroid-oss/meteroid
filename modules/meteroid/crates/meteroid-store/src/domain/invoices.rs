@@ -141,7 +141,7 @@ impl InvoiceLinesPatch {
         let total = subtotal + tax_amount; // TODO discounts etc
         let applied_credits = min(total, detailed_invoice.customer.balance_value_cents as i64);
         let already_paid = detailed_invoice.invoice.total - detailed_invoice.invoice.amount_due;
-        let amount_due = total - already_paid - applied_credits; // todo confirm
+        let amount_due = total - already_paid - applied_credits;
         let subtotal_recurring = line_items
             .iter()
             .filter(|x| x.metric_id.is_none())
