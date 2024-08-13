@@ -232,8 +232,10 @@ impl CustomersInterface for Store {
 
     async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer> {
         self.transaction(|conn| {
-            async move { CustomerBalance::update(conn, req.customer_id, req.tenant_id, req.cents).await }
-                .scope_boxed()
+            async move {
+                CustomerBalance::update(conn, req.customer_id, req.tenant_id, req.cents, None).await
+            }
+            .scope_boxed()
         })
         .await
     }

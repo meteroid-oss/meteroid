@@ -5,7 +5,6 @@ use crate::compute::engine::component::ComponentEngine;
 use crate::compute::errors::ComputeError;
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::*;
-use crate::repositories::CustomersInterface;
 use crate::Store;
 use chrono::NaiveDate;
 
@@ -90,28 +89,6 @@ impl InvoiceLineInterface for Store {
                     .await?;
                 invoice_lines.extend(lines);
             }
-        }
-
-        let customer = self
-            .find_customer_by_id(
-                subscription_details.customer_id,
-                subscription_details.created_by,
-            )
-            .await
-            .map_err(|_| ComputeError::InternalError)?;
-
-        let credits_line_item = component_engine.compute_applied_credits(
-            // todo fix the period
-            Period {
-                start: billing_start_date,
-                end: invoice_date,
-            },
-            customer.balance_value_cents,
-            &invoice_lines,
-        );
-
-        if let Some(clu) = credits_line_item {
-            invoice_lines.push(clu);
         }
 
         Ok(invoice_lines)

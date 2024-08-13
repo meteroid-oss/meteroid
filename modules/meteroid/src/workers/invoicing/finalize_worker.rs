@@ -6,14 +6,12 @@ use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::future::join_all;
-use meteroid_store::domain::{CursorPaginationRequest, Invoice};
+use meteroid_store::domain::CursorPaginationRequest;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 use tokio::sync::Semaphore;
 
 use crate::workers::metrics::record_call;
-
-use super::shared;
 
 const BATCH_SIZE: usize = 100;
 const MAX_CONCURRENT_REQUESTS: usize = 10;
@@ -82,7 +80,10 @@ pub async fn finalize_worker(store: &Store) -> Result<(), errors::WorkerError> {
             let task = tokio::spawn(async move {
                 let _permit = permit; // Moves permit into the async block
 
-                let lines_result = finalize_invoice(&invoice, store).await;
+                let lines_result = store
+                    .finalize_invoice(invoice.id, invoice.tenant_id)
+                    .await
+                    .change_context(errors::WorkerError::DatabaseError);
 
                 if let Err(e) = lines_result {
                     // TODO this will retry, but we need to track/alert
@@ -104,13 +105,4 @@ pub async fn finalize_worker(store: &Store) -> Result<(), errors::WorkerError> {
     join_all(tasks).await;
 
     Ok(())
-}
-
-async fn finalize_invoice(invoice: &Invoice, store: Store) -> Result<(), errors::WorkerError> {
-    let lines = shared::get_invoice_lines(&invoice, store.clone()).await?;
-
-    store
-        .finalize_invoice(invoice.id, invoice.tenant_id, lines)
-        .await
-        .change_context(errors::WorkerError::DatabaseError)
 }

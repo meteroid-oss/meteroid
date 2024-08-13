@@ -27,3 +27,6 @@ CREATE TABLE IF NOT EXISTS "customer_balance_pending_tx"
 
 alter table customer
   add constraint customer_balance_non_negative check (customer.balance_value_cents >= 0);
+
+alter table invoice
+  add column "applied_credits" bigint not null default 0;

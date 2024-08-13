@@ -338,6 +338,7 @@ diesel::table! {
         customer_details -> Jsonb,
         amount_due -> Int8,
         subtotal -> Int8,
+        applied_credits -> Int8,
     }
 }
 

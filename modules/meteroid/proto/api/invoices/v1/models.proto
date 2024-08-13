@@ -81,6 +81,7 @@ message DetailedInvoice {
   optional string due_at = 33;
   optional string plan_name = 34;
   InlineCustomer customer_details = 35;
+  int64 applied_credits = 36;
 }
 
 message LineItem {

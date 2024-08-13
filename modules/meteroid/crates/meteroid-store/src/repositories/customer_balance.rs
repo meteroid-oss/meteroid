@@ -16,6 +16,7 @@ impl CustomerBalance {
         customer_id: Uuid,
         tenant_id: Uuid,
         cents: i32,
+        invoice_id: Option<Uuid>,
     ) -> StoreResult<Customer> {
         let _ = CustomerRow::select_for_update(conn, customer_id, tenant_id)
             .await
@@ -39,7 +40,7 @@ impl CustomerBalance {
             amount_cents: cents,
             balance_cents_after: customer_row_updated.balance_value_cents,
             note: None,
-            invoice_id: None,
+            invoice_id,
             tenant_id,
             customer_id,
             created_by: None,
