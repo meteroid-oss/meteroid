@@ -28,6 +28,15 @@ pub mod customer {
                         ),
                     }))
                 }
+                domain::BillingConfig::Manual => {
+                    Ok(ServerBillingConfigWrapper(server::CustomerBillingConfig {
+                        billing_config_oneof: Some(
+                            server::customer_billing_config::BillingConfigOneof::Manual(
+                                server::customer_billing_config::Manual {},
+                            ),
+                        ),
+                    }))
+                }
             }
         }
     }
@@ -43,9 +52,12 @@ pub mod customer {
                     Ok(DomainBillingConfigWrapper(domain::BillingConfig::Stripe(
                         domain::Stripe {
                             customer_id: value.customer_id,
-                            collection_method: value.collection_method as i32, //todo fix this
+                            collection_method: value.collection_method, //todo fix this
                         },
                     )))
+                }
+                Some(server::customer_billing_config::BillingConfigOneof::Manual(_)) => {
+                    Ok(DomainBillingConfigWrapper(domain::BillingConfig::Manual))
                 }
                 None => Err(CustomerApiError::MissingArgument(
                     "billing_config".to_string(),
@@ -130,11 +142,7 @@ pub mod customer {
         fn try_from(value: domain::Customer) -> Result<Self, Self::Error> {
             Ok(ServerCustomerWrapper(server::Customer {
                 id: value.id.as_proto(),
-                billing_config: value
-                    .billing_config
-                    .map(ServerBillingConfigWrapper::try_from)
-                    .transpose()?
-                    .map(|v| v.0),
+                billing_config: Some(ServerBillingConfigWrapper::try_from(value.billing_config)?.0),
                 name: value.name,
                 alias: value.alias,
                 email: value.email,

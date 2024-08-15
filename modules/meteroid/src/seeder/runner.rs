@@ -28,7 +28,7 @@ use chrono::Utc;
 
 use nanoid::nanoid;
 
-use meteroid_store::domain::{Address, InlineCustomer, TenantContext};
+use meteroid_store::domain::{Address, BillingConfig, InlineCustomer, TenantContext};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::utils::local_id::{IdType, LocalId};
@@ -167,7 +167,7 @@ pub async fn run(
             let alias = format!("{}-{}", slugify(&company_name), nanoid!(5));
             customers_to_create.push(store_domain::CustomerNew {
                 tenant_id: tenant.id,
-                billing_config: None,
+                billing_config: BillingConfig::Manual,
                 email: SafeEmail().fake(),
                 invoicing_email: None,
                 phone: None,

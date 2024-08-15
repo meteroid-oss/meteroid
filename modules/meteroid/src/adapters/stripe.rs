@@ -17,10 +17,9 @@ use crate::errors::InvoicingAdapterError;
 use axum::response::IntoResponse;
 use common_domain::StripeSecret;
 use error_stack::ResultExt;
-use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
-use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
+use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config;
 use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
-use meteroid_store::domain::LineItem;
+use meteroid_store::domain::{BillingConfig, Customer, LineItem, Stripe as BillingConfigStripe};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
@@ -256,19 +255,17 @@ impl Stripe {
     }
 
     fn extract_stripe_customer_id(customer: &Customer) -> Result<String, InvoicingAdapterError> {
-        Ok(Self::extract_stripe_billing_config(customer)?.customer_id)
+        Ok(Self::extract_stripe_billing_config(customer)?
+            .customer_id
+            .clone())
     }
 
     fn extract_stripe_billing_config(
         customer: &Customer,
-    ) -> Result<customer_billing_config::Stripe, InvoicingAdapterError> {
-        customer
-            .billing_config
-            .clone()
-            .and_then(|bc| bc.billing_config_oneof)
-            .map(|oneof| match oneof {
-                BillingConfigOneof::Stripe(stripe) => stripe,
-            })
-            .ok_or(Report::new(InvoicingAdapterError::InvalidData))
+    ) -> Result<&BillingConfigStripe, InvoicingAdapterError> {
+        match &customer.billing_config {
+            BillingConfig::Stripe(s) => Ok(s),
+            BillingConfig::Manual => bail!(InvoicingAdapterError::InvalidData),
+        }
     }
 }

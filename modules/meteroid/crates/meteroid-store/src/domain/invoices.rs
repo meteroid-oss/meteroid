@@ -136,25 +136,22 @@ impl InvoiceLinesPatch {
         detailed_invoice: &DetailedInvoice,
         line_items: Vec<LineItem>,
     ) -> Self {
-        let subtotal = line_items.iter().fold(0, |acc, x| acc + x.subtotal);
-        let tax_amount = subtotal * detailed_invoice.invoice.tax_rate as i64 / 100;
-        let total = subtotal + tax_amount; // TODO discounts etc
-        let applied_credits = min(total, detailed_invoice.customer.balance_value_cents as i64);
-        let already_paid = detailed_invoice.invoice.total - detailed_invoice.invoice.amount_due;
-        let amount_due = total - already_paid - applied_credits;
-        let subtotal_recurring = line_items
-            .iter()
-            .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.subtotal);
+        let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
+            line_items: &line_items,
+            total: detailed_invoice.invoice.total,
+            amount_due: detailed_invoice.invoice.amount_due,
+            tax_rate: detailed_invoice.invoice.tax_rate,
+            customer_balance_cents: detailed_invoice.customer.balance_value_cents,
+        });
 
         InvoiceLinesPatch {
             line_items,
-            amount_due,
-            subtotal,
-            subtotal_recurring,
-            total,
-            tax_amount,
-            applied_credits,
+            amount_due: totals.amount_due,
+            subtotal: totals.subtotal,
+            subtotal_recurring: totals.subtotal_recurring,
+            total: totals.total,
+            tax_amount: totals.tax_amount,
+            applied_credits: totals.applied_credits,
         }
     }
 }
@@ -200,5 +197,47 @@ impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
             customer: value.customer.try_into()?,
             plan: value.plan.map(|x| x.into()),
         })
+    }
+}
+
+pub struct InvoiceTotalsParams<'a> {
+    pub line_items: &'a Vec<LineItem>,
+    pub total: i64,
+    pub amount_due: i64,
+    pub tax_rate: i32,
+    pub customer_balance_cents: i32,
+}
+
+pub struct InvoiceTotals {
+    pub amount_due: i64,
+    pub subtotal: i64,
+    pub subtotal_recurring: i64,
+    pub total: i64,
+    pub tax_amount: i64,
+    pub applied_credits: i64,
+}
+
+impl InvoiceTotals {
+    pub fn from_params(params: InvoiceTotalsParams) -> Self {
+        let subtotal = params.line_items.iter().fold(0, |acc, x| acc + x.subtotal);
+        let tax_amount = subtotal * params.tax_rate as i64 / 100;
+        let total = subtotal + tax_amount; // TODO discounts etc
+        let applied_credits = min(total, params.customer_balance_cents as i64);
+        let already_paid = params.total - params.amount_due;
+        let amount_due = total - already_paid - applied_credits;
+        let subtotal_recurring = params
+            .line_items
+            .into_iter()
+            .filter(|x| x.metric_id.is_none())
+            .fold(0, |acc, x| acc + x.subtotal);
+
+        Self {
+            amount_due,
+            subtotal,
+            subtotal_recurring,
+            total,
+            tax_amount,
+            applied_credits,
+        }
     }
 }

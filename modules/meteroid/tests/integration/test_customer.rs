@@ -56,6 +56,27 @@ async fn test_customers_basic() {
         .customer
         .unwrap();
 
+    let created_manual = clients
+        .customers
+        .clone()
+        .create_customer(api::customers::v1::CreateCustomerRequest {
+            name: "created_manual".to_string(),
+            alias: Some("created_manual".to_string()),
+            email: Some("created_manual@meteroid.com".to_string()),
+            billing_config: Some(api::customers::v1::CustomerBillingConfig {
+                billing_config_oneof: Some(
+                    api::customers::v1::customer_billing_config::BillingConfigOneof::Manual(
+                        api::customers::v1::customer_billing_config::Manual {},
+                    ),
+                ),
+            }),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .customer
+        .unwrap();
+
     assert_eq!(created.name, customer_name.clone());
     assert_eq!(created.alias, Some(customer_alias.clone()));
     assert_eq!(created.email, Some(customer_email.clone()));
@@ -219,6 +240,27 @@ async fn test_customers_basic() {
     assert_eq!(topped_up_fail.code(), Code::FailedPrecondition);
 
     // top up end
+
+    // bue credits start
+    let credits_invoice = clients
+        .customers
+        .clone()
+        .buy_customer_credits(api::customers::v1::BuyCustomerCreditsRequest {
+            customer_id: created_manual.id.clone(),
+            cents: 1024,
+            notes: Some("test".into()),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .invoice
+        .unwrap();
+
+    assert_eq!(credits_invoice.total, 1024);
+    assert_eq!(credits_invoice.subtotal, 1024);
+    assert_eq!(credits_invoice.applied_credits, 0);
+    assert_eq!(credits_invoice.customer_id, created_manual.id);
+    // bue credits end
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

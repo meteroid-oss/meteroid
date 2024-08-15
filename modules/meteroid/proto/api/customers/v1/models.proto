@@ -15,8 +15,11 @@ message CustomerBillingConfig {
     }
   }
 
+  message Manual {}
+
   oneof billing_config_oneof {
     Stripe stripe = 1;
+    Manual manual = 2;
   }
 }
 

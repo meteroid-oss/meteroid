@@ -2,7 +2,7 @@ use meteroid_grpc::meteroid::api::invoices::v1::invoices_service_server::Invoice
 use meteroid_store::Store;
 
 mod error;
-mod mapping;
+pub mod mapping;
 mod service;
 
 pub struct InvoiceServiceComponents {

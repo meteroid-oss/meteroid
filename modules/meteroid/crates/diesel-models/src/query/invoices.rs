@@ -57,7 +57,7 @@ impl InvoiceRow {
             .left_join(s_dsl::subscription.on(i_dsl::subscription_id.eq(s_dsl::id.nullable())))
             .left_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .left_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
-            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
+            .left_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(i_dsl::tenant_id.eq(param_tenant_id))
             .filter(i_dsl::id.eq(param_invoice_id))
             .select(DetailedInvoiceRow::as_select());

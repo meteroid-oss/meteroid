@@ -1,6 +1,5 @@
 use crate::adapters::stripe::Stripe;
 use crate::adapters::types::InvoicingAdapter;
-use crate::api::customers::mapping::customer::ServerCustomerWrapper;
 use crate::workers::metrics::record_call;
 use crate::{errors, singletons};
 use common_utils::timed::TimedExt;
@@ -153,10 +152,6 @@ async fn issue_invoice(
                 .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
-
-            let customer = ServerCustomerWrapper::try_from(customer)
-                .change_context(errors::WorkerError::DatabaseError)?
-                .0;
 
             let api_key = store
                 .find_provider_config(InvoicingProviderEnum::Stripe, invoice.tenant_id)

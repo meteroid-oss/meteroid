@@ -2,15 +2,21 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 use uuid::Uuid;
 
+use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
 use crate::domain::{
-    Customer, CustomerBrief, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
-    PaginatedVec, PaginationRequest,
+    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance,
+    DetailedInvoice, InlineCustomer, InvoiceNew, InvoiceTotals, InvoiceTotalsParams, LineItem,
+    OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
+use crate::repositories::invoices::insert_invoice;
+use crate::repositories::InvoiceInterface;
 use crate::store::Store;
+use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use common_eventbus::Event;
+use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
 
 #[async_trait::async_trait]
@@ -47,6 +53,8 @@ pub trait CustomersInterface {
     ) -> StoreResult<Option<Customer>>;
 
     async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer>;
+
+    async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice>;
 }
 
 #[async_trait::async_trait]
@@ -238,5 +246,106 @@ impl CustomersInterface for Store {
             .scope_boxed()
         })
         .await
+    }
+
+    async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
+        let invoice = self
+            .transaction(|conn| {
+                async move {
+                    let customer = CustomerRow::find_by_id(conn, req.customer_id, req.tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let now = chrono::Utc::now().naive_utc();
+
+                    let line_items = vec![LineItem {
+                        local_id: LocalId::generate_for(IdType::Other),
+                        name: "Purchase credits".into(),
+                        total: req.cents as i64,
+                        subtotal: req.cents as i64,
+                        quantity: Some(req.cents.into()),
+                        unit_price: Some(1.into()),
+                        start_date: now.date(),
+                        end_date: now.date(),
+                        sub_lines: vec![],
+                        is_prorated: false,
+                        price_component_id: None,
+                        product_id: None,
+                        metric_id: None,
+                        description: None,
+                    }];
+
+                    let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
+                        line_items: &line_items,
+                        total: 0,
+                        amount_due: 0,
+                        tax_rate: 0,
+                        customer_balance_cents: 0,
+                    });
+
+                    let invoice_new = InvoiceNew {
+                        status: InvoiceStatusEnum::Finalized,
+                        external_status: None,
+                        tenant_id: req.tenant_id,
+                        customer_id: req.customer_id,
+                        subscription_id: None,
+                        currency: customer.balance_currency,
+                        due_at: None, // todo fix it later after it's added to tenant config
+                        plan_name: None,
+                        external_invoice_id: None, // todo check later if we want it sync (instead of issue_worker)
+                        invoice_number: "2024-0001".to_string(), // todo fix me @gaspard
+                        invoicing_provider: InvoicingProviderEnum::Stripe, // todo get from the customer billing config
+                        line_items,
+                        issued: false,
+                        issue_attempts: 0,
+                        last_issue_attempt_at: None,
+                        last_issue_error: None,
+                        data_updated_at: None,
+                        invoice_date: now.date(),
+                        total: totals.total,
+                        amount_due: totals.amount_due,
+                        net_terms: 0,
+                        reference: None,
+                        memo: None,
+                        plan_version_id: None,
+                        invoice_type: InvoiceType::OneOff,
+                        finalized_at: Some(now),
+                        subtotal: totals.subtotal,
+                        subtotal_recurring: totals.subtotal_recurring,
+                        tax_rate: 0,
+                        tax_amount: totals.tax_amount,
+                        local_id: LocalId::generate_for(IdType::Invoice),
+                        customer_details: InlineCustomer {
+                            billing_address: None,
+                            id: req.customer_id,
+                            name: customer.name,
+                            snapshot_at: now,
+                        },
+                    };
+
+                    let inserted_invoice = insert_invoice(conn, invoice_new).await?;
+
+                    let tx = CustomerBalancePendingTxRowNew {
+                        id: Uuid::now_v7(),
+                        amount_cents: req.cents,
+                        note: req.notes,
+                        invoice_id: inserted_invoice.id,
+                        tenant_id: req.tenant_id,
+                        customer_id: req.customer_id,
+                        tx_id: None,
+                        created_by: req.created_by,
+                    };
+
+                    tx.insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    Ok(inserted_invoice)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        self.find_invoice_by_id(req.tenant_id, invoice.id).await
     }
 }

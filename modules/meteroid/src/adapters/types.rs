@@ -1,10 +1,9 @@
 use crate::errors;
 use error_stack::Result;
-use meteroid_grpc::meteroid::api::customers::v1::Customer;
 use secrecy::SecretString;
 use std::fmt::Debug;
 
-use meteroid_store::domain::Invoice;
+use meteroid_store::domain::{Customer, Invoice};
 use meteroid_store::Store;
 
 pub enum IncomingWebhookEvent {
