@@ -1,4 +1,4 @@
-update customer set billing_config = '"Manual"'::jsonb;
+update customer set billing_config = '"Manual"'::jsonb where billing_config is null;
 alter table customer alter column billing_config drop NOT NULL;
 alter table customer_balance_pending_tx alter column invoice_id drop NOT NULL;
 
