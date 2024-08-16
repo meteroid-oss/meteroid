@@ -16,6 +16,7 @@ use crate::domain::{
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
 use common_eventbus::Event;
+use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
 use tracing_log::log;
@@ -198,6 +199,8 @@ impl InvoiceInterface for Store {
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
                     }
+
+                    process_pending_tx(conn, invoice_id).await?;
                 }
 
                 Ok(())
@@ -499,4 +502,28 @@ pub async fn insert_invoice(conn: &mut PgConn, invoice: InvoiceNew) -> StoreResu
     process_mrr(&inserted, conn).await?;
 
     Ok(inserted)
+}
+
+async fn process_pending_tx(conn: &mut PgConn, invoice_id: Uuid) -> StoreResult<()> {
+    let pending_tx = CustomerBalancePendingTxRow::find_unprocessed_by_invoice_id(conn, invoice_id)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    if let Some(pending_tx) = pending_tx {
+        let tx_id = CustomerBalance::update(
+            conn,
+            pending_tx.customer_id,
+            pending_tx.tenant_id,
+            pending_tx.amount_cents,
+            Some(invoice_id),
+        )
+        .await?
+        .tx_id;
+
+        CustomerBalancePendingTxRow::update_tx_id(conn, pending_tx.id, tx_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+    }
+
+    Ok(())
 }

@@ -8,6 +8,11 @@ use diesel_models::errors::DatabaseError;
 use error_stack::Report;
 use uuid::Uuid;
 
+pub struct CustomerBalanceUpdate {
+    pub customer: Customer,
+    pub tx_id: Uuid,
+}
+
 pub struct CustomerBalance;
 
 impl CustomerBalance {
@@ -17,7 +22,7 @@ impl CustomerBalance {
         tenant_id: Uuid,
         cents: i32,
         invoice_id: Option<Uuid>,
-    ) -> StoreResult<Customer> {
+    ) -> StoreResult<CustomerBalanceUpdate> {
         let _ = CustomerRow::select_for_update(conn, customer_id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -35,7 +40,7 @@ impl CustomerBalance {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let _ = CustomerBalanceTxRowNew {
+        let tx = CustomerBalanceTxRowNew {
             id: Uuid::now_v7(),
             amount_cents: cents,
             balance_cents_after: customer_row_updated.balance_value_cents,
@@ -49,6 +54,9 @@ impl CustomerBalance {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        customer_row_updated.try_into()
+        Ok(CustomerBalanceUpdate {
+            customer: customer_row_updated.try_into()?,
+            tx_id: tx.id,
+        })
     }
 }
