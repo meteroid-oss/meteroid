@@ -4,13 +4,16 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
-    customers_service_server::CustomersService, CreateCustomerRequest, CreateCustomerResponse,
-    CustomerBrief, GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
+    customers_service_server::CustomersService, BuyCustomerCreditsRequest,
+    BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
+    GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
     PatchCustomerResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::{CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest};
+use meteroid_store::domain::{
+    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
+};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 
@@ -35,19 +38,19 @@ impl CustomersService for CustomerServiceComponents {
 
         let inner = request.into_inner();
 
-        let billing_config_opt = inner
+        let billing_config = inner
             .billing_config
-            .map(|c| DomainBillingConfigWrapper::try_from(c))
-            .transpose()?
-            .map(|c| c.0);
+            .ok_or(CustomerApiError::MissingArgument("billing_config".into()))
+            .and_then(|c| DomainBillingConfigWrapper::try_from(c))?
+            .0;
 
         let customer = self
             .store
             .insert_customer(CustomerNew {
                 name: inner.name,
                 created_by: actor,
-                tenant_id: tenant_id,
-                billing_config: billing_config_opt,
+                tenant_id,
+                billing_config,
                 alias: inner.alias,
                 email: inner.email,
                 invoicing_email: None,
@@ -224,6 +227,37 @@ impl CustomersService for CustomerServiceComponents {
 
         Ok(Response::new(TopUpCustomerBalanceResponse {
             customer: Some(customer),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn buy_customer_credits(
+        &self,
+        request: Request<BuyCustomerCreditsRequest>,
+    ) -> Result<Response<BuyCustomerCreditsResponse>, Status> {
+        let actor = request.actor()?;
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
+
+        let invoice = self
+            .store
+            .buy_customer_credits(CustomerBuyCredits {
+                created_by: actor,
+                tenant_id,
+                customer_id,
+                cents: req.cents,
+                notes: req.notes,
+            })
+            .await
+            .and_then(
+                crate::api::invoices::mapping::invoices::domain_invoice_with_plan_details_to_server,
+            )
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(BuyCustomerCreditsResponse {
+            invoice: Some(invoice),
         }))
     }
 }

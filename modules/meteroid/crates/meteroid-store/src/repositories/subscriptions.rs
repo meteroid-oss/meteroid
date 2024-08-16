@@ -303,7 +303,7 @@ impl SubscriptionInterface for Store {
                     .min()
                     .unwrap_or(BillingPeriodEnum::Monthly);
 
-                let should_activate = customer.billing_config.is_none();
+                let should_activate = customer.billing_config != BillingConfig::Manual;
                 let insertable_subscription: SubscriptionRowNew =
                     subscription.map_to_row(period, should_activate);
 
@@ -389,8 +389,8 @@ impl SubscriptionInterface for Store {
                     .ok_or(StoreError::InsertError)?;
 
                 match customer.billing_config {
-                    Some(BillingConfig::Stripe(_)) => Ok(None),
-                    None => {
+                    BillingConfig::Stripe(_) => Ok(None),
+                    BillingConfig::Manual => {
                         let plan_name = plan_names
                             .get(&s.plan_version_id)
                             .ok_or(StoreError::InsertError)?;
@@ -411,7 +411,7 @@ impl SubscriptionInterface for Store {
                             period: s.period.clone(),
                         };
 
-                        subscription_to_draft(&sub, customer)
+                        subscription_to_draft(&sub, customer).map(Some)
                     }
                 }
             })
@@ -1029,8 +1029,8 @@ impl SubscriptionDetails {
 pub fn subscription_to_draft(
     subscription: &SubscriptionInvoiceCandidate,
     customer: &Customer,
-) -> StoreResult<Option<crate::domain::invoices::InvoiceNew>> {
-    let cust_bill_cfg = customer.billing_config.as_ref();
+) -> StoreResult<domain::invoices::InvoiceNew> {
+    let cust_bill_cfg = &customer.billing_config;
     let billing_start_date = subscription.billing_start_date;
     let billing_day = subscription.billing_day as u32;
 
@@ -1042,8 +1042,8 @@ pub fn subscription_to_draft(
     );
 
     let invoicing_provider = match cust_bill_cfg {
-        Some(BillingConfig::Stripe(_)) => InvoicingProviderEnum::Stripe,
-        None => InvoicingProviderEnum::Manual,
+        BillingConfig::Stripe(_) => InvoicingProviderEnum::Stripe,
+        BillingConfig::Manual => InvoicingProviderEnum::Manual,
     };
 
     let due_date = (period.end + chrono::Duration::days(subscription.net_terms as i64))
@@ -1092,5 +1092,5 @@ pub fn subscription_to_draft(
         },
     };
 
-    Ok(Some(invoice))
+    Ok(invoice)
 }

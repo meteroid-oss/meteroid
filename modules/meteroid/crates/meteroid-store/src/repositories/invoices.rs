@@ -137,17 +137,7 @@ impl InvoiceInterface for Store {
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_invoice: InvoiceRowNew = invoice.try_into()?;
-
-        let inserted: Invoice = insertable_invoice
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)?;
-
-        process_mrr(&inserted, &mut conn).await?;
-
-        Ok(inserted)
+        insert_invoice(&mut conn, invoice).await
     }
 
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>> {
@@ -250,7 +240,7 @@ impl InvoiceInterface for Store {
                         conn,
                         refreshed.customer.id,
                         tenant_id,
-                        refreshed.invoice.applied_credits as i32,
+                        -refreshed.invoice.applied_credits as i32,
                         Some(refreshed.invoice.id),
                     )
                     .await?;
@@ -495,4 +485,18 @@ async fn compute_invoice_patch(
             InvoiceLinesPatch::from_invoice_and_lines(&invoice, lines).try_into()
         }
     }
+}
+
+pub async fn insert_invoice(conn: &mut PgConn, invoice: InvoiceNew) -> StoreResult<Invoice> {
+    let insertable_invoice: InvoiceRowNew = invoice.try_into()?;
+
+    let inserted: Invoice = insertable_invoice
+        .insert(conn)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .and_then(TryInto::try_into)?;
+
+    process_mrr(&inserted, conn).await?;
+
+    Ok(inserted)
 }

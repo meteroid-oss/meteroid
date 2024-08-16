@@ -99,9 +99,8 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
 
                 subscription_to_draft(x, cust).change_context(errors::WorkerError::DatabaseError)
             })
-            .collect::<Result<Vec<Option<_>>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?
             .into_iter()
-            .flatten()
             .collect::<Vec<_>>();
 
         log::debug!("Creating {} draft invoices", params.len());

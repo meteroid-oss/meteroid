@@ -19,7 +19,7 @@ pub struct Customer {
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
-    pub billing_config: Option<BillingConfig>,
+    pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
     pub invoicing_email: Option<String>,
@@ -43,7 +43,7 @@ impl TryFrom<CustomerRow> for Customer {
             updated_by: value.updated_by,
             archived_at: value.archived_at,
             tenant_id: value.tenant_id,
-            billing_config: value.billing_config.map(|v| v.try_into()).transpose()?,
+            billing_config: value.billing_config.try_into()?,
             alias: value.alias,
             email: value.email,
             invoicing_email: value.invoicing_email,
@@ -69,7 +69,7 @@ impl TryInto<CustomerRow> for Customer {
             updated_by: self.updated_by,
             archived_at: self.archived_at,
             tenant_id: self.tenant_id,
-            billing_config: self.billing_config.map(|v| v.try_into()).transpose()?,
+            billing_config: self.billing_config.try_into()?,
             alias: self.alias,
             email: self.email,
             invoicing_email: self.invoicing_email,
@@ -96,7 +96,7 @@ pub struct CustomerNew {
     pub name: String,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub billing_config: Option<BillingConfig>,
+    pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
     pub invoicing_email: Option<String>,
@@ -117,7 +117,7 @@ impl TryFrom<CustomerRowNew> for CustomerNew {
             created_at: value.created_at,
             created_by: value.created_by,
             tenant_id: value.tenant_id,
-            billing_config: value.billing_config.map(|v| v.try_into()).transpose()?,
+            billing_config: value.billing_config.try_into()?,
             alias: value.alias,
             email: value.email,
             invoicing_email: value.invoicing_email,
@@ -139,7 +139,7 @@ impl TryInto<CustomerRowNew> for CustomerNew {
             name: self.name,
             created_by: self.created_by,
             tenant_id: self.tenant_id,
-            billing_config: self.billing_config.map(|v| v.try_into()).transpose()?,
+            billing_config: self.billing_config.try_into()?,
             alias: self.alias,
             email: self.email,
             invoicing_email: self.invoicing_email,
@@ -241,6 +241,7 @@ impl TryInto<serde_json::Value> for ShippingAddress {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BillingConfig {
     Stripe(Stripe),
+    Manual,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -278,6 +279,15 @@ impl TryInto<serde_json::Value> for BillingConfig {
 
 #[derive(Clone, Debug)]
 pub struct CustomerTopUpBalance {
+    pub created_by: Uuid,
+    pub tenant_id: Uuid,
+    pub customer_id: Uuid,
+    pub cents: i32,
+    pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CustomerBuyCredits {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
