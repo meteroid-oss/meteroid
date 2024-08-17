@@ -8,9 +8,9 @@ license.workspace = true
 [dependencies]
 futures.workspace = true
 tokio-postgres = { workspace = true, features = [
-    "with-serde_json-1",
-    "with-time-0_3",
-    "with-uuid-1",
+  "with-serde_json-1",
+  "with-time-0_3",
+  "with-uuid-1",
 ] }
 tokio = { workspace = true, features = ["full"] }
 deadpool-postgres.workspace = true

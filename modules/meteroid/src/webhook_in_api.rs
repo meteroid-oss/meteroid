@@ -6,7 +6,7 @@ use axum::{
 };
 use axum::{routing::post, Router};
 use hyper::StatusCode;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, PutPayload};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -114,12 +114,12 @@ async fn handler(
     let object_store_key = format!("webhooks/{}/{}/{}", provider_str, endpoint_uid, event_id);
 
     let object_store_key_clone = object_store_key.clone();
-    let bytes_clone = bytes.clone();
+    let put_payload = PutPayload::from_bytes(bytes.clone());
     let path = object_store::path::Path::from(object_store_key_clone);
 
     app_state
         .object_store
-        .put(&path, bytes_clone)
+        .put(&path, put_payload)
         .await
         .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
 

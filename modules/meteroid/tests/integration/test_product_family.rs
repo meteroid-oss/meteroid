@@ -1,5 +1,3 @@
-use testcontainers::clients::Cli;
-
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
@@ -10,9 +8,8 @@ use meteroid_grpc::meteroid::api::users::v1::UserRole;
 async fn test_product_families_basic() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;

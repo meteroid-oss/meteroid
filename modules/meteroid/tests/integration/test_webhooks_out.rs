@@ -3,7 +3,6 @@ use common_eventbus::Event;
 use common_eventbus::EventHandler;
 use meteroid::eventbus::webhook_handler::WebhookHandler;
 use std::str::FromStr;
-use testcontainers::clients::Cli;
 
 use crate::helpers;
 use crate::meteroid_it;
@@ -17,9 +16,8 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::WebhookEventType;
 async fn test_webhook_endpoint_out() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -96,9 +94,8 @@ async fn test_webhook_endpoint_out() {
 async fn test_webhook_out_handler() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup = meteroid_it::container::start_meteroid(
         postgres_connection_string,
         SeedLevel::SUBSCRIPTIONS,

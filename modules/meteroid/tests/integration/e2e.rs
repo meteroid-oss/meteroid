@@ -6,7 +6,6 @@ use chrono::{Datelike, Days, Months};
 use opentelemetry::propagation::Injector;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use testcontainers::clients::Cli;
 use tonic::Request;
 use uuid::{uuid, Uuid};
 
@@ -55,19 +54,16 @@ After the workers run we will have :
 async fn test_metering_e2e() {
     helpers::init::logging();
 
-    let docker = Cli::default();
-
     // we start pg, clickhouse, kafka
 
     let (_pg_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
 
-    let (_kafka_container, kafka_port) = metering_it::container::start_kafka(&docker)
+    let (_kafka_container, kafka_port) = metering_it::container::start_kafka()
         .await
         .expect("Could not start kafka");
 
-    let (_clickhouse_container, clickhouse_port) =
-        metering_it::container::start_clickhouse(&docker).await;
+    let (_clickhouse_container, clickhouse_port) = metering_it::container::start_clickhouse().await;
 
     metering_it::kafka::create_topic(kafka_port, "meteroid-events-raw")
         .await

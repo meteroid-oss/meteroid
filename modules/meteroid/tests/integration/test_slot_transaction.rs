@@ -9,7 +9,6 @@ use meteroid_store::Store;
 use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
-use testcontainers::clients::Cli;
 use uuid::{uuid, Uuid};
 
 const SLOT_SUBSCRIPTION_ID: Uuid = SUBSCRIPTION_UBER_ID1;
@@ -19,8 +18,7 @@ const SLOT_PRICE_COMPONENT_ID: Uuid = uuid!("018c344c-9ec9-7608-b115-1537b6985e7
 #[ignore] // add_slot_transaction is not implemented for Store yet
 async fn test_slot_transaction_active_slots() {
     helpers::init::logging();
-    let docker = Cli::default();
-    let (container, postgres_connection_string) = meteroid_it::container::start_postgres(&docker);
+    let (_, postgres_connection_string) = meteroid_it::container::start_postgres().await;
 
     let pool = common_repository::create_pool(postgres_connection_string.as_str());
 
@@ -94,8 +92,6 @@ async fn test_slot_transaction_active_slots() {
     // 17 active slots after fifth transaction as it is after billing period end
     let active = get_active_slots(&store, datetime("2024-02-01T02:00:00")).await;
     assert_eq!(active, 17);
-
-    container.stop();
 }
 
 async fn create_slot_transaction(

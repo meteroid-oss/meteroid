@@ -1,5 +1,3 @@
-use testcontainers::clients::Cli;
-
 use common_config::auth::InternalAuthConfig;
 use common_grpc::middleware::client::auth::{create_admin_auth_layer, create_api_auth_layer};
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
@@ -13,9 +11,8 @@ use crate::meteroid_it::container::SeedLevel;
 async fn test_internal_basic() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;

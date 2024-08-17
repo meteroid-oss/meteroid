@@ -132,7 +132,7 @@ impl ScheduleRow {
         use crate::schema::schedule::dsl as s_dsl;
         use diesel_async::RunQueryDsl;
 
-        diesel::sql_function! {
+        diesel::define_sql_function! {
             fn gen_random_uuid() -> Uuid;
         }
 

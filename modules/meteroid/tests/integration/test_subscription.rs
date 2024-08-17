@@ -1,14 +1,12 @@
+use crate::helpers;
 use chrono::{Datelike, Months, NaiveDate, NaiveDateTime};
+use meteroid::api::shared::conversions::ProtoConv;
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
-
-use crate::helpers;
-use meteroid::api::shared::conversions::ProtoConv;
-use testcontainers::clients::Cli;
-use testcontainers::Container;
+use testcontainers::ContainerAsync;
 use testcontainers_modules::postgres::Postgres;
 use tonic::Code;
 
@@ -25,18 +23,15 @@ use meteroid_store::domain::{CursorPaginationRequest, LineItem};
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::repositories::InvoiceInterface;
 
-struct TestContext<'a> {
+struct TestContext {
     setup: MeteroidSetup,
     clients: AllClients,
-    _container: Container<'a, Postgres>,
+    _container: ContainerAsync<Postgres>,
 }
 
-async fn setup_test<'a>(
-    docker: &'a Cli,
-    seed_level: SeedLevel,
-) -> Result<TestContext<'a>, Box<dyn Error>> {
+async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>> {
     helpers::init::logging();
-    let (_container, postgres_connection_string) = meteroid_it::container::start_postgres(&docker);
+    let (_container, postgres_connection_string) = meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, seed_level).await;
 
@@ -59,12 +54,11 @@ async fn setup_test<'a>(
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create() {
-    let docker = Cli::default();
     let TestContext {
         setup,
         clients,
         _container,
-    } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let tenant_id = "018c2c82-3df1-7e84-9e05-6e141d0e751a".to_string();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
@@ -221,12 +215,11 @@ async fn test_subscription_create() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_cancel() {
-    let docker = Cli::default();
     let TestContext {
         setup,
         clients,
         _container,
-    } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
     let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
@@ -459,12 +452,11 @@ async fn test_subscription_cancel() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create_invoice_seats() {
-    let docker = Cli::default();
     let TestContext {
         setup,
         clients,
         _container,
-    } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344b-da87-7392-bbae-c5c8780adb1b".to_string();
     let component_id = "018c344c-9ec9-7608-b115-1537b6985e73".to_string();
@@ -567,12 +559,11 @@ async fn test_subscription_create_invoice_seats() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create_invoice_rate() {
-    let docker = Cli::default();
     let TestContext {
         setup,
         clients,
         _container,
-    } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c344a-78a9-7e2b-af90-5748672711f8".to_string();
@@ -789,12 +780,11 @@ async fn test_subscription_create_invoice_rate() {
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_create_invoice_usage() {
-    let docker = Cli::default();
     let TestContext {
         setup,
         clients,
         _container,
-    } = setup_test(&docker, SeedLevel::PLANS).await.unwrap();
+    } = setup_test(SeedLevel::PLANS).await.unwrap();
 
     let customer_id = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
     let plan_version_id = "018c35cc-3f41-7551-b7b6-f8bbcd62b784".to_string();
