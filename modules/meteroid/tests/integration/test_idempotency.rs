@@ -1,4 +1,3 @@
-use testcontainers::clients::Cli;
 use tonic::metadata::MetadataMap;
 use tonic::transport::Channel;
 use tonic::Status;
@@ -15,9 +14,8 @@ use crate::meteroid_it::container::SeedLevel;
 #[tokio::test]
 async fn test_idempotency() {
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;

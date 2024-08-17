@@ -210,7 +210,7 @@ impl PriceComponentRow {
         use crate::schema::price_component::dsl as pc_dsl;
         use diesel_async::RunQueryDsl;
 
-        diesel::sql_function! {
+        diesel::define_sql_function! {
             fn gen_random_uuid() -> Uuid;
         }
 

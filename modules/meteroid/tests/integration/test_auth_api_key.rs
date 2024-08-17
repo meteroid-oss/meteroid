@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use http::{HeaderName, HeaderValue};
-use testcontainers::clients::Cli;
 use tonic::transport::Channel;
 use tonic::{Code, Response, Status};
 use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
@@ -19,9 +18,8 @@ use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceC
 async fn test_api_key() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;

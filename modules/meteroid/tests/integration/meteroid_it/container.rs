@@ -2,9 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use deadpool_postgres::Pool;
-use testcontainers::clients::Cli;
-use testcontainers::{Container, RunnableImage};
-
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -125,11 +124,10 @@ pub async fn terminate_meteroid(token: CancellationToken, join_handle: JoinHandl
     log::info!("Stopped meteroid server");
 }
 
-pub fn start_postgres<'a>(docker: &'a Cli) -> (Container<'a, Postgres>, String) {
-    let image = RunnableImage::from(Postgres::default()).with_tag("15.2");
-    let container = docker.run(image);
+pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
+    let container = Postgres::default().with_tag("15.2").start().await.unwrap();
 
-    let port = container.get_host_port_ipv4(5432);
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
 
     let connection_string = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
 

@@ -3,7 +3,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use meteroid::eventbus::create_eventbus_noop;
-use testcontainers::clients::Cli;
 use uuid::Uuid;
 
 use meteroid::workers::invoicing::draft_worker::draft_worker;
@@ -20,8 +19,8 @@ use crate::meteroid_it::db::seed::*;
 #[tokio::test]
 async fn test_draft_worker() {
     helpers::init::logging();
-    let docker = Cli::default();
-    let (container, postgres_connection_string) = meteroid_it::container::start_postgres(&docker);
+    let (_pg_container, postgres_connection_string) =
+        meteroid_it::container::start_postgres().await;
 
     let pool = common_repository::create_pool(postgres_connection_string.as_str());
 
@@ -103,8 +102,6 @@ async fn test_draft_worker() {
     let invoices2 = list_invoices(&store).await;
 
     assert_eq!(invoices2, invoices);
-
-    container.stop();
 }
 
 fn date(date_str: &str) -> NaiveDate {

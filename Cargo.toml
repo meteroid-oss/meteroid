@@ -1,31 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-    # meteroid
-    "modules/meteroid",
-    "modules/meteroid/crates/meteroid-grpc",
-    "modules/meteroid/crates/meteroid-migrations",
-    "modules/meteroid/crates/stripe-client",
-    "modules/meteroid/crates/diesel-models",
-    "modules/meteroid/crates/meteroid-store",
-    # metering
-    "modules/metering",
-    "modules/metering/crates/metering-grpc",
-    # shared
-    "crates/kafka",
-    "crates/common-build-info",
-    "crates/common-config",
-    "crates/common-domain",
-    "crates/common-eventbus",
-    "crates/common-grpc",
-    "crates/common-grpc-error-as-tonic-macros",
-    "crates/common-grpc-error-as-tonic-macros-impl",
-    "crates/common-logging",
-    "crates/common-repository",
-    "crates/common-utils",
-    "crates/distributed-lock",
-    # extra
-    "extra/generator",
+  # meteroid
+  "modules/meteroid",
+  "modules/meteroid/crates/meteroid-grpc",
+  "modules/meteroid/crates/meteroid-migrations",
+  "modules/meteroid/crates/stripe-client",
+  "modules/meteroid/crates/diesel-models",
+  "modules/meteroid/crates/meteroid-store",
+  # metering
+  "modules/metering",
+  "modules/metering/crates/metering-grpc",
+  # shared
+  "crates/kafka",
+  "crates/common-build-info",
+  "crates/common-config",
+  "crates/common-domain",
+  "crates/common-eventbus",
+  "crates/common-grpc",
+  "crates/common-grpc-error-as-tonic-macros",
+  "crates/common-grpc-error-as-tonic-macros-impl",
+  "crates/common-logging",
+  "crates/common-repository",
+  "crates/common-utils",
+  "crates/distributed-lock",
+  # extra
+  "extra/generator",
 ]
 
 [workspace.package]
@@ -44,26 +44,26 @@ base62 = "2.0.2"
 base64 = "0.22.0"
 bigdecimal = "0.4.3"
 blake3 = "1.5.0"
-build-info = "0.0.37"
-build-info-build = "0.0.37"
+build-info = "0.0.38"
+build-info-build = "0.0.38"
 bytes = "1.5.0"
-cached = "0.51.1"
+cached = "0.53.1"
 chacha20poly1305 = "0.10.1"
 chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
 clickhouse-rs = "1.1.0-alpha.1"
 deadpool-postgres = "0.14.0"
 diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
-diesel-async = { version = "0.3.2", features = ["postgres", "deadpool"] } # avoid updating while waiting for https://github.com/weiznich/diesel_async/issues/103. This impacts PlanVersion and WebhookOutEndpoint
+diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
-error-stack = "0.4.1"
+error-stack = "0.5.0"
 fang = { version = "0.10.4", default-features = false }
 fastrand = "2.0.1"
 futures = "0.3.28"
 futures-util = { version = "0.3.29", features = [] }
-headers = "0.3.9"
+headers = "0.4.0"
 hex = "0.4.3"
 hmac = "0.12.1"
 hmac-sha256 = "1.1.7"
@@ -72,7 +72,7 @@ http-body = "0.4.5"
 http-types = "2.12.0"
 humantime = { version = "2.1.0" }
 hyper = { version = "0.14.27", default-features = false }
-init-tracing-opentelemetry = { version = "0.18.0", features = ["tracing_subscriber_ext"] }
+init-tracing-opentelemetry = { version = "0.19.0", features = ["tracing_subscriber_ext"] }
 itertools = "0.13.0"
 jsonwebtoken = "9.2.0"
 lazy_static = "1"
@@ -82,12 +82,12 @@ mockito = "1.2.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
 o2o = "0.4.8"
-object_store = { version = "0.9.0", default-features = false }
+object_store = { version = "0.11.0", default-features = false }
 once_cell = "1.18.0"
-opentelemetry = { version = "0.22.0", features = ["metrics", "trace", "logs"] }
-opentelemetry-otlp = { version = "0.15.0", features = ["trace", "metrics", "logs"] }
-opentelemetry_sdk = { version = "0.22.1", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
-pbjson-build = "0.6.2"
+opentelemetry = { version = "0.24.0", features = ["metrics", "trace", "logs"] }
+opentelemetry-otlp = { version = "0.17.0", features = ["trace", "metrics", "logs"] }
+opentelemetry_sdk = { version = "0.24.1", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
+pbjson-build = "0.7.0"
 pin-project = "1.1.3"
 postgres = "0.19.7"
 postgres-types = { version = "0.2.6", default-features = false }
@@ -95,21 +95,21 @@ proc-macro2 = { version = "1.0.78" }
 prost = "0.12.1"
 prost-build = "0.12.1"
 prost-types = "0.12.1"
-quick_cache = "0.5.1"
+quick_cache = "0.6.2"
 quote = "1.0.35"
 rand = "0.8.5"
 rdkafka = "0.36.0"
-redis = { version = "0.25.0", default-features = false }
+redis = { version = "0.26.1", default-features = false }
 refinery = { version = "0.8.11", default-features = false }
 regex = "1"
-reqwest = { version = "0.12.3", default-features = false }
-reqwest-middleware = "0.3.0"
-reqwest-retry = "0.5.0"
-ring = "0.17.4"
-rstest = "0.21.0"
+reqwest = { version = "0.12.5", default-features = false }
+reqwest-middleware = "0.3.3"
+reqwest-retry = "0.6.1"
+ring = "0.17.8"
+rstest = "0.22.0"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
-rustls = { version = "0.23.4", default-features = false }
+rustls = { version = "0.23.12", default-features = false }
 secrecy = "0.8.0"
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
@@ -121,8 +121,8 @@ sha2 = "0.10.8"
 shellexpand = "3.1.0"
 syn = "2.0.52"
 tap = "1.0.1"
-testcontainers = "0.15.0"
-testcontainers-modules = { version = "0.3.2", default-features = false }
+testcontainers = "0.20.1" # 0.21.x breaks rustls by adding aws_lc_rs feature along with ring feature which can't coexist
+testcontainers-modules = { version = "0.8.0", default-features = false }
 thiserror = "1.0.49"
 time = "0.3.36"
 tokio = { version = "1.33.0", default-features = false }

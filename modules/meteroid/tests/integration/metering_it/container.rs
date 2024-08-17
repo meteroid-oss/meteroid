@@ -1,9 +1,7 @@
 use std::time::Duration;
-
-use testcontainers::clients::Cli;
-use testcontainers::core::{Port, WaitFor};
-use testcontainers::{Container, GenericImage, RunnableImage};
-
+use testcontainers::core::{IntoContainerPort, WaitFor};
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
@@ -12,7 +10,6 @@ use metering::config::Config;
 
 use super::clickhouse;
 use super::kafka::{CONTAINER_NAME, CONTAINER_VERSION};
-use crate::helpers;
 use crate::helpers::network::free_local_port;
 
 pub struct MeteringSetup {
@@ -74,25 +71,22 @@ pub async fn terminate_metering(token: CancellationToken, join_handle: JoinHandl
     log::info!("Stopped meteroid server");
 }
 
-pub async fn start_clickhouse<'a>(docker: &'a Cli) -> (Container<'a, GenericImage>, u16) {
-    let image = GenericImage::new(clickhouse::CONTAINER_NAME, clickhouse::CONTAINER_VERSION);
+pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, u16) {
+    let local = free_local_port().expect("Could not get free port");
 
-    let local = helpers::network::free_local_port().expect("Could not get free port");
-
-    let port_to_expose = Port {
-        internal: 9000,
-        local,
-    };
-    let image = RunnableImage::from(image)
-        .with_mapped_port(port_to_expose)
-        .with_env_var(("CLICKHOUSE_DB", "meteroid"))
-        .with_env_var(("CLICKHOUSE_USER", "default"))
-        .with_env_var(("CLICKHOUSE_PASSWORD", "default"))
+    let container = GenericImage::new(clickhouse::CONTAINER_NAME, clickhouse::CONTAINER_VERSION)
+        .with_exposed_port(local.tcp())
+        .with_mapped_port(9000, local.tcp())
+        .with_env_var("CLICKHOUSE_DB", "meteroid")
+        .with_env_var("CLICKHOUSE_USER", "default")
+        .with_env_var("CLICKHOUSE_PASSWORD", "default")
         .with_container_name("it_clickhouse")
-        .with_network("meteroid_net");
+        .with_network("meteroid_net")
+        .start()
+        .await
+        .unwrap();
 
-    let container = docker.run(image);
-    let port = container.get_host_port_ipv4(9000);
+    let port = container.get_host_port_ipv4(9000).await.unwrap();
 
     clickhouse::wait_for_ok(port)
         .await
@@ -103,11 +97,9 @@ pub async fn start_clickhouse<'a>(docker: &'a Cli) -> (Container<'a, GenericImag
     (container, port)
 }
 
-pub async fn start_kafka<'a>(
-    docker: &'a Cli,
-) -> anyhow::Result<(Container<'a, GenericImage>, u16)> {
+pub async fn start_kafka() -> anyhow::Result<(ContainerAsync<GenericImage>, u16)> {
     let kafka_port = free_local_port().expect("Could not get free port");
-    let args = vec![
+    let args = [
         "redpanda",
         "start",
         "--overprovisioned",
@@ -119,9 +111,10 @@ pub async fn start_kafka<'a>(
         "--node-id=1",
         "--check=false",
         "--kafka-addr=INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092",
-        &format!(
+        format!(
             "--advertise-kafka-addr=INTERNAL://it_redpanda:29092,EXTERNAL://localhost:{kafka_port}"
-        ),
+        )
+        .as_str(),
         "--set",
         "redpanda.disable_metrics=true",
         "--set",
@@ -129,21 +122,18 @@ pub async fn start_kafka<'a>(
         "--set",
         "redpanda.developer_mode=true",
     ]
-    .into_iter()
-    .map(ToString::to_string)
-    .collect();
-    let image = GenericImage::new(CONTAINER_NAME, CONTAINER_VERSION).with_wait_for(
-        WaitFor::StdErrMessage {
-            message: "Successfully started Redpanda!".to_string(),
-        },
-    );
-    let image = RunnableImage::from((image, args))
-        .with_mapped_port((kafka_port, 9092_u16))
-        .with_container_name("it_redpanda")
-        .with_network("meteroid_net");
+    .map(String::from);
 
-    let container = docker.run(image);
-    let port = container.get_host_port_ipv4(9092);
+    let container = GenericImage::new(CONTAINER_NAME, CONTAINER_VERSION)
+        .with_wait_for(WaitFor::message_on_stderr("Successfully started Redpanda!"))
+        .with_mapped_port(kafka_port, 9092_u16.tcp())
+        .with_container_name("it_redpanda")
+        .with_network("meteroid_net")
+        .with_cmd(args)
+        .start()
+        .await?;
+
+    let port = container.get_host_port_ipv4(9092).await?;
 
     Ok((container, port))
 }

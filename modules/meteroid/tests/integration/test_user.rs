@@ -3,15 +3,13 @@ use crate::meteroid_it::svc_auth::SEED_USERNAME;
 use crate::{helpers, meteroid_it};
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::users::v1::UserRole;
-use testcontainers::clients::Cli;
 
 #[tokio::test]
 async fn test_users_basic() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
