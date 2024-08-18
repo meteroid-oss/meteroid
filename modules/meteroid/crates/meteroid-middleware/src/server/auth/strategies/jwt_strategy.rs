@@ -67,12 +67,12 @@ async fn get_tenant_id_by_slug_cached(store: Store, tenant_slug: String) -> Resu
     result = true,
     size = 50,
     time = 300, // 5 min. With RBAC, use redis backend instead & invalidate on change
-    key = "String",
-    convert = r#"{ user_id.to_string() }"#
+    key = "Uuid",
+    convert = r#"{ *user_id }"#
 )]
 async fn get_user_role_oss_cached(
     store: Store,
-    user_id: Uuid,
+    user_id: &Uuid,
 ) -> Result<OrganizationUserRole, Status> {
     let res = store
         .find_user_by_id(user_id.clone(), user_id.clone())
@@ -90,7 +90,7 @@ pub async fn authorize_user(
     store: Store,
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
-    let role = get_user_role_oss_cached(store.clone(), user_id).await?;
+    let role = get_user_role_oss_cached(store.clone(), &user_id).await?;
 
     // if we have a tenant header, we resolve role via tenant (validating tenant access at the same time)
     let (role, state) = if let Some(tenant_slug) = header_map.get(TENANT_SLUG_HEADER) {

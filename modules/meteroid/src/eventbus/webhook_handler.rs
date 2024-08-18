@@ -438,8 +438,8 @@ async fn get_active_endpoints_by_tenant(
     result = true,
     size = 20,
     time = 120, // 2 min
-    key = "String",
-    convert = r#"{ tenant_id.to_string() }"#
+    key = "Uuid",
+    convert = r#"{ *tenant_id }"#
 )]
 async fn get_active_endpoints_by_tenant_cached(
     store: Store,
