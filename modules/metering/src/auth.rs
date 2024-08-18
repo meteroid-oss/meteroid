@@ -139,11 +139,11 @@ where
 }
 
 #[cached(
-result = true,
-size = 100,
-time = 120, // 2 min
-key = "String",
-convert = r#"{ api_key_id.to_string() }"#
+    result = true,
+    size = 100,
+    time = 120, // 2 min
+    key = "Uuid",
+    convert = r#"{ *api_key_id }"#
 )]
 async fn validate_api_token_by_id_cached(
     internal_client: &mut InternalServiceClient<LayeredClientService>,
