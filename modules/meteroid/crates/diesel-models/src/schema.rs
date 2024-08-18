@@ -53,7 +53,7 @@ pub mod sql_types {
     #[diesel(postgres_type(name = "SubscriptionEventType"))]
     pub struct SubscriptionEventType;
 
-    #[derive(Debug, diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionFeeBillingPeriod"))]
     pub struct SubscriptionFeeBillingPeriod;
 
@@ -140,14 +140,15 @@ diesel::table! {
 }
 
 diesel::table! {
-    bi_revenue_daily (tenant_id, plan_version_id, currency, revenue_date) {
+    bi_revenue_daily (id) {
         tenant_id -> Uuid,
-        plan_version_id -> Uuid,
+        plan_version_id -> Nullable<Uuid>,
         currency -> Text,
         revenue_date -> Date,
         net_revenue_cents -> Int8,
         historical_rate_id -> Uuid,
         net_revenue_cents_usd -> Int8,
+        id -> Uuid,
     }
 }
 
@@ -527,7 +528,7 @@ diesel::table! {
         #[max_length = 3]
         currency -> Varchar,
         mrr_cents -> Int8,
-        period -> BillingPeriodEnum
+        period -> BillingPeriodEnum,
     }
 }
 

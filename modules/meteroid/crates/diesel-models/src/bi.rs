@@ -79,7 +79,7 @@ pub struct BiMrrMovementLogRowNew {
 #[diesel(primary_key(tenant_id, plan_version_id, currency, revenue_date))]
 pub struct BiRevenueDailyRow {
     pub tenant_id: Uuid,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: Option<Uuid>,
     pub currency: String,
     pub revenue_date: NaiveDate,
     pub net_revenue_cents: i64,
