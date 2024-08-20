@@ -31,6 +31,7 @@ pub mod subscription_events;
 pub mod tenants;
 pub mod users;
 pub mod webhooks;
+pub mod invoicing_entities;
 
 use diesel_async::pooled_connection::deadpool::Object;
 

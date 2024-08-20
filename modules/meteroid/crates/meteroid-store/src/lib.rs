@@ -5,6 +5,7 @@ pub mod errors;
 pub mod repositories;
 pub mod store;
 pub mod utils;
+pub mod constants;
 
 pub use store::Store;
 

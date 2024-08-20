@@ -24,6 +24,7 @@ pub struct CustomerRow {
     pub balance_currency: String,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
+    pub invoicing_entity_id: Uuid,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]
@@ -52,8 +53,10 @@ pub struct CustomerRowNew {
     pub balance_currency: String,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
-    // for seed
+    pub invoicing_entity_id: Uuid,
+    // for seed, else default to None
     pub created_at: Option<NaiveDateTime>,
+
 }
 
 #[derive(Debug, AsChangeset)]
@@ -70,6 +73,7 @@ pub struct CustomerRowPatch {
     pub balance_currency: Option<String>,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
+    pub invoicing_entity_id: Option<Uuid>,
 }
 
 #[derive(AsChangeset, Debug)]

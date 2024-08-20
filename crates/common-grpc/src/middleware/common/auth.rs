@@ -6,4 +6,5 @@ pub const API_KEY_HEADER: &str = "x-api-key";
 
 pub const BEARER_AUTH_HEADER: &str = "Authorization";
 
-pub const TENANT_SLUG_HEADER: &str = "x-md-tenant-slug";
+// used by frontend clients to specify organization/tenant
+pub const EXTRA_JWT_CONTEXT_HEADER: &str = "x-md-context";

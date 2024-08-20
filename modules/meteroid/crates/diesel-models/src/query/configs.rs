@@ -1,4 +1,4 @@
-use crate::configs::{InvoicingConfigRow, ProviderConfigRow, ProviderConfigRowNew};
+use crate::configs::{ProviderConfigRow, ProviderConfigRowNew};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 
@@ -33,22 +33,6 @@ impl ProviderConfigRowNew {
     }
 }
 
-impl InvoicingConfigRow {
-    pub async fn insert(&self, conn: &mut PgConn) -> DbResult<InvoicingConfigRow> {
-        use crate::schema::invoicing_config::dsl::*;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::insert_into(invoicing_config).values(self);
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .get_result(conn)
-            .await
-            .attach_printable("Error while inserting invoicing configuration")
-            .into_db_result()
-    }
-}
 
 impl ProviderConfigRow {
     pub async fn find_provider_config(

@@ -37,11 +37,17 @@ impl TenantRow {
             .into_db_result()
     }
 
-    pub async fn find_by_slug(conn: &mut PgConn, param_tenant_slug: String) -> DbResult<TenantRow> {
-        use crate::schema::tenant::dsl::*;
+    pub async fn find_by_slug_and_organization_slug(conn: &mut PgConn, param_tenant_slug: String, organization_slug: String) -> DbResult<TenantRow> {
+        use crate::schema::tenant::dsl as t_dsl;
+        use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = tenant.filter(slug.eq(param_tenant_slug));
+        let query = t_dsl::tenant
+            .inner_join(o_dsl::organization.on(t_dsl::organization_id.eq(o_dsl::id)))
+            .filter(t_dsl::slug.eq(param_tenant_slug))
+            .filter(o_dsl::slug.eq(organization_slug))
+            .select(TenantRow::as_select());
+
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
@@ -51,21 +57,17 @@ impl TenantRow {
             .into_db_result()
     }
 
-    pub async fn list_by_user_id(
+    pub async fn list_by_organization_id(
         conn: &mut PgConn,
-        user_id: uuid::Uuid,
+        organization_id: uuid::Uuid,
     ) -> DbResult<Vec<TenantRow>> {
         use crate::schema::organization::dsl as o_dsl;
-        use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::tenant::dsl as t_dsl;
-        use crate::schema::user::dsl as u_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = t_dsl::tenant
             .inner_join(o_dsl::organization.on(t_dsl::organization_id.eq(o_dsl::id)))
-            .inner_join(om_dsl::organization_member.on(om_dsl::organization_id.eq(o_dsl::id)))
-            .inner_join(u_dsl::user.on(u_dsl::id.eq(om_dsl::user_id)))
-            .filter(u_dsl::id.eq(user_id))
+            .filter(o_dsl::id.eq(organization_id))
             .select(TenantRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

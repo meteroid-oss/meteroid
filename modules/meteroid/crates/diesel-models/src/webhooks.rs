@@ -42,7 +42,7 @@ pub struct WebhookOutEndpointRow {
     pub description: Option<String>,
     pub secret: String,
     pub created_at: NaiveDateTime,
-    pub events_to_listen: Vec<WebhookOutEventTypeEnum>,
+    pub events_to_listen: Vec<Option<WebhookOutEventTypeEnum>>,
     pub enabled: bool,
 }
 

@@ -114,8 +114,8 @@ impl PlansInterface for Store {
             plan.product_family_external_id.as_str(),
             plan.tenant_id,
         )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let tenant = TenantRow::find_by_id(&mut conn, plan.tenant_id)
             .await
@@ -138,7 +138,7 @@ impl PlansInterface for Store {
                         version: 1,
                         created_by: inserted.created_by,
                     }
-                    .into_raw(tenant.currency);
+                        .into_raw(tenant.currency);
 
                     let inserted_plan_version_new: PlanVersion = plan_version_to_insert
                         .insert(conn)
@@ -158,16 +158,16 @@ impl PlansInterface for Store {
                                     product_item_id: p.product_item_id,
                                     fee: p.fee,
                                 }
-                                .try_into()
+                                    .try_into()
                             })
                             .collect::<Result<Vec<_>, _>>()?,
                     )
-                    .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(StoreError::TransactionStoreError)?;
+                        .await
+                        .map_err(|err| StoreError::DatabaseError(err.error))?
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(StoreError::TransactionStoreError)?;
 
                     Ok::<_, StoreError>(FullPlan {
                         price_components: inserted_price_components,
@@ -175,7 +175,7 @@ impl PlansInterface for Store {
                         version: inserted_plan_version_new,
                     })
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -246,9 +246,9 @@ impl PlansInterface for Store {
             auth_tenant_id,
             is_draft,
         )
-        .await
-        .map(|opt| opt.map(Into::into))
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
+            .await
+            .map(|opt| opt.map(Into::into))
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         match version {
             Some(version) => {
@@ -258,11 +258,11 @@ impl PlansInterface for Store {
                         auth_tenant_id,
                         version.id,
                     )
-                    .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?
-                    .into_iter()
-                    .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()?;
+                        .await
+                        .map_err(|err| StoreError::DatabaseError(err.error))?
+                        .into_iter()
+                        .map(TryInto::try_into)
+                        .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(Some(FullPlan {
                     plan,
@@ -292,8 +292,8 @@ impl PlansInterface for Store {
             pagination.into(),
             order_by.into(),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<PlanForList> = PaginatedVec {
             items: rows.items.into_iter().map(Into::into).collect(),
@@ -342,8 +342,8 @@ impl PlansInterface for Store {
             auth_tenant_id,
             pagination.into(),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<PlanVersion> = PaginatedVec {
             items: rows.items.into_iter().map(Into::into).collect(),
@@ -373,8 +373,8 @@ impl PlansInterface for Store {
                     original.plan_id,
                     original.tenant_id,
                 )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 let new = PlanVersionRowNew {
                     id: Uuid::now_v7(),
@@ -389,11 +389,14 @@ impl PlansInterface for Store {
                     currency: original.currency,
                     billing_cycles: original.billing_cycles,
                     created_by: auth_actor,
-                    billing_periods: original.billing_periods,
+                    billing_periods: original.billing_periods
+                        .into_iter()
+                        .flatten()
+                        .collect(),
                 }
-                .insert(conn)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 PriceComponentRow::clone_all(conn, original.id, new.id)
                     .await
@@ -405,9 +408,9 @@ impl PlansInterface for Store {
 
                 Ok(new.into())
             }
-            .scope_boxed()
+                .scope_boxed()
         })
-        .await
+            .await
     }
 
     async fn publish_plan_version(
@@ -431,7 +434,7 @@ impl PlansInterface for Store {
 
                     Ok(published.into())
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await?;
 
@@ -459,9 +462,9 @@ impl PlansInterface for Store {
             auth_tenant_id,
             Some(false),
         )
-        .await
-        .map(|opt| opt.map(Into::into))
-        .map_err(Into::into)
+            .await
+            .map(|opt| opt.map(Into::into))
+            .map_err(Into::into)
     }
 
     async fn discard_draft_plan_version(
@@ -478,8 +481,8 @@ impl PlansInterface for Store {
                         plan_version_id,
                         auth_tenant_id,
                     )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     PlanVersionRow::delete_draft(conn, plan_version_id, auth_tenant_id)
                         .await
@@ -491,7 +494,7 @@ impl PlansInterface for Store {
 
                     Ok(())
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await?;
 
@@ -522,9 +525,9 @@ impl PlansInterface for Store {
             plan.external_id.as_str(),
             plan.tenant_id,
         )
-        .await
-        .map_err(Into::into)
-        .map(Into::into)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 
     async fn get_plan_with_version_by_external_id(
@@ -559,7 +562,7 @@ impl PlansInterface for Store {
                         name: patch.name,
                         description: patch.description,
                     }
-                    .into();
+                        .into();
 
                     patch_plan
                         .update(conn)
@@ -568,7 +571,7 @@ impl PlansInterface for Store {
 
                     Ok(patched_version)
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await?;
 

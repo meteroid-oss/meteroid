@@ -77,9 +77,9 @@ impl Event {
         )
     }
 
-    pub fn instance_inited(actor: Uuid, organization_id: Uuid) -> Self {
+    pub fn organization_created(actor: Uuid, organization_id: Uuid) -> Self {
         Self::new(
-            EventData::InstanceInited(EventDataDetails {
+            EventData::OrganizationCreated(EventDataDetails {
                 entity_id: organization_id,
             }),
             Some(actor),
@@ -214,7 +214,7 @@ pub enum EventData {
     BillableMetricCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
     CustomerPatched(TenantEventDataDetails),
-    InstanceInited(EventDataDetails),
+    OrganizationCreated(EventDataDetails),
     InvoiceCreated(TenantEventDataDetails),
     InvoiceFinalized(TenantEventDataDetails),
     PlanCreatedDraft(TenantEventDataDetails),

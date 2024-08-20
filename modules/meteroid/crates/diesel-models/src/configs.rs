@@ -4,14 +4,6 @@ use uuid::Uuid;
 use crate::enums::InvoicingProviderEnum;
 use diesel::{Identifiable, Insertable, Queryable};
 
-#[derive(Queryable, Debug, Identifiable, Insertable)]
-#[diesel(table_name = crate::schema::invoicing_config)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct InvoicingConfigRow {
-    pub id: Uuid,
-    pub tenant_id: Uuid,
-    pub grace_period_hours: i32,
-}
 
 #[derive(Queryable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::provider_config)]

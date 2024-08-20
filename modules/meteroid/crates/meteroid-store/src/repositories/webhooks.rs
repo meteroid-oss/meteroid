@@ -48,7 +48,7 @@ impl WebhooksInterface for Store {
         &self,
         endpoint: WebhookOutEndpointNew,
     ) -> StoreResult<WebhookOutEndpoint> {
-        let insertable = endpoint.to_row(&self.crypt_key)?;
+        let insertable = endpoint.to_row(&self.settings.crypt_key)?;
 
         let mut conn = self.get_conn().await?;
 
@@ -57,7 +57,7 @@ impl WebhooksInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        WebhookOutEndpoint::from_row(&self.crypt_key, row)
+        WebhookOutEndpoint::from_row(&self.settings.crypt_key, row)
     }
 
     async fn list_webhook_out_endpoints(
@@ -72,7 +72,7 @@ impl WebhooksInterface for Store {
 
         vec_rows
             .into_iter()
-            .map(|row| WebhookOutEndpoint::from_row(&self.crypt_key, row))
+            .map(|row| WebhookOutEndpoint::from_row(&self.settings.crypt_key, row))
             .collect()
     }
 
@@ -108,8 +108,8 @@ impl WebhooksInterface for Store {
             pagination.into(),
             order_by.into(),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<WebhookOutEvent> = PaginatedVec {
             items: rows.items.into_iter().map(|s| s.into()).collect(),

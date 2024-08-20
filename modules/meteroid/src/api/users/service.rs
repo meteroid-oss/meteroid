@@ -9,6 +9,7 @@ use meteroid_grpc::meteroid::api::users::v1::{
     LoginResponse, MeRequest, MeResponse, RegisterRequest, RegisterResponse,
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest};
+use meteroid_store::repositories::TenantInterface;
 use meteroid_store::repositories::users::UserInterface;
 
 use crate::api::users::error::UserApiError;
@@ -56,36 +57,16 @@ impl UsersService for UsersServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn find_user_by_email(
-        &self,
-        request: Request<FindUserByEmailRequest>,
-    ) -> Result<Response<FindUserByEmailResponse>, Status> {
-        let actor = request.actor()?;
-
-        let req = request.into_inner();
-
-        let user = self
-            .store
-            .find_user_by_email(req.email, actor)
-            .await
-            .map(mapping::user::domain_to_proto)
-            .map_err(Into::<UserApiError>::into)?;
-
-        let response = FindUserByEmailResponse { user: Some(user) };
-
-        Ok(Response::new(response))
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn list_users(
         &self,
         request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
-        let actor = request.actor()?;
+        let tenant = request.tenant()?;
+        let tenant = self.store.find_tenant_by_id(tenant).await.map_err(Into::<UserApiError>::into)?;
 
         let users = self
             .store
-            .list_users(actor)
+            .list_users_for_organization(tenant.organization_id)
             .await
             .map_err(Into::<UserApiError>::into)?
             .into_iter()
@@ -118,7 +99,7 @@ impl UsersService for UsersServiceComponents {
                 user: Some(mapping::user::domain_to_proto(resp.user)),
             }))
         })
-        .await
+            .await
     }
 
     async fn register(
@@ -143,6 +124,6 @@ impl UsersService for UsersServiceComponents {
                 user: Some(mapping::user::domain_to_proto(resp.user)),
             }))
         })
-        .await
+            .await
     }
 }

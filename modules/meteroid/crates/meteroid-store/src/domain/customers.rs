@@ -19,6 +19,7 @@ pub struct Customer {
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
+    pub invoicing_entity_id: Uuid,
     pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -52,6 +53,7 @@ impl TryFrom<CustomerRow> for Customer {
             balance_currency: value.balance_currency,
             billing_address: value.billing_address.map(|v| v.try_into()).transpose()?,
             shipping_address: value.shipping_address.map(|v| v.try_into()).transpose()?,
+            invoicing_entity_id: value.invoicing_entity_id,
         })
     }
 }
@@ -78,6 +80,7 @@ impl TryInto<CustomerRow> for Customer {
             balance_currency: self.balance_currency,
             billing_address: self.billing_address.map(|v| v.try_into()).transpose()?,
             shipping_address: self.shipping_address.map(|v| v.try_into()).transpose()?,
+            invoicing_entity_id: self.invoicing_entity_id,
         })
     }
 }
@@ -96,6 +99,7 @@ pub struct CustomerNew {
     pub name: String,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
+    pub invoicing_entity_id: Uuid,
     pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -117,6 +121,7 @@ impl TryFrom<CustomerRowNew> for CustomerNew {
             created_at: value.created_at,
             created_by: value.created_by,
             tenant_id: value.tenant_id,
+            invoicing_entity_id: value.invoicing_entity_id,
             billing_config: value.billing_config.try_into()?,
             alias: value.alias,
             email: value.email,
@@ -139,6 +144,7 @@ impl TryInto<CustomerRowNew> for CustomerNew {
             name: self.name,
             created_by: self.created_by,
             tenant_id: self.tenant_id,
+            invoicing_entity_id: self.invoicing_entity_id,
             billing_config: self.billing_config.try_into()?,
             alias: self.alias,
             email: self.email,
@@ -166,6 +172,7 @@ pub struct CustomerPatch {
     pub balance_currency: Option<String>,
     pub billing_address: Option<serde_json::Value>, // TODO avoid json
     pub shipping_address: Option<serde_json::Value>,
+    pub invoicing_entity_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

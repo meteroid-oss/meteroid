@@ -1,4 +1,4 @@
-use crate::domain::{OrgTenantNew, Tenant, TenantNew};
+use crate::domain::{Tenant, TenantNew};
 use error_stack::Report;
 
 use crate::store::Store;
@@ -11,8 +11,8 @@ use uuid::Uuid;
 pub trait TenantInterface {
     async fn insert_tenant(&self, tenant: TenantNew) -> StoreResult<Tenant>;
     async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<Tenant>;
-    async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<Tenant>;
-    async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<Tenant>>;
+    async fn find_tenant_by_slug_and_organization_slug(&self, slug: String, organization_slug: String) -> StoreResult<Tenant> ;
+    async fn list_tenants_by_organization_id(&self, organization_id: Uuid) -> StoreResult<Vec<Tenant>>;
 }
 
 #[async_trait::async_trait]
@@ -20,24 +20,8 @@ impl TenantInterface for Store {
     async fn insert_tenant(&self, tenant: TenantNew) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_tenant: TenantRowNew = match tenant {
-            TenantNew::ForOrg(tenant_new) => tenant_new.into(),
-            TenantNew::ForUser(tenant_new) => {
-                let org = OrganizationRow::find_by_user_id(&mut conn, tenant_new.user_id)
-                    .await
-                    .map_err(Into::<Report<errors::StoreError>>::into)?;
-
-                let org_tenant = OrgTenantNew {
-                    organization_id: org.id,
-                    name: tenant_new.name,
-                    slug: tenant_new.slug,
-                    currency: tenant_new.currency,
-                    environment: tenant_new.environment,
-                };
-
-                org_tenant.into()
-            }
-        };
+        // TODO no, it can only be for org I guess ?? Also, insert an invoicing entity
+        let insertable_tenant: TenantRowNew = tenant.into();
 
         insertable_tenant
             .insert(&mut conn)
@@ -55,19 +39,19 @@ impl TenantInterface for Store {
             .map(Into::into)
     }
 
-    async fn find_tenant_by_slug(&self, slug: String) -> StoreResult<Tenant> {
+    async fn find_tenant_by_slug_and_organization_slug(&self, slug: String, organization_slug: String) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;
 
-        TenantRow::find_by_slug(&mut conn, slug)
+        TenantRow::find_by_slug_and_organization_slug(&mut conn, slug, organization_slug)
             .await
             .map_err(Into::into)
             .map(Into::into)
     }
 
-    async fn list_tenants_by_user_id(&self, user_id: Uuid) -> StoreResult<Vec<Tenant>> {
+    async fn list_tenants_by_organization_id(&self, organization_id: Uuid) -> StoreResult<Vec<Tenant>> {
         let mut conn = self.get_conn().await?;
 
-        TenantRow::list_by_user_id(&mut conn, user_id)
+        TenantRow::list_by_organization_id(&mut conn, organization_id)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())

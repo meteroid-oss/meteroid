@@ -18,6 +18,7 @@ use diesel::{
     PgTextExpressionMethods, SelectableHelper,
 };
 use diesel::{ExpressionMethods, QueryDsl};
+use diesel::query_dsl::InternalJoinDsl;
 use error_stack::ResultExt;
 
 impl InvoiceRowNew {
@@ -172,18 +173,21 @@ impl InvoiceRow {
         pagination: CursorPaginationRequest,
     ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
         use crate::schema::invoice::dsl as i_dsl;
-        use crate::schema::invoicing_config::dsl as ic_dsl;
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::invoicing_entity::dsl as ic_dsl;
 
         let query = i_dsl::invoice
-            .inner_join(ic_dsl::invoicing_config.on(i_dsl::tenant_id.eq(ic_dsl::tenant_id)))
+            .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
+
             .filter(
                 i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
             )
             .filter(diesel::dsl::now.gt(i_dsl::invoice_date
-                + diesel::dsl::sql::<diesel::sql_types::Interval>(
-                    "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
-                )))
+                + diesel::dsl::sql::<diesel::sql_types::Interval>( // TODO
+                                                                   "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
+            )))
             .select(InvoiceRow::as_select())
+
             .cursor_paginate(pagination, i_dsl::id, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -341,6 +345,7 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    // TODO invoicing_config
     pub async fn update_pending_finalization(
         conn: &mut PgConn,
         now: NaiveDateTime,

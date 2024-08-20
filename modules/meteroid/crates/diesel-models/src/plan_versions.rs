@@ -22,7 +22,7 @@ pub struct PlanVersionRow {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    pub billing_periods: Vec<BillingPeriodEnum>,
+    pub billing_periods: Vec<Option<BillingPeriodEnum>>,
 }
 
 #[derive(Debug, Insertable, Default)]

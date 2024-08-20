@@ -7,7 +7,7 @@ use meteroid_grpc::meteroid::api::instance::v1::{
     InitInstanceRequest, InitInstanceResponse, Instance,
 };
 use meteroid_store::domain;
-use meteroid_store::repositories::OrganizationsInterface;
+use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 
 use crate::api::instance::error::InstanceApiError;
 use crate::api::instance::InstanceServiceComponents;
@@ -19,11 +19,34 @@ impl InstanceService for InstanceServiceComponents {
         &self,
         _request: Request<GetInstanceRequest>,
     ) -> Result<Response<GetInstanceResponse>, Status> {
+
+
+        // struct
+        // - is_single_tenant
+        // - is_init_instance
+
+        // we check the is_single_tenant in config.
+        // Only if true, we check if an organization exist
+
+
+        // - organization opt  (if single tenant no matter connection, or if user is connected and org id is provided)
+
+        // if single tenant
+
+
+        // if the user has multiple organizations, how do we know which org to get ?
+        // app.meteroid.com/ERB7C6OAI/prod/   <= in local we could avoid the /userpact , it'd be resolved to 'instance' as allow_multitenancy is false
+        // userpact.meteroid.com/prod/
+        // app.meteroid.com/prod/ // this requires some session and makes sharing urls/working across tabs annoying
+        // localhost:3000/0/prod/  // in local multitenancy, I guess the instance can be "0"
+
+
         let maybe_instance = self
             .store
-            .find_organization_as_instance()
+            .get_instance()
             .await
             .map_err(Into::<InstanceApiError>::into)?;
+
 
         Ok(Response::new(GetInstanceResponse {
             instance: maybe_instance.map(|org| Instance {
@@ -33,42 +56,18 @@ impl InstanceService for InstanceServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn init_instance(
-        &self,
-        request: Request<InitInstanceRequest>,
-    ) -> Result<Response<InitInstanceResponse>, Status> {
-        let actor = request.actor()?;
-
-        let inner = request.into_inner();
-
-        let organization = self
-            .store
-            .insert_organization(
-                domain::OrganizationNew {
-                    name: inner.company_name,
-                    slug: "instance".to_string(),
-                },
-                actor,
-            )
-            .await
-            .map_err(Into::<InstanceApiError>::into)?;
-
-        Ok(Response::new(InitInstanceResponse {
-            instance: Some(Instance {
-                company_name: organization.name,
-                organization_id: organization.id.to_string(),
-            }),
-        }))
-    }
 
     async fn get_invite(
         &self,
-        _request: Request<GetInviteRequest>,
+        request: Request<GetInviteRequest>,
     ) -> Result<Response<GetInviteResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let tenant = self.store.find_tenant_by_id(tenant_id).await?;
+
         let invite_hash = self
             .store
-            .organization_get_or_create_invite_link()
+            .organization_get_or_create_invite_link(tenant.organization_id)
             .await
             .map_err(Into::<InstanceApiError>::into)?;
 

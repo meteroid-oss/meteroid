@@ -16,6 +16,7 @@ pub struct TenantRow {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub organization_id: Uuid,
+    // the reporting currency, used in dashboards
     pub currency: String,
     pub environment: TenantEnvironmentEnum,
 }
@@ -29,5 +30,5 @@ pub struct TenantRowNew {
     pub slug: String,
     pub organization_id: Uuid,
     pub currency: String,
-    pub environment: Option<TenantEnvironmentEnum>,
+    pub environment: TenantEnvironmentEnum,
 }

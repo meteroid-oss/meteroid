@@ -114,8 +114,8 @@ impl CustomersInterface for Store {
             order_by.into(),
             query,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Customer> = PaginatedVec {
             items: rows
@@ -190,9 +190,9 @@ impl CustomersInterface for Store {
                 res.tenant_id,
             ))
         }))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>();
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>();
 
         Ok(res)
     }
@@ -216,6 +216,7 @@ impl CustomersInterface for Store {
             balance_currency: customer.balance_currency,
             billing_address: customer.billing_address,
             shipping_address: customer.shipping_address,
+            invoicing_entity_id: customer.invoicing_entity_id,
         };
 
         let updated = patch_model
@@ -245,9 +246,9 @@ impl CustomersInterface for Store {
                     .await
                     .map(|x| x.customer)
             }
-            .scope_boxed()
+                .scope_boxed()
         })
-        .await
+            .await
     }
 
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
@@ -344,7 +345,7 @@ impl CustomersInterface for Store {
 
                     Ok(inserted_invoice)
                 }
-                .scope_boxed()
+                    .scope_boxed()
             })
             .await?;
 
