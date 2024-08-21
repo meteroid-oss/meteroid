@@ -5,8 +5,7 @@ package meteroid.api.addons.v1;
 import "api/addons/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 
-message ListAddOnRequest {
-}
+message ListAddOnRequest {}
 
 message ListAddOnResponse {
   repeated AddOn add_ons = 1;
@@ -25,9 +24,7 @@ message RemoveAddOnRequest {
   string add_on_id = 1;
 }
 
-message RemoveAddOnResponse {
-
-}
+message RemoveAddOnResponse {}
 
 message EditAddOnRequest {
   AddOn add_on = 1;
