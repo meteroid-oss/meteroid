@@ -1,3 +1,4 @@
+pub mod add_ons;
 pub mod api_tokens;
 pub mod bi;
 pub mod billable_metrics;

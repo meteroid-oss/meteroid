@@ -6,6 +6,7 @@ use tower_http::auth::{AddAuthorization, AddAuthorizationLayer};
 use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 
 use common_grpc::middleware::common::auth::TENANT_SLUG_HEADER;
+use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_client::AddOnsServiceClient;
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
 use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
@@ -24,6 +25,7 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_client::We
 pub type TestLayeredClientService = AddAuthorization<SetRequestHeader<Channel, HeaderValue>>;
 
 pub struct AllClients {
+    pub add_ons: AddOnsServiceClient<TestLayeredClientService>,
     pub api_tokens: ApiTokensServiceClient<TestLayeredClientService>,
     pub customers: CustomersServiceClient<TestLayeredClientService>,
     pub metrics: BillableMetricsServiceClient<TestLayeredClientService>,
@@ -45,6 +47,7 @@ impl AllClients {
         let service = Self::build_layered_client_service(channel, bearer_token, tenant_slug);
 
         Self {
+            add_ons: AddOnsServiceClient::new(service.clone()),
             api_tokens: ApiTokensServiceClient::new(service.clone()),
             customers: CustomersServiceClient::new(service.clone()),
             metrics: BillableMetricsServiceClient::new(service.clone()),

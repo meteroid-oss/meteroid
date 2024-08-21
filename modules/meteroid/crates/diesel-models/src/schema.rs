@@ -71,6 +71,17 @@ pub mod sql_types {
 }
 
 diesel::table! {
+    add_on (id) {
+        id -> Uuid,
+        name -> Text,
+        fee -> Jsonb,
+        tenant_id -> Uuid,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     api_token (id) {
         id -> Uuid,
         name -> Text,
@@ -635,6 +646,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(add_on -> tenant (tenant_id));
 diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(bi_delta_mrr_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(bi_mrr_movement_log -> credit_note (credit_note_id));
@@ -649,9 +661,6 @@ diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
 diesel::joinable!(customer -> tenant (tenant_id));
-diesel::joinable!(invoice -> customer (customer_id));
-diesel::joinable!(invoice -> plan_version (plan_version_id));
-diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(customer_balance_pending_tx -> customer (customer_id));
 diesel::joinable!(customer_balance_pending_tx -> customer_balance_tx (tx_id));
 diesel::joinable!(customer_balance_pending_tx -> invoice (invoice_id));
@@ -661,6 +670,9 @@ diesel::joinable!(customer_balance_tx -> customer (customer_id));
 diesel::joinable!(customer_balance_tx -> invoice (invoice_id));
 diesel::joinable!(customer_balance_tx -> tenant (tenant_id));
 diesel::joinable!(customer_balance_tx -> user (created_by));
+diesel::joinable!(invoice -> customer (customer_id));
+diesel::joinable!(invoice -> plan_version (plan_version_id));
+diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(plan -> product_family (product_family_id));
@@ -689,6 +701,7 @@ diesel::joinable!(webhook_out_endpoint -> tenant (tenant_id));
 diesel::joinable!(webhook_out_event -> webhook_out_endpoint (endpoint_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    add_on,
     api_token,
     bi_customer_ytd_summary,
     bi_delta_mrr_daily,

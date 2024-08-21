@@ -21,6 +21,7 @@ pub mod plans;
 pub mod price_components;
 pub mod tenants;
 
+pub mod add_ons;
 pub mod adjustments;
 pub mod api_tokens;
 pub mod billable_metrics;

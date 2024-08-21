@@ -12,6 +12,7 @@ fn main() -> Result<(), BuildError> {
 
 fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
     let services = vec![
+        "addons",
         "apitokens",
         "billablemetrics",
         "customers",

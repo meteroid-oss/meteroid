@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package meteroid.api.addons.v1;
+
+import "api/addons/v1/models.proto";
+import "api/pricecomponents/v1/models.proto";
+
+message ListAddOnRequest {}
+
+message ListAddOnResponse {
+  repeated AddOn add_ons = 1;
+}
+
+message CreateAddOnRequest {
+  string name = 2;
+  meteroid.api.components.v1.Fee fee = 3;
+}
+
+message CreateAddOnResponse {
+  AddOn add_on = 1;
+}
+
+message RemoveAddOnRequest {
+  string add_on_id = 1;
+}
+
+message RemoveAddOnResponse {}
+
+message EditAddOnRequest {
+  AddOn add_on = 1;
+}
+
+message EditAddOnResponse {
+  AddOn add_on = 1;
+}
+
+service AddOnsService {
+  rpc ListAddOns(ListAddOnRequest) returns (ListAddOnResponse) {}
+  rpc CreateAddOn(CreateAddOnRequest) returns (CreateAddOnResponse) {}
+  rpc RemoveAddOn(RemoveAddOnRequest) returns (RemoveAddOnResponse) {}
+  rpc EditAddOn(EditAddOnRequest) returns (EditAddOnResponse) {}
+}
