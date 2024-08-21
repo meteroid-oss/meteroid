@@ -42,7 +42,7 @@ pub mod components {
         })
     }
 
-    fn map_fee_to_domain(fee: Option<api::Fee>) -> Result<domain::FeeType, Status> {
+    pub fn map_fee_to_domain(fee: Option<api::Fee>) -> Result<domain::FeeType, Status> {
         match fee.as_ref().and_then(|fee| fee.fee_type.as_ref()) {
             Some(s) => match s {
                 api::fee::FeeType::Rate(fee) => Ok::<_, Status>(domain::FeeType::Rate {
@@ -130,7 +130,7 @@ pub mod components {
         }
     }
 
-    fn map_fee_domain_to_api(fee: domain::FeeType) -> api::Fee {
+    pub fn map_fee_domain_to_api(fee: domain::FeeType) -> api::Fee {
         let fee_type = match fee {
             domain::FeeType::Rate { rates } => {
                 let rates = rates

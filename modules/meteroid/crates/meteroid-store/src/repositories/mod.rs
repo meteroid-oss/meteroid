@@ -11,6 +11,7 @@ pub mod invoices;
 pub mod plans;
 pub mod tenants;
 
+pub mod add_ons;
 pub mod api_tokens;
 pub mod billable_metrics;
 pub mod configs;

@@ -51,6 +51,7 @@ pub async fn start_api_server(
         .layer(common_middleware::error_logger::create())
         .add_service(health_service)
         .add_service(reflection_service)
+        .add_service(api::addons::service(store.clone()))
         .add_service(api::billablemetrics::service(store.clone()))
         .add_service(api::customers::service(store.clone()))
         .add_service(api::tenants::service(store.clone()))

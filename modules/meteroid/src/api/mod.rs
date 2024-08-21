@@ -4,6 +4,7 @@ pub mod server;
 pub mod shared;
 pub mod utils;
 
+pub mod addons;
 pub mod apitokens;
 pub mod billablemetrics;
 pub mod customers;
