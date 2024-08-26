@@ -141,7 +141,7 @@ const PlanBody = () => {
     return <>Failed to load plan</>
   }
 
-  let planType = plan.planDetails?.plan?.planType
+  const planType = plan.planDetails?.plan?.planType
 
   return (
     <>

@@ -1,7 +1,7 @@
 DO
 $$
     DECLARE
-        
+
         var_user_id                    UUID := 'ae35bbb9-65da-477d-b856-7dbd87546441';
         var_tenant_id                  UUID := '018c2c82-3df1-7e84-9e05-6e141d0e751a';
 
@@ -10,12 +10,6 @@ $$
         var_cust_spotify_id            UUID := '018c345f-7324-7cd2-a692-78e5ab9158e0';
         var_cust_uber_id               UUID := '018c345f-dff1-7857-b988-6c792ed6fa3f';
         var_cust_comodo_id             UUID := '018c3463-05f3-7c1f-92b1-ddb1f70905a2';
-
-        -- metrics
-
-        var_metric_database_size       UUID := '018c3452-129f-702c-93f4-9c15095b0ef4';
-        var_metric_bandwidth           UUID := '018c3453-1f11-76a8-8d69-f74921b2646d';
-
 
         -- plan_versions
 

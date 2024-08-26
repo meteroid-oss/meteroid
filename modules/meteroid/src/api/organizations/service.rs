@@ -36,6 +36,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn get_current_organizations(
         &self,
         request: Request<GetCurrentOrganizationRequest>,
@@ -56,6 +57,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn create_organization(
         &self,
         request: Request<CreateOrganizationRequest>,

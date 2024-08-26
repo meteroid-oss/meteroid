@@ -1,6 +1,7 @@
+import { Outlet } from 'react-router-dom'
+
 import { MeteroidTitle } from '@/components/svg'
 import { useForceTheme } from 'providers/ThemeProvider'
-import { Outlet } from 'react-router-dom'
 
 export const OnboardingLayout = () => {
   useForceTheme('light')

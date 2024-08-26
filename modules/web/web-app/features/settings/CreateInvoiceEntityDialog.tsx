@@ -1,4 +1,9 @@
 import {
+  createConnectQueryKey,
+  createProtobufSafeUpdater,
+  useMutation,
+} from '@connectrpc/connect-query'
+import {
   Button,
   ComboboxFormField,
   Dialog,
@@ -10,6 +15,8 @@ import {
   Form,
   InputFormField,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { getCountryFlagEmoji } from '@/features/settings/utils'
@@ -20,13 +27,6 @@ import {
   createInvoicingEntity,
   listInvoicingEntities,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
 
 const createInvoicingEntitySchema = z.object({
   legalName: z.string().min(1, 'Legal name is required'),

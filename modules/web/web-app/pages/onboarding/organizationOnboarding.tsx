@@ -21,6 +21,8 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ScaleIcon } from 'lucide-react'
+import { useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -33,8 +35,6 @@ import {
 } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { createOrganization } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { ChevronDown, ScaleIcon } from 'lucide-react'
-import { useWatch } from 'react-hook-form'
 
 export const OrganizationOnboarding: React.FC = () => {
   const getInstanceQuery = useQuery(getInstance)
@@ -63,7 +63,9 @@ export const OrganizationOnboarding: React.FC = () => {
 
     return (
       <div className="p-10">
-        <div>You don't have access to this instance. Request an invite link to your admin.</div>
+        <div>
+          You don&apos;t have access to this instance. Request an invite link to your admin.
+        </div>
         <div>
           <Button onClick={() => navigate('/logout')}>Logout</Button>
         </div>
@@ -74,7 +76,7 @@ export const OrganizationOnboarding: React.FC = () => {
   return (
     <>
       <div className="md:w-[550px] w-full  px-6 py-12 sm:px-12 flex flex-col   ">
-        <h2 className="text-xl font-semibold">Let's setup your organization</h2>
+        <h2 className="text-xl font-semibold">Let&apos;s setup your organization</h2>
         <p className="mt-2 text-sm text-muted-foreground">Tell us more about your company</p>
 
         <div className="light h-full pt-4 ">
@@ -180,8 +182,8 @@ const OrganizationOnboardingForm = () => {
         <Alert>
           <ScaleIcon className="h-4 w-4 shrink-0 text-primary-foreground" />
           <AlertDescription className="text-muted-foreground text-xs">
-            Your accounting currency is derived from your incorporation country. This doesn't affect
-            your ability to bill in other currencies.
+            Your accounting currency is derived from your incorporation country. This does not
+            affect your ability to bill in other currencies.
           </AlertDescription>
         </Alert>
 

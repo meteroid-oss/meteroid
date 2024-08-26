@@ -6,10 +6,10 @@ import {
 } from '@connectrpc/connect-query'
 import { CreateQueryOptions } from '@connectrpc/connect-query/dist/cjs/create-use-query-options'
 import { matchRoutes } from 'react-router-dom'
-import router from 'router/router'
 import { toast } from 'sonner'
 
 import { getSessionToken } from '@/features/auth/session'
+import router from 'router/router'
 
 import type { Message, PartialMessage, PlainMessage } from '@bufbuild/protobuf'
 import type { ConnectError, Interceptor, Transport } from '@connectrpc/connect'

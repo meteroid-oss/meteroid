@@ -1,6 +1,3 @@
-import { CaretSortIcon, CheckIcon } from '@radix-ui/react-icons'
-import { useState } from 'react'
-
 import {
   Button,
   cn,
@@ -15,6 +12,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@md/ui'
+import { CaretSortIcon, CheckIcon } from '@radix-ui/react-icons'
+import { useState } from 'react'
+
 
 interface Props {
   options: { label: React.ReactNode; value: string; keywords?: string[] }[]

@@ -165,8 +165,6 @@ impl OrganizationsInterface for Store {
 
                 let invite_hash = nanoid::nanoid!(32, &BASE62_ALPHABET);
 
-                // we could add some expiry (configurable enum 1 hour/day/week/month/forever) default week, via a signature to avoid invalidating old links on view (unless that is requested)
-                // ex: keep the hash to allow invalidation, drop the find_by_invite_link, encode org id + expiry + hash + signature in the resulting data provided to user
                 let _ = OrganizationRow::update_invite_link(&mut conn, org.id, &invite_hash)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;

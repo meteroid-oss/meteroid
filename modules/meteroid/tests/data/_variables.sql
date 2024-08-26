@@ -1,6 +1,7 @@
 DO
 $$
     DECLARE
+        var_org_id                     UUID := '018c2c82-3def-7fa0-bf6f-a5f8fe341549';
         var_user_id                    UUID := 'ae35bbb9-65da-477d-b856-7dbd87546441';
         var_tenant_id                  UUID := '018c2c82-3df1-7e84-9e05-6e141d0e751a';
         var_invoicing_entity_id        UUID := 'cf144094-ab72-441c-8c8a-54e18bfba0ef';
@@ -37,7 +38,7 @@ $$
         var_comp_supabase_db_size_id   UUID := '331810d4-05b1-4d8e-bf9b-d61cedaec117';
 
         -- subscriptions
-        
+
         var_sub_spotify_notion_id      UUID := '018c3475-bdc5-77dd-9e26-e9a7fdd60426';
         var_sub_spotify_supabase_id    UUID := '018c3762-d554-7339-b13d-6fff8c9b76a0';
         var_sub_uber_notion_id         UUID := '018c3477-2274-7029-9743-b3a4eb779399';

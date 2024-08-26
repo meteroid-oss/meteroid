@@ -29,7 +29,7 @@ export const TenantNew: FunctionComponent = () => {
     schema: tenantSchema,
     defaultValues: {
       name: '',
-      environment: `${TenantEnvironmentEnum.PRODUCTION}` as any as TenantEnvironmentEnum,
+      environment: `${TenantEnvironmentEnum.PRODUCTION}` as unknown as TenantEnvironmentEnum,
     },
   })
 

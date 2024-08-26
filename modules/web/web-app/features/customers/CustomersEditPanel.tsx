@@ -71,20 +71,22 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
             <form
               onSubmit={methods.handleSubmit(async values => {
                 const res = await createCustomerMut.mutateAsync({
-                  name: values.companyName,
-                  alias: values.externalId,
-                  billingConfig: values.stripeCustomerId
-                    ? {
-                        billingConfigOneof: {
-                          case: 'stripe',
-                          value: {
-                            collectionMethod:
-                              CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
-                            customerId: values.stripeCustomerId,
+                  data: {
+                    name: values.companyName,
+                    alias: values.externalId,
+                    billingConfig: values.stripeCustomerId
+                      ? {
+                          billingConfigOneof: {
+                            case: 'stripe',
+                            value: {
+                              collectionMethod:
+                                CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
+                              customerId: values.stripeCustomerId,
+                            },
                           },
-                        },
-                      }
-                    : undefined,
+                        }
+                      : undefined,
+                  },
                 })
                 if (res.customer?.id) {
                   navigate(`./${res.customer.id}`)

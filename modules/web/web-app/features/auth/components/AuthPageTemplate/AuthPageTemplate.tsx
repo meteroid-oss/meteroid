@@ -1,5 +1,6 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
+import { MeteroidTitle } from '@/components/svg'
 import {
   ContentWrapper,
   FormContainer,
@@ -10,7 +11,6 @@ import {
   Visual,
 } from '@/features/auth/components/AuthPageTemplate/AuthPageTemplate.styled'
 
-import { MeteroidTitle } from '@/components/svg'
 import type { FC } from 'react'
 
 interface PageTemplateProps {}

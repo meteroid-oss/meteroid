@@ -29,7 +29,7 @@ export const UserOnboarding: React.FC = () => {
       <div className="md:w-[500px] w-full  px-6 py-12 sm:px-12 flex flex-col   ">
         <h2 className="text-xl font-semibold">Welcome to Meteroid !</h2>
         <p className="mt-2 text-sm text-muted-foreground">
-          Let's take a minute to configure your account. <br />
+          Let&apos;s take a minute to configure your account. <br />
           How should we call you ?
         </p>
 
@@ -89,14 +89,14 @@ const UserOnboardingForm = () => {
           name="firstName"
           label="First name"
           control={methods.control}
-          placeholder="Joe"
+          placeholder="John"
         />
 
         <InputFormField
           name="lastName"
           label="Last name"
           control={methods.control}
-          placeholder="Dohn"
+          placeholder="Doe"
         />
 
         <SelectFormField

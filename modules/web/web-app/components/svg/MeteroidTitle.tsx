@@ -1,7 +1,7 @@
+import { memo } from 'react'
 import SVG from 'react-inlinesvg'
 
 import { useTheme } from 'providers/ThemeProvider'
-import { memo } from 'react'
 
 interface Props {
   width?: number

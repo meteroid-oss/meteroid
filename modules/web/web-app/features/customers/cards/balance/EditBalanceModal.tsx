@@ -32,7 +32,6 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
     schema: balanceSchema,
     defaultValues: {
       balanceValueCents: customer.balanceValueCents,
-      balanceCurrency: customer.balanceCurrency as z.infer<typeof balanceSchema>['balanceCurrency'],
     },
   })
 
@@ -42,7 +41,6 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
       customer: {
         id: customer.id,
         balanceValueCents: data.balanceValueCents,
-        balanceCurrency: data.balanceCurrency,
       },
     })
     toast.success('Balance updated')
@@ -66,7 +64,6 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
                 type="number"
                 control={methods.control}
               />
-              <InputFormField label="Currency" name="balanceCurrency" control={methods.control} />
             </div>
           </form>
         </Form>

@@ -5,10 +5,10 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { useCurrency } from '@/hooks/useCurrency'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
 import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import { useCurrency } from '@/hooks/useCurrency'
 import type { FunctionComponent, ReactNode } from 'react'
 
 interface SubscriptionsTableProps {

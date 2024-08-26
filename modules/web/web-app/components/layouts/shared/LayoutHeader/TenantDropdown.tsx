@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@md/ui'
+import { CommandList } from 'cmdk'
 import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -15,7 +16,6 @@ import { useOrganizationSlug } from '@/hooks/useOrganization'
 import { useTenant } from '@/hooks/useTenant'
 import { useQuery } from '@/lib/connectrpc'
 import { listTenants } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
-import { CommandList } from 'cmdk'
 
 export const TenantDropdown = () => {
   const tenants = useQuery(listTenants).data?.tenants ?? []

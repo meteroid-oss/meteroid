@@ -1,3 +1,4 @@
+import { Button } from '@ui/components'
 import { Navigate } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
@@ -5,7 +6,6 @@ import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { Button } from '@ui/components'
 
 /**
  * This checks the onboarding status of the user, and redirect accordingly
@@ -36,7 +36,9 @@ export const Root: React.FC = () => {
   if (getInstanceQuery.data?.instanceInitiated && !getInstanceQuery.data.multiOrganizationEnabled) {
     return (
       <div className="p-10">
-        <div>You don't have access to this instance. Request an invite link to your admin.</div>
+        <div>
+          You don&apos;t have access to this instance. Request an invite link to your admin.
+        </div>
         <div>
           <Button onClick={() => logout()}>Logout</Button>
         </div>

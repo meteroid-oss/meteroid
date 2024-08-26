@@ -1,10 +1,10 @@
 import { RouteObject } from 'react-router-dom'
 
 import { Login, Registration } from '@/features/auth'
+import AuthPageTemplate from '@/features/auth/components/AuthPageTemplate'
 import { AnonymousRoutes } from '@/features/auth/sessionRoutes'
 import { Recovery, Verification } from '@/pages'
 
-import AuthPageTemplate from '@/features/auth/components/AuthPageTemplate'
 
 export const anonymousRoutes: RouteObject = {
   element: <AnonymousRoutes />,

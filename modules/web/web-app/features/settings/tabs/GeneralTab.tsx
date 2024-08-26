@@ -1,3 +1,11 @@
+import { useMutation } from '@connectrpc/connect-query'
+import { Button, Card, ComboboxFormField, Form, InputFormField } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
+import { z } from 'zod'
+
 import { Loading } from '@/components/Loading'
 import { useOrganizationSlug } from '@/hooks/useOrganization'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -7,13 +15,6 @@ import {
   activeTenant,
   updateTenant,
 } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
-import { useMutation } from '@connectrpc/connect-query'
-import { Button, Card, ComboboxFormField, Form, InputFormField } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
-import { z } from 'zod'
 
 const generalSchema = z.object({
   tradeName: z.string().min(1, 'Trade name is required'),

@@ -39,6 +39,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn create_invoicing_entity(
         &self,
         request: Request<CreateInvoicingEntityRequest>,
@@ -66,6 +67,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn update_invoicing_entity(
         &self,
         request: Request<UpdateInvoicingEntityRequest>,
@@ -77,8 +79,6 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         let data = req
             .data
             .ok_or_else(|| Status::invalid_argument("Missing data"))?;
-
-        // TODO check if the account entity is used by any invoice
 
         let res = self
             .store

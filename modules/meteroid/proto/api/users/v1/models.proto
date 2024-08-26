@@ -7,13 +7,7 @@ enum OrganizationUserRole {
   MEMBER = 1;
 }
 
-/*
-   pub onboarded: bool,
-   pub first_name: String,
-   pub last_name: Option<String>,
-   pub department: Option<String>,
-*/
-
+ 
 message User {
   string id = 1;
   string email = 2;

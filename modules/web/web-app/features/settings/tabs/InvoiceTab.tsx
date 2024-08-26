@@ -1,4 +1,13 @@
+import {
+  createConnectQueryKey,
+  createProtobufSafeUpdater,
+  useMutation,
+} from '@connectrpc/connect-query'
 import { Badge, Button, Card, Form, InputFormField, TextareaFormField } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { PlusIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { Combobox } from '@/components/Combobox'
@@ -11,15 +20,6 @@ import {
   listInvoicingEntities,
   updateInvoicingEntity,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import {
-  createConnectQueryKey,
-  createProtobufSafeUpdater,
-  useMutation,
-} from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
-import { PlusIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { toast } from 'sonner'
 
 const invoiceDetailsSchema = z.object({
   invoiceNumberPattern: z.string().optional(),
@@ -140,7 +140,7 @@ export const InvoiceTab = () => {
                           <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
                           <div>{entity.legalName}</div>
                           <div className="flex-grow" />
-                          {entity.isDefault && <Badge variant={'primary'}>Default</Badge>}
+                          {entity.isDefault && <Badge variant="primary">Default</Badge>}
                         </div>
                       ),
                       value: entity.id,
