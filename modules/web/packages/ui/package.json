@@ -73,6 +73,7 @@
     "autoprefixer": "10.4.17",
     "chromatic": "^10.7.1",
     "concurrently": "^8.2.2",
+    "eslint": "^8",
     "json": "^11.0.0",
     "postcss": "^8.4.38",
     "postcss-loader": "^8.1.0",

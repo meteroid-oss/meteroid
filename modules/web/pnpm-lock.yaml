@@ -27,6 +27,9 @@ importers:
       dotenv-cli:
         specifier: ^7.3.0
         version: 7.3.0
+      eslint:
+        specifier: ^8
+        version: 8.56.0
       husky:
         specifier: ^9.0.10
         version: 9.0.10
@@ -95,8 +98,8 @@ importers:
         specifier: ^6.21.0
         version: 6.21.0(eslint@8.56.0)(typescript@5.3.3)
       eslint-config-prettier:
-        specifier: ^9.1.0
-        version: 9.1.0(eslint@8.56.0)
+        specifier: ^8
+        version: 8.10.0(eslint@8.56.0)
       eslint-import-resolver-typescript:
         specifier: ^3.6.1
         version: 3.6.1(@typescript-eslint/parser@6.21.0(eslint@8.56.0)(typescript@5.3.3))(eslint-plugin-import@2.29.1)(eslint@8.56.0)
@@ -384,6 +387,9 @@ importers:
       concurrently:
         specifier: ^8.2.2
         version: 8.2.2
+      eslint:
+        specifier: ^8
+        version: 8.56.0
       json:
         specifier: ^11.0.0
         version: 11.0.0
@@ -4916,8 +4922,8 @@ packages:
       typescript:
         optional: true
 
-  eslint-config-prettier@9.1.0:
-    resolution: {integrity: sha512-NSWl5BFQWEPi1j4TjVNItzYV7dZXZ+wP6I6ZhrBGpChQhZRUaElihE9uRRkcbRnNb76UMKDF3r+WTmNcGPKsqw==}
+  eslint-config-prettier@8.10.0:
+    resolution: {integrity: sha512-SM8AMJdeQqRYT9O9zguiruQZaN7+z+E4eAP9oiLNGKMtomwaB1E9dcgUD6ZAn/eQAb52USbvezbiljfZUhbJcg==}
     hasBin: true
     peerDependencies:
       eslint: '>=7.0.0'
@@ -13493,7 +13499,7 @@ snapshots:
       - eslint-import-resolver-webpack
       - supports-color
 
-  eslint-config-prettier@9.1.0(eslint@8.56.0):
+  eslint-config-prettier@8.10.0(eslint@8.56.0):
     dependencies:
       eslint: 8.56.0
 
