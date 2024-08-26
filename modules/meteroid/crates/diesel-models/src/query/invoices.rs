@@ -173,16 +173,17 @@ impl InvoiceRow {
     ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
+        use crate::schema::invoicing_entity::dsl as ie_dsl;
 
         let query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
+            .inner_join(ie_dsl::invoicing_entity.on(c_dsl::invoicing_entity_id.eq(ie_dsl::id)))
             .filter(
                 i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
             )
             .filter(diesel::dsl::now.gt(i_dsl::invoice_date
                 + diesel::dsl::sql::<diesel::sql_types::Interval>(
-                    // TODO
-                    "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
+                    "\"invoicing_entity\".\"grace_period_hours\" * INTERVAL '1 hour'",
                 )))
             .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, i_dsl::id, "id");
@@ -344,7 +345,6 @@ impl InvoiceRow {
             .into_db_result()
     }
 
-    // TODO invoicing_config
     pub async fn update_pending_finalization(
         conn: &mut PgConn,
         now: NaiveDateTime,
@@ -357,11 +357,12 @@ impl InvoiceRow {
 UPDATE invoice
 SET status = 'PENDING',
     updated_at = $1
-FROM invoicing_config
-WHERE invoice.tenant_id = invoicing_config.tenant_id
+FROM customer
+INNER JOIN invoicing_entity ON customer.invoicing_entity_id = invoicing_entity.id
+WHERE invoice.customer_id = customer.id
   AND invoice.status = 'DRAFT'
   AND invoice.invoice_date < $2
-  AND $3 <= (invoice.invoice_date + interval '1 hour' * invoicing_config.grace_period_hours);
+  AND $3 <= (invoice.invoice_date + interval '1 hour' * invoicing_entity.grace_period_hours);
         "#;
 
         let query = diesel::sql_query(raw_sql)

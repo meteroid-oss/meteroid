@@ -24,9 +24,12 @@ CREATE TABLE invoicing_entity
     accounting_currency     VARCHAR(50) NOT NULL,
     tenant_id               UUID        NOT NULL,
     CONSTRAINT "invoicing_entity_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant" ("id") ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT "invoicing_entity_is_default_tenant_id_key" UNIQUE ("is_default", "tenant_id"),
     CONSTRAINT "invoicing_entity_local_id_tenant_id_key" UNIQUE ("local_id", "tenant_id")
 );
+
+CREATE UNIQUE INDEX invoicing_entity_is_default_tenant_id_key
+    ON invoicing_entity (tenant_id)
+    WHERE is_default = true;
 
 
 ALTER TABLE "user"
@@ -50,5 +53,4 @@ alter table customer
     alter column currency drop default;
 
 alter table invoice
-    ADD COLUMN "seller_details" jsonb NOT NULL,
-    ALTER COLUMN "total" DROP NOT NULL;
+    ADD COLUMN "seller_details" jsonb NOT NULL;

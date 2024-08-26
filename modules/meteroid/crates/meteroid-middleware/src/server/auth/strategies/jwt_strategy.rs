@@ -1,5 +1,4 @@
 use cached::proc_macro::cached;
-use cached::Cached;
 use http::HeaderMap;
 use jsonwebtoken::DecodingKey;
 use secrecy::{ExposeSecret, SecretString};
@@ -52,8 +51,8 @@ const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
     result = true,
     size = 100,
     time = 86400, // 1 day
-    key = "String",
-    convert = r#"{ format!("{}/{}", &organization_slug, &tenant_slug.as_ref().unwrap_or(&String::new())) }"#
+    key = "(String, Option<String>)",
+    convert = r#"{ (organization_slug.clone(), tenant_slug.clone()) }"#
 )]
 async fn resolve_slugs_cached(
     store: Store,
@@ -95,7 +94,7 @@ pub async fn invalidate_resolve_slugs_cache(organization_slug: &String, tenant_s
     {
         use cached::Cached;
         let mut cache = self::RESOLVE_SLUGS_CACHED.lock().await;
-        cache.cache_remove(&format!("{}/{}", organization_slug, tenant_slug));
+        cache.cache_remove(&(organization_slug.clone(), Some(tenant_slug.clone())));
     }
 }
 
@@ -103,8 +102,8 @@ pub async fn invalidate_resolve_slugs_cache(organization_slug: &String, tenant_s
     result = true,
     size = 150,
     time = 300, // 5 min. With RBAC, use redis backend instead & invalidate on change
-    key = "String",
-    convert = r#"{ format!("{}{}", user_id, org_id) }"#
+    key = "(Uuid, Uuid)",
+    convert = r#"{ (*user_id, *org_id) }"#
 )]
 async fn get_user_role_oss_cached(
     store: Store,
