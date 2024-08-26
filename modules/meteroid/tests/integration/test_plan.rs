@@ -8,7 +8,7 @@ use meteroid_grpc::meteroid::api::plans::v1::plan_billing_configuration::{
     Forever, ServicePeriodStart,
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanBillingConfiguration;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 
 #[tokio::test]
 async fn test_plans_basic() {
@@ -21,12 +21,12 @@ async fn test_plans_basic() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
+
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG", "testslug",
     );
 
     // create plan

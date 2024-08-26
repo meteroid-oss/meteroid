@@ -10,7 +10,7 @@ import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { mapBillingPeriodFromGrpc } from '@/lib/mapping'
-import { PlanVersion, PlanStatus, Plan } from '@/rpc/api/plans/v1/models_pb'
+import { Plan, PlanStatus, PlanType, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { getLastPublishedPlanVersion } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
@@ -118,9 +118,8 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
               ))}
             </div>
             <div className="flex flex-col gap-y-2">
-              {rightProperties.map(property => (
-                <Property key={property.label} {...property} />
-              ))}
+              {plan.planType !== PlanType.FREE &&
+                rightProperties.map(property => <Property key={property.label} {...property} />)}
             </div>
           </div>
         </div>

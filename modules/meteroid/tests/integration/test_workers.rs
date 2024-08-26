@@ -36,6 +36,7 @@ async fn test_draft_worker() {
         postgres_connection_string,
         secrecy::SecretString::new("test-key".into()),
         secrecy::SecretString::new("test-jwt-key".into()),
+        false,
         create_eventbus_noop().await,
         Arc::new(MockUsageClient::noop()),
     )

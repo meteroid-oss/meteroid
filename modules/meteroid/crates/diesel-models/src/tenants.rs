@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::enums::TenantEnvironmentEnum;
 
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::tenant)]
@@ -31,4 +31,15 @@ pub struct TenantRowNew {
     pub organization_id: Uuid,
     pub currency: String,
     pub environment: TenantEnvironmentEnum,
+}
+
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::tenant)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct TenantRowPatch {
+    pub name: Option<String>,
+    pub slug: Option<String>,
+    pub currency: Option<String>,
+    pub environment: Option<TenantEnvironmentEnum>,
 }

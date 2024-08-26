@@ -10,7 +10,7 @@
 --
 
 INSERT INTO public.organization
-VALUES ('018c2c82-3def-7fa0-bf6f-a5f8fe341549', 'Local Org', '91ny4j5j4j01', '2023-12-02 21:49:42.255', NULL);
+VALUES ('018c2c82-3def-7fa0-bf6f-a5f8fe341549', 'Local Org', 'TESTORG', '2023-12-02 21:49:42.255', NULL);
 
 
 --
@@ -18,7 +18,7 @@ VALUES ('018c2c82-3def-7fa0-bf6f-a5f8fe341549', 'Local Org', '91ny4j5j4j01', '20
 --
 
 INSERT INTO public.tenant
-VALUES ('018c2c82-3df1-7e84-9e05-6e141d0e751a', 'Sandbox', 'a712afi5lzhk', '2023-12-02 21:49:42.255', NULL, NULL,
+VALUES ('018c2c82-3df1-7e84-9e05-6e141d0e751a', 'Sandbox', 'testslug', '2023-12-02 21:49:42.255', NULL, NULL,
         '018c2c82-3def-7fa0-bf6f-a5f8fe341549', 'EUR');
 
 
@@ -46,12 +46,108 @@ VALUES ('018c2c82-3df2-71a4-b45c-86cb8604b75c', 'Default', 'default', '2023-12-0
 -- -- A default historical value that will be used as fallback for usd calculation until rates gets updated
 -- --
 INSERT INTO public.historical_rates_from_usd
-VALUES ('018df083-46df-7326-a3ca-fb98888e1196', '2010-01-01', '{"AUD": 1.108609,"BRL": 1.741616,"CAD": 1.048367,"CHF": 1.0338,"CNY": 6.828759,"COP": 2044.171135,"EUR": 0.697253,"GBP": 0.618224,"HKD": 7.754729,"JPY": 92.910732,"KRW": 1160.640163,"MXN": 13.108757,"NZD": 1.377768,"SEK": 7.138645,"USD": 1}'),
-('018df083-46df-767d-8ba3-2e42d8ad0a88', '2020-01-01', '{"AUD": 1.424502,"BRL": 4.019699,"CAD": 1.29765,"CHF": 0.967795,"CNY": 6.9632,"COP": 3286.8887,"EUR": 0.891348,"GBP": 0.754603,"HKD": 7.79267,"JPY": 108.72525,"KRW": 1154.969938,"MXN": 18.914,"NZD": 1.484656,"SEK": 9.346581,"USD": 1}'),
-('018df083-46df-71b6-ba23-3ebc51265c70', '2021-01-01', '{"AUD": 1.29985,"BRL": 5.1934,"CAD": 1.272993,"CHF": 0.890075,"CNY": 6.533,"COP": 3461.475266,"EUR": 0.822681,"GBP": 0.73135,"HKD": 7.75325,"JPY": 103.23998054,"KRW": 1085.73,"MXN": 19.8822,"NZD": 1.412085,"SEK": 8.26929,"USD": 1}'),
-('018df083-46df-7b64-886a-7a7a4bada7c0', '2022-01-01', '{"AUD": 1.376558,"BRL": 5.5713,"CAD": 1.26405,"CHF": 0.911704,"CNY": 6.3559,"COP": 4052.013259,"EUR": 0.879202,"GBP": 0.739016,"HKD": 7.7961,"JPY": 115.108,"KRW": 1188.88,"MXN": 20.4973,"NZD": 1.461562,"SEK": 9.05005,"USD": 1}'),
-('018df083-46df-7f80-86da-f8c878b120f9', '2023-01-01', '{"AUD": 1.466361,"BRL": 5.286471,"CAD": 1.35339,"CHF": 0.924587,"CNY": 6.89814,"COP": 4837.794852,"EUR": 0.934096,"GBP": 0.826651,"HKD": 7.80261,"JPY": 130.926,"KRW": 1261.764305,"MXN": 19.497266,"NZD": 1.573642,"SEK": 10.421755,"USD": 1}'),
-('018df083-b921-7e28-8824-3a7a6ae2733e', '2024-01-01', '{"AUD": 1.468645,"BRL": 4.8539,"CAD": 1.324436,"CHF": 0.841915,"CNY": 7.0786,"COP": 3887.87175,"EUR": 0.906074,"GBP": 0.78569,"HKD": 7.81035,"JPY": 141.115,"KRW": 1280.64,"MXN": 16.9664,"NZD": 1.583713,"SEK": 10.074633,"USD": 1}');
+VALUES ('018df083-46df-7326-a3ca-fb98888e1196', '2010-01-01', '{
+  "AUD": 1.108609,
+  "BRL": 1.741616,
+  "CAD": 1.048367,
+  "CHF": 1.0338,
+  "CNY": 6.828759,
+  "COP": 2044.171135,
+  "EUR": 0.697253,
+  "GBP": 0.618224,
+  "HKD": 7.754729,
+  "JPY": 92.910732,
+  "KRW": 1160.640163,
+  "MXN": 13.108757,
+  "NZD": 1.377768,
+  "SEK": 7.138645,
+  "USD": 1
+}'),
+       ('018df083-46df-767d-8ba3-2e42d8ad0a88', '2020-01-01', '{
+         "AUD": 1.424502,
+         "BRL": 4.019699,
+         "CAD": 1.29765,
+         "CHF": 0.967795,
+         "CNY": 6.9632,
+         "COP": 3286.8887,
+         "EUR": 0.891348,
+         "GBP": 0.754603,
+         "HKD": 7.79267,
+         "JPY": 108.72525,
+         "KRW": 1154.969938,
+         "MXN": 18.914,
+         "NZD": 1.484656,
+         "SEK": 9.346581,
+         "USD": 1
+       }'),
+       ('018df083-46df-71b6-ba23-3ebc51265c70', '2021-01-01', '{
+         "AUD": 1.29985,
+         "BRL": 5.1934,
+         "CAD": 1.272993,
+         "CHF": 0.890075,
+         "CNY": 6.533,
+         "COP": 3461.475266,
+         "EUR": 0.822681,
+         "GBP": 0.73135,
+         "HKD": 7.75325,
+         "JPY": 103.23998054,
+         "KRW": 1085.73,
+         "MXN": 19.8822,
+         "NZD": 1.412085,
+         "SEK": 8.26929,
+         "USD": 1
+       }'),
+       ('018df083-46df-7b64-886a-7a7a4bada7c0', '2022-01-01', '{
+         "AUD": 1.376558,
+         "BRL": 5.5713,
+         "CAD": 1.26405,
+         "CHF": 0.911704,
+         "CNY": 6.3559,
+         "COP": 4052.013259,
+         "EUR": 0.879202,
+         "GBP": 0.739016,
+         "HKD": 7.7961,
+         "JPY": 115.108,
+         "KRW": 1188.88,
+         "MXN": 20.4973,
+         "NZD": 1.461562,
+         "SEK": 9.05005,
+         "USD": 1
+       }'),
+       ('018df083-46df-7f80-86da-f8c878b120f9', '2023-01-01', '{
+         "AUD": 1.466361,
+         "BRL": 5.286471,
+         "CAD": 1.35339,
+         "CHF": 0.924587,
+         "CNY": 6.89814,
+         "COP": 4837.794852,
+         "EUR": 0.934096,
+         "GBP": 0.826651,
+         "HKD": 7.80261,
+         "JPY": 130.926,
+         "KRW": 1261.764305,
+         "MXN": 19.497266,
+         "NZD": 1.573642,
+         "SEK": 10.421755,
+         "USD": 1
+       }'),
+       ('018df083-b921-7e28-8824-3a7a6ae2733e', '2024-01-01', '{
+         "AUD": 1.468645,
+         "BRL": 4.8539,
+         "CAD": 1.324436,
+         "CHF": 0.841915,
+         "CNY": 7.0786,
+         "COP": 3887.87175,
+         "EUR": 0.906074,
+         "GBP": 0.78569,
+         "HKD": 7.81035,
+         "JPY": 141.115,
+         "KRW": 1280.64,
+         "MXN": 16.9664,
+         "NZD": 1.583713,
+         "SEK": 10.074633,
+         "USD": 1
+       }');
 
 
 --
@@ -81,13 +177,15 @@ VALUES ('018c3453-1f11-76a8-8d69-f74921b2646d', 'Bandwidth (GB)', '', 'bandwidth
 
 INSERT INTO public.customer
 VALUES ('018c345f-7324-7cd2-a692-78e5ab9158e0', 'Sportify', '2023-12-04 10:28:39.845',
-        '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', NULL, NULL, NULL, '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL, 'spotify');
+        '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', NULL, NULL, NULL, '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL,
+        'spotify');
 INSERT INTO public.customer
 VALUES ('018c345f-dff1-7857-b988-6c792ed6fa3f', 'Uber', '2023-12-04 10:29:07.699',
         '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', NULL, NULL, NULL, '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL, 'uber');
 INSERT INTO public.customer
 VALUES ('018c3463-05f3-7c1f-92b1-ddb1f70905a2', 'Comodo', '2023-12-04 10:32:34.036',
-        '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', NULL, NULL, NULL, '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL, 'comodo');
+        '378d66e2-ea89-4d6b-9fe0-7970a99eb03e', NULL, NULL, NULL, '018c2c82-3df1-7e84-9e05-6e141d0e751a', NULL,
+        'comodo');
 
 
 --
@@ -452,41 +550,40 @@ VALUES ('018c3763-070e-709d-8413-f42828e71943', '018c3463-05f3-7c1f-92b1-ddb1f70
 -- Data for Name: invoice
 --
 
-INSERT INTO public."invoice" (
-    id, status, external_status, created_at, updated_at, tenant_id, customer_id, subscription_id, currency, invoicing_provider, line_items, issued, issue_attempts, last_issue_attempt_at, last_issue_error, data_updated_at, invoice_date
-) VALUES (
-    '123e4567-e89b-12d3-a456-426614174000',
-    -- status
-    'VOID',
-    -- external_status
-    'VOID',
-    -- dates
-    '2023-12-02 21:49:08.805', '2024-12-02 21:49:08.805',
-    -- tenant_id
-    '018c2c82-3df1-7e84-9e05-6e141d0e751a',
-    -- customer_id
-    '018c3463-05f3-7c1f-92b1-ddb1f70905a2',
-    -- subscription_id
-    '018c347a-b42b-709f-8e70-b0b63029aa35',
-    -- currency
-    'USD',
-    -- invoicing_provider
-    'STRIPE',
-    -- line_items
-    '[]',
-    -- issued
-    FALSE,
-    -- attempts
-    2,
-    -- last_issue_attempt_at
-    '2023-12-04 10:28:39.845',
-    -- last_issue_error
-    NULL,
-     -- data_updated_at
-    '2023-12-04 10:28:39.845',
-     -- invoice_date
-    '2023-12-04 10:00:00.000'
-);
+INSERT INTO public."invoice" (id, status, external_status, created_at, updated_at, tenant_id, customer_id,
+                              subscription_id, currency, invoicing_provider, line_items, issued, issue_attempts,
+                              last_issue_attempt_at, last_issue_error, data_updated_at, invoice_date)
+VALUES ('123e4567-e89b-12d3-a456-426614174000',
+           -- status
+        'VOID',
+           -- external_status
+        'VOID',
+           -- dates
+        '2023-12-02 21:49:08.805', '2024-12-02 21:49:08.805',
+           -- tenant_id
+        '018c2c82-3df1-7e84-9e05-6e141d0e751a',
+           -- customer_id
+        '018c3463-05f3-7c1f-92b1-ddb1f70905a2',
+           -- subscription_id
+        '018c347a-b42b-709f-8e70-b0b63029aa35',
+           -- currency
+        'USD',
+           -- invoicing_provider
+        'STRIPE',
+           -- line_items
+        '[]',
+           -- issued
+        FALSE,
+           -- attempts
+        2,
+           -- last_issue_attempt_at
+        '2023-12-04 10:28:39.845',
+           -- last_issue_error
+        NULL,
+           -- data_updated_at
+        '2023-12-04 10:28:39.845',
+           -- invoice_date
+        '2023-12-04 10:00:00.000');
 
 --
 -- Data for Name: tenant_invite; Type: TABLE DATA; Schema: public; Owner: meteroidbilling

@@ -2,23 +2,10 @@ syntax = "proto3";
 
 package meteroid.api.instance.v1;
 
-message Instance {
-  string company_name = 1;
-  string organization_id = 2;
-}
-
 message GetInstanceRequest {}
 message GetInstanceResponse {
-  Instance instance = 1;
-}
-
-message InitInstanceRequest {
-  string company_name = 1;
-  string currency = 2;
-}
-
-message InitInstanceResponse {
-  Instance instance = 1;
+  bool multi_organization_enabled = 1;
+  bool instance_initiated = 2;
 }
 
 message GetInviteRequest {}
@@ -27,8 +14,34 @@ message GetInviteResponse {
   string invite_hash = 1;
 }
 
+message GetCountriesRequest {}
+
+message GetCountriesResponse {
+  repeated Country countries = 1;
+
+  message Country {
+    string code = 1;
+    string name = 2;
+    string currency = 3;
+  }
+}
+
+message GetCurrenciesRequest {}
+
+message GetCurrenciesResponse {
+  repeated Currency currencies = 1;
+
+  message Currency {
+    string code = 1;
+    string name = 2;
+    string symbol = 3;
+    uint32 precision = 4;
+  }
+}
+
 service InstanceService {
   rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse) {}
-  rpc InitInstance(InitInstanceRequest) returns (InitInstanceResponse) {}
   rpc GetInvite(GetInviteRequest) returns (GetInviteResponse) {}
+  rpc GetCountries(GetCountriesRequest) returns (GetCountriesResponse) {}
+  rpc GetCurrencies(GetCurrenciesRequest) returns (GetCurrenciesResponse) {}
 }

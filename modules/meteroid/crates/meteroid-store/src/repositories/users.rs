@@ -1,5 +1,5 @@
-use crate::domain::enums::{OrganizationUserRole, TenantEnvironmentEnum};
-use crate::domain::users::{LoginUserRequest, LoginUserResponse, RegisterUserRequest, RegisterUserResponse, User, UserWithRole};
+use crate::domain::enums::OrganizationUserRole;
+use crate::domain::users::{LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest, RegisterUserResponse, UpdateUser, UpdateUserRole, User, UserWithRole};
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
@@ -9,25 +9,30 @@ use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::organization_members::OrganizationMemberRow;
-use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
-use diesel_models::tenants::TenantRowNew;
-use diesel_models::users::{UserRow, UserRowNew};
+use diesel_models::organizations::OrganizationRow;
+use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
 use error_stack::Report;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use uuid::Uuid;
+use crate::domain::Organization;
 
 #[async_trait::async_trait]
 pub trait UserInterface {
     async fn register_user(&self, req: RegisterUserRequest) -> StoreResult<RegisterUserResponse>;
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse>;
-    async fn me(&self, auth_user_id: Uuid) -> StoreResult<User>;
+    async fn me(&self, auth_user_id: Uuid, organization_id: Option<Uuid>) -> StoreResult<Me>;
+    async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User>;
+    // async fn update_user_role(&self, auth_user_id: Uuid, organization_id: Uuid, data: UpdateUserRole) -> StoreResult<User>;
 
     async fn find_user_by_id_and_organization(&self, id: Uuid, org_id: Uuid) -> StoreResult<UserWithRole>;
-    
-    // async fn find_user_by_id(&self, id: Uuid) -> StoreResult<User>;
+    async fn find_user_by_id_and_tenant(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<UserWithRole>;
+
     async fn find_user_by_email_and_organization(&self, email: String, org_id: Uuid) -> StoreResult<UserWithRole>;
     async fn list_users_for_organization(&self, org_id: Uuid) -> StoreResult<Vec<UserWithRole>>;
+
+    /** Internal use only. For API/external, use me() or find_user_by_id_and_organization() */
+    async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User>;
 }
 
 #[async_trait::async_trait]
@@ -82,7 +87,6 @@ impl UserInterface for Store {
                 create_user(&mut conn, &req).await?
             }
             Some(ref invite_link) => {
-                
                 let cloned_req = req.clone();
                 self.transaction(|conn| {
                     async move {
@@ -104,7 +108,7 @@ impl UserInterface for Store {
                         om.insert(conn)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
-                        
+
                         Ok(created)
                     }.scope_boxed()
                 })
@@ -157,39 +161,92 @@ impl UserInterface for Store {
         })
     }
 
-    async fn me(&self, auth_user_id: Uuid) -> StoreResult<User> {
+    async fn me(&self, auth_user_id: Uuid, organization_id: Option<Uuid>) -> StoreResult<Me> {
         let mut conn = self.get_conn().await?;
 
-        UserRow::find_by_id(&mut conn, auth_user_id)
+        let organizations: Vec<Organization> = OrganizationRow::list_by_user_id(&mut conn, auth_user_id)
             .await
-            .map_err(Into::into)
-            .map(Into::into)
+            .map_err(Into::<Report<StoreError>>::into)
+            .map(|x| x.into_iter().map(Into::into).collect())?;
+
+
+        let (user, current_organization_role) = match organization_id {
+            Some(org_id) => {
+                let user: UserWithRole = UserRow::find_by_id_and_org_id(&mut conn, auth_user_id, org_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .map(Into::into)?;
+
+                let role = user.role.clone();
+                (user.into(), Some(role))
+            }
+            None => {
+                let user: User = UserRow::find_by_id(&mut conn, auth_user_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .map(Into::into)?;
+
+                (user, None)
+            }
+        };
+
+
+        Ok(Me {
+            user,
+            organizations,
+            current_organization_role,
+        })
+    }
+
+    async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User> {
+        let mut conn = self.get_conn().await?;
+
+        let patch = UserRowPatch {
+            id: auth_user_id,
+            first_name: data.first_name,
+            last_name: data.last_name,
+            department: data.department.clone(),
+            onboarded: Some(true),
+        };
+
+        //TODO send know_us_from & department to analytics
+
+        let res = patch.update_user(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .map(Into::into)?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::user_updated(auth_user_id, auth_user_id, data.department, data.know_us_from))
+            .await;
+
+        Ok(res)
     }
 
     async fn find_user_by_id_and_organization(&self, id: Uuid, org_id: Uuid) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
-  
+
         UserRow::find_by_id_and_org_id(&mut conn, id, org_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
     }
 
+    async fn find_user_by_id_and_tenant(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<UserWithRole> {
+        let mut conn = self.get_conn().await?;
 
-    // async fn find_user_by_id(&self, id: Uuid) -> StoreResult<User> {
-    //     let mut conn = self.get_conn().await?;
-    // 
-    // 
-    //     UserRow::find_by_id(&mut conn, id)
-    //         .await
-    //         .map_err(Into::into)
-    //         .map(Into::into)
-    // }
+        UserRow::find_by_id_and_tenant_id(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
 
     async fn find_user_by_email_and_organization(&self, email: String, org_id: Uuid) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
-        
+
         UserRow::find_by_email_and_org_id(&mut conn, email, org_id)
             .await
             .map_err(Into::into)
@@ -198,11 +255,20 @@ impl UserInterface for Store {
 
     async fn list_users_for_organization(&self, org_id: Uuid) -> StoreResult<Vec<UserWithRole>> {
         let mut conn = self.get_conn().await?;
-        
+
         UserRow::list_by_org_id(&mut conn, org_id)
             .await
             .map_err(Into::into)
             .map(|x| x.into_iter().map(Into::into).collect())
+    }
+
+    async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User> {
+        let mut conn = self.get_conn().await?;
+
+        UserRow::find_by_id(&mut conn, id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 }
 

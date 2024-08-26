@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package meteroid.internal.v1;
 
-
 message ResolvedId {
   string external_id = 1;
   string meteroid_id = 2;
@@ -24,7 +23,8 @@ message ResolveApiKeyRequest {
 
 message ResolveApiKeyResponse {
   string tenant_id = 1;
-  string hash = 2;
+  string organization_id = 2;
+  string hash = 3;
 }
 
 service InternalService {

@@ -18,7 +18,7 @@ use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 use meteroid_store::domain::{CursorPaginationRequest, LineItem};
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::repositories::InvoiceInterface;
@@ -36,12 +36,12 @@ async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>
         meteroid_it::container::start_meteroid(postgres_connection_string, seed_level).await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
+
 
     let clients = AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG", "testslug",
     );
 
     Ok(TestContext {

@@ -9,7 +9,7 @@ pub const SEED_PASSWORD: &str = "sandbox-F3j";
 
 pub async fn login(channel: Channel) -> LoginResponse {
     // for auth we don't have yet token and slug
-    AllClients::from_channel(channel, "", "")
+    AllClients::from_channel(channel, "", "", "")
         .users
         .clone()
         .login(tonic::Request::new(

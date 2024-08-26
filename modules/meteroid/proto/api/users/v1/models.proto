@@ -2,13 +2,33 @@ syntax = "proto3";
 
 package meteroid.api.users.v1;
 
-enum UserRole {
+enum OrganizationUserRole {
   ADMIN = 0;
   MEMBER = 1;
 }
 
+/*
+   pub onboarded: bool,
+   pub first_name: String,
+   pub last_name: Option<String>,
+   pub department: Option<String>,
+*/
+
 message User {
   string id = 1;
   string email = 2;
-  UserRole role = 3;
+  optional string first_name = 3;
+  optional string last_name = 4;
+  optional string department = 5;
+  bool onboarded = 6;
+}
+
+message UserWithRole {
+  string id = 1;
+  string email = 2;
+  optional string first_name = 3;
+  optional string last_name = 4;
+  optional string department = 5;
+  bool onboarded = 6;
+  OrganizationUserRole role = 7;
 }

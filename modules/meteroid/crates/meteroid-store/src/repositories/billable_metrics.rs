@@ -1,3 +1,4 @@
+use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -61,8 +62,8 @@ impl BillableMetricInterface for Store {
             pagination.into(),
             product_family_external_id,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<BillableMetricMeta> = PaginatedVec {
             items: rows.items.into_iter().map(|s| s.into()).collect(),
@@ -84,8 +85,8 @@ impl BillableMetricInterface for Store {
             &billable_metric.family_external_id,
             billable_metric.tenant_id,
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let insertable_entity = BillableMetricRowNew {
             id: Uuid::now_v7(),
@@ -112,12 +113,35 @@ impl BillableMetricInterface for Store {
             tenant_id: billable_metric.tenant_id,
             product_family_id: family.id,
         };
+ 
 
-        let res: BillableMetric = insertable_entity
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)?;
+        let res: BillableMetric = self.transaction_with(&mut conn, |conn| {
+            async move {
+                let res: BillableMetric = insertable_entity
+                    .insert(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)
+                    .and_then(TryInto::try_into)?;
+
+
+                let _ = &self
+                    .usage_client
+                    .register_meter(&res.tenant_id, &res)
+                    .await
+                    .map_err(|x| {
+                        StoreError::MeteringServiceError(
+                            "Failed to register meter".to_string(),
+                            x,
+                        )
+                    })?;
+
+
+                Ok(res)
+            }
+                .scope_boxed()
+        })
+            .await?;
+
 
         let _ = self
             .eventbus

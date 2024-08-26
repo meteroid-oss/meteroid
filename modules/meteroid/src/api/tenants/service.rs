@@ -1,15 +1,10 @@
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::tenants::v1::{
-    tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
-    ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest,
-    CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest,
-    ListTenantsResponse,
-};
-use meteroid_store::domain;
+use meteroid_grpc::meteroid::api::tenants::v1::{tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse, ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest, CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest, ListTenantsResponse, UpdateTenantRequest, UpdateTenantResponse};
+use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
 use meteroid_store::repositories::configs::ConfigsInterface;
-use meteroid_store::repositories::{ProductFamilyInterface, TenantInterface};
+use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 
 use crate::api::tenants::error::TenantApiError;
 use crate::{api::utils::parse_uuid, parse_uuid};
@@ -19,21 +14,59 @@ use super::{mapping, TenantServiceComponents};
 #[tonic::async_trait]
 impl TenantsService for TenantServiceComponents {
     #[tracing::instrument(skip_all)]
+    async fn update_tenant(&self, request: Request<UpdateTenantRequest>) -> Result<Response<UpdateTenantResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
+
+        let inner = request.into_inner()
+            .data
+            .ok_or(TenantApiError::MissingArgument("No data provided".to_string()))?;
+        ;
+
+        let req = mapping::tenants::update_req_to_domain(inner);
+
+        
+        let organization = self.store.get_organization_by_id(organization_id).await.map_err(Into::<TenantApiError>::into)?;
+
+        let res = self
+            .store
+            .update_tenant(req, organization_id, tenant_id)
+            .await
+            .map(mapping::tenants::domain_to_server)
+            .map_err(Into::<TenantApiError>::into)?;
+
+        invalidate_resolve_slugs_cache(&organization.slug, &res.slug).await;
+
+        Ok(Response::new(UpdateTenantResponse {
+            tenant: Some(res),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn active_tenant(
         &self,
         request: Request<ActiveTenantRequest>,
     ) -> Result<Response<ActiveTenantResponse>, Status> {
         let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
 
         let tenant = self
             .store
-            .find_tenant_by_id(tenant_id)
+            .find_tenant_by_id_and_organization(tenant_id, organization_id)
             .await
             .map(mapping::tenants::domain_to_server)
             .map_err(Into::<TenantApiError>::into)?;
 
+        let organization = self
+            .store
+            .get_organization_by_id(organization_id)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+
         Ok(Response::new(ActiveTenantResponse {
             tenant: Some(tenant),
+            trade_name: organization.trade_name,
             billing_config: None, // todo load it from provider_config if needed
         }))
     }
@@ -43,9 +76,11 @@ impl TenantsService for TenantServiceComponents {
         &self,
         request: Request<ListTenantsRequest>,
     ) -> Result<Response<ListTenantsResponse>, Status> {
+        let organization = request.organization()?;
+
         let result = self
             .store
-            .list_tenants_by_user_id(request.actor()?)
+            .list_tenants_by_organization_id(organization)
             .await
             .map(|x| {
                 x.into_iter()
@@ -62,12 +97,14 @@ impl TenantsService for TenantServiceComponents {
         &self,
         request: Request<GetTenantByIdRequest>,
     ) -> Result<Response<GetTenantByIdResponse>, Status> {
+        let organization_id = request.organization()?;
+
         let req = request.into_inner();
         let tenant_id = parse_uuid!(&req.tenant_id)?;
 
         let tenant = self
             .store
-            .find_tenant_by_id(tenant_id)
+            .find_tenant_by_id_and_organization(tenant_id, organization_id)
             .await
             .map(mapping::tenants::domain_to_server)
             .map_err(Into::<TenantApiError>::into)?;
@@ -83,25 +120,14 @@ impl TenantsService for TenantServiceComponents {
         &self,
         request: Request<CreateTenantRequest>,
     ) -> Result<Response<CreateTenantResponse>, Status> {
-        let actor = request.actor()?;
+        let organization_id = request.organization()?;
 
-        let req = mapping::tenants::create_req_to_domain(request.into_inner(), actor);
+
+        let req = mapping::tenants::create_req_to_domain(request.into_inner());
 
         let res = self
             .store
-            .insert_tenant(req)
-            .await
-            .map_err(Into::<TenantApiError>::into)?;
-
-        self.store
-            .insert_product_family(
-                domain::ProductFamilyNew {
-                    name: "Default".to_string(),
-                    external_id: "default".to_string(),
-                    tenant_id: res.id.clone(),
-                },
-                Some(actor),
-            )
+            .insert_tenant(req, organization_id)
             .await
             .map_err(Into::<TenantApiError>::into)?;
 

@@ -19,9 +19,9 @@ CREATE TABLE invoicing_entity
     zip_code                VARCHAR(50),
     state                   text,
     city                    text,
-    tax_id                  text,
+    vat_number              text,
     country                 text        NOT NULL,
-    currency                VARCHAR(50) NOT NULL,
+    accounting_currency     VARCHAR(50) NOT NULL,
     tenant_id               UUID        NOT NULL,
     CONSTRAINT "invoicing_entity_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "tenant" ("id") ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT "invoicing_entity_is_default_tenant_id_key" UNIQUE ("is_default", "tenant_id"),
@@ -31,14 +31,24 @@ CREATE TABLE invoicing_entity
 
 ALTER TABLE "user"
     ADD COLUMN onboarded  BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN first_name text    NOT NULL,
+    ADD COLUMN first_name text,
     ADD COLUMN last_name  text,
     ADD COLUMN department text;
 
 ALTER TABLE organization
-    RENAME COLUMN name TO default_trade_name;
+    RENAME COLUMN name TO trade_name;
 ALTER TABLE organization
     ADD COLUMN default_country text NOT NULL;
 
 ALTER TABLE customer
     ADD COLUMN invoicing_entity_id UUID NOT NULL references invoicing_entity (id) ON DELETE RESTRICT;
+
+alter table customer
+    rename column balance_currency to currency;
+
+alter table customer
+    alter column currency drop default;
+
+alter table invoice
+    ADD COLUMN "seller_details" jsonb NOT NULL,
+    ALTER COLUMN "total" DROP NOT NULL;

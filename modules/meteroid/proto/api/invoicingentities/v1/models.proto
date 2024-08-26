@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package meteroid.api.invoicingentities.v1;
+
+message InvoicingEntity {
+  string id = 1;
+  string local_id = 2;
+  bool is_default = 3;
+  string legal_name = 4;
+  string invoice_number_pattern = 5;
+  int64 next_invoice_number = 6;
+  int64 next_credit_note_number = 7;
+  int32 grace_period_hours = 8;
+  int32 net_terms = 9;
+  optional string invoice_footer_info = 10;
+  optional string invoice_footer_legal = 11;
+  optional string logo_attachment_id = 12;
+  optional string brand_color = 13;
+  optional string address_line1 = 14;
+  optional string address_line2 = 15;
+  optional string zip_code = 16;
+  optional string state = 17;
+  optional string city = 18;
+  optional string vat_number = 19;
+  string country = 20;
+  string accounting_currency = 21;
+}
+
+message InvoicingEntityData {
+  optional string legal_name = 4;
+  optional string invoice_number_pattern = 5;
+  optional int32 grace_period_hours = 8;
+  optional int32 net_terms = 9;
+  optional string invoice_footer_info = 10;
+  optional string invoice_footer_legal = 11;
+  optional string logo_attachment_id = 12;
+  optional string brand_color = 13;
+  optional string address_line1 = 14;
+  optional string address_line2 = 15;
+  optional string zip_code = 16;
+  optional string state = 17;
+  optional string city = 18;
+  optional string vat_number = 19;
+  optional string country = 20;
+}

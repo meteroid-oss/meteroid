@@ -3,7 +3,7 @@ use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use common_grpc::meteroid::common::v1 as common;
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 
 #[tokio::test]
 async fn test_schedules_basic() {
@@ -15,14 +15,14 @@ async fn test_schedules_basic() {
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
+
 
     let plan_version_id = "018c344a-78a9-7e2b-af90-5748672711f9";
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG", "testslug",
     );
 
     let schedules = clients

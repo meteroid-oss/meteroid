@@ -52,10 +52,11 @@ pub async fn start_meteroid_with_port(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
+        config.multi_organization_enabled.clone(),
         create_eventbus_memory(),
         usage_client,
     )
-    .expect("Could not create store");
+        .expect("Could not create store");
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
@@ -104,7 +105,7 @@ pub async fn start_meteroid(
         seed_level,
         Arc::new(MockUsageClient::noop()),
     )
-    .await
+        .await
 }
 
 // TODO check if that replaces terminate_meteroid

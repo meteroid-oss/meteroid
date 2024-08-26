@@ -26,7 +26,7 @@ pub struct Customer {
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
-    pub balance_currency: String,
+    pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
 }
@@ -50,7 +50,7 @@ impl TryFrom<CustomerRow> for Customer {
             invoicing_email: value.invoicing_email,
             phone: value.phone,
             balance_value_cents: value.balance_value_cents,
-            balance_currency: value.balance_currency,
+            currency: value.currency,
             billing_address: value.billing_address.map(|v| v.try_into()).transpose()?,
             shipping_address: value.shipping_address.map(|v| v.try_into()).transpose()?,
             invoicing_entity_id: value.invoicing_entity_id,
@@ -77,7 +77,7 @@ impl TryInto<CustomerRow> for Customer {
             invoicing_email: self.invoicing_email,
             phone: self.phone,
             balance_value_cents: self.balance_value_cents,
-            balance_currency: self.balance_currency,
+            currency: self.currency,
             billing_address: self.billing_address.map(|v| v.try_into()).transpose()?,
             shipping_address: self.shipping_address.map(|v| v.try_into()).transpose()?,
             invoicing_entity_id: self.invoicing_entity_id,
@@ -97,64 +97,49 @@ pub struct CustomerBrief {
 #[derive(Clone, Debug)]
 pub struct CustomerNew {
     pub name: String,
-    pub created_by: Uuid,
-    pub tenant_id: Uuid,
-    pub invoicing_entity_id: Uuid,
     pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
-    pub balance_currency: String,
+    pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    pub created_at: Option<NaiveDateTime>,
+    //
+    pub created_by: Uuid,
+    pub invoicing_entity_id: Option<Uuid>,
+    // for seeding
+    pub force_created_date: Option<chrono::NaiveDateTime>,
 }
 
-impl TryFrom<CustomerRowNew> for CustomerNew {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: CustomerRowNew) -> Result<Self, Self::Error> {
-        Ok(CustomerNew {
-            name: value.name,
-            created_at: value.created_at,
-            created_by: value.created_by,
-            tenant_id: value.tenant_id,
-            invoicing_entity_id: value.invoicing_entity_id,
-            billing_config: value.billing_config.try_into()?,
-            alias: value.alias,
-            email: value.email,
-            invoicing_email: value.invoicing_email,
-            phone: value.phone,
-            balance_value_cents: value.balance_value_cents,
-            balance_currency: value.balance_currency,
-            billing_address: value.billing_address.map(|v| v.try_into()).transpose()?,
-            shipping_address: value.shipping_address.map(|v| v.try_into()).transpose()?,
-        })
-    }
+#[derive(Clone, Debug)]
+pub struct CustomerNewWrapper {
+    pub inner: CustomerNew,
+    pub tenant_id: Uuid,
+    pub invoicing_entity_id: Uuid,
 }
 
-impl TryInto<CustomerRowNew> for CustomerNew {
+impl TryInto<CustomerRowNew> for CustomerNewWrapper {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
         Ok(CustomerRowNew {
             id: Uuid::now_v7(),
-            name: self.name,
-            created_by: self.created_by,
+            name: self.inner.name,
+            created_by: self.inner.created_by,
             tenant_id: self.tenant_id,
             invoicing_entity_id: self.invoicing_entity_id,
-            billing_config: self.billing_config.try_into()?,
-            alias: self.alias,
-            email: self.email,
-            invoicing_email: self.invoicing_email,
-            phone: self.phone,
-            balance_value_cents: self.balance_value_cents,
-            balance_currency: self.balance_currency,
-            billing_address: self.billing_address.map(|v| v.try_into()).transpose()?,
-            shipping_address: self.shipping_address.map(|v| v.try_into()).transpose()?,
-            created_at: self.created_at,
+            billing_config: self.inner.billing_config.try_into()?,
+            alias: self.inner.alias,
+            email: self.inner.email,
+            invoicing_email: self.inner.invoicing_email,
+            phone: self.inner.phone,
+            balance_value_cents: self.inner.balance_value_cents,
+            currency: self.inner.currency,
+            billing_address: self.inner.billing_address.map(|v| v.try_into()).transpose()?,
+            shipping_address: self.inner.shipping_address.map(|v| v.try_into()).transpose()?,
+            created_at: self.inner.force_created_date,
         })
     }
 }
@@ -169,8 +154,8 @@ pub struct CustomerPatch {
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: Option<i32>,
-    pub balance_currency: Option<String>,
-    pub billing_address: Option<serde_json::Value>, // TODO avoid json
+    pub currency: Option<String>,
+    pub billing_address: Option<serde_json::Value>, // TODO avoid json in domain
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Option<Uuid>,
 }
@@ -180,7 +165,7 @@ pub struct Address {
     pub line1: Option<String>,
     pub line2: Option<String>,
     pub city: Option<String>,
-    pub country: Option<String>,
+    pub country: Option<String>, // TODO mandatory ?
     pub state: Option<String>,
     pub zip_code: Option<String>,
 }

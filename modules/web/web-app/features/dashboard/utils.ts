@@ -1,16 +1,18 @@
 import { TrendProp } from '@/features/dashboard/cards/StatCard'
-import { TrendScope, Trend } from '@/rpc/api/stats/v1/models_pb'
+import { Trend, TrendScope } from '@/rpc/api/stats/v1/models_pb'
 
-export const formatCurrency = (value?: number | bigint) => {
-  const not_cents = Number(value) / 100
+// trying to replace it with /utils/number/formatCurrency
+// export const formatCurrency = (value: number | bigint | undefined, currency: string) => {
+//   const not_cents = Number(value) / 100
 
-  return value !== undefined
-    ? new Intl.NumberFormat('en-UK', {
-        style: 'currency',
-        currency: 'EUR',
-      }).format(not_cents)
-    : 'No data'
-}
+//   return value !== undefined
+//     ? new Intl.NumberFormat('en-UK', {
+//         // TODO should we support other formats ? (ex: encode it in the currency json)
+//         style: 'currency',
+//         currency: currency,
+//       }).format(not_cents)
+//     : 'No data'
+// }
 
 export const formatRate = (value?: number) => {
   return value !== undefined ? `${value.toFixed(1)}%` : 'No data'

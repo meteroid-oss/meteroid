@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package meteroid.api.organizations.v1;
+
+import "api/tenants/v1/models.proto";
+
+message Organization {
+  string id = 1;
+  string slug = 2;
+  string trade_name = 3;
+  string created_at = 4;
+}
+
+message OrganizationWithTenant {
+  string id = 1;
+  string slug = 2;
+  string trade_name = 3;
+  string created_at = 4;
+  repeated meteroid.api.tenants.v1.Tenant tenants = 5;
+}

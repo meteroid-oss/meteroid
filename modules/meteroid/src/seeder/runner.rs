@@ -28,8 +28,9 @@ use chrono::Utc;
 
 use nanoid::nanoid;
 
-use meteroid_store::domain::{Address, BillingConfig, InlineCustomer, TenantContext};
+use meteroid_store::domain::{Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, TenantContext};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::utils::local_id::{IdType, LocalId};
 
@@ -42,6 +43,8 @@ pub async fn run(
     // create an org, tenant, user (if standalone mode)
     // const setup_res = setup();
 
+
+
     let now = Utc::now().naive_utc().date();
 
     let mut rng = match scenario.randomness.seed {
@@ -50,31 +53,36 @@ pub async fn run(
     };
 
     let tenant = store
-        .insert_tenant(store_domain::TenantNew::ForOrg(
-            store_domain::OrgTenantNew {
+        .insert_tenant(
+            store_domain::TenantNew {
                 name: scenario.tenant.name,
-                slug: scenario.tenant.slug,
-                organization_id: organization_id.clone(),
-                currency: scenario.tenant.currency,
-                environment: Some(TenantEnvironmentEnum::Sandbox),
+                environment: TenantEnvironmentEnum::Sandbox,
             },
-        ))
+            organization_id.clone(),
+        )
         .await
         .change_context(SeederError::TempError)?;
 
     log::info!("Created tenant '{}'", &tenant.name);
 
-    let product_family = store
-        .insert_product_family(
-            store_domain::ProductFamilyNew {
-                external_id: slugify(&scenario.product_family),
-                name: scenario.product_family,
-                tenant_id: tenant.id,
-            },
-            Some(user_id),
+    let invoicing_entity = store
+        .get_invoicing_entity(
+            tenant.id,
+            None,
         )
         .await
         .change_context(SeederError::TempError)?;
+
+    let product_families = store
+        .list_product_families(
+            tenant.id,
+        )
+        .await
+        .change_context(SeederError::TempError)?;
+
+    let product_family = product_families
+        .first()
+        .ok_or(SeederError::TempError)?;
 
     log::info!("Created product family '{}'", &product_family.name);
 
@@ -166,13 +174,13 @@ pub async fn run(
 
             let alias = format!("{}-{}", slugify(&company_name), nanoid!(5));
             customers_to_create.push(store_domain::CustomerNew {
-                tenant_id: tenant.id,
+                invoicing_entity_id: Some(invoicing_entity.id),
                 billing_config: BillingConfig::Manual,
                 email: SafeEmail().fake(),
                 invoicing_email: None,
                 phone: None,
                 balance_value_cents: 0,
-                balance_currency: "EUR".to_string(),
+                currency: "EUR".to_string(),
                 billing_address: Some(Address {
                     line1: Some(fake_address::StreetName().fake()),
                     line2: None,
@@ -182,7 +190,7 @@ pub async fn run(
                     zip_code: Some(fake_address::PostCode().fake()),
                 }),
                 created_by: user_id,
-                created_at: date.and_hms_opt(0, 0, 0),
+                force_created_date: date.and_hms_opt(0, 0, 0),
                 alias: Some(alias),
                 name: company_name.to_string(),
                 shipping_address: None,
@@ -191,7 +199,7 @@ pub async fn run(
     }
 
     let created_customers = store
-        .insert_customer_batch(customers_to_create)
+        .insert_customer_batch(customers_to_create, tenant.id)
         .await
         .change_context(SeederError::TempError)?;
 
@@ -293,8 +301,7 @@ pub async fn run(
         let subscription = store_domain::SubscriptionNew {
             customer_id: customer.id,
             currency: "EUR".to_string(), // TODO
-            billing_day: version.period_start_day.unwrap_or(1),
-            tenant_id: tenant.id,
+            billing_day: version.period_start_day.unwrap_or(1), 
             trial_start_date,
             billing_start_date,
             billing_end_date,
@@ -328,7 +335,7 @@ pub async fn run(
     }
 
     let created_subscriptions = store
-        .insert_subscription_batch(subscriptions_to_create)
+        .insert_subscription_batch(subscriptions_to_create, tenant.id)
         .await
         .change_context(SeederError::TempError)?;
 
@@ -497,6 +504,16 @@ pub async fn run(
                     name: subscription_details.customer_name.clone(),
                     snapshot_at: subscription.created_at,
                     billing_address: customer.billing_address.as_ref().map(|a| a.clone()),
+                    alias: customer.alias.clone(),
+                    email: customer.email.clone(),
+                    vat_number: None,
+                },
+                seller_details: InlineInvoicingEntity {
+                    id: invoicing_entity.id,
+                    legal_name: invoicing_entity.legal_name.clone(),
+                    vat_number: invoicing_entity.vat_number.clone(),
+                    address: invoicing_entity.address(),
+                    snapshot_at: subscription.created_at,
                 },
             };
 

@@ -224,7 +224,7 @@ diesel::table! {
         invoicing_email -> Nullable<Text>,
         phone -> Nullable<Text>,
         balance_value_cents -> Int4,
-        balance_currency -> Text,
+        currency -> Text,
         billing_address -> Nullable<Jsonb>,
         shipping_address -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
@@ -333,6 +333,7 @@ diesel::table! {
         last_issue_error -> Nullable<Text>,
         data_updated_at -> Nullable<Timestamp>,
         invoice_date -> Date,
+        total -> Int8,
         plan_version_id -> Nullable<Uuid>,
         invoice_type -> InvoiceType,
         finalized_at -> Nullable<Timestamp>,
@@ -341,16 +342,16 @@ diesel::table! {
         tax_rate -> Int4,
         local_id -> Text,
         reference -> Nullable<Text>,
-        total -> Int8,
         invoice_number -> Text,
         tax_amount -> Int8,
         subtotal_recurring -> Int8,
         plan_name -> Nullable<Text>,
-        due_at -> Nullable<Timestamptz>,
+        due_at -> Nullable<Timestamp>,
         customer_details -> Jsonb,
         amount_due -> Int8,
         subtotal -> Int8,
         applied_credits -> Int8,
+        seller_details -> Jsonb,
     }
 }
 
@@ -375,10 +376,10 @@ diesel::table! {
         zip_code -> Nullable<Varchar>,
         state -> Nullable<Text>,
         city -> Nullable<Text>,
-        tax_id -> Nullable<Text>,
+        vat_number -> Nullable<Text>,
         country -> Text,
         #[max_length = 50]
-        currency -> Varchar,
+        accounting_currency -> Varchar,
         tenant_id -> Uuid,
     }
 }
@@ -386,12 +387,12 @@ diesel::table! {
 diesel::table! {
     organization (id) {
         id -> Uuid,
-        default_trade_name -> Text,
+        trade_name -> Text,
+        slug -> Text,
         created_at -> Timestamp,
         archived_at -> Nullable<Timestamp>,
         invite_link_hash -> Nullable<Text>,
         default_country -> Text,
-        slug -> Text,
     }
 }
 
@@ -588,11 +589,11 @@ diesel::table! {
         id -> Uuid,
         mrr_delta -> Nullable<Int8>,
         event_type -> SubscriptionEventType,
+        created_at -> Timestamp,
         applies_to -> Date,
         subscription_id -> Uuid,
         bi_mrr_movement_log_id -> Nullable<Uuid>,
         details -> Nullable<Jsonb>,
-        created_at -> Timestamp,
     }
 }
 
@@ -621,7 +622,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         password_hash -> Nullable<Text>,
         onboarded -> Bool,
-        first_name -> Text,
+        first_name -> Nullable<Text>,
         last_name -> Nullable<Text>,
         department -> Nullable<Text>,
     }

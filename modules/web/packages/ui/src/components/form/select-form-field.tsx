@@ -1,5 +1,5 @@
 import { SelectProps } from '@radix-ui/react-select'
-import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
+import { Control, FieldPath, FieldValues, UseControllerProps } from 'react-hook-form'
 
 import * as Select from '../ui/select'
 
@@ -43,7 +43,11 @@ export const SelectFormField = <
             onValueChange={field.onChange}
             value={field.value}
           >
-            <Select.SelectTrigger ref={field.ref} className={className}>
+            <Select.SelectTrigger
+              ref={field.ref}
+              className={className}
+              disabled={formFieldProps.disabled}
+            >
               <Select.SelectValue placeholder={props.placeholder} />
             </Select.SelectTrigger>
             <Select.SelectContent className={props.contentClassName} hideWhenDetached>

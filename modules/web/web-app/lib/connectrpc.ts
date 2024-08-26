@@ -5,7 +5,8 @@ import {
   useQuery as useQueryUnsafe,
 } from '@connectrpc/connect-query'
 import { CreateQueryOptions } from '@connectrpc/connect-query/dist/cjs/create-use-query-options'
-import { matchPath } from 'react-router-dom'
+import { matchRoutes } from 'react-router-dom'
+import router from 'router/router'
 import { toast } from 'sonner'
 
 import { getSessionToken } from '@/features/auth/session'
@@ -33,7 +34,14 @@ export const loggingInterceptor: Interceptor = next => async req => {
   }
 }
 
-const errorInterceptorSkipError = ['TypeError:', 'AbortError:', 'DOMException:']
+const errorInterceptorSkipError = [
+  'TypeError:',
+  'AbortError:',
+  'DOMException:',
+  //extra for local without metering started, TODO consider an alternative rendering of connection errors
+  'ConnectError:',
+]
+
 export const errorInterceptor: Interceptor = next => async req => {
   try {
     return await next(req)
@@ -48,12 +56,16 @@ export const errorInterceptor: Interceptor = next => async req => {
 }
 
 export const authInterceptor: Interceptor = next => async req => {
-  const path = window.location.pathname
-  const { tenantSlug } = matchPath('/tenant/:tenantSlug/*', path)?.params ?? {}
+  const matchingRoutes = matchRoutes(router.routes, window.location)
+
+  const params = matchingRoutes?.[0]?.params
+
+  const organizationSlug = params?.organizationSlug
+  const tenantSlug = params?.tenantSlug
 
   const token = getSessionToken()
 
-  tenantSlug && req.header.append('x-md-tenant-slug', tenantSlug)
+  organizationSlug && req.header.append('x-md-context', `${organizationSlug}/${tenantSlug || ''}`)
   token && req.header.append('Authorization', `Bearer ${token}`)
 
   const result = await next(req)
@@ -61,6 +73,7 @@ export const authInterceptor: Interceptor = next => async req => {
 }
 
 type HasFields<T> = keyof T extends never ? false : true
+
 // // a version of useQuery that forces to use all the required fields of the input message, if any
 export function useQuery<I extends Message<I>, O extends Message<O>, SelectOutData = O>(
   methodSig: MethodUnaryDescriptor<I, O>,

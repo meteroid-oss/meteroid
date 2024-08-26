@@ -1,15 +1,26 @@
 import SVG from 'react-inlinesvg'
 
 import { useTheme } from 'providers/ThemeProvider'
+import { memo } from 'react'
 
 interface Props {
-  className?: string
+  width?: number
+  height?: number
+  forceTheme?: 'dark' | 'light'
 }
-export const MeteroidTitle = ({ className }: Props) => {
+
+export const MeteroidTitle = memo(({ width = 120, height = 25, forceTheme }: Props) => {
   const { isDarkMode } = useTheme()
 
-  const fill = isDarkMode ? '#fff' : '#0B0B0B'
-  const defaultClassName = 'h-5 p-0'
+  const enforceDarkMode = forceTheme === 'dark' || (forceTheme === undefined && isDarkMode)
 
-  return <SVG src="/img/meteroid-title.svg" fill={fill} className={className ?? defaultClassName} />
-}
+  return (
+    <div className="w-32 h-7">
+      <SVG
+        src={`/img/meteroid-logo-wordmark--${enforceDarkMode ? 'dark' : 'light'}.svg`}
+        width={width}
+        height={height}
+      />
+    </div>
+  )
+})

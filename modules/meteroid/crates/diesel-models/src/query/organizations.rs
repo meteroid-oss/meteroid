@@ -115,7 +115,31 @@ impl OrganizationRow {
             .attach_printable("Error while updating organization")
             .into_db_result()
     }
-    
+
+
+    pub async fn update_trade_name(
+        conn: &mut PgConn,
+        param_id: uuid::Uuid,
+        new_trade_name: &String,
+    ) -> DbResult<usize> {
+        use crate::schema::organization::dsl as o_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(o_dsl::organization)
+            .filter(o_dsl::id.eq(param_id))
+            .set(o_dsl::trade_name.eq(new_trade_name));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .tap_err(|e| log::error!("Error while updating organization: {:?}", e))
+            .attach_printable("Error while updating organization")
+            .into_db_result()
+    }
+
+
     pub async fn list_by_user_id(
         conn: &mut PgConn,
         user_id: uuid::Uuid,

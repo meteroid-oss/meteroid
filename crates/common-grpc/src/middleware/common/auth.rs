@@ -6,5 +6,5 @@ pub const API_KEY_HEADER: &str = "x-api-key";
 
 pub const BEARER_AUTH_HEADER: &str = "Authorization";
 
-// used by frontend clients to specify organization/tenant
-pub const EXTRA_JWT_CONTEXT_HEADER: &str = "x-md-context";
+// used by frontend clients to specify organization/tenant, when a JWT is used (api key already provide these infos). Context is validated against jwt's user.
+pub const INTERNAL_API_CONTEXT_HEADER: &str = "x-md-context";

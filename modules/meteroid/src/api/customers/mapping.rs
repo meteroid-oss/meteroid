@@ -143,13 +143,14 @@ pub mod customer {
             Ok(ServerCustomerWrapper(server::Customer {
                 id: value.id.as_proto(),
                 billing_config: Some(ServerBillingConfigWrapper::try_from(value.billing_config)?.0),
+                invoicing_entity_id: value.invoicing_entity_id.as_proto(),
                 name: value.name,
                 alias: value.alias,
                 email: value.email,
                 invoicing_email: value.invoicing_email,
                 phone: value.phone,
                 balance_value_cents: value.balance_value_cents,
-                balance_currency: value.balance_currency,
+                currency: value.currency,
                 archived_at: value.archived_at.map(chrono_to_timestamp),
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 billing_address: value

@@ -34,7 +34,11 @@
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: ['class'],
+  mode: 'jit',
+  darkMode: [
+    'variant',
+    ['@media (prefers-color-scheme: dark) { &:not(.light *) }', '&:is(.dark *)'],
+  ],
   content: [
     './features/**/*.{js,ts,jsx,tsx}',
     './pages/**/*.{js,ts,jsx,tsx}',

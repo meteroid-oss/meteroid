@@ -3,6 +3,7 @@ pub use billable_metrics::*;
 pub use customers::*;
 pub use invoice_lines::*;
 pub use invoices::*;
+pub use invoicing_entities::*;
 pub use misc::*;
 pub use organizations::*;
 pub use plans::*;

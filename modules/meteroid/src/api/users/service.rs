@@ -3,13 +3,8 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
-use meteroid_grpc::meteroid::api::users::v1::{
-    users_service_server::UsersService, FindUserByEmailRequest, FindUserByEmailResponse,
-    GetUserByIdRequest, GetUserByIdResponse, ListUsersRequest, ListUsersResponse, LoginRequest,
-    LoginResponse, MeRequest, MeResponse, RegisterRequest, RegisterResponse,
-};
-use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest};
-use meteroid_store::repositories::TenantInterface;
+use meteroid_grpc::meteroid::api::users::v1::{users_service_server::UsersService, GetUserByIdRequest, GetUserByIdResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, MeRequest, MeResponse, RegisterRequest, RegisterResponse, OnboardMeRequest, OnboardMeResponse};
+use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
 use meteroid_store::repositories::users::UserInterface;
 
 use crate::api::users::error::UserApiError;
@@ -22,33 +17,61 @@ impl UsersService for UsersServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn me(&self, request: Request<MeRequest>) -> Result<Response<MeResponse>, Status> {
         let actor = request.actor()?;
+        let organization = request.organization()
+            .ok();
 
         let me = self
             .store
-            .me(actor)
+            .me(actor, organization)
+            .await
+            .map(mapping::user::me_to_proto)
+            .map_err(Into::<UserApiError>::into)?;
+
+
+        Ok(Response::new(me))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn onboard_me(&self, request: Request<OnboardMeRequest>) -> Result<Response<OnboardMeResponse>, Status> {
+        let actor = request.actor()?;
+ 
+        let request = request.into_inner();
+
+        let data = UpdateUser {
+            first_name: request.first_name,
+            last_name: request.last_name,
+            department: request.department,
+            know_us_from: request.know_us_from,
+        };
+
+        let me = self
+            .store
+            .update_user_details(actor, data)
             .await
             .map(mapping::user::domain_to_proto)
             .map_err(Into::<UserApiError>::into)?;
 
-        let response = MeResponse { user: Some(me) };
 
-        Ok(Response::new(response))
+        Ok(Response::new(OnboardMeResponse {
+            user: Some(me)
+        }))
     }
+
 
     #[tracing::instrument(skip_all)]
     async fn get_user_by_id(
         &self,
         request: Request<GetUserByIdRequest>,
     ) -> Result<Response<GetUserByIdResponse>, Status> {
-        let actor = request.actor()?;
+        let tenant = request.tenant()?;
 
         let req = request.into_inner();
 
         let user = self
             .store
-            .find_user_by_id(parse_uuid!(&req.id)?, actor)
+            .find_user_by_id_and_tenant(parse_uuid!(&req.id)?, tenant)
             .await
-            .map(mapping::user::domain_to_proto)
+            .map(mapping::user::domain_with_role_to_proto)
             .map_err(Into::<UserApiError>::into)?;
 
         let response = GetUserByIdResponse { user: Some(user) };
@@ -61,16 +84,15 @@ impl UsersService for UsersServiceComponents {
         &self,
         request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
-        let tenant = request.tenant()?;
-        let tenant = self.store.find_tenant_by_id(tenant).await.map_err(Into::<UserApiError>::into)?;
+        let organization = request.organization()?;
 
         let users = self
             .store
-            .list_users_for_organization(tenant.organization_id)
+            .list_users_for_organization(organization)
             .await
             .map_err(Into::<UserApiError>::into)?
             .into_iter()
-            .map(mapping::user::domain_to_proto)
+            .map(mapping::user::domain_with_role_to_proto)
             .collect();
 
         let response = ListUsersResponse { users };
@@ -78,6 +100,7 @@ impl UsersService for UsersServiceComponents {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn login(
         &self,
         request: Request<LoginRequest>,
@@ -102,6 +125,7 @@ impl UsersService for UsersServiceComponents {
             .await
     }
 
+    #[tracing::instrument(skip_all)]
     async fn register(
         &self,
         request: Request<RegisterRequest>,

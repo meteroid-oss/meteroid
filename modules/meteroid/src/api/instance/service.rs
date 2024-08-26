@@ -2,12 +2,11 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::InstanceService;
-use meteroid_grpc::meteroid::api::instance::v1::{
-    GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
-    InitInstanceRequest, InitInstanceResponse, Instance,
-};
-use meteroid_store::domain;
-use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
+use meteroid_grpc::meteroid::api::instance::v1::{GetCountriesRequest, GetCountriesResponse, GetCurrenciesRequest, GetCurrenciesResponse, GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse};
+use meteroid_grpc::meteroid::api::instance::v1::get_countries_response::Country as GrpcCountry;
+use meteroid_grpc::meteroid::api::instance::v1::get_currencies_response::Currency as GrpcCurrency;
+use meteroid_store::constants::{COUNTRIES, CURRENCIES};
+use meteroid_store::repositories::OrganizationsInterface;
 
 use crate::api::instance::error::InstanceApiError;
 use crate::api::instance::InstanceServiceComponents;
@@ -19,28 +18,6 @@ impl InstanceService for InstanceServiceComponents {
         &self,
         _request: Request<GetInstanceRequest>,
     ) -> Result<Response<GetInstanceResponse>, Status> {
-
-
-        // struct
-        // - is_single_tenant
-        // - is_init_instance
-
-        // we check the is_single_tenant in config.
-        // Only if true, we check if an organization exist
-
-
-        // - organization opt  (if single tenant no matter connection, or if user is connected and org id is provided)
-
-        // if single tenant
-
-
-        // if the user has multiple organizations, how do we know which org to get ?
-        // app.meteroid.com/ERB7C6OAI/prod/   <= in local we could avoid the /userpact , it'd be resolved to 'instance' as allow_multitenancy is false
-        // userpact.meteroid.com/prod/
-        // app.meteroid.com/prod/ // this requires some session and makes sharing urls/working across tabs annoying
-        // localhost:3000/0/prod/  // in local multitenancy, I guess the instance can be "0"
-
-
         let maybe_instance = self
             .store
             .get_instance()
@@ -49,10 +26,8 @@ impl InstanceService for InstanceServiceComponents {
 
 
         Ok(Response::new(GetInstanceResponse {
-            instance: maybe_instance.map(|org| Instance {
-                company_name: org.name,
-                organization_id: org.id.to_string(),
-            }),
+            multi_organization_enabled: maybe_instance.multi_organization_enabled,
+            instance_initiated: maybe_instance.instance_initiated,
         }))
     }
 
@@ -61,16 +36,41 @@ impl InstanceService for InstanceServiceComponents {
         &self,
         request: Request<GetInviteRequest>,
     ) -> Result<Response<GetInviteResponse>, Status> {
-        let tenant_id = request.tenant()?;
-
-        let tenant = self.store.find_tenant_by_id(tenant_id).await?;
+        let organization_id = request.organization()?;
 
         let invite_hash = self
             .store
-            .organization_get_or_create_invite_link(tenant.organization_id)
+            .organization_get_or_create_invite_link(organization_id)
             .await
             .map_err(Into::<InstanceApiError>::into)?;
 
         Ok(Response::new(GetInviteResponse { invite_hash }))
+    }
+
+    async fn get_countries(&self, _request: Request<GetCountriesRequest>) -> Result<Response<GetCountriesResponse>, Status> {
+        let countries = COUNTRIES
+            .iter()
+            .map(|country| GrpcCountry {
+                code: country.code.to_string(),
+                name: country.name.to_string(),
+                currency: country.currency.to_string(),
+            })
+            .collect();
+
+        Ok(Response::new(GetCountriesResponse { countries }))
+    }
+
+    async fn get_currencies(&self, _request: Request<GetCurrenciesRequest>) -> Result<Response<GetCurrenciesResponse>, Status> {
+        let currencies = CURRENCIES
+            .iter()
+            .map(|currency| GrpcCurrency {
+                code: currency.code.to_string(),
+                name: currency.name.to_string(),
+                symbol: currency.symbol.to_string(),
+                precision: currency.precision as u32,
+            })
+            .collect();
+
+        Ok(Response::new(GetCurrenciesResponse { currencies }))
     }
 }

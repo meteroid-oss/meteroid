@@ -173,7 +173,7 @@ async fn grpc_call_returns_err(
         metadata.insert(IDEMPOTENCY_KEY_HEADER, value);
     }
 
-    AllClients::from_channel(channel, "", "")
+    AllClients::from_channel(channel, "", "TESTORG", "")
         .users
         .clone()
         .register(request)
@@ -197,7 +197,7 @@ async fn grpc_call_returns_ok(
         metadata.insert(IDEMPOTENCY_KEY_HEADER, value);
     }
 
-    AllClients::from_channel(channel, "", "")
+    AllClients::from_channel(channel, "", "TESTORG", "")
         .users
         .clone()
         .login(request)

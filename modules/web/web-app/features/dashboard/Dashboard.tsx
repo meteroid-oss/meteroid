@@ -2,11 +2,15 @@ import { Card, Checkbox, Separator } from '@md/ui'
 import { Heart } from 'lucide-react'
 import { useMemo } from 'react'
 
+import { Loading } from '@/components/Loading'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
+import { useTenant } from '@/hooks/useTenant'
 
 export const Dashboard = () => {
+  const { isRefetching } = useTenant()
+
   const date = useMemo(() => {
     const today = new Date()
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' } as const
@@ -24,6 +28,10 @@ export const Dashboard = () => {
       return 'morning'
     }
   }, [])
+
+  if (isRefetching) {
+    return <Loading />
+  }
 
   return (
     <>

@@ -1,3 +1,4 @@
+use cached::Cached;
 use cached::proc_macro::cached;
 use http::HeaderMap;
 use jsonwebtoken::DecodingKey;
@@ -5,7 +6,7 @@ use secrecy::{ExposeSecret, SecretString};
 use tonic::Status;
 use uuid::Uuid;
 
-use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, EXTRA_JWT_CONTEXT_HEADER};
+use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
 use common_grpc::middleware::common::jwt::Claims;
 use common_grpc::middleware::server::auth::AuthenticatedState;
 use common_grpc::middleware::server::AuthorizedState;
@@ -53,15 +54,15 @@ const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
     size = 100,
     time = 86400, // 1 day
     key = "String",
-    convert = r#"{ format!("{}/{}", organization_slug, tenant_slug) }"#
+    convert = r#"{ format!("{}/{}", &organization_slug, &tenant_slug.as_ref().unwrap_or(&String::new())) }"#
 )]
 async fn resolve_slugs_cached(store: Store, organization_slug: String, tenant_slug: Option<String>) -> Result<(Uuid, Option<Uuid>), Status> {
     let org_and_tenant_ids = match tenant_slug {
         Some(tenant_slug) => {
             let res = store
-                .find_tenant_by_slug_and_organization_slug(tenant_slug, organization_slug)
+                .find_tenant_by_slug_and_organization_slug(tenant_slug.clone(), organization_slug.clone())
                 .await
-                .map_err(|_| Status::permission_denied("Failed to retrieve tenant"))?;
+                .map_err(|_| Status::permission_denied(format!("Failed to retrieve tenant for slug {} and organization slug {}", &tenant_slug, &organization_slug)))?;
 
             (res.organization_id, Some(res.id))
         }
@@ -69,7 +70,8 @@ async fn resolve_slugs_cached(store: Store, organization_slug: String, tenant_sl
             let org_id = store
                 .get_organizations_by_slug(organization_slug)
                 .await
-                .map_err(|_| Status::permission_denied("Failed to retrieve organization"))?;
+                .map_err(|_| Status::permission_denied("Failed to retrieve organization"))?
+                .id;
 
             (org_id, None)
         }
@@ -77,6 +79,16 @@ async fn resolve_slugs_cached(store: Store, organization_slug: String, tenant_sl
 
     Ok(org_and_tenant_ids)
 }
+
+
+pub async fn invalidate_resolve_slugs_cache(organization_slug: &String, tenant_slug: &String) {
+    {
+        use cached::Cached;
+        let mut cache = self::RESOLVE_SLUGS_CACHED.lock().await;
+        cache.cache_remove(&format!("{}/{}", organization_slug, tenant_slug));
+    }
+}
+
 
 #[cached(
     result = true,
@@ -100,7 +112,7 @@ async fn get_user_role_oss_cached(
 }
 
 fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), Status> {
-    let context = header_map.get(EXTRA_JWT_CONTEXT_HEADER)
+    let context = header_map.get(INTERNAL_API_CONTEXT_HEADER)
         .ok_or(Status::permission_denied("Unauthorized. Missing org/tenant context"))?
         .to_str()
         .map_err(|_| Status::permission_denied("Unauthorized. Invalid context"))?
@@ -111,11 +123,17 @@ fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), S
         return Err(Status::permission_denied("Invalid auth context. Too many parts"));
     }
 
-    Ok((context[0].to_string(), Some(context[1].to_string())))
+    Ok((
+        context[0].to_string(),
+        if context[1].is_empty() {
+            None
+        } else {
+            Some(context[1].to_string())
+        }
+    ))
 }
 
 
-// 3 authorization possibilities : User, Organization, Tenant
 pub async fn authorize_user(
     header_map: &HeaderMap,
     user_id: Uuid,
@@ -123,9 +141,9 @@ pub async fn authorize_user(
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
     let (org_slug, tenant_slug) = extract_context(header_map)?;
-    let (org_id, tenant_id) = resolve_slugs_cached(store.clone(), org_slug, tenant_slug).await?;
+    let (organization_id, tenant_id) = resolve_slugs_cached(store.clone(), org_slug, tenant_slug).await?;
 
-    let role = get_user_role_oss_cached(store.clone(), &user_id, &org_id).await?;
+    let role = get_user_role_oss_cached(store.clone(), &user_id, &organization_id).await?;
 
     // if we have a tenant header, we resolve role via tenant (validating tenant access at the same time)
     let (role, state) = if let Some(tenant_id) = tenant_id {
@@ -133,13 +151,12 @@ pub async fn authorize_user(
             role,
             AuthorizedState::Tenant {
                 tenant_id,
+                organization_id,
                 actor_id: user_id,
             },
         )
-    }
-    // else, no org in OSS
-    else {
-        (role, AuthorizedState::User { user_id })
+    } else {
+        (role, AuthorizedState::Organization { organization_id, actor_id: user_id })
     };
     if role == OrganizationUserRole::Member && OWNER_ONLY_METHODS.contains(&gm.method.as_str()) {
         return Err(Status::permission_denied("Unauthorized"));

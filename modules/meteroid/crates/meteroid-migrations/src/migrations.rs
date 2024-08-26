@@ -7,6 +7,7 @@ mod embedded {
     use refinery::embed_migrations;
     embed_migrations!("./refinery/migrations");
 }
+
 pub fn file_match_re() -> Regex {
     Regex::new(r"^([U|V])(\d+(?:\.\d+)?)__(\w+)").unwrap()
 }
@@ -16,8 +17,8 @@ lazy_static::lazy_static! {
 }
 
 pub async fn run_migrations<C>(client: &mut C) -> Result<(), MigrationError>
-where
-    C: AsyncMigrate + Send,
+    where
+        C: AsyncMigrate + Send,
 {
     let migration_report = embedded::migrations::runner()
         .set_abort_divergent(false) // TODO

@@ -6,24 +6,38 @@ import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
+import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
 import { createTenant } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 const tenantSchema = z.object({
   name: z.string().min(1),
-  currency: z.string().min(1),
-  preset: z.string(),
+  environment: z.string().transform((val: string, ctx) => {
+    try {
+      return Number(val) as TenantEnvironmentEnum
+    } catch (error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Invalid environment',
+        path: ['environment'],
+      })
+    }
+  }),
 })
 
 export const TenantNew: FunctionComponent = () => {
   const methods = useZodForm({
     schema: tenantSchema,
+    defaultValues: {
+      name: '',
+      environment: `${TenantEnvironmentEnum.PRODUCTION}` as any as TenantEnvironmentEnum,
+    },
   })
 
   const navigate = useNavigate()
 
   const mut = useMutation(createTenant, {
     onSuccess: ({ tenant }) => {
-      navigate(`/tenant/${tenant?.slug}`)
+      navigate(`../${tenant?.slug}`)
     },
   })
 
@@ -44,8 +58,10 @@ export const TenantNew: FunctionComponent = () => {
           <Form {...methods}>
             <form
               onSubmit={methods.handleSubmit(async values => {
-                const slug = values.name.toLowerCase().replace(/\s/g, '-')
-                await mut.mutateAsync({ ...values, slug })
+                await mut.mutateAsync({
+                  name: values.name,
+                  environment: values.environment,
+                })
               })}
             >
               <Card className="px-8 py-6">
@@ -60,25 +76,20 @@ export const TenantNew: FunctionComponent = () => {
                   />
 
                   <SelectFormField
-                    name="currency"
-                    label="Currency"
+                    name="environment"
+                    label="Environment"
                     control={methods.control}
-                    placeholder="Select a currency"
+                    placeholder="Select an environment"
                     className="max-w-xs"
                   >
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="USD">USD</SelectItem>
-                  </SelectFormField>
-
-                  <SelectFormField
-                    name="preset"
-                    label="Preset"
-                    control={methods.control}
-                    className="max-w-xs"
-                  >
-                    <SelectItem value="none">No preset</SelectItem>
-                    <SelectItem value="saas">SaaS</SelectItem>
-                    <SelectItem value="openstack">OpenStack</SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.PRODUCTION}`}>
+                      Production
+                    </SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.STAGING}`}>Staging</SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.DEVELOPMENT}`}>
+                      Development
+                    </SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.QA}`}>QA</SelectItem>
                   </SelectFormField>
                 </div>
 

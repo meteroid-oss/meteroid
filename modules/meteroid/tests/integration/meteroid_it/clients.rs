@@ -5,7 +5,7 @@ use tonic::transport::Channel;
 use tower_http::auth::{AddAuthorization, AddAuthorizationLayer};
 use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 
-use common_grpc::middleware::common::auth::TENANT_SLUG_HEADER;
+use common_grpc::middleware::common::auth::INTERNAL_API_CONTEXT_HEADER;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_client::AddOnsServiceClient;
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
@@ -43,8 +43,8 @@ pub struct AllClients {
 }
 
 impl AllClients {
-    pub fn from_channel(channel: Channel, bearer_token: &str, tenant_slug: &str) -> AllClients {
-        let service = Self::build_layered_client_service(channel, bearer_token, tenant_slug);
+    pub fn from_channel(channel: Channel, bearer_token: &str, org_slug: &str, tenant_slug: &str) -> AllClients {
+        let service = Self::build_layered_client_service(channel, bearer_token, org_slug, tenant_slug);
 
         Self {
             add_ons: AddOnsServiceClient::new(service.clone()),
@@ -68,6 +68,7 @@ impl AllClients {
     pub fn build_layered_client_service(
         channel: Channel,
         bearer_token: &str,
+        org_slug: &str,
         tenant_slug: &str,
     ) -> TestLayeredClientService {
         // if we have a tenant slug then we could resolve role via tenant
@@ -76,14 +77,14 @@ impl AllClients {
         let header_name = if tenant_slug.is_empty() {
             "_fake"
         } else {
-            TENANT_SLUG_HEADER
+            INTERNAL_API_CONTEXT_HEADER
         };
 
         tower::ServiceBuilder::new()
             .layer(AddAuthorizationLayer::bearer(bearer_token))
             .layer(SetRequestHeaderLayer::if_not_present(
                 HeaderName::from_str(header_name).unwrap(),
-                HeaderValue::from_str(tenant_slug).unwrap(),
+                HeaderValue::from_str(format!("{}/{}", org_slug, tenant_slug).as_str()).unwrap(),
             ))
             .service(channel)
     }

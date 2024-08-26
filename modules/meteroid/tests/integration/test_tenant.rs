@@ -8,7 +8,7 @@ use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::{
 use meteroid_grpc::meteroid::api::tenants::v1::{
     ConfigureTenantBillingRequest, TenantBillingConfiguration,
 };
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 
 #[tokio::test]
 async fn test_tenants_basic() {
@@ -21,17 +21,17 @@ async fn test_tenants_basic() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
+
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG", "testslug",
     );
 
     let tenant_name = "meter_me";
-    let tenant_slug = "meter-me";
-    let tenant_currency = "EUR";
+    let tenant_slug = "prod";
+    let organization_currency = "EUR"; // organization has "FR" country so tenant is created with "EUR"
 
     // create tenant
     let created = clients
@@ -39,8 +39,7 @@ async fn test_tenants_basic() {
         .clone()
         .create_tenant(api::tenants::v1::CreateTenantRequest {
             name: tenant_name.to_string(),
-            slug: tenant_slug.to_string(),
-            currency: tenant_currency.to_string(),
+            environment: 0,
         })
         .await
         .unwrap()
@@ -48,7 +47,7 @@ async fn test_tenants_basic() {
         .tenant
         .unwrap();
 
-    assert_eq!(created.currency.as_str(), tenant_currency);
+    assert_eq!(created.reporting_currency.as_str(), organization_currency);
     assert_eq!(created.name, tenant_name);
     assert_eq!(created.slug, tenant_slug);
 
@@ -65,7 +64,7 @@ async fn test_tenants_basic() {
         .tenant
         .unwrap();
 
-    assert_eq!(by_id.currency.as_str(), tenant_currency);
+    assert_eq!(by_id.reporting_currency.as_str(), organization_currency);
     assert_eq!(by_id.name, tenant_name);
     assert_eq!(by_id.slug, tenant_slug);
 

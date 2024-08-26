@@ -11,7 +11,7 @@ import {
 
 import { cn } from '@ui/lib'
 
-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from './form'
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 
 const formFieldVariants = cva('', {
   variants: {
@@ -66,6 +66,7 @@ export interface GenericFormFieldProps<
   containerClassName?: string
   labelClassName?: string
   className?: string
+  description?: string
   layout?: 'vertical' | 'horizontal' | null
   control: Control<TFieldValues>
   render: ({
@@ -91,6 +92,7 @@ export const GenericFormField = <
   containerClassName,
   labelClassName,
   className,
+  description,
   ...props
 }: GenericFormFieldProps<TFieldValues, TName>) => {
   return (
@@ -106,6 +108,7 @@ export const GenericFormField = <
           <FormControl>
             {render({ ...fieldProps, className: cn(inputVariants({ layout }), className) })}
           </FormControl>
+          {description && <FormDescription>{description}</FormDescription>}
           <FormMessage className={formFieldMessageVariants({ layout })} />
         </FormItem>
       )}

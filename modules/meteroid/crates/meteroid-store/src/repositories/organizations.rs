@@ -4,19 +4,17 @@ use tracing_log::log;
 use uuid::Uuid;
 
 use common_eventbus::Event;
-use common_utils::rng::{BASE62_ALPHABET, UPPER_ALPHANUMERIC};
-use diesel_models::enums::{OrganizationUserRole, TenantEnvironmentEnum};
-use diesel_models::invoicing_entities::InvoicingEntityRow;
+use common_utils::rng::BASE62_ALPHABET;
+use diesel_models::enums::{OrganizationUserRole};
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
-use diesel_models::tenants::TenantRowNew;
+use diesel_models::tenants::TenantRow;
 
-use crate::domain::{InstanceFlags, Organization, OrganizationNew};
+use crate::domain::{InstanceFlags, InvoicingEntityNew, Organization, OrganizationNew, OrganizationWithTenants, TenantNew};
+use crate::domain::enums::TenantEnvironmentEnum;
 use crate::errors::StoreError;
-use crate::repositories::customer_balance::CustomerBalance;
 use crate::store::Store;
 use crate::StoreResult;
-use crate::utils::local_id::{IdType, LocalId};
 
 #[async_trait::async_trait]
 pub trait OrganizationsInterface {
@@ -24,33 +22,24 @@ pub trait OrganizationsInterface {
         &self,
         organization: OrganizationNew,
         actor: Uuid,
-    ) -> StoreResult<Organization>;
+    ) -> StoreResult<OrganizationWithTenants>;
 
     async fn get_instance(&self) -> StoreResult<InstanceFlags>;
     async fn organization_get_or_create_invite_link(&self, organization_id: Uuid) -> StoreResult<String>;
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
+    async fn get_organization_by_id(&self, id: Uuid) -> StoreResult<Organization>;
+    async fn get_organizations_with_tenants_by_id(&self, id: Uuid) -> StoreResult<OrganizationWithTenants>;
     async fn get_organizations_by_slug(&self, slug: String) -> StoreResult<Organization>;
 }
 
 #[async_trait::async_trait]
 impl OrganizationsInterface for Store {
-    async fn get_organizations_by_slug(&self, slug: String) -> StoreResult<Organization> {
-        let mut conn = self.get_conn().await?;
-
-        let org = OrganizationRow::find_by_slug(&mut conn, slug)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(org.into())
-    }
-
-
     async fn insert_organization(
         &self,
         organization: OrganizationNew,
         user_id: Uuid,
-    ) -> StoreResult<Organization> {
+    ) -> StoreResult<OrganizationWithTenants> {
         let mut conn = self.get_conn().await?;
 
         if !self.settings.multi_organization_enabled {
@@ -58,67 +47,18 @@ impl OrganizationsInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            if count > 0 { return Err(StoreError::InitializationError.into()); }
+            if count > 0 { return Err(StoreError::InvalidArgument("This instance does not allow mutiple organizations".to_string()).into()); }
         }
 
         let org = OrganizationRowNew {
             id: Uuid::now_v7(),
             slug: Organization::new_slug(),
-            default_trade_name: organization.default_trade_name.clone(),
-            default_country: organization.default_country.clone(),
-        };
-
-        let currency = crate::constants::COUNTRIES.iter().find(|x| x.code == &org.default_country).map(|x| x.currency)
-            .ok_or(StoreError::ValueNotFound(format!("No currency found for country code {}", &organization.default_country)))?;
-
-        // when we crate a tenant, we also insert an accounting entity
-        let production_tenant = TenantRowNew {
-            id: Uuid::now_v7(),
-            organization_id: org.id,
-            currency: currency.to_string(),
-            name: "Production".to_string(),
-            slug: "prod".to_string(),
-            environment: TenantEnvironmentEnum::Production,
-        };
-
-        let invoicing_entity = InvoicingEntityRow {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::InvoicingEntity),
-            is_default: true,
-            legal_name: organization.default_trade_name.clone(),
-            invoice_number_pattern: "INV-{number}".to_string(),
-            next_invoice_number: 1,
-            next_credit_note_number: 1,
-            grace_period_hours: 24,
-            net_terms: 30,
-            country: organization.default_country.clone(),
-            currency: currency.to_string(),
-            tenant_id: production_tenant.id,
-            //
-            invoice_footer_info: None,
-            invoice_footer_legal: None,
-            logo_attachment_id: None,
-            brand_color: None,
-            address_line1: None,
-            address_line2: None,
-            zip_code: None,
-            state: None,
-            city: None,
-            tax_id: None, // TODO rename to vat_number
+            trade_name: organization.trade_name.clone(),
+            default_country: organization.country.clone(),
         };
 
 
         // TODO trigger sandbox init ?
-
-        //
-        // let sandbox_tenant = TenantRowNew {
-        //     id: Uuid::now_v7(),
-        //     organization_id: org.id,
-        //     currency: currency.to_string(),
-        //     name: "Sandbox".to_string(),
-        //     slug: "sandbox".to_string(),
-        //     environment: TenantEnvironmentEnum::Sandbox,
-        // };
 
         let org_member = OrganizationMemberRow {
             user_id,
@@ -127,17 +67,15 @@ impl OrganizationsInterface for Store {
         };
 
 
-        let org_created = self.transaction_with(&mut conn, |conn| {
+        let tenant_new = TenantNew {
+            name: "Production".to_string(),
+            environment: TenantEnvironmentEnum::Production,
+        };
+
+
+        let (org_created, tenant_created) = self.transaction_with(&mut conn, |conn| {
             async move {
                 let org_created = OrganizationRowNew::insert(&org, conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                TenantRowNew::insert(&production_tenant, conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                InvoicingEntityRow::insert(&invoicing_entity, conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -145,7 +83,18 @@ impl OrganizationsInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                Ok(org_created)
+                let tenant_created = self.internal.insert_tenant_with_default_entities(
+                    conn,
+                    tenant_new,
+                    org.id,
+                    org.trade_name.clone(),
+                    org.default_country.clone(),
+                    vec![],
+                    organization.invoicing_entity.unwrap_or(InvoicingEntityNew::default()),
+                ).await?;
+
+
+                Ok((org_created, tenant_created))
             }
                 .scope_boxed()
         })
@@ -156,7 +105,10 @@ impl OrganizationsInterface for Store {
             .publish(Event::organization_created(user_id, org_created.id.clone()))
             .await;
 
-        Ok(org_created.into())
+        Ok(OrganizationWithTenants {
+            organization: org_created.into(),
+            tenants: vec![tenant_created.into()],
+        })
     }
 
     async fn get_instance(&self) -> StoreResult<InstanceFlags> {
@@ -179,6 +131,7 @@ impl OrganizationsInterface for Store {
             })
         }
     }
+
 
     async fn organization_get_or_create_invite_link(&self, organization_id: Uuid) -> StoreResult<String> {
         let mut conn = self.get_conn().await?;
@@ -213,5 +166,41 @@ impl OrganizationsInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(orgs.into_iter().map(Into::into).collect())
+    }
+
+    async fn get_organization_by_id(&self, id: Uuid) -> StoreResult<Organization> {
+        let mut conn = self.get_conn().await?;
+
+        let org = OrganizationRow::get_by_id(&mut conn, id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(org.into())
+    }
+
+    async fn get_organizations_with_tenants_by_id(&self, id: Uuid) -> StoreResult<OrganizationWithTenants> {
+        let mut conn = self.get_conn().await?;
+
+        let org = OrganizationRow::get_by_id(&mut conn, id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let tenants = TenantRow::list_by_organization_id(&mut conn, id)
+            .await?;
+
+        Ok(OrganizationWithTenants {
+            organization: org.into(),
+            tenants: tenants.into_iter().map(Into::into).collect(),
+        })
+    }
+
+    async fn get_organizations_by_slug(&self, slug: String) -> StoreResult<Organization> {
+        let mut conn = self.get_conn().await?;
+
+        let org = OrganizationRow::find_by_slug(&mut conn, slug)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(org.into())
     }
 }

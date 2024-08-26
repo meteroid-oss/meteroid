@@ -2,15 +2,12 @@ syntax = "proto3";
 
 package meteroid.api.customers.v1;
 
-import "common/v1/pagination.proto";
 import "api/customers/v1/models.proto";
 import "api/invoices/v1/models.proto";
+import "common/v1/pagination.proto";
 
 message CreateCustomerRequest {
-  string name = 1;
-  optional string alias = 2;
-  optional string email = 3;
-  CustomerBillingConfig billing_config = 4;
+  CustomerNew data = 1;
 }
 
 message CreateCustomerResponse {
@@ -21,8 +18,7 @@ message PatchCustomerRequest {
   PatchCustomer customer = 1;
 }
 
-message PatchCustomerResponse {
-}
+message PatchCustomerResponse {}
 
 message ListCustomerRequest {
   optional string search = 1;
@@ -76,11 +72,11 @@ message BuyCustomerCreditsResponse {
 }
 
 service CustomersService {
-  rpc CreateCustomer (CreateCustomerRequest) returns (CreateCustomerResponse) {}
-  rpc PatchCustomer (PatchCustomerRequest) returns (PatchCustomerResponse) {}
-  rpc ListCustomers (ListCustomerRequest) returns (ListCustomerResponse) {}
-  rpc GetCustomerById (GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
-  rpc GetCustomerByAlias (GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
-  rpc TopUpCustomerBalance (TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
-  rpc BuyCustomerCredits (BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
+  rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
+  rpc PatchCustomer(PatchCustomerRequest) returns (PatchCustomerResponse) {}
+  rpc ListCustomers(ListCustomerRequest) returns (ListCustomerResponse) {}
+  rpc GetCustomerById(GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
+  rpc GetCustomerByAlias(GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
+  rpc TopUpCustomerBalance(TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
+  rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
 }

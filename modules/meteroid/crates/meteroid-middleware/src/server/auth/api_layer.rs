@@ -68,24 +68,35 @@ impl<S> Layer<S> for ApiAuthLayer {
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
+// services that don't require authentication
 const ANONYMOUS_SERVICES: [&str; 3] = [
     "/meteroid.api.instance.v1.InstanceService/GetInstance",
     "/meteroid.api.users.v1.UsersService/Register",
     "/meteroid.api.users.v1.UsersService/Login",
 ];
 
+
+// services require authentication but no authorization (no organization/tenant)
+const UNAUTHORIZED_SERVICES: [&str; 5] = [
+    "/meteroid.api.organizations.v1.OrganizationsService/ListOrganizations",
+    "/meteroid.api.organizations.v1.OrganizationsService/CreateOrganization",
+    "/meteroid.api.users.v1.UsersService/Me",
+    "/meteroid.api.users.v1.UsersService/OnboardMe",
+    "/meteroid.api.instance.v1.InstanceService/GetCountries",
+];
+
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
-where
-    S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
+    where
+        S: Service<Request<ReqBody>, Response=Response<BoxBody>, Error=BoxError>
         + Clone
         + Send
         + 'static,
-    S::Future: Send + 'static,
-    ReqBody: Send + 'static,
+        S::Future: Send + 'static,
+        ReqBody: Send + 'static,
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -124,13 +135,20 @@ where
             }?;
 
             let authorized_state = match authenticated_state {
-                AuthenticatedState::ApiKey { tenant_id, id } => Ok(AuthorizedState::Tenant {
+                AuthenticatedState::ApiKey { tenant_id, id, organization_id } => Ok(AuthorizedState::Tenant {
                     tenant_id,
+                    organization_id,
                     actor_id: id,
                 }),
-                AuthenticatedState::User { id } => authorize_user(&metadata, id, store, sm)
-                    .await
-                    .map_err(|e| BoxError::from(e) as BoxError),
+                AuthenticatedState::User { id } => {
+                    if UNAUTHORIZED_SERVICES.contains(&request.uri().path()) {
+                        Ok(AuthorizedState::User { user_id: id })
+                    } else {
+                        authorize_user(&metadata, id, store, sm)
+                            .await
+                            .map_err(|e| BoxError::from(e) as BoxError)
+                    }
+                }
             }?;
 
             request.extensions_mut().insert(authorized_state);

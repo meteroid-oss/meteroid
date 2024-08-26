@@ -1,5 +1,5 @@
 import { jwtDecode } from 'jwt-decode'
-import { FC } from 'react'
+import { FC, useMemo } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
@@ -17,11 +17,28 @@ export const AnonymousRoutes: FC = () => {
   return <Outlet /> // TODO this requires an error, any other solution ?
 }
 
+const useTokenExpiration = (token: string | undefined) => {
+  return useMemo(() => {
+    if (!token) return 0
+    return (jwtDecode(token).exp ?? 0) * 1000
+  }, [token])
+}
+
 // prevent access if not authenticated
 export const ProtectedRoutes: FC = () => {
-  const meQuery = useQuery(me)
-  const logout = useLogout()
   const [session] = useSession()
+  const logout = useLogout()
+  const meQuery = useQuery(me, undefined, {
+    enabled: !!session?.token,
+    retry: false,
+  })
+
+  const expirationTime = useTokenExpiration(session?.token)
+
+  const [shouldRefresh] = useMemo(() => {
+    const now = new Date().getTime()
+    return [expirationTime - now < 60 * 60 * 1000]
+  }, [expirationTime])
 
   if (meQuery.isError) {
     return logout('No user profile')
@@ -31,9 +48,8 @@ export const ProtectedRoutes: FC = () => {
     return logout('No session token')
   }
 
-  const expiringMs = (jwtDecode(session.token).exp ?? 0) * 1000
-  if (new Date().getTime() > expiringMs) {
-    return logout('Session expired')
+  if (shouldRefresh) {
+    logout('Token expiring')
   }
 
   if (meQuery.isLoading) {

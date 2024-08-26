@@ -21,6 +21,7 @@ use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
 use tracing_log::log;
 use uuid::Uuid;
+use diesel_models::invoicing_entities::InvoicingEntityRow;
 
 #[async_trait::async_trait]
 pub trait InvoiceInterface {
@@ -81,7 +82,7 @@ pub trait InvoiceInterface {
     async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()>;
 
     async fn refresh_invoice_data(&self, id: Uuid, tenant_id: Uuid)
-        -> StoreResult<DetailedInvoice>;
+                                  -> StoreResult<DetailedInvoice>;
 }
 
 #[async_trait::async_trait]
@@ -119,8 +120,8 @@ impl InvoiceInterface for Store {
             order_by.into(),
             pagination.into(),
         )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<InvoiceWithCustomer> = PaginatedVec {
             items: rows
@@ -163,8 +164,6 @@ impl InvoiceInterface for Store {
             process_mrr(inv, &mut conn).await?; // TODO batch
         }
 
-        // TODO update subscription mrr
-
         Ok(inserted)
     }
 
@@ -182,8 +181,8 @@ impl InvoiceInterface for Store {
                     tenant_id,
                     external_status.clone().into(),
                 )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                 if external_status == InvoiceExternalStatusEnum::Paid {
                     let subscription_id = SubscriptionRow::get_subscription_id_by_invoice_id(
@@ -191,8 +190,8 @@ impl InvoiceInterface for Store {
                         &tenant_id,
                         &invoice_id,
                     )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     if let Some(subscription_id) = subscription_id {
                         SubscriptionRow::activate_subscription(conn, subscription_id, tenant_id)
@@ -205,9 +204,9 @@ impl InvoiceInterface for Store {
 
                 Ok(())
             }
-            .scope_boxed()
+                .scope_boxed()
         })
-        .await
+            .await
     }
 
     async fn list_invoices_to_finalize(
@@ -234,7 +233,7 @@ impl InvoiceInterface for Store {
 
     async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
         let patch = compute_invoice_patch(self, id, tenant_id).await?;
-        self.transaction(|conn| {
+         self.transaction(|conn| {
             async move {
                 let refreshed = refresh_invoice_data(conn, id, tenant_id, &patch).await?;
 
@@ -246,16 +245,37 @@ impl InvoiceInterface for Store {
                         -refreshed.invoice.applied_credits as i32,
                         Some(refreshed.invoice.id),
                     )
-                    .await?;
+                        .await?;
                 }
 
-                InvoiceRow::finalize(conn, id, tenant_id)
+                let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(conn, &refreshed.customer.invoicing_entity_id, &tenant_id)
                     .await
-                    .map_err(Into::<Report<StoreError>>::into)
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let new_invoice_number = self.internal.format_invoice_number(
+                    invoicing_entity.next_invoice_number,
+                    invoicing_entity.invoice_number_pattern,
+                    refreshed.invoice.invoice_date,
+                );
+
+                let res = InvoiceRow::finalize(conn, id, tenant_id, new_invoice_number)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                InvoicingEntityRow::update_invoicing_entity_number(
+                    conn,
+                    &refreshed.customer.invoicing_entity_id,
+                    &tenant_id,
+                    invoicing_entity.next_invoice_number,
+                )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(res)
             }
-            .scope_boxed()
+                .scope_boxed()
         })
-        .await?;
+            .await?;
 
         let _ = self
             .eventbus
@@ -476,7 +496,7 @@ async fn compute_invoice_patch(
         None => Err(StoreError::InvalidArgument(
             "Cannot refresh invoice without subscription_id".into(),
         )
-        .into()),
+            .into()),
         Some(subscription_id) => {
             let subscription_details = store
                 .get_subscription_details(tenant_id, subscription_id)
@@ -517,8 +537,8 @@ async fn process_pending_tx(conn: &mut PgConn, invoice_id: Uuid) -> StoreResult<
             pending_tx.amount_cents,
             Some(invoice_id),
         )
-        .await?
-        .tx_id;
+            .await?
+            .tx_id;
 
         CustomerBalancePendingTxRow::update_tx_id(conn, pending_tx.id, tx_id)
             .await
@@ -527,3 +547,5 @@ async fn process_pending_tx(conn: &mut PgConn, invoice_id: Uuid) -> StoreResult<
 
     Ok(())
 }
+
+

@@ -62,12 +62,13 @@ impl InternalService for InternalServiceComponents {
 
         let res = self
             .store
-            .get_api_token_by_id(&parse_uuid!(inner.api_key_id)?)
+            .get_api_token_by_id_for_validation(&parse_uuid!(inner.api_key_id)?)
             .await
             .map_err(Into::<InternalApiError>::into)?;
 
         Ok(Response::new(ResolveApiKeyResponse {
             tenant_id: res.tenant_id.to_string(),
+            organization_id: res.organization_id.to_string(),
             hash: res.hash,
         }))
     }

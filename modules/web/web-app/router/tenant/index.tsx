@@ -12,7 +12,7 @@ import { customersRoutes } from 'router/tenant/customers'
 import { growthRoutes } from 'router/tenant/growth'
 
 export const tenantRoutes: RouteObject = {
-  path: 'tenant/:tenantSlug',
+  path: ':tenantSlug',
   element: <TenantLayoutOutlet />,
   children: [
     {

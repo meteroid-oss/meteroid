@@ -1,4 +1,4 @@
-use crate::store::Store;
+use crate::store::{PgConn, Store, StoreInternal};
 use crate::{domain, StoreResult};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
@@ -24,6 +24,23 @@ pub trait ProductFamilyInterface {
     ) -> StoreResult<domain::ProductFamily>;
 }
 
+impl StoreInternal {
+    pub async fn insert_product_family(
+        &self,
+        conn: &mut PgConn,
+        product_family: domain::ProductFamilyNew,
+    ) -> StoreResult<domain::ProductFamily> {
+        let insertable_product_family: ProductFamilyRowNew = product_family.into();
+
+      insertable_product_family
+            .insert(conn)
+            .await
+            .map_err(Into::into)
+            .map(Into::into) 
+    }
+}
+
+
 #[async_trait::async_trait]
 impl ProductFamilyInterface for Store {
     async fn insert_product_family(
@@ -33,24 +50,18 @@ impl ProductFamilyInterface for Store {
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
-        let insertable_product_family: ProductFamilyRowNew = product_family.into();
-
-        let res = insertable_product_family
-            .insert(&mut conn)
-            .await
-            .map_err(Into::into)
-            .map(Into::into);
+        let res = self.internal.insert_product_family(&mut conn, product_family).await?;
 
         let _ = self
             .eventbus
             .publish(Event::product_family_created(
                 actor,
-                insertable_product_family.id,
-                insertable_product_family.tenant_id,
+                res.id,
+                res.tenant_id,
             ))
             .await;
 
-        res
+        Ok(res)
     }
 
     async fn list_product_families(

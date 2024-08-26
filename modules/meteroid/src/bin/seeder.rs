@@ -16,7 +16,6 @@ use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
-use meteroid_store::repositories::OrganizationsInterface;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
@@ -37,20 +36,21 @@ async fn main() -> error_stack::Result<(), SeederError> {
         env::var("JWT_SECRET")
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
+        false,
         create_eventbus_noop().await,
         Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
     )
-    .change_context(SeederError::InitializationError)?;
+        .change_context(SeederError::InitializationError)?;
 
-    let organization = store
-        .find_organization_as_instance()
-        .await
+    let organization_id = env::var("SEEDER_ORGANIZATION_ID")
+        .map(|s| uuid::Uuid::parse_str(&s))
         .change_context(SeederError::InitializationError)?
-        .ok_or(SeederError::InitializationError)?;
+        .change_context(SeederError::InitializationError)?;
 
     let tenant_currency = "EUR".to_string();
+    let tenant_country = "FR".to_string();
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -65,7 +65,6 @@ async fn main() -> error_stack::Result<(), SeederError> {
         .await
         .change_context(SeederError::InitializationError)?;
 
-    let organization_id = organization.id;
     let user_id = uuid::uuid!("00000000-0000-0000-0000-000000000000");
 
     let tenant_name = format!("Seedtest / {}", now.format("%Y%m%d%H%M%S"));
@@ -78,6 +77,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
             slug: slugify(&tenant_name),
             name: tenant_name,
             currency: tenant_currency.clone(),
+            country: tenant_country.to_string(),
         },
         plans: vec![
             domain::Plan {

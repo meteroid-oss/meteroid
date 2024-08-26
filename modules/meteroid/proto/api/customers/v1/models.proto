@@ -55,11 +55,25 @@ message Customer {
   optional string invoicing_email = 6;
   optional string phone = 7;
   int32 balance_value_cents = 8;
-  string balance_currency = 9;
+  string currency = 9;
   optional google.protobuf.Timestamp archived_at = 10;
   optional google.protobuf.Timestamp created_at = 11;
   optional Address billing_address = 12;
   optional ShippingAddress shipping_address = 13;
+  string invoicing_entity_id = 14;
+}
+
+message CustomerNew {
+  string name = 2;
+  optional string email = 3;
+  optional string alias = 4;
+  CustomerBillingConfig billing_config = 5;
+  optional string invoicing_email = 6;
+  optional string phone = 7;
+  string currency = 9;
+  optional Address billing_address = 12;
+  optional ShippingAddress shipping_address = 13;
+  optional string invoicing_entity_id = 14;
 }
 
 message PatchCustomer {
@@ -70,7 +84,8 @@ message PatchCustomer {
   optional string invoicing_email = 4;
   optional string phone = 5;
   optional int32 balance_value_cents = 6;
-  optional string balance_currency = 7;
+  optional string currency = 7;
   optional Address billing_address = 8;
   optional ShippingAddress shipping_address = 9;
+  optional string invoicing_entity_id = 14;
 }

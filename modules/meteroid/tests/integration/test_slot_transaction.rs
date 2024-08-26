@@ -32,6 +32,7 @@ async fn test_slot_transaction_active_slots() {
         postgres_connection_string.clone(),
         SecretString::new("00000000000000000000000000000000".into()),
         SecretString::new("secret".into()),
+        false,
         create_eventbus_memory(),
         Arc::new(MockUsageClient::noop()),
     )

@@ -3,7 +3,7 @@ use argon2::{
     Argon2,
 };
 use common_eventbus::Event;
-use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew};
+use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use error_stack::Report;
 use nanoid::nanoid;
 use tracing_log::log;
@@ -13,6 +13,7 @@ use crate::domain::api_tokens::ApiToken;
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
+use crate::domain::ApiTokenValidation;
 
 #[async_trait::async_trait]
 pub trait ApiTokensInterface {
@@ -20,7 +21,10 @@ pub trait ApiTokensInterface {
         &self,
         tenant_id: &uuid::Uuid,
     ) -> StoreResult<Vec<ApiToken>>;
+
     async fn get_api_token_by_id(&self, id: &uuid::Uuid) -> StoreResult<ApiToken>;
+
+    async fn get_api_token_by_id_for_validation(&self, id: &Uuid) -> StoreResult<ApiTokenValidation>;
 
     async fn insert_api_token(&self, plan: domain::ApiTokenNew) -> StoreResult<(String, ApiToken)>;
 }
@@ -44,6 +48,16 @@ impl ApiTokensInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let api_token = ApiTokenRow::find_by_id(&mut conn, id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        Ok(api_token.into())
+    }
+
+    async fn get_api_token_by_id_for_validation(&self, id: &Uuid) -> StoreResult<ApiTokenValidation> {
+        let mut conn = self.get_conn().await?;
+
+        let api_token = ApiTokenValidationRow::find_by_id(&mut conn, id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 

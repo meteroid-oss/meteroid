@@ -21,7 +21,7 @@ pub struct CustomerRow {
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
-    pub balance_currency: String,
+    pub currency: String,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Uuid,
@@ -50,7 +50,7 @@ pub struct CustomerRowNew {
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
-    pub balance_currency: String,
+    pub currency: String,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Uuid,
@@ -70,7 +70,7 @@ pub struct CustomerRowPatch {
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: Option<i32>,
-    pub balance_currency: Option<String>,
+    pub currency: Option<String>,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Option<Uuid>,
@@ -86,7 +86,7 @@ pub struct CustomerRowAsChangeset {
     pub invoicing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
-    pub balance_currency: String,
+    pub currency: String,
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
 }
@@ -105,6 +105,6 @@ pub enum CustomerUpdate {
     },
     UpdateBalance {
         balance_value_cents: i32,
-        balance_currency: String,
+        currency: String,
     },
 }

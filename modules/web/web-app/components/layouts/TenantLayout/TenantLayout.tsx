@@ -52,7 +52,6 @@ export const TenantLayoutOutlet = ({
     <div className="flex h-full">
       {/* Left-most navigation side bar */}
       {!hideIconBar && <NavigationBar />}
-
       <Outlet />
     </div>
   )

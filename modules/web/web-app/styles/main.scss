@@ -30,14 +30,13 @@
 
 
       --border: 240 5.9% 90%;
-      --input: 214.3 31.8% 91.4%;
+      --input: 0 0% 100%;
       --ring: 142.1 76.2% 36.3%;
       --radius: 0.5rem;
-
     
     }
-  
-    .dark {
+
+    .dark  {
       --background: 230 11% 11%;
       --foreground: 0 0% 100%;
       --card: 230 14% 9%;
@@ -66,6 +65,11 @@
       --border: 240 3.7% 15.9%;
       --input: 240 3.7% 15.9%; 
       --ring: 211 95% 63%;
+    }
+
+    .light {
+      @extend :root;
+      color-scheme: light;
     }
   }
   

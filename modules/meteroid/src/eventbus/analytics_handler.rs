@@ -1,4 +1,5 @@
 use chrono::Datelike;
+use opentelemetry::propagation::Injector;
 use secrecy::{ExposeSecret, SecretString};
 use segment::message::{Track, User};
 use segment::{Client, Message};
@@ -7,18 +8,18 @@ use uuid::Uuid;
 
 use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
-use common_eventbus::{Event, EventData, EventDataDetails, TenantEventDataDetails};
+use common_eventbus::{Event, EventData, EventDataDetails, EventDataWithMetadataDetails, TenantEventDataDetails};
 use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
 use meteroid_store::domain::DetailedInvoice;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
-use meteroid_store::repositories::users::UserInterface;
 use meteroid_store::repositories::{
     CustomersInterface, InvoiceInterface, PlansInterface, SubscriptionInterface,
 };
 use meteroid_store::Store;
+use crate::constants::OSS_API;
 
 pub struct AnalyticsHandler {
     store: Store,
@@ -505,19 +506,31 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &EventDataDetails,
     ) -> Result<(), EventBusError> {
-        let user = self
-            .store
-            .find_user_by_id(event_data_details.entity_id, event.actor.unwrap()) // TODO: Fix this unwrap
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
         self.send_track(
             "user-created".to_string(),
             event.actor,
             serde_json::json!({
-                "user_id": user.id,
-                "role": crate::api::users::mapping::role::domain_to_server(user.role).as_str_name(),
+                "user_id": event_data_details.entity_id,
             }),
+        )
+            .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn user_updated(
+        &self,
+        event: &Event,
+        event_data_details: &EventDataWithMetadataDetails,
+    ) -> Result<(), EventBusError> {
+        let mut properties = event_data_details.metadata_as_hashmap();
+        properties.set("user_id", event_data_details.entity_id.to_string());
+
+        self.send_track(
+            "user-updated".to_string(),
+            event.actor,
+            serde_json::json!(properties),
         )
             .await;
 
@@ -586,7 +599,7 @@ pub struct GeoIp {
 
 pub async fn get_geoip() -> Result<GeoIp, String> {
     let response = reqwest::Client::new()
-        .get("https://metero.id/ossapi/geoip")
+        .get(format!("{}/geoip", OSS_API))
         .send()
         .await
         .map_err(|e| e.to_string());

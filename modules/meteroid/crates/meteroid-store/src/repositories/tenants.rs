@@ -1,43 +1,159 @@
-use crate::domain::{Tenant, TenantNew};
+use diesel_async::scoped_futures::ScopedFutureExt;
+use crate::domain::{InvoicingEntityNew, Organization, OrganizationWithTenants, Tenant, TenantNew, TenantUpdate};
 use error_stack::Report;
+use itertools::Itertools;
 
-use crate::store::Store;
-use crate::{errors, StoreResult};
-use diesel_models::organizations::OrganizationRow;
-use diesel_models::tenants::{TenantRow, TenantRowNew};
+use crate::store::{PgConn, Store, StoreInternal};
+use crate::{domain, errors, StoreResult};
+use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 use uuid::Uuid;
+use diesel_models::organizations::OrganizationRow;
+use crate::constants::{COUNTRIES, CURRENCIES};
+use crate::errors::StoreError;
+use crate::repositories::OrganizationsInterface;
 
 #[async_trait::async_trait]
 pub trait TenantInterface {
-    async fn insert_tenant(&self, tenant: TenantNew) -> StoreResult<Tenant>;
-    async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<Tenant>;
-    async fn find_tenant_by_slug_and_organization_slug(&self, slug: String, organization_slug: String) -> StoreResult<Tenant> ;
+    async fn insert_tenant(&self, tenant: TenantNew, organization_id: Uuid) -> StoreResult<Tenant>;
+    async fn update_tenant(&self, tenant: TenantUpdate, organization_id: Uuid, tenant_id: Uuid) -> StoreResult<Tenant>;
+    async fn find_tenant_by_id_and_organization(&self, tenant_id: Uuid, organization_id: Uuid) -> StoreResult<Tenant>;
+    async fn find_tenant_by_slug_and_organization_slug(&self, slug: String, organization_slug: String) -> StoreResult<Tenant>;
     async fn list_tenants_by_organization_id(&self, organization_id: Uuid) -> StoreResult<Vec<Tenant>>;
+}
+
+impl StoreInternal {
+    pub async fn insert_tenant_with_default_entities(
+        &self,
+        conn: &mut PgConn,
+        tenant: TenantNew,
+        organization_id: Uuid,
+        trade_name: String,
+        country: String,
+        existing_tenant_slugs: Vec<String>,
+        invoicing_entity: InvoicingEntityNew,
+    ) -> StoreResult<Tenant> {
+        let currency = self.get_currency_from_country(&country)?;
+
+        let base_slug = match tenant.environment {
+            domain::enums::TenantEnvironmentEnum::Production => "prod",
+            domain::enums::TenantEnvironmentEnum::Staging => "staging",
+            domain::enums::TenantEnvironmentEnum::Qa => "qa",
+            domain::enums::TenantEnvironmentEnum::Development => "dev",
+            domain::enums::TenantEnvironmentEnum::Sandbox => "sandbox",
+            domain::enums::TenantEnvironmentEnum::Demo => "demo",
+        };
+
+        let mut slug = base_slug.to_string();
+        let mut i = 1;
+        while existing_tenant_slugs.contains(&slug) {
+            slug = format!("{}-{}", base_slug, i);
+            i += 1;
+        }
+
+
+        let insertable_tenant: TenantRowNew = TenantRowNew {
+            id: Uuid::now_v7(),
+            environment: tenant.environment.into(),
+            currency: currency,
+            name: tenant.name,
+            slug,
+            organization_id,
+        };
+
+        let inserted: Tenant = insertable_tenant
+            .insert(conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .map(Into::into)?;
+
+        let _ = self.create_invoicing_entity(
+            conn,
+            invoicing_entity,
+            inserted.id,
+            country,
+            trade_name,
+        )
+            .await?;
+
+
+        // TODO think about making it easier in the api (default with optional)
+        let _ = self
+            .insert_product_family(
+                conn,
+                domain::ProductFamilyNew {
+                    name: "Default".to_string(),
+                    external_id: "default".to_string(),
+                    tenant_id: inserted.id.clone(),
+                },
+            )
+            .await?;
+
+
+        Ok(inserted)
+    }
 }
 
 #[async_trait::async_trait]
 impl TenantInterface for Store {
-    async fn insert_tenant(&self, tenant: TenantNew) -> StoreResult<Tenant> {
+    async fn insert_tenant(&self, tenant: TenantNew, organization_id: Uuid) -> StoreResult<Tenant> {
+        let OrganizationWithTenants {
+            organization,
+            tenants,
+        } = self.get_organizations_with_tenants_by_id(organization_id).await?;
+
+        self.transaction(|conn| async move {
+            self.internal.insert_tenant_with_default_entities(
+                conn,
+                tenant,
+                organization_id,
+                organization.trade_name.clone(),
+                organization.default_country.clone(),
+                tenants.iter().map(|x| x.slug.clone()).collect(),
+                InvoicingEntityNew::default(),
+            ).await
+        }.scope_boxed()
+        ).await
+    }
+
+    async fn update_tenant(&self, tenant: TenantUpdate, organization_id: Uuid, tenant_id: Uuid) -> StoreResult<Tenant> {
+        let res = self.transaction(|conn| {
+            async move {
+
+                // we update org trade name
+
+                match &tenant.trade_name {
+                    Some(trade_name) => {
+                        OrganizationRow::update_trade_name(conn, organization_id, trade_name)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
+                    }
+                    None => {}
+                }
+
+                let patch: TenantRowPatch = tenant.into();
+
+                let updated_tenant = patch.update(conn, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(updated_tenant.into())
+            }
+                .scope_boxed()
+        })
+            .await?;
+
+        Ok(res)
+    }
+
+    async fn find_tenant_by_id_and_organization(&self, tenant_id: Uuid, organization_id: Uuid) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;
 
-        // TODO no, it can only be for org I guess ?? Also, insert an invoicing entity
-        let insertable_tenant: TenantRowNew = tenant.into();
-
-        insertable_tenant
-            .insert(&mut conn)
+        TenantRow::find_by_id_and_organization_id(&mut conn, tenant_id, organization_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
     }
 
-    async fn find_tenant_by_id(&self, tenant_id: Uuid) -> StoreResult<Tenant> {
-        let mut conn = self.get_conn().await?;
-
-        TenantRow::find_by_id(&mut conn, tenant_id)
-            .await
-            .map_err(Into::into)
-            .map(Into::into)
-    }
 
     async fn find_tenant_by_slug_and_organization_slug(&self, slug: String, organization_slug: String) -> StoreResult<Tenant> {
         let mut conn = self.get_conn().await?;

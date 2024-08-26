@@ -8,7 +8,7 @@ use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::customers::v1::CustomerBillingConfig;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 use meteroid_store::domain::CursorPaginationRequest;
 use meteroid_store::repositories::InvoiceInterface;
 
@@ -24,12 +24,13 @@ async fn test_main() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
+
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "",
+        "TESTORG",
+        "testslug",
     );
 
     let tenant = clients
@@ -37,8 +38,7 @@ async fn test_main() {
         .clone()
         .create_tenant(tonic::Request::new(api::tenants::v1::CreateTenantRequest {
             name: "Test - usage".to_string(),
-            slug: "test-usage".to_string(),
-            currency: "USD".to_string(),
+            environment: 0,
         }))
         .await
         .unwrap()
@@ -49,6 +49,7 @@ async fn test_main() {
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
+        "TESTORG",
         tenant.slug.as_str(),
     );
 
@@ -131,19 +132,27 @@ async fn test_main() {
         .clone()
         .create_customer(tonic::Request::new(
             api::customers::v1::CreateCustomerRequest {
-                name: "Customer A".to_string(),
-                email: Some("customer@domain.com".to_string()),
-                alias: None,
-                billing_config: Some(CustomerBillingConfig {
-                    billing_config_oneof: Some(
-                        api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
-                            api::customers::v1::customer_billing_config::Stripe {
-                                customer_id: "customer_id".to_string(),
-                                collection_method: 0,
-                            },
+                data: Some(api::customers::v1::CustomerNew {
+                    name: "Customer A".to_string(),
+                    email: Some("customer@domain.com".to_string()),
+                    alias: None,
+                    billing_config: Some(CustomerBillingConfig {
+                        billing_config_oneof: Some(
+                            api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
+                                api::customers::v1::customer_billing_config::Stripe {
+                                    customer_id: "customer_id".to_string(),
+                                    collection_method: 0,
+                                },
+                            ),
                         ),
-                    ),
-                }),
+                    }),
+                    invoicing_email: None,
+                    phone: None,
+                    currency: "EUR".to_string(),
+                    billing_address: None,
+                    shipping_address: None,
+                    invoicing_entity_id: None,
+                })
             },
         ))
         .await

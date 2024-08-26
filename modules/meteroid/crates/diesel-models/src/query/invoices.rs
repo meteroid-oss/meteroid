@@ -18,7 +18,6 @@ use diesel::{
     PgTextExpressionMethods, SelectableHelper,
 };
 use diesel::{ExpressionMethods, QueryDsl};
-use diesel::query_dsl::InternalJoinDsl;
 use error_stack::ResultExt;
 
 impl InvoiceRowNew {
@@ -174,7 +173,7 @@ impl InvoiceRow {
     ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::customer::dsl as c_dsl;
-        use crate::schema::invoicing_entity::dsl as ic_dsl;
+        
 
         let query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
@@ -203,6 +202,7 @@ impl InvoiceRow {
         conn: &mut PgConn,
         id: uuid::Uuid,
         tenant_id: uuid::Uuid,
+        new_invoice_number: String,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -220,6 +220,7 @@ impl InvoiceRow {
                 i_dsl::updated_at.eq(now),
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
+                i_dsl::invoice_number.eq(new_invoice_number)
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

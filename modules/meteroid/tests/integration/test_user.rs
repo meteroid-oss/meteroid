@@ -2,7 +2,6 @@ use crate::meteroid_it::container::SeedLevel;
 use crate::meteroid_it::svc_auth::SEED_USERNAME;
 use crate::{helpers, meteroid_it};
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
 
 #[tokio::test]
 async fn test_users_basic() {
@@ -16,12 +15,12 @@ async fn test_users_basic() {
 
     // login
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
+
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG", "testslug",
     );
 
     // me
@@ -35,7 +34,9 @@ async fn test_users_basic() {
         .user
         .unwrap();
 
-    assert_eq!(me.role, UserRole::Admin as i32);
+
+    // TODO check if /me should have role
+    // assert_eq!(me.role, UserRole::Admin as i32);
     assert_eq!(me.email, SEED_USERNAME);
 
     // get by id
@@ -49,22 +50,7 @@ async fn test_users_basic() {
         .user
         .unwrap();
 
-    assert_eq!(user, me);
-
-    // find by email
-    let user = clients
-        .users
-        .clone()
-        .find_user_by_email(api::users::v1::FindUserByEmailRequest {
-            email: SEED_USERNAME.into(),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .user
-        .unwrap();
-
-    assert_eq!(user, me);
+    assert_eq!(user.email, me.email);
 
     // list
     let users = clients
@@ -79,7 +65,7 @@ async fn test_users_basic() {
     assert_eq!(users.len(), 1);
 
     let user = users.first().unwrap().clone();
-    assert_eq!(user, me);
+    assert_eq!(user.email, me.email);
 
     // register
     let new_email: String = "meteroid-abcd@def.com".into();
@@ -98,6 +84,5 @@ async fn test_users_basic() {
         .into_inner();
 
     let user = resp.user.unwrap();
-    assert_eq!(user.role, UserRole::Member as i32);
     assert_eq!(user.email, new_email.clone());
 }

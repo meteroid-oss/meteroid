@@ -1,5 +1,5 @@
 use crate::errors::IntoDbResult;
-use crate::tenants::{TenantRow, TenantRowNew};
+use crate::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 use crate::{DbResult, PgConn};
 
 use diesel::prelude::{ExpressionMethods, QueryDsl};
@@ -28,6 +28,22 @@ impl TenantRow {
         use diesel_async::RunQueryDsl;
 
         let query = tenant.filter(id.eq(tenant_id));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding tenant by id")
+            .into_db_result()
+    }
+
+    pub async fn find_by_id_and_organization_id(conn: &mut PgConn, tenant_id: uuid::Uuid, organization_id: uuid::Uuid) -> DbResult<TenantRow> {
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = t_dsl::tenant
+            .filter(t_dsl::id.eq(tenant_id))
+            .filter(t_dsl::organization_id.eq(organization_id));
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
@@ -68,6 +84,7 @@ impl TenantRow {
         let query = t_dsl::tenant
             .inner_join(o_dsl::organization.on(t_dsl::organization_id.eq(o_dsl::id)))
             .filter(o_dsl::id.eq(organization_id))
+            .filter(t_dsl::archived_at.is_null())
             .select(TenantRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -76,6 +93,29 @@ impl TenantRow {
             .get_results(conn)
             .await
             .attach_printable("Error while fetching tenants by user_id")
+            .into_db_result()
+    }
+}
+
+impl TenantRowPatch {
+    pub async fn update(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<TenantRow> {
+        use crate::schema::tenant::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(tenant.filter(id.eq(tenant_id)))
+            .set(self)
+            .returning(TenantRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while updating tenant")
             .into_db_result()
     }
 }
