@@ -1,10 +1,9 @@
 pub mod tenants {
     use meteroid_grpc::meteroid::api::tenants::v1::CreateTenantRequest;
-    use meteroid_grpc::meteroid::api::tenants::v1::TenantUpdate as GrpcTenantUpdate;
     use meteroid_grpc::meteroid::api::tenants::v1::Tenant;
     use meteroid_grpc::meteroid::api::tenants::v1::TenantEnvironmentEnum as GrpcTenantEnvironmentEnum;
+    use meteroid_grpc::meteroid::api::tenants::v1::TenantUpdate as GrpcTenantUpdate;
     use meteroid_store::domain;
-    use uuid::Uuid;
 
     pub fn domain_to_server(tenant: domain::Tenant) -> Tenant {
         Tenant {
@@ -17,8 +16,9 @@ pub mod tenants {
     }
 
     pub fn update_req_to_domain(req: GrpcTenantUpdate) -> domain::TenantUpdate {
-        let environment =
-            req.environment.map(|_env| environment_grpc_to_domain(req.environment()));
+        let environment = req
+            .environment
+            .map(|_env| environment_grpc_to_domain(req.environment()));
 
         environment_grpc_to_domain(req.environment());
 
@@ -44,10 +44,14 @@ pub mod tenants {
         env: domain::enums::TenantEnvironmentEnum,
     ) -> GrpcTenantEnvironmentEnum {
         match env {
-            domain::enums::TenantEnvironmentEnum::Production => GrpcTenantEnvironmentEnum::Production,
+            domain::enums::TenantEnvironmentEnum::Production => {
+                GrpcTenantEnvironmentEnum::Production
+            }
             domain::enums::TenantEnvironmentEnum::Staging => GrpcTenantEnvironmentEnum::Staging,
             domain::enums::TenantEnvironmentEnum::Qa => GrpcTenantEnvironmentEnum::Qa,
-            domain::enums::TenantEnvironmentEnum::Development => GrpcTenantEnvironmentEnum::Development,
+            domain::enums::TenantEnvironmentEnum::Development => {
+                GrpcTenantEnvironmentEnum::Development
+            }
             domain::enums::TenantEnvironmentEnum::Sandbox => GrpcTenantEnvironmentEnum::Sandbox,
             domain::enums::TenantEnvironmentEnum::Demo => GrpcTenantEnvironmentEnum::Demo,
         }
@@ -57,10 +61,14 @@ pub mod tenants {
         env: GrpcTenantEnvironmentEnum,
     ) -> domain::enums::TenantEnvironmentEnum {
         match env {
-            GrpcTenantEnvironmentEnum::Production => domain::enums::TenantEnvironmentEnum::Production,
+            GrpcTenantEnvironmentEnum::Production => {
+                domain::enums::TenantEnvironmentEnum::Production
+            }
             GrpcTenantEnvironmentEnum::Staging => domain::enums::TenantEnvironmentEnum::Staging,
             GrpcTenantEnvironmentEnum::Qa => domain::enums::TenantEnvironmentEnum::Qa,
-            GrpcTenantEnvironmentEnum::Development => domain::enums::TenantEnvironmentEnum::Development,
+            GrpcTenantEnvironmentEnum::Development => {
+                domain::enums::TenantEnvironmentEnum::Development
+            }
             GrpcTenantEnvironmentEnum::Sandbox => domain::enums::TenantEnvironmentEnum::Sandbox,
             GrpcTenantEnvironmentEnum::Demo => domain::enums::TenantEnvironmentEnum::Demo,
         }

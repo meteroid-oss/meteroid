@@ -2,7 +2,6 @@ use crate::meteroid_it::container::SeedLevel;
 use crate::{helpers, meteroid_it};
 use meteroid_grpc::meteroid::api;
 
-
 #[tokio::test]
 async fn test_add_ons_basic() {
     // Generic setup

@@ -1,5 +1,5 @@
-use cached::Cached;
 use cached::proc_macro::cached;
+use cached::Cached;
 use http::HeaderMap;
 use jsonwebtoken::DecodingKey;
 use secrecy::{ExposeSecret, SecretString};
@@ -48,7 +48,6 @@ pub fn validate_jwt(
 
 const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
 
-
 #[cached(
     result = true,
     size = 100,
@@ -56,13 +55,25 @@ const OWNER_ONLY_METHODS: [&str; 1] = ["CreateTenant"];
     key = "String",
     convert = r#"{ format!("{}/{}", &organization_slug, &tenant_slug.as_ref().unwrap_or(&String::new())) }"#
 )]
-async fn resolve_slugs_cached(store: Store, organization_slug: String, tenant_slug: Option<String>) -> Result<(Uuid, Option<Uuid>), Status> {
+async fn resolve_slugs_cached(
+    store: Store,
+    organization_slug: String,
+    tenant_slug: Option<String>,
+) -> Result<(Uuid, Option<Uuid>), Status> {
     let org_and_tenant_ids = match tenant_slug {
         Some(tenant_slug) => {
             let res = store
-                .find_tenant_by_slug_and_organization_slug(tenant_slug.clone(), organization_slug.clone())
+                .find_tenant_by_slug_and_organization_slug(
+                    tenant_slug.clone(),
+                    organization_slug.clone(),
+                )
                 .await
-                .map_err(|_| Status::permission_denied(format!("Failed to retrieve tenant for slug {} and organization slug {}", &tenant_slug, &organization_slug)))?;
+                .map_err(|_| {
+                    Status::permission_denied(format!(
+                        "Failed to retrieve tenant for slug {} and organization slug {}",
+                        &tenant_slug, &organization_slug
+                    ))
+                })?;
 
             (res.organization_id, Some(res.id))
         }
@@ -80,7 +91,6 @@ async fn resolve_slugs_cached(store: Store, organization_slug: String, tenant_sl
     Ok(org_and_tenant_ids)
 }
 
-
 pub async fn invalidate_resolve_slugs_cache(organization_slug: &String, tenant_slug: &String) {
     {
         use cached::Cached;
@@ -88,7 +98,6 @@ pub async fn invalidate_resolve_slugs_cache(organization_slug: &String, tenant_s
         cache.cache_remove(&format!("{}/{}", organization_slug, tenant_slug));
     }
 }
-
 
 #[cached(
     result = true,
@@ -112,15 +121,20 @@ async fn get_user_role_oss_cached(
 }
 
 fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), Status> {
-    let context = header_map.get(INTERNAL_API_CONTEXT_HEADER)
-        .ok_or(Status::permission_denied("Unauthorized. Missing org/tenant context"))?
+    let context = header_map
+        .get(INTERNAL_API_CONTEXT_HEADER)
+        .ok_or(Status::permission_denied(
+            "Unauthorized. Missing org/tenant context",
+        ))?
         .to_str()
         .map_err(|_| Status::permission_denied("Unauthorized. Invalid context"))?
         .split('/')
         .collect::<Vec<&str>>();
 
     if context.len() != 2 {
-        return Err(Status::permission_denied("Invalid auth context. Too many parts"));
+        return Err(Status::permission_denied(
+            "Invalid auth context. Too many parts",
+        ));
     }
 
     Ok((
@@ -129,10 +143,9 @@ fn extract_context(header_map: &HeaderMap) -> Result<(String, Option<String>), S
             None
         } else {
             Some(context[1].to_string())
-        }
+        },
     ))
 }
-
 
 pub async fn authorize_user(
     header_map: &HeaderMap,
@@ -141,7 +154,8 @@ pub async fn authorize_user(
     gm: GrpcServiceMethod,
 ) -> Result<AuthorizedState, Status> {
     let (org_slug, tenant_slug) = extract_context(header_map)?;
-    let (organization_id, tenant_id) = resolve_slugs_cached(store.clone(), org_slug, tenant_slug).await?;
+    let (organization_id, tenant_id) =
+        resolve_slugs_cached(store.clone(), org_slug, tenant_slug).await?;
 
     let role = get_user_role_oss_cached(store.clone(), &user_id, &organization_id).await?;
 
@@ -156,7 +170,13 @@ pub async fn authorize_user(
             },
         )
     } else {
-        (role, AuthorizedState::Organization { organization_id, actor_id: user_id })
+        (
+            role,
+            AuthorizedState::Organization {
+                organization_id,
+                actor_id: user_id,
+            },
+        )
     };
     if role == OrganizationUserRole::Member && OWNER_ONLY_METHODS.contains(&gm.method.as_str()) {
         return Err(Status::permission_denied("Unauthorized"));

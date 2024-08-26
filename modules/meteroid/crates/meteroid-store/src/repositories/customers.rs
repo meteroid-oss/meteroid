@@ -3,10 +3,16 @@ use error_stack::Report;
 use uuid::Uuid;
 
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
-use crate::domain::{Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest};
+use crate::domain::{
+    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
+    CustomerTopUpBalance, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew,
+    InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
+    PaginationRequest,
+};
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::invoices::insert_invoice;
+use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::InvoiceInterface;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
@@ -15,7 +21,6 @@ use common_eventbus::Event;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
@@ -39,9 +44,17 @@ pub trait CustomersInterface {
 
     async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>>;
 
-    async fn insert_customer(&self, customer: CustomerNew, tenant_id: Uuid) -> StoreResult<Customer>;
+    async fn insert_customer(
+        &self,
+        customer: CustomerNew,
+        tenant_id: Uuid,
+    ) -> StoreResult<Customer>;
 
-    async fn insert_customer_batch(&self, batch: Vec<CustomerNew>, tenant_id: Uuid) -> StoreResult<Vec<Customer>>;
+    async fn insert_customer_batch(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: Uuid,
+    ) -> StoreResult<Vec<Customer>>;
 
     async fn patch_customer(
         &self,
@@ -112,8 +125,8 @@ impl CustomersInterface for Store {
             order_by.into(),
             query,
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Customer> = PaginatedVec {
             items: rows
@@ -143,17 +156,23 @@ impl CustomersInterface for Store {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    async fn insert_customer(&self, customer: CustomerNew, tenant_id: Uuid) -> StoreResult<Customer> {
+    async fn insert_customer(
+        &self,
+        customer: CustomerNew,
+        tenant_id: Uuid,
+    ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-
-        let invoicing_entity = self.get_invoicing_entity(tenant_id, customer.invoicing_entity_id).await?;
+        let invoicing_entity = self
+            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
+            .await?;
 
         let customer: CustomerRowNew = CustomerNewWrapper {
             inner: customer,
             invoicing_entity_id: invoicing_entity.id,
             tenant_id,
-        }.try_into()?;
+        }
+        .try_into()?;
 
         let res: Customer = customer
             .insert(&mut conn)
@@ -173,20 +192,27 @@ impl CustomersInterface for Store {
         Ok(res)
     }
 
-    async fn insert_customer_batch(&self, batch: Vec<CustomerNew>, tenant_id: Uuid) -> StoreResult<Vec<Customer>> {
+    async fn insert_customer_batch(
+        &self,
+        batch: Vec<CustomerNew>,
+        tenant_id: Uuid,
+    ) -> StoreResult<Vec<Customer>> {
         let mut conn = self.get_conn().await?;
 
-
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
-        let default_invoicing_entity = invoicing_entities.iter().find(|ie| ie.is_default).ok_or(
-            StoreError::ValueNotFound("Default invoicing entity not found".to_string()),
-        )?;
-
+        let default_invoicing_entity =
+            invoicing_entities
+                .iter()
+                .find(|ie| ie.is_default)
+                .ok_or(StoreError::ValueNotFound(
+                    "Default invoicing entity not found".to_string(),
+                ))?;
 
         let insertable_batch: Vec<CustomerRowNew> = batch
             .into_iter()
             .map(|c| {
-                let invoicing_entity = c.invoicing_entity_id
+                let invoicing_entity = c
+                    .invoicing_entity_id
                     .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == id))
                     .unwrap_or(default_invoicing_entity);
 
@@ -194,7 +220,8 @@ impl CustomersInterface for Store {
                     inner: c,
                     invoicing_entity_id: invoicing_entity.id,
                     tenant_id,
-                }.try_into()?;
+                }
+                .try_into()?;
 
                 Ok(c)
             })
@@ -214,9 +241,9 @@ impl CustomersInterface for Store {
                 res.tenant_id,
             ))
         }))
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>();
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>();
 
         Ok(res)
     }
@@ -270,9 +297,9 @@ impl CustomersInterface for Store {
                     .await
                     .map(|x| x.customer)
             }
-                .scope_boxed()
+            .scope_boxed()
         })
-            .await
+        .await
     }
 
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
@@ -281,7 +308,6 @@ impl CustomersInterface for Store {
         let customer = CustomerRow::find_by_id(&mut conn, req.customer_id, req.tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
-
 
         let invoice = self
             .transaction_with(&mut conn, |conn| {
@@ -313,7 +339,12 @@ impl CustomersInterface for Store {
                         customer_balance_cents: 0,
                     });
 
-                    let invoicing_entity: InvoicingEntity = InvoicingEntityRow::select_for_update_by_id_and_tenant(conn, &customer.invoicing_entity_id, &req.tenant_id)
+                    let invoicing_entity: InvoicingEntity =
+                        InvoicingEntityRow::select_for_update_by_id_and_tenant(
+                            conn,
+                            &customer.invoicing_entity_id,
+                            &req.tenant_id,
+                        )
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?
                         .into();
@@ -321,8 +352,14 @@ impl CustomersInterface for Store {
                     let address = invoicing_entity.address();
 
                     let due_at = if invoicing_entity.net_terms > 0 {
-                        Some((now.date() + chrono::Duration::days(invoicing_entity.net_terms as i64)).and_time(chrono::NaiveTime::MIN))
-                    } else { None };
+                        Some(
+                            (now.date()
+                                + chrono::Duration::days(invoicing_entity.net_terms as i64))
+                            .and_time(chrono::NaiveTime::MIN),
+                        )
+                    } else {
+                        None
+                    };
 
                     let invoice_new = InvoiceNew {
                         status: InvoiceStatusEnum::Finalized,
@@ -334,7 +371,11 @@ impl CustomersInterface for Store {
                         due_at: due_at,
                         plan_name: None,
                         external_invoice_id: None, // todo check later if we want it sync (instead of issue_worker)
-                        invoice_number: self.internal.format_invoice_number(invoicing_entity.next_invoice_number, invoicing_entity.invoice_number_pattern, now.date()),
+                        invoice_number: self.internal.format_invoice_number(
+                            invoicing_entity.next_invoice_number,
+                            invoicing_entity.invoice_number_pattern,
+                            now.date(),
+                        ),
                         invoicing_provider: InvoicingProviderEnum::Stripe, // todo get from the customer billing config
                         line_items,
                         issued: false,
@@ -382,9 +423,8 @@ impl CustomersInterface for Store {
                         &req.tenant_id,
                         invoicing_entity.next_invoice_number,
                     )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let tx = CustomerBalancePendingTxRowNew {
                         id: Uuid::now_v7(),
@@ -403,7 +443,7 @@ impl CustomersInterface for Store {
 
                     Ok(inserted_invoice)
                 }
-                    .scope_boxed()
+                .scope_boxed()
             })
             .await?;
 

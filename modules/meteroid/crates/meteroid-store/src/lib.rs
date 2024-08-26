@@ -1,11 +1,11 @@
 pub mod compute;
+pub mod constants;
 pub mod crypt;
 pub mod domain;
 pub mod errors;
 pub mod repositories;
 pub mod store;
 pub mod utils;
-pub mod constants;
 
 pub use store::Store;
 

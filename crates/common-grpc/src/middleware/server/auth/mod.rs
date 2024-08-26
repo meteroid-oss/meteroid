@@ -87,12 +87,27 @@ pub fn extract_organization(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid
 }
 
 pub enum AuthenticatedState {
-    ApiKey { id: Uuid, tenant_id: Uuid, organization_id: Uuid },
-    User { id: Uuid },
+    ApiKey {
+        id: Uuid,
+        tenant_id: Uuid,
+        organization_id: Uuid,
+    },
+    User {
+        id: Uuid,
+    },
 }
 
 pub enum AuthorizedState {
-    Tenant { actor_id: Uuid, tenant_id: Uuid, organization_id: Uuid },
-    Organization { actor_id: Uuid, organization_id: Uuid },
-    User { user_id: Uuid },
+    Tenant {
+        actor_id: Uuid,
+        tenant_id: Uuid,
+        organization_id: Uuid,
+    },
+    Organization {
+        actor_id: Uuid,
+        organization_id: Uuid,
+    },
+    User {
+        user_id: Uuid,
+    },
 }

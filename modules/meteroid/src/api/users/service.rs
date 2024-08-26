@@ -3,7 +3,11 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
-use meteroid_grpc::meteroid::api::users::v1::{users_service_server::UsersService, GetUserByIdRequest, GetUserByIdResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, MeRequest, MeResponse, RegisterRequest, RegisterResponse, OnboardMeRequest, OnboardMeResponse};
+use meteroid_grpc::meteroid::api::users::v1::{
+    users_service_server::UsersService, GetUserByIdRequest, GetUserByIdResponse, ListUsersRequest,
+    ListUsersResponse, LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest,
+    OnboardMeResponse, RegisterRequest, RegisterResponse,
+};
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
 use meteroid_store::repositories::users::UserInterface;
 
@@ -17,8 +21,7 @@ impl UsersService for UsersServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn me(&self, request: Request<MeRequest>) -> Result<Response<MeResponse>, Status> {
         let actor = request.actor()?;
-        let organization = request.organization()
-            .ok();
+        let organization = request.organization().ok();
 
         let me = self
             .store
@@ -27,14 +30,16 @@ impl UsersService for UsersServiceComponents {
             .map(mapping::user::me_to_proto)
             .map_err(Into::<UserApiError>::into)?;
 
-
         Ok(Response::new(me))
     }
 
     #[tracing::instrument(skip_all)]
-    async fn onboard_me(&self, request: Request<OnboardMeRequest>) -> Result<Response<OnboardMeResponse>, Status> {
+    async fn onboard_me(
+        &self,
+        request: Request<OnboardMeRequest>,
+    ) -> Result<Response<OnboardMeResponse>, Status> {
         let actor = request.actor()?;
- 
+
         let request = request.into_inner();
 
         let data = UpdateUser {
@@ -51,12 +56,8 @@ impl UsersService for UsersServiceComponents {
             .map(mapping::user::domain_to_proto)
             .map_err(Into::<UserApiError>::into)?;
 
-
-        Ok(Response::new(OnboardMeResponse {
-            user: Some(me)
-        }))
+        Ok(Response::new(OnboardMeResponse { user: Some(me) }))
     }
-
 
     #[tracing::instrument(skip_all)]
     async fn get_user_by_id(
@@ -122,7 +123,7 @@ impl UsersService for UsersServiceComponents {
                 user: Some(mapping::user::domain_to_proto(resp.user)),
             }))
         })
-            .await
+        .await
     }
 
     #[tracing::instrument(skip_all)]
@@ -148,6 +149,6 @@ impl UsersService for UsersServiceComponents {
                 user: Some(mapping::user::domain_to_proto(resp.user)),
             }))
         })
-            .await
+        .await
     }
 }

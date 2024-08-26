@@ -37,7 +37,6 @@ pub struct UserWithRoleRow {
     pub department: Option<String>,
 }
 
-
 #[derive(Debug, Insertable)]
 #[diesel(table_name = crate::schema::user)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

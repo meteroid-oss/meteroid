@@ -2,8 +2,8 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use diesel_models::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPatch};
 use crate::domain::Address;
+use diesel_models::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPatch};
 
 #[derive(Serialize, Deserialize, o2o)]
 #[map_owned(InvoicingEntityRow)]
@@ -51,7 +51,6 @@ impl InvoicingEntity {
     }
 }
 
-
 #[derive(Clone, Debug, Default)]
 pub struct InvoicingEntityNew {
     pub country: Option<String>,
@@ -73,7 +72,6 @@ pub struct InvoicingEntityNew {
     pub vat_number: Option<String>,
 }
 
-
 #[derive(Clone, Debug, o2o)]
 #[owned_into(InvoicingEntityRowPatch)]
 #[ghosts(accounting_currency: {None})]
@@ -94,5 +92,4 @@ pub struct InvoicingEntityPatch {
     pub city: Option<String>,
     pub vat_number: Option<String>,
     pub country: Option<String>,
-
 }

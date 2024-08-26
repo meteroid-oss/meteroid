@@ -19,7 +19,10 @@ use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 
 use crate::api::customers::error::CustomerApiError;
-use crate::api::customers::mapping::customer::{DomainAddressWrapper, DomainBillingConfigWrapper, DomainShippingAddressWrapper, ServerCustomerBriefWrapper, ServerCustomerWrapper};
+use crate::api::customers::mapping::customer::{
+    DomainAddressWrapper, DomainBillingConfigWrapper, DomainShippingAddressWrapper,
+    ServerCustomerBriefWrapper, ServerCustomerWrapper,
+};
 use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
@@ -36,7 +39,9 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
         let actor = request.actor()?;
 
-        let inner = request.into_inner().data
+        let inner = request
+            .into_inner()
+            .data
             .ok_or(CustomerApiError::MissingArgument("no data".into()))?;
 
         let billing_config = inner
@@ -44,7 +49,7 @@ impl CustomersService for CustomerServiceComponents {
             .ok_or(CustomerApiError::MissingArgument("billing_config".into()))
             .and_then(|c| DomainBillingConfigWrapper::try_from(c))?
             .0;
-        
+
         let customer_new = CustomerNew {
             name: inner.name,
             created_by: actor,
@@ -56,11 +61,13 @@ impl CustomersService for CustomerServiceComponents {
             phone: inner.phone,
             balance_value_cents: 0,
             currency: inner.currency,
-            billing_address: inner.billing_address
+            billing_address: inner
+                .billing_address
                 .map(DomainAddressWrapper::try_from)
                 .transpose()?
                 .map(|v| v.0),
-            shipping_address: inner.shipping_address
+            shipping_address: inner
+                .shipping_address
                 .map(DomainShippingAddressWrapper::try_from)
                 .transpose()?
                 .map(|v| v.0),

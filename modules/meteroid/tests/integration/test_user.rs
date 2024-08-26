@@ -16,11 +16,11 @@ async fn test_users_basic() {
     // login
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     // me
@@ -33,7 +33,6 @@ async fn test_users_basic() {
         .into_inner()
         .user
         .unwrap();
-
 
     // TODO check if /me should have role
     // assert_eq!(me.role, UserRole::Admin as i32);

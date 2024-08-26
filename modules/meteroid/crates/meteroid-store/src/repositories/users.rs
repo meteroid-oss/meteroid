@@ -1,5 +1,9 @@
 use crate::domain::enums::OrganizationUserRole;
-use crate::domain::users::{LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest, RegisterUserResponse, UpdateUser, UpdateUserRole, User, UserWithRole};
+use crate::domain::users::{
+    LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest, RegisterUserResponse, UpdateUser,
+    User, UserWithRole,
+};
+use crate::domain::Organization;
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
@@ -15,7 +19,6 @@ use error_stack::Report;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use uuid::Uuid;
-use crate::domain::Organization;
 
 #[async_trait::async_trait]
 pub trait UserInterface {
@@ -25,10 +28,22 @@ pub trait UserInterface {
     async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User>;
     // async fn update_user_role(&self, auth_user_id: Uuid, organization_id: Uuid, data: UpdateUserRole) -> StoreResult<User>;
 
-    async fn find_user_by_id_and_organization(&self, id: Uuid, org_id: Uuid) -> StoreResult<UserWithRole>;
-    async fn find_user_by_id_and_tenant(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<UserWithRole>;
+    async fn find_user_by_id_and_organization(
+        &self,
+        id: Uuid,
+        org_id: Uuid,
+    ) -> StoreResult<UserWithRole>;
+    async fn find_user_by_id_and_tenant(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> StoreResult<UserWithRole>;
 
-    async fn find_user_by_email_and_organization(&self, email: String, org_id: Uuid) -> StoreResult<UserWithRole>;
+    async fn find_user_by_email_and_organization(
+        &self,
+        email: String,
+        org_id: Uuid,
+    ) -> StoreResult<UserWithRole>;
     async fn list_users_for_organization(&self, org_id: Uuid) -> StoreResult<Vec<UserWithRole>>;
 
     /** Internal use only. For API/external, use me() or find_user_by_id_and_organization() */
@@ -47,13 +62,10 @@ impl UserInterface for Store {
                 entity: "user",
                 key: None,
             }
-                .into());
+            .into());
         }
 
-        async fn create_user(
-            conn: &mut PgConn,
-            req: &RegisterUserRequest,
-        ) -> StoreResult<Uuid> {
+        async fn create_user(conn: &mut PgConn, req: &RegisterUserRequest) -> StoreResult<Uuid> {
             // Hash password
             let hashed_password = hash_password(&req.password.expose_secret())?;
 
@@ -68,7 +80,6 @@ impl UserInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-
             Ok(user_new.id)
         }
 
@@ -82,7 +93,6 @@ impl UserInterface for Store {
                     }
                 }
 
-
                 // we don't initiate an organization yet. User will be prompted to onboard.
                 create_user(&mut conn, &req).await?
             }
@@ -94,9 +104,9 @@ impl UserInterface for Store {
                             conn,
                             invite_link.expose_secret().clone(),
                         )
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?
-                            .id;
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .id;
 
                         let created = create_user(conn, &cloned_req).await?;
 
@@ -110,9 +120,10 @@ impl UserInterface for Store {
                             .map_err(Into::<Report<StoreError>>::into)?;
 
                         Ok(created)
-                    }.scope_boxed()
+                    }
+                    .scope_boxed()
                 })
-                    .await?
+                .await?
             }
         };
 
@@ -164,18 +175,19 @@ impl UserInterface for Store {
     async fn me(&self, auth_user_id: Uuid, organization_id: Option<Uuid>) -> StoreResult<Me> {
         let mut conn = self.get_conn().await?;
 
-        let organizations: Vec<Organization> = OrganizationRow::list_by_user_id(&mut conn, auth_user_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|x| x.into_iter().map(Into::into).collect())?;
-
+        let organizations: Vec<Organization> =
+            OrganizationRow::list_by_user_id(&mut conn, auth_user_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)
+                .map(|x| x.into_iter().map(Into::into).collect())?;
 
         let (user, current_organization_role) = match organization_id {
             Some(org_id) => {
-                let user: UserWithRole = UserRow::find_by_id_and_org_id(&mut conn, auth_user_id, org_id)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)
-                    .map(Into::into)?;
+                let user: UserWithRole =
+                    UserRow::find_by_id_and_org_id(&mut conn, auth_user_id, org_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .map(Into::into)?;
 
                 let role = user.role.clone();
                 (user.into(), Some(role))
@@ -189,7 +201,6 @@ impl UserInterface for Store {
                 (user, None)
             }
         };
-
 
         Ok(Me {
             user,
@@ -211,22 +222,31 @@ impl UserInterface for Store {
 
         //TODO send know_us_from & department to analytics
 
-        let res = patch.update_user(&mut conn)
+        let res = patch
+            .update_user(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(Into::into)?;
 
         let _ = self
             .eventbus
-            .publish(Event::user_updated(auth_user_id, auth_user_id, data.department, data.know_us_from))
+            .publish(Event::user_updated(
+                auth_user_id,
+                auth_user_id,
+                data.department,
+                data.know_us_from,
+            ))
             .await;
 
         Ok(res)
     }
 
-    async fn find_user_by_id_and_organization(&self, id: Uuid, org_id: Uuid) -> StoreResult<UserWithRole> {
+    async fn find_user_by_id_and_organization(
+        &self,
+        id: Uuid,
+        org_id: Uuid,
+    ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
-
 
         UserRow::find_by_id_and_org_id(&mut conn, id, org_id)
             .await
@@ -234,7 +254,11 @@ impl UserInterface for Store {
             .map(Into::into)
     }
 
-    async fn find_user_by_id_and_tenant(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<UserWithRole> {
+    async fn find_user_by_id_and_tenant(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
         UserRow::find_by_id_and_tenant_id(&mut conn, id, tenant_id)
@@ -243,8 +267,11 @@ impl UserInterface for Store {
             .map(Into::into)
     }
 
-
-    async fn find_user_by_email_and_organization(&self, email: String, org_id: Uuid) -> StoreResult<UserWithRole> {
+    async fn find_user_by_email_and_organization(
+        &self,
+        email: String,
+        org_id: Uuid,
+    ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
         UserRow::find_by_email_and_org_id(&mut conn, email, org_id)
@@ -284,7 +311,7 @@ fn generate_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<Secre
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(secret.expose_secret().as_bytes()),
     )
-        .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
+    .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
 
     Ok(SecretString::new(token))
 }

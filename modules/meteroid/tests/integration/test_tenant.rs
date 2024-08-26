@@ -9,7 +9,6 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
     ConfigureTenantBillingRequest, TenantBillingConfiguration,
 };
 
-
 #[tokio::test]
 async fn test_tenants_basic() {
     // Generic setup
@@ -22,11 +21,11 @@ async fn test_tenants_basic() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let tenant_name = "meter_me";

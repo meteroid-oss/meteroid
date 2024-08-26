@@ -58,10 +58,7 @@ impl OrganizationRow {
             .into_db_result()
     }
 
-    pub async fn get_by_id(
-        conn: &mut PgConn,
-        id: uuid::Uuid,
-    ) -> DbResult<OrganizationRow> {
+    pub async fn get_by_id(conn: &mut PgConn, id: uuid::Uuid) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -76,10 +73,7 @@ impl OrganizationRow {
             .into_db_result()
     }
 
-    pub async fn find_by_slug(
-        conn: &mut PgConn,
-        slug: String,
-    ) -> DbResult<OrganizationRow> {
+    pub async fn find_by_slug(conn: &mut PgConn, slug: String) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -116,7 +110,6 @@ impl OrganizationRow {
             .into_db_result()
     }
 
-
     pub async fn update_trade_name(
         conn: &mut PgConn,
         param_id: uuid::Uuid,
@@ -138,7 +131,6 @@ impl OrganizationRow {
             .attach_printable("Error while updating organization")
             .into_db_result()
     }
-
 
     pub async fn list_by_user_id(
         conn: &mut PgConn,

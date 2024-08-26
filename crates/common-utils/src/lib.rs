@@ -3,6 +3,4 @@ pub mod date;
 pub mod error_stack_conv;
 pub mod timed;
 
-#[cfg(feature = "decimal")]
-pub mod decimal;
 pub mod rng;

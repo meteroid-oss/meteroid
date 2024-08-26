@@ -25,13 +25,13 @@ pub mod add_ons;
 pub mod customer_balance_txs;
 pub mod extend;
 pub mod historical_rates_from_usd;
+pub mod invoicing_entities;
 pub mod stats;
 pub mod subscription_components;
 pub mod subscription_events;
 pub mod tenants;
 pub mod users;
 pub mod webhooks;
-pub mod invoicing_entities;
 
 use diesel_async::pooled_connection::deadpool::Object;
 

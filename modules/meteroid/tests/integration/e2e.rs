@@ -23,7 +23,10 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
-use meteroid_store::domain::{Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, LineItem, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{
+    Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, LineItem, OrderByRequest,
+    PaginationRequest,
+};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::utils::local_id::LocalId;
 use meteroid_store::Store;
@@ -102,7 +105,7 @@ async fn test_metering_e2e() {
         meteroid_it::container::SeedLevel::PRODUCT,
         Arc::new(metering_client),
     )
-        .await;
+    .await;
 
     let store = meteroid_setup.store;
 
@@ -111,7 +114,8 @@ async fn test_metering_e2e() {
     let mut meteroid_clients = meteroid_it::clients::AllClients::from_channel(
         meteroid_setup.channel.clone(),
         jwt_auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let tenant_uuid = uuid!("018c2c82-3df1-7e84-9e05-6e141d0e751a");
@@ -317,8 +321,8 @@ async fn test_metering_e2e() {
         &tenant_id,
         &created_metric.billable_metric.unwrap().id,
     )
-        .split(".")
-        .collect::<Vec<&str>>()[1]
+    .split(".")
+    .collect::<Vec<&str>>()[1]
         .to_string();
 
     //sleep
@@ -581,8 +585,8 @@ async fn test_metering_e2e() {
         &store,
         chrono::Utc::now().naive_utc(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 
     let db_invoices = fetch_invoices(&store, tenant_uuid.clone()).await;
     assert_eq!(

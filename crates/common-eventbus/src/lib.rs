@@ -207,13 +207,24 @@ impl Event {
         )
     }
 
-    pub fn user_updated(actor: Uuid, user_id: Uuid, department: Option<String>, know_us_from: Option<String>) -> Self {
+    pub fn user_updated(
+        actor: Uuid,
+        user_id: Uuid,
+        department: Option<String>,
+        know_us_from: Option<String>,
+    ) -> Self {
         Self::new(
             EventData::UserUpdated(EventDataWithMetadataDetails {
                 entity_id: user_id,
                 metadata: vec![
-                    ("department".to_string(), department.unwrap_or("undefined".to_string())),
-                    ("know_us_from".to_string(), know_us_from.unwrap_or("undefined".to_string())),
+                    (
+                        "department".to_string(),
+                        department.unwrap_or("undefined".to_string()),
+                    ),
+                    (
+                        "know_us_from".to_string(),
+                        know_us_from.unwrap_or("undefined".to_string()),
+                    ),
                 ],
             }),
             Some(actor),

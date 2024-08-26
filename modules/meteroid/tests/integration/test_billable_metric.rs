@@ -1,6 +1,5 @@
 use meteroid_grpc::meteroid::api;
 
-
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
@@ -17,11 +16,11 @@ async fn test_billable_metrics_basic() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let metric_name = "friends and co".to_owned();

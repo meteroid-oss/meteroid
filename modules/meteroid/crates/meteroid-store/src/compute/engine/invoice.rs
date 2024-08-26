@@ -5,6 +5,7 @@ use crate::compute::engine::component::ComponentEngine;
 use crate::compute::errors::ComputeError;
 use crate::domain::enums::SubscriptionFeeBillingPeriod;
 use crate::domain::*;
+use crate::repositories::TenantInterface;
 use crate::Store;
 use chrono::NaiveDate;
 
@@ -32,6 +33,11 @@ impl InvoiceLineInterface for Store {
         if *invoice_date < subscription_details.billing_start_date {
             return Err(ComputeError::InvalidInvoiceDate);
         }
+
+        let currency = self
+            .get_reporting_currency_by_tenant_id(subscription_details.tenant_id)
+            .await
+            .map_err(|_| ComputeError::InternalError)?;
 
         let billing_start_date = subscription_details.billing_start_date;
         let billing_day = subscription_details.billing_day;
@@ -85,7 +91,7 @@ impl InvoiceLineInterface for Store {
             for component in components {
                 let component = component.clone();
                 let lines = component_engine
-                    .compute_component(component, period.clone(), &invoice_date)
+                    .compute_component(component, period.clone(), &invoice_date, currency.precision)
                     .await?;
                 invoice_lines.extend(lines);
             }

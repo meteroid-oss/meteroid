@@ -14,7 +14,6 @@ use error_stack::{Report, ResultExt};
 pub type PgPool = Pool<AsyncPgConnection>;
 pub type PgConn = Object<AsyncPgConnection>;
 
-
 #[derive(Clone)]
 pub struct Settings {
     pub crypt_key: secrecy::SecretString,
@@ -30,7 +29,6 @@ pub struct Store {
     pub(crate) settings: Settings,
     pub(crate) internal: StoreInternal,
 }
-
 
 /**
  * Share store logic while allowing cross-service transactions
@@ -88,14 +86,14 @@ impl Store {
     // Temporary, evaluating if this simplifies the handling of store + diesel interations within a transaction
 
     pub(crate) async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
-        where
-            F: for<'r> FnOnce(
+    where
+        F: for<'r> FnOnce(
                 &'r mut PgConn,
             )
                 -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
             + Send
             + 'a,
-            R: Send + 'a,
+        R: Send + 'a,
     {
         let mut conn = self.get_conn().await?;
 
@@ -107,14 +105,14 @@ impl Store {
         conn: &mut PgConn,
         callback: F,
     ) -> StoreResult<R>
-        where
-            F: for<'r> FnOnce(
+    where
+        F: for<'r> FnOnce(
                 &'r mut PgConn,
             )
                 -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
             + Send
             + 'a,
-            R: Send + 'a,
+        R: Send + 'a,
     {
         let result = conn
             .transaction(|conn| {
@@ -122,7 +120,7 @@ impl Store {
                     let res = callback(conn);
                     res.await.map_err(StoreError::TransactionStoreError)
                 }
-                    .scope_boxed()
+                .scope_boxed()
             })
             .await?;
 

@@ -4,7 +4,6 @@ use crate::meteroid_it::container::SeedLevel;
 use common_grpc::meteroid::common::v1 as common;
 use meteroid_grpc::meteroid::api;
 
-
 #[tokio::test]
 async fn test_schedules_basic() {
     // Generic setup
@@ -16,13 +15,13 @@ async fn test_schedules_basic() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let plan_version_id = "018c344a-78a9-7e2b-af90-5748672711f9";
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let schedules = clients

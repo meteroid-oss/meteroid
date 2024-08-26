@@ -33,7 +33,6 @@ pub struct TenantRowNew {
     pub environment: TenantEnvironmentEnum,
 }
 
-
 #[derive(Debug, AsChangeset)]
 #[diesel(table_name = crate::schema::tenant)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

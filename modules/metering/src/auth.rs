@@ -67,17 +67,17 @@ impl<S> Layer<S> for ExternalApiAuthLayer {
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
-    where
-        S: Service<Request<ReqBody>, Response=Response<BoxBody>, Error=BoxError>
+where
+    S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
         + Clone
         + Send
         + 'static,
-        S::Future: Send + 'static,
-        ReqBody: Send + 'static,
+    S::Future: Send + 'static,
+    ReqBody: Send + 'static,
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -109,7 +109,11 @@ impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
             }?;
 
             let authorized_state = match authenticated_state {
-                AuthenticatedState::ApiKey { tenant_id, id, organization_id } => Ok(AuthorizedState::Tenant {
+                AuthenticatedState::ApiKey {
+                    tenant_id,
+                    id,
+                    organization_id,
+                } => Ok(AuthorizedState::Tenant {
                     tenant_id,
                     organization_id,
                     actor_id: id,
@@ -196,7 +200,12 @@ pub async fn validate_api_key(
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
     })?;
 
-    let (organization_id, tenant_id) = validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
+    let (organization_id, tenant_id) =
+        validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
 
-    Ok(AuthenticatedState::ApiKey { id, tenant_id, organization_id })
+    Ok(AuthenticatedState::ApiKey {
+        id,
+        tenant_id,
+        organization_id,
+    })
 }

@@ -8,7 +8,6 @@ use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::customers::v1::CustomerBillingConfig;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
-
 use meteroid_store::domain::CursorPaginationRequest;
 use meteroid_store::repositories::InvoiceInterface;
 
@@ -24,7 +23,6 @@ async fn test_main() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
@@ -152,7 +150,7 @@ async fn test_main() {
                     billing_address: None,
                     shipping_address: None,
                     invoicing_entity_id: None,
-                })
+                }),
             },
         ))
         .await

@@ -108,8 +108,8 @@ impl WebhooksInterface for Store {
             pagination.into(),
             order_by.into(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<WebhookOutEvent> = PaginatedVec {
             items: rows.items.into_iter().map(|s| s.into()).collect(),

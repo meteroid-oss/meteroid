@@ -2,7 +2,6 @@ use uuid::Uuid;
 
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
-
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::invoicing_entity)]
 #[diesel(check_for_backend(diesel::pg::Pg))]

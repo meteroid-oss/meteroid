@@ -137,8 +137,16 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             phone: self.inner.phone,
             balance_value_cents: self.inner.balance_value_cents,
             currency: self.inner.currency,
-            billing_address: self.inner.billing_address.map(|v| v.try_into()).transpose()?,
-            shipping_address: self.inner.shipping_address.map(|v| v.try_into()).transpose()?,
+            billing_address: self
+                .inner
+                .billing_address
+                .map(|v| v.try_into())
+                .transpose()?,
+            shipping_address: self
+                .inner
+                .shipping_address
+                .map(|v| v.try_into())
+                .transpose()?,
             created_at: self.inner.force_created_date,
         })
     }

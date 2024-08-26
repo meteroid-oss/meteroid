@@ -1,6 +1,6 @@
 use crate::errors::IntoDbResult;
 
-use crate::users::{UserRow, UserRowNew, UserWithRoleRow, UserRowPatch};
+use crate::users::{UserRow, UserRowNew, UserRowPatch, UserWithRoleRow};
 use crate::{DbResult, PgConn};
 
 use diesel::{
@@ -94,7 +94,6 @@ impl UserRow {
             .attach_printable("Error while finding user by id and tenant")
             .into_db_result()
     }
-
 
     pub async fn find_by_email_and_org_id(
         conn: &mut PgConn,

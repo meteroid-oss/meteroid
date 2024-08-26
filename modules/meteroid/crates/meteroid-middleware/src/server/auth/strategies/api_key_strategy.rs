@@ -63,7 +63,12 @@ pub async fn validate_api_key(
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
     })?;
 
-    let (organization_id, tenant_id) = validate_api_token_by_id_cached(store, &validator, &id).await?;
+    let (organization_id, tenant_id) =
+        validate_api_token_by_id_cached(store, &validator, &id).await?;
 
-    Ok(AuthenticatedState::ApiKey { id, tenant_id, organization_id })
+    Ok(AuthenticatedState::ApiKey {
+        id,
+        tenant_id,
+        organization_id,
+    })
 }

@@ -1,12 +1,19 @@
 use crate::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum, SubscriptionEventType,
 };
-use crate::domain::{BillableMetric, BillingConfig, ComponentParameters, CreateSubscription, CreateSubscriptionComponents, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest, Customer, FeeType, InlineCustomer, PaginatedVec, PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew, InlineInvoicingEntity, InvoicingEntity};
+use crate::domain::{
+    BillableMetric, BillingConfig, ComponentParameters, CreateSubscription,
+    CreateSubscriptionComponents, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest,
+    Customer, FeeType, InlineCustomer, InlineInvoicingEntity, InvoicingEntity, PaginatedVec,
+    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionComponent,
+    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails,
+    SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
+};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
+use crate::utils::decimals::ToSubunit;
 use crate::{domain, StoreResult};
 use chrono::{NaiveDate, NaiveTime};
-use common_utils::decimal::ToCent;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use diesel_models::errors::DatabaseErrorContainer;
@@ -16,6 +23,8 @@ use uuid::Uuid;
 
 use rust_decimal::prelude::*;
 
+use crate::constants::Currencies;
+use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
@@ -29,7 +38,6 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
-use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
@@ -88,28 +96,32 @@ pub trait SubscriptionInterface {
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 
-fn calculate_mrr_for_new_component(component: &SubscriptionComponentNewInternal) -> i64 {
+fn calculate_mrr_for_new_component(
+    component: &SubscriptionComponentNewInternal,
+    precision: u8,
+) -> i64 {
     let mut total_cents = 0;
 
     let period_as_months = component.period.as_months() as i64;
 
     match &component.fee {
         SubscriptionFee::Rate { rate } => {
-            total_cents = rate.to_cents().unwrap_or(0);
+            total_cents = rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::Recurring { quantity, rate, .. } => {
             let total = rate * Decimal::from(*quantity);
-            total_cents = total.to_cents().unwrap_or(0);
+            total_cents = total.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::Capacity { rate, .. } => {
-            total_cents = rate.to_cents().unwrap_or(0);
+            total_cents = rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::Slot {
             initial_slots,
             unit_rate,
             ..
         } => {
-            total_cents = (*initial_slots as i64) * unit_rate.to_cents().unwrap_or(0);
+            total_cents =
+                (*initial_slots as i64) * unit_rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => {
             // doesn't count as mrr
@@ -159,9 +171,9 @@ impl SubscriptionSlotsInterface for Store {
             price_component_id,
             ts,
         )
-            .await
-            .map(|c| c.current_active_slots as u32)
-            .map_err(Into::into)
+        .await
+        .map(|c| c.current_active_slots as u32)
+        .map_err(Into::into)
     }
 
     async fn add_slot_transaction(
@@ -247,8 +259,8 @@ impl SubscriptionInterface for Store {
                 .map(|c| c.subscription.plan_version_id)
                 .collect::<Vec<_>>(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let customer_ids = batch
             .iter()
@@ -260,9 +272,7 @@ impl SubscriptionInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
-
 
         // map the price compoennts thanks to .try_into
         let price_components_by_plan_version: HashMap<Uuid, Vec<PriceComponent>> =
@@ -291,6 +301,9 @@ impl SubscriptionInterface for Store {
                     .find(|c| c.id == subscription.customer_id)
                     .ok_or(StoreError::InsertError)?;
 
+                let precision = Currencies::resolve_currency_precision(&subscription.currency)
+                    .ok_or(StoreError::InsertError)?;
+
                 let insertable_subscription_components = process_create_subscription_components(
                     &price_components,
                     &price_components_by_plan_version,
@@ -311,7 +324,7 @@ impl SubscriptionInterface for Store {
 
                 let cmrr = insertable_subscription_components
                     .iter()
-                    .map(|c| calculate_mrr_for_new_component(c))
+                    .map(|c| calculate_mrr_for_new_component(c, precision))
                     .sum::<i64>();
 
                 let insertable_subscription_components = insertable_subscription_components
@@ -367,8 +380,8 @@ impl SubscriptionInterface for Store {
                         conn,
                         insertable_subscription_components,
                     )
-                        .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
+                    .await
+                    .map_err(Into::<DatabaseErrorContainer>::into)?;
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
@@ -376,7 +389,7 @@ impl SubscriptionInterface for Store {
 
                     Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
                 }
-                    .scope_boxed()
+                .scope_boxed()
             })
             .await?;
 
@@ -389,7 +402,7 @@ impl SubscriptionInterface for Store {
                     .iter()
                     .find(|c| c.id == s.customer_id)
                     .ok_or(StoreError::InsertError)?;
-                
+
                 let invoicing_entity = invoicing_entities
                     .iter()
                     .find(|c| c.id == customer.invoicing_entity_id)
@@ -437,9 +450,9 @@ impl SubscriptionInterface for Store {
                 res.tenant_id,
             ))
         }))
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>();
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>();
 
         Ok(inserted_subscriptions)
     }
@@ -472,11 +485,11 @@ impl SubscriptionInterface for Store {
                 &tenant_id,
                 &subscription_id,
             )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Result<Vec<_>, _>>()?;
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
         let metric_ids = subscription_components
             .iter()
@@ -540,13 +553,13 @@ impl SubscriptionInterface for Store {
             &mut conn,
             insertable_batch.iter().collect(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .map(|v| {
-                v.into_iter()
-                    .map(|e| e.try_into().map_err(Report::from))
-                    .collect::<Result<Vec<_>, _>>()
-            })?
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .map(|v| {
+            v.into_iter()
+                .map(|e| e.try_into().map_err(Report::from))
+                .collect::<Result<Vec<_>, _>>()
+        })?
     }
 
     async fn cancel_subscription(
@@ -582,16 +595,16 @@ impl SubscriptionInterface for Store {
                             reason,
                         },
                     )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let res = SubscriptionRow::get_subscription_by_id(
                         conn,
                         &context.tenant_id,
                         &subscription_id,
                     )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     let mrr = subscription.mrr_cents;
 
@@ -613,7 +626,7 @@ impl SubscriptionInterface for Store {
 
                     Ok(res)
                 }
-                    .scope_boxed()
+                .scope_boxed()
             })
             .await?;
 
@@ -647,8 +660,8 @@ impl SubscriptionInterface for Store {
             plan_id,
             pagination.into(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Subscription> = PaginatedVec {
             items: db_subscriptions
@@ -675,8 +688,8 @@ impl SubscriptionInterface for Store {
             date,
             pagination.into(),
         )
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: CursorPaginatedVec<SubscriptionInvoiceCandidate> = CursorPaginatedVec {
             items: db_subscriptions

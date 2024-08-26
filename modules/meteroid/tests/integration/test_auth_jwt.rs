@@ -71,8 +71,12 @@ async fn test_jwt() {
     assert_eq!(auth.token.clone().is_empty(), false);
 
     // # try to access secured method with fake auth token
-    let clients =
-        meteroid_it::clients::AllClients::from_channel(setup.channel.clone(), "faketoken", "TESTORG", "testslug");
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        "faketoken",
+        "TESTORG",
+        "testslug",
+    );
 
     let tenants_response = clients
         .tenants

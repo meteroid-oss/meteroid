@@ -6,9 +6,12 @@ use segment::{Client, Message};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::constants::OSS_API;
 use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
-use common_eventbus::{Event, EventData, EventDataDetails, EventDataWithMetadataDetails, TenantEventDataDetails};
+use common_eventbus::{
+    Event, EventData, EventDataDetails, EventDataWithMetadataDetails, TenantEventDataDetails,
+};
 use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
 use meteroid_store::domain::DetailedInvoice;
@@ -19,7 +22,6 @@ use meteroid_store::repositories::{
     CustomersInterface, InvoiceInterface, PlansInterface, SubscriptionInterface,
 };
 use meteroid_store::Store;
-use crate::constants::OSS_API;
 
 pub struct AnalyticsHandler {
     store: Store,
@@ -101,7 +103,7 @@ impl AnalyticsHandler {
                 "tenant_id": api_token.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -151,7 +153,7 @@ impl AnalyticsHandler {
                 "customer_id": customer.id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -176,7 +178,7 @@ impl AnalyticsHandler {
                 "tenant_id": event_data_details.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -194,7 +196,7 @@ impl AnalyticsHandler {
                 "organization_id": event_data_details.entity_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -223,7 +225,7 @@ impl AnalyticsHandler {
                 "currency": invoice.currency,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -252,7 +254,7 @@ impl AnalyticsHandler {
                 "currency": invoice.currency,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -279,7 +281,7 @@ impl AnalyticsHandler {
                 "tenant_id": plan_version.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -306,7 +308,7 @@ impl AnalyticsHandler {
                 "tenant_id": plan_version.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -325,7 +327,7 @@ impl AnalyticsHandler {
                 "tenant_id": event_data_details.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -350,7 +352,7 @@ impl AnalyticsHandler {
                 "tenant_id": event_data_details.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -375,7 +377,7 @@ impl AnalyticsHandler {
                 "tenant_id": event_data_details.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -394,7 +396,7 @@ impl AnalyticsHandler {
                 "tenant_id": event_data_details.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -413,7 +415,7 @@ impl AnalyticsHandler {
                 "tenant_id": event_data_details.tenant_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -441,7 +443,7 @@ impl AnalyticsHandler {
                 "version": subscription.version,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -495,7 +497,7 @@ impl AnalyticsHandler {
                 "billing_end_date": billing_end_date,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -513,7 +515,7 @@ impl AnalyticsHandler {
                 "user_id": event_data_details.entity_id,
             }),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -532,7 +534,7 @@ impl AnalyticsHandler {
             event.actor,
             serde_json::json!(properties),
         )
-            .await;
+        .await;
 
         Ok(())
     }
@@ -551,7 +553,9 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::CustomerPatched(details) => self.customer_patched(&event, details).await?,
-            EventData::OrganizationCreated(details) => self.instance_inited(&event, details).await?,
+            EventData::OrganizationCreated(details) => {
+                self.instance_inited(&event, details).await?
+            }
             EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
             EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
             EventData::PlanCreatedDraft(details) => {

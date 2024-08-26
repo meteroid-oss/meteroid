@@ -43,8 +43,14 @@ pub struct AllClients {
 }
 
 impl AllClients {
-    pub fn from_channel(channel: Channel, bearer_token: &str, org_slug: &str, tenant_slug: &str) -> AllClients {
-        let service = Self::build_layered_client_service(channel, bearer_token, org_slug, tenant_slug);
+    pub fn from_channel(
+        channel: Channel,
+        bearer_token: &str,
+        org_slug: &str,
+        tenant_slug: &str,
+    ) -> AllClients {
+        let service =
+            Self::build_layered_client_service(channel, bearer_token, org_slug, tenant_slug);
 
         Self {
             add_ons: AddOnsServiceClient::new(service.clone()),

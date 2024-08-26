@@ -10,10 +10,10 @@ use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Ser
 use common_eventbus::Event;
 
 use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::subscription_to_draft;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::Store;
-use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 
 const BATCH_SIZE: usize = 100;
 
@@ -31,14 +31,14 @@ impl AsyncRunnable for DraftWorker {
             singletons::get_store().await,
             chrono::Utc::now().naive_utc().date(),
         )
-            .timed(|res, elapsed| record_call("draft", res, elapsed))
-            .await
-            .map_err(|err| {
-                log::error!("Error in draft worker: {:?}", err);
-                FangError {
-                    description: err.to_string(),
-                }
-            })
+        .timed(|res, elapsed| record_call("draft", res, elapsed))
+        .await
+        .map_err(|err| {
+            log::error!("Error in draft worker: {:?}", err);
+            FangError {
+                description: err.to_string(),
+            }
+        })
     }
 
     fn uniq(&self) -> bool {
@@ -86,7 +86,6 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
-
         let invoicing_entity_ids = customers
             .iter()
             .map(|x| x.invoicing_entity_id)
@@ -111,7 +110,8 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
                     .find(|c| c.id == cust.invoicing_entity_id)
                     .ok_or(errors::WorkerError::DatabaseError)?;
 
-                subscription_to_draft(x, cust, invoicing_entity).change_context(errors::WorkerError::DatabaseError)
+                subscription_to_draft(x, cust, invoicing_entity)
+                    .change_context(errors::WorkerError::DatabaseError)
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()

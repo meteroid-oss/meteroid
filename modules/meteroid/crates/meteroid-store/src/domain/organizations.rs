@@ -1,12 +1,11 @@
 use chrono::NaiveDateTime;
+use common_utils::rng::UPPER_ALPHANUMERIC;
 use nanoid::nanoid;
 use o2o::o2o;
 use uuid::Uuid;
-use common_utils::rng::UPPER_ALPHANUMERIC;
 
-use diesel_models::organizations::OrganizationRow;
 use crate::domain::{InvoicingEntityNew, Tenant};
-
+use diesel_models::organizations::OrganizationRow;
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(OrganizationRow)]
@@ -27,7 +26,6 @@ pub struct OrganizationWithTenants {
     pub tenants: Vec<Tenant>,
 }
 
-
 impl Organization {
     pub fn new_slug() -> String {
         nanoid!(9, &UPPER_ALPHANUMERIC)
@@ -40,7 +38,6 @@ pub struct OrganizationNew {
     pub country: String,
     pub invoicing_entity: Option<InvoicingEntityNew>,
 }
-
 
 pub struct InstanceFlags {
     pub multi_organization_enabled: bool,

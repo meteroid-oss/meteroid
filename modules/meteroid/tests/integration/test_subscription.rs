@@ -37,11 +37,11 @@ async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     Ok(TestContext {

@@ -171,22 +171,20 @@ impl InvoiceRow {
         conn: &mut PgConn,
         pagination: CursorPaginationRequest,
     ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
-        use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::customer::dsl as c_dsl;
-        
+        use crate::schema::invoice::dsl as i_dsl;
 
         let query = i_dsl::invoice
             .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
-
             .filter(
                 i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
             )
             .filter(diesel::dsl::now.gt(i_dsl::invoice_date
-                + diesel::dsl::sql::<diesel::sql_types::Interval>( // TODO
-                                                                   "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
-            )))
+                + diesel::dsl::sql::<diesel::sql_types::Interval>(
+                    // TODO
+                    "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
+                )))
             .select(InvoiceRow::as_select())
-
             .cursor_paginate(pagination, i_dsl::id, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -220,7 +218,7 @@ impl InvoiceRow {
                 i_dsl::updated_at.eq(now),
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
-                i_dsl::invoice_number.eq(new_invoice_number)
+                i_dsl::invoice_number.eq(new_invoice_number),
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

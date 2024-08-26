@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 
-use diesel_models::api_tokens::{ApiTokenRow, ApiTokenValidationRow, ApiTokenRowNew};
+use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 
 #[derive(Debug, o2o)]
 #[from_owned(ApiTokenRowNew)]

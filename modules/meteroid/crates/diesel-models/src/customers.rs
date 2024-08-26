@@ -56,7 +56,6 @@ pub struct CustomerRowNew {
     pub invoicing_entity_id: Uuid,
     // for seed, else default to None
     pub created_at: Option<NaiveDateTime>,
-
 }
 
 #[derive(Debug, AsChangeset)]

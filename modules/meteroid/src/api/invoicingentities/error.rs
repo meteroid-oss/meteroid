@@ -24,6 +24,9 @@ pub enum InvoicingEntitiesApiError {
 impl From<Report<StoreError>> for InvoicingEntitiesApiError {
     fn from(value: Report<StoreError>) -> Self {
         let err = Box::new(value.into_error());
-        InvoicingEntitiesApiError::StoreError("Error in invoicing entities service".to_string(), err)
+        InvoicingEntitiesApiError::StoreError(
+            "Error in invoicing entities service".to_string(),
+            err,
+        )
     }
 }

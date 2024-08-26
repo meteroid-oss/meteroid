@@ -29,7 +29,6 @@ pub struct ApiTokenRowNew {
     pub hint: String,
 }
 
-
 // ApiTokenValidationRow
 #[derive(Debug, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::api_token)]

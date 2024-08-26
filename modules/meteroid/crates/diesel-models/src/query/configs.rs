@@ -33,7 +33,6 @@ impl ProviderConfigRowNew {
     }
 }
 
-
 impl ProviderConfigRow {
     pub async fn find_provider_config(
         conn: &mut PgConn,

@@ -24,11 +24,11 @@ async fn test_webhook_endpoint_out() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let events_to_listen = vec![
@@ -100,7 +100,7 @@ async fn test_webhook_out_handler() {
         postgres_connection_string,
         SeedLevel::SUBSCRIPTIONS,
     )
-        .await;
+    .await;
 
     let mut endpoint_server1 = mockito::Server::new_async().await;
     let endpoint_url1 = endpoint_server1.url();
@@ -110,11 +110,11 @@ async fn test_webhook_out_handler() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     // create endpoint 1
@@ -189,7 +189,7 @@ async fn test_webhook_out_handler() {
             WebhookEventType::SubscriptionCreated,
             expected_endpoint_request,
         )
-            .await;
+        .await;
     }
 
     // customer.created
@@ -222,7 +222,7 @@ async fn test_webhook_out_handler() {
             WebhookEventType::CustomerCreated,
             expected_endpoint_request,
         )
-            .await;
+        .await;
     }
 
     // teardown
@@ -311,12 +311,12 @@ async fn test_webhook_handler(
         expected_endpoint_request.clone(),
         event_type,
     )
-        .await;
+    .await;
     assert_events(
         endpoint2_id,
         clients,
         expected_endpoint_request.clone(),
         event_type,
     )
-        .await;
+    .await;
 }

@@ -75,7 +75,6 @@ const ANONYMOUS_SERVICES: [&str; 3] = [
     "/meteroid.api.users.v1.UsersService/Login",
 ];
 
-
 // services require authentication but no authorization (no organization/tenant)
 const UNAUTHORIZED_SERVICES: [&str; 5] = [
     "/meteroid.api.organizations.v1.OrganizationsService/ListOrganizations",
@@ -86,17 +85,17 @@ const UNAUTHORIZED_SERVICES: [&str; 5] = [
 ];
 
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
-    where
-        S: Service<Request<ReqBody>, Response=Response<BoxBody>, Error=BoxError>
+where
+    S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
         + Clone
         + Send
         + 'static,
-        S::Future: Send + 'static,
-        ReqBody: Send + 'static,
+    S::Future: Send + 'static,
+    ReqBody: Send + 'static,
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
@@ -135,7 +134,11 @@ impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
             }?;
 
             let authorized_state = match authenticated_state {
-                AuthenticatedState::ApiKey { tenant_id, id, organization_id } => Ok(AuthorizedState::Tenant {
+                AuthenticatedState::ApiKey {
+                    tenant_id,
+                    id,
+                    organization_id,
+                } => Ok(AuthorizedState::Tenant {
                     tenant_id,
                     organization_id,
                     actor_id: id,

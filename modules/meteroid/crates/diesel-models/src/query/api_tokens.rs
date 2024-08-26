@@ -1,4 +1,4 @@
-use diesel::{debug_query, QueryDsl, JoinOnDsl, SelectableHelper, ExpressionMethods};
+use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 
 use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
@@ -57,9 +57,11 @@ impl ApiTokenRow {
     }
 }
 
-
 impl ApiTokenValidationRow {
-    pub async fn find_by_id(conn: &mut PgConn, api_token_id: &uuid::Uuid) -> DbResult<ApiTokenValidationRow> {
+    pub async fn find_by_id(
+        conn: &mut PgConn,
+        api_token_id: &uuid::Uuid,
+    ) -> DbResult<ApiTokenValidationRow> {
         use crate::schema::api_token::dsl as at_dsl;
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;

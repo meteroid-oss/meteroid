@@ -1,8 +1,12 @@
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::organizations::v1::{organizations_service_server::OrganizationsService, ListOrganizationsRequest, ListOrganizationsResponse, CreateOrganizationRequest, CreateOrganizationResponse, Organization, GetCurrentOrganizationRequest, GetCurrentOrganizationResponse};
-use meteroid_store::domain::{OrganizationNew};
+use meteroid_grpc::meteroid::api::organizations::v1::{
+    organizations_service_server::OrganizationsService, CreateOrganizationRequest,
+    CreateOrganizationResponse, GetCurrentOrganizationRequest, GetCurrentOrganizationResponse,
+    ListOrganizationsRequest, ListOrganizationsResponse, Organization,
+};
+use meteroid_store::domain::OrganizationNew;
 use meteroid_store::repositories::organizations::OrganizationsInterface;
 
 use crate::api::organizations::error::OrganizationApiError;
@@ -27,14 +31,15 @@ impl OrganizationsService for OrganizationsServiceComponents {
             .map(mapping::organization::domain_to_proto)
             .collect();
 
-        let response = ListOrganizationsResponse {
-            organizations
-        };
+        let response = ListOrganizationsResponse { organizations };
 
         Ok(Response::new(response))
     }
 
-    async fn get_current_organizations(&self, request: Request<GetCurrentOrganizationRequest>) -> Result<Response<GetCurrentOrganizationResponse>, Status> {
+    async fn get_current_organizations(
+        &self,
+        request: Request<GetCurrentOrganizationRequest>,
+    ) -> Result<Response<GetCurrentOrganizationResponse>, Status> {
         let organization_id = request.organization()?;
         let organization = self
             .store
@@ -43,14 +48,18 @@ impl OrganizationsService for OrganizationsServiceComponents {
             .map_err(Into::<OrganizationApiError>::into)?;
 
         let response = GetCurrentOrganizationResponse {
-            organization: Some(mapping::organization::domain_with_tenants_to_proto(organization))
+            organization: Some(mapping::organization::domain_with_tenants_to_proto(
+                organization,
+            )),
         };
-
 
         Ok(Response::new(response))
     }
 
-    async fn create_organization(&self, request: Request<CreateOrganizationRequest>) -> Result<Response<CreateOrganizationResponse>, Status> {
+    async fn create_organization(
+        &self,
+        request: Request<CreateOrganizationRequest>,
+    ) -> Result<Response<CreateOrganizationResponse>, Status> {
         let user = request.actor()?;
         let request = request.into_inner();
 
@@ -67,7 +76,9 @@ impl OrganizationsService for OrganizationsServiceComponents {
             .map_err(Into::<OrganizationApiError>::into)?;
 
         let response = CreateOrganizationResponse {
-            organization: Some(mapping::organization::domain_with_tenants_to_proto(organization))
+            organization: Some(mapping::organization::domain_with_tenants_to_proto(
+                organization,
+            )),
         };
 
         Ok(Response::new(response))

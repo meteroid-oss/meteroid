@@ -10,10 +10,10 @@ use tracing_log::log;
 use uuid::Uuid;
 
 use crate::domain::api_tokens::ApiToken;
+use crate::domain::ApiTokenValidation;
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
-use crate::domain::ApiTokenValidation;
 
 #[async_trait::async_trait]
 pub trait ApiTokensInterface {
@@ -24,7 +24,10 @@ pub trait ApiTokensInterface {
 
     async fn get_api_token_by_id(&self, id: &uuid::Uuid) -> StoreResult<ApiToken>;
 
-    async fn get_api_token_by_id_for_validation(&self, id: &Uuid) -> StoreResult<ApiTokenValidation>;
+    async fn get_api_token_by_id_for_validation(
+        &self,
+        id: &Uuid,
+    ) -> StoreResult<ApiTokenValidation>;
 
     async fn insert_api_token(&self, plan: domain::ApiTokenNew) -> StoreResult<(String, ApiToken)>;
 }
@@ -54,7 +57,10 @@ impl ApiTokensInterface for Store {
         Ok(api_token.into())
     }
 
-    async fn get_api_token_by_id_for_validation(&self, id: &Uuid) -> StoreResult<ApiTokenValidation> {
+    async fn get_api_token_by_id_for_validation(
+        &self,
+        id: &Uuid,
+    ) -> StoreResult<ApiTokenValidation> {
         let mut conn = self.get_conn().await?;
 
         let api_token = ApiTokenValidationRow::find_by_id(&mut conn, id)

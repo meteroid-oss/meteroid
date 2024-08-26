@@ -13,6 +13,7 @@ common-eventbus.workspace = true
 
 argon2 = { workspace = true }
 base62.workspace = true
+cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
 diesel.workspace = true
 diesel-async.workspace = true

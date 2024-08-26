@@ -4,7 +4,6 @@ use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::stats::v1::general_stats_response;
 
-
 #[tokio::test]
 async fn test_stats_basic() {
     // Generic setup
@@ -17,11 +16,11 @@ async fn test_stats_basic() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     // general stats

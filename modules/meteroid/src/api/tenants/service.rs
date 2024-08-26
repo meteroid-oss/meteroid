@@ -1,9 +1,15 @@
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::tenants::v1::{tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse, ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest, CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest, ListTenantsResponse, UpdateTenantRequest, UpdateTenantResponse};
+use meteroid_grpc::meteroid::api::tenants::v1::{
+    tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
+    ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest,
+    CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest,
+    ListTenantsResponse, UpdateTenantRequest, UpdateTenantResponse,
+};
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
 use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 
 use crate::api::tenants::error::TenantApiError;
@@ -14,19 +20,27 @@ use super::{mapping, TenantServiceComponents};
 #[tonic::async_trait]
 impl TenantsService for TenantServiceComponents {
     #[tracing::instrument(skip_all)]
-    async fn update_tenant(&self, request: Request<UpdateTenantRequest>) -> Result<Response<UpdateTenantResponse>, Status> {
+    async fn update_tenant(
+        &self,
+        request: Request<UpdateTenantRequest>,
+    ) -> Result<Response<UpdateTenantResponse>, Status> {
         let tenant_id = request.tenant()?;
         let organization_id = request.organization()?;
 
-        let inner = request.into_inner()
+        let inner = request
+            .into_inner()
             .data
-            .ok_or(TenantApiError::MissingArgument("No data provided".to_string()))?;
-        ;
+            .ok_or(TenantApiError::MissingArgument(
+                "No data provided".to_string(),
+            ))?;
 
         let req = mapping::tenants::update_req_to_domain(inner);
 
-        
-        let organization = self.store.get_organization_by_id(organization_id).await.map_err(Into::<TenantApiError>::into)?;
+        let organization = self
+            .store
+            .get_organization_by_id(organization_id)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
 
         let res = self
             .store
@@ -36,10 +50,9 @@ impl TenantsService for TenantServiceComponents {
             .map_err(Into::<TenantApiError>::into)?;
 
         invalidate_resolve_slugs_cache(&organization.slug, &res.slug).await;
+        invalidate_reporting_currency_cache(&tenant_id).await;
 
-        Ok(Response::new(UpdateTenantResponse {
-            tenant: Some(res),
-        }))
+        Ok(Response::new(UpdateTenantResponse { tenant: Some(res) }))
     }
 
     #[tracing::instrument(skip_all)]
@@ -62,7 +75,6 @@ impl TenantsService for TenantServiceComponents {
             .get_organization_by_id(organization_id)
             .await
             .map_err(Into::<TenantApiError>::into)?;
-
 
         Ok(Response::new(ActiveTenantResponse {
             tenant: Some(tenant),
@@ -121,7 +133,6 @@ impl TenantsService for TenantServiceComponents {
         request: Request<CreateTenantRequest>,
     ) -> Result<Response<CreateTenantResponse>, Status> {
         let organization_id = request.organization()?;
-
 
         let req = mapping::tenants::create_req_to_domain(request.into_inner());
 

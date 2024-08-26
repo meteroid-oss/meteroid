@@ -85,7 +85,8 @@ async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
     let clients = meteroid_it::clients::AllClients::from_channel(
         channel.clone(),
         auth_token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let tenant_response = clients

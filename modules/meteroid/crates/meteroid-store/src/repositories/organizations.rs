@@ -5,13 +5,16 @@ use uuid::Uuid;
 
 use common_eventbus::Event;
 use common_utils::rng::BASE62_ALPHABET;
-use diesel_models::enums::{OrganizationUserRole};
+use diesel_models::enums::OrganizationUserRole;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
 use diesel_models::tenants::TenantRow;
 
-use crate::domain::{InstanceFlags, InvoicingEntityNew, Organization, OrganizationNew, OrganizationWithTenants, TenantNew};
 use crate::domain::enums::TenantEnvironmentEnum;
+use crate::domain::{
+    InstanceFlags, InvoicingEntityNew, Organization, OrganizationNew, OrganizationWithTenants,
+    TenantNew,
+};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::StoreResult;
@@ -25,11 +28,17 @@ pub trait OrganizationsInterface {
     ) -> StoreResult<OrganizationWithTenants>;
 
     async fn get_instance(&self) -> StoreResult<InstanceFlags>;
-    async fn organization_get_or_create_invite_link(&self, organization_id: Uuid) -> StoreResult<String>;
+    async fn organization_get_or_create_invite_link(
+        &self,
+        organization_id: Uuid,
+    ) -> StoreResult<String>;
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
     async fn get_organization_by_id(&self, id: Uuid) -> StoreResult<Organization>;
-    async fn get_organizations_with_tenants_by_id(&self, id: Uuid) -> StoreResult<OrganizationWithTenants>;
+    async fn get_organizations_with_tenants_by_id(
+        &self,
+        id: Uuid,
+    ) -> StoreResult<OrganizationWithTenants>;
     async fn get_organizations_by_slug(&self, slug: String) -> StoreResult<Organization>;
 }
 
@@ -47,7 +56,12 @@ impl OrganizationsInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            if count > 0 { return Err(StoreError::InvalidArgument("This instance does not allow mutiple organizations".to_string()).into()); }
+            if count > 0 {
+                return Err(StoreError::InvalidArgument(
+                    "This instance does not allow mutiple organizations".to_string(),
+                )
+                .into());
+            }
         }
 
         let org = OrganizationRowNew {
@@ -57,7 +71,6 @@ impl OrganizationsInterface for Store {
             default_country: organization.country.clone(),
         };
 
-
         // TODO trigger sandbox init ?
 
         let org_member = OrganizationMemberRow {
@@ -66,38 +79,41 @@ impl OrganizationsInterface for Store {
             role: OrganizationUserRole::Admin,
         };
 
-
         let tenant_new = TenantNew {
             name: "Production".to_string(),
             environment: TenantEnvironmentEnum::Production,
         };
 
+        let (org_created, tenant_created) = self
+            .transaction_with(&mut conn, |conn| {
+                async move {
+                    let org_created = OrganizationRowNew::insert(&org, conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-        let (org_created, tenant_created) = self.transaction_with(&mut conn, |conn| {
-            async move {
-                let org_created = OrganizationRowNew::insert(&org, conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    OrganizationMemberRow::insert(&org_member, conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                OrganizationMemberRow::insert(&org_member, conn)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                    let tenant_created = self
+                        .internal
+                        .insert_tenant_with_default_entities(
+                            conn,
+                            tenant_new,
+                            org.id,
+                            org.trade_name.clone(),
+                            org.default_country.clone(),
+                            vec![],
+                            organization
+                                .invoicing_entity
+                                .unwrap_or(InvoicingEntityNew::default()),
+                        )
+                        .await?;
 
-                let tenant_created = self.internal.insert_tenant_with_default_entities(
-                    conn,
-                    tenant_new,
-                    org.id,
-                    org.trade_name.clone(),
-                    org.default_country.clone(),
-                    vec![],
-                    organization.invoicing_entity.unwrap_or(InvoicingEntityNew::default()),
-                ).await?;
-
-
-                Ok((org_created, tenant_created))
-            }
+                    Ok((org_created, tenant_created))
+                }
                 .scope_boxed()
-        })
+            })
             .await?;
 
         let _ = self
@@ -132,8 +148,10 @@ impl OrganizationsInterface for Store {
         }
     }
 
-
-    async fn organization_get_or_create_invite_link(&self, organization_id: Uuid) -> StoreResult<String> {
+    async fn organization_get_or_create_invite_link(
+        &self,
+        organization_id: Uuid,
+    ) -> StoreResult<String> {
         let mut conn = self.get_conn().await?;
 
         let org = OrganizationRow::get_by_id(&mut conn, organization_id)
@@ -178,15 +196,17 @@ impl OrganizationsInterface for Store {
         Ok(org.into())
     }
 
-    async fn get_organizations_with_tenants_by_id(&self, id: Uuid) -> StoreResult<OrganizationWithTenants> {
+    async fn get_organizations_with_tenants_by_id(
+        &self,
+        id: Uuid,
+    ) -> StoreResult<OrganizationWithTenants> {
         let mut conn = self.get_conn().await?;
 
         let org = OrganizationRow::get_by_id(&mut conn, id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let tenants = TenantRow::list_by_organization_id(&mut conn, id)
-            .await?;
+        let tenants = TenantRow::list_by_organization_id(&mut conn, id).await?;
 
         Ok(OrganizationWithTenants {
             organization: org.into(),

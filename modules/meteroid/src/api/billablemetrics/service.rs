@@ -76,7 +76,6 @@ impl BillableMetricsService for BillableMetricsComponents {
                 .map(|v| v.0)
                 .map_err(Into::<BillableMetricApiError>::into)?;
 
-
         Ok(Response::new(CreateBillableMetricResponse {
             billable_metric: Some(server_billable_metric),
         }))

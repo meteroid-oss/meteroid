@@ -3,7 +3,6 @@ use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
 
-
 #[tokio::test]
 async fn test_product_families_basic() {
     // Generic setup
@@ -16,11 +15,11 @@ async fn test_product_families_basic() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     // create product family

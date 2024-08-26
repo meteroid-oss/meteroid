@@ -3,9 +3,8 @@ use o2o::o2o;
 use secrecy::SecretString;
 use uuid::Uuid;
 
-use diesel_models::users::{UserRow, UserWithRoleRow};
 use crate::domain::Organization;
-
+use diesel_models::users::{UserRow, UserWithRoleRow};
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(UserRow)]
@@ -86,6 +85,5 @@ pub struct UpdateUser {
 #[derive(Debug)]
 pub struct UpdateUserRole {
     pub role: OrganizationUserRole,
-    pub user_id: Uuid
+    pub user_id: Uuid,
 }
-

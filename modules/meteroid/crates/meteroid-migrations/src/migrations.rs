@@ -17,8 +17,8 @@ lazy_static::lazy_static! {
 }
 
 pub async fn run_migrations<C>(client: &mut C) -> Result<(), MigrationError>
-    where
-        C: AsyncMigrate + Send,
+where
+    C: AsyncMigrate + Send,
 {
     let migration_report = embedded::migrations::runner()
         .set_abort_divergent(false) // TODO

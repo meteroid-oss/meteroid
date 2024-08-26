@@ -11,16 +11,22 @@ pub mod role {
 }
 
 pub mod user {
-    use crate::api::users::mapping::role;
     use crate::api::organizations::mapping::organization;
+    use crate::api::users::mapping::role;
     use meteroid_grpc::meteroid::api::users::v1 as server;
     use meteroid_store::domain::users::{Me, User, UserWithRole};
 
     pub fn me_to_proto(domain: Me) -> server::MeResponse {
         server::MeResponse {
             user: Some(domain_to_proto(domain.user)),
-            organizations: domain.organizations.into_iter().map(|x| organization::domain_to_proto(x)).collect(),
-            current_organization_role: domain.current_organization_role.map(|x| super::role::domain_to_server(x).into()),
+            organizations: domain
+                .organizations
+                .into_iter()
+                .map(|x| organization::domain_to_proto(x))
+                .collect(),
+            current_organization_role: domain
+                .current_organization_role
+                .map(|x| super::role::domain_to_server(x).into()),
         }
     }
 

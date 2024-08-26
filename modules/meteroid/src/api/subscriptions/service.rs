@@ -41,8 +41,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 "No subscription provided".to_string(),
             ))?;
 
-        let subscription =
-            mapping::subscriptions::create_proto_to_domain(subscription, &actor)?;
+        let subscription = mapping::subscriptions::create_proto_to_domain(subscription, &actor)?;
 
         let created = self
             .store

@@ -42,7 +42,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
             data: HashMap::new(),
         }),
     )
-        .change_context(SeederError::InitializationError)?;
+    .change_context(SeederError::InitializationError)?;
 
     let organization_id = env::var("SEEDER_ORGANIZATION_ID")
         .map(|s| uuid::Uuid::parse_str(&s))

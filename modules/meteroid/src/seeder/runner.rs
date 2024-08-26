@@ -28,7 +28,9 @@ use chrono::Utc;
 
 use nanoid::nanoid;
 
-use meteroid_store::domain::{Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, TenantContext};
+use meteroid_store::domain::{
+    Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, TenantContext,
+};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
@@ -42,8 +44,6 @@ pub async fn run(
 ) -> error_stack::Result<(), SeederError> {
     // create an org, tenant, user (if standalone mode)
     // const setup_res = setup();
-
-
 
     let now = Utc::now().naive_utc().date();
 
@@ -66,23 +66,16 @@ pub async fn run(
     log::info!("Created tenant '{}'", &tenant.name);
 
     let invoicing_entity = store
-        .get_invoicing_entity(
-            tenant.id,
-            None,
-        )
+        .get_invoicing_entity(tenant.id, None)
         .await
         .change_context(SeederError::TempError)?;
 
     let product_families = store
-        .list_product_families(
-            tenant.id,
-        )
+        .list_product_families(tenant.id)
         .await
         .change_context(SeederError::TempError)?;
 
-    let product_family = product_families
-        .first()
-        .ok_or(SeederError::TempError)?;
+    let product_family = product_families.first().ok_or(SeederError::TempError)?;
 
     log::info!("Created product family '{}'", &product_family.name);
 
@@ -301,7 +294,7 @@ pub async fn run(
         let subscription = store_domain::SubscriptionNew {
             customer_id: customer.id,
             currency: "EUR".to_string(), // TODO
-            billing_day: version.period_start_day.unwrap_or(1), 
+            billing_day: version.period_start_day.unwrap_or(1),
             trial_start_date,
             billing_start_date,
             billing_end_date,

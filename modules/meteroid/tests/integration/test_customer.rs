@@ -18,11 +18,11 @@ async fn test_customers_basic() {
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
 
-
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "TESTORG", "testslug",
+        "TESTORG",
+        "testslug",
     );
 
     let customer_name = "friends and co".to_owned();
@@ -83,7 +83,7 @@ async fn test_customers_basic() {
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
-            })
+            }),
         })
         .await
         .unwrap()

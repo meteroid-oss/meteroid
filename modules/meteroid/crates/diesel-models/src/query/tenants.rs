@@ -37,7 +37,28 @@ impl TenantRow {
             .into_db_result()
     }
 
-    pub async fn find_by_id_and_organization_id(conn: &mut PgConn, tenant_id: uuid::Uuid, organization_id: uuid::Uuid) -> DbResult<TenantRow> {
+    pub async fn get_reporting_currency_by_id(
+        conn: &mut PgConn,
+        tenant_id: uuid::Uuid,
+    ) -> DbResult<String> {
+        use crate::schema::tenant::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = tenant.filter(id.eq(tenant_id)).select(currency);
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding tenant by id")
+            .into_db_result()
+    }
+
+    pub async fn find_by_id_and_organization_id(
+        conn: &mut PgConn,
+        tenant_id: uuid::Uuid,
+        organization_id: uuid::Uuid,
+    ) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -53,9 +74,13 @@ impl TenantRow {
             .into_db_result()
     }
 
-    pub async fn find_by_slug_and_organization_slug(conn: &mut PgConn, param_tenant_slug: String, organization_slug: String) -> DbResult<TenantRow> {
-        use crate::schema::tenant::dsl as t_dsl;
+    pub async fn find_by_slug_and_organization_slug(
+        conn: &mut PgConn,
+        param_tenant_slug: String,
+        organization_slug: String,
+    ) -> DbResult<TenantRow> {
         use crate::schema::organization::dsl as o_dsl;
+        use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = t_dsl::tenant
@@ -98,11 +123,7 @@ impl TenantRow {
 }
 
 impl TenantRowPatch {
-    pub async fn update(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
-    ) -> DbResult<TenantRow> {
+    pub async fn update(&self, conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
 

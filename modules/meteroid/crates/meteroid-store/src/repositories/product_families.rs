@@ -32,14 +32,13 @@ impl StoreInternal {
     ) -> StoreResult<domain::ProductFamily> {
         let insertable_product_family: ProductFamilyRowNew = product_family.into();
 
-      insertable_product_family
+        insertable_product_family
             .insert(conn)
             .await
             .map_err(Into::into)
-            .map(Into::into) 
+            .map(Into::into)
     }
 }
-
 
 #[async_trait::async_trait]
 impl ProductFamilyInterface for Store {
@@ -50,15 +49,14 @@ impl ProductFamilyInterface for Store {
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
-        let res = self.internal.insert_product_family(&mut conn, product_family).await?;
+        let res = self
+            .internal
+            .insert_product_family(&mut conn, product_family)
+            .await?;
 
         let _ = self
             .eventbus
-            .publish(Event::product_family_created(
-                actor,
-                res.id,
-                res.tenant_id,
-            ))
+            .publish(Event::product_family_created(actor, res.id, res.tenant_id))
             .await;
 
         Ok(res)
