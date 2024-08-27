@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use uuid::Uuid;
@@ -216,7 +217,7 @@ impl Event {
         Self::new(
             EventData::UserUpdated(EventDataWithMetadataDetails {
                 entity_id: user_id,
-                metadata: vec![
+                metadata: HashMap::from_iter(vec![
                     (
                         "department".to_string(),
                         department.unwrap_or("undefined".to_string()),
@@ -225,7 +226,7 @@ impl Event {
                         "know_us_from".to_string(),
                         know_us_from.unwrap_or("undefined".to_string()),
                     ),
-                ],
+                ]),
             }),
             Some(actor),
         )
@@ -263,13 +264,7 @@ pub struct EventDataDetails {
 #[derive(Debug, Clone)]
 pub struct EventDataWithMetadataDetails {
     pub entity_id: Uuid,
-    pub metadata: Vec<(String, String)>,
-}
-
-impl EventDataWithMetadataDetails {
-    pub fn metadata_as_hashmap(&self) -> std::collections::HashMap<String, String> {
-        self.metadata.iter().cloned().collect()
-    }
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

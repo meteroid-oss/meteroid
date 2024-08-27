@@ -12,6 +12,7 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_
 use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_client::InstanceServiceClient;
+use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
@@ -40,6 +41,7 @@ pub struct AllClients {
     pub users: UsersServiceClient<TestLayeredClientService>,
     pub webhooks_out: WebhooksServiceClient<TestLayeredClientService>,
     pub stats: StatsServiceClient<TestLayeredClientService>,
+    pub organizations: OrganizationsServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
@@ -68,6 +70,7 @@ impl AllClients {
             users: UsersServiceClient::new(service.clone()),
             webhooks_out: WebhooksServiceClient::new(service.clone()),
             stats: StatsServiceClient::new(service.clone()),
+            organizations: OrganizationsServiceClient::new(service.clone()),
         }
     }
 

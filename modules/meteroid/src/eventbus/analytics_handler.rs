@@ -526,7 +526,7 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &EventDataWithMetadataDetails,
     ) -> Result<(), EventBusError> {
-        let mut properties = event_data_details.metadata_as_hashmap();
+        let mut properties = event_data_details.metadata.clone();
         properties.set("user_id", event_data_details.entity_id.to_string());
 
         self.send_track(

@@ -14,7 +14,7 @@ pub enum IdType {
 impl IdType {
     fn prefix(&self) -> &'static str {
         match self {
-            IdType::Organization => "cli_",
+            IdType::Organization => "org_",
             IdType::Tenant => "",
             IdType::InvoicingEntity => "ive_",
             IdType::Customer => "cus_",
