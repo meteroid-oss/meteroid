@@ -71,7 +71,7 @@
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.18",
     "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "10.4.17",
+    "autoprefixer": "10.4.20",
     "chromatic": "^10.7.1",
     "concurrently": "^8.2.2",
     "eslint": "^8",
