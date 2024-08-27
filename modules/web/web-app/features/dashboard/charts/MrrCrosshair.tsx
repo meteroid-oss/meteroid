@@ -2,7 +2,7 @@ import { ComputedSerie, Datum } from '@nivo/line'
 import dayjs from 'dayjs'
 import { useMemo, useRef } from 'react'
 
-import { formatCurrency } from '@/features/dashboard/utils'
+import { useCurrency } from '@/hooks/useCurrency'
 
 import { Crosshair } from './Crosshair'
 import { ChartInterval, getTooltipFormat, keepWithinRange } from './utils'
@@ -26,6 +26,8 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
   containerRef,
   tooltip,
 }: MrrCrosshairProps) => {
+  const { formatAmount } = useCurrency()
+
   const tooltipRef = useRef<HTMLDivElement>(null)
   const first = serie?.[0]
 
@@ -68,7 +70,7 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
               <div className="flex justify-between">
                 <span className="font-semibold">{tooltip.labels[serie.id] ?? 'unknown serie'}</span>
                 <span>
-                  {tooltip.format === 'currency' && formatCurrency(serie?.data[0].data.y as number)}
+                  {tooltip.format === 'currency' && formatAmount(serie?.data[0].data.y as number)}
                   {tooltip.format === 'percent' && (serie?.data[0].data.y as number)}
                 </span>
               </div>

@@ -1,12 +1,14 @@
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_grpc::meteroid::api::instance::v1::get_countries_response::Country as GrpcCountry;
+use meteroid_grpc::meteroid::api::instance::v1::get_currencies_response::Currency as GrpcCurrency;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::InstanceService;
 use meteroid_grpc::meteroid::api::instance::v1::{
+    GetCountriesRequest, GetCountriesResponse, GetCurrenciesRequest, GetCurrenciesResponse,
     GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
-    InitInstanceRequest, InitInstanceResponse, Instance,
 };
-use meteroid_store::domain;
+use meteroid_store::constants::{COUNTRIES, CURRENCIES};
 use meteroid_store::repositories::OrganizationsInterface;
 
 use crate::api::instance::error::InstanceApiError;
@@ -21,57 +23,61 @@ impl InstanceService for InstanceServiceComponents {
     ) -> Result<Response<GetInstanceResponse>, Status> {
         let maybe_instance = self
             .store
-            .find_organization_as_instance()
+            .get_instance()
             .await
             .map_err(Into::<InstanceApiError>::into)?;
 
         Ok(Response::new(GetInstanceResponse {
-            instance: maybe_instance.map(|org| Instance {
-                company_name: org.name,
-                organization_id: org.id.to_string(),
-            }),
-        }))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn init_instance(
-        &self,
-        request: Request<InitInstanceRequest>,
-    ) -> Result<Response<InitInstanceResponse>, Status> {
-        let actor = request.actor()?;
-
-        let inner = request.into_inner();
-
-        let organization = self
-            .store
-            .insert_organization(
-                domain::OrganizationNew {
-                    name: inner.company_name,
-                    slug: "instance".to_string(),
-                },
-                actor,
-            )
-            .await
-            .map_err(Into::<InstanceApiError>::into)?;
-
-        Ok(Response::new(InitInstanceResponse {
-            instance: Some(Instance {
-                company_name: organization.name,
-                organization_id: organization.id.to_string(),
-            }),
+            multi_organization_enabled: maybe_instance.multi_organization_enabled,
+            instance_initiated: maybe_instance.instance_initiated,
         }))
     }
 
     async fn get_invite(
         &self,
-        _request: Request<GetInviteRequest>,
+        request: Request<GetInviteRequest>,
     ) -> Result<Response<GetInviteResponse>, Status> {
+        let organization_id = request.organization()?;
+
         let invite_hash = self
             .store
-            .organization_get_or_create_invite_link()
+            .organization_get_or_create_invite_link(organization_id)
             .await
             .map_err(Into::<InstanceApiError>::into)?;
 
         Ok(Response::new(GetInviteResponse { invite_hash }))
+    }
+
+    async fn get_countries(
+        &self,
+        _request: Request<GetCountriesRequest>,
+    ) -> Result<Response<GetCountriesResponse>, Status> {
+        let countries = COUNTRIES
+            .iter()
+            .map(|country| GrpcCountry {
+                code: country.code.to_string(),
+                name: country.name.to_string(),
+                currency: country.currency.to_string(),
+            })
+            .collect();
+
+        Ok(Response::new(GetCountriesResponse { countries }))
+    }
+
+    async fn get_currencies(
+        &self,
+        _request: Request<GetCurrenciesRequest>,
+    ) -> Result<Response<GetCurrenciesResponse>, Status> {
+        let currencies = CURRENCIES
+            .iter()
+            .map(|currency| GrpcCurrency {
+                code: currency.code.to_string(),
+                name: currency.name.to_string(),
+                symbol: currency.symbol.to_string(),
+                precision: currency.precision as u32,
+            })
+            .collect();
+
+        Ok(Response::new(GetCurrenciesResponse { currencies }))
     }
 }

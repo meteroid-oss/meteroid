@@ -5,7 +5,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
-import { formatCurrency } from '@/features/dashboard/utils'
+import { useCurrency } from '@/hooks/useCurrency'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
 import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 
@@ -30,6 +30,8 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   hideCustomer = false,
   hidePlan = false,
 }) => {
+  const { formatAmount } = useCurrency()
+
   const columns = useMemo<ColumnDef<Subscription>[]>(
     () =>
       [
@@ -55,7 +57,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
           header: 'MRR',
           accessorKey: 'mrrCents',
           accessorFn: (cell: Subscription) =>
-            cell.mrrCents > 0 ? formatCurrency(cell.mrrCents) : null,
+            cell.mrrCents > 0 ? formatAmount(cell.mrrCents) : null,
         },
         {
           header: 'Start date',

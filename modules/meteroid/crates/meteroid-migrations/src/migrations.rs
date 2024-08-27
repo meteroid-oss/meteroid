@@ -7,6 +7,7 @@ mod embedded {
     use refinery::embed_migrations;
     embed_migrations!("./refinery/migrations");
 }
+
 pub fn file_match_re() -> Regex {
     Regex::new(r"^([U|V])(\d+(?:\.\d+)?)__(\w+)").unwrap()
 }

@@ -84,7 +84,11 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       planType: PlanType[data.planType],
       productFamilyExternalId: familyExternalId,
     })
-    navigate(`${plan.plan?.plan?.externalId}/onboarding`)
+    if (data.planType === 'FREE') {
+      navigate(`${plan.plan?.plan?.externalId}`)
+    } else {
+      navigate(`${plan.plan?.plan?.externalId}/onboarding`)
+    }
   }
 
   return (

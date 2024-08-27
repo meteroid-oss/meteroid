@@ -1,5 +1,4 @@
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
 
 use crate::helpers;
 use crate::meteroid_it;
@@ -16,12 +15,12 @@ async fn test_billable_metrics_basic() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG",
+        "testslug",
     );
 
     let metric_name = "friends and co".to_owned();

@@ -1,3 +1,4 @@
+use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -113,11 +114,31 @@ impl BillableMetricInterface for Store {
             product_family_id: family.id,
         };
 
-        let res: BillableMetric = insertable_entity
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)?;
+        let res: BillableMetric = self
+            .transaction_with(&mut conn, |conn| {
+                async move {
+                    let res: BillableMetric = insertable_entity
+                        .insert(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)
+                        .and_then(TryInto::try_into)?;
+
+                    let _ = &self
+                        .usage_client
+                        .register_meter(&res.tenant_id, &res)
+                        .await
+                        .map_err(|x| {
+                            StoreError::MeteringServiceError(
+                                "Failed to register meter".to_string(),
+                                x,
+                            )
+                        })?;
+
+                    Ok(res)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         let _ = self
             .eventbus

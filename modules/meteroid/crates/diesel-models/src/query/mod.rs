@@ -7,6 +7,7 @@ pub mod customer_balance_txs;
 pub mod customers;
 pub mod historical_rates_from_usd;
 pub mod invoices;
+pub mod invoicing_entities;
 pub mod organization_members;
 pub mod organizations;
 pub mod plan_versions;

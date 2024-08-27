@@ -15,13 +15,29 @@ pub type PgPool = Pool<AsyncPgConnection>;
 pub type PgConn = Object<AsyncPgConnection>;
 
 #[derive(Clone)]
-pub struct Store {
-    pub pool: PgPool,
+pub struct Settings {
     pub crypt_key: secrecy::SecretString,
     pub jwt_secret: secrecy::SecretString,
-    pub eventbus: Arc<dyn EventBus<Event>>,
-    pub usage_client: Arc<dyn UsageClient>,
+    pub multi_organization_enabled: bool,
 }
+
+#[derive(Clone)]
+pub struct Store {
+    pub(crate) pool: PgPool,
+    pub eventbus: Arc<dyn EventBus<Event>>,
+    pub(crate) usage_client: Arc<dyn UsageClient>,
+    pub(crate) settings: Settings,
+    pub(crate) internal: StoreInternal,
+}
+
+/**
+ * Share store logic while allowing cross-service transactions
+ * TODO divide between Service & Repository instead ?
+ * Service => Exact mapping of the API, + validations, setup conn, call repository
+ * Repository is often pass-through to diesel_models after mapping, but not always (can multiple queries, insert multiple entities, etc)
+ */
+#[derive(Clone)]
+pub struct StoreInternal {}
 
 pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
     let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(db_url);
@@ -39,6 +55,7 @@ impl Store {
         database_url: String,
         crypt_key: secrecy::SecretString,
         jwt_secret: secrecy::SecretString,
+        multi_organization_enabled: bool,
         eventbus: Arc<dyn EventBus<Event>>,
         usage_client: Arc<dyn UsageClient>,
     ) -> StoreResult<Self> {
@@ -46,10 +63,14 @@ impl Store {
 
         Ok(Store {
             pool,
-            crypt_key,
-            jwt_secret,
             eventbus,
             usage_client,
+            settings: Settings {
+                crypt_key,
+                jwt_secret,
+                multi_organization_enabled,
+            },
+            internal: StoreInternal {},
         })
     }
 

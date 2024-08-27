@@ -209,12 +209,15 @@ impl CustomerRowPatch {
     pub async fn update(
         &self,
         conn: &mut PgConn,
-        _id: uuid::Uuid,
+        param_tenant_id: uuid::Uuid,
     ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
-        let query = diesel::update(customer).filter(id.eq(self.id)).set(self);
+        let query = diesel::update(customer)
+            .filter(id.eq(self.id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set(self);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

@@ -11,6 +11,7 @@ import {
   CommandGroup,
   CommandInput,
   CommandItem,
+  CommandList,
   CommandSeparator,
 } from '../ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
@@ -21,7 +22,7 @@ import { genericFormFieldVariants as genVariants } from './generic-form-field'
 interface FormComboboxProps<TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>>
   extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
   control: Control<TFieldValues>
-  options: { label: React.ReactNode; value: string }[]
+  options: { label: React.ReactNode; value: string; keywords?: string[] }[]
   label?: string
   description?: string
   containerClassName?: string
@@ -70,7 +71,7 @@ export function ComboboxFormField<
                   role="combobox"
                   aria-expanded={open}
                   className={cn(
-                    'flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md font-normal border border-input bg-transparent hover:bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
+                    'flex h-9 w-full border border-border items-center justify-between whitespace-nowrap rounded-md font-normal  bg-transparent hover:bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1',
                     className
                     //!field.value && ''
                   )}
@@ -82,20 +83,21 @@ export function ComboboxFormField<
                 </Button>
               </FormControl>
             </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-              <Command>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 max-h-9 ">
+              <Command className="border border-border ">
                 {hasSearch && (
                   <>
-                    <CommandInput placeholder={`Search ${unit}`} className="h-9" />
+                    <CommandInput placeholder={`Search ${unit}`} className="h-9  " />
                     <CommandEmpty>No data found.</CommandEmpty>
                   </>
                 )}
 
-                <CommandGroup>
+                <CommandList>
                   {options.map((option, index) => (
                     <CommandItem
-                      value={`value-${index}`}
+                      value={`${option.value}/${option.keywords?.join(' ')}`}
                       key={option.value}
+                      keywords={option.keywords}
                       autoFocus={index === 0}
                       onSelect={() => {
                         field.onChange(option.value)
@@ -127,7 +129,7 @@ export function ComboboxFormField<
                       </div>
                     </>
                   )}
-                </CommandGroup>
+                </CommandList>
               </Command>
             </PopoverContent>
           </Popover>

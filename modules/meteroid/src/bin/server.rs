@@ -46,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
+        config.multi_organization_enabled.clone(),
         create_eventbus_memory(),
         Arc::new(MeteringUsageClient::new(
             query_service_client,

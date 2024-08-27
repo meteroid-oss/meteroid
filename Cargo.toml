@@ -1,31 +1,31 @@
 [workspace]
 resolver = "2"
 members = [
-  # meteroid
-  "modules/meteroid",
-  "modules/meteroid/crates/meteroid-grpc",
-  "modules/meteroid/crates/meteroid-migrations",
-  "modules/meteroid/crates/stripe-client",
-  "modules/meteroid/crates/diesel-models",
-  "modules/meteroid/crates/meteroid-store",
-  # metering
-  "modules/metering",
-  "modules/metering/crates/metering-grpc",
-  # shared
-  "crates/kafka",
-  "crates/common-build-info",
-  "crates/common-config",
-  "crates/common-domain",
-  "crates/common-eventbus",
-  "crates/common-grpc",
-  "crates/common-grpc-error-as-tonic-macros",
-  "crates/common-grpc-error-as-tonic-macros-impl",
-  "crates/common-logging",
-  "crates/common-repository",
-  "crates/common-utils",
-  "crates/distributed-lock",
-  # extra
-  "extra/generator",
+    # meteroid
+    "modules/meteroid",
+    "modules/meteroid/crates/meteroid-grpc",
+    "modules/meteroid/crates/meteroid-migrations",
+    "modules/meteroid/crates/stripe-client",
+    "modules/meteroid/crates/diesel-models",
+    "modules/meteroid/crates/meteroid-store",
+    # metering
+    "modules/metering",
+    "modules/metering/crates/metering-grpc",
+    # shared
+    "crates/kafka",
+    "crates/common-build-info",
+    "crates/common-config",
+    "crates/common-domain",
+    "crates/common-eventbus",
+    "crates/common-grpc",
+    "crates/common-grpc-error-as-tonic-macros",
+    "crates/common-grpc-error-as-tonic-macros-impl",
+    "crates/common-logging",
+    "crates/common-repository",
+    "crates/common-utils",
+    "crates/distributed-lock",
+    # extra
+    "extra/generator",
 ]
 
 [workspace.package]
@@ -140,8 +140,8 @@ tonic-types = "0.11.0"
 tonic-web = "0.10.2"
 tower = { version = "0.5.0" }
 tower-http = { version = "0.4.4", features = ["full"] }
-tower-layer = { version = "0.3.2" }
-tower-service = { version = "0.3.2" }
+tower-layer = { version = "0.3.3" }
+tower-service = { version = "0.3.3" }
 tracing = "0.1.39"
 tracing-futures = "0.2.5"
 tracing-log = "0.2.0"

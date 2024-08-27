@@ -171,17 +171,19 @@ impl InvoiceRow {
         conn: &mut PgConn,
         pagination: CursorPaginationRequest,
     ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
+        use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
-        use crate::schema::invoicing_config::dsl as ic_dsl;
+        use crate::schema::invoicing_entity::dsl as ie_dsl;
 
         let query = i_dsl::invoice
-            .inner_join(ic_dsl::invoicing_config.on(i_dsl::tenant_id.eq(ic_dsl::tenant_id)))
+            .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
+            .inner_join(ie_dsl::invoicing_entity.on(c_dsl::invoicing_entity_id.eq(ie_dsl::id)))
             .filter(
                 i_dsl::status.ne_all(vec![InvoiceStatusEnum::Void, InvoiceStatusEnum::Finalized]),
             )
             .filter(diesel::dsl::now.gt(i_dsl::invoice_date
                 + diesel::dsl::sql::<diesel::sql_types::Interval>(
-                    "\"invoicing_config\".\"grace_period_hours\" * INTERVAL '1 hour'",
+                    "\"invoicing_entity\".\"grace_period_hours\" * INTERVAL '1 hour'",
                 )))
             .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, i_dsl::id, "id");
@@ -199,6 +201,7 @@ impl InvoiceRow {
         conn: &mut PgConn,
         id: uuid::Uuid,
         tenant_id: uuid::Uuid,
+        new_invoice_number: String,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -216,6 +219,7 @@ impl InvoiceRow {
                 i_dsl::updated_at.eq(now),
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
+                i_dsl::invoice_number.eq(new_invoice_number),
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -353,11 +357,12 @@ impl InvoiceRow {
 UPDATE invoice
 SET status = 'PENDING',
     updated_at = $1
-FROM invoicing_config
-WHERE invoice.tenant_id = invoicing_config.tenant_id
+FROM customer
+INNER JOIN invoicing_entity ON customer.invoicing_entity_id = invoicing_entity.id
+WHERE invoice.customer_id = customer.id
   AND invoice.status = 'DRAFT'
   AND invoice.invoice_date < $2
-  AND $3 <= (invoice.invoice_date + interval '1 hour' * invoicing_config.grace_period_hours);
+  AND $3 <= (invoice.invoice_date + interval '1 hour' * invoicing_entity.grace_period_hours);
         "#;
 
         let query = diesel::sql_query(raw_sql)

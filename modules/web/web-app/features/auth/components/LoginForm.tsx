@@ -1,7 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
 import { Button, Form, InputFormField } from '@md/ui'
-import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
@@ -45,7 +43,7 @@ export const LoginForm = () => {
   return (
     <Form {...methods}>
       <form onSubmit={methods.handleSubmit(onSubmit)}>
-        <Flex direction="column" gap={spaces.space7}>
+        <div className="flex flex-col gap-7">
           <InputFormField
             name="email"
             label="Email"
@@ -67,7 +65,7 @@ export const LoginForm = () => {
             Login
           </Button>
           {error && <div className="text-base">{error}</div>}
-        </Flex>
+        </div>
       </form>
     </Form>
   )

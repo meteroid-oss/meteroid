@@ -42,6 +42,8 @@ pub enum StoreError {
     UserRegistrationClosed(String),
     #[error("Negative customer balance: {0:?}")]
     NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
+    #[error("Metering Service error: {0}")]
+    MeteringServiceError(String, #[source] ComputeError),
 }
 
 impl From<ComputeError> for StoreError {

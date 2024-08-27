@@ -1,25 +1,27 @@
-import { useAtom } from 'jotai'
+import { createStore, useAtom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
 
 import { LoginResponse } from '@/rpc/api/users/v1/users_pb'
 
 const LS_SESSION_KEY = 'session'
 
-export const getSessionToken = (): undefined | string => {
-  try {
-    const item = localStorage.getItem(LS_SESSION_KEY)
-    return item && JSON.parse(item).token
-  } catch (e) {
-    return undefined
-  }
-}
-
-export const sessionAtom = atomWithStorage<Session | null>(LS_SESSION_KEY, null, undefined, {
+const sessionAtom = atomWithStorage<Session | null>(LS_SESSION_KEY, null, undefined, {
   getOnInit: true,
 })
 
+const store = createStore()
+
 export const useSession = () => {
-  return useAtom(sessionAtom)
+  return useAtom(sessionAtom, { store })
+}
+
+export const getSessionToken = (): undefined | string => {
+  try {
+    const item = store.get(sessionAtom)
+    return item?.token
+  } catch (e) {
+    return undefined
+  }
 }
 
 export type Session = LoginResponse

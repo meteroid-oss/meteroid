@@ -18,6 +18,8 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         "customers",
         "instance",
         "invoices",
+        "invoicingentities",
+        "organizations",
         "plans",
         "pricecomponents",
         "productfamilies",

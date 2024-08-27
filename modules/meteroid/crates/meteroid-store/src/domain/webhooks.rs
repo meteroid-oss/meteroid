@@ -44,7 +44,12 @@ impl WebhookOutEndpoint {
             description: row.description,
             secret: dec_sec,
             created_at: row.created_at,
-            events_to_listen: row.events_to_listen.into_iter().map_into().collect(),
+            events_to_listen: row
+                .events_to_listen
+                .into_iter()
+                .flatten()
+                .map_into()
+                .collect(),
             enabled: row.enabled,
         })
     }

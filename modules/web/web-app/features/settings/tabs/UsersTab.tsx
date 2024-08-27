@@ -8,12 +8,12 @@ import { SimpleTable } from '@/components/table/SimpleTable'
 import { useQuery } from '@/lib/connectrpc'
 import { copyToClipboard } from '@/lib/helpers'
 import { getInvite } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
-import { User, UserRole } from '@/rpc/api/users/v1/models_pb'
+import { OrganizationUserRole, UserWithRole } from '@/rpc/api/users/v1/models_pb'
 import { listUsers } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
-const userRoleMapping: Record<UserRole, string> = {
-  [UserRole.ADMIN]: 'Owner',
-  [UserRole.MEMBER]: 'Member',
+const userRoleMapping: Record<OrganizationUserRole, string> = {
+  [OrganizationUserRole.ADMIN]: 'Owner',
+  [OrganizationUserRole.MEMBER]: 'Member',
 }
 
 export const UsersTab = () => {
@@ -21,7 +21,7 @@ export const UsersTab = () => {
 
   const users = useQuery(listUsers).data?.users ?? []
 
-  const columns: ColumnDef<User>[] = [
+  const columns: ColumnDef<UserWithRole>[] = [
     { header: 'Email', accessorFn: user => user.email },
     { header: 'Role', accessorFn: user => userRoleMapping[user.role] },
   ]

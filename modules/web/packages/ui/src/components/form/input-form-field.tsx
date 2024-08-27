@@ -1,4 +1,4 @@
-import { FieldValues, FieldPath, UseControllerProps, Control, PathValue } from 'react-hook-form'
+import { Control, FieldPath, FieldValues, PathValue, UseControllerProps } from 'react-hook-form'
 
 import { Input } from '..'
 
@@ -14,6 +14,7 @@ interface InputFieldProps<TFieldValues extends FieldValues, TName extends FieldP
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'defaultValue' | 'name'>,
     UseControllerProps<TFieldValues, TName> {
   label?: string
+  description?: string
   key?: string
   containerClassName?: string
   labelClassName?: string

@@ -12,7 +12,7 @@ const DEFAULT_ALLOW_HEADERS: [&str; 7] = [
     "grpc-timeout",
     "x-api-key",
     "authorization",
-    "x-md-tenant-slug",
+    "x-md-context",
 ];
 
 pub fn cors() -> CorsLayer {

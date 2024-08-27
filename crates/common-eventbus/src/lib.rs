@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use uuid::Uuid;
@@ -77,9 +78,9 @@ impl Event {
         )
     }
 
-    pub fn instance_inited(actor: Uuid, organization_id: Uuid) -> Self {
+    pub fn organization_created(actor: Uuid, organization_id: Uuid) -> Self {
         Self::new(
-            EventData::InstanceInited(EventDataDetails {
+            EventData::OrganizationCreated(EventDataDetails {
                 entity_id: organization_id,
             }),
             Some(actor),
@@ -206,6 +207,30 @@ impl Event {
             actor,
         )
     }
+
+    pub fn user_updated(
+        actor: Uuid,
+        user_id: Uuid,
+        department: Option<String>,
+        know_us_from: Option<String>,
+    ) -> Self {
+        Self::new(
+            EventData::UserUpdated(EventDataWithMetadataDetails {
+                entity_id: user_id,
+                metadata: HashMap::from_iter(vec![
+                    (
+                        "department".to_string(),
+                        department.unwrap_or("undefined".to_string()),
+                    ),
+                    (
+                        "know_us_from".to_string(),
+                        know_us_from.unwrap_or("undefined".to_string()),
+                    ),
+                ]),
+            }),
+            Some(actor),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -214,7 +239,7 @@ pub enum EventData {
     BillableMetricCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
     CustomerPatched(TenantEventDataDetails),
-    InstanceInited(EventDataDetails),
+    OrganizationCreated(EventDataDetails),
     InvoiceCreated(TenantEventDataDetails),
     InvoiceFinalized(TenantEventDataDetails),
     PlanCreatedDraft(TenantEventDataDetails),
@@ -228,11 +253,18 @@ pub enum EventData {
     SubscriptionCanceled(TenantEventDataDetails),
     TenantCreated(TenantEventDataDetails),
     UserCreated(EventDataDetails),
+    UserUpdated(EventDataWithMetadataDetails),
 }
 
 #[derive(Debug, Clone)]
 pub struct EventDataDetails {
     pub entity_id: Uuid,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventDataWithMetadataDetails {
+    pub entity_id: Uuid,
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

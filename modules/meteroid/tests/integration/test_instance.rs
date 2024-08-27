@@ -1,12 +1,11 @@
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
 
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 
 #[tokio::test]
-async fn test_customers_basic() {
+async fn test_instance() {
     // Generic setup
     helpers::init::logging();
     let (_postgres_container, postgres_connection_string) =
@@ -16,12 +15,12 @@ async fn test_customers_basic() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG",
+        "testslug",
     );
 
     let instance = clients
@@ -30,52 +29,33 @@ async fn test_customers_basic() {
         .get_instance(api::instance::v1::GetInstanceRequest {})
         .await
         .unwrap()
-        .into_inner()
-        .instance
-        .unwrap();
-
-    assert_eq!(instance.company_name, "Local Org".to_string());
-
-    let invite = clients
-        .instance
-        .clone()
-        .get_invite(api::instance::v1::GetInviteRequest {})
-        .await
-        .unwrap()
         .into_inner();
 
-    assert_eq!(invite.invite_hash, "fake-invite-link".to_string());
+    assert_eq!(instance.instance_initiated, true);
+    assert_eq!(instance.multi_organization_enabled, false);
 
     // creating second organization
-    // this is a bit of a hack, but we need to check
-    // 1) org init
-    // 2) org get should fail because it's expected only 1
+    //  should fail because it's expected only 1
 
-    let new_org = clients
-        .instance
+    let new_org_res = clients
+        .organizations
         .clone()
-        .init_instance(api::instance::v1::InitInstanceRequest {
-            company_name: "new org".to_string(),
-            currency: "USD".to_string(),
+        .create_organization(api::organizations::v1::CreateOrganizationRequest {
+            trade_name: "new org".to_string(),
+            country: "US".to_string(),
+            legal_name: None,
+            vat_number: None,
+            address_line1: None,
+            address_line2: None,
+            zip_code: None,
+            state: None,
+            city: None,
         })
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(
-        new_org.instance.unwrap().company_name,
-        "new org".to_string()
-    );
-
-    let invite_res = clients
-        .instance
-        .clone()
-        .get_invite(api::instance::v1::GetInviteRequest {})
         .await;
 
-    log::error!("{:?}", invite_res);
+    log::error!("{:?}", new_org_res);
 
-    assert_eq!(invite_res.is_err(), true);
+    assert_eq!(new_org_res.is_err(), true);
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

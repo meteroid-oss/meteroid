@@ -47,6 +47,9 @@ pub struct Config {
     #[envconfig(from = "JWT_SECRET")]
     pub jwt_secret: SecretString,
 
+    #[envconfig(from = "ENABLE_MULTI_ORGANIZATION", default = "false")]
+    pub multi_organization_enabled: bool,
+
     #[envconfig(
         from = "SECRETS_CRYPT_KEY",
         default = "00000000000000000000000000000000"

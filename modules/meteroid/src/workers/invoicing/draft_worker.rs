@@ -10,10 +10,10 @@ use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Ser
 use common_eventbus::Event;
 
 use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::subscription_to_draft;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::Store;
-use tap::tap::TapFallible;
 
 const BATCH_SIZE: usize = 100;
 
@@ -69,7 +69,6 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
                 },
             )
             .await
-            .tap_err(|e| log::error!("Error1 in draft worker: {}", e))
             .change_context(errors::WorkerError::DatabaseError)?;
 
         if paginated_vec.items.is_empty() {
@@ -85,7 +84,16 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
         let customers = &store
             .list_customers_by_ids(customer_ids)
             .await
-            .tap_err(|e| log::error!("Error2 in draft worker: {}", e))
+            .change_context(errors::WorkerError::DatabaseError)?;
+
+        let invoicing_entity_ids = customers
+            .iter()
+            .map(|x| x.invoicing_entity_id)
+            .collect::<std::collections::HashSet<_>>();
+
+        let invoicing_entities = store
+            .list_invoicing_entities_by_ids(invoicing_entity_ids.into_iter().collect())
+            .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
         let params = paginated_vec
@@ -97,7 +105,13 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
                     .find(|c| c.id == x.customer_id)
                     .ok_or(errors::WorkerError::DatabaseError)?;
 
-                subscription_to_draft(x, cust).change_context(errors::WorkerError::DatabaseError)
+                let invoicing_entity = invoicing_entities
+                    .iter()
+                    .find(|c| c.id == cust.invoicing_entity_id)
+                    .ok_or(errors::WorkerError::DatabaseError)?;
+
+                subscription_to_draft(x, cust, invoicing_entity)
+                    .change_context(errors::WorkerError::DatabaseError)
             })
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
@@ -108,7 +122,6 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
         let inserted = store
             .insert_invoice_batch(params)
             .await
-            .tap_err(|e| log::error!("Error3 in draft worker: {}", e))
             .change_context(errors::WorkerError::DatabaseError)?;
 
         last_processed_id = paginated_vec.next_cursor;

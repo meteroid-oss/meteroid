@@ -1,5 +1,5 @@
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 use tonic::Code;
 
 use crate::helpers;
@@ -17,12 +17,12 @@ async fn test_customers_basic() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG",
+        "testslug",
     );
 
     let customer_name = "friends and co".to_owned();
@@ -34,18 +34,26 @@ async fn test_customers_basic() {
         .customers
         .clone()
         .create_customer(api::customers::v1::CreateCustomerRequest {
-            name: customer_name.to_string(),
-            alias: Some(customer_alias.to_string()),
-            email: Some(customer_email.to_string()),
-            billing_config: Some(api::customers::v1::CustomerBillingConfig {
-                billing_config_oneof: Some(
-                    api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
-                        api::customers::v1::customer_billing_config::Stripe {
-                            customer_id: "customer_id".to_string(),
-                            collection_method: 0,
-                        },
+            data: Some(api::customers::v1::CustomerNew {
+                name: customer_name.to_string(),
+                alias: Some(customer_alias.to_string()),
+                email: Some(customer_email.to_string()),
+                billing_config: Some(api::customers::v1::CustomerBillingConfig {
+                    billing_config_oneof: Some(
+                        api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
+                            api::customers::v1::customer_billing_config::Stripe {
+                                customer_id: "customer_id".to_string(),
+                                collection_method: 0,
+                            },
+                        ),
                     ),
-                ),
+                }),
+                invoicing_email: None,
+                phone: None,
+                currency: "EUR".to_string(),
+                billing_address: None,
+                shipping_address: None,
+                invoicing_entity_id: None,
             }),
         })
         .await
@@ -58,15 +66,23 @@ async fn test_customers_basic() {
         .customers
         .clone()
         .create_customer(api::customers::v1::CreateCustomerRequest {
-            name: "created_manual".to_string(),
-            alias: Some("created_manual".to_string()),
-            email: Some("created_manual@meteroid.com".to_string()),
-            billing_config: Some(api::customers::v1::CustomerBillingConfig {
-                billing_config_oneof: Some(
-                    api::customers::v1::customer_billing_config::BillingConfigOneof::Manual(
-                        api::customers::v1::customer_billing_config::Manual {},
+            data: Some(api::customers::v1::CustomerNew {
+                name: "created_manual".to_string(),
+                alias: Some("created_manual".to_string()),
+                email: Some("created_manual@meteroid.com".to_string()),
+                billing_config: Some(api::customers::v1::CustomerBillingConfig {
+                    billing_config_oneof: Some(
+                        api::customers::v1::customer_billing_config::BillingConfigOneof::Manual(
+                            api::customers::v1::customer_billing_config::Manual {},
+                        ),
                     ),
-                ),
+                }),
+                invoicing_email: None,
+                phone: None,
+                currency: "EUR".to_string(),
+                billing_address: None,
+                shipping_address: None,
+                invoicing_entity_id: None,
             }),
         })
         .await
@@ -133,6 +149,7 @@ async fn test_customers_basic() {
     assert_eq!(get_by_id.id, created.id.clone());
     assert_eq!(get_by_id.name, customer_name.clone());
     assert_eq!(get_by_id.alias, Some(customer_alias.clone()));
+    assert_eq!(get_by_id.currency, "EUR");
 
     // get by alias
     let get_by_alias = clients
@@ -150,6 +167,7 @@ async fn test_customers_basic() {
     assert_eq!(get_by_alias.id, created.id.clone());
     assert_eq!(get_by_alias.name, customer_name.clone());
     assert_eq!(get_by_alias.alias, Some(customer_alias.clone()));
+    assert_eq!(get_by_alias.currency, "EUR");
 
     // patch
     let _ = clients
@@ -164,9 +182,10 @@ async fn test_customers_basic() {
                 invoicing_email: None,
                 phone: None,
                 balance_value_cents: None,
-                balance_currency: None,
+                currency: None,
                 billing_address: None,
                 shipping_address: None,
+                invoicing_entity_id: None,
             }),
         })
         .await
@@ -188,6 +207,7 @@ async fn test_customers_basic() {
     assert_eq!(get_by_id_patched.id, created.id.clone());
     assert_eq!(get_by_id_patched.name, "new name".to_string());
     assert_eq!(get_by_id_patched.alias, Some(customer_alias.clone()));
+    assert_eq!(get_by_id_patched.currency, "EUR");
 
     // top up start
     let topped_up = clients

@@ -1,7 +1,7 @@
 use crate::domain::stats::*;
 use crate::errors::StoreError;
+use crate::utils::decimals::ToSubunit;
 use crate::{Store, StoreResult};
-use common_utils::decimal::ToCent;
 use diesel_models::stats::{
     ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
     LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,
@@ -72,14 +72,18 @@ impl StatsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+        let currency = self
+            .internal
+            .get_reporting_currency_by_tenant_id(&mut conn, tenant_id)
+            .await?;
+
         Ok(CountAndValue {
             count: trend.total,
-            value: trend
-                .total_cents
-                .to_cents()
-                .ok_or(StoreError::InvalidArgument(
+            value: trend.total_cents.to_subunit_opt(currency.precision).ok_or(
+                StoreError::InvalidArgument(
                     "Failed to convert pending invoice total cents".to_string(),
-                ))?,
+                ),
+            )?,
         })
     }
 

@@ -18,6 +18,7 @@ use crate::repositories::SubscriptionInterface;
 use common_eventbus::Event;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
+use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use tracing_log::log;
 use uuid::Uuid;
@@ -163,8 +164,6 @@ impl InvoiceInterface for Store {
             process_mrr(inv, &mut conn).await?; // TODO batch
         }
 
-        // TODO update subscription mrr
-
         Ok(inserted)
     }
 
@@ -249,9 +248,34 @@ impl InvoiceInterface for Store {
                     .await?;
                 }
 
-                InvoiceRow::finalize(conn, id, tenant_id)
+                let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
+                    conn,
+                    &refreshed.customer.invoicing_entity_id,
+                    &tenant_id,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                let new_invoice_number = self.internal.format_invoice_number(
+                    invoicing_entity.next_invoice_number,
+                    invoicing_entity.invoice_number_pattern,
+                    refreshed.invoice.invoice_date,
+                );
+
+                let res = InvoiceRow::finalize(conn, id, tenant_id, new_invoice_number)
                     .await
-                    .map_err(Into::<Report<StoreError>>::into)
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                InvoicingEntityRow::update_invoicing_entity_number(
+                    conn,
+                    &refreshed.customer.invoicing_entity_id,
+                    &tenant_id,
+                    invoicing_entity.next_invoice_number,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(res)
             }
             .scope_boxed()
         })

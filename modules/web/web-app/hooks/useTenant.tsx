@@ -10,7 +10,11 @@ export const useTenant = () => {
   const { tenantSlug } = useTypedParams()
   const queryClient = useQueryClient()
 
-  const { data, isLoading, error } = useQuery(activeTenant, tenantSlug ? undefined : disableQuery)
+  const { data, isLoading, error, isRefetching } = useQuery(
+    activeTenant,
+    tenantSlug ? undefined : disableQuery,
+    {}
+  )
 
   useEffect(() => {
     if (tenantSlug && data?.tenant?.slug !== tenantSlug) {
@@ -18,5 +22,5 @@ export const useTenant = () => {
     }
   }, [tenantSlug, data?.tenant?.slug])
 
-  return { tenant: tenantSlug ? data?.tenant : undefined, isLoading, error }
+  return { tenant: tenantSlug ? data?.tenant : undefined, isLoading, isRefetching, error }
 }

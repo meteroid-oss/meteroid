@@ -224,9 +224,10 @@ diesel::table! {
         invoicing_email -> Nullable<Text>,
         phone -> Nullable<Text>,
         balance_value_cents -> Int4,
-        balance_currency -> Text,
+        currency -> Text,
         billing_address -> Nullable<Jsonb>,
         shipping_address -> Nullable<Jsonb>,
+        invoicing_entity_id -> Uuid,
     }
 }
 
@@ -332,44 +333,66 @@ diesel::table! {
         last_issue_error -> Nullable<Text>,
         data_updated_at -> Nullable<Timestamp>,
         invoice_date -> Date,
+        total -> Int8,
         plan_version_id -> Nullable<Uuid>,
         invoice_type -> InvoiceType,
         finalized_at -> Nullable<Timestamp>,
-
         net_terms -> Int4,
         memo -> Nullable<Text>,
         tax_rate -> Int4,
         local_id -> Text,
         reference -> Nullable<Text>,
-        total -> Int8,
         invoice_number -> Text,
         tax_amount -> Int8,
         subtotal_recurring -> Int8,
         plan_name -> Nullable<Text>,
-        due_at -> Nullable<Timestamptz>,
+        due_at -> Nullable<Timestamp>,
         customer_details -> Jsonb,
         amount_due -> Int8,
         subtotal -> Int8,
         applied_credits -> Int8,
+        seller_details -> Jsonb,
     }
 }
 
 diesel::table! {
-    invoicing_config (id) {
+    invoicing_entity (id) {
         id -> Uuid,
-        tenant_id -> Uuid,
+        local_id -> Text,
+        is_default -> Bool,
+        legal_name -> Text,
+        invoice_number_pattern -> Text,
+        next_invoice_number -> Int8,
+        next_credit_note_number -> Int8,
         grace_period_hours -> Int4,
+        net_terms -> Int4,
+        invoice_footer_info -> Nullable<Text>,
+        invoice_footer_legal -> Nullable<Text>,
+        logo_attachment_id -> Nullable<Text>,
+        brand_color -> Nullable<Text>,
+        address_line1 -> Nullable<Text>,
+        address_line2 -> Nullable<Text>,
+        #[max_length = 50]
+        zip_code -> Nullable<Varchar>,
+        state -> Nullable<Text>,
+        city -> Nullable<Text>,
+        vat_number -> Nullable<Text>,
+        country -> Text,
+        #[max_length = 50]
+        accounting_currency -> Varchar,
+        tenant_id -> Uuid,
     }
 }
 
 diesel::table! {
     organization (id) {
         id -> Uuid,
-        name -> Text,
+        trade_name -> Text,
         slug -> Text,
         created_at -> Timestamp,
         archived_at -> Nullable<Timestamp>,
         invite_link_hash -> Nullable<Text>,
+        default_country -> Text,
     }
 }
 
@@ -423,7 +446,7 @@ diesel::table! {
         billing_cycles -> Nullable<Int4>,
         created_at -> Timestamp,
         created_by -> Uuid,
-        billing_periods -> Array<BillingPeriodEnum>,
+        billing_periods -> Array<Nullable<BillingPeriodEnum>>,
     }
 }
 
@@ -566,11 +589,11 @@ diesel::table! {
         id -> Uuid,
         mrr_delta -> Nullable<Int8>,
         event_type -> SubscriptionEventType,
+        created_at -> Timestamp,
         applies_to -> Date,
         subscription_id -> Uuid,
         bi_mrr_movement_log_id -> Nullable<Uuid>,
         details -> Nullable<Jsonb>,
-        created_at -> Timestamp,
     }
 }
 
@@ -598,6 +621,10 @@ diesel::table! {
         created_at -> Timestamp,
         archived_at -> Nullable<Timestamp>,
         password_hash -> Nullable<Text>,
+        onboarded -> Bool,
+        first_name -> Nullable<Text>,
+        last_name -> Nullable<Text>,
+        department -> Nullable<Text>,
     }
 }
 
@@ -625,7 +652,7 @@ diesel::table! {
         description -> Nullable<Text>,
         secret -> Text,
         created_at -> Timestamp,
-        events_to_listen -> Array<WebhookOutEventTypeEnum>,
+        events_to_listen -> Array<Nullable<WebhookOutEventTypeEnum>>,
         enabled -> Bool,
     }
 }
@@ -660,6 +687,7 @@ diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
+diesel::joinable!(customer -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(customer -> tenant (tenant_id));
 diesel::joinable!(customer_balance_pending_tx -> customer (customer_id));
 diesel::joinable!(customer_balance_pending_tx -> customer_balance_tx (tx_id));
@@ -673,6 +701,7 @@ diesel::joinable!(customer_balance_tx -> user (created_by));
 diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
+diesel::joinable!(invoicing_entity -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(plan -> product_family (product_family_id));
@@ -716,7 +745,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     fang_tasks_archive,
     historical_rates_from_usd,
     invoice,
-    invoicing_config,
+    invoicing_entity,
     organization,
     organization_member,
     plan,

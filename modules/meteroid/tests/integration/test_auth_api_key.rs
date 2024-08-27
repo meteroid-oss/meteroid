@@ -85,7 +85,8 @@ async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
     let clients = meteroid_it::clients::AllClients::from_channel(
         channel.clone(),
         auth_token.clone().as_str(),
-        "",
+        "TESTORG",
+        "testslug",
     );
 
     let tenant_response = clients
@@ -94,8 +95,7 @@ async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
         .create_tenant(tonic::Request::new(
             meteroid_grpc::meteroid::api::tenants::v1::CreateTenantRequest {
                 name: "Test Tenant".to_string(),
-                slug: "test-tenant-slug".to_string(),
-                currency: "USD".to_string(),
+                environment: 0,
             },
         ))
         .await
@@ -107,6 +107,7 @@ async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
     let clients = meteroid_it::clients::AllClients::from_channel(
         channel.clone(),
         auth_token.clone().as_str(),
+        "TESTORG",
         tenant_response.slug.as_str(),
     );
 

@@ -15,6 +15,8 @@ types:
     - meteroid.api.subscriptions.v1.SubscriptionsService
     - meteroid.api.tenants.v1.TenantsService
     - meteroid.api.users.v1.UsersService
+    - meteroid.api.organizations.v1.OrganizationsService
+    - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
 plugins:
   - plugin: buf.build/bufbuild/es:v1.7.1
     opt:

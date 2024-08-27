@@ -1,7 +1,7 @@
 use crate::compute::engine::component::InvoiceLineInner;
-use crate::compute::engine::shared::ToCents;
 use crate::compute::ComputeError;
 use crate::domain::{Period, SubLineAttributes, SubLineItem, TierRow};
+use crate::utils::decimals::ToSubunit;
 use crate::utils::local_id::LocalId;
 use rust_decimal::Decimal;
 
@@ -9,6 +9,7 @@ pub fn compute_volume_price(
     usage_units: Decimal,
     tiers: &Vec<TierRow>,
     period: Period,
+    precision: u8,
     _block_size: &Option<u64>,
 ) -> Result<InvoiceLineInner, ComputeError> {
     let mut applicable_price_per_unit = Decimal::new(0, 0);
@@ -60,14 +61,18 @@ pub fn compute_volume_price(
     Ok(InvoiceLineInner {
         quantity: Some(usage_units),
         unit_price: None,
-        total: price.to_cents()? as u64,
+        total: price
+            .to_subunit_opt(precision)
+            .ok_or_else(|| ComputeError::ConversionError)? as u64,
         period: period,
         custom_line_name: None,
         is_prorated: false,
         sublines: vec![SubLineItem {
             local_id: LocalId::no_prefix(),
             name: "Volume".to_string(),
-            total: price.to_cents()? as i64,
+            total: price
+                .to_subunit_opt(precision)
+                .ok_or_else(|| ComputeError::ConversionError)?,
             quantity: usage_units,
             unit_price: applicable_price_per_unit,
             attributes: subline_attr,
@@ -79,6 +84,7 @@ pub fn compute_tier_price(
     usage_units: Decimal,
     tiers: &Vec<TierRow>,
     period: Period,
+    precision: u8,
     _block_size: &Option<u64>,
 ) -> Result<InvoiceLineInner, ComputeError> {
     let mut subtotal = Decimal::new(0, 0);
@@ -131,7 +137,9 @@ pub fn compute_tier_price(
                     tier.first_unit,
                     last_unit.map(|s| s.to_string()).unwrap_or("∞".to_string())
                 ),
-                total: fee.to_cents()?,
+                total: fee
+                    .to_subunit_opt(precision)
+                    .ok_or_else(|| ComputeError::ConversionError)?,
                 quantity: units_in_this_tier,
                 unit_price: tier_price,
                 attributes: Some(SubLineAttributes::Tiered {
@@ -148,7 +156,9 @@ pub fn compute_tier_price(
     Ok(InvoiceLineInner {
         quantity: Some(usage_units),
         unit_price: None,
-        total: subtotal.to_cents()? as u64,
+        total: subtotal
+            .to_subunit_opt(precision)
+            .ok_or_else(|| ComputeError::ConversionError)? as u64,
         period: period,
         custom_line_name: None,
         is_prorated: false,

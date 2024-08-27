@@ -8,11 +8,12 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OrganizationRow {
     pub id: Uuid,
-    pub name: String,
+    pub trade_name: String,
     pub slug: String,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
     pub invite_link_hash: Option<String>,
+    pub default_country: String,
 }
 
 #[derive(Debug, Insertable)]
@@ -20,6 +21,7 @@ pub struct OrganizationRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OrganizationRowNew {
     pub id: Uuid,
-    pub name: String,
     pub slug: String,
+    pub trade_name: String,
+    pub default_country: String,
 }

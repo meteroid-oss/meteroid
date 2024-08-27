@@ -76,22 +76,6 @@ impl BillableMetricsService for BillableMetricsComponents {
                 .map(|v| v.0)
                 .map_err(Into::<BillableMetricApiError>::into)?;
 
-        let _ = &self
-            .store
-            .usage_client
-            .register_meter(&tenant_id, &domain_billable_metric)
-            .await
-            // .tap_err(|e| {
-            // delete the billable metric ?
-            // })
-            .map_err(|x| {
-                BillableMetricApiError::MeteringServiceError(
-                    "Failed to register meter".to_string(),
-                    x,
-                )
-            })?;
-        // TODO also store the metadata
-
         Ok(Response::new(CreateBillableMetricResponse {
             billable_metric: Some(server_billable_metric),
         }))

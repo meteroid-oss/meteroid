@@ -52,6 +52,7 @@ pub async fn start_meteroid_with_port(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
+        config.multi_organization_enabled.clone(),
         create_eventbus_memory(),
         usage_client,
     )

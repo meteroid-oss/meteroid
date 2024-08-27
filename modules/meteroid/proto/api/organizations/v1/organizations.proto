@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package meteroid.api.organizations.v1;
+
+import "api/organizations/v1/models.proto";
+
+message ListOrganizationsRequest {}
+
+message ListOrganizationsResponse {
+  repeated Organization organizations = 1;
+}
+
+message CreateOrganizationRequest {
+  string trade_name = 1;
+  string country = 2;
+  optional string legal_name = 3;
+  optional string vat_number = 4;
+  optional string address_line1 = 5;
+  optional string address_line2 = 6;
+  optional string zip_code = 7;
+  optional string state = 8;
+  optional string city = 9;
+}
+
+message CreateOrganizationResponse {
+  OrganizationWithTenant organization = 1;
+}
+
+message GetCurrentOrganizationRequest {}
+
+message GetCurrentOrganizationResponse {
+  OrganizationWithTenant organization = 1;
+}
+
+service OrganizationsService {
+  rpc ListOrganizations(ListOrganizationsRequest) returns (ListOrganizationsResponse) {}
+  rpc GetCurrentOrganizations(GetCurrentOrganizationRequest) returns (GetCurrentOrganizationResponse) {}
+  rpc CreateOrganization(CreateOrganizationRequest) returns (CreateOrganizationResponse) {}
+}

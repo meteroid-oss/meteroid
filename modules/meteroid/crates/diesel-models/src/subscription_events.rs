@@ -11,9 +11,9 @@ pub struct SubscriptionEventRow {
     pub id: Uuid,
     pub mrr_delta: Option<i64>,
     pub event_type: SubscriptionEventType,
+    pub created_at: NaiveDateTime,
     pub applies_to: NaiveDate,
     pub subscription_id: Uuid,
     pub bi_mrr_movement_log_id: Option<Uuid>,
     pub details: Option<serde_json::Value>,
-    pub created_at: NaiveDateTime,
 }

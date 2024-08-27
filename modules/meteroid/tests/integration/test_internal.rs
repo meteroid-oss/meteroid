@@ -1,6 +1,6 @@
 use common_config::auth::InternalAuthConfig;
 use common_grpc::middleware::client::auth::{create_admin_auth_layer, create_api_auth_layer};
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 
 use crate::helpers;
@@ -18,12 +18,12 @@ async fn test_internal_basic() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG",
+        "testslug",
     );
 
     let created_token_response = clients

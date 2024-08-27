@@ -31,6 +31,7 @@ pub struct InvoiceRow {
     pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
+    pub total: i64,
     pub plan_version_id: Option<Uuid>,
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
@@ -39,7 +40,6 @@ pub struct InvoiceRow {
     pub tax_rate: i32,
     pub local_id: String,
     pub reference: Option<String>,
-    pub total: i64,
     pub invoice_number: String,
     pub tax_amount: i64,
     pub subtotal_recurring: i64,
@@ -49,6 +49,7 @@ pub struct InvoiceRow {
     pub amount_due: i64,
     pub subtotal: i64,
     pub applied_credits: i64,
+    pub seller_details: serde_json::Value,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -100,6 +101,7 @@ pub struct InvoiceRowNew {
     pub due_at: Option<NaiveDateTime>,
     pub plan_name: Option<String>,
     pub customer_details: serde_json::Value,
+    pub seller_details: serde_json::Value,
 }
 
 #[derive(Debug, Queryable, Selectable)]

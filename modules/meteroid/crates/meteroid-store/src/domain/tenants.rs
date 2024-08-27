@@ -3,8 +3,7 @@ use o2o::o2o;
 use uuid::Uuid;
 
 use crate::domain::enums::TenantEnvironmentEnum;
-use diesel_models::tenants::TenantRow;
-use diesel_models::tenants::TenantRowNew;
+use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(TenantRow)]
@@ -25,26 +24,29 @@ pub struct Tenant {
 #[derive(Clone, Debug, o2o)]
 #[owned_into(TenantRowNew)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
-pub struct OrgTenantNew {
+pub struct FullTenantNew {
     pub name: String,
     pub slug: String,
     pub organization_id: Uuid,
     pub currency: String,
-    #[into(~.map(|x| x.into()))]
-    pub environment: Option<TenantEnvironmentEnum>,
+    #[map(~.into())]
+    pub environment: TenantEnvironmentEnum,
 }
 
 #[derive(Clone, Debug)]
-pub struct UserTenantNew {
+pub struct TenantNew {
     pub name: String,
-    pub slug: String,
-    pub user_id: Uuid,
-    pub currency: String,
-    pub environment: Option<TenantEnvironmentEnum>,
+    pub environment: TenantEnvironmentEnum,
 }
 
-#[derive(Clone, Debug)]
-pub enum TenantNew {
-    ForOrg(OrgTenantNew),
-    ForUser(UserTenantNew),
+#[derive(Clone, Debug, o2o)]
+#[owned_into(TenantRowPatch)]
+pub struct TenantUpdate {
+    #[ghost({None})]
+    pub trade_name: Option<String>,
+    pub name: Option<String>,
+    pub slug: Option<String>,
+    #[map(~.map(| x | x.into()))]
+    pub environment: Option<TenantEnvironmentEnum>,
+    pub currency: Option<String>,
 }

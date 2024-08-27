@@ -41,12 +41,11 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 "No subscription provided".to_string(),
             ))?;
 
-        let subscription =
-            mapping::subscriptions::create_proto_to_domain(subscription, &tenant_id, &actor)?;
+        let subscription = mapping::subscriptions::create_proto_to_domain(subscription, &actor)?;
 
         let created = self
             .store
-            .insert_subscription(subscription)
+            .insert_subscription(subscription, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 
@@ -70,12 +69,12 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscriptions = inner
             .subscriptions
             .into_iter()
-            .map(|s| mapping::subscriptions::create_proto_to_domain(s, &tenant_id, &actor))
+            .map(|s| mapping::subscriptions::create_proto_to_domain(s, &actor))
             .collect::<Result<Vec<_>, _>>()?;
 
         let inserted = self
             .store
-            .insert_subscription_batch(subscriptions)
+            .insert_subscription_batch(subscriptions, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
 

@@ -15,6 +15,7 @@ pub struct Tenant {
     pub name: String,
     pub slug: String,
     pub currency: String,
+    pub country: String,
 }
 
 #[derive(Clone)]

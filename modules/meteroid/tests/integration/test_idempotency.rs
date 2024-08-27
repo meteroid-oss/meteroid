@@ -77,7 +77,7 @@ async fn grpc_call(channel: Channel, idempotency: Option<&str>) -> Result<Metada
         metadata.insert(IDEMPOTENCY_KEY_HEADER, value);
     }
 
-    AllClients::from_channel(channel, "", "")
+    AllClients::from_channel(channel, "", "TESTORG", "")
         .instance
         .clone()
         .get_instance(request)

@@ -20,7 +20,7 @@ pub enum UserApiError {
     #[code(Unauthenticated)]
     AuthenticationError(String),
 
-    #[error("User already exists error")]
+    #[error("A user with that email already exists.")]
     #[code(AlreadyExists)]
     UserAlreadyExistsError,
 

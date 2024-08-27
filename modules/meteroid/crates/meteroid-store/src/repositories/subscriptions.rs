@@ -4,16 +4,16 @@ use crate::domain::enums::{
 use crate::domain::{
     BillableMetric, BillingConfig, ComponentParameters, CreateSubscription,
     CreateSubscriptionComponents, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest,
-    Customer, FeeType, InlineCustomer, PaginatedVec, PaginationRequest, PriceComponent, Schedule,
-    Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
-    SubscriptionInvoiceCandidate, SubscriptionNew,
+    Customer, FeeType, InlineCustomer, InlineInvoicingEntity, InvoicingEntity, PaginatedVec,
+    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionComponent,
+    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails,
+    SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
+use crate::utils::decimals::ToSubunit;
 use crate::{domain, StoreResult};
 use chrono::{NaiveDate, NaiveTime};
-use common_utils::decimal::ToCent;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use diesel_models::errors::DatabaseErrorContainer;
@@ -23,6 +23,8 @@ use uuid::Uuid;
 
 use rust_decimal::prelude::*;
 
+use crate::constants::Currencies;
+use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
@@ -47,11 +49,13 @@ pub trait SubscriptionInterface {
     async fn insert_subscription(
         &self,
         subscription: CreateSubscription,
+        tenant_id: Uuid,
     ) -> StoreResult<CreatedSubscription>;
 
     async fn insert_subscription_batch(
         &self,
         batch: Vec<CreateSubscription>,
+        tenant_id: Uuid,
     ) -> StoreResult<Vec<CreatedSubscription>>;
 
     async fn get_subscription_details(
@@ -92,28 +96,32 @@ pub trait SubscriptionInterface {
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 
-fn calculate_mrr_for_new_component(component: &SubscriptionComponentNewInternal) -> i64 {
+fn calculate_mrr_for_new_component(
+    component: &SubscriptionComponentNewInternal,
+    precision: u8,
+) -> i64 {
     let mut total_cents = 0;
 
     let period_as_months = component.period.as_months() as i64;
 
     match &component.fee {
         SubscriptionFee::Rate { rate } => {
-            total_cents = rate.to_cents().unwrap_or(0);
+            total_cents = rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::Recurring { quantity, rate, .. } => {
             let total = rate * Decimal::from(*quantity);
-            total_cents = total.to_cents().unwrap_or(0);
+            total_cents = total.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::Capacity { rate, .. } => {
-            total_cents = rate.to_cents().unwrap_or(0);
+            total_cents = rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::Slot {
             initial_slots,
             unit_rate,
             ..
         } => {
-            total_cents = (*initial_slots as i64) * unit_rate.to_cents().unwrap_or(0);
+            total_cents =
+                (*initial_slots as i64) * unit_rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => {
             // doesn't count as mrr
@@ -214,8 +222,9 @@ impl SubscriptionInterface for Store {
     async fn insert_subscription(
         &self,
         params: CreateSubscription,
+        tenant_id: Uuid,
     ) -> StoreResult<CreatedSubscription> {
-        self.insert_subscription_batch(vec![params])
+        self.insert_subscription_batch(vec![params], tenant_id)
             .await?
             .pop()
             .ok_or(StoreError::InsertError.into())
@@ -224,6 +233,7 @@ impl SubscriptionInterface for Store {
     async fn insert_subscription_batch(
         &self,
         batch: Vec<CreateSubscription>,
+        tenant_id: Uuid,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         let mut conn: PgConn = self.get_conn().await?;
 
@@ -262,6 +272,8 @@ impl SubscriptionInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
+        let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
+
         // map the price compoennts thanks to .try_into
         let price_components_by_plan_version: HashMap<Uuid, Vec<PriceComponent>> =
             db_price_components_by_plan_version
@@ -289,6 +301,9 @@ impl SubscriptionInterface for Store {
                     .find(|c| c.id == subscription.customer_id)
                     .ok_or(StoreError::InsertError)?;
 
+                let precision = Currencies::resolve_currency_precision(&subscription.currency)
+                    .ok_or(StoreError::InsertError)?;
+
                 let insertable_subscription_components = process_create_subscription_components(
                     &price_components,
                     &price_components_by_plan_version,
@@ -305,11 +320,11 @@ impl SubscriptionInterface for Store {
 
                 let should_activate = customer.billing_config != BillingConfig::Manual;
                 let insertable_subscription: SubscriptionRowNew =
-                    subscription.map_to_row(period, should_activate);
+                    subscription.map_to_row(period, should_activate, tenant_id);
 
                 let cmrr = insertable_subscription_components
                     .iter()
-                    .map(|c| calculate_mrr_for_new_component(c))
+                    .map(|c| calculate_mrr_for_new_component(c, precision))
                     .sum::<i64>();
 
                 let insertable_subscription_components = insertable_subscription_components
@@ -388,6 +403,11 @@ impl SubscriptionInterface for Store {
                     .find(|c| c.id == s.customer_id)
                     .ok_or(StoreError::InsertError)?;
 
+                let invoicing_entity = invoicing_entities
+                    .iter()
+                    .find(|c| c.id == customer.invoicing_entity_id)
+                    .ok_or(StoreError::InsertError)?;
+
                 match customer.billing_config {
                     BillingConfig::Stripe(_) => Ok(None),
                     BillingConfig::Manual => {
@@ -411,7 +431,7 @@ impl SubscriptionInterface for Store {
                             period: s.period.clone(),
                         };
 
-                        subscription_to_draft(&sub, customer).map(Some)
+                        subscription_to_draft(&sub, customer, invoicing_entity).map(Some)
                     }
                 }
             })
@@ -1029,6 +1049,7 @@ impl SubscriptionDetails {
 pub fn subscription_to_draft(
     subscription: &SubscriptionInvoiceCandidate,
     customer: &Customer,
+    invoicing_entity: &InvoicingEntity,
 ) -> StoreResult<domain::invoices::InvoiceNew> {
     let cust_bill_cfg = &customer.billing_config;
     let billing_start_date = subscription.billing_start_date;
@@ -1088,6 +1109,16 @@ pub fn subscription_to_draft(
             id: subscription.customer_id,
             name: customer.name.clone(), // TODO
             billing_address: customer.billing_address.as_ref().map(|x| x.clone()),
+            vat_number: None,
+            email: customer.email.clone(),
+            alias: customer.alias.clone(),
+            snapshot_at: chrono::Utc::now().naive_utc(),
+        },
+        seller_details: InlineInvoicingEntity {
+            id: invoicing_entity.id.clone(),
+            legal_name: invoicing_entity.legal_name.clone(),
+            vat_number: invoicing_entity.vat_number.clone(),
+            address: invoicing_entity.address(),
             snapshot_at: chrono::Utc::now().naive_utc(),
         },
     };

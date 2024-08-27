@@ -1,26 +1,77 @@
 pub mod tenants {
     use meteroid_grpc::meteroid::api::tenants::v1::CreateTenantRequest;
     use meteroid_grpc::meteroid::api::tenants::v1::Tenant;
+    use meteroid_grpc::meteroid::api::tenants::v1::TenantEnvironmentEnum as GrpcTenantEnvironmentEnum;
+    use meteroid_grpc::meteroid::api::tenants::v1::TenantUpdate as GrpcTenantUpdate;
     use meteroid_store::domain;
-    use uuid::Uuid;
 
     pub fn domain_to_server(tenant: domain::Tenant) -> Tenant {
         Tenant {
             id: tenant.id.to_string(),
             name: tenant.name,
             slug: tenant.slug,
-            currency: tenant.currency,
+            reporting_currency: tenant.currency,
+            environment: environment_to_grpc(tenant.environment).into(),
         }
     }
 
-    pub fn create_req_to_domain(req: CreateTenantRequest, user_id: Uuid) -> domain::TenantNew {
-        domain::TenantNew::ForUser(domain::UserTenantNew {
+    pub fn update_req_to_domain(req: GrpcTenantUpdate) -> domain::TenantUpdate {
+        let environment = req
+            .environment
+            .map(|_env| environment_grpc_to_domain(req.environment()));
+
+        environment_grpc_to_domain(req.environment());
+
+        domain::TenantUpdate {
             name: req.name,
-            currency: req.currency,
             slug: req.slug,
-            user_id,
-            environment: None, // todo add to the api
-        })
+            trade_name: req.trade_name,
+            currency: req.reporting_currency,
+            environment,
+        }
+    }
+
+    pub fn create_req_to_domain(req: CreateTenantRequest) -> domain::TenantNew {
+        let environment = environment_grpc_to_domain(req.environment());
+
+        domain::TenantNew {
+            name: req.name,
+            environment,
+        }
+    }
+
+    pub fn environment_to_grpc(
+        env: domain::enums::TenantEnvironmentEnum,
+    ) -> GrpcTenantEnvironmentEnum {
+        match env {
+            domain::enums::TenantEnvironmentEnum::Production => {
+                GrpcTenantEnvironmentEnum::Production
+            }
+            domain::enums::TenantEnvironmentEnum::Staging => GrpcTenantEnvironmentEnum::Staging,
+            domain::enums::TenantEnvironmentEnum::Qa => GrpcTenantEnvironmentEnum::Qa,
+            domain::enums::TenantEnvironmentEnum::Development => {
+                GrpcTenantEnvironmentEnum::Development
+            }
+            domain::enums::TenantEnvironmentEnum::Sandbox => GrpcTenantEnvironmentEnum::Sandbox,
+            domain::enums::TenantEnvironmentEnum::Demo => GrpcTenantEnvironmentEnum::Demo,
+        }
+    }
+
+    pub fn environment_grpc_to_domain(
+        env: GrpcTenantEnvironmentEnum,
+    ) -> domain::enums::TenantEnvironmentEnum {
+        match env {
+            GrpcTenantEnvironmentEnum::Production => {
+                domain::enums::TenantEnvironmentEnum::Production
+            }
+            GrpcTenantEnvironmentEnum::Staging => domain::enums::TenantEnvironmentEnum::Staging,
+            GrpcTenantEnvironmentEnum::Qa => domain::enums::TenantEnvironmentEnum::Qa,
+            GrpcTenantEnvironmentEnum::Development => {
+                domain::enums::TenantEnvironmentEnum::Development
+            }
+            GrpcTenantEnvironmentEnum::Sandbox => domain::enums::TenantEnvironmentEnum::Sandbox,
+            GrpcTenantEnvironmentEnum::Demo => domain::enums::TenantEnvironmentEnum::Demo,
+        }
     }
 }
 

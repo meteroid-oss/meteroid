@@ -66,6 +66,10 @@ pub struct Invoice {
     StoreError::SerdeError("Failed to deserialize customer_details".to_string(), e)
     }) ?)]
     pub customer_details: InlineCustomer,
+    #[from(serde_json::from_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to deserialize seller_details".to_string(), e)
+    }) ?)]
+    pub seller_details: InlineInvoicingEntity,
 }
 
 #[derive(Debug, o2o)]
@@ -108,12 +112,16 @@ pub struct InvoiceNew {
     pub reference: Option<String>,
     pub memo: Option<String>,
     pub local_id: String,
-    pub due_at: Option<NaiveDateTime>,
+    pub due_at: Option<NaiveDateTime>, // TODO due_date
     pub plan_name: Option<String>,
     #[into(serde_json::to_value(& ~).map_err(| e | {
     StoreError::SerdeError("Failed to serialize customer_details".to_string(), e)
     }) ?)]
     pub customer_details: InlineCustomer,
+    #[into(serde_json::to_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to serialize seller_details".to_string(), e)
+    }) ?)]
+    pub seller_details: InlineInvoicingEntity,
 }
 
 #[derive(Debug, o2o)]
@@ -160,7 +168,19 @@ impl InvoiceLinesPatch {
 pub struct InlineCustomer {
     pub id: Uuid,
     pub name: String,
+    pub email: Option<String>,
+    pub alias: Option<String>,
+    pub vat_number: Option<String>,
     pub billing_address: Option<Address>,
+    pub snapshot_at: NaiveDateTime,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct InlineInvoicingEntity {
+    pub id: Uuid,
+    pub legal_name: String,
+    pub vat_number: Option<String>,
+    pub address: Address,
     pub snapshot_at: NaiveDateTime,
 }
 

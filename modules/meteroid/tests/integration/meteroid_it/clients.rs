@@ -5,13 +5,14 @@ use tonic::transport::Channel;
 use tower_http::auth::{AddAuthorization, AddAuthorizationLayer};
 use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 
-use common_grpc::middleware::common::auth::TENANT_SLUG_HEADER;
+use common_grpc::middleware::common::auth::INTERNAL_API_CONTEXT_HEADER;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_client::AddOnsServiceClient;
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
 use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_client::InstanceServiceClient;
+use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
 use meteroid_grpc::meteroid::api::products::v1::products_service_client::ProductsServiceClient;
@@ -40,11 +41,18 @@ pub struct AllClients {
     pub users: UsersServiceClient<TestLayeredClientService>,
     pub webhooks_out: WebhooksServiceClient<TestLayeredClientService>,
     pub stats: StatsServiceClient<TestLayeredClientService>,
+    pub organizations: OrganizationsServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
-    pub fn from_channel(channel: Channel, bearer_token: &str, tenant_slug: &str) -> AllClients {
-        let service = Self::build_layered_client_service(channel, bearer_token, tenant_slug);
+    pub fn from_channel(
+        channel: Channel,
+        bearer_token: &str,
+        org_slug: &str,
+        tenant_slug: &str,
+    ) -> AllClients {
+        let service =
+            Self::build_layered_client_service(channel, bearer_token, org_slug, tenant_slug);
 
         Self {
             add_ons: AddOnsServiceClient::new(service.clone()),
@@ -62,12 +70,14 @@ impl AllClients {
             users: UsersServiceClient::new(service.clone()),
             webhooks_out: WebhooksServiceClient::new(service.clone()),
             stats: StatsServiceClient::new(service.clone()),
+            organizations: OrganizationsServiceClient::new(service.clone()),
         }
     }
 
     pub fn build_layered_client_service(
         channel: Channel,
         bearer_token: &str,
+        org_slug: &str,
         tenant_slug: &str,
     ) -> TestLayeredClientService {
         // if we have a tenant slug then we could resolve role via tenant
@@ -76,14 +86,14 @@ impl AllClients {
         let header_name = if tenant_slug.is_empty() {
             "_fake"
         } else {
-            TENANT_SLUG_HEADER
+            INTERNAL_API_CONTEXT_HEADER
         };
 
         tower::ServiceBuilder::new()
             .layer(AddAuthorizationLayer::bearer(bearer_token))
             .layer(SetRequestHeaderLayer::if_not_present(
                 HeaderName::from_str(header_name).unwrap(),
-                HeaderValue::from_str(tenant_slug).unwrap(),
+                HeaderValue::from_str(format!("{}/{}", org_slug, tenant_slug).as_str()).unwrap(),
             ))
             .service(channel)
     }

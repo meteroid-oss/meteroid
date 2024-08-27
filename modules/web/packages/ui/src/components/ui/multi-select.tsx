@@ -3,21 +3,21 @@ import * as PopoverPrimitive from '@radix-ui/react-popover'
 import { Primitive, type ComponentPropsWithoutRef } from '@radix-ui/react-primitive'
 import { useControllableState } from '@radix-ui/react-use-controllable-state'
 import {
-  MouseEvent,
-  TouchEvent,
-  ReactNode,
-  createContext,
-  useContext,
-  FC,
-  useRef,
-  useCallback,
-  useMemo,
-  ElementRef,
-  forwardRef,
-  useState,
-  useLayoutEffect,
-  useEffect,
   CSSProperties,
+  ElementRef,
+  FC,
+  MouseEvent,
+  ReactNode,
+  TouchEvent,
+  createContext,
+  forwardRef,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -197,7 +197,7 @@ const MultiSelectTrigger = forwardRef<MultiSelectTriggerElement, MultiSelectTrig
           data-disabled={disabled}
           {...props}
           className={cn(
-            'flex  min-h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring [&>span]:line-clamp-1',
+            'flex  min-h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-border bg-transparent px-3 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring [&>span]:line-clamp-1',
             disabled ? 'cursor-not-allowed opacity-50' : 'cursor-text',
             className
           )}
@@ -513,14 +513,14 @@ const renderMultiSelectOptions = (list: MultiSelectOption[]) => {
 
 export {
   MultiSelect,
+  MultiSelectContent,
+  MultiSelectEmpty,
+  MultiSelectGroup,
+  MultiSelectItem,
+  MultiSelectList,
+  MultiSelectSearch,
+  MultiSelectSeparator,
   MultiSelectTrigger,
   MultiSelectValue,
-  MultiSelectSearch,
-  MultiSelectContent,
-  MultiSelectList,
-  MultiSelectItem,
-  MultiSelectGroup,
-  MultiSelectSeparator,
-  MultiSelectEmpty,
   renderMultiSelectOptions,
 }

@@ -1,8 +1,8 @@
-import { Button, Skeleton, cn, Card } from '@md/ui'
+import { Button, Card, Skeleton, cn } from '@md/ui'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
-import { formatCurrency } from '@/features/dashboard/utils'
+import { useCurrency } from '@/hooks/useCurrency'
 
 export interface TrendProp {
   value: number
@@ -63,13 +63,15 @@ export const StatCard: React.FC<StatCardProp> = ({
 }
 
 export const StatCardTrend = ({ value, percent, period, positiveIsGreen }: TrendProp) => {
+  const { formatAmount } = useCurrency()
+
   const formattedTrend = useMemo(() => {
-    const formattedValue = formatCurrency(Math.abs(value))
+    const formattedValue = formatAmount(Math.abs(value))
 
     const sign = value >= 0 ? '+' : '-'
 
     return `${sign} ${formattedValue} (${sign}${percent.toFixed(1)}%) ${period}`
-  }, [value, percent, period])
+  }, [value, percent, period, formatAmount])
 
   return (
     <div

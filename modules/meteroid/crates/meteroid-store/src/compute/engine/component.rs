@@ -12,7 +12,8 @@ use crate::utils::local_id::LocalId;
 
 use crate::compute::clients::slots::SlotClient;
 use crate::compute::clients::usage::{GroupedUsageData, UsageData};
-use crate::compute::engine::shared::{only_positive, only_positive_decimal, ToCents};
+use crate::compute::engine::shared::{only_positive, only_positive_decimal};
+use crate::utils::decimals::ToSubunit;
 
 use super::super::clients::usage::UsageClient;
 use super::super::errors::ComputeError;
@@ -44,6 +45,7 @@ impl ComponentEngine {
         component: SubscriptionComponent,
         periods: ComponentPeriods,
         invoice_date: &NaiveDate,
+        precision: u8,
     ) -> Result<Vec<LineItem>, ComputeError> {
         let fixed_period = periods.advance;
         let is_first_period = periods.arrear.is_none();
@@ -57,6 +59,7 @@ impl ComponentEngine {
                     &dec!(1),
                     fixed_period,
                     periods.proration_factor,
+                    precision,
                 )?);
             }
             SubscriptionFee::OneTime { rate, quantity } => {
@@ -67,6 +70,7 @@ impl ComponentEngine {
                         &Decimal::from(*quantity),
                         fixed_period,
                         periods.proration_factor,
+                        precision,
                     )?);
                 }
             }
@@ -81,6 +85,7 @@ impl ComponentEngine {
                         &Decimal::from(*quantity),
                         fixed_period,
                         periods.proration_factor,
+                        precision,
                     )?);
                 }
                 BillingType::Arrears => {
@@ -90,6 +95,7 @@ impl ComponentEngine {
                             &Decimal::from(*quantity),
                             arrears,
                             periods.proration_factor,
+                            precision,
                         )?);
                     }
                 }
@@ -118,6 +124,7 @@ impl ComponentEngine {
                     &Decimal::from(slots),
                     fixed_period,
                     periods.proration_factor,
+                    precision,
                 )?);
             }
             SubscriptionFee::Capacity {
@@ -133,6 +140,7 @@ impl ComponentEngine {
                     &dec!(1),
                     fixed_period,
                     None, // no proration on capacity, as it provides a fixed amount
+                    precision,
                 )?);
 
                 if let Some(arrear_period) = periods.arrear {
@@ -145,7 +153,9 @@ impl ComponentEngine {
                         let overage_units = usage - Decimal::from(*included);
 
                         if overage_units > Decimal::ZERO {
-                            let overage_price = overage_rate.to_cents()?;
+                            let overage_price = overage_rate
+                                .to_subunit_opt(precision)
+                                .ok_or_else(|| ComputeError::ConversionError)?;
                             let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
 
                             let overage_line = InvoiceLineInner {
@@ -199,7 +209,11 @@ impl ComponentEngine {
 
                                 let price_total = rate.per_unit_price * quantity;
 
-                                let price_cents = only_positive(price_total.to_cents()?);
+                                let price_cents = only_positive(
+                                    price_total
+                                        .to_subunit_opt(precision)
+                                        .ok_or_else(|| ComputeError::ConversionError)?,
+                                );
 
                                 if price_cents > 0 {
                                     // we concat rate.dimension1.value and rate.dimension2.value (if defined), separed by a coma. No coma if rate.dimension2 is None
@@ -250,6 +264,7 @@ impl ComponentEngine {
                                         rate,
                                         &usage_units,
                                         arrear_period,
+                                        precision,
                                     )?);
                                 }
                                 UsagePricingModel::Tiered { tiers, block_size } => {
@@ -257,6 +272,7 @@ impl ComponentEngine {
                                         usage_units,
                                         tiers,
                                         arrear_period,
+                                        precision,
                                         block_size,
                                     )?);
                                 }
@@ -265,6 +281,7 @@ impl ComponentEngine {
                                         usage_units,
                                         tiers,
                                         arrear_period,
+                                        precision,
                                         block_size,
                                     )?);
                                 }
@@ -280,7 +297,10 @@ impl ComponentEngine {
                                         vec![SubLineItem {
                                             local_id: LocalId::no_prefix(),
                                             name: "Package".to_string(),
-                                            total: price_total.to_cents()? as i64,
+                                            total: price_total
+                                                .to_subunit_opt(precision)
+                                                .ok_or_else(|| ComputeError::ConversionError)?
+                                                as i64,
                                             quantity: total_packages,
                                             unit_price: rate.clone(),
                                             attributes: Some(SubLineAttributes::Package {
@@ -400,12 +420,18 @@ impl InvoiceLineInner {
         quantity: &Decimal,
         period: Period,
         proration_factor: Option<f64>,
+        precision: u8,
     ) -> Result<InvoiceLineInner, ComputeError> {
         let unit_price_cents = prorate_dec(*rate, proration_factor);
 
         let total = rate * quantity;
 
-        let total_cents = prorate(total.to_cents()?, proration_factor);
+        let total_cents = prorate(
+            total
+                .to_subunit_opt(precision)
+                .ok_or_else(|| ComputeError::ConversionError)?,
+            proration_factor,
+        );
 
         Ok(InvoiceLineInner {
             quantity: Some(*quantity),
@@ -422,8 +448,9 @@ impl InvoiceLineInner {
         rate: &Decimal,
         quantity: &Decimal,
         period: Period,
+        precision: u8,
     ) -> Result<InvoiceLineInner, ComputeError> {
-        Self::simple_prorated(rate, quantity, period, None)
+        Self::simple_prorated(rate, quantity, period, None, precision)
     }
 
     pub fn from_sublines(

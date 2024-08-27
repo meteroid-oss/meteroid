@@ -29,12 +29,12 @@ export const formatCurrency = (amount: bigint, currencyCode: string) => {
   }).format(parsedAmount)
 }
 
-export const formatCurrencyNoRounding = (amount: string, currencyCode: string) => {
+export const formatCurrencyNoRounding = (amount: string | number, currencyCode: string) => {
   const currency = CURRENCIES[currencyCode]
 
   const precision = currency.precision
 
-  const parsedAmount = parseFloat(amount)
+  const parsedAmount = typeof amount === 'string' ? parseFloat(amount) : amount
 
   return new Intl.NumberFormat('en-UK', {
     style: 'currency',

@@ -101,7 +101,6 @@ impl Into<Subscription> for SubscriptionForDisplayRow {
 pub struct SubscriptionNew {
     pub customer_id: Uuid,
     pub billing_day: i16,
-    pub tenant_id: Uuid,
     pub currency: String,
     pub trial_start_date: Option<NaiveDate>,
     pub billing_start_date: NaiveDate,
@@ -119,12 +118,13 @@ impl SubscriptionNew {
         self,
         period: BillingPeriodEnum,
         should_activate: bool,
+        tenant_id: Uuid,
     ) -> SubscriptionRowNew {
         SubscriptionRowNew {
             id: uuid::Uuid::now_v7(),
             customer_id: self.customer_id,
             billing_day: self.billing_day,
-            tenant_id: self.tenant_id,
+            tenant_id,
             currency: self.currency,
             trial_start_date: self.trial_start_date,
             billing_start_date: self.billing_start_date,

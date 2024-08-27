@@ -1,5 +1,6 @@
 use error_stack::Report;
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
@@ -19,8 +20,10 @@ use meteroid_store::repositories::CustomersInterface;
 
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
-    DomainBillingConfigWrapper, ServerCustomerBriefWrapper, ServerCustomerWrapper,
+    DomainAddressWrapper, DomainBillingConfigWrapper, DomainShippingAddressWrapper,
+    ServerCustomerBriefWrapper, ServerCustomerWrapper,
 };
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
 
@@ -36,7 +39,10 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
         let actor = request.actor()?;
 
-        let inner = request.into_inner();
+        let inner = request
+            .into_inner()
+            .data
+            .ok_or(CustomerApiError::MissingArgument("no data".into()))?;
 
         let billing_config = inner
             .billing_config
@@ -44,23 +50,33 @@ impl CustomersService for CustomerServiceComponents {
             .and_then(|c| DomainBillingConfigWrapper::try_from(c))?
             .0;
 
+        let customer_new = CustomerNew {
+            name: inner.name,
+            created_by: actor,
+            invoicing_entity_id: Uuid::from_proto_opt(inner.invoicing_entity_id)?,
+            billing_config,
+            alias: inner.alias,
+            email: inner.email,
+            invoicing_email: inner.invoicing_email,
+            phone: inner.phone,
+            balance_value_cents: 0,
+            currency: inner.currency,
+            billing_address: inner
+                .billing_address
+                .map(DomainAddressWrapper::try_from)
+                .transpose()?
+                .map(|v| v.0),
+            shipping_address: inner
+                .shipping_address
+                .map(DomainShippingAddressWrapper::try_from)
+                .transpose()?
+                .map(|v| v.0),
+            force_created_date: None,
+        };
+
         let customer = self
             .store
-            .insert_customer(CustomerNew {
-                name: inner.name,
-                created_by: actor,
-                tenant_id,
-                billing_config,
-                alias: inner.alias,
-                email: inner.email,
-                invoicing_email: None,
-                phone: None,
-                balance_value_cents: 0,
-                balance_currency: "EUR".to_string(),
-                billing_address: None,
-                shipping_address: None,
-                created_at: None,
-            })
+            .insert_customer(customer_new, tenant_id)
             .await
             .and_then(ServerCustomerBriefWrapper::try_from)
             .map(|v| v.0)
@@ -99,7 +115,8 @@ impl CustomersService for CustomerServiceComponents {
                     invoicing_email: customer.invoicing_email.clone(),
                     phone: customer.phone.clone(),
                     balance_value_cents: customer.balance_value_cents,
-                    balance_currency: customer.balance_currency.clone(),
+                    invoicing_entity_id: Uuid::from_proto_opt(customer.invoicing_entity_id)?,
+                    currency: customer.currency.clone(),
                     billing_address: customer
                         .billing_address
                         .map(|s| serde_json::to_value(s).unwrap()),

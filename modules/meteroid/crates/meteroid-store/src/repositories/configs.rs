@@ -27,7 +27,7 @@ impl ConfigsInterface for Store {
         &self,
         config: ProviderConfigNew,
     ) -> StoreResult<ProviderConfig> {
-        let insertable = config.to_row(&self.crypt_key)?;
+        let insertable = config.to_row(&self.settings.crypt_key)?;
 
         let mut conn = self.get_conn().await?;
 
@@ -36,7 +36,7 @@ impl ConfigsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        ProviderConfig::from_row(&self.crypt_key, row)
+        ProviderConfig::from_row(&self.settings.crypt_key, row)
     }
 
     async fn find_provider_config(
@@ -50,6 +50,6 @@ impl ConfigsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        ProviderConfig::from_row(&self.crypt_key, row)
+        ProviderConfig::from_row(&self.settings.crypt_key, row)
     }
 }

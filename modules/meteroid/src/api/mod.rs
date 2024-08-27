@@ -13,6 +13,8 @@ pub mod errors;
 pub mod instance;
 pub mod internal;
 pub mod invoices;
+pub mod invoicingentities;
+pub mod organizations;
 pub mod plans;
 pub mod pricecomponents;
 pub mod productfamilies;

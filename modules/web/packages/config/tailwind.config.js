@@ -6,7 +6,10 @@ const deepMerge = require('deepmerge')
  */
 const uiConfig = ui({
   mode: 'JIT',
-  darkMode: 'class',
+  darkMode: [
+    'variant',
+    ['@media (prefers-color-scheme: dark) { &:not(.light *) }', '&:is(.dark *)'],
+  ],
   theme: {
     /**
      * Spread all theme colors and custom generated colors into theme

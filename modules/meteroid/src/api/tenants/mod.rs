@@ -2,7 +2,7 @@ use meteroid_grpc::meteroid::api::tenants::v1::tenants_service_server::TenantsSe
 use meteroid_store::Store;
 
 mod error;
-mod mapping;
+pub(crate) mod mapping;
 mod service;
 
 pub struct TenantServiceComponents {

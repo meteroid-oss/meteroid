@@ -54,6 +54,18 @@ pub mod meteroid {
             }
         }
 
+        pub mod invoicingentities {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.invoicingentities.v1");
+            }
+        }
+
+        pub mod organizations {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.organizations.v1");
+            }
+        }
+
         pub mod plans {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.plans.v1");

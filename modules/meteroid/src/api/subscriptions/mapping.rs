@@ -46,13 +46,11 @@ pub mod subscriptions {
 
     pub(crate) fn create_proto_to_domain(
         param: proto2::CreateSubscription,
-        tenant_id: &Uuid,
         actor: &Uuid,
     ) -> Result<domain::CreateSubscription, Status> {
         let subscription_new = meteroid_store::domain::SubscriptionNew {
             customer_id: Uuid::from_proto(param.customer_id)?,
             billing_day: param.billing_day as i16,
-            tenant_id: tenant_id.clone(),
             currency: param.currency,
             trial_start_date: NaiveDate::from_proto_opt(param.trial_start_date)?,
             billing_start_date: NaiveDate::from_proto(param.billing_start_date)?,

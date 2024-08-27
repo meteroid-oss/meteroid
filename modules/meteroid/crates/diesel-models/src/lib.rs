@@ -25,6 +25,7 @@ pub mod add_ons;
 pub mod customer_balance_txs;
 pub mod extend;
 pub mod historical_rates_from_usd;
+pub mod invoicing_entities;
 pub mod stats;
 pub mod subscription_components;
 pub mod subscription_events;

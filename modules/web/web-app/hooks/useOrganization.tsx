@@ -1,10 +1,7 @@
-import { useQuery } from '@/lib/connectrpc'
-import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import { useTypedParams } from '@/utils/params'
 
-export const useOrganization = () => {
-  const { data } = useQuery(getInstance)
+export const useOrganizationSlug = () => {
+  const { organizationSlug } = useTypedParams<{ organizationSlug: string }>()
 
-  return {
-    organization: data?.instance,
-  }
+  return organizationSlug
 }

@@ -389,7 +389,7 @@ impl PlansInterface for Store {
                     currency: original.currency,
                     billing_cycles: original.billing_cycles,
                     created_by: auth_actor,
-                    billing_periods: original.billing_periods,
+                    billing_periods: original.billing_periods.into_iter().flatten().collect(),
                 }
                 .insert(conn)
                 .await

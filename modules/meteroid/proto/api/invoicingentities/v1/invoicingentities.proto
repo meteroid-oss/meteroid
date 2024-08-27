@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package meteroid.api.invoicingentities.v1;
+
+import "api/invoicingentities/v1/models.proto";
+
+message ListInvoicingEntitiesRequest {}
+
+message ListInvoicingEntitiesResponse {
+  repeated InvoicingEntity entities = 1;
+}
+
+message CreateInvoicingEntityRequest {
+  InvoicingEntityData data = 1;
+}
+
+message CreateInvoicingEntityResponse {
+  InvoicingEntity entity = 1;
+}
+
+message UpdateInvoicingEntityRequest {
+  string id = 1;
+  InvoicingEntityData data = 2;
+}
+
+message UpdateInvoicingEntityResponse {
+  InvoicingEntity entity = 1;
+}
+
+service InvoicingEntitiesService {
+  rpc ListInvoicingEntities(ListInvoicingEntitiesRequest) returns (ListInvoicingEntitiesResponse) {}
+  rpc CreateInvoicingEntity(CreateInvoicingEntityRequest) returns (CreateInvoicingEntityResponse) {}
+  rpc UpdateInvoicingEntity(UpdateInvoicingEntityRequest) returns (UpdateInvoicingEntityResponse) {}
+}

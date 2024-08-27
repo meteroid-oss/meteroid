@@ -9,11 +9,12 @@ use meteroid_store::Store;
 use tonic::Status;
 use uuid::Uuid;
 
-const FORBIDDEN_SERVICES: [&str; 4] = [
+const FORBIDDEN_SERVICES: [&str; 5] = [
     "meteroid.api.organizations.v1.OrganizationsService",
     "meteroid.api.users.v1.UsersService",
     "meteroid.api.apitokens.v1.ApiTokensService",
     "meteroid.api.tenants.v1.TenantsService",
+    "meteroid.api.instance.v1.InstanceService",
 ];
 
 #[cached(
@@ -27,9 +28,9 @@ async fn validate_api_token_by_id_cached(
     store: &Store,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<Uuid, Status> {
+) -> Result<(Uuid, Uuid), Status> {
     let res = store
-        .get_api_token_by_id(api_key_id)
+        .get_api_token_by_id_for_validation(api_key_id)
         .await
         .map_err(|_| Status::permission_denied("Failed to retrieve api key"))?;
 
@@ -37,7 +38,7 @@ async fn validate_api_token_by_id_cached(
         .validate_hash(&res.hash)
         .map_err(|_| Status::permission_denied("Unauthorized"))?;
 
-    Ok(res.tenant_id)
+    Ok((res.organization_id, res.tenant_id))
 }
 
 pub async fn validate_api_key(
@@ -62,7 +63,12 @@ pub async fn validate_api_key(
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
     })?;
 
-    let tenant_id = validate_api_token_by_id_cached(store, &validator, &id).await?;
+    let (organization_id, tenant_id) =
+        validate_api_token_by_id_cached(store, &validator, &id).await?;
 
-    Ok(AuthenticatedState::ApiKey { id, tenant_id })
+    Ok(AuthenticatedState::ApiKey {
+        id,
+        tenant_id,
+        organization_id,
+    })
 }

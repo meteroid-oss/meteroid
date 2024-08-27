@@ -9,7 +9,7 @@ use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use crate::meteroid_it::db::seed::{CUSTOMER_UBER_ID, SUBSCRIPTION_SPORTIFY_ID1, TENANT_ID};
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
 use meteroid_grpc::meteroid::api::webhooks::out::v1::WebhookEventType;
 
 #[tokio::test]
@@ -23,12 +23,12 @@ async fn test_webhook_endpoint_out() {
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG",
+        "testslug",
     );
 
     let events_to_listen = vec![
@@ -109,12 +109,12 @@ async fn test_webhook_out_handler() {
     let endpoint_url2 = endpoint_server2.url();
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "a712afi5lzhk",
+        "TESTORG",
+        "testslug",
     );
 
     // create endpoint 1

@@ -8,7 +8,7 @@ import { MrrColorCircle, MrrColorCircleColors } from '@/features/dashboard/cards
 import { ChartNoData } from '@/features/dashboard/charts/ChartNoData'
 import { MrrCrosshair } from '@/features/dashboard/charts/MrrCrosshair'
 import { ActiveSerieLayer } from '@/features/dashboard/charts/utils'
-import { formatCurrency } from '@/features/dashboard/utils'
+import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
 import { mapDate } from '@/lib/mapping'
 import { MRRBreakdown } from '@/rpc/api/stats/v1/models_pb'
@@ -56,6 +56,7 @@ export const MrrChart = (props: MrrChartProps) => {
     startDate: mapDate(props.from),
     endDate: mapDate(props.to),
   })
+  const { formatAmount } = useCurrency()
 
   const data =
     chartData.data?.series.map(s => ({
@@ -92,13 +93,13 @@ export const MrrChart = (props: MrrChartProps) => {
   const renderTooltipAdditionalData = (data: { breakdown: MRRBreakdown }) => {
     return (
       <div className="flex flex-col gap-2 text-muted-foreground text-xs border-t border-border pt-3">
-        <Item label="Net New MRR" value={formatCurrency(data.breakdown.netNewMrr)} />
+        <Item label="Net New MRR" value={formatAmount(data.breakdown.netNewMrr)} />
 
         {!!data.breakdown.newBusiness?.count && (
           <Item
             circle="new"
             label="New Business"
-            value={formatCurrency(data.breakdown.newBusiness.value)}
+            value={formatAmount(data.breakdown.newBusiness.value)}
             count={data.breakdown.newBusiness.count}
           />
         )}
@@ -106,7 +107,7 @@ export const MrrChart = (props: MrrChartProps) => {
           <Item
             circle="expansion"
             label="Expansions"
-            value={formatCurrency(data.breakdown.expansion.value)}
+            value={formatAmount(data.breakdown.expansion.value)}
             count={data.breakdown.expansion.count}
           />
         )}
@@ -114,7 +115,7 @@ export const MrrChart = (props: MrrChartProps) => {
           <Item
             circle="contraction"
             label="Contractions"
-            value={formatCurrency(data.breakdown.contraction.value)}
+            value={formatAmount(data.breakdown.contraction.value)}
             count={data.breakdown.contraction.count}
           />
         )}
@@ -122,7 +123,7 @@ export const MrrChart = (props: MrrChartProps) => {
           <Item
             circle="churn"
             label="Churn"
-            value={formatCurrency(data.breakdown.churn.value)}
+            value={formatAmount(data.breakdown.churn.value)}
             count={data.breakdown.churn.count}
           />
         )}
@@ -130,7 +131,7 @@ export const MrrChart = (props: MrrChartProps) => {
           <Item
             circle="reactivation"
             label="Reactivations"
-            value={formatCurrency(data.breakdown.reactivation.value)}
+            value={formatAmount(data.breakdown.reactivation.value)}
             count={data.breakdown.reactivation.count}
           />
         )}
@@ -171,7 +172,7 @@ export const MrrChart = (props: MrrChartProps) => {
           <div className="px-2 text-sm font-bold">MRR</div>
           <div className="px-2">
             <span className="text-2xl font-medium leading-6">
-              {formatCurrency(stats.data?.totalMrr?.valueCents)}
+              {formatAmount(stats.data?.totalMrr?.valueCents)}
             </span>
             <span className="text-success text-sm font-semibold leading-4 ml-2">+0%</span>
           </div>
@@ -179,7 +180,7 @@ export const MrrChart = (props: MrrChartProps) => {
         <div className="flex flex-col gap-2">
           <div className="text-sm">Today</div>
           <div className="flex text-md gap-2">
-            <span>€0.00</span>
+            <span>0.00</span>
           </div>
         </div>
       </div>
