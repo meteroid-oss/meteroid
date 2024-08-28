@@ -21,8 +21,7 @@ use diesel_async::AsyncConnection;
 use diesel_models::errors::DatabaseErrorContainer;
 use error_stack::Report;
 use itertools::Itertools;
-use std::cmp::min;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use rust_decimal::prelude::*;
@@ -339,14 +338,11 @@ impl SubscriptionInterface for Store {
                 let insertable_subscription_add_ons =
                     process_create_subscription_add_ons(&add_ons, &all_add_ons)?;
 
-                let period_by_components =
-                    extract_billing_period(&insertable_subscription_components, |x| &x.period);
-
-                let period_by_add_ons =
-                    extract_billing_period(&insertable_subscription_add_ons, |x| &x.period);
-
                 // at this point we can know the period
-                let period = min(period_by_components, period_by_add_ons);
+                let period = extract_billing_period(
+                    &insertable_subscription_components,
+                    &insertable_subscription_add_ons,
+                );
 
                 let should_activate = customer.billing_config != BillingConfig::Manual;
                 let insertable_subscription: SubscriptionRowNew =
@@ -830,13 +826,15 @@ fn process_create_subscription_add_ons(
     Ok(processed_add_ons)
 }
 
-fn extract_billing_period<T, F>(items: &Vec<T>, extractor: F) -> BillingPeriodEnum
-where
-    F: Fn(&T) -> &SubscriptionFeeBillingPeriod,
-{
-    items
-        .iter()
-        .map(|c| extractor(c).as_billing_period_opt())
+fn extract_billing_period(
+    components: &Vec<SubscriptionComponentNewInternal>,
+    add_ons: &Vec<SubscriptionAddOnNewInternal>,
+) -> BillingPeriodEnum {
+    components
+        .into_iter()
+        .map(|x| &x.period)
+        .chain(add_ons.into_iter().map(|x| &x.period))
+        .map(|x| x.as_billing_period_opt())
         .flatten()
         .min()
         .unwrap_or(BillingPeriodEnum::Monthly)
