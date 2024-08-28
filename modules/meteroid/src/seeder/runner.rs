@@ -320,6 +320,7 @@ pub async fn run(
         let params = store_domain::CreateSubscription {
             subscription,
             price_components: create_subscription_components,
+            add_ons: None, // todo generate add-ons
         };
 
         subscriptions_to_create.push(params);

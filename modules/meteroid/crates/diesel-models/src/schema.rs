@@ -570,6 +570,21 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::SubscriptionFeeBillingPeriod;
 
+    subscription_add_on (id) {
+        id -> Uuid,
+        name -> Text,
+        subscription_id -> Uuid,
+        add_on_id -> Uuid,
+        period -> SubscriptionFeeBillingPeriod,
+        fee -> Jsonb,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionFeeBillingPeriod;
+
     subscription_component (id) {
         id -> Uuid,
         name -> Text,
@@ -719,6 +734,8 @@ diesel::joinable!(slot_transaction -> subscription (subscription_id));
 diesel::joinable!(subscription -> customer (customer_id));
 diesel::joinable!(subscription -> plan_version (plan_version_id));
 diesel::joinable!(subscription -> tenant (tenant_id));
+diesel::joinable!(subscription_add_on -> add_on (add_on_id));
+diesel::joinable!(subscription_add_on -> subscription (subscription_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_item_id));
 diesel::joinable!(subscription_component -> subscription (subscription_id));
@@ -758,6 +775,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     schedule,
     slot_transaction,
     subscription,
+    subscription_add_on,
     subscription_component,
     subscription_event,
     tenant,

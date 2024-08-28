@@ -1,11 +1,13 @@
 use crate::domain::enums::{
-    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum, SubscriptionEventType,
+    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
+    SubscriptionEventType, SubscriptionFeeBillingPeriod,
 };
 use crate::domain::{
-    BillableMetric, BillingConfig, ComponentParameters, CreateSubscription,
+    BillableMetric, BillingConfig, CreateSubscription, CreateSubscriptionAddOns,
     CreateSubscriptionComponents, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest,
-    Customer, FeeType, InlineCustomer, InlineInvoicingEntity, InvoicingEntity, PaginatedVec,
-    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionComponent,
+    Customer, InlineCustomer, InlineInvoicingEntity, InvoicingEntity, PaginatedVec,
+    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionAddOnCustomization,
+    SubscriptionAddOnNew, SubscriptionAddOnNewInternal, SubscriptionComponent,
     SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails,
     SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
 };
@@ -18,21 +20,27 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use diesel_models::errors::DatabaseErrorContainer;
 use error_stack::Report;
-use std::collections::HashMap;
+use itertools::Itertools;
+use std::cmp::min;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use rust_decimal::prelude::*;
 
 use crate::constants::Currencies;
+use crate::domain::add_ons::AddOn;
+use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
+use diesel_models::add_ons::AddOnRow;
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::query::plans::get_plan_names_by_version_ids;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
+use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -96,15 +104,16 @@ pub trait SubscriptionInterface {
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 
-fn calculate_mrr_for_new_component(
-    component: &SubscriptionComponentNewInternal,
+fn calculate_mrr(
+    fee: &SubscriptionFee,
+    period: &SubscriptionFeeBillingPeriod,
     precision: u8,
 ) -> i64 {
     let mut total_cents = 0;
 
-    let period_as_months = component.period.as_months() as i64;
+    let period_as_months = period.as_months() as i64;
 
-    match &component.fee {
+    match fee {
         SubscriptionFee::Rate { rate } => {
             total_cents = rate.to_subunit_opt(precision).unwrap_or(0);
         }
@@ -132,7 +141,7 @@ fn calculate_mrr_for_new_component(
 
     let mrr_monthly = Decimal::from(total_cents) / Decimal::from(period_as_months);
 
-    return mrr_monthly.to_i64().unwrap_or(0);
+    mrr_monthly.to_i64().unwrap_or(0)
 }
 
 #[async_trait::async_trait]
@@ -240,6 +249,7 @@ impl SubscriptionInterface for Store {
         struct DieselModelWrapper {
             subscription: SubscriptionRowNew,
             price_components: Vec<SubscriptionComponentRowNew>,
+            add_ons: Vec<SubscriptionAddOnRowNew>,
             event: SubscriptionEventRow,
         }
 
@@ -262,6 +272,21 @@ impl SubscriptionInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
+        let all_add_ons: Vec<AddOn> = AddOnRow::list_by_ids(
+            &mut conn,
+            &batch
+                .iter()
+                .filter_map(|x| x.add_ons.as_ref())
+                .flat_map(|x| &x.add_ons)
+                .map(|x| x.add_on_id)
+                .unique()
+                .collect::<Vec<_>>(),
+            &tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .and_then(|x| x.into_iter().map(TryInto::try_into).collect())?;
+
         let customer_ids = batch
             .iter()
             .map(|c| c.subscription.customer_id)
@@ -274,7 +299,7 @@ impl SubscriptionInterface for Store {
 
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
 
-        // map the price compoennts thanks to .try_into
+        // map the price components thanks to .try_into
         let price_components_by_plan_version: HashMap<Uuid, Vec<PriceComponent>> =
             db_price_components_by_plan_version
                 .into_iter()
@@ -291,6 +316,7 @@ impl SubscriptionInterface for Store {
                 let CreateSubscription {
                     subscription,
                     price_components,
+                    add_ons,
                 } = params;
 
                 // first we need to process the CreateSubscriptionComponents into Vec<SubscriptionComponentNew>
@@ -310,13 +336,17 @@ impl SubscriptionInterface for Store {
                     &subscription,
                 )?;
 
+                let insertable_subscription_add_ons =
+                    process_create_subscription_add_ons(&add_ons, &all_add_ons)?;
+
+                let period_by_components =
+                    extract_billing_period(&insertable_subscription_components, |x| &x.period);
+
+                let period_by_add_ons =
+                    extract_billing_period(&insertable_subscription_add_ons, |x| &x.period);
+
                 // at this point we can know the period
-                let period = insertable_subscription_components
-                    .iter()
-                    .map(|c| c.period.as_billing_period_opt())
-                    .flatten()
-                    .min()
-                    .unwrap_or(BillingPeriodEnum::Monthly);
+                let period = min(period_by_components, period_by_add_ons);
 
                 let should_activate = customer.billing_config != BillingConfig::Manual;
                 let insertable_subscription: SubscriptionRowNew =
@@ -324,8 +354,15 @@ impl SubscriptionInterface for Store {
 
                 let cmrr = insertable_subscription_components
                     .iter()
-                    .map(|c| calculate_mrr_for_new_component(c, precision))
+                    .map(|c| calculate_mrr(&c.fee, &c.period, precision))
                     .sum::<i64>();
+
+                let ao_mrr = insertable_subscription_add_ons
+                    .iter()
+                    .map(|c| calculate_mrr(&c.fee, &c.period, precision))
+                    .sum::<i64>();
+
+                let mrr_delta = cmrr + ao_mrr;
 
                 let insertable_subscription_components = insertable_subscription_components
                     .into_iter()
@@ -335,13 +372,21 @@ impl SubscriptionInterface for Store {
                     })
                     .collect::<Vec<_>>();
 
+                let insertable_subscription_add_ons = insertable_subscription_add_ons
+                    .into_iter()
+                    .map(|internal| SubscriptionAddOnNew {
+                        subscription_id: insertable_subscription.id,
+                        internal,
+                    })
+                    .collect::<Vec<_>>();
+
                 let insertable_event = SubscriptionEventRow {
                     id: Uuid::now_v7(),
                     subscription_id: insertable_subscription.id,
                     event_type: SubscriptionEventType::Created.into(),
                     details: None,
                     created_at: chrono::Utc::now().naive_utc(),
-                    mrr_delta: Some(cmrr),
+                    mrr_delta: Some(mrr_delta),
                     bi_mrr_movement_log_id: None,
                     applies_to: insertable_subscription.billing_start_date,
                 };
@@ -349,6 +394,10 @@ impl SubscriptionInterface for Store {
                 Ok::<_, StoreError>(DieselModelWrapper {
                     subscription: insertable_subscription,
                     price_components: insertable_subscription_components
+                        .into_iter()
+                        .map(|c| c.try_into())
+                        .collect::<Result<Vec<_>, _>>()?,
+                    add_ons: insertable_subscription_add_ons
                         .into_iter()
                         .map(|c| c.try_into())
                         .collect::<Result<Vec<_>, _>>()?,
@@ -360,6 +409,11 @@ impl SubscriptionInterface for Store {
         let insertable_subscription_components = insertable
             .iter()
             .flat_map(|c| c.price_components.iter())
+            .collect::<Vec<_>>();
+
+        let insertable_subscription_add_ons = insertable
+            .iter()
+            .flat_map(|c| c.add_ons.iter())
             .collect::<Vec<_>>();
 
         let insertable_subscriptions = insertable.iter().map(|c| &c.subscription).collect();
@@ -376,12 +430,16 @@ impl SubscriptionInterface for Store {
                             .map_err(Into::<DatabaseErrorContainer>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
-                    let _ = SubscriptionComponentRow::insert_subscription_component_batch(
+                    SubscriptionComponentRow::insert_subscription_component_batch(
                         conn,
                         insertable_subscription_components,
                     )
                     .await
                     .map_err(Into::<DatabaseErrorContainer>::into)?;
+
+                    SubscriptionAddOnRow::insert_batch(conn, insertable_subscription_add_ons)
+                        .await
+                        .map_err(Into::<DatabaseErrorContainer>::into)?;
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
@@ -491,10 +549,27 @@ impl SubscriptionInterface for Store {
             .map(|s| s.try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        let metric_ids = subscription_components
+        let subscription_add_ons: Vec<SubscriptionAddOn> =
+            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let mut metric_ids = subscription_components
             .iter()
             .filter_map(|sc| sc.metric_id())
             .collect::<Vec<_>>();
+
+        metric_ids.extend(
+            subscription_add_ons
+                .iter()
+                .filter_map(|sa| sa.fee.metric_id())
+                .collect::<Vec<_>>(),
+        );
+
+        metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
         let billable_metrics: Vec<BillableMetric> =
             BillableMetricRow::get_by_ids(&mut conn, &metric_ids, &subscription.tenant_id)
@@ -516,6 +591,7 @@ impl SubscriptionInterface for Store {
             currency: subscription.currency,
             net_terms: subscription.net_terms,
             price_components: subscription_components,
+            add_ons: subscription_add_ons,
             metrics: billable_metrics,
             mrr_cents: subscription.mrr_cents,
             version: subscription.version,
@@ -704,6 +780,68 @@ impl SubscriptionInterface for Store {
     }
 }
 
+fn process_create_subscription_add_ons(
+    create: &Option<CreateSubscriptionAddOns>,
+    add_ons: &Vec<AddOn>,
+) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreError> {
+    let mut processed_add_ons = Vec::new();
+
+    if let Some(create) = create {
+        for cs_ao in &create.add_ons {
+            let add_on = add_ons.iter().find(|x| x.id == cs_ao.add_on_id).ok_or(
+                StoreError::ValueNotFound(format!("add-on {} not found", cs_ao.add_on_id)),
+            )?;
+
+            match &cs_ao.customization {
+                SubscriptionAddOnCustomization::None => {
+                    let (period, fee) = add_on.fee.to_subscription_fee()?;
+                    processed_add_ons.push(SubscriptionAddOnNewInternal {
+                        add_on_id: add_on.id,
+                        name: add_on.name.clone(),
+                        period,
+                        fee,
+                    });
+                }
+                SubscriptionAddOnCustomization::Override(override_) => {
+                    processed_add_ons.push(SubscriptionAddOnNewInternal {
+                        add_on_id: add_on.id,
+                        name: override_.name.clone(),
+                        period: override_.period.clone(),
+                        fee: override_.fee.clone(),
+                    });
+                }
+                SubscriptionAddOnCustomization::Parameterization(param) => {
+                    let (period, fee) = add_on.fee.to_subscription_fee_parameterized(
+                        &param.initial_slot_count,
+                        &param.billing_period,
+                        &param.committed_capacity,
+                    )?;
+                    processed_add_ons.push(SubscriptionAddOnNewInternal {
+                        add_on_id: add_on.id,
+                        name: add_on.name.clone(),
+                        period,
+                        fee,
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(processed_add_ons)
+}
+
+fn extract_billing_period<T, F>(items: &Vec<T>, extractor: F) -> BillingPeriodEnum
+where
+    F: Fn(&T) -> &SubscriptionFeeBillingPeriod,
+{
+    items
+        .iter()
+        .map(|c| extractor(c).as_billing_period_opt())
+        .flatten()
+        .min()
+        .unwrap_or(BillingPeriodEnum::Monthly)
+}
+
 fn process_create_subscription_components(
     param: &Option<CreateSubscriptionComponents>,
     map: &HashMap<Uuid, Vec<PriceComponent>>,
@@ -740,7 +878,19 @@ fn process_create_subscription_components(
             .iter()
             .find(|p| p.component_id == component_id)
         {
-            processed_components.push(apply_parameterization(&c, &parameterized.parameters)?);
+            let (period, fee) = c.fee.to_subscription_fee_parameterized(
+                &parameterized.parameters.initial_slot_count,
+                &parameterized.parameters.billing_period,
+                &parameterized.parameters.committed_capacity,
+            )?;
+            processed_components.push(SubscriptionComponentNewInternal {
+                price_component_id: Some(c.id),
+                product_item_id: c.product_item_id.clone(),
+                name: c.name.clone(),
+                period,
+                fee,
+                is_override: false,
+            });
             continue;
         }
 
@@ -761,99 +911,7 @@ fn process_create_subscription_components(
             continue;
         }
 
-        let (period, fee) = match c.fee {
-            FeeType::Rate { rates } => {
-                if rates.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected a single rate or a parametrized component, found: {}",
-                        rates.len()
-                    )));
-                }
-                (
-                    rates[0].term.as_subscription_billing_period(),
-                    SubscriptionFee::Rate {
-                        rate: rates[0].price,
-                    },
-                )
-            }
-            FeeType::Slot {
-                minimum_count,
-                quota,
-                slot_unit_name,
-                rates,
-                ..
-            } => {
-                if rates.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected a single rate or a parametrized component, found: {}",
-                        rates.len()
-                    )));
-                }
-
-                (
-                    rates[0].term.as_subscription_billing_period(),
-                    SubscriptionFee::Slot {
-                        unit: slot_unit_name.clone(),
-                        unit_rate: rates[0].price,
-                        min_slots: minimum_count,
-                        max_slots: quota,
-                        initial_slots: minimum_count.unwrap_or(0),
-                    },
-                )
-            }
-            FeeType::Capacity {
-                metric_id,
-                thresholds,
-            } => {
-                if thresholds.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected either a single threshold or a parametrized component, found: {}",
-                        thresholds.len()
-                    )));
-                }
-
-                (
-                    domain::enums::SubscriptionFeeBillingPeriod::Monthly,
-                    SubscriptionFee::Capacity {
-                        metric_id: metric_id.clone(),
-                        overage_rate: thresholds[0].per_unit_overage,
-                        included: thresholds[0].included_amount,
-                        rate: thresholds[0].price,
-                    },
-                )
-            }
-
-            FeeType::OneTime {
-                quantity,
-                unit_price,
-            } => (
-                domain::enums::SubscriptionFeeBillingPeriod::OneTime,
-                SubscriptionFee::OneTime {
-                    rate: unit_price,
-                    quantity: quantity,
-                },
-            ),
-            FeeType::Usage { metric_id, pricing } => (
-                domain::enums::SubscriptionFeeBillingPeriod::Monthly,
-                SubscriptionFee::Usage {
-                    metric_id: metric_id,
-                    model: pricing,
-                },
-            ),
-            FeeType::ExtraRecurring {
-                cadence,
-                unit_price,
-                quantity,
-                billing_type,
-            } => (
-                cadence.as_subscription_billing_period(),
-                SubscriptionFee::Recurring {
-                    rate: unit_price,
-                    quantity,
-                    billing_type,
-                },
-            ),
-        };
+        let (period, fee) = c.fee.to_subscription_fee()?;
 
         // If the component is not in any of the lists, add it as is
         processed_components.push(SubscriptionComponentNewInternal {
@@ -872,148 +930,6 @@ fn process_create_subscription_components(
     }
 
     Ok(processed_components)
-}
-
-fn apply_parameterization(
-    component: &PriceComponent,
-    parameters: &ComponentParameters,
-) -> Result<SubscriptionComponentNewInternal, StoreError> {
-    match &component.fee {
-        FeeType::Rate { rates } => {
-            if parameters.initial_slot_count.is_some() || parameters.committed_capacity.is_some() {
-                return Err(StoreError::InvalidArgument(
-                    "Unexpected parameters for rate fee".to_string(),
-                ));
-            }
-
-            if let Some(billing_period) = &parameters.billing_period {
-                let rate = rates
-                    .iter()
-                    .find(|r| &r.term == billing_period)
-                    .ok_or_else(|| {
-                        StoreError::InvalidArgument(format!(
-                            "Rate not found for billing period: {:?}",
-                            billing_period
-                        ))
-                    })?;
-                Ok(SubscriptionComponentNewInternal {
-                    price_component_id: Some(component.id),
-                    product_item_id: component.product_item_id.clone(),
-                    name: component.name.clone(),
-                    period: billing_period.as_subscription_billing_period(),
-                    fee: SubscriptionFee::Rate { rate: rate.price },
-                    is_override: false,
-                })
-            } else {
-                if rates.len() != 1 {
-                    return Err(StoreError::InvalidArgument(format!(
-                        "Expected a single rate, found: {}",
-                        rates.len()
-                    )));
-                }
-
-                let rate = &rates[0];
-                Ok(SubscriptionComponentNewInternal {
-                    price_component_id: Some(component.id),
-                    product_item_id: component.product_item_id.clone(),
-                    name: component.name.clone(),
-                    period: rate.term.as_subscription_billing_period(),
-                    fee: SubscriptionFee::Rate { rate: rate.price },
-                    is_override: false,
-                })
-            }
-        }
-        FeeType::Slot {
-            rates,
-            minimum_count,
-            slot_unit_name,
-            quota,
-            ..
-        } => {
-            let billing_period = parameters
-                .billing_period
-                .as_ref()
-                .ok_or_else(|| StoreError::InvalidArgument("Missing billing period".to_string()))?;
-
-            let rate = rates
-                .iter()
-                .find(|r| &r.term == billing_period)
-                .ok_or_else(|| {
-                    StoreError::InvalidArgument(format!(
-                        "Rate not found for billing period: {:?}",
-                        billing_period
-                    ))
-                })?;
-            let initial_slots = parameters
-                .initial_slot_count
-                .unwrap_or_else(|| minimum_count.unwrap_or(0));
-
-            if parameters.committed_capacity.is_some() {
-                return Err(StoreError::InvalidArgument(
-                    "Unexpected committed capacity for slot fee".to_string(),
-                ));
-            }
-            Ok(SubscriptionComponentNewInternal {
-                price_component_id: Some(component.id),
-                product_item_id: component.product_item_id.clone(),
-                name: component.name.clone(),
-                period: billing_period.as_subscription_billing_period(),
-                fee: SubscriptionFee::Slot {
-                    unit: slot_unit_name.clone(),
-                    unit_rate: rate.price,
-                    min_slots: minimum_count.clone(),
-                    max_slots: quota.clone(),
-                    initial_slots,
-                },
-                is_override: false,
-            })
-        }
-        FeeType::Capacity {
-            metric_id,
-            thresholds,
-        } => {
-            let committed_capacity = parameters.committed_capacity.ok_or_else(|| {
-                StoreError::InvalidArgument("Missing committed capacity".to_string())
-            })?;
-
-            let threshold = thresholds
-                .iter()
-                .find(|t| t.included_amount == committed_capacity)
-                .ok_or_else(|| {
-                    StoreError::InvalidArgument(format!(
-                        "Threshold not found for committed capacity: {}",
-                        committed_capacity
-                    ))
-                })?;
-
-            if parameters.billing_period.is_some() || parameters.initial_slot_count.is_some() {
-                return Err(StoreError::InvalidArgument(
-                    "Unexpected parameters for capacity fee".to_string(),
-                ));
-            }
-
-            Ok(SubscriptionComponentNewInternal {
-                price_component_id: Some(component.id),
-                product_item_id: component.product_item_id.clone(),
-                name: component.name.clone(),
-                period: domain::enums::SubscriptionFeeBillingPeriod::Monthly, // Default to monthly, until we support period parametrization for capacity
-                fee: SubscriptionFee::Capacity {
-                    metric_id: metric_id.clone(),
-                    overage_rate: threshold.per_unit_overage,
-                    included: threshold.included_amount,
-                    rate: threshold.price,
-                },
-                is_override: false,
-            })
-        }
-        // all other case should fail, as they just cannot be parametrized
-        FeeType::Usage { .. } | FeeType::ExtraRecurring { .. } | FeeType::OneTime { .. } => {
-            Err(StoreError::InvalidArgument(format!(
-                "Cannot parameterize fee type: {:?}",
-                component.fee
-            )))
-        }
-    }
 }
 
 impl SubscriptionDetails {

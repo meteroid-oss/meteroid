@@ -4,6 +4,7 @@ use o2o::o2o;
 use uuid::Uuid;
 
 use crate::domain::enums::BillingPeriodEnum;
+use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
     BillableMetric, CreateSubscriptionComponents, Schedule, SubscriptionComponent,
 };
@@ -149,6 +150,7 @@ impl SubscriptionNew {
 pub struct CreateSubscription {
     pub subscription: SubscriptionNew,
     pub price_components: Option<CreateSubscriptionComponents>,
+    pub add_ons: Option<CreateSubscriptionAddOns>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +168,7 @@ pub struct SubscriptionDetails {
     pub net_terms: u32,
     pub schedules: Vec<Schedule>,
     pub price_components: Vec<SubscriptionComponent>,
+    pub add_ons: Vec<SubscriptionAddOn>,
     pub metrics: Vec<BillableMetric>,
     pub mrr_cents: u64,
 

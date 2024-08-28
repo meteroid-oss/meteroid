@@ -49,6 +49,7 @@ message SubscriptionDetails {
   repeated meteroid.api.schedules.v1.Schedule schedules = 2;
   repeated SubscriptionComponent price_components = 3;
   repeated BillableMetric metrics = 4;
+  repeated SubscriptionAddOn add_ons = 5;
 }
 
 // TODO replace by subscription or even subscription details
@@ -83,6 +84,41 @@ message CreateSubscription {
   optional string invoice_memo = 11;
   optional string invoice_threshold = 12;
   CreateSubscriptionComponents components = 14;
+  CreateSubscriptionAddOns add_ons = 15;
+}
+
+message CreateSubscriptionAddOn {
+  string add_on_id = 1;
+
+  oneof customization {
+    AddOnParameterization parameterization = 2;
+    AddOnOverride override = 3;
+  }
+
+  message AddOnParameterization {
+    optional uint32 initial_slot_count = 1;
+    optional meteroid.api.shared.v1.BillingPeriod billing_period = 2;
+    optional uint64 committed_capacity = 3;
+  }
+
+  message AddOnOverride {
+    string name = 1;
+    SubscriptionFeeBillingPeriod period = 2;
+    SubscriptionFee fee = 3;
+  }
+}
+
+message CreateSubscriptionAddOns {
+  repeated CreateSubscriptionAddOn add_ons = 1;
+}
+
+message SubscriptionAddOn {
+  string id = 1;
+  string add_on_id = 2;
+  string subscription_id = 3;
+  string name = 4;
+  SubscriptionFeeBillingPeriod period = 5;
+  SubscriptionFee fee = 6;
 }
 
 message CreateSubscriptionComponents {

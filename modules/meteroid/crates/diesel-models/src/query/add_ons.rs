@@ -80,6 +80,27 @@ impl AddOnRow {
 
         Ok(())
     }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: &[uuid::Uuid],
+        tenant_id: &uuid::Uuid,
+    ) -> DbResult<Vec<AddOnRow>> {
+        use crate::schema::add_on::dsl as ao_dsl;
+
+        let query = ao_dsl::add_on
+            .filter(ao_dsl::id.eq_any(ids))
+            .filter(ao_dsl::tenant_id.eq(tenant_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .tap_err(|e| log::error!("Error while fetching add-ons: {:?}", e))
+            .attach_printable("Error while fetching add-ons")
+            .into_db_result()
+    }
 }
 
 impl AddOnRowPatch {
