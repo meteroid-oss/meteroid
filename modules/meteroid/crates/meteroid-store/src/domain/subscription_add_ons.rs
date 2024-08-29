@@ -39,12 +39,12 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     }
 
     #[inline]
-    fn period(&self) -> &SubscriptionFeeBillingPeriod {
+    fn period_ref(&self) -> &SubscriptionFeeBillingPeriod {
         &self.period
     }
 
     #[inline]
-    fn fee(&self) -> &SubscriptionFee {
+    fn fee_ref(&self) -> &SubscriptionFee {
         &self.fee
     }
 }

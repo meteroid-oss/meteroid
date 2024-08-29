@@ -13,8 +13,8 @@ pub trait SubscriptionFeeInterface {
     fn product_item_id(&self) -> Option<Uuid>;
     fn subscription_id(&self) -> Uuid;
     fn name(&self) -> String;
-    fn period(&self) -> &SubscriptionFeeBillingPeriod;
-    fn fee(&self) -> &SubscriptionFee;
+    fn period_ref(&self) -> &SubscriptionFeeBillingPeriod;
+    fn fee_ref(&self) -> &SubscriptionFee;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -50,12 +50,12 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     }
 
     #[inline]
-    fn period(&self) -> &SubscriptionFeeBillingPeriod {
+    fn period_ref(&self) -> &SubscriptionFeeBillingPeriod {
         &self.period
     }
 
     #[inline]
-    fn fee(&self) -> &SubscriptionFee {
+    fn fee_ref(&self) -> &SubscriptionFee {
         &self.fee
     }
 }

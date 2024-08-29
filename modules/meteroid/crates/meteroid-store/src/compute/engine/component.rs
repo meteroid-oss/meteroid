@@ -52,7 +52,7 @@ impl ComponentEngine {
 
         let mut lines: Vec<InvoiceLineInner> = vec![];
 
-        match component.fee() {
+        match component.fee_ref() {
             SubscriptionFee::Rate { rate } => {
                 lines.push(InvoiceLineInner::simple_prorated(
                     rate,
@@ -334,7 +334,7 @@ impl ComponentEngine {
                 is_prorated: line.is_prorated,
                 price_component_id: component.price_component_id(),
                 product_id: component.product_item_id(),
-                metric_id: component.fee().metric_id(),
+                metric_id: component.fee_ref().metric_id(),
                 subtotal: line.total as i64, // TODO
                 description: None,
             })

@@ -85,7 +85,9 @@ async fn compute_invoice_lines<T: SubscriptionFeeInterface>(
     invoice_date: NaiveDate,
     currency: &Currency,
 ) -> Result<Vec<LineItem>, ComputeError> {
-    let component_groups = fee_records.iter().into_group_map_by(|c| c.period().clone());
+    let component_groups = fee_records
+        .iter()
+        .into_group_map_by(|c| c.period_ref().clone());
 
     // TODO case when invoiced early via threshold (that's for usage-based only)
     // can be quite easy => we need some last_invoice_threshold date in the subscription, to reduce the usage periods if that date is within the period
