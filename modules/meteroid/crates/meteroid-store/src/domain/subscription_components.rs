@@ -8,6 +8,15 @@ use uuid::Uuid;
 use crate::domain::UsagePricingModel;
 use crate::errors::StoreError;
 
+pub trait SubscriptionFeeInterface {
+    fn price_component_id(&self) -> Option<Uuid>;
+    fn product_item_id(&self) -> Option<Uuid>;
+    fn subscription_id(&self) -> Uuid;
+    fn name(&self) -> String;
+    fn period(&self) -> &SubscriptionFeeBillingPeriod;
+    fn fee(&self) -> &SubscriptionFee;
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionComponent {
     pub id: Uuid,
@@ -17,6 +26,38 @@ pub struct SubscriptionComponent {
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
+}
+
+impl SubscriptionFeeInterface for SubscriptionComponent {
+    #[inline]
+    fn price_component_id(&self) -> Option<Uuid> {
+        self.price_component_id
+    }
+
+    #[inline]
+    fn product_item_id(&self) -> Option<Uuid> {
+        self.product_item_id
+    }
+
+    #[inline]
+    fn subscription_id(&self) -> Uuid {
+        self.subscription_id
+    }
+
+    #[inline]
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    #[inline]
+    fn period(&self) -> &SubscriptionFeeBillingPeriod {
+        &self.period
+    }
+
+    #[inline]
+    fn fee(&self) -> &SubscriptionFee {
+        &self.fee
+    }
 }
 
 impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {

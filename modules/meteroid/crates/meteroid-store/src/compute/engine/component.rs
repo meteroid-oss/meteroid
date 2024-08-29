@@ -40,9 +40,9 @@ impl ComponentEngine {
         }
     }
 
-    pub async fn compute_component(
+    pub async fn compute_component<T: SubscriptionFeeInterface>(
         &self,
-        component: SubscriptionComponent,
+        component: &T,
         periods: ComponentPeriods,
         invoice_date: &NaiveDate,
         precision: u8,
@@ -52,7 +52,7 @@ impl ComponentEngine {
 
         let mut lines: Vec<InvoiceLineInner> = vec![];
 
-        match &component.fee {
+        match component.fee() {
             SubscriptionFee::Rate { rate } => {
                 lines.push(InvoiceLineInner::simple_prorated(
                     rate,
@@ -112,7 +112,7 @@ impl ComponentEngine {
                     .fetch_slots(
                         invoice_date,
                         &component
-                            .price_component_id
+                            .price_component_id()
                             .ok_or(ComputeError::InternalError)?,
                     ) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
                     .await?
@@ -299,8 +299,7 @@ impl ComponentEngine {
                                             name: "Package".to_string(),
                                             total: price_total
                                                 .to_subunit_opt(precision)
-                                                .ok_or_else(|| ComputeError::ConversionError)?
-                                                as i64,
+                                                .ok_or_else(|| ComputeError::ConversionError)?,
                                             quantity: total_packages,
                                             unit_price: rate.clone(),
                                             attributes: Some(SubLineAttributes::Package {
@@ -324,7 +323,7 @@ impl ComponentEngine {
                 local_id: LocalId::no_prefix(),
                 name: line
                     .custom_line_name
-                    .unwrap_or_else(|| component.name.clone()),
+                    .unwrap_or_else(|| component.name().clone()),
                 quantity: line.quantity,
                 unit_price: line.unit_price,
                 total: line.total as i64,
@@ -333,9 +332,9 @@ impl ComponentEngine {
 
                 sub_lines: line.sublines,
                 is_prorated: line.is_prorated,
-                price_component_id: component.price_component_id,
-                product_id: component.product_item_id,
-                metric_id: component.metric_id(),
+                price_component_id: component.price_component_id(),
+                product_id: component.product_item_id(),
+                metric_id: component.fee().metric_id(),
                 subtotal: line.total as i64, // TODO
                 description: None,
             })
