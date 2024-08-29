@@ -12,7 +12,7 @@ pub trait SubscriptionFeeInterface {
     fn price_component_id(&self) -> Option<Uuid>;
     fn product_item_id(&self) -> Option<Uuid>;
     fn subscription_id(&self) -> Uuid;
-    fn name(&self) -> String;
+    fn name_ref(&self) -> &String;
     fn period_ref(&self) -> &SubscriptionFeeBillingPeriod;
     fn fee_ref(&self) -> &SubscriptionFee;
 }
@@ -45,8 +45,8 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     }
 
     #[inline]
-    fn name(&self) -> String {
-        self.name.clone()
+    fn name_ref(&self) -> &String {
+        &self.name
     }
 
     #[inline]

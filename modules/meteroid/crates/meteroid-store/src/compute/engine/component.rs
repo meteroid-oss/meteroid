@@ -323,7 +323,7 @@ impl ComponentEngine {
                 local_id: LocalId::no_prefix(),
                 name: line
                     .custom_line_name
-                    .unwrap_or_else(|| component.name().clone()),
+                    .unwrap_or_else(|| component.name_ref().clone()),
                 quantity: line.quantity,
                 unit_price: line.unit_price,
                 total: line.total as i64,

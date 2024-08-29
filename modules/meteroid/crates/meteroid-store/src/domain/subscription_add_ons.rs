@@ -34,8 +34,8 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     }
 
     #[inline]
-    fn name(&self) -> String {
-        self.name.clone()
+    fn name_ref(&self) -> &String {
+        &self.name
     }
 
     #[inline]
