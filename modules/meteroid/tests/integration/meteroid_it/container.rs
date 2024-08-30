@@ -42,7 +42,7 @@ pub async fn start_meteroid_with_port(
         metering_port,
     );
 
-    populate_postgres(&config.database_url, seed_level).await;
+    populate_postgres(&config.database_url, seed_level);
 
     let token = CancellationToken::new();
     let cloned_token = token.clone();
@@ -136,7 +136,7 @@ pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
     (container, connection_string)
 }
 
-pub async fn populate_postgres(db_url: &String, seed_level: SeedLevel) {
+pub fn populate_postgres(db_url: &String, seed_level: SeedLevel) {
     let mut conn = PgConnection::establish(db_url).unwrap();
 
     migrations::run(&mut conn).unwrap();

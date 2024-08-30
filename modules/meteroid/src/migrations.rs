@@ -1,5 +1,6 @@
 use ::diesel::pg::Pg;
 use diesel_migrations::MigrationHarness;
+use std::error::Error;
 use thiserror::Error;
 
 mod diesel {
@@ -9,11 +10,11 @@ mod diesel {
 
 pub fn run(conn: &mut impl MigrationHarness<Pg>) -> error_stack::Result<(), DieselMigrationError> {
     conn.run_pending_migrations(diesel::MIGRATIONS)
-        .map_err(|_| DieselMigrationError)?;
+        .map_err(|e| DieselMigrationError::ApplyError(e))?;
 
     let all_migrations = conn
         .applied_migrations()
-        .map_err(|_| DieselMigrationError)?;
+        .map_err(|e| DieselMigrationError::GetMigrationsError(e))?;
 
     for migration in all_migrations {
         tracing::info!("Migration Applied - {}", migration);
@@ -23,5 +24,9 @@ pub fn run(conn: &mut impl MigrationHarness<Pg>) -> error_stack::Result<(), Dies
 }
 
 #[derive(Debug, Error)]
-#[error("Migration Error")]
-pub struct DieselMigrationError;
+pub enum DieselMigrationError {
+    #[error("ApplyError: {0}")]
+    ApplyError(#[source] Box<dyn Error + Send + Sync>),
+    #[error("GetMigrationsError: {0}")]
+    GetMigrationsError(#[source] Box<dyn Error + Send + Sync>),
+}

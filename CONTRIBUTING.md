@@ -81,3 +81,5 @@ To add new migration following steps are needed (executed from the project root)
 - apply the migration : `diesel migration run`. Applies the migration(s) and regenerates the schema.rs file.
 
 On meteroid_api startup the un-applied migrations run automatically.
+
+See https://diesel.rs/guides/getting-started for more info.

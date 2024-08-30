@@ -23,8 +23,7 @@ async fn test_slot_transaction_active_slots() {
     meteroid_it::container::populate_postgres(
         &postgres_connection_string,
         meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
-    )
-    .await;
+    );
 
     let store = Store::new(
         postgres_connection_string.clone(),

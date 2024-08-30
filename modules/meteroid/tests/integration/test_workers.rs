@@ -25,8 +25,7 @@ async fn test_draft_worker() {
     meteroid_it::container::populate_postgres(
         &postgres_connection_string,
         meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
-    )
-    .await;
+    );
 
     let worker_run_date = date("2023-11-06");
 

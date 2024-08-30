@@ -56,7 +56,6 @@ diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numer
 diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
-diesel_cli = { version = "2.2.3", features = ["postgres"] }
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
 error-stack = "0.5.0"

@@ -56,9 +56,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let exit = signal::ctrl_c();
 
-    // let mut conn = meteroid::db::get_connection(&pool).await?;
-    // migrations::run_migrations(&mut **conn).await?;
-
     let mut conn = PgConnection::establish(&config.database_url)?;
     migrations::run(&mut conn)?;
 
