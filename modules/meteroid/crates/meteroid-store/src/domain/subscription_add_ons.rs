@@ -1,5 +1,5 @@
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
-use crate::domain::SubscriptionFee;
+use crate::domain::{SubscriptionFee, SubscriptionFeeInterface};
 use crate::errors::StoreError;
 use chrono::NaiveDateTime;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
@@ -15,6 +15,38 @@ pub struct SubscriptionAddOn {
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
     pub created_at: NaiveDateTime,
+}
+
+impl SubscriptionFeeInterface for SubscriptionAddOn {
+    #[inline]
+    fn price_component_id(&self) -> Option<Uuid> {
+        None
+    }
+
+    #[inline]
+    fn product_item_id(&self) -> Option<Uuid> {
+        None
+    }
+
+    #[inline]
+    fn subscription_id(&self) -> Uuid {
+        self.subscription_id
+    }
+
+    #[inline]
+    fn name_ref(&self) -> &String {
+        &self.name
+    }
+
+    #[inline]
+    fn period_ref(&self) -> &SubscriptionFeeBillingPeriod {
+        &self.period
+    }
+
+    #[inline]
+    fn fee_ref(&self) -> &SubscriptionFee {
+        &self.fee
+    }
 }
 
 impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
