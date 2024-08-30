@@ -1,5 +1,5 @@
+use diesel::{Connection, PgConnection};
 use std::sync::Arc;
-
 use tokio::signal;
 
 use common_build_info::BuildInfo;
@@ -11,9 +11,7 @@ use meteroid::adapters::stripe::Stripe;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use meteroid::singletons::get_pool;
-use meteroid::webhook_in_api;
-use meteroid_migrations::migrations;
+use meteroid::{migrations, webhook_in_api};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,8 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::get();
 
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
-
-    let pool = get_pool();
 
     let metering_channel = tonic::transport::Channel::from_shared(config.metering_endpoint.clone())
         .expect("Invalid metering_endpoint")
@@ -60,8 +56,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let exit = signal::ctrl_c();
 
-    let mut conn = meteroid::db::get_connection(&pool).await?;
-    migrations::run_migrations(&mut **conn).await?;
+    // let mut conn = meteroid::db::get_connection(&pool).await?;
+    // migrations::run_migrations(&mut **conn).await?;
+
+    let mut conn = PgConnection::establish(&config.database_url)?;
+    migrations::run(&mut conn)?;
 
     let object_store_client =
         Arc::new(object_store::parse_url(&url::Url::parse(&config.object_store_uri)?)?.0);

@@ -69,8 +69,15 @@ you can run the following commands for faster feedback:
 - for metering: `cargo build -p metering-grpc`
 - `pnpm --prefix modules/web/web-app run generate:proto`
 
-### Updating the database models
+### Database Migrations
 
-Migrations are found in :
+To add new migration following steps are needed (executed from the project root):
 
-/modules/meteroid/crates/meteroid-migrations/refinery/migrations
+- make sure the database server is running
+- make sure diesel_cli is installed : `cargo install diesel_cli --no-default-features --features postgres`
+- create the migration file : `diesel migration generate <migration_name>`. Generates empty migrations file under
+  `modules/meteroid/migrations/diesel`
+- add sql code to the generated migration files
+- apply the migration : `diesel migration run`. Applies the migration(s) and regenerates the schema.rs file.
+
+On meteroid_api startup the un-applied migrations run automatically.

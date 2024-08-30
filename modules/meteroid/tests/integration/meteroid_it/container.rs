@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use deadpool_postgres::Pool;
+use diesel::connection::SimpleConnection;
+use diesel::{Connection, PgConnection};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres;
@@ -11,7 +12,7 @@ use tonic::transport::Channel;
 
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use meteroid_migrations::migrations;
+use meteroid::migrations;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
 
 use crate::helpers;
@@ -41,9 +42,7 @@ pub async fn start_meteroid_with_port(
         metering_port,
     );
 
-    let pool = common_repository::create_pool(&config.database_url);
-
-    populate_postgres(pool.clone(), seed_level).await;
+    populate_postgres(&config.database_url, seed_level).await;
 
     let token = CancellationToken::new();
     let cloned_token = token.clone();
@@ -137,15 +136,14 @@ pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
     (container, connection_string)
 }
 
-pub async fn populate_postgres(pool: Pool, seed_level: SeedLevel) {
-    let mut conn = meteroid::db::get_connection(&pool).await.unwrap();
+pub async fn populate_postgres(db_url: &String, seed_level: SeedLevel) {
+    let mut conn = PgConnection::establish(db_url).unwrap();
 
-    migrations::run_migrations(&mut **conn).await.unwrap();
+    migrations::run(&mut conn).unwrap();
 
     for seed in seed_level.seeds() {
         let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
         conn.batch_execute(contents.as_str())
-            .await
             .map_err(|err| {
                 eprintln!("Seed failed to apply : {}", seed.path());
                 err

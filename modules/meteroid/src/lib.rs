@@ -8,6 +8,7 @@ pub mod encoding;
 mod errors;
 pub mod eventbus;
 pub mod mapping;
+pub mod migrations;
 pub mod seeder;
 pub mod services;
 pub mod singletons;

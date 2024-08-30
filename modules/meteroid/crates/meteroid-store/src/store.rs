@@ -23,7 +23,7 @@ pub struct Settings {
 
 #[derive(Clone)]
 pub struct Store {
-    pub(crate) pool: PgPool,
+    pub pool: PgPool,
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub(crate) usage_client: Arc<dyn UsageClient>,
     pub(crate) settings: Settings,

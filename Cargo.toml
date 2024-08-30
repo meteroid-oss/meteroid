@@ -1,31 +1,30 @@
 [workspace]
 resolver = "2"
 members = [
-    # meteroid
-    "modules/meteroid",
-    "modules/meteroid/crates/meteroid-grpc",
-    "modules/meteroid/crates/meteroid-migrations",
-    "modules/meteroid/crates/stripe-client",
-    "modules/meteroid/crates/diesel-models",
-    "modules/meteroid/crates/meteroid-store",
-    # metering
-    "modules/metering",
-    "modules/metering/crates/metering-grpc",
-    # shared
-    "crates/kafka",
-    "crates/common-build-info",
-    "crates/common-config",
-    "crates/common-domain",
-    "crates/common-eventbus",
-    "crates/common-grpc",
-    "crates/common-grpc-error-as-tonic-macros",
-    "crates/common-grpc-error-as-tonic-macros-impl",
-    "crates/common-logging",
-    "crates/common-repository",
-    "crates/common-utils",
-    "crates/distributed-lock",
-    # extra
-    "extra/generator",
+  # meteroid
+  "modules/meteroid",
+  "modules/meteroid/crates/meteroid-grpc",
+  "modules/meteroid/crates/stripe-client",
+  "modules/meteroid/crates/diesel-models",
+  "modules/meteroid/crates/meteroid-store",
+  # metering
+  "modules/metering",
+  "modules/metering/crates/metering-grpc",
+  # shared
+  "crates/kafka",
+  "crates/common-build-info",
+  "crates/common-config",
+  "crates/common-domain",
+  "crates/common-eventbus",
+  "crates/common-grpc",
+  "crates/common-grpc-error-as-tonic-macros",
+  "crates/common-grpc-error-as-tonic-macros-impl",
+  "crates/common-logging",
+  "crates/common-repository",
+  "crates/common-utils",
+  "crates/distributed-lock",
+  # extra
+  "extra/generator",
 ]
 
 [workspace.package]
@@ -56,6 +55,8 @@ deadpool-postgres = "0.14.0"
 diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
 diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
+diesel_migrations = { version = "2.2.0", features = ["postgres"] }
+diesel_cli = { version = "2.2.3", features = ["postgres"] }
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
 error-stack = "0.5.0"
@@ -100,7 +101,6 @@ quote = "1.0.35"
 rand = "0.8.5"
 rdkafka = "0.36.0"
 redis = { version = "0.26.1", default-features = false }
-refinery = { version = "0.8.11", default-features = false }
 regex = "1"
 reqwest = { version = "0.12.5", default-features = false }
 reqwest-middleware = "0.3.3"
@@ -170,7 +170,6 @@ common-grpc-error-as-tonic-macros = { path = "crates/common-grpc-error-as-tonic-
 common-grpc-error-as-tonic-macros-impl = { path = "crates/common-grpc-error-as-tonic-macros-impl" }
 metering-grpc = { path = "modules/metering/crates/metering-grpc" }
 meteroid-grpc = { path = "modules/meteroid/crates/meteroid-grpc" }
-meteroid-migrations = { path = "modules/meteroid/crates/meteroid-migrations" }
 common-utils = { path = "crates/common-utils" }
 distributed-lock = { path = "crates/distributed-lock" }
 kafka = { path = "crates/kafka" }

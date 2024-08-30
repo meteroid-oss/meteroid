@@ -22,10 +22,8 @@ async fn test_draft_worker() {
     let (_pg_container, postgres_connection_string) =
         meteroid_it::container::start_postgres().await;
 
-    let pool = common_repository::create_pool(postgres_connection_string.as_str());
-
     meteroid_it::container::populate_postgres(
-        pool.clone(),
+        &postgres_connection_string,
         meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
     )
     .await;

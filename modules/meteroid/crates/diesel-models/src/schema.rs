@@ -503,18 +503,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    refinery_schema_history (version) {
-        version -> Int4,
-        #[max_length = 255]
-        name -> Nullable<Varchar>,
-        #[max_length = 255]
-        applied_on -> Nullable<Varchar>,
-        #[max_length = 255]
-        checksum -> Nullable<Varchar>,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
@@ -771,7 +759,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     product,
     product_family,
     provider_config,
-    refinery_schema_history,
     schedule,
     slot_transaction,
     subscription,
