@@ -2,8 +2,9 @@ use error_stack::Report;
 
 use uuid::Uuid;
 // TODO duplicate as well
-use super::enums::{BillingPeriodEnum, BillingType};
+use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
 
+use crate::domain::SubscriptionFee;
 use crate::errors::StoreError;
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use serde::{Deserialize, Serialize};
@@ -152,6 +153,230 @@ impl FeeType {
             FeeType::Capacity { metric_id, .. } => Some(*metric_id),
             FeeType::Usage { metric_id, .. } => Some(*metric_id),
             _ => None,
+        }
+    }
+
+    pub fn to_subscription_fee(
+        &self,
+    ) -> Result<(SubscriptionFeeBillingPeriod, SubscriptionFee), StoreError> {
+        match self {
+            FeeType::Rate { rates } => {
+                if rates.len() != 1 {
+                    return Err(StoreError::InvalidArgument(format!(
+                        "Expected a single rate or a parametrized component, found: {}",
+                        rates.len()
+                    )));
+                }
+                Ok((
+                    rates[0].term.as_subscription_billing_period(),
+                    SubscriptionFee::Rate {
+                        rate: rates[0].price,
+                    },
+                ))
+            }
+            FeeType::Slot {
+                minimum_count,
+                quota,
+                slot_unit_name,
+                rates,
+                ..
+            } => {
+                if rates.len() != 1 {
+                    return Err(StoreError::InvalidArgument(format!(
+                        "Expected a single rate or a parametrized component, found: {}",
+                        rates.len()
+                    )));
+                }
+
+                Ok((
+                    rates[0].term.as_subscription_billing_period(),
+                    SubscriptionFee::Slot {
+                        unit: slot_unit_name.clone(),
+                        unit_rate: rates[0].price,
+                        min_slots: *minimum_count,
+                        max_slots: *quota,
+                        initial_slots: minimum_count.unwrap_or(0),
+                    },
+                ))
+            }
+            FeeType::Capacity {
+                metric_id,
+                thresholds,
+            } => {
+                if thresholds.len() != 1 {
+                    return Err(StoreError::InvalidArgument(format!(
+                        "Expected either a single threshold or a parametrized component, found: {}",
+                        thresholds.len()
+                    )));
+                }
+
+                Ok((
+                    SubscriptionFeeBillingPeriod::Monthly,
+                    SubscriptionFee::Capacity {
+                        metric_id: metric_id.clone(),
+                        overage_rate: thresholds[0].per_unit_overage,
+                        included: thresholds[0].included_amount,
+                        rate: thresholds[0].price,
+                    },
+                ))
+            }
+
+            FeeType::OneTime {
+                quantity,
+                unit_price,
+            } => Ok((
+                SubscriptionFeeBillingPeriod::OneTime,
+                SubscriptionFee::OneTime {
+                    rate: *unit_price,
+                    quantity: *quantity,
+                },
+            )),
+            FeeType::Usage { metric_id, pricing } => Ok((
+                SubscriptionFeeBillingPeriod::Monthly,
+                SubscriptionFee::Usage {
+                    metric_id: *metric_id,
+                    model: pricing.clone(),
+                },
+            )),
+            FeeType::ExtraRecurring {
+                cadence,
+                unit_price,
+                quantity,
+                billing_type,
+            } => Ok((
+                cadence.as_subscription_billing_period(),
+                SubscriptionFee::Recurring {
+                    rate: *unit_price,
+                    quantity: *quantity,
+                    billing_type: billing_type.clone(),
+                },
+            )),
+        }
+    }
+
+    pub fn to_subscription_fee_parameterized(
+        &self,
+        initial_slot_count: &Option<u32>,
+        billing_period: &Option<BillingPeriodEnum>,
+        committed_capacity: &Option<u64>,
+    ) -> Result<(SubscriptionFeeBillingPeriod, SubscriptionFee), StoreError> {
+        match self {
+            FeeType::Rate { rates } => {
+                if initial_slot_count.is_some() || committed_capacity.is_some() {
+                    return Err(StoreError::InvalidArgument(
+                        "Unexpected parameters for rate fee".to_string(),
+                    ));
+                }
+
+                if let Some(billing_period) = &billing_period {
+                    let rate = rates
+                        .iter()
+                        .find(|r| &r.term == billing_period)
+                        .ok_or_else(|| {
+                            StoreError::InvalidArgument(format!(
+                                "Rate not found for billing period: {:?}",
+                                billing_period
+                            ))
+                        })?;
+                    Ok((
+                        billing_period.as_subscription_billing_period(),
+                        SubscriptionFee::Rate { rate: rate.price },
+                    ))
+                } else {
+                    if rates.len() != 1 {
+                        return Err(StoreError::InvalidArgument(format!(
+                            "Expected a single rate, found: {}",
+                            rates.len()
+                        )));
+                    }
+
+                    let rate = &rates[0];
+                    Ok((
+                        rate.term.as_subscription_billing_period(),
+                        SubscriptionFee::Rate { rate: rate.price },
+                    ))
+                }
+            }
+            FeeType::Slot {
+                rates,
+                minimum_count,
+                slot_unit_name,
+                quota,
+                ..
+            } => {
+                let billing_period = billing_period.as_ref().ok_or_else(|| {
+                    StoreError::InvalidArgument("Missing billing period".to_string())
+                })?;
+
+                let rate = rates
+                    .iter()
+                    .find(|r| &r.term == billing_period)
+                    .ok_or_else(|| {
+                        StoreError::InvalidArgument(format!(
+                            "Rate not found for billing period: {:?}",
+                            billing_period
+                        ))
+                    })?;
+                let initial_slots =
+                    initial_slot_count.unwrap_or_else(|| minimum_count.unwrap_or(0));
+
+                if committed_capacity.is_some() {
+                    return Err(StoreError::InvalidArgument(
+                        "Unexpected committed capacity for slot fee".to_string(),
+                    ));
+                }
+                Ok((
+                    billing_period.as_subscription_billing_period(),
+                    SubscriptionFee::Slot {
+                        unit: slot_unit_name.clone(),
+                        unit_rate: rate.price,
+                        min_slots: minimum_count.clone(),
+                        max_slots: quota.clone(),
+                        initial_slots,
+                    },
+                ))
+            }
+            FeeType::Capacity {
+                metric_id,
+                thresholds,
+            } => {
+                let committed_capacity = committed_capacity.ok_or_else(|| {
+                    StoreError::InvalidArgument("Missing committed capacity".to_string())
+                })?;
+
+                let threshold = thresholds
+                    .iter()
+                    .find(|t| t.included_amount == committed_capacity)
+                    .ok_or_else(|| {
+                        StoreError::InvalidArgument(format!(
+                            "Threshold not found for committed capacity: {}",
+                            committed_capacity
+                        ))
+                    })?;
+
+                if billing_period.is_some() || initial_slot_count.is_some() {
+                    return Err(StoreError::InvalidArgument(
+                        "Unexpected parameters for capacity fee".to_string(),
+                    ));
+                }
+
+                Ok((
+                    SubscriptionFeeBillingPeriod::Monthly, // Default to monthly, until we support period parametrization for capacity
+                    SubscriptionFee::Capacity {
+                        metric_id: metric_id.clone(),
+                        overage_rate: threshold.per_unit_overage,
+                        included: threshold.included_amount,
+                        rate: threshold.price,
+                    },
+                ))
+            }
+            // all other case should fail, as they just cannot be parametrized
+            FeeType::Usage { .. } | FeeType::ExtraRecurring { .. } | FeeType::OneTime { .. } => {
+                Err(StoreError::InvalidArgument(format!(
+                    "Cannot parameterize fee type: {:?}",
+                    self
+                )))
+            }
         }
     }
 }

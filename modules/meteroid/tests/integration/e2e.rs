@@ -435,6 +435,7 @@ async fn test_metering_e2e() {
                             extra_components: vec![],
                             remove_components: vec![],
                         }),
+                        add_ons: None,
                     },
                 )
             },

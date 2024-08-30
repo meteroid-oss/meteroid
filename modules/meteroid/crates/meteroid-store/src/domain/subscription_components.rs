@@ -40,25 +40,11 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
 
 impl SubscriptionComponent {
     pub fn metric_id(&self) -> Option<Uuid> {
-        match &self.fee {
-            SubscriptionFee::Usage { metric_id, .. } => Some(*metric_id),
-            SubscriptionFee::Capacity { metric_id, .. } => Some(*metric_id),
-            _ => None,
-        }
+        self.fee.metric_id()
     }
 
-    /**
-     * Returns true if the component is Rate/Slot/Capacity, false otherwise.
-     */
     pub fn is_standard(&self) -> bool {
-        match &self.fee {
-            SubscriptionFee::Rate { .. }
-            | SubscriptionFee::Slot { .. }
-            | SubscriptionFee::Capacity { .. } => true,
-            SubscriptionFee::OneTime { .. }
-            | SubscriptionFee::Recurring { .. }
-            | SubscriptionFee::Usage { .. } => false,
-        }
+        self.fee.is_standard()
     }
 }
 
@@ -163,4 +149,28 @@ pub enum SubscriptionFee {
         metric_id: Uuid,
         model: UsagePricingModel,
     },
+}
+
+impl SubscriptionFee {
+    pub fn metric_id(&self) -> Option<Uuid> {
+        match self {
+            SubscriptionFee::Usage { metric_id, .. } => Some(*metric_id),
+            SubscriptionFee::Capacity { metric_id, .. } => Some(*metric_id),
+            _ => None,
+        }
+    }
+
+    /**
+     * Returns true if the component is Rate/Slot/Capacity, false otherwise.
+     */
+    pub fn is_standard(&self) -> bool {
+        match self {
+            SubscriptionFee::Rate { .. }
+            | SubscriptionFee::Slot { .. }
+            | SubscriptionFee::Capacity { .. } => true,
+            SubscriptionFee::OneTime { .. }
+            | SubscriptionFee::Recurring { .. }
+            | SubscriptionFee::Usage { .. } => false,
+        }
+    }
 }

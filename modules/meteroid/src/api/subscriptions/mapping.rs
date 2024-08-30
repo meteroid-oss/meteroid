@@ -69,6 +69,10 @@ pub mod subscriptions {
                 .components
                 .map(|a| super::price_components::create_subscription_components_from_grpc(a))
                 .transpose()?,
+            add_ons: param
+                .add_ons
+                .map(|a| super::add_ons::create_subscription_add_ons_from_grpc(a))
+                .transpose()?,
         };
 
         Ok(res)
@@ -133,6 +137,11 @@ pub mod subscriptions {
                 .price_components
                 .iter()
                 .map(|c| super::price_components::subscription_component_to_grpc(c))
+                .collect(),
+            add_ons: sub
+                .add_ons
+                .iter()
+                .map(|c| super::add_ons::subscription_add_on_to_grpc(c))
                 .collect(),
             metrics: sub
                 .metrics
@@ -237,7 +246,7 @@ mod price_components {
         })
     }
 
-    fn subscription_fee_billing_period_to_grpc(
+    pub(crate) fn subscription_fee_billing_period_to_grpc(
         period: domain::enums::SubscriptionFeeBillingPeriod,
     ) -> api::SubscriptionFeeBillingPeriod {
         match period {
@@ -630,6 +639,88 @@ mod price_components {
             api_shared::BillingPeriod::Quarterly => domain::enums::BillingPeriodEnum::Quarterly,
             api_shared::BillingPeriod::Annual => domain::enums::BillingPeriodEnum::Annual,
         }
+    }
+}
+
+mod add_ons {
+    use crate::api::shared::conversions::ProtoConv;
+    use crate::api::subscriptions::mapping::price_components::{
+        map_billing_period_from_grpc, subscription_fee_billing_period_from_grpc,
+        subscription_fee_billing_period_to_grpc, subscription_fee_from_grpc,
+        subscription_fee_to_grpc,
+    };
+    use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain;
+    use tonic::Status;
+    use uuid::Uuid;
+
+    pub fn subscription_add_on_to_grpc(
+        add_on: &domain::SubscriptionAddOn,
+    ) -> api::SubscriptionAddOn {
+        api::SubscriptionAddOn {
+            id: add_on.id.to_string(),
+            add_on_id: add_on.add_on_id.to_string(),
+            subscription_id: add_on.subscription_id.to_string(),
+            name: add_on.name.clone(),
+            period: subscription_fee_billing_period_to_grpc(add_on.period.clone()).into(),
+            fee: Some(subscription_fee_to_grpc(&add_on.fee)),
+        }
+    }
+
+    pub fn create_subscription_add_ons_from_grpc(
+        data: api::CreateSubscriptionAddOns,
+    ) -> tonic::Result<domain::CreateSubscriptionAddOns> {
+        let add_ons = data
+            .add_ons
+            .into_iter()
+            .map(create_subscription_add_on_from_grpc)
+            .collect::<tonic::Result<Vec<_>, _>>()?;
+
+        Ok(domain::CreateSubscriptionAddOns { add_ons })
+    }
+
+    fn create_subscription_add_on_from_grpc(
+        data: api::CreateSubscriptionAddOn,
+    ) -> tonic::Result<domain::CreateSubscriptionAddOn> {
+        let id = Uuid::from_proto_ref(&data.add_on_id)?;
+
+        let customization: domain::SubscriptionAddOnCustomization = match data.customization {
+            Some(api::create_subscription_add_on::Customization::Override(override_)) => {
+                let fee = subscription_fee_from_grpc(&override_.fee)?;
+                Ok::<domain::SubscriptionAddOnCustomization, Status>(
+                    domain::SubscriptionAddOnCustomization::Override(
+                        domain::SubscriptionAddOnOverride {
+                            name: override_.name.clone(),
+                            period: subscription_fee_billing_period_from_grpc(override_.period())?,
+                            fee,
+                        },
+                    ),
+                )
+            }
+            Some(api::create_subscription_add_on::Customization::Parameterization(param)) => {
+                let billing_period = param
+                    .billing_period
+                    .map(|p| api_shared::BillingPeriod::try_from(p))
+                    .transpose()
+                    .map_err(|_| Status::invalid_argument("Invalid billing period".to_string()))?
+                    .map(map_billing_period_from_grpc);
+
+                Ok(domain::SubscriptionAddOnCustomization::Parameterization(
+                    domain::SubscriptionAddOnParameterization {
+                        initial_slot_count: param.initial_slot_count,
+                        billing_period,
+                        committed_capacity: param.committed_capacity,
+                    },
+                ))
+            }
+            None => Ok(domain::SubscriptionAddOnCustomization::None),
+        }?;
+
+        Ok(domain::CreateSubscriptionAddOn {
+            add_on_id: id,
+            customization,
+        })
     }
 }
 
