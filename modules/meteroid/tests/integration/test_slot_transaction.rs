@@ -20,14 +20,6 @@ async fn test_slot_transaction_active_slots() {
     helpers::init::logging();
     let (_, postgres_connection_string) = meteroid_it::container::start_postgres().await;
 
-    let pool = common_repository::create_pool(postgres_connection_string.as_str());
-
-    meteroid_it::container::populate_postgres(
-        pool.clone(),
-        meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
-    )
-    .await;
-
     let store = Store::new(
         postgres_connection_string.clone(),
         SecretString::new("00000000000000000000000000000000".into()),
@@ -37,6 +29,12 @@ async fn test_slot_transaction_active_slots() {
         Arc::new(MockUsageClient::noop()),
     )
     .expect("Could not create store");
+
+    meteroid_it::container::populate_postgres(
+        &store.pool,
+        meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
+    )
+    .await;
 
     // no active slots before first transaction
     let active = get_active_slots(&store, datetime("2024-01-01T00:00:00")).await;

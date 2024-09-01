@@ -22,14 +22,6 @@ async fn test_draft_worker() {
     let (_pg_container, postgres_connection_string) =
         meteroid_it::container::start_postgres().await;
 
-    let pool = common_repository::create_pool(postgres_connection_string.as_str());
-
-    meteroid_it::container::populate_postgres(
-        pool.clone(),
-        meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
-    )
-    .await;
-
     let worker_run_date = date("2023-11-06");
 
     let store = Store::new(
@@ -41,6 +33,12 @@ async fn test_draft_worker() {
         Arc::new(MockUsageClient::noop()),
     )
     .unwrap();
+
+    meteroid_it::container::populate_postgres(
+        &store.pool,
+        meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
+    )
+    .await;
 
     draft_worker(&store, worker_run_date.clone()).await.unwrap();
 
