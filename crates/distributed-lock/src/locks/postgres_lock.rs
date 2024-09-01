@@ -21,10 +21,11 @@ struct LockResult {
     acquired: bool,
 }
 
+// Use Postgres advisory locks for our locking mechanism.
+// This is just an example and can be enhanced further.
 #[async_trait::async_trait]
 impl<'a> DistributedLock for PostgresLock<'a> {
     async fn acquire(&mut self) -> Result<bool, LockError> {
-        // Create the raw SQL query using Diesel's `sql_query`
         sql_query("SELECT pg_try_advisory_lock($1)")
             .bind::<diesel::sql_types::BigInt, _>(self.lock_key.get())
             .get_result::<LockResult>(self.client)
