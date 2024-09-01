@@ -1,33 +1,42 @@
 use crate::errors::LockError;
 use crate::locks::DistributedLock;
-use deadpool_postgres::Client;
+use diesel::sql_types::Bool;
+use diesel::{sql_query, QueryableByName};
+use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 pub struct PostgresLock<'a> {
-    client: &'a Client,
+    client: &'a mut AsyncPgConnection,
     lock_key: LockKey,
 }
 
 impl<'a> PostgresLock<'a> {
-    pub fn new(client: &'a Client, lock_key: LockKey) -> Self {
+    pub fn new(client: &'a mut AsyncPgConnection, lock_key: LockKey) -> Self {
         PostgresLock { client, lock_key }
     }
 }
 
+#[derive(QueryableByName)]
+struct LockResult {
+    #[diesel(sql_type = Bool)]
+    acquired: bool,
+}
+
 #[async_trait::async_trait]
 impl<'a> DistributedLock for PostgresLock<'a> {
-    async fn acquire(&self) -> Result<bool, LockError> {
-        // Use Postgres advisory locks for our locking mechanism.
-        // This is just an example and can be enhanced further.
-        self.client
-            .query_one("SELECT pg_try_advisory_lock($1)", &[&self.lock_key.get()])
+    async fn acquire(&mut self) -> Result<bool, LockError> {
+        // Create the raw SQL query using Diesel's `sql_query`
+        sql_query("SELECT pg_try_advisory_lock($1)")
+            .bind::<diesel::sql_types::BigInt, _>(self.lock_key.get())
+            .get_result::<LockResult>(self.client)
             .await
-            .map(|row| row.get(0))
+            .map(|row| row.acquired) // Extract the first (and only) field from the tuple
             .map_err(|_| LockError::AcquireError)
     }
 
-    async fn release(&self) -> Result<(), LockError> {
-        self.client
-            .query_one("SELECT pg_advisory_unlock($1)", &[&self.lock_key.get()])
+    async fn release(&mut self) -> Result<(), LockError> {
+        sql_query("SELECT pg_advisory_unlock($1)")
+            .bind::<diesel::sql_types::BigInt, _>(self.lock_key.get())
+            .execute(self.client)
             .await
             .map(|_| ())
             .map_err(|_| LockError::ReleaseError)

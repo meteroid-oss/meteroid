@@ -20,7 +20,6 @@ members = [
   "crates/common-grpc-error-as-tonic-macros",
   "crates/common-grpc-error-as-tonic-macros-impl",
   "crates/common-logging",
-  "crates/common-repository",
   "crates/common-utils",
   "crates/distributed-lock",
   # extra
@@ -164,7 +163,6 @@ common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
 common-eventbus = { path = "crates/common-eventbus" }
 common-logging = { path = "crates/common-logging" }
-common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }
 common-grpc-error-as-tonic-macros = { path = "crates/common-grpc-error-as-tonic-macros" }
 common-grpc-error-as-tonic-macros-impl = { path = "crates/common-grpc-error-as-tonic-macros-impl" }

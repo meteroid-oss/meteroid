@@ -1,17 +1,17 @@
 use std::time::Duration;
 
-use deadpool_postgres::tokio_postgres::types::Type;
-use deadpool_postgres::Pool;
-use error_stack::{Result, ResultExt};
-use tokio::task::JoinHandle;
-use tokio::time::sleep;
-
 use crate::workers::fang::ext::config::FangArchiverConfig;
 use crate::workers::fang::ext::error::FangExtError;
 use crate::workers::fang::ext::metrics;
+use diesel::{sql_query, sql_types};
+use diesel_async::RunQueryDsl;
+use error_stack::{Result, ResultExt};
+use meteroid_store::store::PgPool;
+use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 #[tracing::instrument(skip(pool))]
-pub fn start_archiver(pool: Pool, config: FangArchiverConfig) -> JoinHandle<()> {
+pub fn start_archiver(pool: PgPool, config: FangArchiverConfig) -> JoinHandle<()> {
     log::info!("Starting fang archiver");
 
     let sleep_on_nothing_to_move =
@@ -47,19 +47,20 @@ pub fn start_archiver(pool: Pool, config: FangArchiverConfig) -> JoinHandle<()> 
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn do_archive(
-    pool: Pool,
+async fn do_archive(
+    pool: PgPool,
     older_than_hours: u16,
     limit_move: u16,
 ) -> Result<u16, FangExtError> {
-    let conn = pool
+    let mut conn = pool
         .get()
         .await
         .change_context(FangExtError::DatabaseConnection)?;
 
     log::debug!("Running archiving");
 
-    let query = r#"
+    let moved_rows: usize = sql_query(
+        r#"
                 WITH moved_rows AS (
                     DELETE FROM "fang_tasks" orig
                       WHERE id IN (
@@ -72,27 +73,19 @@ pub async fn do_archive(
                   )
                   INSERT INTO "fang_tasks_archive"
                   SELECT *, now() FROM moved_rows
-                "#;
-
-    let statement = conn
-        .prepare_typed(query, &[Type::VARCHAR, Type::INT4])
-        .await
-        .change_context(FangExtError::DatabaseQuery)
-        .attach_printable("Failed to prepare statement")?;
-
-    let moved_rows = conn
-        .execute(
-            &statement,
-            &[&format!("{} hours", older_than_hours), &(limit_move as i32)],
-        )
-        .await
-        .change_context(FangExtError::DatabaseQuery)
-        .attach_printable("Failed to execute prepared statement")?;
+                "#,
+    )
+    .bind::<sql_types::VarChar, _>(&format!("{} hours", older_than_hours))
+    .bind::<sql_types::Integer, _>(limit_move as i32)
+    .execute(&mut conn)
+    .await
+    .change_context(FangExtError::DatabaseQuery)
+    .attach_printable("Failed to execute prepared statement")?;
 
     log::debug!("Archived {} rows", moved_rows);
 
     //todo add node/host/pod as attribute
-    metrics::ARCHIVER_MOVED_ROWS_COUNTER.add(moved_rows, &[]);
+    metrics::ARCHIVER_MOVED_ROWS_COUNTER.add(moved_rows as u64, &[]);
 
     Ok(moved_rows as u16)
 }

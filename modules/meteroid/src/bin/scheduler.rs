@@ -10,7 +10,7 @@ use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
-use meteroid::singletons::get_pool;
+use meteroid::singletons;
 use meteroid::workers::fang as mfang;
 use meteroid::workers::invoicing::price_worker::PriceWorker;
 
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting {}", build_info);
 
     let config = Config::get();
-    let pool = get_pool();
+    let pool = &singletons::get_store().await.pool;
 
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
 
