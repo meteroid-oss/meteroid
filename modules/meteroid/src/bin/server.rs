@@ -1,4 +1,3 @@
-use diesel::{Connection, PgConnection};
 use std::sync::Arc;
 use tokio::signal;
 
@@ -56,8 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let exit = signal::ctrl_c();
 
-    let mut conn = PgConnection::establish(&config.database_url)?;
-    migrations::run(&mut conn)?;
+    let conn = store.pool.get().await?;
+    migrations::run(conn).await?;
 
     let object_store_client =
         Arc::new(object_store::parse_url(&url::Url::parse(&config.object_store_uri)?)?.0);

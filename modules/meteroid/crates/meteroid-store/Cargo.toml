@@ -43,6 +43,11 @@ fastrand = { workspace = true }
 jsonwebtoken = { workspace = true }
 futures = { workspace = true }
 once_cell = { workspace = true }
+rustls = { workspace = true, features = ["ring"] }
+tokio-postgres-rustls = { workspace = true }
+rustls-native-certs = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread"] }
+tokio-postgres = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

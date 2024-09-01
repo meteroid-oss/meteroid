@@ -1,5 +1,6 @@
-use ::diesel::pg::Pg;
+use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
 use diesel_migrations::MigrationHarness;
+use meteroid_store::store::PgConn;
 use std::error::Error;
 use thiserror::Error;
 
@@ -8,17 +9,25 @@ mod diesel {
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/diesel");
 }
 
-pub fn run(conn: &mut impl MigrationHarness<Pg>) -> error_stack::Result<(), DieselMigrationError> {
-    conn.run_pending_migrations(diesel::MIGRATIONS)
-        .map_err(|e| DieselMigrationError::ApplyError(e))?;
+pub async fn run(conn: PgConn) -> Result<(), Box<dyn std::error::Error>> {
+    let mut async_wrapper: AsyncConnectionWrapper<PgConn> = AsyncConnectionWrapper::from(conn);
 
-    let all_migrations = conn
-        .applied_migrations()
-        .map_err(|e| DieselMigrationError::GetMigrationsError(e))?;
+    tokio::task::spawn_blocking(move || {
+        async_wrapper
+            .run_pending_migrations(diesel::MIGRATIONS)
+            .map_err(|e| DieselMigrationError::ApplyError(e))
+            .expect("Error running migrations");
 
-    for migration in all_migrations {
-        tracing::info!("Migration Applied - {}", migration);
-    }
+        let all_migrations = async_wrapper
+            .applied_migrations()
+            .map_err(|e| DieselMigrationError::GetMigrationsError(e))
+            .expect("Error getting migrations");
+
+        for migration in all_migrations {
+            tracing::info!("Migration Applied - {}", migration);
+        }
+    })
+    .await?;
 
     Ok(())
 }
