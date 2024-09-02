@@ -20,7 +20,6 @@ members = [
   "crates/common-grpc-error-as-tonic-macros",
   "crates/common-grpc-error-as-tonic-macros-impl",
   "crates/common-logging",
-  "crates/common-repository",
   "crates/common-utils",
   "crates/distributed-lock",
   # extra
@@ -109,7 +108,6 @@ rstest = "0.22.0"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
 rustls = { version = "0.23.12", default-features = false }
-rustls-native-certs = "0.8.0"
 secrecy = "0.8.0"
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
@@ -164,7 +162,6 @@ common-domain = { path = "crates/common-domain" }
 common-config = { path = "crates/common-config" }
 common-eventbus = { path = "crates/common-eventbus" }
 common-logging = { path = "crates/common-logging" }
-common-repository = { path = "crates/common-repository" }
 common-grpc = { path = "crates/common-grpc" }
 common-grpc-error-as-tonic-macros = { path = "crates/common-grpc-error-as-tonic-macros" }
 common-grpc-error-as-tonic-macros-impl = { path = "crates/common-grpc-error-as-tonic-macros-impl" }

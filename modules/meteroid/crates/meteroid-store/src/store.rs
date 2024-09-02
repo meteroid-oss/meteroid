@@ -77,15 +77,10 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
         .attach_printable("Failed to create PostgreSQL connection pool")
 }
 
-fn establish_secure_connection(config: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
+fn establish_secure_connection(db_url: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
     let fut = async {
-        // We first set up the way we want rustls to work.
-        let rustls_config = rustls::ClientConfig::builder()
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier))
-            .with_no_client_auth();
-        let tls = MakeRustlsConnect::new(rustls_config);
-        let (client, conn) = tokio_postgres::connect(config, tls)
+        let tls = get_tls(db_url).unwrap();
+        let (client, conn) = tokio_postgres::connect(db_url, tls)
             .await
             .map_err(|e| ConnectionError::BadConnection(e.to_string()))?;
         tokio::spawn(async move {
@@ -96,13 +91,6 @@ fn establish_secure_connection(config: &str) -> BoxFuture<ConnectionResult<Async
         AsyncPgConnection::try_from(client).await
     };
     fut.boxed()
-}
-
-fn root_certs() -> rustls::RootCertStore {
-    let mut roots = rustls::RootCertStore::empty();
-    let certs = rustls_native_certs::load_native_certs().expect("Certs not loadable!");
-    roots.add_parsable_certificates(certs);
-    roots
 }
 
 impl Store {
@@ -231,5 +219,19 @@ impl ServerCertVerifier for DummyTlsVerifier {
         rustls::crypto::ring::default_provider()
             .signature_verification_algorithms
             .supported_schemes()
+    }
+}
+
+pub fn get_tls(database_url: &str) -> Option<MakeRustlsConnect> {
+    let config = tokio_postgres::Config::from_str(database_url).unwrap();
+    if config.get_ssl_mode() != tokio_postgres::config::SslMode::Disable {
+        let tls_config = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier))
+            .with_no_client_auth();
+
+        Some(MakeRustlsConnect::new(tls_config))
+    } else {
+        None
     }
 }

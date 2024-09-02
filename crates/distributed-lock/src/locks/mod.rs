@@ -3,8 +3,8 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait DistributedLock {
-    async fn acquire(&self) -> Result<bool, LockError>;
-    async fn release(&self) -> Result<(), LockError>;
+    async fn acquire(&mut self) -> Result<bool, LockError>;
+    async fn release(&mut self) -> Result<(), LockError>;
 }
 
 #[cfg(feature = "postgres-support")]

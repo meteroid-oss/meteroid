@@ -74,7 +74,6 @@ metering-grpc = { workspace = true, features = ["client"] }
 common-domain = { workspace = true }
 common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
-common-repository = { workspace = true }
 distributed-lock = { workspace = true, features = ["postgres-support"] }
 stripe-client = { path = "crates/stripe-client" }
 object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }

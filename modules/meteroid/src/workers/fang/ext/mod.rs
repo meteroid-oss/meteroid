@@ -7,9 +7,9 @@ mod metrics;
 pub use archiver::start_archiver;
 pub use cleaner::start_cleaner;
 pub use config::FangExtConfig;
-use deadpool_postgres::Pool;
+use meteroid_store::store::PgPool;
 
-pub fn start_tasks(pool: Pool, config: &FangExtConfig) {
+pub fn start_tasks(pool: PgPool, config: &FangExtConfig) {
     if config.archiver.enabled {
         start_archiver(pool.clone(), config.archiver.clone());
     } else {

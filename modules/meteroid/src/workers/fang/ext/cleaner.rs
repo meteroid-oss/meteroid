@@ -1,17 +1,17 @@
 use std::time::Duration;
 
 use crate::workers::fang::ext::config::FangCleanerConfig;
-use deadpool_postgres::tokio_postgres::types::Type;
-use deadpool_postgres::Pool;
+use crate::workers::fang::ext::error::FangExtError;
+use crate::workers::fang::ext::metrics;
+use diesel::{sql_query, sql_types};
+use diesel_async::RunQueryDsl;
 use error_stack::{Result, ResultExt};
+use meteroid_store::store::PgPool;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::workers::fang::ext::error::FangExtError;
-use crate::workers::fang::ext::metrics;
-
 #[tracing::instrument(skip(pool))]
-pub fn start_cleaner(pool: Pool, config: FangCleanerConfig) -> JoinHandle<()> {
+pub fn start_cleaner(pool: PgPool, config: FangCleanerConfig) -> JoinHandle<()> {
     log::info!("Starting fang cleaner");
 
     let sleep_on_nothing_to_delete: Duration =
@@ -50,18 +50,19 @@ pub fn start_cleaner(pool: Pool, config: FangCleanerConfig) -> JoinHandle<()> {
 
 #[tracing::instrument(skip_all)]
 pub async fn do_clean(
-    pool: Pool,
+    pool: PgPool,
     older_than_hours: u16,
     limit_delete: u16,
 ) -> Result<u16, FangExtError> {
-    let conn = pool
+    let mut conn = pool
         .get()
         .await
         .change_context(FangExtError::DatabaseConnection)?;
 
     log::debug!("Running cleaner");
 
-    let query = r#"
+    let deleted_rows: usize = sql_query(
+        r#"
                     DELETE FROM "fang_tasks_archive"
                       WHERE id IN (
                         SELECT id
@@ -69,30 +70,19 @@ pub async fn do_clean(
                         WHERE archived_at < now() - interval '$1'
                         LIMIT $2
                       )
-                "#;
-
-    let statement = conn
-        .prepare_typed(query, &[Type::VARCHAR, Type::INT4])
-        .await
-        .change_context(FangExtError::DatabaseQuery)
-        .attach_printable("Failed to prepare statement")?;
-
-    let deleted_rows = conn
-        .execute(
-            &statement,
-            &[
-                &format!("{} hours", older_than_hours),
-                &(limit_delete as i32),
-            ],
-        )
-        .await
-        .change_context(FangExtError::DatabaseQuery)
-        .attach_printable("Failed to execute prepared statement")?;
+                "#,
+    )
+    .bind::<sql_types::VarChar, _>(&format!("{} hours", older_than_hours))
+    .bind::<sql_types::Integer, _>(limit_delete as i32)
+    .execute(&mut conn)
+    .await
+    .change_context(FangExtError::DatabaseQuery)
+    .attach_printable("Failed to execute prepared statement")?;
 
     log::debug!("Cleaned {} rows", deleted_rows);
 
     //todo add node/host/pod as attribute
-    metrics::CLEANER_DELETED_ROWS_COUNTER.add(deleted_rows, &[]);
+    metrics::CLEANER_DELETED_ROWS_COUNTER.add(deleted_rows as u64, &[]);
 
     Ok(deleted_rows as u16)
 }
