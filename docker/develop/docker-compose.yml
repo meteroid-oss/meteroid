@@ -1,5 +1,3 @@
-version: "3.8"
-
 x-default-logging: &logging
   driver: "json-file"
   options:

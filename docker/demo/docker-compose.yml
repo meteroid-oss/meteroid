@@ -1,5 +1,3 @@
-version: "3.8"
-
 x-default-logging: &logging
   driver: "json-file"
   options:
@@ -172,11 +170,11 @@ services:
     ports:
       - 9092:9092
     healthcheck:
-       test: ["CMD","curl","-f","http://localhost:9644/v1/status/ready"]
-       start_period: 30s
-       interval: 5s
-       timeout: 2s
-       retries: 24
+      test: [ "CMD","curl","-f","http://localhost:9644/v1/status/ready" ]
+      start_period: 30s
+      interval: 5s
+      timeout: 2s
+      retries: 24
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:v2.3.1

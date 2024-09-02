@@ -26,12 +26,15 @@ struct LockResult {
 #[async_trait::async_trait]
 impl<'a> DistributedLock for PostgresLock<'a> {
     async fn acquire(&mut self) -> Result<bool, LockError> {
-        sql_query("SELECT pg_try_advisory_lock($1)")
+        sql_query("SELECT pg_try_advisory_lock($1) as acquired")
             .bind::<diesel::sql_types::BigInt, _>(self.lock_key.get())
             .get_result::<LockResult>(self.client)
             .await
-            .map(|row| row.acquired) // Extract the first (and only) field from the tuple
-            .map_err(|_| LockError::AcquireError)
+            .map(|row| row.acquired)
+            .map_err(|e| {
+                log::error!("Failed to acquire lock: {:?}", e);
+                LockError::AcquireError
+            })
     }
 
     async fn release(&mut self) -> Result<(), LockError> {
@@ -40,7 +43,10 @@ impl<'a> DistributedLock for PostgresLock<'a> {
             .execute(self.client)
             .await
             .map(|_| ())
-            .map_err(|_| LockError::ReleaseError)
+            .map_err(|e| {
+                log::error!("Failed to release lock: {:?}", e);
+                LockError::ReleaseError
+            })
     }
 }
 

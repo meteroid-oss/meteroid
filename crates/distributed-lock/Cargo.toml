@@ -9,11 +9,10 @@ license.workspace = true
 uuid.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
-tokio-postgres = { workspace = true, optional = true }
-deadpool-postgres = { workspace = true, optional = true }
+log = { workspace = true }
 diesel = { workspace = true, optional = true, features = ["postgres"] }
 diesel-async = { workspace = true, optional = true, features = ["postgres"] }
 
 [features]
 default = ["postgres-support"]
-postgres-support = ["dep:tokio-postgres", "dep:deadpool-postgres", "dep:diesel", "dep:diesel-async"]
+postgres-support = ["dep:diesel", "dep:diesel-async"]
