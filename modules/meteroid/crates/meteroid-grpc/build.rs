@@ -16,6 +16,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         "apitokens",
         "billablemetrics",
         "customers",
+        "coupons",
         "instance",
         "invoices",
         "invoicingentities",

@@ -189,6 +189,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    coupon (id) {
+        id -> Uuid,
+        code -> Text,
+        description -> Text,
+        tenant_id -> Uuid,
+        discount -> Jsonb,
+        expires_at -> Nullable<Timestamp>,
+        redemption_limit -> Nullable<Int4>,
+        recurring_value -> Int4,
+        reusable -> Bool,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::CreditNoteStatus;
 
@@ -686,6 +702,7 @@ diesel::joinable!(bi_mrr_movement_log -> tenant (tenant_id));
 diesel::joinable!(bi_revenue_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(billable_metric -> product_family (product_family_id));
 diesel::joinable!(billable_metric -> tenant (tenant_id));
+diesel::joinable!(coupon -> tenant (tenant_id));
 diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
@@ -742,6 +759,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bi_mrr_movement_log,
     bi_revenue_daily,
     billable_metric,
+    coupon,
     credit_note,
     customer,
     customer_balance_pending_tx,

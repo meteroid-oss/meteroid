@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package meteroid.api.coupons.v1;
+
+import "api/coupons/v1/models.proto";
+import "google/protobuf/timestamp.proto";
+
+message ListCouponRequest {}
+
+message ListCouponResponse {
+  repeated Coupon coupons = 1;
+}
+
+message CreateCouponRequest {
+  string code = 1;
+  string description = 2;
+  CouponDiscount discount = 3;
+  optional google.protobuf.Timestamp expires_at = 4;
+  optional int32 redemption_limit = 5;
+}
+
+message CreateCouponResponse {
+  Coupon coupon = 1;
+}
+
+message RemoveCouponRequest {
+  string coupon_id = 1;
+}
+
+message RemoveCouponResponse {}
+
+message EditCouponRequest {
+  string coupon_id = 1;
+  string description = 2;
+  CouponDiscount discount = 3;
+}
+
+message EditCouponResponse {
+  Coupon coupon = 1;
+}
+
+service CouponsService {
+  rpc ListCoupons(ListCouponRequest) returns (ListCouponResponse) {}
+  rpc CreateCoupon(CreateCouponRequest) returns (CreateCouponResponse) {}
+  rpc RemoveCoupon(RemoveCouponRequest) returns (RemoveCouponResponse) {}
+  rpc EditCoupon(EditCouponRequest) returns (EditCouponResponse) {}
+}

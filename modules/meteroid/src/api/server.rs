@@ -55,6 +55,7 @@ pub async fn start_api_server(
         .add_service(api::billablemetrics::service(store.clone()))
         .add_service(api::organizations::service(store.clone()))
         .add_service(api::invoicingentities::service(store.clone()))
+        .add_service(api::coupons::service(store.clone()))
         .add_service(api::customers::service(store.clone()))
         .add_service(api::tenants::service(store.clone()))
         .add_service(api::apitokens::service(store.clone()))

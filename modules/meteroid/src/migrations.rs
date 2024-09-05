@@ -18,10 +18,12 @@ pub async fn run(conn: PgConn) -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| DieselMigrationError::ApplyError(e))
             .expect("Error running migrations");
 
-        let all_migrations = async_wrapper
+        let mut all_migrations = async_wrapper
             .applied_migrations()
             .map_err(|e| DieselMigrationError::GetMigrationsError(e))
             .expect("Error getting migrations");
+
+        all_migrations.sort();
 
         for migration in all_migrations {
             tracing::info!("Migration Applied - {}", migration);

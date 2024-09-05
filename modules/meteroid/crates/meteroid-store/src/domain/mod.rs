@@ -28,6 +28,7 @@ pub mod adjustments;
 pub mod api_tokens;
 pub mod billable_metrics;
 pub mod configs;
+pub mod coupons;
 pub mod enums;
 pub mod historical_rates;
 pub mod invoice_lines;

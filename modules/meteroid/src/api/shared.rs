@@ -1,6 +1,7 @@
 pub mod mapping {
     pub mod datetime {
-        use chrono::NaiveDateTime;
+        use chrono::{DateTime, NaiveDateTime};
+        use prost_types::Timestamp;
         use time::PrimitiveDateTime;
 
         pub fn datetime_to_timestamp(dt: PrimitiveDateTime) -> prost_types::Timestamp {
@@ -19,6 +20,12 @@ pub mod mapping {
 
         pub fn offset_datetime_to_timestamp(dt: time::OffsetDateTime) -> prost_types::Timestamp {
             datetime_to_timestamp(PrimitiveDateTime::new(dt.date(), dt.time()))
+        }
+
+        pub fn chrono_from_timestamp(t: Timestamp) -> Result<NaiveDateTime, tonic::Status> {
+            DateTime::from_timestamp(t.seconds, t.nanos as u32)
+                .map(|x| x.naive_utc())
+                .ok_or(tonic::Status::invalid_argument("Invalid proto timestamp"))
         }
     }
 

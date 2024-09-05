@@ -10,6 +10,7 @@ use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_client::AddOnsServ
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
 use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
+use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_client::CouponsServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_client::InstanceServiceClient;
 use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
@@ -28,6 +29,7 @@ pub type TestLayeredClientService = AddAuthorization<SetRequestHeader<Channel, H
 pub struct AllClients {
     pub add_ons: AddOnsServiceClient<TestLayeredClientService>,
     pub api_tokens: ApiTokensServiceClient<TestLayeredClientService>,
+    pub coupons: CouponsServiceClient<TestLayeredClientService>,
     pub customers: CustomersServiceClient<TestLayeredClientService>,
     pub metrics: BillableMetricsServiceClient<TestLayeredClientService>,
     pub instance: InstanceServiceClient<TestLayeredClientService>,
@@ -57,6 +59,7 @@ impl AllClients {
         Self {
             add_ons: AddOnsServiceClient::new(service.clone()),
             api_tokens: ApiTokensServiceClient::new(service.clone()),
+            coupons: CouponsServiceClient::new(service.clone()),
             customers: CustomersServiceClient::new(service.clone()),
             metrics: BillableMetricsServiceClient::new(service.clone()),
             instance: InstanceServiceClient::new(service.clone()),

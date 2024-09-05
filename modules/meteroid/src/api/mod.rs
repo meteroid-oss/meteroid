@@ -7,6 +7,7 @@ pub mod utils;
 pub mod addons;
 pub mod apitokens;
 pub mod billablemetrics;
+pub mod coupons;
 pub mod customers;
 mod domain_mapping;
 pub mod errors;

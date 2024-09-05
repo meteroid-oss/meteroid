@@ -9,6 +9,7 @@ mod test_auth_api_key;
 mod test_auth_jwt;
 mod test_basic;
 mod test_billable_metric;
+mod test_coupon;
 mod test_customer;
 mod test_idempotency;
 mod test_idempotency_cache;
