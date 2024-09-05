@@ -12,3 +12,5 @@ create table if not exists coupon
   created_at       timestamp(3) default CURRENT_TIMESTAMP not null,
   updated_at       timestamp(3) default CURRENT_TIMESTAMP not null
 );
+
+create index if not exists coupon_tenant_id_idx on coupon (tenant_id);
