@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
-#[try_map_owned(BillableMetricRow, Report < StoreError >)]
+#[try_map_owned(BillableMetricRow, Report<StoreError>)]
 pub struct BillableMetric {
     pub id: Uuid,
     pub name: String,
