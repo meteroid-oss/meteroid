@@ -28,7 +28,7 @@ pub fn build_api_layered_client_service(
     api_key: &str,
 ) -> LayeredApiClientService {
     tower::ServiceBuilder::new()
-        .layer(OtelGrpcLayer) // note: should be last .. but fails to compile
+        .layer(OtelGrpcLayer)
         .layer(metric::create())
         .layer(auth::create_api_auth_layer(api_key.to_string()))
         .service(channel)

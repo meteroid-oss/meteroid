@@ -11,7 +11,6 @@ pub struct Config {
     #[envconfig(from = "RABBIT_ADDR")]
     pub rabbit_addr: String,
 
-    // TODO allow multiple queues ?
     #[envconfig(from = "RABBIT_QUEUE")]
     pub rabbit_queue: String,
 }

@@ -168,8 +168,6 @@ impl SacctExecutor for SacctExecutorImpl {
         // with --state we need an endtime
         let end_time_str = Utc::now().format(SACCT_DATETIME_FORMAT).to_string();
 
-        log::info!("Prev");
-
         let child = Command::new("sacct")
             .args([
                 "-n", // no header
@@ -189,33 +187,13 @@ impl SacctExecutor for SacctExecutorImpl {
             .spawn()
             .expect("Failed to spawn sacct command");
 
-        log::info!(
-            "F1 : {:?}",
-            [
-                "-n",
-                "-P",
-                "--format",
-                SACCT_FIELDS.join(",").as_str(),
-                "--state=COMPLETED,FAILED,TIMEOUT,PREEMPTED",
-                "--starttime",
-                &since_str,
-                "--endtime",
-                &end_time_str,
-            ]
-        );
-
         let stdout = child.stdout.ok_or(AppError::SacctError(
             "Failed to open sacct stdout".to_string(),
         ))?;
         let reader = BufReader::new(stdout);
-        log::info!("F2");
 
         Ok(futures::stream::iter(reader.lines().map(move |line| {
-            log::info!("X: {:?}", line);
-
             let line = line.map_err(AppError::IoError)?;
-            log::info!("Z: {:?}", line);
-
             parse_sacct_line(&line)
         }))
         .boxed())
@@ -233,9 +211,7 @@ async fn process_sacct_data<T: SacctExecutor>(
     let mut batch = Vec::with_capacity(config.batch_size);
 
     while let Some(data) = sacct_data_stream.next().await {
-        log::info!("Processing sacct data: {:?}", data);
         let data = data?;
-
         // Skip already processed jobs for the current timestamp
         if checkpoint.last_processed_time == data.start_time
             && checkpoint.processed_jobs.contains(&data.job_id)
@@ -260,8 +236,6 @@ async fn process_sacct_data<T: SacctExecutor>(
         update_checkpoint(&mut checkpoint, &batch);
         save_checkpoint(&config.state_file, &checkpoint)?;
     }
-
-    log::info!("R4");
 
     Ok(())
 }

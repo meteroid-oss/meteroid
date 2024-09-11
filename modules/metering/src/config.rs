@@ -24,10 +24,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub clickhouse: ClickhouseConfig,
 
-    #[cfg(feature = "openstack")]
-    #[envconfig(nested = true)]
-    pub openstack_config: OpenstackConfig,
-
     #[envconfig(nested = true)]
     pub common: CommonConfig,
 
@@ -96,28 +92,4 @@ pub struct ClickhouseConfig {
     #[envconfig(from = "CLICKHOUSE_PASSWORD", default = "default")]
     pub password: String,
     // TODO TLS
-}
-
-#[derive(Envconfig, Clone)]
-pub struct OpenstackConfig {
-    #[envconfig(from = "OPENSTACK_AUTH_URL", default = "/identity")]
-    pub auth_url: String,
-
-    #[envconfig(from = "OPENSTACK_GNOCCHI_URL", default = "/metric")]
-    pub gnocchi_url: String,
-
-    #[envconfig(from = "OPENSTACK_USERNAME", default = "default")]
-    pub username: String,
-
-    #[envconfig(from = "OPENSTACK_PASSWORD", default = "default")]
-    pub password: String,
-
-    #[envconfig(from = "OPENSTACK_PROJECT_NAME", default = "default")]
-    pub project_name: String,
-
-    #[envconfig(from = "OPENSTACK_USER_DOMAIN_NAME", default = "default")]
-    pub user_domain_name: String,
-
-    #[envconfig(from = "OPENSTACK_PROJECT_DOMAIN_NAME", default = "default")]
-    pub project_domain_name: String,
 }

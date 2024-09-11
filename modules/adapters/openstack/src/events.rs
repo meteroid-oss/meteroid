@@ -64,7 +64,6 @@ impl EventHandler {
     ) -> Result<(), OpenstackAdapterError> {
         while let Some(delivery) = consumer.next().await {
             let delivery = delivery.map_err(OpenstackAdapterError::LapinError)?;
-            println!("Received message: {:?}", delivery.delivery_tag);
 
             let oslo_event: OsloRecord = serde_json::from_slice(&delivery.data).map_err(|e| {
                 OpenstackAdapterError::SerializationError(
@@ -93,11 +92,7 @@ impl EventHandler {
                     events = payloads
                         .into_iter()
                         .map(|x| self.process_sample(x))
-                        .collect::<Result<Vec<Option<server::Event>>, OpenstackAdapterError>>()
-                        .map_err(|e| {
-                            println!("Failed to process sample: {:?}", event);
-                            e
-                        })?
+                        .collect::<Result<Vec<Option<server::Event>>, OpenstackAdapterError>>()?
                         .into_iter()
                         .flatten()
                         .collect();
@@ -111,12 +106,7 @@ impl EventHandler {
                     events = payloads
                         .into_iter()
                         .map(|x| self.process_event(x))
-                        .collect::<Result<Vec<Option<server::Event>>, OpenstackAdapterError>>()
-                        .map_err(|e| {
-                            println!("Failed to process event: {:?}", event);
-
-                            e
-                        })?
+                        .collect::<Result<Vec<Option<server::Event>>, OpenstackAdapterError>>()?
                         .into_iter()
                         .flatten()
                         .collect();
@@ -134,7 +124,8 @@ impl EventHandler {
                     .await
                     .map_err(OpenstackAdapterError::GrpcError)?;
 
-                println!("Ingest response: {:?}", res.into_inner().failures);
+                // TODO handle failures (DLQ in rabbit or on ingest service side)
+                log::error!("Ingest response: {:?}", res.into_inner().failures);
             }
 
             delivery
@@ -161,7 +152,6 @@ impl EventHandler {
                 properties.insert("unit".to_string(), sample.counter_unit.clone());
                 properties.insert("resource_id".to_string(), sample.resource_id.clone());
                 properties.insert("value".to_string(), sample.counter_volume.to_string());
-                // filter > 0 ?
             }
             _ => {
                 log::info!("Unhandled counter name: {}", sample.counter_name);
@@ -238,8 +228,7 @@ impl EventHandler {
                 }))
             }
 
-            //     "compute.instance.power_off.end" => self.handle_instance_power_off(event.payload).await?,
-            //     "compute.instance.power_on.end" => self.handle_instance_power_on(event.payload).await?,
+            //     "compute.instance.power_off.end" | "compute.instance.power_on.end"
             _ => {
                 log::info!("Unhandled event type: {}", event.event_type);
                 Ok(None)
@@ -320,7 +309,7 @@ struct CeilometerEventPayloadItem {
     pub event_type: String,
     pub generated: String, // UTC time for when the event occurred.
     pub traits: Vec<Trait>,
-    pub raw: serde_json::Value, // TODO anything interesting ?
+    pub raw: serde_json::Value, // Not used
     pub message_signature: String,
 }
 
