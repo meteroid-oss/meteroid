@@ -3,7 +3,6 @@ use std::str::FromStr;
 
 use fastrand;
 use log::{error, info};
-use prost_types::Timestamp;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -175,10 +174,7 @@ fn generate_random_data(schema: &Schema) -> Event {
         customer_id: Some(CustomerId::ExternalCustomerId(
             schema.customer_ids[fastrand::usize(0..schema.customer_ids.len())].clone(),
         )),
-        timestamp: Some(Timestamp {
-            seconds: now.timestamp(),
-            nanos: now.timestamp_subsec_nanos() as i32,
-        }),
+        timestamp: now.to_rfc3339(),
         properties,
     }
 }

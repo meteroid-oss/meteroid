@@ -221,3 +221,16 @@ pub enum TenantEnvironmentEnum {
     Sandbox,
     Demo,
 }
+
+impl TenantEnvironmentEnum {
+    pub fn as_short_string(&self) -> String {
+        match self {
+            TenantEnvironmentEnum::Production => "prod".to_string(),
+            TenantEnvironmentEnum::Staging => "stg".to_string(),
+            TenantEnvironmentEnum::Qa => "qa".to_string(),
+            TenantEnvironmentEnum::Development => "dev".to_string(),
+            TenantEnvironmentEnum::Sandbox => "sand".to_string(),
+            TenantEnvironmentEnum::Demo => "demo".to_string(),
+        }
+    }
+}

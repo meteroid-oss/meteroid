@@ -1,9 +1,5 @@
 mod errors;
 
-#[cfg(feature = "openstack")]
-pub mod openstack;
-
-#[cfg(feature = "clickhouse")]
 pub mod clickhouse;
 
 use crate::connectors::errors::ConnectorError;
@@ -33,4 +29,3 @@ impl Connector for PrintConnector {
         Ok(vec![])
     }
 }
-

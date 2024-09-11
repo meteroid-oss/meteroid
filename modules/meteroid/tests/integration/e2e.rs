@@ -9,7 +9,6 @@ use rust_decimal_macros::dec;
 use tonic::Request;
 use uuid::{uuid, Uuid};
 
-use metering::utils::datetime_to_timestamp;
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
@@ -242,7 +241,7 @@ async fn test_metering_e2e() {
             event_id: uuid::Uuid::new_v4().to_string(),
             event_name: event_name.to_string(),
             customer_id: Some(CustomerId::MeteroidCustomerId(customer.clone())),
-            timestamp: Some(datetime_to_timestamp(timestamp)),
+            timestamp: timestamp.to_rfc3339(),
             properties: {
                 let mut map = HashMap::new();
                 for (key, value) in properties {

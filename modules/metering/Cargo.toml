@@ -66,7 +66,7 @@ name = "metering-api"
 path = "src/bin/server.rs"
 
 [features]
-default = []
+default = ["clickhouse", "kafka"]
 kafka = ["dep:kafka", "dep:rdkafka"]
 clickhouse = ["dep:clickhouse-rs"]
-openstack = ["dep:osauth", "dep:http"]
+openstack = []

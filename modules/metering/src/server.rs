@@ -6,7 +6,6 @@ use crate::ingest;
 #[cfg(feature = "kafka")]
 use crate::ingest::sinks::kafka::KafkaSink;
 
-
 use common_grpc::middleware::server as common_middleware;
 
 use common_grpc::middleware::client::{build_layered_client_service, LayeredClientService};
@@ -15,21 +14,16 @@ use std::sync::Arc;
 use tonic::transport::{Channel, Endpoint, Server};
 use tonic_tracing_opentelemetry::middleware as otel_middleware;
 
-
 #[cfg(not(feature = "kafka"))]
 use crate::ingest::sinks::print::PrintSink;
 
 #[cfg(feature = "openstack")]
-use crate::connectors::openstack::OpenstackConnector;
-
+use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhouseExtension;
 #[cfg(feature = "clickhouse")]
 use crate::connectors::clickhouse::ClickhouseConnector;
 
 #[cfg(not(any(feature = "clickhouse", feature = "openstack")))]
 use crate::connectors::PrintConnector;
-
-#[cfg(all(feature = "openstack", feature = "clickhouse"))]
-compile_error!("feature \"openstack\" and feature \"clickhouse\" cannot be enabled at the same time");
 
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
@@ -46,34 +40,27 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
         config.listen_addr.port()
     );
 
-
-    #[cfg(feature = "openstack")]
-        let connector = {
-        log::info!("Openstack connector enabled");
-        Arc::new(OpenstackConnector::init(&config.openstack_config).await?)
-    };
-
     #[cfg(feature = "clickhouse")]
-        let connector = {
+    let connector = {
         log::info!("Clickhouse connector enabled");
-        Arc::new(ClickhouseConnector::init(&config.clickhouse, &config.kafka).await?)
-    };
+        let conn = ClickhouseConnector::init(
+            &config.clickhouse,
+            &config.kafka,
+            vec![
+                #[cfg(feature = "openstack")]
+                Arc::new(OpenstackClickhouseExtension {}),
+            ],
+        )
+        .await?;
 
-
-    #[cfg(not(any(feature = "clickhouse", feature = "openstack")))]
-        let connector = {
-        log::warn!("No connector enabled. Using print connector for debugging");
-        Arc::new(PrintConnector {})
+        Arc::new(conn)
     };
 
     #[cfg(feature = "kafka")]
-        let sink = Arc::new(KafkaSink::new(&config.kafka)?);
+    let sink = Arc::new(KafkaSink::new(&config.kafka)?);
 
     #[cfg(not(feature = "kafka"))]
-        let sink = Arc::new(PrintSink {});
-
-
-    // make it lazy ? we want to be able to start the server without the billing api ?
+    let sink = Arc::new(PrintSink {});
 
     let channel = Endpoint::from_shared(config.meteroid_endpoint.clone())
         .expect("Failed to create channel to meteroid from shared endpoint");

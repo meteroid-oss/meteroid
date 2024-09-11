@@ -44,11 +44,10 @@ impl CustomersService for CustomerServiceComponents {
             .data
             .ok_or(CustomerApiError::MissingArgument("no data".into()))?;
 
-        let billing_config = inner
-            .billing_config
-            .ok_or(CustomerApiError::MissingArgument("billing_config".into()))
-            .and_then(|c| DomainBillingConfigWrapper::try_from(c))?
-            .0;
+        let billing_config = match inner.billing_config {
+            Some(b) => DomainBillingConfigWrapper::try_from(b)?.0,
+            None => domain::BillingConfig::Manual,
+        };
 
         let customer_new = CustomerNew {
             name: inner.name,
