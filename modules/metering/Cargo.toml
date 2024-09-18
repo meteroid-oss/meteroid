@@ -57,10 +57,6 @@ rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
 # clickhosue connector deps
 clickhouse-rs = { workspace = true, optional = true }
 
-# openstack connector deps. Inlined
-osauth = { version = "0.4.3", optional = true }
-http = { version = "0.2.1", optional = true }
-
 [[bin]]
 name = "metering-api"
 path = "src/bin/server.rs"
