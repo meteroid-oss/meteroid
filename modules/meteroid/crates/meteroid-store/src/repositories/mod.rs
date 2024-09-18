@@ -16,6 +16,7 @@ pub mod api_tokens;
 pub mod billable_metrics;
 pub mod configs;
 mod constants;
+pub mod coupons;
 pub mod customer_balance;
 pub mod historical_rates;
 pub mod invoicing_entities;

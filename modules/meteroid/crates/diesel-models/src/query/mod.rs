@@ -3,6 +3,7 @@ pub mod api_tokens;
 pub mod bi;
 pub mod billable_metrics;
 pub mod configs;
+pub mod coupons;
 pub mod customer_balance_txs;
 pub mod customers;
 pub mod historical_rates_from_usd;

@@ -22,6 +22,7 @@ pub mod slot_transactions;
 pub mod subscriptions;
 
 pub mod add_ons;
+pub mod coupons;
 pub mod customer_balance_txs;
 pub mod extend;
 pub mod historical_rates_from_usd;

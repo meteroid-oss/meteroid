@@ -17,7 +17,6 @@ impl AddOnRowNew {
         query
             .get_result(conn)
             .await
-            .tap_err(|e| log::error!("Error while inserting add-on: {:?}", e))
             .attach_printable("Error while inserting add-on")
             .into_db_result()
     }

@@ -42,6 +42,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod coupons {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.coupons.v1");
+            }
+        }
+
         pub mod instance {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.instance.v1");

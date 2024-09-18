@@ -7,7 +7,7 @@ use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
-pub enum AddOnApiError {
+pub enum CouponApiError {
     #[error("Missing argument: {0}")]
     #[code(InvalidArgument)]
     MissingArgument(String),
@@ -17,9 +17,9 @@ pub enum AddOnApiError {
     StoreError(String, #[source] Box<dyn Error>),
 }
 
-impl From<Report<StoreError>> for AddOnApiError {
+impl From<Report<StoreError>> for CouponApiError {
     fn from(value: Report<StoreError>) -> Self {
         let err = Box::new(value.into_error());
-        Self::StoreError("Error in api add-on service".to_string(), err)
+        Self::StoreError("Error in api coupon service".to_string(), err)
     }
 }

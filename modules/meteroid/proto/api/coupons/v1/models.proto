@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package meteroid.api.coupons.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message Coupon {
+  string id = 1;
+  string code = 2;
+  string description = 3;
+  CouponDiscount discount = 4;
+  optional google.protobuf.Timestamp expires_at = 5;
+  optional int32 redemption_limit = 6;
+}
+
+message CouponDiscount {
+  oneof discount_type {
+    PercentageDiscount percentage = 1;
+    FixedDiscount fixed = 2;
+  }
+
+  message PercentageDiscount {
+    string percentage = 1;
+  }
+  message FixedDiscount {
+    string amount = 1;
+    string currency = 2;
+  }
+}
