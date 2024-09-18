@@ -3,7 +3,7 @@ use super::enums::{
 };
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::{Address, Customer, PlanVersionLatest};
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
@@ -17,7 +17,7 @@ use std::cmp::min;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
-#[try_from_owned(InvoiceRow, Report<StoreError>)]
+#[try_from_owned(InvoiceRow, StoreErrorReport)]
 pub struct Invoice {
     pub id: Uuid,
     #[from(~.into())]
@@ -73,7 +73,7 @@ pub struct Invoice {
 }
 
 #[derive(Debug, o2o)]
-#[owned_try_into(InvoiceRowNew, Report<StoreError>)]
+#[owned_try_into(InvoiceRowNew, StoreErrorReport)]
 #[ghosts(id: {uuid::Uuid::now_v7()})]
 pub struct InvoiceNew {
     #[into(~.into())]
@@ -125,7 +125,7 @@ pub struct InvoiceNew {
 }
 
 #[derive(Debug, o2o)]
-#[owned_try_into(InvoiceRowLinesPatch, Report<StoreError>)]
+#[owned_try_into(InvoiceRowLinesPatch, StoreErrorReport)]
 pub struct InvoiceLinesPatch {
     #[into(serde_json::to_value(& ~).map_err(| e | {
     StoreError::SerdeError("Failed to serialize line_items".to_string(), e)

@@ -1,7 +1,5 @@
 #[derive(Debug, thiserror::Error)]
 pub enum OpenstackAdapterError {
-    #[error("Initialization Error")]
-    InitializationError,
     #[error("Error running the rabbitmq consumer: {0:?}")]
     LapinError(#[source] lapin::Error),
     #[error("Serialization error: {0}")]

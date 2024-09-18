@@ -16,7 +16,7 @@ pub struct MeteringSetup {
     pub token: CancellationToken,
     pub join_handle: JoinHandle<()>,
     pub channel: Channel,
-    pub config: Config,
+    pub _config: Config,
 }
 
 pub async fn start_metering(config: Config) -> MeteringSetup {
@@ -50,7 +50,7 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
         token,
         join_handle: join_handle_meteroid,
         channel,
-        config: config.clone(),
+        _config: config.clone(),
     }
 }
 

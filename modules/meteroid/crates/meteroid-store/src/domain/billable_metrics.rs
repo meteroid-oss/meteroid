@@ -1,7 +1,6 @@
 use super::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use chrono::NaiveDateTime;
-use error_stack::Report;
 use std::collections::HashMap;
 
 use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
@@ -10,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Clone, Debug, o2o)]
-#[try_map_owned(BillableMetricRow, Report<StoreError>)]
+#[try_map_owned(BillableMetricRow, StoreErrorReport)]
 pub struct BillableMetric {
     pub id: Uuid,
     pub name: String,

@@ -1,32 +1,32 @@
 [workspace]
 resolver = "2"
 members = [
-    # meteroid
-    "modules/meteroid",
-    "modules/meteroid/crates/meteroid-grpc",
-    "modules/meteroid/crates/stripe-client",
-    "modules/meteroid/crates/diesel-models",
-    "modules/meteroid/crates/meteroid-store",
-    # metering
-    "modules/metering",
-    "modules/metering/crates/metering-grpc",
-    # adapters
-    "modules/adapters/openstack",
-    "modules/adapters/slurm-collector",
-    # shared
-    "crates/kafka",
-    "crates/common-build-info",
-    "crates/common-config",
-    "crates/common-domain",
-    "crates/common-eventbus",
-    "crates/common-grpc",
-    "crates/common-grpc-error-as-tonic-macros",
-    "crates/common-grpc-error-as-tonic-macros-impl",
-    "crates/common-logging",
-    "crates/common-utils",
-    "crates/distributed-lock",
-    # extra
-    "extra/generator",
+  # meteroid
+  "modules/meteroid",
+  "modules/meteroid/crates/meteroid-grpc",
+  "modules/meteroid/crates/stripe-client",
+  "modules/meteroid/crates/diesel-models",
+  "modules/meteroid/crates/meteroid-store",
+  # metering
+  "modules/metering",
+  "modules/metering/crates/metering-grpc",
+  # adapters
+  "modules/adapters/openstack",
+  "modules/adapters/slurm-collector",
+  # shared
+  "crates/kafka",
+  "crates/common-build-info",
+  "crates/common-config",
+  "crates/common-domain",
+  "crates/common-eventbus",
+  "crates/common-grpc",
+  "crates/common-grpc-error-as-tonic-macros",
+  "crates/common-grpc-error-as-tonic-macros-impl",
+  "crates/common-logging",
+  "crates/common-utils",
+  "crates/distributed-lock",
+  # extra
+  "extra/generator",
 ]
 
 [workspace.package]

@@ -256,7 +256,7 @@ impl SubscriptionRow {
             .inner_join(pv_dsl::plan_version.inner_join(p_dsl::plan))
             .left_join(sc_dsl::subscription_component)
             .select(SubscriptionInvoiceCandidateRow::as_select())
-            .cursor_paginate(pagination, s_dsl::id, "id");
+            .cursor_paginate(pagination, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

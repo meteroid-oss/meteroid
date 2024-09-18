@@ -15,9 +15,6 @@ use tonic::transport::Channel;
 
 #[derive(Error, Debug)]
 enum AppError {
-    #[error("Input error: {0}")]
-    InvalidInput(String),
-
     #[error("Sacct command failed: {0}")]
     SacctError(String),
 

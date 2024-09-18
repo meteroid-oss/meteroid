@@ -6,7 +6,6 @@ use lapin::{options::*, types::FieldTable, Channel, Consumer};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
-use tonic::codegen::Body;
 use tonic::Request;
 
 use crate::error::OpenstackAdapterError;
@@ -80,22 +79,20 @@ impl EventHandler {
                     )
                 })?;
 
-            let mut events = Vec::new();
-
-            match event.event_type {
+            let events: Vec<server::Event> = match event.event_type {
                 CeilometerEventType::Metering => {
                     let payloads: Vec<CeilometerMetricPayloadItem> = event
                         .payload
                         .iter()
                         .map(|x| serde_json::from_value(x.clone()).unwrap())
                         .collect();
-                    events = payloads
+                    payloads
                         .into_iter()
                         .map(|x| self.process_sample(x))
                         .collect::<Result<Vec<Option<server::Event>>, OpenstackAdapterError>>()?
                         .into_iter()
                         .flatten()
-                        .collect();
+                        .collect()
                 }
                 CeilometerEventType::Event => {
                     let payloads: Vec<CeilometerEventPayloadItem> = event
@@ -103,22 +100,22 @@ impl EventHandler {
                         .iter()
                         .map(|x| serde_json::from_value(x.clone()).unwrap())
                         .collect();
-                    events = payloads
+                    payloads
                         .into_iter()
                         .map(|x| self.process_event(x))
                         .collect::<Result<Vec<Option<server::Event>>, OpenstackAdapterError>>()?
                         .into_iter()
                         .flatten()
-                        .collect();
+                        .collect()
                 }
-            }
+            };
 
             if !events.is_empty() {
                 let res = self
                     .sink
                     .client
                     .ingest(Request::new(IngestRequest {
-                        events: events,
+                        events,
                         allow_backfilling: false,
                     }))
                     .await
@@ -239,8 +236,8 @@ impl EventHandler {
 
 #[derive(Debug, Deserialize)]
 pub struct OsloRecord {
-    #[serde(rename = "oslo.version")]
-    version: String,
+    // #[serde(rename = "oslo.version")]
+    // version: String,
     #[serde(rename = "oslo.message")]
     message: String,
 }
@@ -249,15 +246,15 @@ pub struct OsloRecord {
 pub struct CeilometerOsloMessage {
     pub _unique_id: String,
     pub event_type: CeilometerEventType, // "metering" , not super useful here (unless it's different
-    pub message_id: String,
+    // pub message_id: String,
     pub payload: Vec<serde_json::Value>, // CeilometerMetricPayloadItem or CeilometerEventPayloadItem based on event_type
-    pub priority: String,
-    pub publisher_id: String,
-    pub timestamp: String,
+                                         // pub priority: String,
+                                         // pub publisher_id: String,
+                                         // pub timestamp: String,
 }
 
 #[derive(Debug, Deserialize)]
-enum CounterType {
+pub enum CounterType {
     #[serde(rename = "gauge")]
     Gauge,
     #[serde(rename = "delta")]
@@ -287,20 +284,20 @@ pub enum CeilometerEventType {
 #[derive(Debug, Deserialize)]
 pub struct CeilometerMetricPayloadItem {
     pub counter_name: String,
-    pub counter_type: CounterType,
+    // pub counter_type: CounterType,
     pub counter_unit: String,
     pub counter_volume: f64,
     pub message_id: String,
-    pub message_signature: String,
-    pub monotonic_time: Option<String>,
+    // pub message_signature: String,
+    // pub monotonic_time: Option<String>,
     pub project_id: String,
-    pub project_name: Option<String>,
+    // pub project_name: Option<String>,
     pub resource_id: String,
-    pub resource_metadata: HashMap<String, serde_json::Value>, // string, int, datetime or an array of that
-    pub source: String,
+    // pub resource_metadata: HashMap<String, serde_json::Value>, // string, int, datetime or an array of that
+    // pub source: String,
     pub timestamp: String,
-    pub user_id: Option<String>,
-    pub user_name: Option<String>,
+    // pub user_id: Option<String>,
+    // pub user_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -309,8 +306,8 @@ struct CeilometerEventPayloadItem {
     pub event_type: String,
     pub generated: String, // UTC time for when the event occurred.
     pub traits: Vec<Trait>,
-    pub raw: serde_json::Value, // Not used
-    pub message_signature: String,
+    // pub raw: serde_json::Value,
+    // pub message_signature: String,
 }
 
 #[derive(Debug, Clone)]
@@ -325,7 +322,7 @@ impl<'de> Deserialize<'de> for Trait {
         D: Deserializer<'de>,
     {
         Deserialize::deserialize(deserializer)
-            .map(|TraitJson(name, dtype, value)| Trait { name, value })
+            .map(|TraitJson(name, _dtype, value)| Trait { name, value })
     }
 }
 
