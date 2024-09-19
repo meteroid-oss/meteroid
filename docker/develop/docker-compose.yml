@@ -108,7 +108,7 @@ services:
     entrypoint: /bin/sh
     command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
     ports:
-      - 8080:8080
+      - 8085:8080
       - 9644:9644
     networks:
       - meteroid_net

@@ -1,9 +1,12 @@
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use envconfig::Envconfig;
-use kafka::config::KafkaConnectionConfig;
-use rdkafka::ClientConfig;
 use std::net::SocketAddr;
+
+#[cfg(feature = "kafka")]
+use kafka::config::KafkaConnectionConfig;
+#[cfg(feature = "kafka")]
+use rdkafka::ClientConfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -13,9 +16,11 @@ pub struct Config {
     #[envconfig(from = "METEROID_API_EXTERNAL_URL", default = "http://127.0.0.1:50061")]
     pub meteroid_endpoint: String,
 
+    #[cfg(feature = "kafka")]
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    #[cfg(feature = "clickhouse")]
     #[envconfig(nested = true)]
     pub clickhouse: ClickhouseConfig,
 
@@ -26,6 +31,7 @@ pub struct Config {
     pub internal_auth: InternalAuthConfig,
 }
 
+#[cfg(feature = "kafka")]
 #[derive(Envconfig, Clone)]
 pub struct KafkaConfig {
     // TODO if using clickhouse kafka table engine with auth or schema, we need to pass the auth data through clickhouse server xml config as well
@@ -52,6 +58,7 @@ pub struct KafkaConfig {
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
 }
 
+#[cfg(feature = "kafka")]
 impl KafkaConfig {
     pub fn to_client_config(&self) -> ClientConfig {
         let mut client_config = self.kafka_connection.to_client_config();

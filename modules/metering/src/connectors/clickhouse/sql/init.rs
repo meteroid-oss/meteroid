@@ -7,7 +7,7 @@ fn get_table_name(table_suffix: &str) -> String {
 }
 
 // the stored mergetree events table
-pub(super) fn get_events_table_name() -> String {
+pub fn get_events_table_name() -> String {
     get_table_name("events")
 }
 

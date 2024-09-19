@@ -186,7 +186,7 @@ impl InvoiceRow {
                     "\"invoicing_entity\".\"grace_period_hours\" * INTERVAL '1 hour'",
                 )))
             .select(InvoiceRow::as_select())
-            .cursor_paginate(pagination, i_dsl::id, "id");
+            .cursor_paginate(pagination, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -247,7 +247,7 @@ impl InvoiceRow {
                     .or(diesel::dsl::now.gt(i_dsl::invoice_date + 1.hour())),
             )
             .select(InvoiceRow::as_select())
-            .cursor_paginate(pagination, i_dsl::id, "id");
+            .cursor_paginate(pagination, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -271,7 +271,7 @@ impl InvoiceRow {
             .filter(i_dsl::issued.eq(false))
             .filter(i_dsl::issue_attempts.lt(max_attempts))
             .select(InvoiceRow::as_select())
-            .cursor_paginate(pagination, i_dsl::id, "id");
+            .cursor_paginate(pagination, "id");
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

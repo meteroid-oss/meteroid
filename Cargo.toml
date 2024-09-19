@@ -10,6 +10,9 @@ members = [
   # metering
   "modules/metering",
   "modules/metering/crates/metering-grpc",
+  # adapters
+  "modules/adapters/openstack",
+  "modules/adapters/slurm-collector",
   # shared
   "crates/kafka",
   "crates/common-build-info",
@@ -29,7 +32,7 @@ members = [
 [workspace.package]
 license = "AGPL-3.0-only"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.81"
 repository = "https://github.com/meteroid-oss/meteroid"
 
 [workspace.dependencies]
@@ -49,6 +52,7 @@ cached = "0.53.1"
 chacha20poly1305 = "0.10.1"
 chrono = { version = "0.4.31", default-features = false }
 chrono-tz = { version = "0.8.5" }
+clap = "4.5.16"
 clickhouse-rs = "1.1.0-alpha.1"
 deadpool-postgres = "0.14.0"
 diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
@@ -57,11 +61,13 @@ diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 dotenvy = "0.15.7"
 envconfig = "0.10.0"
+env_logger = "0.11.5"
 error-stack = "0.5.0"
 fang = { version = "0.10.4", default-features = false }
 fastrand = "2.0.1"
 futures = "0.3.28"
 futures-util = { version = "0.3.29", features = [] }
+futures-lite = "2.3.0"
 headers = "0.4.0"
 hex = "0.4.3"
 hmac = "0.12.1"
@@ -74,6 +80,7 @@ hyper = { version = "0.14.27", default-features = false }
 init-tracing-opentelemetry = { version = "0.19.0", features = ["tracing_subscriber_ext"] }
 itertools = "0.13.0"
 jsonwebtoken = "9.2.0"
+lapin = "2.5.0"
 lazy_static = "1"
 log = "0.4.20"
 miette = { version = "7.0.0", default-features = false }
@@ -119,6 +126,7 @@ sha2 = "0.10.8"
 shellexpand = "3.1.0"
 syn = "2.0.52"
 tap = "1.0.1"
+tempfile = "3.12.0"
 testcontainers = "0.20.1" # 0.21.x breaks rustls by adding aws_lc_rs feature along with ring feature which can't coexist
 testcontainers-modules = { version = "0.8.0", default-features = false }
 thiserror = "1.0.49"

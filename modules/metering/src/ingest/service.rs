@@ -211,10 +211,9 @@ fn validate_event(
         .as_ref()
         .ok_or_else(|| "No customer provided")?;
 
-    let ts_opt = event
-        .timestamp
-        .as_ref()
-        .and_then(|ts| chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32));
+    let ts_opt = chrono::DateTime::parse_from_rfc3339(&event.timestamp)
+        .map(|ts| ts.to_utc())
+        .ok();
     let ts = match ts_opt {
         Some(ts) => {
             let diff = ts - *now;

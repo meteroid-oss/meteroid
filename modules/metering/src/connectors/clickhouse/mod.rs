@@ -10,19 +10,25 @@ use std::collections::HashMap;
 use error_stack::{Result, ResultExt};
 
 use std::str::FromStr;
+use std::sync::Arc;
 
+pub mod extensions;
 pub mod sql;
 
+use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
 use chrono_tz::Tz;
 
+#[derive(Clone)]
 pub struct ClickhouseConnector {
     pool: Pool,
+    extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
 }
 
 impl ClickhouseConnector {
     pub async fn init(
         clickhouse_config: &ClickhouseConfig,
         kafka_config: &KafkaConfig,
+        extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
     ) -> Result<Self, ConnectorError> {
         let options = Options::from_str(&clickhouse_config.address.clone())
             .map_err(|_| {
@@ -72,7 +78,36 @@ impl ClickhouseConnector {
                 "Could not create kafka MV".to_string(),
             ))?;
 
-        Ok(ClickhouseConnector { pool })
+        for ext in &extensions {
+            ext.init(&pool).await?;
+        }
+
+        Ok(ClickhouseConnector { pool, extensions })
+    }
+
+    pub async fn execute_ddl(&self, ddl: String) -> Result<(), ConnectorError> {
+        let mut client = self
+            .pool
+            .get_handle()
+            .await
+            .change_context(ConnectorError::ResourceUnavailable)?;
+
+        client
+            .execute(ddl)
+            .await
+            .change_context(ConnectorError::RegisterError)?;
+
+        Ok(())
+    }
+
+    fn match_extension(
+        &self,
+        params: &QueryMeterParams,
+    ) -> Option<Arc<dyn ConnectorClickhouseExtension + Send + Sync>> {
+        self.extensions
+            .iter()
+            .find(|ext| params.event_name.starts_with(&ext.prefix()))
+            .map(|ext| ext.clone())
     }
 }
 
@@ -106,15 +141,21 @@ impl Connector for ClickhouseConnector {
             .await
             .change_context(ConnectorError::ResourceUnavailable)?;
 
-        let sql = sql::query_meter::query_meter_view_sql(params.clone())
-            .map_err(|e| ConnectorError::InvalidQuery(e))?;
+        let query = match self
+            .match_extension(&params)
+            .and_then(|ext| ext.build_query(&params))
+        {
+            Some(ext) => ext,
+            None => sql::query_meter::query_meter_view_sql(params.clone())
+                .map_err(|e| ConnectorError::InvalidQuery(e))?,
+        };
 
         let block = client
-            .query(sql.clone())
+            .query(&query)
             .fetch_all()
             .await
             .map_err(|e| {
-                log::error!("Query error: '{:?}' for sql '{}'", e, sql);
+                log::error!("Query error: '{:?}' for sql '{}'", e, &query);
                 e
             })
             .change_context(ConnectorError::QueryError)?;

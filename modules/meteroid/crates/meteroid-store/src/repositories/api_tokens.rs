@@ -4,12 +4,14 @@ use argon2::{
 };
 use common_eventbus::Event;
 use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
+use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use nanoid::nanoid;
 use tracing_log::log;
 use uuid::Uuid;
 
 use crate::domain::api_tokens::ApiToken;
+use crate::domain::enums::TenantEnvironmentEnum;
 use crate::domain::ApiTokenValidation;
 use crate::errors::StoreError;
 use crate::store::Store;
@@ -78,9 +80,14 @@ impl ApiTokensInterface for Store {
 
         let id = Uuid::now_v7();
 
-        // TODO
+        let tenant = TenantRow::find_by_id(&mut conn, entity.tenant_id)
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let env: TenantEnvironmentEnum = tenant.environment.into();
+
         // api key is ex: ${pv for private key ?? pb for publishable key}_${tenant.env}_ + random
-        let prefix = "pv_sand_";
+        let prefix = format!("pv_{}_", env.as_short_string());
 
         // encode in base62. Identifier is added to the api key, and used to retrieve the hash.
         let id_part = base62::encode(id.as_u128());

@@ -46,6 +46,9 @@ pub enum StoreError {
     MeteringServiceError(String, #[source] ComputeError),
 }
 
+// used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862
+pub(crate) type StoreErrorReport = error_stack::Report<StoreError>;
+
 impl From<ComputeError> for StoreError {
     fn from(err: ComputeError) -> Self {
         StoreError::InvoiceComputationError(err)
