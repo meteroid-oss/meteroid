@@ -22,7 +22,7 @@ use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhous
 #[cfg(feature = "clickhouse")]
 use crate::connectors::clickhouse::ClickhouseConnector;
 
-#[cfg(not(any(feature = "clickhouse", feature = "openstack")))]
+#[cfg(not(feature = "clickhouse"))]
 use crate::connectors::PrintConnector;
 
 fn only_internal(path: &str) -> bool {
@@ -55,6 +55,8 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
 
         Arc::new(conn)
     };
+    #[cfg(not(feature = "clickhouse"))]
+    let connector = Arc::new(PrintConnector {});
 
     #[cfg(feature = "kafka")]
     let sink = Arc::new(KafkaSink::new(&config.kafka)?);

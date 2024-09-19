@@ -1,3 +1,5 @@
+mod model;
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::Parser;
 use common_grpc::middleware::client::{build_api_layered_client_service, LayeredApiClientService};
@@ -5,99 +7,13 @@ use futures::StreamExt;
 use futures_util::stream::BoxStream;
 use log::{error, info};
 use metering_grpc::meteroid::metering::v1::events_service_client::EventsServiceClient;
-use serde::{Deserialize, Serialize};
 use std::fs::File as FsFile;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
-use thiserror::Error;
 use tokio::time::{self, Duration};
 use tonic::transport::Channel;
 
-#[derive(Error, Debug)]
-enum AppError {
-    #[error("Sacct command failed: {0}")]
-    SacctError(String),
-
-    #[error("Failed to parse sacct output: {0}")]
-    InvalidSacctOutput(String),
-
-    #[error("Date parsing error: {0}")]
-    DateParseError(#[from] chrono::ParseError),
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
-
-    #[error("Error setting up grpc connection : {0}")]
-    TonicConnectionError(#[from] tonic::transport::Error),
-
-    #[error("Tonic error: {0}")]
-    TonicStatusError(#[from] tonic::Status),
-
-    #[error("Ingestion was rejected by the server for some records")]
-    IngestError,
-}
-
-type Result<T> = std::result::Result<T, AppError>;
-
-#[derive(clap::Parser, Debug)]
-#[clap(author, version, about, long_about = None)]
-struct AppConfig {
-    #[clap(long, default_value = "300", help = "Polling interval in seconds")]
-    poll_interval: u64,
-
-    #[clap(long, env = "METEROID_INGEST_ENDPOINT", help = "API endpoint URL")]
-    api_endpoint: String,
-
-    #[clap(
-        long,
-        env = "METEROID_API_KEY",
-        hide_env_values = true,
-        help = "API key for authentication"
-    )]
-    api_key: String,
-
-    #[clap(long, default_value = "checkpoint.db", help = "Path to the state file")]
-    state_file: String,
-
-    #[clap(
-        long,
-        default_value = "200",
-        help = "Number of records to process in each batch"
-    )]
-    batch_size: usize,
-
-    #[clap(
-        long,
-        default_value = "2020-01-01T00:00:00Z",
-        help = "Initial checkpoint date in RFC 3339 format"
-    )]
-    initial_checkpoint: String,
-}
-
-type GrpcClient = EventsServiceClient<LayeredApiClientService>;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct SacctData {
-    id: String,
-    job_id: String,
-    account: String,
-    start_time: DateTime<Utc>,
-    elapsed_seconds: i64,
-    state: String,
-    end_time: DateTime<Utc>,
-    req_cpu: i64,
-    req_mem: i64,
-    partition: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Checkpoint {
-    last_processed_time: DateTime<Utc>,
-    processed_jobs: Vec<String>,
-}
+use model::{AppConfig, AppError, Checkpoint, GrpcClient, Result, SacctData};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -202,7 +118,7 @@ async fn process_sacct_data<T: SacctExecutor>(
     client: &mut GrpcClient,
     sacct_executor: &T,
 ) -> Result<()> {
-    let mut checkpoint = load_checkpoint(&config.state_file, &config.initial_checkpoint)?;
+    let checkpoint = load_checkpoint(&config.state_file, &config.initial_checkpoint)?;
 
     let mut sacct_data_stream = sacct_executor.sacct(checkpoint.last_processed_time)?;
     let mut batch = Vec::with_capacity(config.batch_size);
@@ -220,8 +136,7 @@ async fn process_sacct_data<T: SacctExecutor>(
 
         if batch.len() >= config.batch_size {
             send_batch_to_api(client, &batch).await?;
-            update_checkpoint(&mut checkpoint, &batch);
-            save_checkpoint(&config.state_file, &checkpoint)?;
+            update_and_save_checkpoint(&batch, &config.state_file)?;
 
             batch.clear();
         }
@@ -230,22 +145,28 @@ async fn process_sacct_data<T: SacctExecutor>(
     // Process any remaining data
     if !batch.is_empty() {
         send_batch_to_api(client, &batch).await?;
-        update_checkpoint(&mut checkpoint, &batch);
-        save_checkpoint(&config.state_file, &checkpoint)?;
+        update_and_save_checkpoint(&batch, &config.state_file)?;
     }
 
     Ok(())
 }
 
-fn update_checkpoint(checkpoint: &mut Checkpoint, batch: &[SacctData]) {
+fn update_and_save_checkpoint(batch: &[SacctData], file_path: &str) -> Result<()> {
     if let Some(last_job) = batch.last() {
-        checkpoint.last_processed_time = last_job.start_time;
-        checkpoint.processed_jobs = batch
-            .iter()
-            .filter(|job| job.start_time == checkpoint.last_processed_time)
-            .map(|job| job.job_id.clone())
-            .collect();
-    }
+        let new_checkpoint = Checkpoint {
+            last_processed_time: last_job.start_time,
+            processed_jobs: batch
+                .iter()
+                .filter(|job| job.start_time == last_job.start_time)
+                .map(|job| job.job_id.clone())
+                .collect(),
+        };
+
+        let file = FsFile::create(file_path)?;
+        serde_json::to_writer(file, &new_checkpoint)?;
+    };
+
+    Ok(())
 }
 
 fn load_checkpoint(file_path: &str, initial_checkpoint: &str) -> Result<Checkpoint> {
@@ -261,12 +182,6 @@ fn load_checkpoint(file_path: &str, initial_checkpoint: &str) -> Result<Checkpoi
             processed_jobs: Vec::new(),
         }),
     }
-}
-
-fn save_checkpoint(file_path: &str, checkpoint: &Checkpoint) -> Result<()> {
-    let file = FsFile::create(file_path)?;
-    serde_json::to_writer(file, checkpoint)?;
-    Ok(())
 }
 
 fn parse_sacct_line(line: &str) -> Result<SacctData> {

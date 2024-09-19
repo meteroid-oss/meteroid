@@ -42,9 +42,7 @@ impl EventHandler {
             .basic_consume(
                 queue,
                 "openstack_meteroid_consumer",
-                BasicConsumeOptions {
-                    ..BasicConsumeOptions::default()
-                },
+                BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
             .await
