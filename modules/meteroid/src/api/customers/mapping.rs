@@ -22,7 +22,7 @@ pub mod customer {
                             server::customer_billing_config::BillingConfigOneof::Stripe(
                                 server::customer_billing_config::Stripe {
                                     customer_id: value.customer_id,
-                                    collection_method: value.collection_method as i32,
+                                    collection_method: value.collection_method,
                                 },
                             ),
                         ),

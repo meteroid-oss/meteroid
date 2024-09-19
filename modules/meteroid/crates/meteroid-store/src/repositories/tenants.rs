@@ -153,6 +153,8 @@ impl TenantInterface for Store {
 }
 
 impl StoreInternal {
+    // todo fix me
+    #[allow(clippy::too_many_arguments)]
     pub async fn insert_tenant_with_default_entities(
         &self,
         conn: &mut PgConn,
@@ -184,7 +186,7 @@ impl StoreInternal {
         let insertable_tenant: TenantRowNew = TenantRowNew {
             id: Uuid::now_v7(),
             environment: tenant.environment.into(),
-            currency: currency,
+            currency,
             name: tenant.name,
             slug,
             organization_id,
@@ -207,7 +209,7 @@ impl StoreInternal {
                 domain::ProductFamilyNew {
                     name: "Default".to_string(),
                     external_id: "default".to_string(),
-                    tenant_id: inserted.id.clone(),
+                    tenant_id: inserted.id,
                 },
             )
             .await?;
@@ -231,7 +233,7 @@ impl StoreInternal {
     key = "Uuid",
     convert = r#"{ tenant_id }"#
 )]
-pub(self) async fn get_reporting_currency_by_tenant_id_cached(
+async fn get_reporting_currency_by_tenant_id_cached(
     conn: &mut PgConn,
     tenant_id: Uuid,
 ) -> StoreResult<Currency> {
@@ -243,7 +245,7 @@ pub(self) async fn get_reporting_currency_by_tenant_id_cached(
         .ok_or_else(|| {
             StoreError::ValueNotFound(format!("Currency not found for code {}", currency))
         })
-        .map(|x| x.clone())?;
+        .cloned()?;
 
     Ok(res)
 }

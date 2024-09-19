@@ -142,7 +142,7 @@ pub mod conversions {
         }
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
-            rust_decimal::Decimal::from_str(&proto)
+            rust_decimal::Decimal::from_str(proto)
                 .map_err(|e| tonic::Status::invalid_argument(format!("Invalid decimal: {}", e)))
         }
     }
@@ -154,7 +154,7 @@ pub mod conversions {
         }
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
-            uuid::Uuid::parse_str(&proto)
+            uuid::Uuid::parse_str(proto)
                 .map_err(|e| tonic::Status::invalid_argument(format!("Invalid uuid: {}", e)))
         }
     }

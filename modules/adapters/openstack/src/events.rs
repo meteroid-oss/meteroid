@@ -161,7 +161,7 @@ impl EventHandler {
                 sample.project_id.clone(),
             )),
             timestamp: sample.timestamp.clone(),
-            properties: properties,
+            properties,
         }))
     }
 
@@ -219,7 +219,7 @@ impl EventHandler {
                         project_id.to_string(),
                     )),
                     timestamp: timestamp.clone(),
-                    properties: properties,
+                    properties,
                 }))
             }
 

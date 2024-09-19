@@ -14,7 +14,7 @@ pub mod subscriptions {
     pub(crate) fn domain_to_proto(
         s: meteroid_store::domain::Subscription,
     ) -> Result<proto2::Subscription, Status> {
-        let status = *(&s.status_proto()?) as i32;
+        let status = s.status_proto()? as i32;
 
         Ok(proto2::Subscription {
             id: s.id.as_proto(),
@@ -56,7 +56,7 @@ pub mod subscriptions {
             billing_start_date: NaiveDate::from_proto(param.billing_start_date)?,
             billing_end_date: NaiveDate::from_proto_opt(param.billing_end_date)?,
             plan_version_id: Uuid::from_proto(param.plan_version_id)?,
-            created_by: actor.clone(),
+            created_by: *actor,
             net_terms: param.net_terms as i32,
             invoice_memo: param.invoice_memo,
             invoice_threshold: rust_decimal::Decimal::from_proto_opt(param.invoice_threshold)?,
@@ -67,11 +67,11 @@ pub mod subscriptions {
             subscription: subscription_new,
             price_components: param
                 .components
-                .map(|a| super::price_components::create_subscription_components_from_grpc(a))
+                .map(super::price_components::create_subscription_components_from_grpc)
                 .transpose()?,
             add_ons: param
                 .add_ons
-                .map(|a| super::add_ons::create_subscription_add_ons_from_grpc(a))
+                .map(super::add_ons::create_subscription_add_ons_from_grpc)
                 .transpose()?,
         };
 
@@ -104,7 +104,7 @@ pub mod subscriptions {
     pub(crate) fn details_domain_to_proto(
         sub: domain::SubscriptionDetails,
     ) -> Result<proto2::SubscriptionDetails, Status> {
-        let status = *(&sub.status_proto()?) as i32;
+        let status = sub.status_proto()? as i32;
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
                 id: sub.id.as_proto(),
@@ -130,18 +130,18 @@ pub mod subscriptions {
                 created_by: sub.created_by.as_proto(),
                 activated_at: sub.activated_at.as_proto(),
                 mrr_cents: sub.mrr_cents,
-                status: status,
+                status,
             }),
             schedules: vec![], // TODO
             price_components: sub
                 .price_components
                 .iter()
-                .map(|c| super::price_components::subscription_component_to_grpc(c))
+                .map(super::price_components::subscription_component_to_grpc)
                 .collect(),
             add_ons: sub
                 .add_ons
                 .iter()
-                .map(|c| super::add_ons::subscription_add_on_to_grpc(c))
+                .map(super::add_ons::subscription_add_on_to_grpc)
                 .collect(),
             metrics: sub
                 .metrics
@@ -180,7 +180,7 @@ mod price_components {
 
                 let billing_period = c
                     .billing_period
-                    .map(|p| api_shared::BillingPeriod::try_from(p))
+                    .map(api_shared::BillingPeriod::try_from)
                     .transpose()
                     .map_err(|_| Status::invalid_argument("Invalid billing period".to_string()))?
                     .map(map_billing_period_from_grpc);
@@ -234,7 +234,7 @@ mod price_components {
             .remove_components
             .iter()
             .map(|remove_component_id| {
-                crate::api::utils::parse_uuid(&remove_component_id, "remove_component_id")
+                crate::api::utils::parse_uuid(remove_component_id, "remove_component_id")
             })
             .collect::<Result<Vec<Uuid>>>()?;
 
@@ -493,7 +493,7 @@ mod price_components {
             }
             Some(api::subscription_fee::Fee::Usage(usage)) => {
                 let metric_id = Uuid::from_proto_ref(&usage.metric_id)?;
-                let model = usage_pricing_model_from_grpc(&usage)?;
+                let model = usage_pricing_model_from_grpc(usage)?;
                 Ok(domain::SubscriptionFee::Usage { metric_id, model })
             }
             None => Err(Status::new(
@@ -701,7 +701,7 @@ mod add_ons {
             Some(api::create_subscription_add_on::Customization::Parameterization(param)) => {
                 let billing_period = param
                     .billing_period
-                    .map(|p| api_shared::BillingPeriod::try_from(p))
+                    .map(api_shared::BillingPeriod::try_from)
                     .transpose()
                     .map_err(|_| Status::invalid_argument("Invalid billing period".to_string()))?
                     .map(map_billing_period_from_grpc);

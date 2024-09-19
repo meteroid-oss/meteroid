@@ -264,7 +264,7 @@ pub mod metric {
                     vec![l.dimension_key, l.linked_dimension_key]
                 }
             })
-            .unwrap_or(vec![]);
+            .unwrap_or_default();
 
         metering::Meter {
             meter_slug: metric.id.to_string(), // TODO slug would make it easier for external metering

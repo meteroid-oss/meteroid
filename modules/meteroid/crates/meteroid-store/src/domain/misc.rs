@@ -7,11 +7,11 @@ pub struct PaginationRequest {
     pub page: u32,
 }
 
-impl Into<diesel_models::extend::pagination::PaginationRequest> for PaginationRequest {
-    fn into(self) -> diesel_models::extend::pagination::PaginationRequest {
+impl From<PaginationRequest> for diesel_models::extend::pagination::PaginationRequest {
+    fn from(val: PaginationRequest) -> Self {
         diesel_models::extend::pagination::PaginationRequest {
-            per_page: self.per_page,
-            page: self.page,
+            per_page: val.per_page,
+            page: val.page,
         }
     }
 }
@@ -22,12 +22,12 @@ pub struct PaginatedVec<T> {
     pub total_results: u64,
 }
 
-impl<T> Into<PaginatedVec<T>> for diesel_models::extend::pagination::PaginatedVec<T> {
-    fn into(self) -> PaginatedVec<T> {
+impl<T> From<diesel_models::extend::pagination::PaginatedVec<T>> for PaginatedVec<T> {
+    fn from(val: diesel_models::extend::pagination::PaginatedVec<T>) -> Self {
         PaginatedVec {
-            items: self.items.into_iter().map(|x| x.into()).collect(),
-            total_pages: self.total_pages,
-            total_results: self.total_results,
+            items: val.items.into_iter().collect(),
+            total_pages: val.total_pages,
+            total_results: val.total_results,
         }
     }
 }
@@ -37,13 +37,13 @@ pub struct CursorPaginationRequest {
     pub cursor: Option<Uuid>,
 }
 
-impl Into<diesel_models::extend::cursor_pagination::CursorPaginationRequest>
-    for CursorPaginationRequest
+impl From<CursorPaginationRequest>
+    for diesel_models::extend::cursor_pagination::CursorPaginationRequest
 {
-    fn into(self) -> diesel_models::extend::cursor_pagination::CursorPaginationRequest {
+    fn from(val: CursorPaginationRequest) -> Self {
         diesel_models::extend::cursor_pagination::CursorPaginationRequest {
-            limit: self.limit,
-            cursor: self.cursor,
+            limit: val.limit,
+            cursor: val.cursor,
         }
     }
 }
@@ -53,13 +53,13 @@ pub struct CursorPaginatedVec<T> {
     pub next_cursor: Option<Uuid>,
 }
 
-impl<T> Into<CursorPaginatedVec<T>>
-    for diesel_models::extend::cursor_pagination::CursorPaginatedVec<T>
+impl<T> From<diesel_models::extend::cursor_pagination::CursorPaginatedVec<T>>
+    for CursorPaginatedVec<T>
 {
-    fn into(self) -> CursorPaginatedVec<T> {
+    fn from(val: diesel_models::extend::cursor_pagination::CursorPaginatedVec<T>) -> Self {
         CursorPaginatedVec {
-            items: self.items,
-            next_cursor: self.next_cursor,
+            items: val.items,
+            next_cursor: val.next_cursor,
         }
     }
 }

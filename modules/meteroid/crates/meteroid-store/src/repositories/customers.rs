@@ -368,7 +368,7 @@ impl CustomersInterface for Store {
                         customer_id: req.customer_id,
                         subscription_id: None,
                         currency: customer.currency,
-                        due_at: due_at,
+                        due_at,
                         plan_name: None,
                         external_invoice_id: None, // todo check later if we want it sync (instead of issue_worker)
                         invoice_number: self.internal.format_invoice_number(
@@ -407,10 +407,10 @@ impl CustomersInterface for Store {
                             snapshot_at: now,
                         },
                         seller_details: InlineInvoicingEntity {
-                            address: address,
-                            id: invoicing_entity.id.clone(),
+                            address,
+                            id: invoicing_entity.id,
                             legal_name: invoicing_entity.legal_name.clone(),
-                            vat_number: invoicing_entity.vat_number.as_ref().map(|s| s.clone()),
+                            vat_number: invoicing_entity.vat_number.clone(),
                             snapshot_at: now,
                         },
                     };

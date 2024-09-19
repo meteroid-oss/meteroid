@@ -40,7 +40,7 @@ async fn test_draft_worker() {
     )
     .await;
 
-    draft_worker(&store, worker_run_date.clone()).await.unwrap();
+    draft_worker(&store, worker_run_date).await.unwrap();
 
     let invoices = list_invoices(&store).await;
 

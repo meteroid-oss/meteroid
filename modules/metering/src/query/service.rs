@@ -82,10 +82,11 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             to: req.to.map(timestamp_to_datetime),
         };
 
-        let results =
-            self.connector.query_meter(meter).await.map_err(|e| {
-                Status::internal(format!("Failed to query meter : {}", e.to_string()))
-            })?;
+        let results = self
+            .connector
+            .query_meter(meter)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to query meter : {}", e)))?;
 
         let usage = results
             .into_iter()

@@ -45,6 +45,7 @@ pub trait PaginationExt {
 
     fn offset(&self) -> i64;
     fn offset_or(&self, default: u32) -> i64;
+    #[allow(clippy::wrong_self_convention)]
     fn into_response(&self, total: u32) -> Option<PaginationResponse>;
 }
 

@@ -22,7 +22,7 @@ pub mod user {
             organizations: domain
                 .organizations
                 .into_iter()
-                .map(|x| organization::domain_to_proto(x))
+                .map(organization::domain_to_proto)
                 .collect(),
             current_organization_role: domain
                 .current_organization_role

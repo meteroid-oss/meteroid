@@ -660,7 +660,7 @@ impl SubscriptionInterface for Store {
                     SubscriptionRow::cancel_subscription(
                         conn,
                         diesel_models::subscriptions::CancelSubscriptionParams {
-                            subscription_id: subscription_id.clone(),
+                            subscription_id,
                             tenant_id: context.tenant_id,
                             billing_end_date,
                             canceled_at: now,
@@ -778,7 +778,7 @@ impl SubscriptionInterface for Store {
 
 fn process_create_subscription_add_ons(
     create: &Option<CreateSubscriptionAddOns>,
-    add_ons: &Vec<AddOn>,
+    add_ons: &[AddOn],
 ) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreError> {
     let mut processed_add_ons = Vec::new();
 
@@ -827,15 +827,14 @@ fn process_create_subscription_add_ons(
 }
 
 fn extract_billing_period(
-    components: &Vec<SubscriptionComponentNewInternal>,
-    add_ons: &Vec<SubscriptionAddOnNewInternal>,
+    components: &[SubscriptionComponentNewInternal],
+    add_ons: &[SubscriptionAddOnNewInternal],
 ) -> BillingPeriodEnum {
     components
-        .into_iter()
+        .iter()
         .map(|x| &x.period)
-        .chain(add_ons.into_iter().map(|x| &x.period))
-        .map(|x| x.as_billing_period_opt())
-        .flatten()
+        .chain(add_ons.iter().map(|x| &x.period))
+        .filter_map(|x| x.as_billing_period_opt())
         .min()
         .unwrap_or(BillingPeriodEnum::Monthly)
 }
@@ -883,7 +882,7 @@ fn process_create_subscription_components(
             )?;
             processed_components.push(SubscriptionComponentNewInternal {
                 price_component_id: Some(c.id),
-                product_item_id: c.product_item_id.clone(),
+                product_item_id: c.product_item_id,
                 name: c.name.clone(),
                 period,
                 fee,
@@ -914,10 +913,10 @@ fn process_create_subscription_components(
         // If the component is not in any of the lists, add it as is
         processed_components.push(SubscriptionComponentNewInternal {
             price_component_id: Some(c.id),
-            product_item_id: c.product_item_id.clone(),
+            product_item_id: c.product_item_id,
             name: c.name.clone(),
-            period: period,
-            fee: fee,
+            period,
+            fee,
             is_override: false,
         });
     }
@@ -1022,14 +1021,14 @@ pub fn subscription_to_draft(
         customer_details: InlineCustomer {
             id: subscription.customer_id,
             name: customer.name.clone(), // TODO
-            billing_address: customer.billing_address.as_ref().map(|x| x.clone()),
+            billing_address: customer.billing_address.clone(),
             vat_number: None,
             email: customer.email.clone(),
             alias: customer.alias.clone(),
             snapshot_at: chrono::Utc::now().naive_utc(),
         },
         seller_details: InlineInvoicingEntity {
-            id: invoicing_entity.id.clone(),
+            id: invoicing_entity.id,
             legal_name: invoicing_entity.legal_name.clone(),
             vat_number: invoicing_entity.vat_number.clone(),
             address: invoicing_entity.address(),

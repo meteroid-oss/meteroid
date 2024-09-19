@@ -53,10 +53,7 @@ impl ClickhouseConnector {
         let kafka_mv_ddl = sql::init::create_kafka_mv_sql();
 
         let mut client = pool.get_handle().await.map_err(|err| {
-            ConnectorError::ConnectionError(format!(
-                "Failed to connect to Clickhouse : {}",
-                err.to_string()
-            ))
+            ConnectorError::ConnectionError(format!("Failed to connect to Clickhouse : {}", err))
         })?;
 
         client
@@ -107,7 +104,7 @@ impl ClickhouseConnector {
         self.extensions
             .iter()
             .find(|ext| params.event_name.starts_with(&ext.prefix()))
-            .map(|ext| ext.clone())
+            .cloned()
     }
 }
 
@@ -147,7 +144,7 @@ impl Connector for ClickhouseConnector {
         {
             Some(ext) => ext,
             None => sql::query_meter::query_meter_view_sql(params.clone())
-                .map_err(|e| ConnectorError::InvalidQuery(e))?,
+                .map_err(ConnectorError::InvalidQuery)?,
         };
 
         let block = client
@@ -168,7 +165,6 @@ impl Connector for ClickhouseConnector {
 
         let parsed = block
             .rows()
-            .into_iter()
             .map(|row| {
                 let window_start: DateTime<Tz> = row
                     .get(window_start_col)

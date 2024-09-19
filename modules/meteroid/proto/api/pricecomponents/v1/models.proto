@@ -106,9 +106,7 @@ message Fee {
     RateFee rate = 1;
     SlotFee slot = 2;
     CapacityFee capacity = 3;
-    //
     UsageFee usage = 5;
-    //
     ExtraRecurringFee extra_recurring = 7;
     OneTimeFee one_time = 8;
   }

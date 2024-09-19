@@ -150,7 +150,7 @@ where
 
         let expected = hex::encode(mac.finalize().into_bytes());
 
-        if signature_str.to_string() != expected {
+        if *signature_str != expected {
             return future::Either::Right(future::ready(
                 Err(Status::permission_denied(
                     "HMAC signature didn't pass validation",

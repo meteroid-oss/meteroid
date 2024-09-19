@@ -2,8 +2,6 @@ mod domain;
 mod generate;
 mod serde_macro;
 
-use serde_yaml;
-
 use crate::domain::Config;
 use crate::generate::generate_events;
 use common_logging::init::init_regular_logging;

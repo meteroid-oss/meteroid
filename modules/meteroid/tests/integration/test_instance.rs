@@ -31,8 +31,8 @@ async fn test_instance() {
         .unwrap()
         .into_inner();
 
-    assert_eq!(instance.instance_initiated, true);
-    assert_eq!(instance.multi_organization_enabled, false);
+    assert!(instance.instance_initiated);
+    assert!(!instance.multi_organization_enabled);
 
     // creating second organization
     //  should fail because it's expected only 1
@@ -55,7 +55,7 @@ async fn test_instance() {
 
     log::error!("{:?}", new_org_res);
 
-    assert_eq!(new_org_res.is_err(), true);
+    assert!(new_org_res.is_err());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

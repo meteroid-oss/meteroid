@@ -1,4 +1,5 @@
 #[derive(Debug, thiserror::Error)]
+#[allow(clippy::enum_variant_names)]
 pub enum OpenstackAdapterError {
     #[error("Error running the rabbitmq consumer: {0:?}")]
     LapinError(#[source] lapin::Error),

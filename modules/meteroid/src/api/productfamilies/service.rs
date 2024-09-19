@@ -25,7 +25,7 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
 
         let families = self
             .store
-            .list_product_families(tenant_id.clone())
+            .list_product_families(*tenant_id)
             .await
             .map_err(Into::<ProductFamilyApiError>::into)?
             .into_iter()

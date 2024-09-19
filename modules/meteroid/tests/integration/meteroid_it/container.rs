@@ -48,7 +48,7 @@ pub async fn start_meteroid_with_port(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
-        config.multi_organization_enabled.clone(),
+        config.multi_organization_enabled,
         create_eventbus_memory(),
         usage_client,
     )
@@ -146,9 +146,8 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
         let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
         conn.batch_execute(contents.as_str())
             .await
-            .map_err(|err| {
+            .inspect_err(|err| {
                 eprintln!("Seed failed to apply : {}", seed.path());
-                err
             })
             .unwrap();
     }

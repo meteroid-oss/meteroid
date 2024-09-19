@@ -29,9 +29,9 @@ impl SlotClient for crate::Store {
     ) -> Result<u32, ComputeError> {
         let res = self
             .get_current_slots_value(
-                tenant_id.clone(),
-                subscription_id.clone(),
-                component_id.clone(),
+                *tenant_id,
+                *subscription_id,
+                *component_id,
                 invoice_date.clone().and_hms_opt(0, 0, 0),
             )
             .await
@@ -54,7 +54,7 @@ impl SlotClient for MockSlotClient {
         component_id: &Uuid,
         invoice_date: &NaiveDate,
     ) -> Result<u32, ComputeError> {
-        match self.data.get(&(component_id.clone(), invoice_date.clone())) {
+        match self.data.get(&(*component_id, *invoice_date)) {
             Some(v) => Ok(*v),
             // None => Err(ComputeError::InternalError),
             None => Ok(0),

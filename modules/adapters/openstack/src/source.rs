@@ -11,7 +11,7 @@ impl RabbitSource {
         let addr = &config.rabbit_addr;
         let conn = Connection::connect(addr, ConnectionProperties::default())
             .await
-            .map_err(|e| OpenstackAdapterError::LapinError(e))?;
+            .map_err(OpenstackAdapterError::LapinError)?;
         Ok(RabbitSource { connection: conn })
     }
 }
