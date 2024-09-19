@@ -213,7 +213,7 @@ impl FeeType {
                 Ok((
                     SubscriptionFeeBillingPeriod::Monthly,
                     SubscriptionFee::Capacity {
-                        metric_id: metric_id.clone(),
+                        metric_id: *metric_id,
                         overage_rate: thresholds[0].per_unit_overage,
                         included: thresholds[0].included_amount,
                         rate: thresholds[0].price,
@@ -330,8 +330,8 @@ impl FeeType {
                     SubscriptionFee::Slot {
                         unit: slot_unit_name.clone(),
                         unit_rate: rate.price,
-                        min_slots: minimum_count.clone(),
-                        max_slots: quota.clone(),
+                        min_slots: *minimum_count,
+                        max_slots: *quota,
                         initial_slots,
                     },
                 ))
@@ -363,7 +363,7 @@ impl FeeType {
                 Ok((
                     SubscriptionFeeBillingPeriod::Monthly, // Default to monthly, until we support period parametrization for capacity
                     SubscriptionFee::Capacity {
-                        metric_id: metric_id.clone(),
+                        metric_id: *metric_id,
                         overage_rate: threshold.per_unit_overage,
                         included: threshold.included_amount,
                         rate: threshold.price,

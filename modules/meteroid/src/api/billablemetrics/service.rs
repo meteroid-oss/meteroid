@@ -127,7 +127,7 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         let billable_metric = self
             .store
-            .find_billable_metric_by_id(billable_metric_id.clone(), tenant_id.clone())
+            .find_billable_metric_by_id(billable_metric_id, tenant_id)
             .await
             .and_then(ServerBillableMetricWrapper::try_from)
             .map(|v| v.0)

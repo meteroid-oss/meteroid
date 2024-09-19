@@ -90,11 +90,11 @@ async fn resolve_slugs_cached(
     Ok(org_and_tenant_ids)
 }
 
-pub async fn invalidate_resolve_slugs_cache(organization_slug: &String, tenant_slug: &String) {
+pub async fn invalidate_resolve_slugs_cache(organization_slug: &str, tenant_slug: &str) {
     {
         use cached::Cached;
         let mut cache = self::RESOLVE_SLUGS_CACHED.lock().await;
-        cache.cache_remove(&(organization_slug.clone(), Some(tenant_slug.clone())));
+        cache.cache_remove(&(organization_slug.to_string(), Some(tenant_slug.to_string())));
     }
 }
 
@@ -111,7 +111,7 @@ async fn get_user_role_oss_cached(
     org_id: &Uuid,
 ) -> Result<OrganizationUserRole, Status> {
     let res = store
-        .find_user_by_id_and_organization(user_id.clone(), org_id.clone())
+        .find_user_by_id_and_organization(*user_id, *org_id)
         .await
         .map_err(|_| Status::permission_denied("Failed to retrieve user role"))
         .map(|x| x.role)?;

@@ -105,9 +105,9 @@ pub mod plans {
         }
     }
 
-    impl Into<PlanTypeEnum> for PlanTypeWrapper {
-        fn into(self) -> PlanTypeEnum {
-            match self.0 {
+    impl From<PlanTypeWrapper> for PlanTypeEnum {
+        fn from(val: PlanTypeWrapper) -> Self {
+            match val.0 {
                 PlanType::Standard => PlanTypeEnum::Standard,
                 PlanType::Free => PlanTypeEnum::Free,
                 PlanType::Custom => PlanTypeEnum::Custom,
@@ -125,9 +125,9 @@ pub mod plans {
         }
     }
 
-    impl Into<PlanStatusEnum> for PlanStatusWrapper {
-        fn into(self) -> PlanStatusEnum {
-            match self.0 {
+    impl From<PlanStatusWrapper> for PlanStatusEnum {
+        fn from(val: PlanStatusWrapper) -> Self {
+            match val.0 {
                 PlanStatus::Draft => PlanStatusEnum::Draft,
                 PlanStatus::Active => PlanStatusEnum::Active,
                 PlanStatus::Archived => PlanStatusEnum::Archived,

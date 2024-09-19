@@ -8,8 +8,8 @@ pub mod coupons {
         fn from(value: domain::coupons::Coupon) -> Self {
             Self(server::Coupon {
                 id: value.id.to_string(),
-                description: value.description.into(),
-                code: value.code.into(),
+                description: value.description,
+                code: value.code,
                 discount: Some(discount::to_server(value.discount)),
                 expires_at: value.expires_at.map(chrono_to_timestamp),
                 redemption_limit: value.redemption_limit,
@@ -37,7 +37,7 @@ pub mod coupons {
                     server::CouponDiscount {
                         discount_type: Some(server::coupon_discount::DiscountType::Fixed(
                             server::coupon_discount::FixedDiscount {
-                                currency: currency.into(),
+                                currency,
                                 amount: amount.as_proto(),
                             },
                         )),

@@ -81,7 +81,7 @@ async fn test_stats_basic() {
         .into_inner()
         .entries;
 
-    assert_eq!(res.is_empty(), true);
+    assert!(res.is_empty());
 
     // signup_sparkline
     let res = clients
@@ -94,7 +94,7 @@ async fn test_stats_basic() {
         .series
         .unwrap();
 
-    assert_eq!(res.data.is_empty(), false);
+    assert!(!res.data.is_empty());
 
     // trial_conversion_rate_sparkline
     let res = clients
@@ -106,7 +106,7 @@ async fn test_stats_basic() {
         .into_inner()
         .series;
 
-    assert_eq!(res.is_empty(), false);
+    assert!(!res.is_empty());
 
     // top_revenue_by_customer
     let res = clients
@@ -118,7 +118,7 @@ async fn test_stats_basic() {
         .into_inner()
         .revenue_by_customer;
 
-    assert_eq!(res.is_empty(), true);
+    assert!(res.is_empty());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

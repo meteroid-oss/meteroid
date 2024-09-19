@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_handler = EventHandler {
         source: source::RabbitSource::connect(&config).await?,
         sink: sink::MeteroidSink::new(&config),
-        config: config,
+        config,
     };
 
     event_handler.start().await?;

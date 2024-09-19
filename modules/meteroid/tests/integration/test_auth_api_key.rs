@@ -29,7 +29,7 @@ async fn test_api_key() {
     let customers_svc = CustomersServiceClient::new(svc.clone());
     let customers_response = list_customers(customers_svc).await;
 
-    assert_eq!(customers_response.is_err(), true);
+    assert!(customers_response.is_err());
     assert_eq!(
         customers_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -43,7 +43,7 @@ async fn test_api_key() {
     let customers_svc = CustomersServiceClient::new(svc.clone());
     let customers_response = list_customers(customers_svc).await;
 
-    assert_eq!(customers_response.is_err(), true);
+    assert!(customers_response.is_err());
     assert_eq!(
         customers_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -58,7 +58,7 @@ async fn test_api_key() {
 
     let customers_response = list_customers(customers_svc).await;
 
-    assert_eq!(customers_response.is_ok(), true);
+    assert!(customers_response.is_ok());
     assert_eq!(customers_response.unwrap().into_inner().customers.len(), 0);
 
     // teardown
@@ -111,7 +111,7 @@ async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
         tenant_response.slug.as_str(),
     );
 
-    let api_token_response = clients
+    clients
         .api_tokens
         .clone()
         .create_api_token(tonic::Request::new(
@@ -121,9 +121,7 @@ async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
         ))
         .await
         .unwrap()
-        .into_inner();
-
-    api_token_response
+        .into_inner()
 }
 
 fn build_tower_svc(

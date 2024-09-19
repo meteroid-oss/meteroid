@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
     println!("Starting {}", build_info);
 
-    let config = Config::init_from_env().map_err(|err| err)?;
+    let config = Config::init_from_env()?;
 
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
 

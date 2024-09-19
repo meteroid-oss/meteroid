@@ -9,18 +9,10 @@ use diesel_async::methods::LoadQuery;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use uuid::Uuid;
 
+#[derive(Default)]
 pub struct CursorPaginationRequest {
     pub limit: Option<u32>,
     pub cursor: Option<uuid::Uuid>,
-}
-
-impl Default for CursorPaginationRequest {
-    fn default() -> Self {
-        CursorPaginationRequest {
-            limit: None,
-            cursor: None,
-        }
-    }
 }
 
 pub struct CursorPaginatedVec<T> {

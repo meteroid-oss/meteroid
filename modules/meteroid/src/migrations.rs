@@ -15,12 +15,12 @@ pub async fn run(conn: PgConn) -> Result<(), Box<dyn std::error::Error>> {
     tokio::task::spawn_blocking(move || {
         async_wrapper
             .run_pending_migrations(diesel::MIGRATIONS)
-            .map_err(|e| DieselMigrationError::ApplyError(e))
+            .map_err(DieselMigrationError::ApplyError)
             .expect("Error running migrations");
 
         let mut all_migrations = async_wrapper
             .applied_migrations()
-            .map_err(|e| DieselMigrationError::GetMigrationsError(e))
+            .map_err(DieselMigrationError::GetMigrationsError)
             .expect("Error getting migrations");
 
         all_migrations.sort();

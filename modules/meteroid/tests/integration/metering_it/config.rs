@@ -37,7 +37,7 @@ pub fn mocked_config(
                 sasl_password: None,
             },
             kafka_internal_addr: format!("it_redpanda:{}", 29092),
-            kafka_topic: kafka_topic,
+            kafka_topic,
             kafka_producer_linger_ms: 20,
             kafka_producer_queue_mib: 400,
             kafka_message_timeout_ms: 20000,

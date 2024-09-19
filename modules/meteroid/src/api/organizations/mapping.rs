@@ -24,7 +24,7 @@ pub mod organization {
             tenants: domain
                 .tenants
                 .into_iter()
-                .map(|tenant| tenants_mapping::domain_to_server(tenant))
+                .map(tenants_mapping::domain_to_server)
                 .collect(),
         }
     }

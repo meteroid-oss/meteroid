@@ -4,6 +4,12 @@ use std::sync::Arc;
 
 pub struct NoopEventBus;
 
+impl Default for NoopEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NoopEventBus {
     pub fn new() -> Self {
         NoopEventBus

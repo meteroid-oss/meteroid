@@ -247,7 +247,7 @@ impl InvoiceTotals {
         let amount_due = total - already_paid - applied_credits;
         let subtotal_recurring = params
             .line_items
-            .into_iter()
+            .iter()
             .filter(|x| x.metric_id.is_none())
             .fold(0, |acc, x| acc + x.subtotal);
 

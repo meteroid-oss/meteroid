@@ -25,7 +25,7 @@ impl AllClients {
         api_token: &str,
         auth_config: &InternalAuthConfig,
     ) -> AllClients {
-        let service = Self::build_layered_client_service(channel, api_token, &auth_config);
+        let service = Self::build_layered_client_service(channel, api_token, auth_config);
 
         Self {
             _meters: MetersServiceClient::new(service.clone()),

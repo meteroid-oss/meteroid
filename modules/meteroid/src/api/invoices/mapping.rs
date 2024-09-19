@@ -85,8 +85,8 @@ pub mod invoices {
                                 Some(domain_invoice_lines::SubLineAttributes::Tiered { first_unit, last_unit, flat_cap, flat_fee }) => {
                                     Some(meteroid_grpc::meteroid::api::invoices::v1::sub_line_item::SublineAttributes::Tiered(
                                         meteroid_grpc::meteroid::api::invoices::v1::sub_line_item::TieredOrVolume {
-                                            first_unit: first_unit,
-                                            last_unit: last_unit,
+                                            first_unit,
+                                            last_unit,
                                             flat_cap: flat_cap.as_proto(),
                                             flat_fee: flat_fee.as_proto(),
                                         }
@@ -95,8 +95,8 @@ pub mod invoices {
                                 Some(domain_invoice_lines::SubLineAttributes::Volume { first_unit, last_unit, flat_cap, flat_fee }) => {
                                     Some(meteroid_grpc::meteroid::api::invoices::v1::sub_line_item::SublineAttributes::Volume(
                                         meteroid_grpc::meteroid::api::invoices::v1::sub_line_item::TieredOrVolume {
-                                            first_unit: first_unit,
-                                            last_unit: last_unit,
+                                            first_unit,
+                                            last_unit,
                                             flat_cap: flat_cap.as_proto(),
                                             flat_fee: flat_fee.as_proto(),
                                         }

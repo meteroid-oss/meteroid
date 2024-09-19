@@ -12,8 +12,7 @@ use diesel_models::tenants::TenantRow;
 
 use crate::domain::enums::TenantEnvironmentEnum;
 use crate::domain::{
-    InstanceFlags, InvoicingEntityNew, Organization, OrganizationNew, OrganizationWithTenants,
-    TenantNew,
+    InstanceFlags, Organization, OrganizationNew, OrganizationWithTenants, TenantNew,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
@@ -104,9 +103,7 @@ impl OrganizationsInterface for Store {
                             org.trade_name.clone(),
                             org.default_country.clone(),
                             vec![],
-                            organization
-                                .invoicing_entity
-                                .unwrap_or(InvoicingEntityNew::default()),
+                            organization.invoicing_entity.unwrap_or_default(),
                         )
                         .await?;
 
@@ -118,12 +115,12 @@ impl OrganizationsInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::organization_created(user_id, org_created.id.clone()))
+            .publish(Event::organization_created(user_id, org_created.id))
             .await;
 
         Ok(OrganizationWithTenants {
             organization: org_created.into(),
-            tenants: vec![tenant_created.into()],
+            tenants: vec![tenant_created],
         })
     }
 

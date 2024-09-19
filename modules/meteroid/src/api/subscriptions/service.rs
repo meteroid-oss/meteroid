@@ -80,7 +80,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let res = inserted
             .into_iter()
-            .map(|c| mapping::subscriptions::created_domain_to_proto(c))
+            .map(mapping::subscriptions::created_domain_to_proto)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Response::new(CreateSubscriptionsResponse {
@@ -105,7 +105,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .await
             .map_err(Into::<SubscriptionApiError>::into)
             .map_err(Into::<Status>::into)
-            .and_then(|c| mapping::subscriptions::details_domain_to_proto(c))?;
+            .and_then(mapping::subscriptions::details_domain_to_proto)?;
 
         Ok(Response::new(subscription))
     }
@@ -138,7 +138,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscriptions: Vec<meteroid_grpc::meteroid::api::subscriptions::v1::Subscription> = res
             .items
             .into_iter()
-            .map(|c| mapping::subscriptions::domain_to_proto(c))
+            .map(mapping::subscriptions::domain_to_proto)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Response::new(ListSubscriptionsResponse {

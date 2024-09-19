@@ -63,7 +63,7 @@ async fn test_plans_basic() {
 
     assert_eq!(created_version.version, 1);
     assert_eq!(created_version.currency.as_str(), "EUR");
-    assert_eq!(created_version.is_draft, true);
+    assert!(created_version.is_draft);
     assert_eq!(created_version.trial_config, None);
     assert_eq!(
         created_version.billing_config,
@@ -206,7 +206,7 @@ async fn test_plans_basic() {
         .unwrap();
 
     assert_ne!(copied_draft_version.id.clone(), created_version.id.clone());
-    assert_eq!(copied_draft_version.is_draft, true);
+    assert!(copied_draft_version.is_draft);
     assert_eq!(copied_draft_version.version, 2);
 
     // get last published version

@@ -79,7 +79,7 @@ impl InvoiceLineInterface for Store {
 
 async fn compute_invoice_lines<T: SubscriptionFeeInterface>(
     component_engine: &ComponentEngine,
-    fee_records: &Vec<T>,
+    fee_records: &[T],
     billing_start_date: NaiveDate,
     billing_day: i16,
     invoice_date: NaiveDate,

@@ -265,7 +265,7 @@ async fn test_webhook_handler(
     let endpoint_mock1 = endpoint_mock(endpoint_server1, expected_endpoint_request.clone(), event);
     let endpoint_mock2 = endpoint_mock(endpoint_server2, expected_endpoint_request.clone(), event);
 
-    let _ = handler.handle(event.clone()).await.unwrap();
+    handler.handle(event.clone()).await.unwrap();
 
     endpoint_mock1.assert();
     endpoint_mock1.remove();

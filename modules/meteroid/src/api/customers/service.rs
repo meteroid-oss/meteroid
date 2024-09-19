@@ -185,7 +185,7 @@ impl CustomersService for CustomerServiceComponents {
 
         let customer = self
             .store
-            .find_customer_by_id(customer_id.clone(), tenant_id)
+            .find_customer_by_id(customer_id, tenant_id)
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)

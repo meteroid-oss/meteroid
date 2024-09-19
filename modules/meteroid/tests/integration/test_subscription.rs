@@ -199,7 +199,7 @@ async fn test_subscription_create() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.get(0).unwrap();
+    let db_invoice = db_invoices.first().unwrap();
 
     assert_eq!(db_invoice.tenant_id.to_string(), tenant_id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer_id);
@@ -514,14 +514,14 @@ async fn test_subscription_create_invoice_seats() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.get(0).unwrap();
+    let db_invoice = db_invoices.first().unwrap();
 
     assert_eq!(db_invoice.invoice_date, start);
 
     let invoice_lines: Vec<LineItem> = db_invoice.line_items.clone();
     assert_eq!(invoice_lines.len(), 1);
 
-    let invoice_line = invoice_lines.get(0).unwrap();
+    let invoice_line = invoice_lines.first().unwrap();
     assert_eq!(invoice_line.name, "Seats");
     assert_eq!(invoice_line.quantity, Some(Decimal::from(seats_quantity)));
 
@@ -542,9 +542,9 @@ async fn test_subscription_create_invoice_seats() {
     let current_active_seats = setup
         .store
         .get_current_slots_value(
-            db_invoice.tenant_id.clone(),
-            subscription_id.clone(),
-            price_component_id.clone(),
+            db_invoice.tenant_id,
+            subscription_id,
+            price_component_id,
             Some(NaiveDateTime::from_str("2023-01-01T02:00:00").unwrap()),
         )
         .await
@@ -714,7 +714,7 @@ async fn test_subscription_create_invoice_rate() {
 
     let invoice_lines_monthly: Vec<LineItem> = db_invoice_monthly.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
-    let invoice_line_monthly = invoice_lines_monthly.get(0).unwrap();
+    let invoice_line_monthly = invoice_lines_monthly.first().unwrap();
     assert_eq!(invoice_line_monthly.name, "Subscription Rate");
     assert_eq!(invoice_line_monthly.quantity, Some(dec!(1)));
     assert_eq!(invoice_line_monthly.unit_price, Some(dec!(3500.0)));
@@ -735,7 +735,7 @@ async fn test_subscription_create_invoice_rate() {
 
     let invoice_lines_annual = db_invoice_annual.line_items.clone();
     assert_eq!(invoice_lines_annual.len(), 1);
-    let invoice_line_annual = invoice_lines_annual.get(0).unwrap();
+    let invoice_line_annual = invoice_lines_annual.first().unwrap();
     assert_eq!(invoice_line_annual.name, "Subscription Rate");
     assert_eq!(invoice_line_annual.quantity, Some(dec!(1)));
     assert_eq!(invoice_line_annual.unit_price, Some(dec!(15900.0)));
@@ -758,7 +758,7 @@ async fn test_subscription_create_invoice_rate() {
 
     let invoice_lines_monthly = db_invoice_monthly.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
-    let invoice_line_monthly = invoice_lines_monthly.get(0).unwrap();
+    let invoice_line_monthly = invoice_lines_monthly.first().unwrap();
     assert_eq!(invoice_line_monthly.name, "Subscription Rate");
     assert_eq!(invoice_line_monthly.quantity, Some(dec!(1)));
 
@@ -839,7 +839,7 @@ async fn test_subscription_create_invoice_usage() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.get(0).unwrap();
+    let db_invoice = db_invoices.first().unwrap();
 
     assert_eq!(db_invoice.invoice_date, start);
 

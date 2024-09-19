@@ -30,7 +30,7 @@ async fn test_jwt() {
         ))
         .await;
 
-    assert_eq!(auth_response.is_err(), true);
+    assert!(auth_response.is_err());
     assert_eq!(
         auth_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -48,7 +48,7 @@ async fn test_jwt() {
         ))
         .await;
 
-    assert_eq!(auth_response.is_err(), true);
+    assert!(auth_response.is_err());
     assert_eq!(
         auth_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -65,10 +65,10 @@ async fn test_jwt() {
         ))
         .await;
 
-    assert_eq!(auth_response.is_ok(), true);
+    assert!(auth_response.is_ok());
 
     let auth = auth_response.unwrap().into_inner();
-    assert_eq!(auth.token.clone().is_empty(), false);
+    assert!(!auth.token.clone().is_empty());
 
     // # try to access secured method with fake auth token
     let clients = meteroid_it::clients::AllClients::from_channel(
@@ -85,7 +85,7 @@ async fn test_jwt() {
             meteroid_grpc::meteroid::api::tenants::v1::ListTenantsRequest {},
         ))
         .await;
-    assert_eq!(tenants_response.is_err(), true);
+    assert!(tenants_response.is_err());
     assert_eq!(
         tenants_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -106,7 +106,7 @@ async fn test_jwt() {
             meteroid_grpc::meteroid::api::tenants::v1::ListTenantsRequest {},
         ))
         .await;
-    assert_eq!(tenants_response.is_ok(), true);
+    assert!(tenants_response.is_ok());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;
