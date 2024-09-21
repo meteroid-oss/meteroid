@@ -9,6 +9,7 @@ use meteroid::workers::invoicing::draft_worker::draft_worker;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{InvoiceWithCustomer, OrderByRequest, PaginationRequest};
+use meteroid_store::external::invoice_rendering::noop_invoice_rendering_service;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
 
@@ -31,6 +32,7 @@ async fn test_draft_worker() {
         false,
         create_eventbus_noop().await,
         Arc::new(MockUsageClient::noop()),
+        noop_invoice_rendering_service(),
     )
     .unwrap();
 

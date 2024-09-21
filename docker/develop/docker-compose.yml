@@ -41,6 +41,14 @@ services:
     networks:
       - meteroid_net
 
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+    ports:
+      - 8073:3000
+    networks:
+      - meteroid_net
+
   minio:
     image: minio/minio:latest
     environment:

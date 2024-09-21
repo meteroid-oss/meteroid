@@ -123,6 +123,26 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        param_invoice_ids: Vec<uuid::Uuid>,
+    ) -> DbResult<Vec<InvoiceRow>> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::id.eq_any(param_invoice_ids))
+            .select(InvoiceRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load(conn)
+            .await
+            .attach_printable("Error while fetching invoices by ids")
+            .into_db_result()
+    }
+
     pub async fn insert_invoice_batch(
         conn: &mut PgConn,
         invoices: Vec<InvoiceRowNew>,
@@ -228,6 +248,33 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .attach_printable("Error while finalizing invoice")
+            .into_db_result()
+    }
+
+    pub async fn save_invoice_documents(
+        conn: &mut PgConn,
+        id: uuid::Uuid,
+        tenant_id: uuid::Uuid,
+        pdf_document_id: Option<String>,
+        xml_document_id: Option<String>,
+    ) -> DbResult<usize> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set((
+                i_dsl::pdf_document_id.eq(pdf_document_id),
+                i_dsl::xml_document_id.eq(xml_document_id),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while saving invoice documents")
             .into_db_result()
     }
 

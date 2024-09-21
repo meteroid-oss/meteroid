@@ -3,6 +3,7 @@ pub mod constants;
 pub mod crypt;
 pub mod domain;
 pub mod errors;
+pub mod external;
 pub mod repositories;
 pub mod store;
 pub mod utils;

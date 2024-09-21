@@ -4,6 +4,7 @@ use crate::meteroid_it::db::seed::*;
 use chrono::NaiveDateTime;
 use meteroid::eventbus::create_eventbus_memory;
 use meteroid_store::compute::clients::usage::MockUsageClient;
+use meteroid_store::external::invoice_rendering::noop_invoice_rendering_service;
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::Store;
 use secrecy::SecretString;
@@ -27,6 +28,7 @@ async fn test_slot_transaction_active_slots() {
         false,
         create_eventbus_memory(),
         Arc::new(MockUsageClient::noop()),
+        noop_invoice_rendering_service(),
     )
     .expect("Could not create store");
 

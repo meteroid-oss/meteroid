@@ -44,6 +44,10 @@ pub enum StoreError {
     NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
     #[error("Metering Service error: {0}")]
     MeteringServiceError(String, #[source] ComputeError),
+    #[error("Failed to process invoice")]
+    InvoicingError,
+    #[error("Invalid currency value: {0}")]
+    InvalidCurrency(String),
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862

@@ -126,6 +126,15 @@ pub enum OrganizationUserRole {
     Member,
 }
 
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[map_owned(diesel_enums::OutboxStatus)]
+pub enum OutboxStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Default, Clone)]
 #[map_owned(diesel_enums::PlanStatusEnum)]
 pub enum PlanStatusEnum {

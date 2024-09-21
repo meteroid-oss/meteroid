@@ -1,0 +1,33 @@
+[package]
+name = "meteroid-invoicing"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = { workspace = true }
+bytes.workspace = true
+chrono = { workspace = true, features = ["clock", "serde", "unstable-locales", "alloc"] }
+error-stack = { workspace = true }
+fluent-static.workspace = true
+fluent.workspace = true
+maud.workspace = true
+meteroid-store.workspace = true
+object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }
+once_cell = { workspace = true }
+reqwest = { workspace = true, features = ["default", "multipart", "blocking"] }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+rusty-money = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+unic-langid.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+fluent-static-codegen.workspace = true

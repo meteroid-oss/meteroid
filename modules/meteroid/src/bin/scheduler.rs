@@ -10,6 +10,7 @@ use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
+use meteroid::services::outbox::invoice_finalized::InvoiceFinalizedOutboxWorker;
 use meteroid::singletons;
 use meteroid::workers::fang as mfang;
 use meteroid::workers::invoicing::price_worker::PriceWorker;
@@ -45,6 +46,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool,
     )
     .await?;
+
+    let invoice_finalized_outbox_worker =
+        InvoiceFinalizedOutboxWorker::new(singletons::get_store().await.clone());
+
+    tokio::try_join!(
+        tokio::spawn(async move {
+            invoice_finalized_outbox_worker.run().await;
+        }),
+        // ...
+    )?;
 
     tokio::time::sleep(Duration::MAX).await;
 
