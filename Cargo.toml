@@ -108,7 +108,7 @@ postgres-types = { version = "0.2.6", default-features = false }
 proc-macro2 = { version = "1.0.78" }
 prost = "0.12.1"
 prost-build = "0.12.1"
-prost-types = "0.12.1"
+prost-types = "0.13.3"
 quick_cache = "0.6.2"
 quote = "1.0.35"
 rand = "0.8.5"
