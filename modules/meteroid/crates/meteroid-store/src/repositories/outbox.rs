@@ -78,6 +78,6 @@ impl StoreInternal {
     ) -> StoreResult<Outbox> {
         let row: OutboxRowNew = item.try_into()?;
         let outbox_created = row.insert(conn).await?;
-        Ok(outbox_created.try_into()?)
+        outbox_created.try_into()
     }
 }

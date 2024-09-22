@@ -101,7 +101,7 @@ impl PdfRenderingService {
         let mut results = vec![];
 
         for invoice in invoices {
-            let invoice_id = invoice.id.clone();
+            let invoice_id = invoice.id;
             let res = match self
                 .generate_pdf_and_save(invoice, &invoicing_entities)
                 .await
@@ -128,11 +128,11 @@ impl PdfRenderingService {
         let invoicing_entity = invoicing_entities
             .iter()
             .find(|entity| entity.id == invoice.seller_details.id)
-            .ok_or_else(|| InvoicingRenderError::StoreError)
+            .ok_or(InvoicingRenderError::StoreError)
             .attach_printable("Failed to resolve invoicing entity")?;
 
-        let invoice_id = invoice.id.clone();
-        let tenant_id = invoice.tenant_id.clone();
+        let invoice_id = invoice.id;
+        let tenant_id = invoice.tenant_id;
 
         let mapped_invoice = mapper::map_invoice_to_invoicing(invoice, invoicing_entity)?;
 
@@ -164,8 +164,7 @@ impl PdfRenderingService {
 mod mapper {
     use crate::errors::InvoicingRenderError;
     use error_stack::Report;
-    use meteroid_invoicing::model as invoicing_model;
-    use meteroid_invoicing::model::Address;
+    use meteroid_invoicing::model as invoicing_model; 
     use meteroid_store::constants::Countries;
 
     use meteroid_store::domain as store_model;
@@ -180,13 +179,12 @@ mod mapper {
             .map(|d| d.date())
             .unwrap_or(invoice.invoice_date);
 
-        let currency = rusty_money::iso::find(&invoice.currency)
+        let currency = *rusty_money::iso::find(&invoice.currency)
             .ok_or_else(|| {
                 Report::new(InvoicingRenderError::InvalidCurrency(
                     invoice.currency.clone(),
                 ))
-            })?
-            .clone();
+            })?;
 
         let metadata = invoicing_model::InvoiceMetadata {
             currency,
@@ -231,7 +229,7 @@ mod mapper {
                 .customer_details
                 .billing_address
                 .map(map_address)
-                .unwrap_or_else(|| Address::default()),
+                .unwrap_or_default(),
             email: invoice.customer_details.email,
             legal_number: None, // TODO
             name: invoice.customer_details.name,
