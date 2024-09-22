@@ -93,7 +93,7 @@ miette = { version = "7.0.0", default-features = false }
 mockito = "1.2.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
-ndarray = "0.15.6"
+ndarray = "0.16.1"
 ndarray-interp = "0.4.1"
 o2o = "0.4.8"
 object_store = { version = "0.11.0", default-features = false }
