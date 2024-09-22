@@ -164,7 +164,7 @@ impl PdfRenderingService {
 mod mapper {
     use crate::errors::InvoicingRenderError;
     use error_stack::Report;
-    use meteroid_invoicing::model as invoicing_model; 
+    use meteroid_invoicing::model as invoicing_model;
     use meteroid_store::constants::Countries;
 
     use meteroid_store::domain as store_model;
@@ -179,12 +179,11 @@ mod mapper {
             .map(|d| d.date())
             .unwrap_or(invoice.invoice_date);
 
-        let currency = *rusty_money::iso::find(&invoice.currency)
-            .ok_or_else(|| {
-                Report::new(InvoicingRenderError::InvalidCurrency(
-                    invoice.currency.clone(),
-                ))
-            })?;
+        let currency = *rusty_money::iso::find(&invoice.currency).ok_or_else(|| {
+            Report::new(InvoicingRenderError::InvalidCurrency(
+                invoice.currency.clone(),
+            ))
+        })?;
 
         let metadata = invoicing_model::InvoiceMetadata {
             currency,

@@ -7,6 +7,7 @@ use rusty_money::iso;
 
 use crate::model::*;
 
+#[allow(clippy::all)]
 mod l10n {
     fluent_static::include_source!("l10n.rs");
 }
