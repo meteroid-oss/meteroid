@@ -1,13 +1,11 @@
 use futures::stream;
-use meteroid_store::domain::{Outbox, OutboxEvent, OutboxPatch};
-use meteroid_store::external::invoice_rendering::{GenerateResult, InvoiceRenderingService};
+use meteroid_store::domain::{Outbox, OutboxEvent};
 use meteroid_store::repositories::outbox::OutboxInterface;
-use meteroid_store::store::PgPool;
 use meteroid_store::Store;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tap::TapFallible;
 
+use crate::services::invoice_rendering::{GenerateResult, PdfRenderingService};
 use futures::stream::StreamExt;
 use itertools::Itertools;
 use tokio::time::Duration;
@@ -22,12 +20,13 @@ We should add kafka to decouple the scaling of (some) consumers (in the pdf case
  */
 
 pub struct InvoiceFinalizedOutboxWorker {
-    store: Store,
+    pdf_service: PdfRenderingService,
+    store: Arc<Store>,
 }
 
 impl InvoiceFinalizedOutboxWorker {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(pdf_service: PdfRenderingService, store: Arc<Store>) -> Self {
+        Self { pdf_service, store }
     }
 
     pub async fn run(&self) {
@@ -39,7 +38,7 @@ impl InvoiceFinalizedOutboxWorker {
             {
                 Ok(entries) => entries,
                 Err(e) => {
-                    log::error!("Error while claiming outbox entries: {}", e);
+                    tracing::error!("Error while claiming outbox entries: {}", e);
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     continue;
                 }
@@ -56,8 +55,7 @@ impl InvoiceFinalizedOutboxWorker {
                 .collect();
 
             match self
-                .store
-                .invoice_rendering_service
+                .pdf_service
                 .generate_pdfs(outbox_map.keys().cloned().collect())
                 .await
             {
@@ -91,7 +89,7 @@ impl InvoiceFinalizedOutboxWorker {
                 .mark_outbox_entries_as_processed(success_entry_ids)
                 .await
             {
-                log::error!("Error while saving successful outbox responses: {}", e);
+                tracing::error!("Error while saving successful outbox responses: {}", e);
             }
         }
 
@@ -103,7 +101,7 @@ impl InvoiceFinalizedOutboxWorker {
                         .mark_outbox_entry_as_failed(entry.id, error)
                         .await
                     {
-                        log::error!("Error while saving failed outbox response: {}", e);
+                        tracing::error!("Error while saving failed outbox response: {}", e);
                     }
                 }
             })
@@ -116,7 +114,7 @@ impl InvoiceFinalizedOutboxWorker {
             .mark_outbox_entries_as_failed(outbox.iter().map(|entry| entry.id).collect(), error)
             .await
         {
-            log::error!("Error while marking all outbox entries as failed: {}", e);
+            tracing::error!("Error while marking all outbox entries as failed: {}", e);
         }
     }
 }

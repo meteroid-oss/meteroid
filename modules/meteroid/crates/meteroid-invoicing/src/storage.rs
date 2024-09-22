@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use object_store::path::Path;
 use object_store::{ObjectStore, PutPayload};
-use reqwest::Client;
 use std::sync::Arc;
 
 #[async_trait]
@@ -17,7 +16,7 @@ pub struct S3Storage {
 }
 
 impl S3Storage {
-    pub fn create(url: String, path_prefix: Option<String>) -> InvoicingResult<Self> {
+    pub fn try_new(url: String, path_prefix: Option<String>) -> InvoicingResult<Self> {
         let url = url::Url::parse(&url)
             .map_err(|_| InvoicingError::StorageError("Failed to parse storage URL".to_string()))?;
 

@@ -1,4 +1,3 @@
-use meteroid_store::external::invoice_rendering::noop_invoice_rendering_service;
 use std::sync::Arc;
 
 use crate::clients::usage::MeteringUsageClient;
@@ -21,7 +20,6 @@ pub async fn get_store() -> &'static Store {
                 config.multi_organization_enabled,
                 create_eventbus_memory(),
                 Arc::new(MeteringUsageClient::get().clone()),
-                noop_invoice_rendering_service(),
             )
             .expect("Failed to initialize store");
 

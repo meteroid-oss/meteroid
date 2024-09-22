@@ -1,39 +1,92 @@
+use crate::errors::InvoicingRenderError;
 use error_stack::ResultExt;
-use meteroid_invoicing::InvoicingPdfService;
+use meteroid_invoicing::{html_render, pdf, storage};
 use meteroid_store::domain::{Invoice, InvoicingEntity};
-use meteroid_store::errors::StoreError;
-use meteroid_store::external::invoice_rendering::{GenerateResult, InvoiceRenderingService};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::{Store, StoreResult};
+use meteroid_store::Store;
 use std::sync::Arc;
 use uuid::Uuid;
 
-struct InvoiceRenderingImpl {
-    invoicing_service: InvoicingPdfService,
+pub struct HtmlRenderingService {
     store: Arc<Store>,
 }
 
-#[async_trait::async_trait]
-impl InvoiceRenderingService for InvoiceRenderingImpl {
-    async fn preview_invoice_html(&self, invoice_id: Uuid, tenant_id: Uuid) -> StoreResult<String> {
-        let invoice = self.store.find_invoice_by_id(tenant_id, invoice_id).await?;
+impl HtmlRenderingService {
+    pub fn new(store: Arc<Store>) -> Self {
+        Self { store }
+    }
+
+    pub async fn preview_invoice_html(
+        &self,
+        invoice_id: Uuid,
+        tenant_id: Uuid,
+    ) -> error_stack::Result<String, InvoicingRenderError> {
+        let invoice = self
+            .store
+            .find_invoice_by_id(tenant_id, invoice_id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
         let invoicing_entity = self
             .store
             .get_invoicing_entity(tenant_id, Some(invoice.invoice.seller_details.id))
-            .await?;
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
 
-        Ok(self
-            .invoicing_service
-            .preview_invoice(mapper::map_invoice_to_invoicing(
-                invoice.invoice,
-                &invoicing_entity,
-            )?)
-            .change_context(StoreError::InvoicingError)?)
+        let mapped = mapper::map_invoice_to_invoicing(invoice.invoice, &invoicing_entity)?;
+
+        let html_string = html_render::render_invoice(&mapped)
+            .change_context(InvoicingRenderError::RenderError)?
+            .into_string();
+
+        Ok(html_string)
+    }
+}
+
+pub enum GenerateResult {
+    Success { invoice_id: Uuid, pdf_url: String },
+    Failure { invoice_id: Uuid, error: String },
+}
+
+pub struct PdfRenderingService {
+    storage: Arc<dyn storage::Storage>,
+    pdf: Arc<dyn pdf::PdfGenerator>,
+    store: Arc<Store>,
+}
+
+impl PdfRenderingService {
+    pub fn try_new(
+        gotenberg_url: String,
+        s3_uri: String,
+        s3_prefix: Option<String>,
+        store: Arc<Store>,
+    ) -> error_stack::Result<Self, InvoicingRenderError> {
+        let pdf_generator = Arc::new(pdf::GotenbergPdfGenerator::new(gotenberg_url.clone()));
+
+        // accept an objectstore client instead of the config ?
+        let s3_storage = Arc::new(
+            storage::S3Storage::try_new(s3_uri.clone(), s3_prefix.clone())
+                .change_context(InvoicingRenderError::InitializationError)?,
+        );
+
+        Ok(Self {
+            storage: s3_storage,
+            pdf: pdf_generator,
+            store,
+        })
     }
 
-    async fn generate_pdfs(&self, invoice_ids: Vec<Uuid>) -> StoreResult<Vec<GenerateResult>> {
-        let invoices = self.store.list_invoices_by_ids(invoice_ids).await?;
+    pub async fn generate_pdfs(
+        &self,
+        invoice_ids: Vec<Uuid>,
+    ) -> error_stack::Result<Vec<GenerateResult>, InvoicingRenderError> {
+        let invoices = self
+            .store
+            .list_invoices_by_ids(invoice_ids)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
         let invoicing_entity_ids = invoices
             .iter()
             .map(|invoice| invoice.seller_details.id)
@@ -42,41 +95,17 @@ impl InvoiceRenderingService for InvoiceRenderingImpl {
         let invoicing_entities = self
             .store
             .list_invoicing_entities_by_ids(invoicing_entity_ids)
-            .await?;
-
-        async fn generate_pdf_and_save(
-            this: &InvoiceRenderingImpl,
-            invoice: Invoice,
-            invoicing_entities: &[InvoicingEntity],
-        ) -> StoreResult<String> {
-            let invoicing_entity = invoicing_entities
-                .iter()
-                .find(|entity| entity.id == invoice.seller_details.id)
-                .ok_or_else(|| {
-                    StoreError::ValueNotFound("Failed to resolve invoicing entity".to_string())
-                })?;
-
-            let invoice_id = invoice.id.clone();
-            let tenant_id = invoice.tenant_id.clone();
-
-            let mapped_invoice = mapper::map_invoice_to_invoicing(invoice, invoicing_entity)?;
-            let pdf_url = this
-                .invoicing_service
-                .generate_invoice_document(mapped_invoice)
-                .await
-                .change_context(StoreError::InvoicingError)?;
-
-            this.store
-                .save_invoice_documents(invoice_id, tenant_id, pdf_url.clone(), None)
-                .await?;
-            Ok(pdf_url)
-        }
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
 
         let mut results = vec![];
 
         for invoice in invoices {
             let invoice_id = invoice.id.clone();
-            let res = match generate_pdf_and_save(self, invoice, &invoicing_entities).await {
+            let res = match self
+                .generate_pdf_and_save(invoice, &invoicing_entities)
+                .await
+            {
                 Err(error) => GenerateResult::Failure {
                     invoice_id,
                     error: error.to_string(),
@@ -90,27 +119,73 @@ impl InvoiceRenderingService for InvoiceRenderingImpl {
         }
         Ok(results)
     }
+
+    async fn generate_pdf_and_save(
+        &self,
+        invoice: Invoice,
+        invoicing_entities: &[InvoicingEntity],
+    ) -> error_stack::Result<String, InvoicingRenderError> {
+        let invoicing_entity = invoicing_entities
+            .iter()
+            .find(|entity| entity.id == invoice.seller_details.id)
+            .ok_or_else(|| InvoicingRenderError::StoreError)
+            .attach_printable("Failed to resolve invoicing entity")?;
+
+        let invoice_id = invoice.id.clone();
+        let tenant_id = invoice.tenant_id.clone();
+
+        let mapped_invoice = mapper::map_invoice_to_invoicing(invoice, invoicing_entity)?;
+
+        let html = html_render::render_invoice(&mapped_invoice)
+            .change_context(InvoicingRenderError::RenderError)?
+            .into_string();
+
+        let pdf = self
+            .pdf
+            .generate_pdf(&html)
+            .await
+            .change_context(InvoicingRenderError::PdfError)?;
+
+        let pdf_url = self
+            .storage
+            .store_pdf(pdf, None)
+            .await
+            .change_context(InvoicingRenderError::StorageError)?;
+
+        self.store
+            .save_invoice_documents(invoice_id, tenant_id, pdf_url.clone(), None)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
+        Ok(pdf_url)
+    }
 }
 
 mod mapper {
+    use crate::errors::InvoicingRenderError;
+    use error_stack::Report;
     use meteroid_invoicing::model as invoicing_model;
     use meteroid_invoicing::model::Address;
     use meteroid_store::constants::Countries;
-    use meteroid_store::errors::StoreError;
-    use meteroid_store::{domain as store_model, StoreResult};
+
+    use meteroid_store::domain as store_model;
     use rust_decimal::Decimal;
 
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,
         invoicing_entity: &store_model::InvoicingEntity,
-    ) -> StoreResult<invoicing_model::Invoice> {
+    ) -> error_stack::Result<invoicing_model::Invoice, InvoicingRenderError> {
         let finalized_date = invoice
             .finalized_at
             .map(|d| d.date())
             .unwrap_or(invoice.invoice_date);
 
         let currency = rusty_money::iso::find(&invoice.currency)
-            .ok_or_else(|| StoreError::InvalidCurrency(invoice.currency.clone()))?
+            .ok_or_else(|| {
+                Report::new(InvoicingRenderError::InvalidCurrency(
+                    invoice.currency.clone(),
+                ))
+            })?
             .clone();
 
         let metadata = invoicing_model::InvoiceMetadata {

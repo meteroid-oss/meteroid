@@ -15,7 +15,6 @@ use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
-use meteroid_store::external::invoice_rendering::noop_invoice_rendering_service;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
@@ -42,7 +41,6 @@ async fn main() -> error_stack::Result<(), SeederError> {
         Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
-        noop_invoice_rendering_service(), // no pdf in seeder (too slow), we should rely on on-demand
     )
     .change_context(SeederError::InitializationError)?;
 

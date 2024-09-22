@@ -1,6 +1,5 @@
 use once_cell::sync::Lazy;
 use serde::Deserialize;
-use std::ops::Index;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Country {

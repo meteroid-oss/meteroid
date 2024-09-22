@@ -87,3 +87,19 @@ pub enum InvoicingAdapterError {
     #[error("Stripe call error")]
     StripeError,
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvoicingRenderError {
+    #[error("Failed to initialize invoice rendering service")]
+    InitializationError,
+    #[error("Invalid currency value: {0}")]
+    InvalidCurrency(String),
+    #[error("Failed to render invoice")]
+    RenderError,
+    #[error("Failed to generate pdf")]
+    PdfError,
+    #[error("Failed to store invoice document")]
+    StorageError,
+    #[error("Failed to load data to render invoice")]
+    StoreError,
+}

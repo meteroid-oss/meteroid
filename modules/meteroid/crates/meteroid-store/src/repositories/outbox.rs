@@ -1,9 +1,9 @@
 use error_stack::Report;
 use uuid::Uuid;
 
-use diesel_models::outbox::{OutboxRow, OutboxRowNew, OutboxRowPatch};
+use diesel_models::outbox::{OutboxRow, OutboxRowNew};
 
-use crate::domain::{Outbox, OutboxEvent, OutboxNew, OutboxPatch};
+use crate::domain::{Outbox, OutboxEvent, OutboxNew};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::StoreResult;

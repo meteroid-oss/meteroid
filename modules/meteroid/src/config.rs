@@ -58,6 +58,15 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub fang_ext: FangExtConfig,
+
+    #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
+    pub gotenberg_url: String,
+
+    #[envconfig(from = "S3_URI", default = "file:///tmp/meteroid")]
+    pub s3_uri: String,
+
+    #[envconfig(from = "S3_PREFIX")]
+    pub s3_prefix: Option<String>,
 }
 
 impl Config {

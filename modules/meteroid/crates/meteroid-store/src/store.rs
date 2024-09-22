@@ -1,6 +1,5 @@
 use crate::compute::clients::usage::UsageClient;
 use crate::errors::StoreError;
-use crate::external::invoice_rendering::InvoiceRenderingService;
 use crate::StoreResult;
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
@@ -102,7 +101,6 @@ impl Store {
         multi_organization_enabled: bool,
         eventbus: Arc<dyn EventBus<Event>>,
         usage_client: Arc<dyn UsageClient>,
-        invoice_rendering_service: Arc<dyn InvoiceRenderingService>,
     ) -> StoreResult<Self> {
         let pool: PgPool = diesel_make_pg_pool(database_url)?;
 
@@ -110,7 +108,6 @@ impl Store {
             pool,
             eventbus,
             usage_client,
-            invoice_rendering_service,
             settings: Settings {
                 crypt_key,
                 jwt_secret,

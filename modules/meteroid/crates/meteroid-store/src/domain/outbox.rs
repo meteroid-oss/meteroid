@@ -1,16 +1,12 @@
 use chrono::NaiveDateTime;
-use core::fmt;
 use diesel_models::enums::OutboxStatus;
-use nanoid::nanoid;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
 use uuid::Uuid;
 
-use crate::domain::{InvoicingEntityNew, Tenant};
 use crate::errors::{StoreError, StoreErrorReport};
 use diesel_models::outbox::{OutboxRow, OutboxRowNew, OutboxRowPatch};
-use error_stack::{Report, ResultExt};
+use error_stack::Report;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "kebab-case")]

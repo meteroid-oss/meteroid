@@ -11,7 +11,6 @@ use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::{migrations, webhook_in_api};
-use meteroid_store::external::invoice_rendering::noop_invoice_rendering_service;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,7 +47,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             query_service_client,
             metering_service,
         )),
-        noop_invoice_rendering_service(),
     )?;
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;

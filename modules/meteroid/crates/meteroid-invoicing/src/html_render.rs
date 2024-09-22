@@ -1,16 +1,9 @@
 use crate::errors::InvoicingError;
 use chrono::prelude::*;
 use chrono::NaiveDate;
-use fluent::{FluentArgs, FluentBundle, FluentResource};
-use fluent_static::Message;
 use maud::{html, Markup, DOCTYPE};
-use meteroid_store::constants::Currency;
-use once_cell::sync::Lazy;
 use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use rusty_money::{iso, FormattableCurrency};
-use std::collections::HashMap;
-use unic_langid::LanguageIdentifier;
+use rusty_money::iso;
 
 use crate::model::*;
 
@@ -46,7 +39,7 @@ pub fn render_invoice(invoice: &Invoice) -> Result<Markup, InvoicingError> {
                     (render_invoice_info(lang, &invoice.metadata)?)
                     (render_billing_info(lang, &invoice.organization, &invoice.customer))
                     (render_invoice_lines(lang, &invoice.lines, &invoice.metadata.currency)?)
-                    (render_invoice_summary(lang, &invoice.metadata, &invoice.lines))
+                    (render_invoice_summary(lang, &invoice.metadata ))
                     (render_footer(lang, &invoice.organization))
                 }
             }
@@ -59,11 +52,11 @@ fn render_billing_info(lang: &str, organization: &Organization, customer: &Custo
         div class="grid grid-cols-2 gap-8 mb-8" {
             div {
                 h2 class="text-xl font-semibold mb-2 text-gray-700" { (l10n::invoice::bill_from(lang)) }
-                (render_address(lang, organization))
+                (render_address( organization))
             }
             div {
                 h2 class="text-xl font-semibold mb-2 text-gray-700" { (l10n::invoice::bill_to(lang)) }
-                (render_address(lang, customer))
+                (render_address(  customer))
             }
         }
     }
@@ -141,7 +134,7 @@ fn render_invoice_lines(
     })
 }
 
-fn render_invoice_summary(lang: &str, invoice: &InvoiceMetadata, lines: &[InvoiceLine]) -> Markup {
+fn render_invoice_summary(lang: &str, invoice: &InvoiceMetadata) -> Markup {
     html! {
         div class="mb-8" {
             h2 class="text-xl font-semibold mb-4 text-gray-700" { (l10n::invoice::invoice_summary(lang)) }
@@ -237,7 +230,7 @@ fn format_date_short(lang: &str, date: &NaiveDate) -> Result<String, InvoicingEr
     }
 }
 
-fn render_address<T>(lang: &str, entity: &T) -> Markup
+fn render_address<T>(entity: &T) -> Markup
 where
     T: HasAddress,
 {

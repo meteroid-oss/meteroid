@@ -14,7 +14,6 @@ use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
-use meteroid_store::external::invoice_rendering::noop_invoice_rendering_service;
 use meteroid_store::store::PgPool;
 
 pub struct MeteroidSetup {
@@ -52,7 +51,6 @@ pub async fn start_meteroid_with_port(
         config.multi_organization_enabled,
         create_eventbus_memory(),
         usage_client,
-        noop_invoice_rendering_service(),
     )
     .expect("Could not create store");
 
@@ -148,7 +146,7 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
         let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
         conn.batch_execute(contents.as_str())
             .await
-            .inspect_err(|err| {
+            .inspect_err(|_err| {
                 eprintln!("Seed failed to apply : {}", seed.path());
             })
             .unwrap();

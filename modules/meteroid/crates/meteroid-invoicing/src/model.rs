@@ -1,7 +1,5 @@
 use rust_decimal::Decimal;
-use rusty_money::{iso, FormattableCurrency};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use rusty_money::iso;
 
 pub struct Invoice {
     pub lang: String,
