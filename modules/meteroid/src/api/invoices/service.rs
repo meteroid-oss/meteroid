@@ -3,8 +3,8 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
-    GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse,
-    RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
+    GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse, PreviewInvoiceRequest,
+    PreviewInvoiceResponse, RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
@@ -92,6 +92,26 @@ impl InvoicesService for InvoiceServiceComponents {
         Ok(Response::new(response))
     }
 
+    async fn preview_invoice_html(
+        &self,
+        request: Request<PreviewInvoiceRequest>,
+    ) -> Result<Response<PreviewInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let html = self
+            .html_rendering
+            .preview_invoice_html(parse_uuid(&req.id, "invoice_id")?, tenant_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        let response = PreviewInvoiceResponse { html };
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn refresh_invoice_data(
         &self,
         request: Request<RefreshInvoiceDataRequest>,

@@ -44,5 +44,8 @@ pub fn mocked_config(
         secrets_crypt_key: "00000000000000000000000000000000".to_string().into(),
         fang_ext: FangExtConfig::init_from_env().unwrap(),
         openexchangerates_api_key: None,
+        s3_prefix: None,
+        s3_uri: "file:///tmp/meteroid".to_owned(),
+        gotenberg_url: "http://localhost:3000".to_owned(),
     }
 }

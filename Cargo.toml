@@ -7,6 +7,7 @@ members = [
   "modules/meteroid/crates/stripe-client",
   "modules/meteroid/crates/diesel-models",
   "modules/meteroid/crates/meteroid-store",
+  "modules/meteroid/crates/meteroid-invoicing",
   # metering
   "modules/metering",
   "modules/metering/crates/metering-grpc",
@@ -60,14 +61,18 @@ diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 dotenvy = "0.15.7"
-envconfig = "0.10.0"
 env_logger = "0.11.5"
+envconfig = "0.10.0"
 error-stack = "0.5.0"
+fake = "2.9.2"
 fang = { version = "0.10.4", default-features = false }
 fastrand = "2.0.1"
+fluent = "0.16"
+fluent-static = "0.4.0"
+fluent-static-codegen = "0.5.0"
 futures = "0.3.28"
-futures-util = { version = "0.3.29", features = [] }
 futures-lite = "2.3.0"
+futures-util = { version = "0.3.29", features = [] }
 headers = "0.4.0"
 hex = "0.4.3"
 hmac = "0.12.1"
@@ -83,10 +88,13 @@ jsonwebtoken = "9.2.0"
 lapin = "2.5.0"
 lazy_static = "1"
 log = "0.4.20"
+maud = "0.26.0"
 miette = { version = "7.0.0", default-features = false }
 mockito = "1.2.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
+ndarray = "0.15.6"
+ndarray-interp = "0.4.1"
 o2o = "0.4.8"
 object_store = { version = "0.11.0", default-features = false }
 once_cell = "1.18.0"
@@ -104,6 +112,8 @@ prost-types = "0.12.1"
 quick_cache = "0.6.2"
 quote = "1.0.35"
 rand = "0.8.5"
+rand_chacha = "0.3.1"
+rand_distr = "0.4.3"
 rdkafka = "0.36.0"
 redis = { version = "0.26.1", default-features = false }
 regex = "1"
@@ -115,6 +125,7 @@ rstest = "0.22.0"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
 rustls = { version = "0.23.12", default-features = false }
+rusty-money = "0.4.1"
 secrecy = "0.8.0"
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
@@ -154,14 +165,11 @@ tracing-log = "0.2.0"
 tracing-opentelemetry = { version = "0.25.0" }
 tracing-subscriber = { version = "0.3.17", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
+unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
 uuid7 = "1.0.0"
-ndarray = "0.15.6"
-ndarray-interp = "0.4.1"
-rand_distr = "0.4.3"
-fake = "2.9.2"
-rand_chacha = "0.3.1"
+
 
 
 # TODO prefix it all
@@ -181,3 +189,4 @@ kafka = { path = "crates/kafka" }
 metering = { path = "modules/metering" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
+meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }

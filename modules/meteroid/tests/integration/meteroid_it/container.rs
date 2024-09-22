@@ -146,7 +146,7 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
         let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
         conn.batch_execute(contents.as_str())
             .await
-            .inspect_err(|err| {
+            .inspect_err(|_err| {
                 eprintln!("Seed failed to apply : {}", seed.path());
             })
             .unwrap();

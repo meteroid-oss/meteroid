@@ -50,6 +50,8 @@ pub struct InvoiceRow {
     pub subtotal: i64,
     pub applied_credits: i64,
     pub seller_details: serde_json::Value,
+    pub pdf_document_id: Option<String>,
+    pub xml_document_id: Option<String>,
 }
 
 #[derive(Debug, AsChangeset)]

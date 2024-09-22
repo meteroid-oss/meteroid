@@ -40,8 +40,17 @@ message RefreshInvoiceDataResponse {
   DetailedInvoice invoice = 1;
 }
 
+message PreviewInvoiceRequest {
+  string id = 1;
+}
+
+message PreviewInvoiceResponse {
+  string html = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
+  rpc PreviewInvoiceHtml(PreviewInvoiceRequest) returns (PreviewInvoiceResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
 }

@@ -94,6 +94,16 @@ pub enum MrrMovementType {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::OutboxStatus"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum OutboxStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::OrganizationUserRole"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum OrganizationUserRole {

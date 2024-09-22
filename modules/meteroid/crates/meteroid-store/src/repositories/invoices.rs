@@ -11,7 +11,7 @@ use error_stack::Report;
 use crate::compute::InvoiceLineInterface;
 use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
+    InvoiceNew, InvoiceWithCustomer, OrderByRequest, OutboxEvent, PaginatedVec, PaginationRequest,
 };
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
@@ -70,6 +70,8 @@ pub trait InvoiceInterface {
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
+    async fn list_invoices_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Invoice>>;
+
     async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
 
     async fn invoice_issue_error(
@@ -83,6 +85,14 @@ pub trait InvoiceInterface {
 
     async fn refresh_invoice_data(&self, id: Uuid, tenant_id: Uuid)
         -> StoreResult<DetailedInvoice>;
+
+    async fn save_invoice_documents(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        pdf_id: String,
+        xml_id: Option<String>,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -275,6 +285,17 @@ impl InvoiceInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+                self.internal
+                    .insert_outbox_item(
+                        conn,
+                        domain::OutboxNew {
+                            event_type: OutboxEvent::InvoiceFinalized,
+                            resource_id: id,
+                            payload: None,
+                        },
+                    )
+                    .await?;
+
                 Ok(res)
             }
             .scope_boxed()
@@ -311,16 +332,6 @@ impl InvoiceInterface for Store {
         Ok(res)
     }
 
-    async fn refresh_invoice_data(
-        &self,
-        id: Uuid,
-        tenant_id: Uuid,
-    ) -> StoreResult<DetailedInvoice> {
-        let patch = compute_invoice_patch(self, id, tenant_id).await?;
-        let mut conn = self.get_conn().await?;
-        refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
-    }
-
     async fn list_invoices_to_issue(
         &self,
         max_attempts: i32,
@@ -342,6 +353,19 @@ impl InvoiceInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn list_invoices_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Invoice>> {
+        let mut conn = self.get_conn().await?;
+
+        let invoices = InvoiceRow::list_by_ids(&mut conn, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        invoices
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()
     }
 
     async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
@@ -371,6 +395,31 @@ impl InvoiceInterface for Store {
         let mut conn = self.get_conn().await?;
 
         InvoiceRow::update_pending_finalization(&mut conn, now)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn refresh_invoice_data(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> StoreResult<DetailedInvoice> {
+        let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let mut conn = self.get_conn().await?;
+        refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
+    }
+
+    async fn save_invoice_documents(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        pdf_id: String,
+        xml_id: Option<String>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::save_invoice_documents(&mut conn, id, tenant_id, pdf_id, xml_id)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)

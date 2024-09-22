@@ -1,0 +1,7 @@
+{
+  "scripts": {
+    "css:watch": "npx tailwindcss -i ./assets/base.css -o ./assets/styles.css --watch",
+    "css:once": "npx tailwindcss -i ./assets/base.css -o ./assets/styles.css",
+    "css": "npx tailwindcss -i ./assets/base.css -o ./assets/styles.css --minify"
+  }
+}
