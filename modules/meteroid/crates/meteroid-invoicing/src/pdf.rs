@@ -37,12 +37,6 @@ impl PdfGenerator for GotenbergPdfGenerator {
         let form = reqwest::multipart::Form::new()
             .part("files", html_part)
             .text("scale", "1")
-            /*
-                  marginTop: '0.42',
-            marginBottom: '0.42',
-            marginLeft: '0.42',
-            marginRight: '0.42'
-                 */
             .text("marginTop", "0.2")
             .text("marginBottom", "0.2")
             .text("marginLeft", "0.2")
@@ -51,7 +45,7 @@ impl PdfGenerator for GotenbergPdfGenerator {
 
         let response = self
             .client
-            .post(&format!(
+            .post(format!(
                 "{}/forms/chromium/convert/html",
                 self.gotenberg_url
             ))

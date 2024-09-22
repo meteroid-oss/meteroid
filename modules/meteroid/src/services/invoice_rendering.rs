@@ -238,8 +238,6 @@ mod mapper {
             tax_id: invoice.customer_details.vat_number,
         };
 
-        // invoicing_model::InvoiceLine
-
         let lines = invoice
             .line_items
             .iter()

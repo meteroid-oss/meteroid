@@ -52,14 +52,10 @@ impl Storage for S3Storage {
         };
 
         // multipart is efficient from parts >5MB, let's stay on single part for now
-        let result = self
-            .object_store_client
+        self.object_store_client
             .put(&path, payload)
             .await
             .map_err(|_| InvoicingError::StorageError("Failed to store PDF".to_string()))?;
-
-        // result.e_tag ?
-        println!("Stored PDF at {}", result.e_tag.unwrap_or_default());
 
         Ok(path.to_string())
     }
