@@ -16,7 +16,7 @@ pub trait OutboxInterface {
         batch_size: i64,
     ) -> StoreResult<Vec<Outbox>>;
 
-    async fn mark_outbox_entries_as_processed(&self, ids: Vec<Uuid>) -> StoreResult<()>;
+    async fn mark_outbox_entries_as_completed(&self, ids: Vec<Uuid>) -> StoreResult<()>;
     async fn mark_outbox_entries_as_failed(&self, ids: Vec<Uuid>, error: String)
         -> StoreResult<()>;
     async fn mark_outbox_entry_as_failed(&self, id: Uuid, error: String) -> StoreResult<()>;
@@ -41,9 +41,9 @@ impl OutboxInterface for Store {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    async fn mark_outbox_entries_as_processed(&self, ids: Vec<Uuid>) -> StoreResult<()> {
+    async fn mark_outbox_entries_as_completed(&self, ids: Vec<Uuid>) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
-        OutboxRow::mark_outbox_entries_as_processed(&mut conn, ids)
+        OutboxRow::mark_outbox_entries_as_completed(&mut conn, ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         Ok(())

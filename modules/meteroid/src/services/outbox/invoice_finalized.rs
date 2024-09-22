@@ -86,7 +86,7 @@ impl InvoiceFinalizedOutboxWorker {
 
             if let Err(e) = self
                 .store
-                .mark_outbox_entries_as_processed(success_entry_ids)
+                .mark_outbox_entries_as_completed(success_entry_ids)
                 .await
             {
                 tracing::error!("Error while saving successful outbox responses: {}", e);

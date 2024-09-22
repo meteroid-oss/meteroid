@@ -255,7 +255,7 @@ impl InvoiceRow {
         conn: &mut PgConn,
         id: uuid::Uuid,
         tenant_id: uuid::Uuid,
-        pdf_document_id: Option<String>,
+        pdf_document_id: String,
         xml_document_id: Option<String>,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;

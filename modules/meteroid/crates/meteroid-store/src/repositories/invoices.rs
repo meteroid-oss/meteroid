@@ -419,7 +419,7 @@ impl InvoiceInterface for Store {
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        InvoiceRow::save_invoice_documents(&mut conn, id, tenant_id, Some(pdf_id), xml_id)
+        InvoiceRow::save_invoice_documents(&mut conn, id, tenant_id, pdf_id, xml_id)
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)

@@ -65,7 +65,7 @@ impl OutboxRow {
             .into_db_result()
     }
 
-    pub async fn mark_outbox_entries_as_processed(
+    pub async fn mark_outbox_entries_as_completed(
         conn: &mut PgConn,
         ids: Vec<uuid::Uuid>,
     ) -> DbResult<()> {
