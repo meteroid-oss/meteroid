@@ -1,6 +1,7 @@
 use crate::errors::InvoicingRenderError;
+use crate::services::storage::{ObjectStoreService, Prefix};
 use error_stack::ResultExt;
-use meteroid_invoicing::{html_render, pdf, storage};
+use meteroid_invoicing::{html_render, pdf};
 use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::InvoiceInterface;
@@ -50,7 +51,7 @@ pub enum GenerateResult {
 }
 
 pub struct PdfRenderingService {
-    storage: Arc<dyn storage::Storage>,
+    storage: Arc<dyn ObjectStoreService>,
     pdf: Arc<dyn pdf::PdfGenerator>,
     store: Arc<Store>,
 }
@@ -58,20 +59,13 @@ pub struct PdfRenderingService {
 impl PdfRenderingService {
     pub fn try_new(
         gotenberg_url: String,
-        s3_uri: String,
-        s3_prefix: Option<String>,
+        storage: Arc<dyn ObjectStoreService>,
         store: Arc<Store>,
     ) -> error_stack::Result<Self, InvoicingRenderError> {
         let pdf_generator = Arc::new(pdf::GotenbergPdfGenerator::new(gotenberg_url.clone()));
 
-        // accept an objectstore client instead of the config ?
-        let s3_storage = Arc::new(
-            storage::S3Storage::try_new(s3_uri.clone(), s3_prefix.clone())
-                .change_context(InvoicingRenderError::InitializationError)?,
-        );
-
         Ok(Self {
-            storage: s3_storage,
+            storage,
             pdf: pdf_generator,
             store,
         })
@@ -146,18 +140,19 @@ impl PdfRenderingService {
             .await
             .change_context(InvoicingRenderError::PdfError)?;
 
-        let pdf_url = self
+        let pdf_id = self
             .storage
-            .store_pdf(pdf, None)
+            .store(pdf, Prefix::InvoicePdf)
             .await
-            .change_context(InvoicingRenderError::StorageError)?;
+            .change_context(InvoicingRenderError::StorageError)?
+            .to_string();
 
         self.store
-            .save_invoice_documents(invoice_id, tenant_id, pdf_url.clone(), None)
+            .save_invoice_documents(invoice_id, tenant_id, pdf_id.clone(), None)
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        Ok(pdf_url)
+        Ok(pdf_id)
     }
 }
 

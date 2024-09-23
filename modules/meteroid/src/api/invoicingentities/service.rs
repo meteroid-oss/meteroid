@@ -1,3 +1,6 @@
+use bytes::Bytes;
+use image::ImageFormat;
+use std::io::Cursor;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -5,12 +8,15 @@ use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     invoicing_entities_service_server::InvoicingEntitiesService, CreateInvoicingEntityRequest,
     CreateInvoicingEntityResponse, ListInvoicingEntitiesRequest, ListInvoicingEntitiesResponse,
-    UpdateInvoicingEntityRequest, UpdateInvoicingEntityResponse,
+    UpdateInvoicingEntityRequest, UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
+    UploadInvoicingEntityLogoResponse,
 };
+use meteroid_store::domain::InvoicingEntityPatch;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
 use crate::api::shared::conversions::ProtoConv;
+use crate::services::storage::Prefix;
 
 use super::{mapping, InvoicingEntitiesServiceComponents};
 
@@ -73,7 +79,6 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         request: Request<UpdateInvoicingEntityRequest>,
     ) -> Result<Response<UpdateInvoicingEntityResponse>, Status> {
         let tenant = request.tenant()?;
-
         let req = request.into_inner();
 
         let data = req
@@ -93,4 +98,75 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             entity: Some(mapping::invoicing_entities::domain_to_proto(res)),
         }))
     }
+
+    #[tracing::instrument(skip_all)]
+    async fn upload_invoicing_entity_logo(
+        &self,
+        request: Request<UploadInvoicingEntityLogoRequest>,
+    ) -> Result<Response<UploadInvoicingEntityLogoResponse>, Status> {
+        let tenant = request.tenant()?;
+        let req = request.into_inner();
+
+        let logo_bytes = req.data;
+
+        if logo_bytes.len() > MAX_IMAGE_SIZE {
+            return Err(Status::invalid_argument(
+                "Image size exceeds maximum allowed",
+            ));
+        }
+
+        let logo_bytes =
+            process_image(&logo_bytes).map_err(InvoicingEntitiesApiError::InvalidArgument)?;
+
+        let res = self
+            .object_store
+            .store(Bytes::from(logo_bytes), Prefix::ImageLogo)
+            .await
+            .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+
+        self.store
+            .patch_invoicing_entity(
+                InvoicingEntityPatch {
+                    logo_attachment_id: Some(Some(res.to_string())),
+                    ..InvoicingEntityPatch::default()
+                },
+                tenant,
+            )
+            .await
+            .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+
+        Ok(Response::new(UploadInvoicingEntityLogoResponse {
+            logo_uid: res.to_string(),
+        }))
+    }
+}
+const MAX_IMAGE_SIZE: usize = 2 * 1024 * 1024; // 2 MB
+const MAX_H: u32 = 160;
+const MAX_W: u32 = 1024;
+
+fn process_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    // Validate image format
+    let format = image::guess_format(bytes).map_err(|_| "Unable to determine image format")?;
+    if !matches!(
+        format,
+        ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP
+    ) {
+        return Err("Unsupported image format. Only PNG, JPEG and WebP are allowed.".to_string());
+    }
+
+    let img = image::load_from_memory(bytes).map_err(|e| format!("Failed to load image: {}", e))?;
+
+    // Resize if necessary
+    let img = if img.width() > MAX_W || img.height() > MAX_H {
+        img.resize(MAX_W, MAX_H, image::imageops::FilterType::Nearest)
+    } else {
+        img
+    };
+
+    // Convert to PNG
+    let mut buffer = Cursor::new(Vec::new());
+    img.write_to(&mut buffer, ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode image: {}", e))?;
+
+    Ok(buffer.into_inner())
 }

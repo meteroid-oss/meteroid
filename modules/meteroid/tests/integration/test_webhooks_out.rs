@@ -274,7 +274,7 @@ async fn test_webhook_handler(
     endpoint_mock2.remove();
 
     async fn assert_events(
-        endpoint_id: &String,
+        endpoint_id: &str,
         clients: &meteroid_it::clients::AllClients,
         expected_endpoint_request: String,
         event_type: WebhookEventType,
@@ -285,7 +285,7 @@ async fn test_webhook_handler(
             .list_webhook_events(api::webhooks::out::v1::ListWebhookEventsRequest {
                 sort_by: api::webhooks::out::v1::list_webhook_events_request::SortBy::DateDesc
                     as i32,
-                endpoint_id: endpoint_id.clone(),
+                endpoint_id: endpoint_id.to_string(),
                 pagination: None,
             })
             .await

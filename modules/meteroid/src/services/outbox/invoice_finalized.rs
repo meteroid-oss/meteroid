@@ -33,7 +33,13 @@ impl InvoiceFinalizedOutboxWorker {
         loop {
             let outbox = match self
                 .store
-                .claim_outbox_entries(OutboxEvent::InvoiceFinalized, 10)
+                .claim_outbox_entries(
+                    vec![
+                        OutboxEvent::InvoiceFinalized,
+                        OutboxEvent::InvoicePdfRequested,
+                    ],
+                    10,
+                )
                 .await
             {
                 Ok(entries) => entries,

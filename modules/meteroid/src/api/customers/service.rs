@@ -267,9 +267,12 @@ impl CustomersService for CustomerServiceComponents {
                 notes: req.notes,
             })
             .await
-            .and_then(
-                crate::api::invoices::mapping::invoices::domain_invoice_with_plan_details_to_server,
-            )
+            .and_then(|inv| {
+                crate::api::invoices::mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(BuyCustomerCreditsResponse {

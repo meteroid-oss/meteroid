@@ -176,7 +176,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
         name: "Test".to_string(),
         customer_base: domain::CustomerBase {
             dataset_path: None,
-            customer_count: Some(50),
+            customer_count: Some(5),
             customer_growth_curve: vec![0.1, 0.3, 1.0],
         },
         randomness: domain::Randomness {

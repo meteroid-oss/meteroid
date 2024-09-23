@@ -13,6 +13,7 @@ use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::outbox::invoice_finalized::InvoiceFinalizedOutboxWorker;
+use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::workers::fang as mfang;
 use meteroid::workers::invoicing::price_worker::PriceWorker;
@@ -51,10 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(singletons::get_store().await.clone());
 
+    let object_store_service = Arc::new(S3Storage::try_new(
+        &config.object_store_uri,
+        &config.object_store_prefix,
+    )?);
+
     let pdf_service = PdfRenderingService::try_new(
         config.gotenberg_url.clone(),
-        config.s3_uri.clone(),
-        config.s3_prefix.clone(),
+        object_store_service,
         store.clone(),
     )?;
 

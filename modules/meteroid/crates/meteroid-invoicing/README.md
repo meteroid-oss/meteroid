@@ -13,7 +13,8 @@ for OSS scale.
 We rely on Gotenberg workers (just a go wrapper to manage a chromium instance) for this.
 An instance can only handle a single task at a time, we need to scale instances horizontally.
 
-A vastly more performant option would be to rely on binary generation instead of conversion, but existing solutions are really
+A vastly more performant option would be to rely on binary generation instead of conversion, but existing solutions are
+really
 low level (manual pixel positioning etc) so it'll be a pain to maintain.
 
 In the next few months we may have suitable template-to-pdf options though :
@@ -42,5 +43,4 @@ We will handle it through an outbox pattern, with or without Kafka/Debezium in b
 - PDF/A-3b attachments
 - Email delivery
 - Upload xml to public authority
-- Preview pdf (just expose the html)
 - tax reporting ?

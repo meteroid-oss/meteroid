@@ -28,9 +28,9 @@ impl OutboxRow {
     pub async fn claim_outbox_entries(
         conn: &mut PgConn,
         batch_size: i64,
-        event_type: &str,
+        event_types: Vec<String>,
     ) -> DbResult<Vec<OutboxRow>> {
-        use diesel::sql_types::{BigInt, Integer, Text};
+        use diesel::sql_types::{Array, BigInt, Integer, Text};
         use diesel_async::RunQueryDsl;
         const MAX_ATTEMPTS: i32 = 5;
 
@@ -47,7 +47,7 @@ impl OutboxRow {
                     (status = 'PROCESSING' AND processing_started_at < NOW() - INTERVAL '30 minutes') OR
                     (status = 'FAILED' AND processing_attempts < $3)
                 )
-                AND event_type = $2
+                AND event_type in ($2)
             ORDER BY created_at
             LIMIT $1
             FOR UPDATE SKIP LOCKED
@@ -57,7 +57,7 @@ impl OutboxRow {
 
         diesel::sql_query(query)
             .bind::<BigInt, _>(batch_size)
-            .bind::<Text, _>(event_type.to_string())
+            .bind::<Array<Text>, _>(event_types)
             .bind::<Integer, _>(MAX_ATTEMPTS)
             .get_results::<OutboxRow>(conn)
             .await

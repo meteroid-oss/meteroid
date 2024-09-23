@@ -13,6 +13,8 @@ use error_stack::Report;
 pub enum OutboxEvent {
     #[serde(rename = "invoice.finalized")]
     InvoiceFinalized,
+    #[serde(rename = "invoice.pdf.requested")]
+    InvoicePdfRequested,
     // TODO meter created
 }
 

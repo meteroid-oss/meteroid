@@ -12,7 +12,7 @@ use crate::StoreResult;
 pub trait OutboxInterface {
     async fn claim_outbox_entries(
         &self,
-        event_type: OutboxEvent,
+        event_types: Vec<OutboxEvent>,
         batch_size: i64,
     ) -> StoreResult<Vec<Outbox>>;
 
@@ -20,20 +20,25 @@ pub trait OutboxInterface {
     async fn mark_outbox_entries_as_failed(&self, ids: Vec<Uuid>, error: String)
         -> StoreResult<()>;
     async fn mark_outbox_entry_as_failed(&self, id: Uuid, error: String) -> StoreResult<()>;
+
+    async fn insert_outbox_item_no_tx(&self, item: OutboxNew) -> StoreResult<Outbox>;
 }
 
 #[async_trait::async_trait]
 impl OutboxInterface for Store {
     async fn claim_outbox_entries(
         &self,
-        event_type: OutboxEvent,
+        event_types: Vec<OutboxEvent>,
         batch_size: i64,
     ) -> StoreResult<Vec<Outbox>> {
         let mut conn = self.get_conn().await?;
 
-        let event_type: String = event_type.try_into()?;
+        let event_types: Vec<String> = event_types
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, _>>()?;
 
-        OutboxRow::claim_outbox_entries(&mut conn, batch_size, event_type.as_str())
+        OutboxRow::claim_outbox_entries(&mut conn, batch_size, event_types)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
@@ -67,6 +72,11 @@ impl OutboxInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
         Ok(())
+    }
+
+    async fn insert_outbox_item_no_tx(&self, item: OutboxNew) -> StoreResult<Outbox> {
+        let mut conn = self.get_conn().await?;
+        self.internal.insert_outbox_item(&mut conn, item).await
     }
 }
 

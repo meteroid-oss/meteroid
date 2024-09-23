@@ -13,5 +13,4 @@ pub mod seeder;
 pub mod services;
 pub mod singletons;
 pub mod webhook;
-pub mod webhook_in_api;
 pub mod workers;

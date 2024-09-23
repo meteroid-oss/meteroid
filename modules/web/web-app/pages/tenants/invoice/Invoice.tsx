@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { useQuery } from '@/lib/connectrpc'
+import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
 import {
   getInvoice,
   refreshInvoiceData,
@@ -36,6 +37,8 @@ export const Invoice = () => {
   const data = invoiceQuery.data?.invoice
   const isLoading = invoiceQuery.isLoading
 
+  const [openPreview, setOpenPreview] = useState(true)
+
   return (
     <Fragment>
       <Flex direction="column" gap={spaces.space6} fullHeight>
@@ -46,7 +49,14 @@ export const Invoice = () => {
           </>
         ) : (
           <>
-            <InvoiceView invoice={data} />
+            <InvoiceView invoice={data} previewHtml={setOpenPreview} />
+            {invoiceId && (
+              <PreviewInvoiceDialog
+                invoiceId={invoiceId}
+                open={openPreview}
+                setOpen={setOpenPreview}
+              />
+            )}
           </>
         )}
       </Flex>
@@ -134,7 +144,10 @@ const LeftOverview: React.FC<{
   )
 }
 
-export const InvoiceView: React.FC<Props> = ({ invoice }) => {
+export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => void }> = ({
+  invoice,
+  previewHtml,
+}) => {
   const queryClient = useQueryClient()
 
   const refresh = useMutation(refreshInvoiceData, {
@@ -170,6 +183,16 @@ export const InvoiceView: React.FC<Props> = ({ invoice }) => {
           >
             Refresh <RefreshCcw size="16" className={cn(refresh.isPending && 'animate-spin')} />
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            hasIcon
+            onClick={() => previewHtml(true)}
+            disabled={refresh.isPending}
+          >
+            Preview
+          </Button>
+
           <Button size="sm" variant="primary">
             <Download size="16" />
           </Button>

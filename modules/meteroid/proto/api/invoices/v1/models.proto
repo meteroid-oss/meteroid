@@ -82,6 +82,7 @@ message DetailedInvoice {
   optional string plan_name = 34;
   InlineCustomer customer_details = 35;
   int64 applied_credits = 36;
+  optional string document_sharing_key = 37;
 }
 
 message LineItem {
