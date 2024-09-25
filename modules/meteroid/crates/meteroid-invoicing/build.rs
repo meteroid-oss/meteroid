@@ -46,7 +46,6 @@ fn generate_country_translation() {
     // Generate Rust code to embed these files
     writeln!(file, "use once_cell::sync::Lazy;").unwrap();
     writeln!(file, "use std::collections::HashMap;").unwrap();
-    writeln!(file, "use serde::{{Deserialize, Serialize}};").unwrap();
 
     // No need for the Country struct, we directly use HashMap<String, String>
     writeln!(file, "pub static LOCALES: Lazy<HashMap<&'static str, &mut HashMap<String, String>>> = Lazy::new(|| {{").unwrap();
