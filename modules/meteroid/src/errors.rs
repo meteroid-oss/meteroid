@@ -149,4 +149,6 @@ pub enum ObjectStoreError {
     SaveError,
     #[error("Error loading object from object store")]
     LoadError,
+    #[error("Unsupported object store: {0}")]
+    UnsupportedStore(String),
 }

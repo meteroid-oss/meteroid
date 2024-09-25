@@ -40,7 +40,7 @@ pub mod invoicing_entities {
             net_terms: proto.net_terms,
             invoice_footer_info: proto.invoice_footer_info,
             invoice_footer_legal: proto.invoice_footer_legal,
-            logo_attachment_id: Some(proto.logo_attachment_id),
+            logo_attachment_id: None, // managed via a different api
             brand_color: Some(proto.brand_color),
             address_line1: proto.address_line1,
             address_line2: proto.address_line2,

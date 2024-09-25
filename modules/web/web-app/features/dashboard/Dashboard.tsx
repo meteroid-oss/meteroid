@@ -14,7 +14,8 @@ export const Dashboard = () => {
   const date = useMemo(() => {
     const today = new Date()
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' } as const
-    return today.toLocaleDateString('en-UK', options)
+
+    return today.toLocaleDateString('en-US', options)
   }, [])
 
   // morning, afternoon or evening

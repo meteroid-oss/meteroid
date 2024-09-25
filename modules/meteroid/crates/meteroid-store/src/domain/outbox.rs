@@ -49,6 +49,7 @@ pub struct Outbox {
     #[from(~.try_into()?)]
     pub event_type: OutboxEvent,
     pub resource_id: Uuid,
+    pub tenant_id: Uuid,
     #[from(~.into())]
     pub status: OutboxStatus,
     pub payload: Option<serde_json::Value>,
@@ -66,6 +67,7 @@ pub struct OutboxNew {
     #[into(~.try_into()?)]
     pub event_type: OutboxEvent,
     pub resource_id: Uuid,
+    pub tenant_id: Uuid,
     pub payload: Option<serde_json::Value>,
 }
 

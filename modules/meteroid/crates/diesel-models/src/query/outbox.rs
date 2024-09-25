@@ -43,11 +43,11 @@ impl OutboxRow {
             SELECT id FROM outbox
             WHERE
                 (
-                    status = 'AVAILABLE' OR
+                    status = 'PENDING' OR
                     (status = 'PROCESSING' AND processing_started_at < NOW() - INTERVAL '30 minutes') OR
                     (status = 'FAILED' AND processing_attempts < $3)
                 )
-                AND event_type in ($2)
+                AND event_type = ANY($2)
             ORDER BY created_at
             LIMIT $1
             FOR UPDATE SKIP LOCKED

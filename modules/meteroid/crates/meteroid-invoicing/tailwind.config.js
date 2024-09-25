@@ -1,5 +1,5 @@
 module.exports = {
-  content: ["./src/**.rs"],
+  content: ["./src/html_render.rs"],
   theme: {
     extend: {},
   },

@@ -7,21 +7,43 @@ use uuid::Uuid;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     invoicing_entities_service_server::InvoicingEntitiesService, CreateInvoicingEntityRequest,
-    CreateInvoicingEntityResponse, ListInvoicingEntitiesRequest, ListInvoicingEntitiesResponse,
-    UpdateInvoicingEntityRequest, UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
+    CreateInvoicingEntityResponse, GetInvoicingEntityRequest, GetInvoicingEntityResponse,
+    ListInvoicingEntitiesRequest, ListInvoicingEntitiesResponse, UpdateInvoicingEntityRequest,
+    UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
     UploadInvoicingEntityLogoResponse,
 };
 use meteroid_store::domain::InvoicingEntityPatch;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
-use crate::api::shared::conversions::ProtoConv;
+use crate::api::shared::conversions::{FromProtoOpt, ProtoConv};
 use crate::services::storage::Prefix;
 
 use super::{mapping, InvoicingEntitiesServiceComponents};
 
 #[tonic::async_trait]
 impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
+    #[tracing::instrument(skip_all)]
+    async fn get_invoicing_entity(
+        &self,
+        request: Request<GetInvoicingEntityRequest>,
+    ) -> Result<Response<GetInvoicingEntityResponse>, Status> {
+        let tenant = request.tenant()?;
+        let id = Uuid::from_proto_opt(request.into_inner().id)?;
+
+        let invoicing_entity = self
+            .store
+            .get_invoicing_entity(tenant, id)
+            .await
+            .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+
+        Ok(Response::new(GetInvoicingEntityResponse {
+            entity: Some(mapping::invoicing_entities::domain_to_proto(
+                invoicing_entity,
+            )),
+        }))
+    }
+
     #[tracing::instrument(skip_all)]
     async fn list_invoicing_entities(
         &self,
@@ -107,27 +129,33 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         let tenant = request.tenant()?;
         let req = request.into_inner();
 
-        let logo_bytes = req.data;
+        let logo_attachment_id = match req.file {
+            None => None,
+            Some(file) => {
+                let logo_bytes = file.data;
+                if logo_bytes.len() > MAX_IMAGE_SIZE {
+                    return Err(Status::invalid_argument(
+                        "Image size exceeds maximum allowed",
+                    ));
+                }
+                let logo_bytes = process_image(&logo_bytes)
+                    .map_err(InvoicingEntitiesApiError::InvalidArgument)?;
 
-        if logo_bytes.len() > MAX_IMAGE_SIZE {
-            return Err(Status::invalid_argument(
-                "Image size exceeds maximum allowed",
-            ));
-        }
+                let res = self
+                    .object_store
+                    .store(Bytes::from(logo_bytes), Prefix::ImageLogo)
+                    .await
+                    .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
-        let logo_bytes =
-            process_image(&logo_bytes).map_err(InvoicingEntitiesApiError::InvalidArgument)?;
-
-        let res = self
-            .object_store
-            .store(Bytes::from(logo_bytes), Prefix::ImageLogo)
-            .await
-            .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+                Some(res.to_string())
+            }
+        };
 
         self.store
             .patch_invoicing_entity(
                 InvoicingEntityPatch {
-                    logo_attachment_id: Some(Some(res.to_string())),
+                    id: Uuid::from_proto(req.id)?,
+                    logo_attachment_id: Some(logo_attachment_id.clone()), // Option<Option<Uuid>> as we need to set it to None if no logo is uploaded
                     ..InvoicingEntityPatch::default()
                 },
                 tenant,
@@ -136,7 +164,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(UploadInvoicingEntityLogoResponse {
-            logo_uid: res.to_string(),
+            logo_uid: logo_attachment_id,
         }))
     }
 }

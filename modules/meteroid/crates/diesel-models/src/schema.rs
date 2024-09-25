@@ -38,12 +38,12 @@ pub mod sql_types {
     pub struct MrrMovementType;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "OutboxStatus"))]
-    pub struct OutboxStatus;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "OrganizationUserRole"))]
     pub struct OrganizationUserRole;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "OutboxStatus"))]
+    pub struct OutboxStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "PlanStatusEnum"))]
@@ -189,25 +189,6 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
-    }
-}
-
-diesel::table! {
-
-    use diesel::sql_types::*;
-    use super::sql_types::OutboxStatus;
-
-    outbox (id) {
-        id -> Uuid,
-        event_type -> Text,
-        resource_id -> Uuid,
-        status -> OutboxStatus,
-        payload -> Nullable<Jsonb>,
-        created_at -> Timestamp,
-        processing_started_at -> Nullable<Timestamp>,
-        processing_completed_at -> Nullable<Timestamp>,
-        processing_attempts -> Int4,
-        error -> Nullable<Text>,
     }
 }
 
@@ -391,8 +372,8 @@ diesel::table! {
         subtotal -> Int8,
         applied_credits -> Int8,
         seller_details -> Jsonb,
-        pdf_document_id -> Nullable<Text>,
         xml_document_id -> Nullable<Text>,
+        pdf_document_id -> Nullable<Text>,
     }
 }
 
@@ -445,6 +426,25 @@ diesel::table! {
         user_id -> Uuid,
         organization_id -> Uuid,
         role -> OrganizationUserRole,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::OutboxStatus;
+
+    outbox (id) {
+        id -> Uuid,
+        event_type -> Text,
+        tenant_id -> Uuid,
+        resource_id -> Uuid,
+        status -> OutboxStatus,
+        payload -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+        processing_started_at -> Nullable<Timestamp>,
+        processing_completed_at -> Nullable<Timestamp>,
+        processing_attempts -> Int4,
+        error -> Nullable<Text>,
     }
 }
 
@@ -794,9 +794,9 @@ diesel::allow_tables_to_appear_in_same_query!(
     historical_rates_from_usd,
     invoice,
     invoicing_entity,
-    outbox,
     organization,
     organization_member,
+    outbox,
     plan,
     plan_version,
     price_component,

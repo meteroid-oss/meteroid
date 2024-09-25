@@ -35,8 +35,19 @@ impl PdfGenerator for GotenbergPdfGenerator {
                 )
             })?;
 
+        let footer_part =
+            reqwest::multipart::Part::text(crate::footer_render::render_footer().into_string())
+                .file_name("footer.html")
+                .mime_str("text/html")
+                .map_err(|_| {
+                    InvoicingError::PdfGenerationError(
+                        "Failed to create footer part for Gotenberg".to_string(),
+                    )
+                })?;
+
         let form = reqwest::multipart::Form::new()
             .part("files", html_part)
+            .part("files", footer_part)
             .text("scale", "1")
             .text("marginTop", "0.2")
             .text("marginBottom", "0.2")

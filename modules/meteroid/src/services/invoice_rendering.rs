@@ -1,11 +1,17 @@
+use crate::errors;
 use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
+use base64::engine::general_purpose::STANDARD as Base64Engine;
+use base64::Engine;
 use error_stack::ResultExt;
+use image::ImageFormat::Png;
 use meteroid_invoicing::{html_render, pdf};
 use meteroid_store::domain::{Invoice, InvoicingEntity};
+use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
+use std::io::Cursor;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -35,7 +41,28 @@ impl HtmlRenderingService {
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        let mapped = mapper::map_invoice_to_invoicing(invoice.invoice, &invoicing_entity)?;
+        let mut rate = None;
+        if invoice.invoice.currency != invoicing_entity.accounting_currency {
+            rate = self
+                .store
+                .get_historical_rate(
+                    &invoice.invoice.currency,
+                    &invoicing_entity.accounting_currency,
+                    invoice.invoice.invoice_date,
+                )
+                .await
+                .change_context(InvoicingRenderError::StoreError)?;
+        }
+
+        let mapped = mapper::map_invoice_to_invoicing(
+            invoice.invoice,
+            &invoicing_entity,
+            &invoicing_entity
+                .logo_attachment_id
+                .as_ref()
+                .map(|id| format!("/api/files/v1/logo/{}", id)),
+            rate,
+        )?;
 
         let html_string = html_render::render_invoice(&mapped)
             .change_context(InvoicingRenderError::RenderError)?
@@ -128,7 +155,48 @@ impl PdfRenderingService {
         let invoice_id = invoice.id;
         let tenant_id = invoice.tenant_id;
 
-        let mapped_invoice = mapper::map_invoice_to_invoicing(invoice, invoicing_entity)?;
+        // let's resolve the logo and encode it to a base64 url
+        let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
+            Some(logo_id) => {
+                let logo_uuid =
+                    Uuid::parse_str(logo_id).change_context(InvoicingRenderError::StorageError)?;
+
+                let logo = self
+                    .storage
+                    .retrieve(logo_uuid, Prefix::ImageLogo)
+                    .await
+                    .change_context(InvoicingRenderError::StorageError)?;
+
+                let mut img = image::load_from_memory(&logo)
+                    .change_context(InvoicingRenderError::RenderError)?;
+                img = img.resize(350, 20, image::imageops::FilterType::Nearest);
+                let mut buffer = Vec::new();
+                img.write_to(&mut Cursor::new(&mut buffer), Png)
+                    .change_context(InvoicingRenderError::RenderError)?;
+
+                Some(format!(
+                    "data:image/png;base64,{}",
+                    Base64Engine.encode(&buffer)
+                ))
+            }
+            None => None,
+        };
+
+        let mut rate = None;
+        if invoice.currency != invoicing_entity.accounting_currency {
+            rate = self
+                .store
+                .get_historical_rate(
+                    &invoice.currency,
+                    &invoicing_entity.accounting_currency,
+                    invoice.invoice_date,
+                )
+                .await
+                .change_context(InvoicingRenderError::StoreError)?;
+        }
+
+        let mapped_invoice =
+            mapper::map_invoice_to_invoicing(invoice, invoicing_entity, &organization_logo, rate)?;
 
         let html = html_render::render_invoice(&mapped_invoice)
             .change_context(InvoicingRenderError::RenderError)?
@@ -163,11 +231,16 @@ mod mapper {
     use meteroid_store::constants::Countries;
 
     use meteroid_store::domain as store_model;
+    use meteroid_store::domain::historical_rates::HistoricalRate;
+    use rust_decimal::prelude::FromPrimitive;
     use rust_decimal::Decimal;
 
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,
         invoicing_entity: &store_model::InvoicingEntity,
+        // either link for preview or base64 for pdf
+        organization_logo: &Option<String>,
+        accounting_rate: Option<HistoricalRate>,
     ) -> error_stack::Result<invoicing_model::Invoice, InvoicingRenderError> {
         let finalized_date = invoice
             .finalized_at
@@ -180,6 +253,13 @@ mod mapper {
             ))
         })?;
 
+        let accounting_currency = *rusty_money::iso::find(&invoicing_entity.accounting_currency)
+            .ok_or_else(|| {
+                Report::new(InvoicingRenderError::InvalidCurrency(
+                    invoicing_entity.accounting_currency.clone(),
+                ))
+            })?;
+
         let metadata = invoicing_model::InvoiceMetadata {
             currency,
             due_date: invoice
@@ -191,11 +271,9 @@ mod mapper {
             payment_term: invoice.net_terms as u32,
             total_amount: invoice.total,
             tax_amount: invoice.tax_amount,
+            tax_rate: invoice.tax_rate,
             subtotal: invoice.subtotal,
-            // memo/footer :
-            // - either we have one and we use it
-            // or we have none and we build from footer from invoicing entitry ?
-            // or that's actually 2 differnt things
+            memo: invoice.memo.clone(),
         };
 
         fn map_address(address: store_model::Address) -> invoicing_model::Address {
@@ -211,11 +289,15 @@ mod mapper {
 
         let organization = invoicing_model::Organization {
             address: map_address(invoice.seller_details.address),
-            email: None,                                                     // TODO
-            legal_number: None,                                              // TODO
-            logo_url: invoicing_entity.logo_attachment_id.as_ref().cloned(), // TODO retrieve the logo from s3
+            email: None,        // TODO
+            legal_number: None, // TODO
+            logo_url: organization_logo.clone(),
             name: invoice.seller_details.legal_name,
             tax_id: invoice.seller_details.vat_number,
+            footer_info: invoicing_entity.invoice_footer_info.clone(),
+            footer_legal: invoicing_entity.invoice_footer_legal.clone(),
+            accounting_currency,
+            exchange_rate: accounting_rate.and_then(|r| Decimal::from_f32(r.rate)),
         };
 
         let customer = invoicing_model::Customer {

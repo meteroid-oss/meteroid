@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             //     Box::new(PendingStatusWorker),
             //     LockKey::InvoicingPendingStatus,
             // ),
-            (Box::new(PriceWorker), LockKey::InvoicingPrice),
+            // (Box::new(PriceWorker), LockKey::InvoicingPrice),
             // (Box::new(FinalizeWorker), LockKey::InvoicingFinalize),
             // (Box::new(IssueWorker), LockKey::InvoicingIssue),
             // (Box::new(CurrencyRatesWorker), LockKey::CurrencyRates),

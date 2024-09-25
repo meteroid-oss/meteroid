@@ -13,21 +13,24 @@ export const PreviewInvoiceDialog = ({
   setOpen: (open: boolean) => void
   invoiceId: string
 }) => {
-  const getCountriesQuery = useQuery(previewInvoiceHtml, { id: invoiceId }, { gcTime: 0 })
+  const previewInvoiceHtmlQuery = useQuery(previewInvoiceHtml, { id: invoiceId }, { gcTime: 0 })
 
   useEffect(() => {
     if (open) {
-      getCountriesQuery.refetch()
+      previewInvoiceHtmlQuery.refetch()
     }
   }, [open])
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="w-full h-[80vh]  max-w-screen-lg">
-        {getCountriesQuery.isLoading ? (
+      <DialogContent className="w-full min-h-[870px]  max-w-[824px] p-2 bg-muted">
+        {previewInvoiceHtmlQuery.isLoading ? (
           <>Loading</>
         ) : (
-          <iframe srcDoc={getCountriesQuery.data?.html} className="w-full h-full"></iframe>
+          <iframe
+            srcDoc={previewInvoiceHtmlQuery.data?.html}
+            className="w-full h-full border border-border rounded-sm bg-white"
+          ></iframe>
         )}
       </DialogContent>
     </Dialog>

@@ -1,9 +1,12 @@
 use crate::errors::ObjectStoreError;
 use async_trait::async_trait;
 use bytes::Bytes;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
+use object_store::aws::AmazonS3Builder;
+use object_store::local::LocalFileSystem;
+use object_store::memory::InMemory;
 use object_store::path::Path;
-use object_store::{ObjectStore, PutPayload};
+use object_store::{ObjectStore, ObjectStoreScheme, PutPayload};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -36,8 +39,8 @@ pub type Result<T> = error_stack::Result<T, ObjectStoreError>;
 
 #[async_trait]
 pub trait ObjectStoreService: Send + Sync {
-    async fn store(&self, binary: Bytes, document_type: Prefix) -> Result<Uuid>;
-    async fn retrieve(&self, uid: Uuid, document_type: Prefix) -> Result<Bytes>;
+    async fn store(&self, binary: Bytes, prefix: Prefix) -> Result<Uuid>;
+    async fn retrieve(&self, uid: Uuid, prefix: Prefix) -> Result<Bytes>;
 }
 
 pub struct S3Storage {
@@ -49,8 +52,24 @@ impl S3Storage {
     pub fn try_new(url: &str, path_prefix: &Option<String>) -> Result<Self> {
         let url = url::Url::parse(url).change_context(ObjectStoreError::InvalidUrl)?;
 
-        let (client, path) =
-            object_store::parse_url(&url).change_context(ObjectStoreError::InvalidUrl)?;
+        let (scheme, path) =
+            ObjectStoreScheme::parse(&url).change_context(ObjectStoreError::InvalidUrl)?;
+
+        let client: Box<dyn ObjectStore> = match scheme {
+            ObjectStoreScheme::Local => Box::new(LocalFileSystem::new()),
+            ObjectStoreScheme::Memory => Box::new(InMemory::new()),
+            ObjectStoreScheme::AmazonS3 => Box::new(
+                AmazonS3Builder::from_env()
+                    .with_url(&url.to_string())
+                    .build()
+                    .change_context(ObjectStoreError::InvalidUrl)?,
+            ),
+            _ => {
+                return Err(Report::new(ObjectStoreError::UnsupportedStore(
+                    "Please request support for this object store protocol.".to_string(),
+                )));
+            }
+        };
 
         let path = match path_prefix {
             Some(prefix) => path.child(prefix.as_str()),

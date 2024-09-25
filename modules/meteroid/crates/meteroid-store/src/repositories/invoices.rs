@@ -291,6 +291,7 @@ impl InvoiceInterface for Store {
                         domain::OutboxNew {
                             event_type: OutboxEvent::InvoiceFinalized,
                             resource_id: id,
+                            tenant_id: tenant_id.clone(),
                             payload: None,
                         },
                     )

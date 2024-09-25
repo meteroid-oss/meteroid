@@ -99,6 +99,7 @@ impl InvoicesService for InvoiceServiceComponents {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn preview_invoice_html(
         &self,
         request: Request<PreviewInvoiceRequest>,
@@ -129,7 +130,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
+            .find_invoice_by_id(tenant_id.clone(), parse_uuid(&req.id, "id")?)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
@@ -139,6 +140,7 @@ impl InvoicesService for InvoiceServiceComponents {
             .insert_outbox_item_no_tx(domain::OutboxNew {
                 event_type: OutboxEvent::InvoicePdfRequested,
                 resource_id: invoice.invoice.id,
+                tenant_id,
                 payload: None,
             })
             .await

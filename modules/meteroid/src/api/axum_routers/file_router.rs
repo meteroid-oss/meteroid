@@ -57,7 +57,7 @@ async fn get_logo_handler(
     // resize
     let mut img =
         image::load_from_memory(&data).change_context(errors::RestApiError::ImageLoadingError)?;
-    img = img.resize(40, 40, image::imageops::FilterType::Nearest);
+    img = img.resize(350, 20, image::imageops::FilterType::Nearest);
     let mut buffer = Vec::new();
     img.write_to(&mut Cursor::new(&mut buffer), Png)
         .change_context(errors::RestApiError::ImageLoadingError)?;
