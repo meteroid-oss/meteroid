@@ -1,4 +1,4 @@
-import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Dot } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
@@ -117,7 +117,7 @@ export const BillingOutlet: FunctionComponent = () => {
               items: [
                 {
                   label: 'Invoice configuration',
-                  to: 'invoice-config',
+                  to: '../settings?tab=invoices',
                 },
               ],
             },

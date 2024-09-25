@@ -10,7 +10,8 @@ use meteroid::adapters::stripe::Stripe;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use meteroid::{migrations, webhook_in_api};
+use meteroid::migrations;
+use meteroid::services::storage::S3Storage;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,15 +52,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
-    let private_server = meteroid::api::server::start_api_server(config.clone(), store.clone());
+    let object_store_service = Arc::new(S3Storage::try_new(
+        &config.object_store_uri,
+        &config.object_store_prefix,
+    )?);
+
+    let private_server = meteroid::api::server::start_api_server(
+        config.clone(),
+        store.clone(),
+        object_store_service.clone(),
+    );
 
     let exit = signal::ctrl_c();
 
     let conn = store.pool.get().await?;
     migrations::run(conn).await?;
-
-    let object_store_client =
-        Arc::new(object_store::parse_url(&url::Url::parse(&config.object_store_uri)?)?.0);
 
     let stripe_adapter = Arc::new(Stripe {
         client: stripe_client::client::StripeClient::new(),
@@ -67,11 +74,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::select! {
         _ = private_server => {},
-        _ = webhook_in_api::serve(
-            config.invoicing_webhook_addr,
-            object_store_client,
+        _ = meteroid::api::axum_server::serve(
+            config.rest_api_addr,
+            object_store_service.clone(),
             stripe_adapter.clone(),
-            store,
+            store.clone(),
+            config.jwt_secret.clone(),
         ) => {},
         _ = exit => {
               log::info!("Interrupted");

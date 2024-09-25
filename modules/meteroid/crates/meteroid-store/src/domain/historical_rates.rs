@@ -13,6 +13,14 @@ pub struct HistoricalRatesFromUsd {
     pub rates: BTreeMap<String, f32>,
 }
 
+pub struct HistoricalRate {
+    pub id: Uuid,
+    pub date: NaiveDate,
+    pub from_currency: String,
+    pub to_currency: String,
+    pub rate: f32,
+}
+
 impl TryFrom<HistoricalRatesFromUsdRow> for HistoricalRatesFromUsd {
     type Error = Report<StoreError>;
 

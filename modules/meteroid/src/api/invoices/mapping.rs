@@ -1,6 +1,8 @@
 pub mod invoices {
     use crate::api::customers::mapping::customer::ServerAddressWrapper;
+    use crate::api::sharable::ShareableEntityClaims;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use error_stack::ResultExt;
     use meteroid_grpc::meteroid::api::invoices::v1::{
         DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType, InvoicingProvider,
         LineItem,
@@ -8,6 +10,7 @@ pub mod invoices {
     use meteroid_store::domain;
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
     use meteroid_store::errors::StoreError;
+    use secrecy::{ExposeSecret, SecretString};
 
     fn status_domain_to_server(value: domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
         match value {
@@ -53,8 +56,34 @@ pub mod invoices {
 
     pub fn domain_invoice_with_plan_details_to_server(
         value: domain::DetailedInvoice,
+        jwt_secret: SecretString,
     ) -> error_stack::Result<DetailedInvoice, StoreError> {
         let domain::DetailedInvoice { invoice, .. } = value;
+
+        let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
+            // encode InvoiceShareableClaims
+
+            let exp = chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7; // 7 days
+            let claims = ShareableEntityClaims {
+                exp,
+                sub: invoice.id.to_string(),
+                entity_id: invoice.id,
+                tenant_id: invoice.tenant_id,
+            };
+
+            let encoded = jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
+            )
+            .change_context(StoreError::CryptError(
+                "Failed to encode shareable claims".to_string(),
+            ))?;
+
+            Some(encoded)
+        } else {
+            None
+        };
 
         let line_items: Vec<LineItem> = invoice.line_items.into_iter()
             .map(|line| {
@@ -176,6 +205,9 @@ pub mod invoices {
             }),
             line_items,
             applied_credits: invoice.applied_credits,
+            document_sharing_key: share_key,
+            pdf_document_id: invoice.pdf_document_id,
+            xml_document_id: invoice.xml_document_id,
         })
     }
 

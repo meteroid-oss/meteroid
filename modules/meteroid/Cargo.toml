@@ -89,6 +89,7 @@ typetag = { workspace = true }
 jsonwebtoken.workspace = true
 once_cell.workspace = true
 tower-layer.workspace = true
+image = { workspace = true }
 fastrand = { workspace = true }
 meteroid-store.workspace = true
 meteroid-invoicing.workspace = true

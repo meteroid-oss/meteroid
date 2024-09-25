@@ -22,8 +22,10 @@ where
     if let Some(source) = error.source() {
         let caller = std::panic::Location::caller();
 
+        let debug = format!("{:?}", error);
+
         let source_details = SourceDetails {
-            msg: error.to_string(),
+            msg: debug,
             source: source.to_string(),
             location_file: caller.file().to_string(),
             location_line: caller.line(),

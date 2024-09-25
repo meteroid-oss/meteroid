@@ -3,13 +3,13 @@ use uuid::Uuid;
 
 use crate::enums::OutboxStatus;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, QueryableByName, Selectable};
-
 #[derive(Debug, Queryable, Identifiable, Selectable, QueryableByName)]
 #[diesel(table_name = crate::schema::outbox)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OutboxRow {
     pub id: Uuid,
     pub event_type: String,
+    pub tenant_id: Uuid,
     pub resource_id: Uuid,
     pub status: OutboxStatus,
     pub payload: Option<serde_json::Value>,
@@ -27,6 +27,7 @@ pub struct OutboxRowNew {
     pub id: Uuid,
     pub event_type: String,
     pub resource_id: Uuid,
+    pub tenant_id: Uuid,
     pub status: OutboxStatus,
     pub payload: Option<serde_json::Value>,
 }

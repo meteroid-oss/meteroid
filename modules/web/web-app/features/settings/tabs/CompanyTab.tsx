@@ -9,6 +9,7 @@ import {
   Card,
   cn,
   Form,
+  Input,
   InputFormField,
   Label,
   Select,
@@ -18,8 +19,8 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { PlusIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { PlusIcon, RefreshCwIcon, UploadIcon, XIcon } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -32,9 +33,12 @@ import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import {
+  getInvoicingEntity,
   listInvoicingEntities,
   updateInvoicingEntity,
+  uploadInvoicingEntityLogo,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { InvoicingEntity } from '@/rpc/api/invoicingentities/v1/models_pb'
 
 const invoicingEntitySchema = z.object({
   legalName: z.string().optional(),
@@ -70,41 +74,44 @@ export const CompanyTab = () => {
             }
           })
         )
+        queryClient.invalidateQueries({
+          queryKey: createConnectQueryKey(getInvoicingEntity, { id: res.entity?.id }),
+        })
         toast.success('Invoicing entity updated')
       }
     },
   })
 
-  const defaultInvoicingEntity = listInvoicingEntitiesQuery.data?.entities?.find(
-    entity => entity.isDefault
-  )
+  const entities = listInvoicingEntitiesQuery.data?.entities
+
+  const defaultInvoicingEntity = useMemo(() => {
+    return entities?.find(entity => entity.isDefault)
+  }, [entities])
 
   const [invoiceEntityId, setInvoiceEntityId] = useState<string | undefined>(
     defaultInvoicingEntity?.id
   )
+
+  const currentInvoicingEntity = useQuery(getInvoicingEntity, {
+    id: invoiceEntityId,
+  })?.data?.entity
 
   const methods = useZodForm({
     schema: invoicingEntitySchema,
   })
 
   useEffect(() => {
-    const entity = listInvoicingEntitiesQuery.data?.entities?.find(
-      entity => entity.id === invoiceEntityId
-    )
-    console.log('useEffect', invoiceEntityId)
-
-    if (entity) {
-      console.log('entity', entity)
-      methods.setValue('legalName', entity.legalName)
-      methods.setValue('addressLine1', entity.addressLine1)
-      methods.setValue('addressLine2', entity.addressLine2)
-      methods.setValue('zipCode', entity.zipCode)
-      methods.setValue('state', entity.state)
-      methods.setValue('country', entity.country)
+    if (currentInvoicingEntity) {
+      methods.setValue('legalName', currentInvoicingEntity.legalName)
+      methods.setValue('addressLine1', currentInvoicingEntity.addressLine1)
+      methods.setValue('addressLine2', currentInvoicingEntity.addressLine2)
+      methods.setValue('zipCode', currentInvoicingEntity.zipCode)
+      methods.setValue('state', currentInvoicingEntity.state)
+      methods.setValue('country', currentInvoicingEntity.country)
     } else {
       methods.reset()
     }
-  }, [invoiceEntityId])
+  }, [currentInvoicingEntity])
 
   useEffect(() => {
     if (defaultInvoicingEntity && !invoiceEntityId) {
@@ -231,6 +238,21 @@ export const CompanyTab = () => {
               />
             </div>
             <div className="pt-4">
+              <h3 className="font-medium text-lg">Brand</h3>
+            </div>
+            <div className="grid grid-cols-6 gap-4 pt-1 ">
+              <div className="col-span-4">
+                <Label>Logo</Label>
+                <p className="text-xs text-muted-foreground">
+                  Used in invoices, emails and portals. Max size 1MB, PNG or JPEG.
+                </p>
+              </div>
+              <div className="col-span-1 "></div>
+              <div className="col-span-1 content-end">
+                {currentInvoicingEntity && <FileUpload entity={currentInvoicingEntity} />}
+              </div>
+            </div>
+            <div className="pt-4">
               <h3 className="font-medium text-lg">Accounting</h3>
             </div>
             <div className="grid grid-cols-6 gap-4 pt-1 ">
@@ -269,6 +291,112 @@ export const CompanyTab = () => {
         setOpen={setCreateDialogOpen}
         setInvoicingEntity={setInvoiceEntityId}
       />
+    </div>
+  )
+}
+
+const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
+  const [isUploading, setIsUploading] = useState(false)
+  const queryClient = useQueryClient()
+
+  const updateInvoicingEntityMut = useMutation(uploadInvoicingEntityLogo, {
+    onSuccess: async res => {
+      queryClient.setQueryData(
+        createConnectQueryKey(getInvoicingEntity, { id: entity.id }),
+        createProtobufSafeUpdater(getInvoicingEntity, prev => {
+          return {
+            entity: {
+              ...prev?.entity,
+              logoAttachmentId: res.logoUid,
+            },
+          }
+        })
+      )
+      toast.success('Invoicing entity updated')
+    },
+  })
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setIsUploading(true)
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const arrayBuffer = reader.result as ArrayBuffer
+      const uint8Array = new Uint8Array(arrayBuffer)
+
+      try {
+        await updateInvoicingEntityMut.mutateAsync({
+          id: entity.id,
+          file: {
+            data: uint8Array,
+          },
+        })
+      } catch (error) {
+        console.error('Error uploading file:', error)
+        toast.error('Failed to upload file. Please try again.')
+      } finally {
+        setIsUploading(false)
+      }
+    }
+
+    reader.readAsArrayBuffer(file)
+  }
+
+  const clearFile = async () => {
+    setIsUploading(true)
+    try {
+      await updateInvoicingEntityMut.mutateAsync({
+        id: entity.id,
+        file: undefined,
+      })
+    } catch (error) {
+      toast.error('Failed to update logo.')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-row space-y-2 space-x-2 w-full">
+      <div className="flex-1 ">
+        {entity.logoAttachmentId && (
+          <div className="relative w-12 h-12 rounded overflow-hidden group float-end">
+            <img
+              src={'/api/files/v1/logo/' + entity.logoAttachmentId}
+              alt="Uploaded file"
+              className="w-full h-full object-cover"
+            />
+            <Button
+              size="icon"
+              variant="destructive"
+              type="button"
+              className="absolute top-0 right-0 w-6 h-6 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={clearFile}
+            >
+              <XIcon size="16" />
+            </Button>
+          </div>
+        )}
+      </div>
+      <Input
+        type="file"
+        id="file-upload"
+        className="hidden"
+        accept="image/*"
+        onChange={handleFileUpload}
+      />
+      <Button size="icon" variant="ghost" type="button" className="self-end">
+        <Label htmlFor="file-upload" className="cursor-pointer w-full h-full flex">
+          {isUploading ? (
+            <RefreshCwIcon size="16" className="animate-spin m-auto" />
+          ) : (
+            <UploadIcon size="16" className="m-auto" />
+          )}
+        </Label>
+      </Button>
     </div>
   )
 }

@@ -18,7 +18,7 @@ pub struct Config {
     pub database_url: String,
 
     #[envconfig(from = "METEROID_API_LISTEN_ADDRESS")]
-    pub listen_addr: SocketAddr,
+    pub grpc_listen_addr: SocketAddr,
 
     #[envconfig(from = "METERING_API_EXTERNAL_URL")]
     pub metering_endpoint: String,
@@ -26,8 +26,11 @@ pub struct Config {
     #[envconfig(from = "OBJECT_STORE_URI")]
     pub object_store_uri: String,
 
-    #[envconfig(from = "INVOICING_WEBHOOK_LISTEN_ADDRESS")]
-    pub invoicing_webhook_addr: SocketAddr,
+    #[envconfig(from = "OBJECT_STORE_PREFIX")]
+    pub object_store_prefix: Option<String>,
+
+    #[envconfig(from = "METEROID_REST_API_LISTEN_ADDRESS", default = "127.0.0.1:8080")]
+    pub rest_api_addr: SocketAddr,
 
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
@@ -61,12 +64,6 @@ pub struct Config {
 
     #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
     pub gotenberg_url: String,
-
-    #[envconfig(from = "S3_URI", default = "file:///tmp/meteroid")]
-    pub s3_uri: String,
-
-    #[envconfig(from = "S3_PREFIX")]
-    pub s3_prefix: Option<String>,
 }
 
 impl Config {

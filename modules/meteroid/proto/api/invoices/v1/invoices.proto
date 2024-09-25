@@ -45,12 +45,20 @@ message PreviewInvoiceRequest {
 }
 
 message PreviewInvoiceResponse {
+  // TODO could be too big for a single response, use streaming ? or not grpc
   string html = 1;
 }
+
+message RequestPdfGenerationRequest {
+  string id = 1;
+}
+
+message RequestPdfGenerationResponse {}
 
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
   rpc PreviewInvoiceHtml(PreviewInvoiceRequest) returns (PreviewInvoiceResponse) {}
+  rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
 }
