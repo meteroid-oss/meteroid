@@ -44,3 +44,7 @@ We will handle it through an outbox pattern, with or without Kafka/Debezium in b
 - Email delivery
 - Upload xml to public authority
 - tax reporting ?
+
+## i18n
+
+For countries.json, refer to https://github.com/marcbachmann/localized-countries/tree/master/data

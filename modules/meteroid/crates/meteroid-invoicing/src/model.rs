@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use rusty_money::{iso, ExchangeRate};
+use rusty_money::iso;
 
 pub struct Invoice {
     pub lang: String,

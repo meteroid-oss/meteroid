@@ -6,6 +6,7 @@ import { Flex } from '@ui/components/legacy'
 import { Download, DownloadIcon, RefreshCcw } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { useQuery } from '@/lib/connectrpc'
@@ -24,7 +25,6 @@ import {
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
-import { toast } from 'sonner'
 
 export const Invoice = () => {
   const { invoiceId } = useTypedParams<{ invoiceId: string }>()
@@ -161,17 +161,17 @@ const LeftOverview: React.FC<{
         <div className="flex content-between w-full text-sm text-muted-foreground justify-center">
           <div className="flex-1 self-center">PDF file</div>
           <div>
-            {/* {canRequestNewDocument ? ( */}
-            <Button size="md" variant="ghost" onClick={requestNewGeneration}>
-              Request
-            </Button>
-            {/* ) : ( */}
-            <a href={pdf_url} download={`invoice_${invoice.invoiceNumber}.pdf`} target="_blank">
-              <Button size="md" hasIcon disabled={!invoice.pdfDocumentId} variant="ghost">
-                Download <DownloadIcon size="12" />
+            {canRequestNewDocument ? (
+              <Button size="md" variant="ghost" onClick={requestNewGeneration}>
+                Request
               </Button>
-            </a>
-            {/* )} */}
+            ) : (
+              <a href={pdf_url} download={`invoice_${invoice.invoiceNumber}.pdf`} target="_blank" rel="noreferrer">
+                <Button size="md" hasIcon disabled={!invoice.pdfDocumentId} variant="ghost">
+                  Download <DownloadIcon size="12" />
+                </Button>
+              </a>
+            )}
           </div>
         </div>
       </div>

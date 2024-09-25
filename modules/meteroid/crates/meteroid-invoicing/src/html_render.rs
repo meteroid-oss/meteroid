@@ -1,7 +1,5 @@
 use crate::errors::InvoicingError;
 use crate::model::*;
-use base64::engine::general_purpose::STANDARD as Base64Engine;
-use base64::Engine;
 use chrono::prelude::*;
 use chrono::NaiveDate;
 use maud::{html, Markup, DOCTYPE};

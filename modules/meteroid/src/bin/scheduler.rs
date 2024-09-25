@@ -9,14 +9,12 @@ use std::time::Duration;
 
 use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
-use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::outbox::invoice_finalized::InvoiceFinalizedOutboxWorker;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::workers::fang as mfang;
-use meteroid::workers::invoicing::price_worker::PriceWorker;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

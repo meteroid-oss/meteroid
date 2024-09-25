@@ -8,6 +8,7 @@
   width: 100%;
   gap: 0.5rem;
   color: rgb(107 114 128 / 1);
+  -webkit-print-color-adjust: exact;
   align-self: center;
   text-align: center;
   max-width: 768px;

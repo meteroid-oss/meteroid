@@ -1,9 +1,7 @@
 invoice-title = Invoice
 invoice-number = Invoice n°{$invoice_number}
 company-logo-alt = Company Logo
-invoice-details = Invoice Details
 issue-date = Issue Date:
-payment-terms = Payment Terms: Net {$days} days
 amount-due = Amount Due
 due-date = Due Date:
 bill-from = Bill From
@@ -16,10 +14,7 @@ tax-rate = Tax Rate
 tax = Tax
 amount = Amount
 subtotal = Subtotal
-tax-total = Tax Total
 total-due = Total Due
-thank-you-message = Thank you for your business!
-contact-message = For any questions, please contact us at
 legal-info = Legal Information
 vat-exempt-legal = Tax not applicable
 exchange-rate-info = Exchange rate on {$date}:  {$equality} | Total amount converted = {$amount_converted}

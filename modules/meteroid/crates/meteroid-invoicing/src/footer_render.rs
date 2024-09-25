@@ -1,12 +1,6 @@
-use crate::errors::InvoicingError;
-use crate::model::*;
 use base64::engine::general_purpose::STANDARD as Base64Engine;
 use base64::Engine;
-use chrono::prelude::*;
-use chrono::NaiveDate;
 use maud::{html, Markup, DOCTYPE};
-use rust_decimal::Decimal;
-use rusty_money::{iso, FormattableCurrency};
 
 static CSS: &str = include_str!("../assets/footer.css");
 static METEROID_FOOTER_LOGO: &[u8] = include_bytes!("../assets/footer-logo.png");

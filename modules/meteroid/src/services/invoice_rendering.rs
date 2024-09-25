@@ -1,4 +1,3 @@
-use crate::errors;
 use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::engine::general_purpose::STANDARD as Base64Engine;
