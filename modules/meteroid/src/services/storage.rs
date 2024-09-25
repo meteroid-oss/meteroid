@@ -60,7 +60,7 @@ impl S3Storage {
             ObjectStoreScheme::Memory => Box::new(InMemory::new()),
             ObjectStoreScheme::AmazonS3 => Box::new(
                 AmazonS3Builder::from_env()
-                    .with_url(&url.to_string())
+                    .with_url(url.to_string())
                     .build()
                     .change_context(ObjectStoreError::InvalidUrl)?,
             ),

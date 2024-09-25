@@ -130,7 +130,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id.clone(), parse_uuid(&req.id, "id")?)
+            .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
