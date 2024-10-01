@@ -31,21 +31,15 @@ impl BillableMetricsService for BillableMetricsComponents {
         let actor = request.actor()?;
         let inner = request.into_inner();
 
-        let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation {
-            Some(aggregation) => {
-                // let x =
-                //      match aggregation.aggregation_type.try_into() {
-                //         Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
-                //         Err(_) => domain::enums::UnitConversionRoundingEnum::None,
-                //     });
-                (
-                    aggregation.clone().aggregation_key,
-                    Some(mapping::aggregation_type::server_to_domain(
-                        aggregation.clone().aggregation_type(),
-                    )),
-                    aggregation.clone().unit_conversion,
-                )
-            }
+        let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation.as_ref()
+        {
+            Some(aggregation) => (
+                aggregation.aggregation_key.clone(),
+                Some(mapping::aggregation_type::server_to_domain(
+                    aggregation.aggregation_type(),
+                )),
+                aggregation.unit_conversion,
+            ),
             None => (None, None, None),
         };
 
