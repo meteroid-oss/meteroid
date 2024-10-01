@@ -14,6 +14,7 @@ pub use products::*;
 pub use schedules::*;
 pub use subscription_add_ons::*;
 pub use subscription_components::*;
+pub use subscription_coupons::*;
 pub use subscriptions::*;
 pub use tenants::*;
 
@@ -43,6 +44,7 @@ pub mod schedules;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;
+pub mod subscription_coupons;
 pub mod subscriptions;
 pub mod users;
 pub mod webhooks;

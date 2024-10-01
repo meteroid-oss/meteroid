@@ -14,11 +14,17 @@ pub struct Coupon {
     pub tenant_id: Uuid,
     pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
-    pub redemption_limit: Option<i32>,
-    pub recurring_value: i32,
-    pub reusable: bool,
+    pub redemption_limit: Option<i32>, // max number of subscriptions it can be applied to
+    pub recurring_value: i32,          // 1 once, -1 infinite, > 1 number of times
+    pub reusable: bool, // can it be applied to multiple subscriptions of the same customer
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+}
+
+impl Coupon {
+    pub fn is_infinite(&self) -> bool {
+        self.recurring_value == -1
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -31,9 +37,8 @@ impl TryInto<Coupon> for CouponRow {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<Coupon, Self::Error> {
-        let discount: CouponDiscount = serde_json::from_value(self.discount).map_err(|e| {
-            StoreError::SerdeError("Failed to deserialize coupon discount".to_string(), e)
-        })?;
+        let discount: CouponDiscount = serde_json::from_value(self.discount)
+            .map_err(|e| StoreError::SerdeError("coupon discount".to_string(), e))?;
 
         Ok(Coupon {
             id: self.id,
@@ -67,9 +72,8 @@ impl TryInto<CouponRowNew> for CouponNew {
     type Error = StoreError;
 
     fn try_into(self) -> Result<CouponRowNew, StoreError> {
-        let json_discount = serde_json::to_value(&self.discount).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize coupon discount".to_string(), e)
-        })?;
+        let json_discount = serde_json::to_value(&self.discount)
+            .map_err(|e| StoreError::SerdeError("coupon discount".to_string(), e))?;
 
         Ok(CouponRowNew {
             id: Uuid::now_v7(),
@@ -101,9 +105,8 @@ impl TryInto<CouponRowPatch> for CouponPatch {
         let json_discount = self
             .discount
             .map(|x| {
-                serde_json::to_value(&x).map_err(|e| {
-                    StoreError::SerdeError("Failed to serialize coupon discount".to_string(), e)
-                })
+                serde_json::to_value(&x)
+                    .map_err(|e| StoreError::SerdeError("coupon discount".to_string(), e))
             })
             .transpose()?;
         Ok(CouponRowPatch {

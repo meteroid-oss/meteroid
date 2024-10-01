@@ -140,9 +140,7 @@ pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
 }
 
 pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
-    let conn = pool.get().await.unwrap();
-
-    migrations::run(conn).await.unwrap();
+    migrations::run(pool).await.unwrap();
 
     let mut conn = pool.get().await.unwrap();
 
@@ -157,6 +155,7 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum SeedLevel {
     MINIMAL,
     PRODUCT,
@@ -181,6 +180,7 @@ impl SeedLevel {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum Seed {
     MINIMAL,
     CUSTOMERS,

@@ -10,7 +10,7 @@ pub mod coupons {
                 id: value.id.to_string(),
                 description: value.description,
                 code: value.code,
-                discount: Some(discount::to_server(value.discount)),
+                discount: Some(discount::to_server(&value.discount)),
                 expires_at: value.expires_at.map(chrono_to_timestamp),
                 redemption_limit: value.redemption_limit,
             })
@@ -24,7 +24,7 @@ pub mod coupons {
         use rust_decimal::Decimal;
         use tonic::Status;
 
-        pub fn to_server(value: domain::coupons::CouponDiscount) -> server::CouponDiscount {
+        pub fn to_server(value: &domain::coupons::CouponDiscount) -> server::CouponDiscount {
             match value {
                 domain::coupons::CouponDiscount::Percentage(value) => server::CouponDiscount {
                     discount_type: Some(server::coupon_discount::DiscountType::Percentage(
@@ -37,7 +37,7 @@ pub mod coupons {
                     server::CouponDiscount {
                         discount_type: Some(server::coupon_discount::DiscountType::Fixed(
                             server::coupon_discount::FixedDiscount {
-                                currency,
+                                currency: currency.clone(),
                                 amount: amount.as_proto(),
                             },
                         )),

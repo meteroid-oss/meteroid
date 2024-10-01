@@ -4,6 +4,7 @@ use crate::{DbResult, PgConn};
 use diesel::{debug_query, ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
+use tap::TapFallible;
 
 impl CouponRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<CouponRow> {
@@ -76,6 +77,27 @@ impl CouponRow {
             .execute(conn)
             .await
             .attach_printable("Error while deleting coupon")
+            .into_db_result()
+    }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: &[uuid::Uuid],
+        tenant_id: &uuid::Uuid,
+    ) -> DbResult<Vec<CouponRow>> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = c_dsl::coupon
+            .filter(c_dsl::id.eq_any(ids))
+            .filter(c_dsl::tenant_id.eq(tenant_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .tap_err(|e| log::error!("Error while fetching coupons: {:?}", e))
+            .attach_printable("Error while fetching coupons")
             .into_db_result()
     }
 }

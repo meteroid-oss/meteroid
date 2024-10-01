@@ -4,7 +4,9 @@ import "api/shared/v1/shared.proto";
 
 import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
+import "api/coupons/v1/models.proto";
 
+import "google/protobuf/timestamp.proto";
 
 package meteroid.api.subscriptions.v1;
 
@@ -50,6 +52,7 @@ message SubscriptionDetails {
   repeated SubscriptionComponent price_components = 3;
   repeated BillableMetric metrics = 4;
   repeated SubscriptionAddOn add_ons = 5;
+  repeated SubscriptionCoupon coupons = 6;
 }
 
 // TODO replace by subscription or even subscription details
@@ -85,6 +88,7 @@ message CreateSubscription {
   optional string invoice_threshold = 12;
   CreateSubscriptionComponents components = 14;
   CreateSubscriptionAddOns add_ons = 15;
+  CreateSubscriptionCoupons coupons = 16;
 }
 
 message CreateSubscriptionAddOn {
@@ -119,6 +123,25 @@ message SubscriptionAddOn {
   string name = 4;
   SubscriptionFeeBillingPeriod period = 5;
   SubscriptionFee fee = 6;
+}
+
+message CreateSubscriptionCoupon {
+  string coupon_id = 1;
+}
+
+message CreateSubscriptionCoupons {
+  repeated CreateSubscriptionCoupon coupons = 1;
+}
+
+message SubscriptionCoupon {
+  string id = 1;
+  string coupon_id = 2;
+  string subscription_id = 3;
+  string coupon_code = 4;
+  string coupon_description = 5;
+  api.coupons.v1.CouponDiscount coupon_discount = 6;
+  optional google.protobuf.Timestamp coupon_expires_at = 7;
+  optional int32 coupon_redemption_limit = 8;
 }
 
 message CreateSubscriptionComponents {
