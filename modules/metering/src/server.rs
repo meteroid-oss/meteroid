@@ -83,7 +83,7 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(meteroid_grpc::_reflection::FILE_DESCRIPTOR_SET)
-        .build()
+        .build_v1()
         .unwrap();
 
     let admin_auth_layer =

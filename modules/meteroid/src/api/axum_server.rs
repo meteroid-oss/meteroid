@@ -1,14 +1,14 @@
 use crate::adapters::stripe::Stripe;
 use crate::api::axum_routers;
 use crate::services::storage::ObjectStoreService;
-use axum::extract::DefaultBodyLimit;
-use axum::response::IntoResponse;
-use axum::Router;
-use http::{StatusCode, Uri};
+use axum::{
+    extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse, Router,
+};
 use meteroid_store::Store;
 use secrecy::SecretString;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 
 pub async fn serve(
     listen_addr: SocketAddr,
@@ -32,8 +32,11 @@ pub async fn serve(
         .layer(DefaultBodyLimit::max(4096));
 
     tracing::info!("listening on {}", listen_addr);
-    axum::Server::bind(&listen_addr)
-        .serve(app.into_make_service())
+
+    let listener = TcpListener::bind(&listen_addr)
+        .await
+        .expect("Could not bind listener");
+    axum::serve(listener, app.into_make_service())
         .await
         .expect("Could not bind server");
 }

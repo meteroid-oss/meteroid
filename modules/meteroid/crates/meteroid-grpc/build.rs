@@ -63,7 +63,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         .extern_path(".meteroid.common", "::common_grpc::meteroid::common")
         .file_descriptor_set_path(descriptor_path.clone())
         .protoc_arg("--experimental_allow_proto3_optional")
-        .compile(
+        .compile_protos(
             &proto_files,
             &[
                 root,

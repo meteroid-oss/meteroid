@@ -1,5 +1,7 @@
 use super::AppState;
 
+use crate::{adapters::types::ParsedRequest, encoding};
+use crate::{adapters::types::WebhookAdapter, errors};
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Path, State},
@@ -7,9 +9,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use axum::{routing::post, Router};
-
-use crate::{adapters::types::ParsedRequest, encoding};
-use crate::{adapters::types::WebhookAdapter, errors};
 
 use crate::services::storage::Prefix;
 use error_stack::{bail, Result, ResultExt};
@@ -74,7 +73,7 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
     let (parts, body) = req.into_parts();
-    let bytes = hyper::body::to_bytes(body)
+    let bytes = axum::body::to_bytes(body, usize::MAX)
         .await
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 

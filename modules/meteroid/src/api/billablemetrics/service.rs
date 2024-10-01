@@ -32,18 +32,20 @@ impl BillableMetricsService for BillableMetricsComponents {
         let inner = request.into_inner();
 
         let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation {
-            Some(aggregation) => (
-                aggregation.aggregation_key,
-                Some(mapping::aggregation_type::server_to_domain(
-                    aggregation.aggregation_type.try_into().map_err(|e| {
-                        BillableMetricApiError::MappingError(
-                            "unknown aggregation_type".to_string(),
-                            e,
-                        )
-                    })?,
-                )),
-                aggregation.unit_conversion,
-            ),
+            Some(aggregation) => {
+                // let x =
+                //      match aggregation.aggregation_type.try_into() {
+                //         Ok(a) => mapping::unit_conversion_rounding::server_to_domain(a),
+                //         Err(_) => domain::enums::UnitConversionRoundingEnum::None,
+                //     });
+                (
+                    aggregation.clone().aggregation_key,
+                    Some(mapping::aggregation_type::server_to_domain(
+                        aggregation.clone().aggregation_type(),
+                    )),
+                    aggregation.clone().unit_conversion,
+                )
+            }
             None => (None, None, None),
         };
 
