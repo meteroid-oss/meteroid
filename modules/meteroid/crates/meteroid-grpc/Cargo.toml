@@ -13,7 +13,7 @@ serde = { workspace = true, features = ["derive"] }
 common-grpc = { workspace = true }
 error-stack.workspace = true
 thiserror.workspace = true
-pbjson = "0.6.0"
+pbjson = "0.7.0"
 pbjson-types = "0.7.0"
 
 
