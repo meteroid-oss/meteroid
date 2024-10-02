@@ -27,7 +27,7 @@ pub async fn start_api_server(
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(meteroid_grpc::_reflection::FILE_DESCRIPTOR_SET)
-        .build()
+        .build_v1()
         .unwrap();
 
     // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel

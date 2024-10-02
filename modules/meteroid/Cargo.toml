@@ -102,6 +102,12 @@ rand_chacha.workspace = true
 itertools.workspace = true
 rusty-money.workspace = true
 
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+utoipa-redoc.workspace = true
+utoipa-rapidoc.workspace = true
+utoipa-scalar.workspace = true
+
 
 [dev-dependencies]
 rstest = { workspace = true }

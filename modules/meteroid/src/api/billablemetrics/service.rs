@@ -31,16 +31,12 @@ impl BillableMetricsService for BillableMetricsComponents {
         let actor = request.actor()?;
         let inner = request.into_inner();
 
-        let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation {
+        let (aggregation_key, aggregation_type, unit_conversion) = match inner.aggregation.as_ref()
+        {
             Some(aggregation) => (
-                aggregation.aggregation_key,
+                aggregation.aggregation_key.clone(),
                 Some(mapping::aggregation_type::server_to_domain(
-                    aggregation.aggregation_type.try_into().map_err(|e| {
-                        BillableMetricApiError::MappingError(
-                            "unknown aggregation_type".to_string(),
-                            e,
-                        )
-                    })?,
+                    aggregation.aggregation_type(),
                 )),
                 aggregation.unit_conversion,
             ),

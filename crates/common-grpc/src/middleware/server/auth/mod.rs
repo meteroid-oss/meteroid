@@ -97,6 +97,7 @@ pub enum AuthenticatedState {
     },
 }
 
+#[derive(Clone)]
 pub enum AuthorizedState {
     Tenant {
         actor_id: Uuid,
