@@ -46,7 +46,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.5
+        uses: mozilla-actions/sccache-action@v0.0.6
       - name: Install nextest
         uses: taiki-e/cache-cargo-install-action@v2
         with:
@@ -87,6 +87,6 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.5
+        uses: mozilla-actions/sccache-action@v0.0.6
       - name: Linting
         run: cargo clippy -- -D warnings
