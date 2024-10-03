@@ -35,16 +35,16 @@ pub struct Config {
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub common: CommonConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub internal_auth: InternalAuthConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub idempotency: IdempotencyConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub analytics: AnalyticsConfig,
 
     #[envconfig(from = "JWT_SECRET")]
@@ -59,7 +59,7 @@ pub struct Config {
     )]
     pub secrets_crypt_key: SecretString,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub fang_ext: FangExtConfig,
 
     #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
