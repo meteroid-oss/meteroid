@@ -17,7 +17,7 @@ pub async fn get_store() -> &'static Store {
                 config.database_url.clone(),
                 config.secrets_crypt_key.clone(),
                 config.jwt_secret.clone(),
-                config.multi_organization_enabled.clone(),
+                config.multi_organization_enabled,
                 create_eventbus_memory(),
                 Arc::new(MeteringUsageClient::get().clone()),
             )

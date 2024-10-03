@@ -3,11 +3,13 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
-    GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse,
-    RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
+    GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse, PreviewInvoiceRequest,
+    PreviewInvoiceResponse, RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
+    RequestPdfGenerationRequest, RequestPdfGenerationResponse,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::OrderByRequest;
+use meteroid_store::domain::{OrderByRequest, OutboxEvent};
+use meteroid_store::repositories::outbox::OutboxInterface;
 use meteroid_store::repositories::InvoiceInterface;
 
 use crate::api::invoices::error::InvoiceApiError;
@@ -82,7 +84,12 @@ impl InvoicesService for InvoiceServiceComponents {
             .store
             .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
             .await
-            .and_then(mapping::invoices::domain_invoice_with_plan_details_to_server)
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
             .map_err(Into::<InvoiceApiError>::into)?;
 
         let response = GetInvoiceResponse {
@@ -92,6 +99,59 @@ impl InvoicesService for InvoiceServiceComponents {
         Ok(Response::new(response))
     }
 
+    #[tracing::instrument(skip_all)]
+    async fn preview_invoice_html(
+        &self,
+        request: Request<PreviewInvoiceRequest>,
+    ) -> Result<Response<PreviewInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let html = self
+            .html_rendering
+            .preview_invoice_html(parse_uuid(&req.id, "invoice_id")?, tenant_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        let response = PreviewInvoiceResponse { html };
+
+        Ok(Response::new(response))
+    }
+
+    // for demo & local use when the worker was not started initially
+    #[tracing::instrument(skip_all)]
+    async fn request_pdf_generation(
+        &self,
+        request: Request<RequestPdfGenerationRequest>,
+    ) -> Result<Response<RequestPdfGenerationResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let invoice = self
+            .store
+            .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        // check if already generated ?
+
+        self.store
+            .insert_outbox_item_no_tx(domain::OutboxNew {
+                event_type: OutboxEvent::InvoicePdfRequested,
+                resource_id: invoice.invoice.id,
+                tenant_id,
+                payload: None,
+            })
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        let response = RequestPdfGenerationResponse {};
+
+        Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn refresh_invoice_data(
         &self,
         request: Request<RefreshInvoiceDataRequest>,
@@ -104,7 +164,12 @@ impl InvoicesService for InvoiceServiceComponents {
             .store
             .refresh_invoice_data(parse_uuid(&req.id, "id")?, tenant_id)
             .await
-            .and_then(mapping::invoices::domain_invoice_with_plan_details_to_server)
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
             .map_err(Into::<InvoiceApiError>::into)?;
 
         let response = RefreshInvoiceDataResponse {

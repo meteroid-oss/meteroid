@@ -67,33 +67,33 @@ pub struct Subscription {
     pub period: BillingPeriodEnum,
 }
 
-impl Into<Subscription> for SubscriptionForDisplayRow {
-    fn into(self) -> Subscription {
+impl From<SubscriptionForDisplayRow> for Subscription {
+    fn from(val: SubscriptionForDisplayRow) -> Self {
         Subscription {
-            id: self.subscription.id,
-            customer_id: self.subscription.customer_id,
-            customer_name: self.customer_name,
-            customer_alias: self.customer_external_id,
-            billing_day: self.subscription.billing_day,
-            tenant_id: self.subscription.tenant_id,
-            currency: self.subscription.currency,
-            trial_start_date: self.subscription.trial_start_date,
-            billing_start_date: self.subscription.billing_start_date,
-            billing_end_date: self.subscription.billing_end_date,
-            plan_id: self.plan_id,
-            plan_name: self.plan_name,
-            plan_version_id: self.subscription.plan_version_id,
-            version: self.version as u32,
-            created_at: self.subscription.created_at,
-            created_by: self.subscription.created_by,
-            net_terms: self.subscription.net_terms as u32,
-            invoice_memo: self.subscription.invoice_memo,
-            invoice_threshold: self.subscription.invoice_threshold,
-            activated_at: self.subscription.activated_at,
-            canceled_at: self.subscription.canceled_at,
-            cancellation_reason: self.subscription.cancellation_reason,
-            mrr_cents: self.subscription.mrr_cents as u64,
-            period: self.subscription.period.into(),
+            id: val.subscription.id,
+            customer_id: val.subscription.customer_id,
+            customer_name: val.customer_name,
+            customer_alias: val.customer_external_id,
+            billing_day: val.subscription.billing_day,
+            tenant_id: val.subscription.tenant_id,
+            currency: val.subscription.currency,
+            trial_start_date: val.subscription.trial_start_date,
+            billing_start_date: val.subscription.billing_start_date,
+            billing_end_date: val.subscription.billing_end_date,
+            plan_id: val.plan_id,
+            plan_name: val.plan_name,
+            plan_version_id: val.subscription.plan_version_id,
+            version: val.version as u32,
+            created_at: val.subscription.created_at,
+            created_by: val.subscription.created_by,
+            net_terms: val.subscription.net_terms as u32,
+            invoice_memo: val.subscription.invoice_memo,
+            invoice_threshold: val.subscription.invoice_threshold,
+            activated_at: val.subscription.activated_at,
+            canceled_at: val.subscription.canceled_at,
+            cancellation_reason: val.subscription.cancellation_reason,
+            mrr_cents: val.subscription.mrr_cents as u64,
+            period: val.subscription.period.into(),
         }
     }
 }
@@ -206,24 +206,24 @@ pub struct SubscriptionInvoiceCandidate {
     pub period: BillingPeriodEnum,
 }
 
-impl Into<SubscriptionInvoiceCandidate> for SubscriptionInvoiceCandidateRow {
-    fn into(self) -> SubscriptionInvoiceCandidate {
+impl From<SubscriptionInvoiceCandidateRow> for SubscriptionInvoiceCandidate {
+    fn from(val: SubscriptionInvoiceCandidateRow) -> Self {
         SubscriptionInvoiceCandidate {
-            id: self.subscription.id,
-            tenant_id: self.subscription.tenant_id,
-            customer_id: self.subscription.customer_id,
-            plan_version_id: self.subscription.plan_version_id,
-            billing_start_date: self.subscription.billing_start_date,
-            billing_end_date: self.subscription.billing_end_date,
-            billing_day: self.subscription.billing_day,
-            activated_at: self.subscription.activated_at,
-            canceled_at: self.subscription.canceled_at,
+            id: val.subscription.id,
+            tenant_id: val.subscription.tenant_id,
+            customer_id: val.subscription.customer_id,
+            plan_version_id: val.subscription.plan_version_id,
+            billing_start_date: val.subscription.billing_start_date,
+            billing_end_date: val.subscription.billing_end_date,
+            billing_day: val.subscription.billing_day,
+            activated_at: val.subscription.activated_at,
+            canceled_at: val.subscription.canceled_at,
             // plan_id: self.plan_version.plan_id,
-            plan_name: self.plan_version.plan_name,
-            currency: self.plan_version.currency,
-            net_terms: self.plan_version.net_terms,
+            plan_name: val.plan_version.plan_name,
+            currency: val.plan_version.currency,
+            net_terms: val.plan_version.net_terms,
             // version: self.plan_version.version,
-            period: self.subscription.period.into(),
+            period: val.subscription.period.into(),
         }
     }
 }

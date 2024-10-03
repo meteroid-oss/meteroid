@@ -87,3 +87,68 @@ pub enum InvoicingAdapterError {
     #[error("Stripe call error")]
     StripeError,
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvoicingRenderError {
+    #[error("Failed to initialize invoice rendering service")]
+    InitializationError,
+    #[error("Invalid currency value: {0}")]
+    InvalidCurrency(String),
+    #[error("Failed to render invoice")]
+    RenderError,
+    #[error("Failed to generate pdf")]
+    PdfError,
+    #[error("Failed to store invoice document")]
+    StorageError,
+    #[error("Failed to load data to render invoice")]
+    StoreError,
+}
+
+#[derive(Debug, thiserror::Error, Clone)]
+pub enum RestApiError {
+    #[error("Object store error")]
+    ObjectStoreError,
+    #[error("Failed to load image")]
+    ImageLoadingError,
+    #[error("Unauthorized")]
+    Unauthorized,
+    #[error("Unauthorized")]
+    StoreError,
+    #[error("Forbidden")]
+    Forbidden,
+    #[error("Invalid input")]
+    InvalidInput,
+}
+
+impl IntoResponse for RestApiError {
+    fn into_response(self) -> Response {
+        let status = match self {
+            RestApiError::ObjectStoreError => StatusCode::INTERNAL_SERVER_ERROR,
+            RestApiError::ImageLoadingError => StatusCode::INTERNAL_SERVER_ERROR,
+            RestApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            RestApiError::Forbidden => StatusCode::FORBIDDEN,
+            RestApiError::InvalidInput => StatusCode::BAD_REQUEST,
+            RestApiError::StoreError => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+
+        let error_message = match status {
+            StatusCode::INTERNAL_SERVER_ERROR => {
+                "Internal server error. Please refer to logs or support.".to_string()
+            }
+            _ => format!("{}", self),
+        };
+        (status, error_message).into_response()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ObjectStoreError {
+    #[error("Failed to parse url")]
+    InvalidUrl,
+    #[error("Error saving object to object store")]
+    SaveError,
+    #[error("Error loading object from object store")]
+    LoadError,
+    #[error("Unsupported object store: {0}")]
+    UnsupportedStore(String),
+}

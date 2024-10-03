@@ -40,7 +40,7 @@ async fn test_draft_worker() {
     )
     .await;
 
-    draft_worker(&store, worker_run_date.clone()).await.unwrap();
+    draft_worker(&store, worker_run_date).await.unwrap();
 
     let invoices = list_invoices(&store).await;
 
@@ -65,10 +65,9 @@ async fn test_draft_worker() {
 
         let subscription_id = invoice.subscription_id.unwrap();
 
-        if subscription_id == SUBSCRIPTION_SPORTIFY_ID1 {
-            assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
-            assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
+        if subscription_id == SUBSCRIPTION_SPORTIFY_ID1
+            || subscription_id == SUBSCRIPTION_SPORTIFY_ID2
+        {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
         } else if subscription_id == SUBSCRIPTION_UBER_ID1 {

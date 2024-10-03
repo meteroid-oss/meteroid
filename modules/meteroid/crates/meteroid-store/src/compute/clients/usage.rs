@@ -21,7 +21,7 @@ impl UsageData {
         Ok(self
             .data
             .first()
-            .map(|usage| usage.value.clone())
+            .map(|usage| usage.value)
             .unwrap_or(Decimal::ZERO))
     }
 }
@@ -85,13 +85,13 @@ impl UsageClient for MockUsageClient {
         period: Period,
     ) -> Result<UsageData, ComputeError> {
         let params = MockUsageDataParams {
-            metric_id: metric.id.clone(),
-            invoice_date: period.end.clone(),
+            metric_id: metric.id,
+            invoice_date: period.end,
         };
         let usage_data = self
             .data
             .get(&params)
-            .map(|data| data.clone())
+            .cloned()
             .unwrap_or_else(|| UsageData {
                 data: vec![],
                 period: period.clone(),

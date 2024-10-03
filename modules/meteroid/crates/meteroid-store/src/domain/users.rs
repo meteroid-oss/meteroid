@@ -30,15 +30,15 @@ pub struct UserWithRole {
     pub department: Option<String>,
 }
 
-impl Into<User> for UserWithRole {
-    fn into(self) -> User {
+impl From<UserWithRole> for User {
+    fn from(val: UserWithRole) -> Self {
         User {
-            id: self.id,
-            email: self.email,
-            onboarded: self.onboarded,
-            first_name: self.first_name,
-            last_name: self.last_name,
-            department: self.department,
+            id: val.id,
+            email: val.email,
+            onboarded: val.onboarded,
+            first_name: val.first_name,
+            last_name: val.last_name,
+            department: val.department,
         }
     }
 }

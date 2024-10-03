@@ -96,14 +96,14 @@ impl WebhookHandler {
         &self,
         event: &Event,
         endpoint: &Endpoint,
-        webhook_event_payload: &Vec<u8>,
+        webhook_event_payload: &[u8],
         endpoint_response: Result<reqwest::Response, EventBusError>,
     ) -> Result<(), EventBusError> {
         let event_type = get_event_type(event).ok_or_else(|| {
             EventBusError::EventHandlerFailed("Failed to get event type".to_string())
         })?;
 
-        let request_body = String::from_utf8(webhook_event_payload.clone()).map_err(|e| {
+        let request_body = String::from_utf8(webhook_event_payload.to_owned()).map_err(|e| {
             EventBusError::EventHandlerFailed(format!("Failed to convert payload to string: {}", e))
         })?;
 
@@ -410,7 +410,7 @@ async fn get_active_endpoints_by_tenant(
     crypt_key: &SecretString,
 ) -> Result<Vec<Endpoint>, EventBusError> {
     let endpoints = store
-        .list_webhook_out_endpoints(tenant_id.clone())
+        .list_webhook_out_endpoints(*tenant_id)
         .await
         .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?
         .into_iter()

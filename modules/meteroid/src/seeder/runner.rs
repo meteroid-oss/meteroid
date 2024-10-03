@@ -58,7 +58,7 @@ pub async fn run(
                 name: scenario.tenant.name,
                 environment: TenantEnvironmentEnum::Sandbox,
             },
-            organization_id.clone(),
+            organization_id,
         )
         .await
         .change_context(SeederError::TempError)?;
@@ -131,7 +131,7 @@ pub async fn run(
                     .map(|component| store_domain::PriceComponentNewInternal {
                         name: component.name.clone(),
                         fee: component.fee.clone(),
-                        product_item_id: component.product_item_id.clone(),
+                        product_item_id: component.product_item_id,
                     })
                     .collect::<Vec<_>>(),
             })
@@ -262,7 +262,7 @@ pub async fn run(
                 } => {
                     // Slot-based pricing, requires parameterization
                     let billing_period = rates[rng.gen_range(0..rates.len())].term.clone();
-                    let initial_slots = rng.gen_range(minimum_count.clone().unwrap_or(1)..=100); // Generate a random number of initial slots (adjust the range as needed)
+                    let initial_slots = rng.gen_range((*minimum_count).unwrap_or(1)..=100); // Generate a random number of initial slots (adjust the range as needed)
                     parameterized_components.push(store_domain::ComponentParameterization {
                         component_id: component.id,
                         parameters: store_domain::ComponentParameters {
@@ -367,39 +367,35 @@ pub async fn run(
 
         // Add some variations (cancellations, reactivations, upgrades, downgrades, switch, trial conversions TODO)
         // CHURN START
-        match churn_rate {
-            Some(churn_rate) => {
-                if plan.plan.plan_type != PlanTypeEnum::Free {
-                    let months_since_start = (now.year() - subscription.billing_start_date.year())
-                        * 12
-                        + now.month() as i32
-                        - subscription.billing_start_date.month() as i32;
+        if let Some(churn_rate) = churn_rate {
+            if plan.plan.plan_type != PlanTypeEnum::Free {
+                let months_since_start = (now.year() - subscription.billing_start_date.year()) * 12
+                    + now.month() as i32
+                    - subscription.billing_start_date.month() as i32;
 
-                    let churn_probability = 1.0 - (1.0 - churn_rate).powi(months_since_start);
+                let churn_probability = 1.0 - (1.0 - churn_rate).powi(months_since_start);
 
-                    if rng.gen::<f64>() < churn_probability {
-                        let end_month = rng.gen_range(0..=months_since_start);
-                        let end_date = subscription.billing_start_date
-                            + chrono::Duration::days(end_month as i64 * 30);
+                if rng.gen::<f64>() < churn_probability {
+                    let end_month = rng.gen_range(0..=months_since_start);
+                    let end_date = subscription.billing_start_date
+                        + chrono::Duration::days(end_month as i64 * 30);
 
-                        if end_date < now {
-                            store
-                                .cancel_subscription(
-                                    subscription.id,
-                                    Some("Not used anymore".to_string()),
-                                    CancellationEffectiveAt::Date(end_date),
-                                    TenantContext {
-                                        tenant_id: tenant.id,
-                                        actor: user_id,
-                                    },
-                                )
-                                .await
-                                .change_context(SeederError::TempError)?;
-                        }
+                    if end_date < now {
+                        store
+                            .cancel_subscription(
+                                subscription.id,
+                                Some("Not used anymore".to_string()),
+                                CancellationEffectiveAt::Date(end_date),
+                                TenantContext {
+                                    tenant_id: tenant.id,
+                                    actor: user_id,
+                                },
+                            )
+                            .await
+                            .change_context(SeederError::TempError)?;
                     }
                 }
             }
-            None => {}
         }
         // CHURN END
 
@@ -450,7 +446,7 @@ pub async fn run(
                 continue;
             }
 
-            let is_last_invoice = &invoice_date > &now;
+            let is_last_invoice = invoice_date > now;
 
             // we create the invoice
             let invoice = store_domain::InvoiceNew {
@@ -497,7 +493,7 @@ pub async fn run(
                     id: subscription.customer_id,
                     name: subscription_details.customer_name.clone(),
                     snapshot_at: subscription.created_at,
-                    billing_address: customer.billing_address.as_ref().map(|a| a.clone()),
+                    billing_address: customer.billing_address.clone(),
                     alias: customer.alias.clone(),
                     email: customer.email.clone(),
                     vat_number: None,

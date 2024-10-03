@@ -24,7 +24,7 @@ impl WebhooksService for WebhooksServiceComponents {
         &self,
         request: Request<CreateWebhookEndpointRequest>,
     ) -> Result<Response<CreateWebhookEndpointResponse>, Status> {
-        let tenant_id = request.tenant()?.clone();
+        let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
 
@@ -47,7 +47,7 @@ impl WebhooksService for WebhooksServiceComponents {
         &self,
         request: Request<ListWebhookEndpointsRequest>,
     ) -> Result<Response<ListWebhookEndpointsResponse>, Status> {
-        let tenant_id = request.tenant()?.clone();
+        let tenant_id = request.tenant()?;
 
         let items = self
             .store
@@ -68,7 +68,7 @@ impl WebhooksService for WebhooksServiceComponents {
         &self,
         request: Request<ListWebhookEventsRequest>,
     ) -> Result<Response<ListWebhookEventsResponse>, Status> {
-        let tenant_id = request.tenant()?.clone();
+        let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
 

@@ -27,8 +27,28 @@ message UpdateInvoicingEntityResponse {
   InvoicingEntity entity = 1;
 }
 
+message UploadInvoicingEntityLogoRequest {
+  string id = 1;
+  FileData file = 2;
+}
+
+message UploadInvoicingEntityLogoResponse {
+  optional string logo_uid = 1;
+}
+
+message GetInvoicingEntityRequest {
+  // use null for default
+  optional string id = 1;
+}
+
+message GetInvoicingEntityResponse {
+  InvoicingEntity entity = 1;
+}
+
 service InvoicingEntitiesService {
+  rpc GetInvoicingEntity(GetInvoicingEntityRequest) returns (GetInvoicingEntityResponse) {}
   rpc ListInvoicingEntities(ListInvoicingEntitiesRequest) returns (ListInvoicingEntitiesResponse) {}
   rpc CreateInvoicingEntity(CreateInvoicingEntityRequest) returns (CreateInvoicingEntityResponse) {}
   rpc UpdateInvoicingEntity(UpdateInvoicingEntityRequest) returns (UpdateInvoicingEntityResponse) {}
+  rpc UploadInvoicingEntityLogo(UploadInvoicingEntityLogoRequest) returns (UploadInvoicingEntityLogoResponse) {}
 }

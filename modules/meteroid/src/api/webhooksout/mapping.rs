@@ -19,7 +19,7 @@ pub mod endpoint {
             events_to_listen: endpoint
                 .events_to_listen
                 .iter()
-                .map(|e| event_type::to_proto(&e).into())
+                .map(|e| event_type::to_proto(e).into())
                 .collect(),
             enabled: endpoint.enabled,
             created_at: Some(chrono_to_timestamp(endpoint.created_at)),

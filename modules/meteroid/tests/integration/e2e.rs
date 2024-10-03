@@ -509,7 +509,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid.clone()).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
 
     assert_eq!(db_invoices.len(), 2);
     assert_eq!(
@@ -525,14 +525,11 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = &fetch_invoices(&store, tenant_uuid.clone()).await;
+    let db_invoices = &fetch_invoices(&store, tenant_uuid).await;
 
     assert_eq!(db_invoices.len(), 3);
     assert_eq!(
-        db_invoices
-            .into_iter()
-            .map(|i| i.status)
-            .collect::<Vec<_>>(),
+        db_invoices.iter().map(|i| i.status).collect::<Vec<_>>(),
         vec![
             InvoiceStatusEnum::Finalized,
             InvoiceStatusEnum::Draft,
@@ -540,7 +537,7 @@ async fn test_metering_e2e() {
         ]
     );
 
-    let invoice_p1 = db_invoices.get(0).unwrap();
+    let invoice_p1 = db_invoices.first().unwrap();
     let invoice_p2 = db_invoices.get(1).unwrap();
     let invoice_p3 = db_invoices.get(2).unwrap();
 
@@ -564,7 +561,7 @@ async fn test_metering_e2e() {
     let invoice_lines: Vec<LineItem> = invoice_p2.line_items;
     assert_eq!(invoice_lines.len(), 2);
 
-    let invoice_line = invoice_lines.get(0).unwrap();
+    let invoice_line = invoice_lines.first().unwrap();
     assert_eq!(invoice_line.total, 1200);
     assert_eq!(invoice_line.quantity, Some(dec!(1)));
     assert_eq!(
@@ -588,7 +585,7 @@ async fn test_metering_e2e() {
     .await
     .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid.clone()).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
     assert_eq!(
         db_invoices
             .into_iter()
@@ -606,7 +603,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid.clone()).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
     assert_eq!(
         db_invoices
             .into_iter()

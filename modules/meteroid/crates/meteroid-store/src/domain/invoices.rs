@@ -50,7 +50,7 @@ pub struct Invoice {
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
     pub subtotal_recurring: i64,
-    pub tax_rate: i32,
+    pub tax_rate: i32, // TODO decimal, I guess we need to support more than 2 dec
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
@@ -70,11 +70,15 @@ pub struct Invoice {
     StoreError::SerdeError("Failed to deserialize seller_details".to_string(), e)
     }) ?)]
     pub seller_details: InlineInvoicingEntity,
+    pub pdf_document_id: Option<String>,
+    pub xml_document_id: Option<String>,
 }
 
 #[derive(Debug, o2o)]
 #[owned_try_into(InvoiceRowNew, StoreErrorReport)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
+#[ghosts(
+    id: {uuid::Uuid::now_v7()},
+)]
 pub struct InvoiceNew {
     #[into(~.into())]
     pub status: InvoiceStatusEnum,
@@ -247,7 +251,7 @@ impl InvoiceTotals {
         let amount_due = total - already_paid - applied_credits;
         let subtotal_recurring = params
             .line_items
-            .into_iter()
+            .iter()
             .filter(|x| x.metric_id.is_none())
             .fold(0, |acc, x| acc + x.subtotal);
 

@@ -10,7 +10,7 @@ pub fn calculate_component_period(
     invoice_date: NaiveDate,
     billing_period: &SubscriptionFeeBillingPeriod,
 ) -> Option<ComponentPeriods> {
-    if !applies_this_period(billing_start_date, invoice_date, &billing_period) {
+    if !applies_this_period(billing_start_date, invoice_date, billing_period) {
         return None;
     }
 
@@ -103,8 +103,8 @@ fn applies_this_period(
     let month_elapsed = (invoice_date.year() - billing_start_date.year()) * 12
         + (invoice_date.month() as i32)
         - (billing_start_date.month() as i32);
-    let applies = month_elapsed % billing_period.as_months() == 0;
-    applies
+
+    month_elapsed % billing_period.as_months() == 0
 }
 
 pub fn calculate_period_range(
@@ -173,7 +173,7 @@ fn add_months_at_billing_day(
     months_to_add: u32,
     billing_day: u32,
 ) -> Option<NaiveDate> {
-    date.checked_add_months(Months::new(months_to_add as u32))
+    date.checked_add_months(Months::new(months_to_add))
         .and_then(|d| d.with_day(d.days_in_month().min(billing_day)))
 }
 

@@ -1,0 +1,45 @@
+
+.footer {
+  font-size: 12px;
+  /*margin: 0 10px;*/
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  width: 100%;
+  gap: 0.5rem;
+  color: rgb(107 114 128 / 1);
+  -webkit-print-color-adjust: exact;
+  align-self: center;
+  text-align: center;
+  max-width: 768px;
+}
+
+a {
+  color: inherit;
+  text-decoration: inherit;
+  text-decoration-line: underline;
+  font-size: 12px;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.padding {
+  padding: 0 10px;
+}
+
+.page {
+  font-size: 12px;
+}
+
+.poweredBy {
+  font-size: 12px;
+}
+
+.logo {
+  height: 12px;
+  align-self: center;
+  margin-bottom: -2px;
+}
+

@@ -372,7 +372,7 @@ impl StatsInterface for Store {
                     .push(data_point);
             }
         }
-        let mut series: Vec<MrrChartSeries> = series_map.into_iter().map(|(_, v)| v).collect();
+        let mut series: Vec<MrrChartSeries> = series_map.into_values().collect();
         series.push(total_mrr_series);
 
         Ok(MrrChartResponse { series })

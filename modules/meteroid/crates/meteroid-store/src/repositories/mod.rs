@@ -21,6 +21,7 @@ pub mod customer_balance;
 pub mod historical_rates;
 pub mod invoicing_entities;
 pub mod organizations;
+pub mod outbox;
 pub mod price_components;
 pub mod product_families;
 pub mod products;

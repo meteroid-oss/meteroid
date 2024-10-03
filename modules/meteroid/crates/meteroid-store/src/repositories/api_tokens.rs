@@ -104,7 +104,7 @@ impl ApiTokensInterface for Store {
         );
         let salt = SaltString::generate(&mut OsRng);
         let api_key_hash = argon2
-            .hash_password(&api_key_random.as_bytes(), &salt)
+            .hash_password(api_key_random.as_bytes(), &salt)
             .map_err(|e| {
                 log::error!("Unable to hash api key: {}", e);
                 StoreError::InvalidArgument("unable to hash api key".to_string())

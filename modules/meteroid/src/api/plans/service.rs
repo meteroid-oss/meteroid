@@ -43,8 +43,7 @@ impl PlansService for PlanServiceComponents {
 
         let req = request.into_inner();
 
-        let plan_type: domain::enums::PlanTypeEnum =
-            PlanTypeWrapper(req.plan_type().clone()).into();
+        let plan_type: domain::enums::PlanTypeEnum = PlanTypeWrapper(req.plan_type()).into();
 
         let plan_new = domain::FullPlanNew {
             plan: domain::PlanNew {

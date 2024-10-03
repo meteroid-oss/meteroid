@@ -8,6 +8,7 @@ volumes:
   pg_data:
   redpanda_data:
   clickhouse_data:
+  minio_data:
 
 networks:
   meteroid_net:
@@ -41,16 +42,47 @@ services:
     networks:
       - meteroid_net
 
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    container_name: gotenberg
+    ports:
+      - 8073:3000
+    networks:
+      - meteroid_net
+
   minio:
     image: minio/minio:latest
     environment:
-      MINIO_ROOT_USER: meteroid
-      MINIO_ROOT_PASSWORD: meteroid
-    command: server /data
-    profiles:
-      - experimental # TODO
+      - MINIO_ROOT_USER=${S3_USER:-meteroid}
+      - MINIO_ROOT_PASSWORD=${S3_password:-meteroid}
+    command: server /data --console-address ":9001"
+    ports:
+      - 9000:9000
+      - 9001:9001
+    volumes:
+      - minio_data:/data
     networks:
       - meteroid_net
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 ${S3_USER:-meteroid} ${S3_PASSWORD:-meteroid};
+      /usr/bin/mc mb myminio/meteroid;
+      exit 0;
+      "
+    networks:
+      - meteroid_net
+
 
   ### Metering Dependencies
   clickhouse:

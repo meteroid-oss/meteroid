@@ -55,6 +55,12 @@ impl<E: Debug + Clone + Send + 'static> EventBus<E> for InMemory<E> {
     }
 }
 
+impl<E: Debug + Clone + Send + 'static> Default for InMemory<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<E: Debug + Clone + Send + 'static> InMemory<E> {
     pub fn new() -> Self {
         let (snd, _) = tokio::sync::broadcast::channel(1000);

@@ -58,11 +58,11 @@ pub mod components {
                         .collect::<Result<Vec<_>, _>>()?,
                 }),
                 api::fee::FeeType::Slot(fee) => Ok(domain::FeeType::Slot {
-                    minimum_count: fee.minimum_count.clone(),
+                    minimum_count: fee.minimum_count,
                     slot_unit_name: fee.slot_unit_name.clone(),
                     upgrade_policy: domain::UpgradePolicy::Prorated,
                     downgrade_policy: domain::DowngradePolicy::RemoveAtEndOfPeriod,
-                    quota: fee.quota.clone(),
+                    quota: fee.quota,
                     rates: fee
                         .rates
                         .iter()
@@ -94,7 +94,7 @@ pub mod components {
                     let cadence = fee
                         .term
                         .ok_or(Status::invalid_argument("recurring fee term is missing"))?;
-                    let cadence = api_shared::BillingPeriod::try_from(cadence as i32)
+                    let cadence = api_shared::BillingPeriod::try_from(cadence)
                         .map_err(|_| Status::invalid_argument("invalid billing period"))?;
 
                     Ok(domain::FeeType::ExtraRecurring {

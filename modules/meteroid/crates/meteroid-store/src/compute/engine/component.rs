@@ -106,8 +106,6 @@ impl ComponentEngine {
                 max_slots,
                 ..
             } => {
-                let invoice_date = invoice_date;
-
                 let slots = self
                     .fetch_slots(
                         invoice_date,
@@ -155,7 +153,7 @@ impl ComponentEngine {
                         if overage_units > Decimal::ZERO {
                             let overage_price = overage_rate
                                 .to_subunit_opt(precision)
-                                .ok_or_else(|| ComputeError::ConversionError)?;
+                                .ok_or(ComputeError::ConversionError)?;
                             let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
 
                             let overage_line = InvoiceLineInner {
@@ -170,7 +168,7 @@ impl ComponentEngine {
                                     name: "Overage".to_string(),
                                     total: overage_total,
                                     quantity: overage_units,
-                                    unit_price: overage_rate.clone(),
+                                    unit_price: *overage_rate,
                                     attributes: None,
                                 }],
                             };
@@ -204,7 +202,7 @@ impl ComponentEngine {
                                             d1
                                         }
                                     })
-                                    .map(|usage| usage.value.clone())
+                                    .map(|usage| usage.value)
                                     .unwrap_or(Decimal::ZERO);
 
                                 let price_total = rate.per_unit_price * quantity;
@@ -212,7 +210,7 @@ impl ComponentEngine {
                                 let price_cents = only_positive(
                                     price_total
                                         .to_subunit_opt(precision)
-                                        .ok_or_else(|| ComputeError::ConversionError)?,
+                                        .ok_or(ComputeError::ConversionError)?,
                                 );
 
                                 if price_cents > 0 {
@@ -227,9 +225,9 @@ impl ComponentEngine {
                                     );
                                     sublines.push(SubLineItem {
                                         local_id: LocalId::no_prefix(),
-                                        name: name, // TODO
+                                        name, // TODO
                                         total: price_cents as i64,
-                                        quantity: quantity,
+                                        quantity,
                                         unit_price: rate.per_unit_price,
                                         attributes: Some(SubLineAttributes::Matrix {
                                             dimension1_key: rate.dimension1.key.clone(),
@@ -299,9 +297,9 @@ impl ComponentEngine {
                                             name: "Package".to_string(),
                                             total: price_total
                                                 .to_subunit_opt(precision)
-                                                .ok_or_else(|| ComputeError::ConversionError)?,
+                                                .ok_or(ComputeError::ConversionError)?,
                                             quantity: total_packages,
-                                            unit_price: rate.clone(),
+                                            unit_price: *rate,
                                             attributes: Some(SubLineAttributes::Package {
                                                 raw_usage: usage_units,
                                             }),
@@ -428,7 +426,7 @@ impl InvoiceLineInner {
         let total_cents = prorate(
             total
                 .to_subunit_opt(precision)
-                .ok_or_else(|| ComputeError::ConversionError)?,
+                .ok_or(ComputeError::ConversionError)?,
             proration_factor,
         );
 

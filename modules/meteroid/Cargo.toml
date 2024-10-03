@@ -87,17 +87,26 @@ opentelemetry_sdk = { workspace = true }
 fang = { workspace = true, features = ["asynk", "derive-error"] }
 typetag = { workspace = true }
 jsonwebtoken.workspace = true
-
 once_cell.workspace = true
 tower-layer.workspace = true
+image = { workspace = true }
 fastrand = { workspace = true }
 meteroid-store.workspace = true
+meteroid-invoicing.workspace = true
 ndarray.workspace = true
 ndarray-interp.workspace = true
 rand_distr.workspace = true
 rand.workspace = true
 fake.workspace = true
 rand_chacha.workspace = true
+itertools.workspace = true
+rusty-money.workspace = true
+
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+utoipa-redoc.workspace = true
+utoipa-rapidoc.workspace = true
+utoipa-scalar.workspace = true
 
 
 [dev-dependencies]

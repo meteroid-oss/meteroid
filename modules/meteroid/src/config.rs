@@ -18,7 +18,7 @@ pub struct Config {
     pub database_url: String,
 
     #[envconfig(from = "METEROID_API_LISTEN_ADDRESS")]
-    pub listen_addr: SocketAddr,
+    pub grpc_listen_addr: SocketAddr,
 
     #[envconfig(from = "METERING_API_EXTERNAL_URL")]
     pub metering_endpoint: String,
@@ -26,8 +26,11 @@ pub struct Config {
     #[envconfig(from = "OBJECT_STORE_URI")]
     pub object_store_uri: String,
 
-    #[envconfig(from = "INVOICING_WEBHOOK_LISTEN_ADDRESS")]
-    pub invoicing_webhook_addr: SocketAddr,
+    #[envconfig(from = "OBJECT_STORE_PREFIX")]
+    pub object_store_prefix: Option<String>,
+
+    #[envconfig(from = "METEROID_REST_API_LISTEN_ADDRESS", default = "127.0.0.1:8080")]
+    pub rest_api_addr: SocketAddr,
 
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
@@ -58,6 +61,9 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub fang_ext: FangExtConfig,
+
+    #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
+    pub gotenberg_url: String,
 }
 
 impl Config {

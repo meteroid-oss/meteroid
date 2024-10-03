@@ -9,6 +9,7 @@ use meteroid_store::compute::ComputeError;
 use meteroid_store::errors;
 
 #[derive(Debug, Error, ErrorAsTonic)]
+#[allow(clippy::enum_variant_names)]
 pub enum BillableMetricApiError {
     #[error("Mapping error: {0}")]
     #[code(Internal)]

@@ -237,7 +237,7 @@ async fn test_main() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.get(0).unwrap();
+    let db_invoice = db_invoices.first().unwrap();
 
     assert_eq!(db_invoice.tenant_id.to_string(), tenant.id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer.id);

@@ -58,11 +58,9 @@ pub fn generate_smooth_growth(
         if discrepancy > 0 {
             daily_count_random[index] += 1;
             discrepancy -= 1;
-        } else {
-            if daily_count_random[index] > 0 {
-                daily_count_random[index] -= 1;
-                discrepancy += 1;
-            }
+        } else if daily_count_random[index] > 0 {
+            daily_count_random[index] -= 1;
+            discrepancy += 1;
         }
     }
 

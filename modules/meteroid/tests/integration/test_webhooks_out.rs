@@ -265,7 +265,7 @@ async fn test_webhook_handler(
     let endpoint_mock1 = endpoint_mock(endpoint_server1, expected_endpoint_request.clone(), event);
     let endpoint_mock2 = endpoint_mock(endpoint_server2, expected_endpoint_request.clone(), event);
 
-    let _ = handler.handle(event.clone()).await.unwrap();
+    handler.handle(event.clone()).await.unwrap();
 
     endpoint_mock1.assert();
     endpoint_mock1.remove();
@@ -274,7 +274,7 @@ async fn test_webhook_handler(
     endpoint_mock2.remove();
 
     async fn assert_events(
-        endpoint_id: &String,
+        endpoint_id: &str,
         clients: &meteroid_it::clients::AllClients,
         expected_endpoint_request: String,
         event_type: WebhookEventType,
@@ -285,7 +285,7 @@ async fn test_webhook_handler(
             .list_webhook_events(api::webhooks::out::v1::ListWebhookEventsRequest {
                 sort_by: api::webhooks::out::v1::list_webhook_events_request::SortBy::DateDesc
                     as i32,
-                endpoint_id: endpoint_id.clone(),
+                endpoint_id: endpoint_id.to_string(),
                 pagination: None,
             })
             .await

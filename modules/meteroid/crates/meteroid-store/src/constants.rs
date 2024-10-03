@@ -1,11 +1,12 @@
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Country {
     pub code: &'static str,
     pub name: &'static str,
     pub currency: &'static str,
+    pub locale: &'static str,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -25,6 +26,13 @@ pub static COUNTRIES: Lazy<&'static [Country]> = Lazy::new(|| {
             .into_boxed_slice(),
     )
 });
+
+pub struct Countries {}
+impl Countries {
+    pub fn resolve_country(country: &str) -> Option<Country> {
+        COUNTRIES.iter().find(|c| c.code == country).cloned()
+    }
+}
 
 const CURRENCIES_JSON: &str = include_str!("../static/currencies.json");
 pub static CURRENCIES: Lazy<&'static [Currency]> = Lazy::new(|| {

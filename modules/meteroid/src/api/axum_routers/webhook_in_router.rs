@@ -1,60 +1,27 @@
+use super::AppState;
+
+use crate::{adapters::types::ParsedRequest, encoding};
+use crate::{adapters::types::WebhookAdapter, errors};
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Path, State},
-    http::{Request, Uri},
+    http::Request,
     response::{IntoResponse, Response},
 };
 use axum::{routing::post, Router};
-use hyper::StatusCode;
-use object_store::{ObjectStore, PutPayload};
-use std::net::SocketAddr;
-use std::sync::Arc;
 
-use crate::{adapters::types::WebhookAdapter, errors};
-use crate::{
-    adapters::{stripe::Stripe, types::ParsedRequest},
-    encoding,
-};
-
+use crate::services::storage::Prefix;
 use error_stack::{bail, Result, ResultExt};
 use meteroid_store::domain::enums::InvoicingProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
 use meteroid_store::repositories::configs::ConfigsInterface;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
-use meteroid_store::Store;
 use secrecy::SecretString;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub object_store: Arc<dyn ObjectStore>,
-    pub store: Store,
-    pub stripe_adapter: Arc<Stripe>,
-}
-
-pub async fn serve(
-    listen_addr: SocketAddr,
-    object_store_client: Arc<dyn ObjectStore>,
-    stripe_adapter: Arc<Stripe>,
-    store: Store,
-) {
-    let app_state = AppState {
-        object_store: object_store_client.clone(),
-        store,
-        stripe_adapter: stripe_adapter.clone(),
-    };
-
-    // db: Arc<Database>,
-    let app = Router::new()
+pub fn webhook_in_routes() -> Router<AppState> {
+    Router::new()
         .route("/v1/:provider/:endpoint_uid", post(axum_handler))
-        .fallback(handler_404)
-        .with_state(app_state)
-        .layer(DefaultBodyLimit::max(4096));
-
-    tracing::info!("listening on {}", listen_addr);
-    axum::Server::bind(&listen_addr)
-        .serve(app.into_make_service())
-        .await
-        .expect("Could not bind server");
+        .layer(DefaultBodyLimit::max(4096))
 }
 
 #[axum::debug_handler]
@@ -106,32 +73,32 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
     let (parts, body) = req.into_parts();
-    let bytes = hyper::body::to_bytes(body)
+    let bytes = axum::body::to_bytes(body, usize::MAX)
         .await
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-    let event_id = uuid::Uuid::now_v7();
-    let object_store_key = format!("webhooks/{}/{}/{}", provider_str, endpoint_uid, event_id);
+    let prefix = Prefix::WebhookArchive {
+        provider_uid: provider_str,
+        endpoint_uid,
+    };
 
-    let object_store_key_clone = object_store_key.clone();
-    let put_payload = PutPayload::from_bytes(bytes.clone());
-    let path = object_store::path::Path::from(object_store_key_clone);
-
-    app_state
+    let uid = app_state
         .object_store
-        .put(&path, put_payload)
+        .store(bytes.clone(), prefix.clone())
         .await
         .change_context(errors::AdapterWebhookError::ObjectStoreUnreachable)?;
+
+    let key = format!("{}/{}", prefix.to_path_string(), uid);
 
     // index in db
     app_state
         .store
         .insert_webhook_in_event(WebhookInEventNew {
-            id: event_id,
+            id: uid,
             received_at,
             attempts: 0,
             action: None,
-            key: object_store_key,
+            key,
             processed: false,
             error: None,
             provider_config_id: provider_config.id,
@@ -186,9 +153,4 @@ async fn handler(
     });
 
     Ok(response)
-}
-
-async fn handler_404(uri: Uri) -> impl IntoResponse {
-    log::warn!("Not found {}", uri);
-    (StatusCode::NOT_FOUND, "Not found")
 }

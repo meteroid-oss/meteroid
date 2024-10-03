@@ -196,7 +196,7 @@ impl StoreInternal {
             state: invoicing_entity.state.clone(),
             city: invoicing_entity.city.clone(),
             vat_number: invoicing_entity.vat_number.clone(),
-            country: country,
+            country,
             accounting_currency: currency,
             tenant_id,
         };

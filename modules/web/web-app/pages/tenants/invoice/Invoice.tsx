@@ -3,15 +3,18 @@ import { spaces } from '@md/foundation'
 import { Badge, Button, Card, cn, Skeleton } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Flex } from '@ui/components/legacy'
-import { Download, RefreshCcw } from 'lucide-react'
+import { Download, DownloadIcon, RefreshCcw } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { useQuery } from '@/lib/connectrpc'
+import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
 import {
   getInvoice,
   refreshInvoiceData,
+  requestPdfGeneration,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import {
   DetailedInvoice,
@@ -36,6 +39,8 @@ export const Invoice = () => {
   const data = invoiceQuery.data?.invoice
   const isLoading = invoiceQuery.isLoading
 
+  const [openPreview, setOpenPreview] = useState(false)
+
   return (
     <Fragment>
       <Flex direction="column" gap={spaces.space6} fullHeight>
@@ -46,7 +51,14 @@ export const Invoice = () => {
           </>
         ) : (
           <>
-            <InvoiceView invoice={data} />
+            <InvoiceView invoice={data} previewHtml={setOpenPreview} />
+            {invoiceId && (
+              <PreviewInvoiceDialog
+                invoiceId={invoiceId}
+                open={openPreview}
+                setOpen={setOpenPreview}
+              />
+            )}
           </>
         )}
       </Flex>
@@ -113,6 +125,27 @@ const LeftOverview: React.FC<{
   className?: string
   invoice: DetailedInvoice
 }> = ({ invoice }) => {
+  const updateInvoicingEntityMut = useMutation(requestPdfGeneration, {
+    onSuccess: async () => {
+      toast.success(
+        'Generation requested. It should be processed shortly, depending on the queue length.'
+      )
+    },
+  })
+
+  const canRequestNewDocument =
+    import.meta.env.DEV && // allow on prod/stg ?
+    (invoice.status === InvoiceStatus.FINALIZED || invoice.status === InvoiceStatus.VOID) &&
+    !invoice.pdfDocumentId
+
+  const requestNewGeneration = () => {
+    updateInvoicingEntityMut.mutateAsync({ id: invoice.id })
+  }
+
+  const pdf_url =
+    invoice.documentSharingKey &&
+    `/api/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
+
   return (
     <div className=" h-full">
       <div className="flex flex-col items-start gap-y-2 pb-4 border-b">
@@ -124,6 +157,24 @@ const LeftOverview: React.FC<{
         <div className="text-sm font-medium">Total</div>
         <span className="text-3xl">{formatCurrency(invoice.total, invoice.currency)}</span>
       </div>
+      <div className="gap-y-4 pt-2">
+        <div className="flex content-between w-full text-sm text-muted-foreground justify-center">
+          <div className="flex-1 self-center">PDF file</div>
+          <div>
+            {canRequestNewDocument ? (
+              <Button size="md" variant="ghost" onClick={requestNewGeneration}>
+                Request
+              </Button>
+            ) : (
+              <a href={pdf_url} download={`invoice_${invoice.invoiceNumber}.pdf`} target="_blank" rel="noreferrer">
+                <Button size="md" hasIcon disabled={!invoice.pdfDocumentId} variant="ghost">
+                  Download <DownloadIcon size="12" />
+                </Button>
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="gap-y-4">
         <div className="py-6 space-y-6">
           <div>Timeline</div>
@@ -134,7 +185,10 @@ const LeftOverview: React.FC<{
   )
 }
 
-export const InvoiceView: React.FC<Props> = ({ invoice }) => {
+export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => void }> = ({
+  invoice,
+  previewHtml,
+}) => {
   const queryClient = useQueryClient()
 
   const refresh = useMutation(refreshInvoiceData, {
@@ -170,6 +224,16 @@ export const InvoiceView: React.FC<Props> = ({ invoice }) => {
           >
             Refresh <RefreshCcw size="16" className={cn(refresh.isPending && 'animate-spin')} />
           </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            hasIcon
+            onClick={() => previewHtml(true)}
+            disabled={refresh.isPending}
+          >
+            Preview
+          </Button>
+
           <Button size="sm" variant="primary">
             <Download size="16" />
           </Button>

@@ -7,7 +7,7 @@ pub const DATABASE: &str = "meteroid"; // TODO config
 
 const METER_TABLE_PREFIX: &str = "METER";
 
-pub(self) fn escape_sql_identifier(identifier: &str) -> String {
+fn escape_sql_identifier(identifier: &str) -> String {
     identifier.replace("'", "''")
 }
 
@@ -34,7 +34,7 @@ pub fn get_meter_view_name(namespace: &str, meter_slug: &str) -> String {
     )
 }
 
-pub(self) struct Column {
+struct Column {
     name: String,
     col_type: String,
 }

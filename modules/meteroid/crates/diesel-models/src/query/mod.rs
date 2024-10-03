@@ -11,6 +11,7 @@ pub mod invoices;
 pub mod invoicing_entities;
 pub mod organization_members;
 pub mod organizations;
+pub mod outbox;
 pub mod plan_versions;
 pub mod plans;
 pub mod price_components;

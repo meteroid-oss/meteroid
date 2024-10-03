@@ -32,10 +32,10 @@ pub fn end_of_month(date: NaiveDate) -> NaiveDate {
 pub fn start_of_quarter(date: NaiveDate) -> NaiveDate {
     let month = date.month();
     let quarter_start_month: u32 = match month {
-        1 | 2 | 3 => 1,
-        4 | 5 | 6 => 4,
-        7 | 8 | 9 => 7,
-        10 | 11 | 12 => 10,
+        1..=3 => 1,
+        4..=6 => 4,
+        7..=9 => 7,
+        10..=12 => 10,
         _ => unreachable!(),
     };
     NaiveDate::from_ymd_opt(date.year(), quarter_start_month, 1).expect("invalid quarter")
@@ -44,10 +44,10 @@ pub fn start_of_quarter(date: NaiveDate) -> NaiveDate {
 pub fn end_of_quarter(date: NaiveDate) -> NaiveDate {
     let month = date.month();
     let quarter_end_month: u32 = match month {
-        1 | 2 | 3 => 3,
-        4 | 5 | 6 => 6,
-        7 | 8 | 9 => 9,
-        10 | 11 | 12 => 12,
+        1..=3 => 3,
+        4..=6 => 6,
+        7..=9 => 9,
+        10..=12 => 12,
         _ => unreachable!(),
     };
 

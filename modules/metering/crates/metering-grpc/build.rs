@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .client_mod_attribute(".", r#"#[cfg(feature = "client")]"#)
         .server_mod_attribute(".", r#"#[cfg(feature = "server")]"#)
         .extern_path(".meteroid.common", "::common_grpc::meteroid::common")
-        .compile_with_config(
+        .compile_protos_with_config(
             config,
             &[
                 "proto/events.proto",

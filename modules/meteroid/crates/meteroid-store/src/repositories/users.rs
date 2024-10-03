@@ -67,7 +67,7 @@ impl UserInterface for Store {
 
         async fn create_user(conn: &mut PgConn, req: &RegisterUserRequest) -> StoreResult<Uuid> {
             // Hash password
-            let hashed_password = hash_password(&req.password.expose_secret())?;
+            let hashed_password = hash_password(req.password.expose_secret())?;
 
             let user_new = UserRowNew {
                 id: Uuid::now_v7(),
@@ -139,7 +139,7 @@ impl UserInterface for Store {
 
         Ok(RegisterUserResponse {
             token: generate_jwt_token(&user_id.to_string(), &self.settings.jwt_secret)?,
-            user: user.into(),
+            user,
         })
     }
 

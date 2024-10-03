@@ -98,7 +98,7 @@ export const GeneralTab = () => {
           <Card className="px-8 py-6 max-w-[950px]  space-y-4">
             <div className="grid grid-cols-6 gap-4  ">
               <div className="col-span-3">
-                <h3 className="font-medium text-lg">Informations</h3>
+                <h3 className="font-medium text-lg">Tenant settings</h3>
               </div>
             </div>
             <div className="grid grid-cols-6 gap-4 pt-1 ">

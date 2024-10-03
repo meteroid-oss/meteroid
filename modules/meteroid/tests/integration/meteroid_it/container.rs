@@ -13,6 +13,7 @@ use crate::helpers;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
+use meteroid::services::storage::in_memory_object_store;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::PgPool;
 
@@ -31,12 +32,11 @@ pub async fn start_meteroid_with_port(
     seed_level: SeedLevel,
     usage_client: Arc<dyn UsageClient>,
 ) -> MeteroidSetup {
-    let invoicing_webhook_addr =
-        helpers::network::free_local_socket().expect("Could not get webhook addr");
+    let rest_api_addr = helpers::network::free_local_socket().expect("Could not get webhook addr");
 
     let config = super::config::mocked_config(
         postgres_connection_string,
-        invoicing_webhook_addr,
+        rest_api_addr,
         meteroid_port,
         metering_port,
     );
@@ -48,7 +48,7 @@ pub async fn start_meteroid_with_port(
         config.database_url.clone(),
         config.secrets_crypt_key.clone(),
         config.jwt_secret.clone(),
-        config.multi_organization_enabled.clone(),
+        config.multi_organization_enabled,
         create_eventbus_memory(),
         usage_client,
     )
@@ -58,8 +58,12 @@ pub async fn start_meteroid_with_port(
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
-    log::info!("Starting gRPC server {}", config.listen_addr);
-    let private_server = meteroid::api::server::start_api_server(config.clone(), store.clone());
+    log::info!("Starting gRPC server {}", config.grpc_listen_addr);
+    let private_server = meteroid::api::server::start_api_server(
+        config.clone(),
+        store.clone(),
+        in_memory_object_store(),
+    );
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
@@ -72,7 +76,7 @@ pub async fn start_meteroid_with_port(
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let meteroid_endpoint = format!("http://{}", config.listen_addr);
+    let meteroid_endpoint = format!("http://{}", config.grpc_listen_addr);
 
     log::info!("Creating gRPC channel {}", meteroid_endpoint);
 
@@ -146,9 +150,8 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
         let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
         conn.batch_execute(contents.as_str())
             .await
-            .map_err(|err| {
+            .inspect_err(|_err| {
                 eprintln!("Seed failed to apply : {}", seed.path());
-                err
             })
             .unwrap();
     }
