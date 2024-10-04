@@ -52,7 +52,7 @@ message SubscriptionDetails {
   repeated SubscriptionComponent price_components = 3;
   repeated BillableMetric metrics = 4;
   repeated SubscriptionAddOn add_ons = 5;
-  repeated SubscriptionCoupon coupons = 6;
+  repeated meteroid.api.coupons.v1.Coupon coupons = 6;
 }
 
 // TODO replace by subscription or even subscription details
@@ -131,17 +131,6 @@ message CreateSubscriptionCoupon {
 
 message CreateSubscriptionCoupons {
   repeated CreateSubscriptionCoupon coupons = 1;
-}
-
-message SubscriptionCoupon {
-  string id = 1;
-  string coupon_id = 2;
-  string subscription_id = 3;
-  string coupon_code = 4;
-  string coupon_description = 5;
-  api.coupons.v1.CouponDiscount coupon_discount = 6;
-  optional google.protobuf.Timestamp coupon_expires_at = 7;
-  optional int32 coupon_redemption_limit = 8;
 }
 
 message CreateSubscriptionComponents {

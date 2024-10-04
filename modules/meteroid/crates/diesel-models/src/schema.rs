@@ -630,13 +630,6 @@ diesel::table! {
         id -> Uuid,
         subscription_id -> Uuid,
         coupon_id -> Uuid,
-        coupon_code -> Text,
-        coupon_description -> Text,
-        coupon_discount -> Jsonb,
-        coupon_expires_at -> Nullable<Timestamp>,
-        coupon_redemption_limit -> Nullable<Int4>,
-        coupon_recurring_value -> Int4,
-        coupon_reusable -> Bool,
         created_at -> Timestamp,
     }
 }

@@ -15,8 +15,8 @@ pub struct Coupon {
     pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>, // max number of subscriptions it can be applied to
-    pub recurring_value: i32,          // 1 once, -1 infinite, > 1 number of times
-    pub reusable: bool, // can it be applied to multiple subscriptions of the same customer
+    pub recurring_value: i32, // 1 once, -1 infinite, > 1 number of times (applied on recurring invoices for a single subscription)
+    pub reusable: bool,       // can it be applied to multiple subscriptions of the same customer
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }

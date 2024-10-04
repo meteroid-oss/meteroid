@@ -17,6 +17,10 @@ pub mod coupons {
         }
     }
 
+    pub fn to_server(value: domain::coupons::Coupon) -> server::Coupon {
+        CouponWrapper::from(value).0
+    }
+
     pub mod discount {
         use crate::api::shared::conversions::ProtoConv;
         use meteroid_grpc::meteroid::api::coupons::v1 as server;

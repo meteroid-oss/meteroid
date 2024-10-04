@@ -9,6 +9,7 @@ pub mod subscriptions {
 
     use crate::api::shared::conversions::*;
 
+    use crate::api::coupons::mapping::coupons as coupon_mapping;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
 
     pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
@@ -157,8 +158,8 @@ pub mod subscriptions {
                 .collect(),
             coupons: sub
                 .coupons
-                .iter()
-                .map(super::coupons::subscription_coupon_to_grpc)
+                .into_iter()
+                .map(coupon_mapping::to_server)
                 .collect(),
         })
     }
@@ -740,9 +741,7 @@ pub mod ext {
 }
 
 pub mod coupons {
-    use crate::api::coupons::mapping::coupons::discount;
     use crate::api::shared::conversions::ProtoConv;
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
     use uuid::Uuid;
@@ -766,20 +765,5 @@ pub mod coupons {
         Ok(domain::CreateSubscriptionCoupon {
             coupon_id: Uuid::from_proto_ref(&data.coupon_id)?,
         })
-    }
-
-    pub fn subscription_coupon_to_grpc(
-        coupon: &domain::SubscriptionCoupon,
-    ) -> api::SubscriptionCoupon {
-        api::SubscriptionCoupon {
-            id: coupon.id.to_string(),
-            coupon_id: coupon.coupon_id.to_string(),
-            subscription_id: coupon.subscription_id.to_string(),
-            coupon_code: coupon.coupon_code.clone(),
-            coupon_description: coupon.coupon_description.clone(),
-            coupon_discount: Some(discount::to_server(&coupon.coupon_discount)),
-            coupon_expires_at: coupon.coupon_expires_at.map(chrono_to_timestamp),
-            coupon_redemption_limit: coupon.coupon_redemption_limit,
-        }
     }
 }

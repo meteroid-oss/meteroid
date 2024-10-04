@@ -617,7 +617,7 @@ impl SubscriptionInterface for Store {
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
         let subscription_coupons =
-            SubscriptionCouponRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+            CouponRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -896,20 +896,10 @@ fn process_create_subscription_coupons(
                 StoreError::ValueNotFound(format!("coupon {} not found", cs_coupon.coupon_id)),
             )?;
 
-            let discount = serde_json::to_value(&coupon.discount)
-                .map_err(|e| StoreError::SerdeError("coupon discount".into(), e))?;
-
             processed_coupons.push(SubscriptionCouponRowNew {
                 id: Uuid::now_v7(),
                 subscription_id,
                 coupon_id: coupon.id,
-                coupon_code: coupon.code.clone(),
-                coupon_description: coupon.description.clone(),
-                coupon_discount: discount,
-                coupon_expires_at: coupon.expires_at,
-                coupon_redemption_limit: coupon.redemption_limit,
-                coupon_reusable: coupon.reusable,
-                coupon_recurring_value: coupon.recurring_value,
             });
         }
     }
