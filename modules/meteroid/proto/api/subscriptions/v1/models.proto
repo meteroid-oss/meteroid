@@ -6,8 +6,6 @@ import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/coupons/v1/models.proto";
 
-import "google/protobuf/timestamp.proto";
-
 package meteroid.api.subscriptions.v1;
 
 enum SubscriptionStatus {
