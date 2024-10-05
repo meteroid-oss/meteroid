@@ -4,6 +4,7 @@ use crate::{DbResult, PgConn};
 use diesel::{debug_query, ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
+use std::collections::HashMap;
 use tap::TapFallible;
 
 impl CouponRowNew {
@@ -124,6 +125,51 @@ impl CouponRow {
             .await
             .attach_printable("Error while listing Coupon by subscription_id")
             .into_db_result()
+    }
+
+    pub async fn list_by_ids_for_update(
+        conn: &mut PgConn,
+        ids: &[uuid::Uuid],
+        tenant_id: &uuid::Uuid,
+    ) -> DbResult<Vec<CouponRow>> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = c_dsl::coupon
+            .filter(c_dsl::id.eq_any(ids))
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while fetching coupons for update")
+            .into_db_result()
+    }
+
+    pub async fn subscriptions_count(
+        conn: &mut PgConn,
+        coupons: &[uuid::Uuid],
+    ) -> DbResult<HashMap<uuid::Uuid, i64>> {
+        use crate::schema::subscription_coupon::dsl as sc_dsl;
+
+        let query = sc_dsl::subscription_coupon
+            .filter(sc_dsl::coupon_id.eq_any(coupons))
+            .group_by(sc_dsl::coupon_id)
+            .select((
+                sc_dsl::coupon_id,
+                diesel::dsl::count(sc_dsl::subscription_id),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load::<(uuid::Uuid, i64)>(conn)
+            .await
+            .attach_printable("Error while counting subscriptions for coupons")
+            .into_db_result()
+            .map(|rows: Vec<(uuid::Uuid, i64)>| rows.into_iter().collect())
     }
 }
 

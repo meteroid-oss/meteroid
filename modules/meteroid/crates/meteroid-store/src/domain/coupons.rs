@@ -25,6 +25,10 @@ impl Coupon {
     pub fn is_infinite(&self) -> bool {
         self.recurring_value == -1
     }
+
+    pub fn is_expired(&self, now: NaiveDateTime) -> bool {
+        self.expires_at.map(|x| x <= now).unwrap_or(false)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

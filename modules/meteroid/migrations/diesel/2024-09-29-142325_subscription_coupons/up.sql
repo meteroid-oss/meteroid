@@ -14,3 +14,6 @@ create index if not exists subscription_coupon_subscription_id_idx
 
 create index if not exists subscription_coupon_coupon_id_idx
   on subscription_coupon (coupon_id);
+
+create unique index if not exists subscription_coupon_subscription_id_coupon_id_idx
+  on subscription_coupon (subscription_id, coupon_id);

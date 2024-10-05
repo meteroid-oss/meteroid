@@ -18,13 +18,11 @@ use crate::{domain, StoreResult};
 use chrono::{NaiveDate, NaiveTime};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
-use diesel_models::errors::DatabaseErrorContainer;
-use error_stack::Report;
+use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
+use error_stack::{report, Report};
 use itertools::Itertools;
 use std::collections::HashMap;
 use uuid::Uuid;
-
-use rust_decimal::prelude::*;
 
 use crate::constants::Currencies;
 use crate::domain::add_ons::AddOn;
@@ -49,6 +47,8 @@ use diesel_models::subscription_components::{
 use diesel_models::subscription_coupons::{SubscriptionCouponRow, SubscriptionCouponRowNew};
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
+use diesel_models::DbResult;
+use rust_decimal::prelude::*;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
@@ -464,6 +464,8 @@ impl SubscriptionInterface for Store {
         let inserted_subscriptions = conn
             .transaction(|conn| {
                 async move {
+                    validate_coupons(conn, &insertable_subscription_coupons, tenant_id).await?;
+
                     let inserted_subscriptions: Vec<CreatedSubscription> =
                         SubscriptionRow::insert_subscription_batch(conn, insertable_subscriptions)
                             .await
@@ -904,7 +906,71 @@ fn process_create_subscription_coupons(
         }
     }
 
+    processed_coupons = processed_coupons
+        .into_iter()
+        .unique_by(|x| x.coupon_id)
+        .collect();
+
     Ok(processed_coupons)
+}
+
+/// validate coupons can be applied to subscriptions
+/// must be inside tx to handle concurrent inserts
+async fn validate_coupons(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&SubscriptionCouponRowNew],
+    tenant_id: Uuid,
+) -> DbResult<()> {
+    if subscription_coupons.is_empty() {
+        return Ok(());
+    }
+
+    let coupons_ids = subscription_coupons
+        .iter()
+        .map(|x| x.coupon_id)
+        .unique()
+        .collect::<Vec<_>>();
+
+    let coupons = &CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
+
+    let now = chrono::Utc::now().naive_utc();
+
+    // expired coupons
+    for coupon in coupons {
+        let expired = coupon.expires_at.map(|x| x <= now).unwrap_or(false);
+        if expired {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} is expired",
+                coupon.code
+            )))
+            .into());
+        }
+    }
+
+    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+        subscription_coupons.iter().counts_by(|x| x.coupon_id);
+
+    let db_counts = CouponRow::subscriptions_count(tx_conn, &coupons_ids).await?;
+
+    // check if the coupon has reached its redemption limit
+    for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
+        let applied_count = db_counts.get(&coupon_id).unwrap_or(&0);
+        let coupon = coupons.iter().find(|x| x.id == coupon_id).ok_or(report!(
+            DatabaseError::ValidationError(format!("coupon {} not found", coupon_id))
+        ))?;
+
+        if let Some(redemption_limit) = coupon.redemption_limit {
+            if (redemption_limit as i64) < (subscriptions_count as i64 + *applied_count) {
+                return Err(report!(DatabaseError::ValidationError(format!(
+                    "coupon {} has reached its maximum redemptions",
+                    coupon.code
+                )))
+                .into());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn apply_coupons(
