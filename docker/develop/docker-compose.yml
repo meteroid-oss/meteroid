@@ -57,7 +57,7 @@ services:
       - MINIO_ROOT_PASSWORD=${S3_password:-meteroid}
     command: server /data --console-address ":9001"
     ports:
-      - 9000:9000
+      - 9002:9000
       - 9001:9001
     volumes:
       - minio_data:/data
