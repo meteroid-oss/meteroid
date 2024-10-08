@@ -1,6 +1,6 @@
 use diesel_async::async_connection_wrapper::AsyncConnectionWrapper;
 use diesel_migrations::MigrationHarness;
-use meteroid_store::store::PgConn;
+use meteroid_store::store::{PgConn, PgPool};
 use std::error::Error;
 use thiserror::Error;
 
@@ -9,7 +9,8 @@ mod diesel {
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/diesel");
 }
 
-pub async fn run(conn: PgConn) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = pool.get().await?;
     let mut async_wrapper: AsyncConnectionWrapper<PgConn> = AsyncConnectionWrapper::from(conn);
 
     tokio::task::spawn_blocking(move || {

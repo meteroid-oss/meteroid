@@ -3,10 +3,12 @@ use chrono::{NaiveDate, NaiveDateTime};
 use o2o::o2o;
 use uuid::Uuid;
 
+use crate::domain::coupons::Coupon;
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
-    BillableMetric, CreateSubscriptionComponents, Schedule, SubscriptionComponent,
+    BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons, Schedule,
+    SubscriptionComponent,
 };
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
@@ -151,6 +153,7 @@ pub struct CreateSubscription {
     pub subscription: SubscriptionNew,
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
+    pub coupons: Option<CreateSubscriptionCoupons>,
 }
 
 #[derive(Debug, Clone)]
@@ -169,6 +172,7 @@ pub struct SubscriptionDetails {
     pub schedules: Vec<Schedule>,
     pub price_components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
+    pub coupons: Vec<Coupon>,
     pub metrics: Vec<BillableMetric>,
     pub mrr_cents: u64,
 

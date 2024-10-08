@@ -1,7 +1,9 @@
 use crate::domain::historical_rates::{
     HistoricalRate, HistoricalRatesFromUsd, HistoricalRatesFromUsdNew,
 };
+use crate::store::PgConn;
 use crate::{Store, StoreResult};
+use cached::proc_macro::cached;
 use chrono::NaiveDate;
 use diesel_models::historical_rates_from_usd::{
     HistoricalRatesFromUsdRow, HistoricalRatesFromUsdRowNew,
@@ -50,10 +52,7 @@ impl HistoricalRatesInterface for Store {
     ) -> StoreResult<Option<HistoricalRatesFromUsd>> {
         let mut conn = self.get_conn().await?;
 
-        HistoricalRatesFromUsdRow::get_by_date(date, &mut conn)
-            .await
-            .map_err(Into::into)
-            .and_then(|row| row.map(TryInto::try_into).transpose())
+        get_historical_rate_from_usd_by_date_cached(&mut conn, date).await
     }
 
     async fn get_historical_rate(
@@ -78,4 +77,21 @@ impl HistoricalRatesInterface for Store {
                 })
             })
     }
+}
+
+#[cached(
+    result = true,
+    size = 10,
+    time = 300, // 5min
+    key = "NaiveDate",
+    convert = r#"{ date }"#
+)]
+async fn get_historical_rate_from_usd_by_date_cached(
+    conn: &mut PgConn,
+    date: NaiveDate,
+) -> StoreResult<Option<HistoricalRatesFromUsd>> {
+    HistoricalRatesFromUsdRow::get_by_date(date, conn)
+        .await
+        .map_err(Into::into)
+        .and_then(|row| row.map(TryInto::try_into).transpose())
 }

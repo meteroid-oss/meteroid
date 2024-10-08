@@ -321,6 +321,7 @@ pub async fn run(
             subscription,
             price_components: create_subscription_components,
             add_ons: None, // todo generate add-ons
+            coupons: None, // todo generate coupons
         };
 
         subscriptions_to_create.push(params);

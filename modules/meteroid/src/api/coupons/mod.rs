@@ -2,7 +2,7 @@ use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_server::CouponsSe
 use meteroid_store::Store;
 
 mod error;
-mod mapping;
+pub mod mapping;
 mod service;
 
 pub struct CouponsServiceComponents {

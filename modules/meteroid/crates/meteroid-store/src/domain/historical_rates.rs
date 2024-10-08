@@ -7,6 +7,7 @@ use error_stack::Report;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
 pub struct HistoricalRatesFromUsd {
     pub id: Uuid,
     pub date: NaiveDate,

@@ -626,6 +626,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    subscription_coupon (id) {
+        id -> Uuid,
+        subscription_id -> Uuid,
+        coupon_id -> Uuid,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::SubscriptionEventType;
 
@@ -769,6 +778,8 @@ diesel::joinable!(subscription_add_on -> subscription (subscription_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_item_id));
 diesel::joinable!(subscription_component -> subscription (subscription_id));
+diesel::joinable!(subscription_coupon -> coupon (coupon_id));
+diesel::joinable!(subscription_coupon -> subscription (subscription_id));
 diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log_id));
 diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
@@ -808,6 +819,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     subscription,
     subscription_add_on,
     subscription_component,
+    subscription_coupon,
     subscription_event,
     tenant,
     user,

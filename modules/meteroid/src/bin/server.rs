@@ -65,8 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let exit = signal::ctrl_c();
 
-    let conn = store.pool.get().await?;
-    migrations::run(conn).await?;
+    migrations::run(&store.pool).await?;
 
     let stripe_adapter = Arc::new(Stripe {
         client: stripe_client::client::StripeClient::new(),
