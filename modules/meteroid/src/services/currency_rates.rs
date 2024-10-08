@@ -61,7 +61,7 @@ impl OpenexchangeRatesService {
     ) -> Result<ExchangeRates, CurrencyRatesError> {
         let response = self
             .client
-            .get(&format!(
+            .get(format!(
                 "https://openexchangerates.org/api/latest.json?app_id={}&base=USD&symbols={}",
                 api_key,
                 SUPPORTED_CURRENCIES.join(",")
@@ -85,7 +85,7 @@ impl OpenexchangeRatesService {
     async fn fetch_from_cloud_fallback(&self) -> Result<ExchangeRates, CurrencyRatesError> {
         let response = self
             .client
-            .get(&format!(
+            .get(format!(
                 "{}/rates/USD?symbols={}",
                 OSS_API,
                 SUPPORTED_CURRENCIES.join(",")

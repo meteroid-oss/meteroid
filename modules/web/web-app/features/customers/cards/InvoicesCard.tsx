@@ -26,7 +26,7 @@ export const InvoicesCard = ({ customer }: Props) => {
       offset: pagination.pageIndex * pagination.pageSize,
     },
     customerId: customer.id,
-    orderBy: ListInvoicesRequest_SortBy.DATE_DESC,
+    sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
   })
 
   return invoicesQuery.isLoading ? (
@@ -41,7 +41,7 @@ export const InvoicesCard = ({ customer }: Props) => {
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}
-      linkPrefix="../../invoices/"
+      linkPrefix="../../billing/invoices/"
     />
   )
 }

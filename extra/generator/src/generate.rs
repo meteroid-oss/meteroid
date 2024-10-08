@@ -1,9 +1,7 @@
 use crate::domain::{Config, DataType, FixedValue, Property, Schema};
 use std::str::FromStr;
 
-use fastrand;
 use log::{error, info};
-use prost_types::Timestamp;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -76,7 +74,7 @@ pub async fn generate_events(config: &Config) {
         let mut client_clone = client.clone();
         // spawn and forget
 
-        let count = sent_events.clone();
+        let count = sent_events;
         set.spawn(async move {
             let ts = std::time::Instant::now();
             let response = client_clone.ingest(request).await;
@@ -127,7 +125,7 @@ fn generate_any(schemas: &Vec<Schema>) -> Event {
     for schema in schemas {
         random -= schema.weight.unwrap_or(1.0);
         if random <= 0.0 {
-            return generate_random_data(&schema);
+            return generate_random_data(schema);
         }
     }
 
@@ -175,10 +173,7 @@ fn generate_random_data(schema: &Schema) -> Event {
         customer_id: Some(CustomerId::ExternalCustomerId(
             schema.customer_ids[fastrand::usize(0..schema.customer_ids.len())].clone(),
         )),
-        timestamp: Some(Timestamp {
-            seconds: now.timestamp(),
-            nanos: now.timestamp_subsec_nanos() as i32,
-        }),
+        timestamp: now.to_rfc3339(),
         properties,
     }
 }

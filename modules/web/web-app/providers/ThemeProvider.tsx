@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 export interface UseThemeProps {
   isDarkMode: boolean
   toggleTheme: () => void
-  setDarkMode: (darkMode: boolean) => void
+  setDarkMode: (darkMode: boolean, options?: { persistent: boolean }) => void
 }
 
 interface ThemeProviderProps {
@@ -18,6 +18,21 @@ export const ThemeContext = createContext<UseThemeProps>({
 
 export const useTheme = () => useContext(ThemeContext)
 
+// force the theme to X and restore to previous value on unmount
+export const useForceTheme = (theme: 'dark' | 'light') => {
+  const { isDarkMode, setDarkMode } = useTheme()
+
+  const prevDarkMode = isDarkMode
+
+  useEffect(() => {
+    setDarkMode(theme === 'dark', { persistent: false })
+
+    return () => {
+      setDarkMode(prevDarkMode, { persistent: false })
+    }
+  }, [])
+}
+
 const LSK = 'userpreferences_DarkMode'
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [isDarkMode, setIsDarkMode] = useState(false)
@@ -25,14 +40,16 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   useEffect(() => {
     const key = localStorage.getItem(LSK)
 
+    const prefersDarkMode =
+      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
     // Default to dark mode if no preference config
-    const mode = !key || key === 'true'
+    const darkMode = key === 'true' || (!key && prefersDarkMode)
 
-    setDarkMode(mode)
+    setDarkMode(darkMode)
   }, [])
 
-  const setDarkMode: UseThemeProps['setDarkMode'] = darkMode => {
-    localStorage.setItem(LSK, darkMode.toString())
+  const setDarkMode: UseThemeProps['setDarkMode'] = (darkMode, options = { persistent: true }) => {
+    options.persistent && localStorage.setItem(LSK, darkMode.toString())
 
     const newTheme = darkMode ? 'dark' : 'light'
 

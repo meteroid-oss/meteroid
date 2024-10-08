@@ -1,17 +1,18 @@
+use std::task::{Context, Poll};
+
 use futures_util::future;
 use futures_util::future::Ready;
 use hmac::{Hmac, Mac};
-use std::task::{Context, Poll};
-
-use crate::middleware::common::auth::{HMAC_SIGNATURE_HEADER, HMAC_TIMESTAMP_HEADER};
-use crate::middleware::common::filters::Filter;
-use common_config::auth::InternalAuthConfig;
 use hyper::{Request, Response};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
-
 use tonic::Status;
 use tower::{Layer, Service};
+
+use common_config::auth::InternalAuthConfig;
+
+use crate::middleware::common::auth::{HMAC_SIGNATURE_HEADER, HMAC_TIMESTAMP_HEADER};
+use crate::middleware::common::filters::Filter;
 
 #[derive(Debug, Clone)]
 pub struct AdminAuthLayer {
@@ -149,7 +150,7 @@ where
 
         let expected = hex::encode(mac.finalize().into_bytes());
 
-        if signature_str.to_string() != expected {
+        if *signature_str != expected {
             return future::Either::Right(future::ready(
                 Err(Status::permission_denied(
                     "HMAC signature didn't pass validation",

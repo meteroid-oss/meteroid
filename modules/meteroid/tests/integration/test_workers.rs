@@ -1,43 +1,48 @@
+use chrono::NaiveDate;
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use meteroid::eventbus::create_eventbus_noop;
+use uuid::Uuid;
+
+use meteroid::workers::invoicing::draft_worker::draft_worker;
+use meteroid_store::compute::clients::usage::MockUsageClient;
+use meteroid_store::domain::enums::InvoiceStatusEnum;
+use meteroid_store::domain::{InvoiceWithCustomer, OrderByRequest, PaginationRequest};
+use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::Store;
+
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
-use crate::meteroid_it::eventbus::NoopEventBus;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
-use meteroid::eventbus::EventBus;
-use meteroid::workers::invoicing::draft_worker::draft_worker;
-use meteroid_repository::invoices::ListInvoice;
-use meteroid_repository::InvoiceStatusEnum;
-use std::collections::HashSet;
-use std::ops::Deref;
-use std::sync::Arc;
-use testcontainers::clients::Cli;
-use time::macros::date;
-use uuid::Uuid;
 
 #[tokio::test]
 async fn test_draft_worker() {
     helpers::init::logging();
-    let docker = Cli::default();
-    let (container, postgres_connection_string) = meteroid_it::container::start_postgres(&docker);
+    let (_pg_container, postgres_connection_string) =
+        meteroid_it::container::start_postgres().await;
 
-    let pool = meteroid_repository::create_pool(postgres_connection_string.as_str());
+    let worker_run_date = date("2023-11-06");
+
+    let store = Store::new(
+        postgres_connection_string,
+        secrecy::SecretString::new("test-key".into()),
+        secrecy::SecretString::new("test-jwt-key".into()),
+        false,
+        create_eventbus_noop().await,
+        Arc::new(MockUsageClient::noop()),
+    )
+    .unwrap();
 
     meteroid_it::container::populate_postgres(
-        pool.clone(),
+        &store.pool,
         meteroid_it::container::SeedLevel::SUBSCRIPTIONS,
     )
     .await;
 
-    let worker_run_date = date!(2023 - 11 - 04);
+    draft_worker(&store, worker_run_date).await.unwrap();
 
-    let eventbus: Arc<dyn EventBus<meteroid::eventbus::Event>> = Arc::new(NoopEventBus::new());
-
-    draft_worker(&pool, eventbus.deref(), worker_run_date.clone())
-        .await
-        .unwrap();
-
-    let invoices = fetch_invoices(pool.clone()).await;
+    let invoices = list_invoices(&store).await;
 
     assert_eq!(invoices.len(), 6);
 
@@ -51,74 +56,70 @@ async fn test_draft_worker() {
     ]);
 
     let actual_sub_ids: HashSet<Uuid> =
-        HashSet::from_iter(invoices.iter().map(|i| i.subscription_id));
+        HashSet::from_iter(invoices.iter().map(|i| i.invoice.subscription_id.unwrap()));
 
     assert_eq!(expected_sub_ids, actual_sub_ids);
 
-    for invoice in invoices.iter() {
-        assert_eq!(invoice.status, InvoiceStatusEnum::DRAFT);
+    for invoice in invoices.iter().map(|x| &x.invoice) {
+        assert_eq!(invoice.status, InvoiceStatusEnum::Draft);
 
-        if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID1 {
+        let subscription_id = invoice.subscription_id.unwrap();
+
+        if subscription_id == SUBSCRIPTION_SPORTIFY_ID1
+            || subscription_id == SUBSCRIPTION_SPORTIFY_ID2
+        {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
-            assert_eq!(invoice.invoice_date, date!(2023 - 12 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
-            assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
-            assert_eq!(invoice.invoice_date, date!(2023 - 12 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_UBER_ID1 {
+            assert_eq!(invoice.invoice_date, date("2023-12-01"));
+        } else if subscription_id == SUBSCRIPTION_UBER_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
-            assert_eq!(invoice.invoice_date, date!(2024 - 11 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_UBER_ID2 {
+            assert_eq!(invoice.invoice_date, date("2024-11-01"));
+        } else if subscription_id == SUBSCRIPTION_UBER_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
-            assert_eq!(invoice.invoice_date, date!(2023 - 11 - 15));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_COMODO_ID1 {
+            assert_eq!(invoice.invoice_date, date("2023-11-15"));
+        } else if subscription_id == SUBSCRIPTION_COMODO_ID1 {
             assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
-            assert_eq!(invoice.invoice_date, date!(2023 - 12 - 01));
-        }
-
-        if invoice.subscription_id == SUBSCRIPTION_COMODO_ID2 {
+            assert_eq!(invoice.invoice_date, date("2023-12-01"));
+        } else if subscription_id == SUBSCRIPTION_COMODO_ID2 {
             assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
-            assert_eq!(invoice.invoice_date, date!(2023 - 11 - 30));
+            assert_eq!(invoice.invoice_date, date("2023-11-30"));
+        } else {
+            panic!("Unexpected invoice: {:?}", invoice);
         }
     }
 
     // second run should not create new invoices
-    draft_worker(&pool, eventbus.deref(), worker_run_date.next_day().unwrap())
-        .await
-        .unwrap();
+    draft_worker(
+        &store,
+        worker_run_date
+            .checked_add_days(chrono::Days::new(1))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
 
-    let invoices2 = fetch_invoices(pool.clone()).await;
+    let invoices2 = list_invoices(&store).await;
 
     assert_eq!(invoices2, invoices);
-
-    container.stop();
 }
 
-async fn fetch_invoices(pool: Pool) -> Vec<ListInvoice> {
-    let conn = meteroid::db::get_connection(&pool).await.unwrap();
+fn date(date_str: &str) -> NaiveDate {
+    NaiveDate::parse_from_str(date_str, "%Y-%m-%d").expect("Invalid date format")
+}
 
-    let search: Option<String> = None;
-
-    let params = meteroid_repository::invoices::ListTenantInvoicesParams {
-        tenant_id: TENANT_ID,
-        limit: 100,
-        offset: 0,
-        status: None,
-        order_by: "DATE_ASC",
-        customer_id: None,
-        search,
-    };
-
-    meteroid_repository::invoices::list_tenant_invoices()
-        .params(&conn, &params)
-        .all()
+async fn list_invoices(store: &Store) -> Vec<InvoiceWithCustomer> {
+    store
+        .list_invoices(
+            TENANT_ID,
+            None,
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                per_page: Some(100),
+                page: 0,
+            },
+        )
         .await
         .unwrap()
+        .items
 }

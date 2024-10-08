@@ -1,13 +1,15 @@
-import { cn , Separator } from '@md/ui'
+import { cn, Separator } from '@md/ui'
 
-import { formatCurrency } from '@/features/dashboard/utils'
+import { useCurrency } from '@/hooks/useCurrency'
 import { useQuery } from '@/lib/connectrpc'
 import { MRRBreakdownScope } from '@/rpc/api/stats/v1/models_pb'
 import { mrrBreakdown } from '@/rpc/api/stats/v1/stats-StatsService_connectquery'
 
 export const MrrBreakdownCard = () => {
-  const breakdown = useQuery(mrrBreakdown, { scope: MRRBreakdownScope.THIS_MONTH }).data
+  const breakdown = useQuery(mrrBreakdown, { scope: MRRBreakdownScope.THIS_YEAR }).data
     ?.mmrBreakdown
+
+  const { formatAmount } = useCurrency()
 
   return (
     <div className="max-w-[50%] relative h-[180px] w-[50%] py-4 px-2 ">
@@ -17,35 +19,35 @@ export const MrrBreakdownCard = () => {
           <MrrBreakdownItem
             title="New business"
             count={breakdown?.newBusiness?.count ?? 0}
-            valueCents={formatCurrency(breakdown?.newBusiness?.value)}
+            valueCents={formatAmount(breakdown?.newBusiness?.value)}
             type="new"
           />
           <Separator />
           <MrrBreakdownItem
             title="Expansions"
             count={breakdown?.expansion?.count ?? 0}
-            valueCents={formatCurrency(breakdown?.expansion?.value)}
+            valueCents={formatAmount(breakdown?.expansion?.value)}
             type="expansion"
           />
           <Separator />
           <MrrBreakdownItem
             title="Reactivations"
             count={breakdown?.reactivation?.count ?? 0}
-            valueCents={formatCurrency(breakdown?.reactivation?.value)}
+            valueCents={formatAmount(breakdown?.reactivation?.value)}
             type="reactivation"
           />
           <Separator />
           <MrrBreakdownItem
             title="Contractions"
             count={breakdown?.contraction?.count ?? 0}
-            valueCents={formatCurrency(breakdown?.contraction?.value)}
+            valueCents={formatAmount(breakdown?.contraction?.value)}
             type="contraction"
           />
           <Separator />
           <MrrBreakdownItem
             title="Churn"
             count={breakdown?.churn?.count ?? 0}
-            valueCents={formatCurrency(breakdown?.churn?.value)}
+            valueCents={formatAmount(breakdown?.churn?.value)}
             type="churn"
           />
         </div>
@@ -87,3 +89,8 @@ const Circle = ({ colorClassName }: { colorClassName: string }) => (
     className={cn('w-[12px] h-[12px] rounded-full shadow-circle mr-2 opacity-60', colorClassName)}
   ></div>
 )
+
+export const MrrColorCircle = ({ type }: { type: keyof typeof colors }) => (
+  <Circle colorClassName={colors[type]} />
+)
+export type MrrColorCircleColors = keyof typeof colors

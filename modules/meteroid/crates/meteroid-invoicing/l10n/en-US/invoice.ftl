@@ -1,0 +1,20 @@
+invoice-title = Invoice
+invoice-number = Invoice n°{$invoice_number}
+company-logo-alt = Company Logo
+issue-date = Issue Date:
+amount-due = Amount Due
+due-date = Due Date:
+bill-from = Bill From
+bill-to = Bill To
+invoice-lines = Invoice Lines
+description = Description
+quantity = Quantity
+unit-price = Unit Price
+tax-rate = Tax Rate
+tax = Tax
+amount = Amount
+subtotal = Subtotal
+total-due = Total Due
+legal-info = Legal Information
+vat-exempt-legal = Tax not applicable
+exchange-rate-info = Exchange rate on {$date}:  {$equality} | Total amount converted = {$amount_converted}

@@ -1,7 +1,6 @@
 use meteroid_grpc::meteroid::api::stats::v1 as proto;
 use meteroid_grpc::meteroid::api::stats::v1::{BreakdownStat, MrrBreakdown, MrrBreakdownScope};
-
-use crate::services::stats::stats_service::{
+use meteroid_store::domain::stats::{
     CountAndValue, MRRBreakdown, MRRBreakdownScope, MrrMovementType, Trend, TrendScope,
 };
 
@@ -52,8 +51,8 @@ pub fn mrr_breakdown_to_server(breakdown: &MRRBreakdown) -> MrrBreakdown {
         expansion: Some(breakdown_stat_to_server(&breakdown.expansion)),
         new_business: Some(breakdown_stat_to_server(&breakdown.new_business)),
         reactivation: Some(breakdown_stat_to_server(&breakdown.reactivation)),
-        net_new_mrr: breakdown.net_new_mrr.clone(),
-        total_net_mrr: breakdown.total_net_mrr.clone(),
+        net_new_mrr: breakdown.net_new_mrr,
+        total_net_mrr: breakdown.total_net_mrr,
     }
 }
 

@@ -4,12 +4,12 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
-import { CustomerList } from '@/rpc/api/customers/v1/models_pb'
+import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 
 import type { FunctionComponent } from 'react'
 
 interface CustomersTableProps {
-  data: CustomerList[]
+  data: CustomerBrief[]
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
@@ -23,15 +23,23 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
   totalCount,
   isLoading,
 }) => {
-  const columns = useMemo<ColumnDef<CustomerList>[]>(
+  const columns = useMemo<ColumnDef<CustomerBrief>[]>(
     () => [
       {
         header: 'Name',
         cell: ({ row }) => <Link to={`${row.original.id}`}>{row.original.name}</Link>,
       },
       {
-        header: 'Active subscriptions',
-        accessorFn: () => '-',
+        header: 'Country',
+        cell: ({ row }) => {
+          row.original.country
+        },
+      },
+      {
+        header: 'Email',
+        cell: ({ row }) => {
+          row.original.email
+        },
       },
       {
         header: 'Alias',
@@ -39,7 +47,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
       },
       {
         header: 'Accrued',
-        accessorFn: () => '0$',
+        accessorFn: () => '-', // TODO get only the count from db ?
       },
       {
         accessorKey: 'id',

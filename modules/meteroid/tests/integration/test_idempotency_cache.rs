@@ -1,4 +1,3 @@
-use testcontainers::clients::Cli;
 use tonic::metadata::MetadataMap;
 use tonic::transport::Channel;
 use tonic::{Code, Status};
@@ -17,9 +16,8 @@ use crate::meteroid_it::svc_auth::{SEED_PASSWORD, SEED_USERNAME};
 #[tokio::test]
 async fn test_idempotency_cache_err_response() {
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -84,9 +82,8 @@ async fn test_idempotency_cache_err_response() {
 #[tokio::test]
 async fn test_idempotency_cache_ok_response() {
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -176,7 +173,7 @@ async fn grpc_call_returns_err(
         metadata.insert(IDEMPOTENCY_KEY_HEADER, value);
     }
 
-    AllClients::from_channel(channel, "", "")
+    AllClients::from_channel(channel, "", "TESTORG", "")
         .users
         .clone()
         .register(request)
@@ -200,7 +197,7 @@ async fn grpc_call_returns_ok(
         metadata.insert(IDEMPOTENCY_KEY_HEADER, value);
     }
 
-    AllClients::from_channel(channel, "", "")
+    AllClients::from_channel(channel, "", "TESTORG", "")
         .users
         .clone()
         .login(request)

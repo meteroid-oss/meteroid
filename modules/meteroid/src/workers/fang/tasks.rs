@@ -1,12 +1,8 @@
 use std::ops::Deref;
 
-use common_repository::get_tls;
-use deadpool_postgres::{
-    tokio_postgres::{
-        tls::{MakeTlsConnect, TlsConnect},
-        NoTls, Socket,
-    },
-    Pool,
+use deadpool_postgres::tokio_postgres::{
+    tls::{MakeTlsConnect, TlsConnect},
+    NoTls, Socket,
 };
 use distributed_lock::locks::{DistributedLock, LockKey, PostgresLock};
 use fang::{AsyncQueue, AsyncQueueable, AsyncRunnable, AsyncWorkerPool};
@@ -14,11 +10,12 @@ use fang::{AsyncQueue, AsyncQueueable, AsyncRunnable, AsyncWorkerPool};
 use crate::config::Config;
 
 use futures::future::try_join_all;
+use meteroid_store::store::{get_tls, PgPool};
 
 pub async fn schedule(
     tasks: Vec<(Box<dyn AsyncRunnable>, LockKey)>,
     config: &Config,
-    conn_pool: &Pool,
+    conn_pool: &PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if tasks.is_empty() {
         log::warn!("No tasks to schedule");
@@ -35,7 +32,7 @@ pub async fn schedule(
 async fn schedule_tasks_inner<Tls>(
     tasks: Vec<(Box<dyn AsyncRunnable>, LockKey)>,
     config: &Config,
-    conn_pool: &Pool,
+    conn_pool: &PgPool,
     tls: Tls,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
@@ -74,7 +71,7 @@ where
 // see https://github.com/ayrat555/fang/issues/146
 // todo it still can produce duplicates due https://github.com/ayrat555/fang/issues/146#issuecomment-1817895187
 async fn lock_schedule_task<Tls>(
-    pool: &Pool,
+    pool: &PgPool,
     queue: AsyncQueue<Tls>,
     task: &dyn AsyncRunnable,
     lock_key: LockKey,
@@ -85,9 +82,9 @@ where
     <Tls as MakeTlsConnect<Socket>>::TlsConnect: Send,
     <<Tls as MakeTlsConnect<Socket>>::TlsConnect as TlsConnect<Socket>>::Future: Send,
 {
-    let client = pool.get().await?;
+    let mut client = pool.get().await?;
 
-    let lock = PostgresLock::new(&client, lock_key);
+    let mut lock = PostgresLock::new(&mut client, lock_key);
 
     if lock.acquire().await? {
         let mut queue = queue;

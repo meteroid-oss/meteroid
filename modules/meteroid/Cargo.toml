@@ -18,22 +18,25 @@ common-grpc = { workspace = true, features = ["server"] }
 common-grpc-error-as-tonic-macros = { workspace = true }
 common-grpc-error-as-tonic-macros-impl = { workspace = true }
 meteroid-grpc = { path = "crates/meteroid-grpc", features = ["server"] }
-meteroid-repository = { path = "crates/meteroid-repository", features = [] }
-cornucopia_async = { workspace = true, features = ["with-serde_json-1", "deadpool"] }
+meteroid-middleware = { path = "crates/meteroid-middleware" }
 deadpool-postgres.workspace = true
 dotenvy.workspace = true
+diesel = { workspace = true, features = ["postgres"] }
+diesel-async = { workspace = true, features = ["postgres", "async-connection-wrapper"] }
+diesel_migrations = { workspace = true, features = ["postgres"] }
 envconfig.workspace = true
 futures.workspace = true
 log.workspace = true
 nanoid.workspace = true
 prost-types.workspace = true
 prost.workspace = true
-reqwest = { workspace = true, features = ["default"] }
-reqwest-middleware = { workspace = true }
+reqwest = { workspace = true, features = ["default", "json"] }
+reqwest-middleware = { workspace = true, features = ["json"] }
 reqwest-retry = { workspace = true }
 segment.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+tap.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 tokio-stream.workspace = true
@@ -69,8 +72,8 @@ rust_decimal_macros = { workspace = true }
 
 metering-grpc = { workspace = true, features = ["client"] }
 common-domain = { workspace = true }
+common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
-common-repository = { workspace = true }
 distributed-lock = { workspace = true, features = ["postgres-support"] }
 stripe-client = { path = "crates/stripe-client" }
 object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }
@@ -84,10 +87,27 @@ opentelemetry_sdk = { workspace = true }
 fang = { workspace = true, features = ["asynk", "derive-error"] }
 typetag = { workspace = true }
 jsonwebtoken.workspace = true
-
 once_cell.workspace = true
 tower-layer.workspace = true
+image = { workspace = true }
 fastrand = { workspace = true }
+meteroid-store.workspace = true
+meteroid-invoicing.workspace = true
+ndarray.workspace = true
+ndarray-interp.workspace = true
+rand_distr.workspace = true
+rand.workspace = true
+fake.workspace = true
+rand_chacha.workspace = true
+itertools.workspace = true
+rusty-money.workspace = true
+
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
+utoipa-redoc.workspace = true
+utoipa-rapidoc.workspace = true
+utoipa-scalar.workspace = true
+
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -96,7 +116,7 @@ testcontainers-modules = { workspace = true, features = ["postgres"] }
 tokio-util = { workspace = true }
 clickhouse-rs = { workspace = true }
 rdkafka = { workspace = true }
-metering = { workspace = true }
+metering = { workspace = true, features = ["clickhouse", "kafka"] }
 kafka = { workspace = true }
 mockito = { workspace = true }
 

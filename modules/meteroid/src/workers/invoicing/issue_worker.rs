@@ -1,18 +1,22 @@
 use crate::adapters::stripe::Stripe;
 use crate::adapters::types::InvoicingAdapter;
-use crate::errors;
-use crate::repo::get_pool;
-use crate::repo::provider_config::model::InvoicingProvider;
-use crate::repo::provider_config::{ProviderConfigRepo, ProviderConfigRepoCornucopia};
 use crate::workers::metrics::record_call;
+use crate::{errors, singletons};
 use common_utils::timed::TimedExt;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use meteroid_repository as db;
-use meteroid_repository::invoices::UpdateInvoiceIssueErrorParams;
-use meteroid_repository::InvoicingProviderEnum;
+use futures::future::join_all;
+use meteroid_store::domain::enums::InvoicingProviderEnum;
+use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
+use meteroid_store::{domain, Store};
+use secrecy::SecretString;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
+
+const BATCH_SIZE: usize = 100;
+const MAX_CONCURRENT_REQUESTS: usize = 10;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
@@ -23,19 +27,15 @@ pub struct IssueWorker;
 impl AsyncRunnable for IssueWorker {
     #[tracing::instrument(skip(self, _queue))]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        issue_worker(
-            get_pool(),
-            Stripe::get(),
-            ProviderConfigRepoCornucopia::get() as &dyn ProviderConfigRepo,
-        )
-        .timed(|res, elapsed| record_call("issue", res, elapsed))
-        .await
-        .map_err(|err| {
-            log::error!("Error in issue worker: {}", err);
-            FangError {
-                description: err.to_string(),
-            }
-        })
+        issue_worker(singletons::get_store().await, Stripe::get())
+            .timed(|res, elapsed| record_call("issue", res, elapsed))
+            .await
+            .map_err(|err| {
+                log::error!("Error in issue worker: {}", err);
+                FangError {
+                    description: err.to_string(),
+                }
+            })
     }
 
     fn cron(&self) -> Option<Scheduled> {
@@ -53,102 +53,122 @@ impl AsyncRunnable for IssueWorker {
 }
 
 #[tracing::instrument(skip_all)]
-async fn issue_worker(
-    pool: &Pool,
-    stripe_adapter: &Stripe,
-    provider_config_repo: &dyn ProviderConfigRepo,
-) -> Result<(), errors::WorkerError> {
+async fn issue_worker(store: &Store, stripe_adapter: &Stripe) -> Result<(), errors::WorkerError> {
     // fetch all invoices with issue=false and send to stripe
 
-    let connection = pool
-        .get()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
 
-    let max_attempts = 5;
+    let mut tasks = Vec::new();
 
-    // todo use streaming + batches
-    let invoices = db::invoices::get_invoices_to_issue()
-        .bind(&connection, &max_attempts)
-        .all()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
+    let mut last_processed_id = None;
 
-    for invoice in invoices {
-        let result = issue_invoice(&invoice, stripe_adapter, provider_config_repo).await;
-
-        let connection = pool
-            .get()
+    // TODO optimize (semaphore + parallelism)
+    loop {
+        let paginated_vec = store
+            .list_invoices_to_issue(
+                5,
+                CursorPaginationRequest {
+                    limit: Some(BATCH_SIZE as u32),
+                    cursor: last_processed_id,
+                },
+            )
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
-        match result {
-            Ok(_) => {
-                db::invoices::update_invoice_issue_success()
-                    .params(
-                        &connection,
-                        &db::invoices::UpdateInvoiceIssueSuccessParams {
-                            id: invoice.id,
-                            issue_attempts: invoice.issue_attempts + 1,
-                        },
-                    )
-                    .await
-                    .change_context(errors::WorkerError::DatabaseError)?;
-            }
-            Err(err) => {
-                let params = UpdateInvoiceIssueErrorParams {
-                    issue_attempts: invoice.issue_attempts + 1,
-                    last_issue_error: err.to_string(),
-                    id: invoice.id,
-                };
+        for invoice in paginated_vec.items.into_iter() {
+            let permit = semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .change_context(errors::WorkerError::DatabaseError)?;
 
-                db::invoices::update_invoice_issue_error()
-                    .params(&connection, &params)
-                    .await
-                    .change_context(errors::WorkerError::DatabaseError)?;
-            }
+            let store = store.clone();
+            let stripe_adapter = stripe_adapter.clone();
+
+            let task = tokio::spawn(async move {
+                let _permit = permit; // Moves permit into the async block
+
+                let issue_result = issue_invoice(&invoice, &stripe_adapter, &store).await;
+
+                match issue_result {
+                    Ok(_) => {
+                        let res = store
+                            .invoice_issue_success(invoice.id, invoice.tenant_id)
+                            .await;
+
+                        if let Err(e) = res {
+                            log::error!(
+                                "Failed to mark as issue_success invoice with id {} : {}",
+                                &invoice.id,
+                                e
+                            )
+                        }
+                    }
+                    Err(e) => {
+                        let res = store
+                            .invoice_issue_error(
+                                invoice.id,
+                                invoice.tenant_id,
+                                e.to_string().as_str(),
+                            )
+                            .await;
+
+                        if let Err(e) = res {
+                            log::error!(
+                                "Failed to mark as issue_error invoice with id {} : {}",
+                                &invoice.id,
+                                e
+                            )
+                        }
+                    }
+                }
+
+                //  drop(_permit) should not be necessary, TODO validate
+            });
+            tasks.push(task);
+        }
+
+        last_processed_id = paginated_vec.next_cursor;
+
+        if paginated_vec.next_cursor.is_none() {
+            break;
         }
     }
+
+    join_all(tasks).await;
 
     Ok(())
 }
 
 #[tracing::instrument(skip_all)]
 async fn issue_invoice(
-    invoice: &db::invoices::Invoice,
+    invoice: &domain::Invoice,
     stripe_adapter: &Stripe,
-    provider_config_repo: &dyn ProviderConfigRepo,
+    store: &Store,
 ) -> Result<(), errors::WorkerError> {
     match invoice.invoicing_provider {
-        InvoicingProviderEnum::STRIPE => {
-            let pool = get_pool();
-
-            let conn = pool
-                .get()
+        InvoicingProviderEnum::Stripe => {
+            let customer = store
+                .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 
-            let customer = db::customers::get_customer_by_id()
-                .bind(&conn, &invoice.customer_id)
-                .one()
-                .await
-                .change_context(errors::WorkerError::DatabaseError)?;
-
-            let customer = crate::api::customers::mapping::customer::db_to_server(customer)
-                .change_context(errors::WorkerError::DatabaseError)?;
-
-            let api_key = provider_config_repo
-                .get_config_by_provider_and_tenant(InvoicingProvider::Stripe, invoice.tenant_id)
+            let api_key = store
+                .find_provider_config(InvoicingProviderEnum::Stripe, invoice.tenant_id)
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?
-                .api_key
-                .ok_or(errors::WorkerError::ProviderError)?;
+                .api_security
+                .api_key;
 
             stripe_adapter
-                .send_invoice(invoice, &customer, api_key)
+                .send_invoice(invoice, &customer, SecretString::new(api_key))
                 .await
                 .change_context(errors::WorkerError::ProviderError)?;
 
+            Ok(())
+        }
+        InvoicingProviderEnum::Manual => {
+            log::warn!("Invoice has Manual provider so shouldn't be picked-up by issue_worker");
             Ok(())
         }
     }

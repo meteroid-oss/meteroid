@@ -1,4 +1,5 @@
-use crate::eventbus::{EventBus, EventBusError, EventHandler};
+use common_eventbus::EventBus;
+use common_eventbus::{EventBusError, EventHandler};
 use std::fmt::Debug;
 use std::sync::Arc;
 use tokio::sync::broadcast::error::RecvError;
@@ -47,10 +48,16 @@ impl<E: Debug + Clone + Send + 'static> EventBus<E> for InMemory<E> {
     }
 
     async fn publish(&self, event: E) -> Result<(), EventBusError> {
-        self.sender
-            .send(event)
-            .map(|_| ())
-            .map_err(|_| EventBusError::PublishFailed)
+        self.sender.send(event).map(|_| ()).map_err(|e| {
+            log::error!("Error publishing event. {:?}", e);
+            EventBusError::PublishFailed
+        })
+    }
+}
+
+impl<E: Debug + Clone + Send + 'static> Default for InMemory<E> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -64,9 +71,9 @@ impl<E: Debug + Clone + Send + 'static> InMemory<E> {
 
 #[cfg(test)]
 mod tests {
-    use crate::eventbus;
     use crate::eventbus::memory::InMemory;
-    use crate::eventbus::{EventBus, EventHandler};
+    use common_eventbus::EventBus;
+    use common_eventbus::{EventBusError, EventHandler};
     use std::collections::HashSet;
     use std::sync::{Arc, Mutex};
 
@@ -89,7 +96,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl EventHandler<u8> for CapturingEventHandler {
-        async fn handle(&self, event: u8) -> Result<(), eventbus::EventBusError> {
+        async fn handle(&self, event: u8) -> Result<(), EventBusError> {
             let mut guard = self.items.lock().unwrap();
             guard.push(event);
             Ok(())

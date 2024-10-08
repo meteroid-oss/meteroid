@@ -24,9 +24,6 @@ export const BalanceCard = ({ customer, className }: Props) => {
         <div className="basis-2/4 flex flex-col gap-2">
           <Property label="Balance" value={customer.balanceValueCents} />
         </div>
-        <div className="basis-2/4 flex flex-col gap-2">
-          <Property label="Currency" value={customer.balanceCurrency} />
-        </div>
       </div>
 
       <EditBalanceModal

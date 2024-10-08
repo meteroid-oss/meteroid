@@ -1,17 +1,19 @@
 use crate::workers::metrics::record_call;
-use crate::{errors, repo::get_pool};
+use crate::{errors, singletons};
+use chrono::NaiveDate;
+
 use common_utils::timed::*;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
+
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use futures::StreamExt;
-use meteroid_repository as db;
-use std::ops::Deref;
-use time::Date;
 
-use crate::eventbus::{Event, EventBus, EventBusStatic};
-use meteroid_repository::subscriptions::SubscriptionToInvoice;
+use common_eventbus::Event;
+
+use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::subscriptions::subscription_to_draft;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
+use meteroid_store::Store;
 
 const BATCH_SIZE: usize = 100;
 
@@ -24,18 +26,15 @@ pub struct DraftWorker;
 impl AsyncRunnable for DraftWorker {
     #[tracing::instrument(skip_all)]
     async fn run(&self, _queue: &mut dyn AsyncQueueable) -> core::result::Result<(), FangError> {
-        let pool = get_pool();
-        let eventbus = EventBusStatic::get().await;
-
+        log::info!("Running draft worker");
         draft_worker(
-            pool,
-            eventbus.deref(),
-            time::OffsetDateTime::now_utc().date(),
+            singletons::get_store().await,
+            chrono::Utc::now().naive_utc().date(),
         )
         .timed(|res, elapsed| record_call("draft", res, elapsed))
         .await
         .map_err(|err| {
-            log::error!("Error in draft worker: {}", err);
+            log::error!("Error in draft worker: {:?}", err);
             FangError {
                 description: err.to_string(),
             }
@@ -57,123 +56,87 @@ impl AsyncRunnable for DraftWorker {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn draft_worker(
-    pool: &Pool,
-    eventbus: &dyn EventBus<Event>,
-    today: Date,
-) -> Result<(), errors::WorkerError> {
-    let db_client = pool
-        .get()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
+pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors::WorkerError> {
+    let mut last_processed_id = None;
 
-    // we fetch all subscriptions that are active and that DO NOT HAVE an invoice where invoice_date > date
-    let mut stmt = db::subscriptions::subscription_to_invoice_candidates();
-
-    let stream = stmt
-        .bind(&db_client, &today)
-        .iter()
-        .await
-        .change_context(errors::WorkerError::DatabaseError)?;
-
-    let chunks = stream.chunks(BATCH_SIZE);
-
-    futures::pin_mut!(chunks);
-
-    while let Some(batch_result) = chunks.next().await {
-        let batch = batch_result
-            .into_iter()
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .change_context(errors::WorkerError::GrpcError)?;
-
-        let mut mut_db_client = pool
-            .get()
+    loop {
+        let paginated_vec = store
+            .list_subscription_invoice_candidates(
+                today,
+                CursorPaginationRequest {
+                    limit: Some(BATCH_SIZE as u32),
+                    cursor: last_processed_id,
+                },
+            )
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
-        let transaction = mut_db_client
-            .transaction()
-            .await
-            .change_context(errors::WorkerError::DatabaseError)?;
+        if paginated_vec.items.is_empty() {
+            break;
+        }
 
-        let params = batch
+        let customer_ids = paginated_vec
+            .items
             .iter()
-            .map(|p| subscription_to_draft(p, today))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|x| x.customer_id)
+            .collect::<Vec<_>>();
+
+        let customers = &store
+            .list_customers_by_ids(customer_ids)
+            .await
+            .change_context(errors::WorkerError::DatabaseError)?;
+
+        let invoicing_entity_ids = customers
+            .iter()
+            .map(|x| x.invoicing_entity_id)
+            .collect::<std::collections::HashSet<_>>();
+
+        let invoicing_entities = store
+            .list_invoicing_entities_by_ids(invoicing_entity_ids.into_iter().collect())
+            .await
+            .change_context(errors::WorkerError::DatabaseError)?;
+
+        let params = paginated_vec
+            .items
+            .iter()
+            .map(|x| {
+                let cust = customers
+                    .iter()
+                    .find(|c| c.id == x.customer_id)
+                    .ok_or(errors::WorkerError::DatabaseError)?;
+
+                let invoicing_entity = invoicing_entities
+                    .iter()
+                    .find(|c| c.id == cust.invoicing_entity_id)
+                    .ok_or(errors::WorkerError::DatabaseError)?;
+
+                subscription_to_draft(x, cust, invoicing_entity)
+                    .change_context(errors::WorkerError::DatabaseError)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .collect::<Vec<_>>();
 
         log::debug!("Creating {} draft invoices", params.len());
 
-        // cornucopia doesn't support batch insert (unless you UNNEST, but we'll move away from cornucopia soon anyway)
-        for param in &params {
-            db::invoices::create_invoice()
-                .params(&transaction, param)
-                .one()
-                .await
-                .change_context(errors::WorkerError::DatabaseError)?;
-        }
-
-        transaction
-            .commit()
+        let inserted = store
+            .insert_invoice_batch(params)
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 
-        for param in &params {
-            let _ = eventbus
-                .publish(Event::invoice_created(param.id, param.tenant_id))
+        last_processed_id = paginated_vec.next_cursor;
+
+        for inv in &inserted {
+            let _ = store
+                .eventbus
+                .publish(Event::invoice_created(inv.id, inv.tenant_id))
                 .await;
+        }
+
+        if paginated_vec.next_cursor.is_none() {
+            break;
         }
     }
 
     Ok(())
-}
-
-#[tracing::instrument]
-fn subscription_to_draft(
-    subscription: &SubscriptionToInvoice,
-    today: Date,
-) -> Result<db::invoices::CreateInvoiceParams<String, serde_json::Value>, errors::WorkerError> {
-    let billing_start_date =
-        crate::mapping::common::date_to_chrono(subscription.billing_start_date)
-            .change_context(errors::WorkerError::InvalidInput)?;
-    let today = crate::mapping::common::date_to_chrono(today)
-        .change_context(errors::WorkerError::InvalidInput)?;
-    let billing_day = subscription.billing_day as u32;
-
-    let effective_billing_period = crate::api::shared::mapping::period::billing_period_to_server(
-        &subscription.effective_billing_period,
-    );
-
-    let period_idx = crate::compute::period::calculate_period_idx(
-        billing_start_date,
-        billing_day,
-        today,
-        effective_billing_period,
-    ) + 1;
-
-    let (invoice_date, _end) = crate::compute::period::calculate_period_range(
-        billing_start_date,
-        billing_day,
-        period_idx,
-        effective_billing_period,
-    );
-
-    let period_start_date = crate::mapping::common::chrono_to_date(invoice_date)
-        .change_context(errors::WorkerError::InvalidInput)?;
-
-    let params = db::invoices::CreateInvoiceParams {
-        id: common_utils::uuid::v7(),
-        invoicing_provider: db::InvoicingProviderEnum::STRIPE, // TODO
-        status: db::InvoiceStatusEnum::DRAFT,
-        invoice_date: period_start_date,
-        tenant_id: subscription.tenant_id,
-        customer_id: subscription.customer_id,
-        subscription_id: subscription.subscription_id,
-        plan_version_id: subscription.plan_version_id,
-        currency: subscription.currency.clone(),
-        days_until_due: subscription.net_terms,
-        line_items: serde_json::Value::Null,
-        amount_cents: None,
-    };
-
-    Ok(params)
 }

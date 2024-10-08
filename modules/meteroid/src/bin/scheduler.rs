@@ -4,20 +4,17 @@ For production use case, prefer a dedicated scheduler like kubernetes cronjob
 
 */
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
-use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
-use meteroid::repo::get_pool;
-use meteroid::workers::fang;
-use meteroid::workers::invoicing::draft_worker::DraftWorker;
-use meteroid::workers::invoicing::finalize_worker::FinalizeWorker;
-use meteroid::workers::invoicing::issue_worker::IssueWorker;
-use meteroid::workers::invoicing::pending_status_worker::PendingStatusWorker;
-use meteroid::workers::invoicing::price_worker::PriceWorker;
-use meteroid::workers::misc::currency_rates_worker::CurrencyRatesWorker;
+use meteroid::services::invoice_rendering::PdfRenderingService;
+use meteroid::services::outbox::invoice_finalized::InvoiceFinalizedOutboxWorker;
+use meteroid::services::storage::S3Storage;
+use meteroid::singletons;
+use meteroid::workers::fang as mfang;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,29 +24,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting {}", build_info);
 
     let config = Config::get();
-    let pool = get_pool();
+    let pool = &singletons::get_store().await.pool;
 
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
 
     // kicking background jobs
-    fang::ext::start_tasks(pool.clone(), &config.fang_ext);
+    mfang::ext::start_tasks(pool.clone(), &config.fang_ext);
 
-    fang::tasks::schedule(
+    mfang::tasks::schedule(
         vec![
-            (Box::new(DraftWorker), LockKey::InvoicingDraft),
-            (
-                Box::new(PendingStatusWorker),
-                LockKey::InvoicingPendingStatus,
-            ),
-            (Box::new(PriceWorker), LockKey::InvoicingPrice),
-            (Box::new(FinalizeWorker), LockKey::InvoicingFinalize),
-            (Box::new(IssueWorker), LockKey::InvoicingIssue),
-            (Box::new(CurrencyRatesWorker), LockKey::CurrencyRates),
+            // (Box::new(DraftWorker), LockKey::InvoicingDraft),
+            // (
+            //     Box::new(PendingStatusWorker),
+            //     LockKey::InvoicingPendingStatus,
+            // ),
+            // (Box::new(PriceWorker), LockKey::InvoicingPrice),
+            // (Box::new(FinalizeWorker), LockKey::InvoicingFinalize),
+            // (Box::new(IssueWorker), LockKey::InvoicingIssue),
+            // (Box::new(CurrencyRatesWorker), LockKey::CurrencyRates),
         ],
         config,
         pool,
     )
     .await?;
+
+    let store = Arc::new(singletons::get_store().await.clone());
+
+    let object_store_service = Arc::new(S3Storage::try_new(
+        &config.object_store_uri,
+        &config.object_store_prefix,
+    )?);
+
+    let pdf_service = PdfRenderingService::try_new(
+        config.gotenberg_url.clone(),
+        object_store_service,
+        store.clone(),
+    )?;
+
+    let invoice_finalized_outbox_worker =
+        InvoiceFinalizedOutboxWorker::new(pdf_service, store.clone());
+
+    tokio::try_join!(
+        tokio::spawn(async move {
+            invoice_finalized_outbox_worker.run().await;
+        }),
+        // ...
+    )?;
 
     tokio::time::sleep(Duration::MAX).await;
 

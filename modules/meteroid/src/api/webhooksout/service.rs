@@ -1,5 +1,3 @@
-use cornucopia_async::Params;
-use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
@@ -9,14 +7,14 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
     CreateWebhookEndpointRequest, CreateWebhookEndpointResponse, ListWebhookEndpointsRequest,
     ListWebhookEndpointsResponse, ListWebhookEventsRequest, ListWebhookEventsResponse,
 };
-use meteroid_repository::webhook_out_endpoints::CreateEndpointParams;
-use meteroid_repository::webhook_out_events::ListEventsParams;
-use meteroid_repository::WebhookOutEventTypeEnum;
+use meteroid_store::domain;
+use meteroid_store::domain::OrderByRequest;
+use meteroid_store::repositories::webhooks::WebhooksInterface;
 
 use crate::api::utils::parse_uuid;
-use crate::api::utils::{uuid_gen, webhook_security, PaginationExt};
+use crate::api::utils::PaginationExt;
 use crate::api::webhooksout::error::WebhookApiError;
-use crate::api::webhooksout::mapping::{endpoint, event, event_type};
+use crate::api::webhooksout::mapping::{endpoint, event};
 use crate::api::webhooksout::WebhooksServiceComponents;
 
 #[tonic::async_trait]
@@ -26,44 +24,21 @@ impl WebhooksService for WebhooksServiceComponents {
         &self,
         request: Request<CreateWebhookEndpointRequest>,
     ) -> Result<Response<CreateWebhookEndpointResponse>, Status> {
-        let tenant_id = request.tenant()?.clone();
+        let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
 
-        let event_types: Vec<WebhookOutEventTypeEnum> = req
-            .events_to_listen()
-            .map(|e| event_type::to_db(&e))
-            .collect();
+        let domain = endpoint::new_req_to_domain(tenant_id, req)?;
 
-        url::Url::parse(req.url.as_str())
-            .map_err(|e| WebhookApiError::InvalidArgument(format!("Invalid URL: {}", e)))?;
-
-        let secret_raw = webhook_security::gen();
-        let secret = crate::crypt::encrypt(&self.crypt_key, secret_raw.as_str())
-            .map_err(|x| x.current_context().clone())?;
-
-        let params = CreateEndpointParams {
-            id: uuid_gen::v7(),
-            tenant_id,
-            url: req.url,
-            description: req.description,
-            secret: secret.expose_secret().to_string(),
-            events_to_listen: event_types,
-            enabled: true,
-        };
-
-        let connection = self.get_connection().await?;
-
-        let created = meteroid_repository::webhook_out_endpoints::create_endpoint()
-            .params(&connection, &params)
-            .one()
+        let endpoint = self
+            .store
+            .insert_webhook_out_endpoint(domain)
             .await
-            .map_err(|e| {
-                WebhookApiError::DatabaseError("unable to create webhook endpoint".to_string(), e)
-            })?;
+            .map(endpoint::to_proto)
+            .map_err(Into::<WebhookApiError>::into)?;
 
         Ok(Response::new(CreateWebhookEndpointResponse {
-            endpoint: Some(endpoint::to_proto(&created, &self.crypt_key)?),
+            endpoint: Some(endpoint),
         }))
     }
 
@@ -72,20 +47,16 @@ impl WebhooksService for WebhooksServiceComponents {
         &self,
         request: Request<ListWebhookEndpointsRequest>,
     ) -> Result<Response<ListWebhookEndpointsResponse>, Status> {
-        let tenant_id = request.tenant()?.clone();
+        let tenant_id = request.tenant()?;
 
-        let connection = self.get_connection().await?;
-
-        let items = meteroid_repository::webhook_out_endpoints::list_endpoints()
-            .bind(&connection, &tenant_id)
-            .all()
+        let items = self
+            .store
+            .list_webhook_out_endpoints(tenant_id)
             .await
-            .map_err(|e| {
-                WebhookApiError::DatabaseError("unable to list webhook endpoints".to_string(), e)
-            })?
-            .iter()
-            .map(|e| endpoint::to_proto(e, &self.crypt_key))
-            .collect::<Result<_, _>>()?;
+            .map_err(Into::<WebhookApiError>::into)?
+            .into_iter()
+            .map(endpoint::to_proto)
+            .collect();
 
         Ok(Response::new(ListWebhookEndpointsResponse {
             endpoints: items,
@@ -97,54 +68,35 @@ impl WebhooksService for WebhooksServiceComponents {
         &self,
         request: Request<ListWebhookEventsRequest>,
     ) -> Result<Response<ListWebhookEventsResponse>, Status> {
-        let tenant_id = request.tenant()?.clone();
+        let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
 
         let endpoint_id = parse_uuid(&req.endpoint_id, "endpoint_id")?;
 
-        let connection = self.get_connection().await?;
-
-        // make sure the endpoint belongs to the tenant
-        meteroid_repository::webhook_out_endpoints::get_by_id_and_tenant()
-            .bind(&connection, &endpoint_id, &tenant_id)
-            .opt()
-            .await
-            .map_err(|e| {
-                WebhookApiError::DatabaseError("unable to get webhook endpoint".to_string(), e)
-            })?
-            .ok_or_else(|| {
-                WebhookApiError::DatabaseEntityNotFoundError(
-                    "Webhook endpoint not found".to_string(),
-                )
-            })?;
-
-        let params = ListEventsParams {
-            endpoint_id,
-            order_by: match req.order_by.try_into() {
-                Ok(SortBy::DateAsc) => "DATE_ASC",
-                Ok(SortBy::DateDesc) => "DATE_DESC",
-                Ok(SortBy::IdAsc) => "ID_ASC",
-                Ok(SortBy::IdDesc) => "ID_DESC",
-                Err(_) => "DATE_DESC",
-            },
-            limit: req.pagination.limit(),
-            offset: req.pagination.offset(),
+        let pagination_req = domain::PaginationRequest {
+            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: req.pagination.as_ref().map(|p| p.limit),
         };
 
-        let items = meteroid_repository::webhook_out_events::list_events()
-            .params(&connection, &params)
-            .all()
-            .await
-            .map_err(|e| {
-                WebhookApiError::DatabaseError("unable to list webhook events".to_string(), e)
-            })?;
+        let order_by = match req.sort_by.try_into() {
+            Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
+            Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
+            Ok(SortBy::IdAsc) => OrderByRequest::IdAsc,
+            Ok(SortBy::IdDesc) => OrderByRequest::IdDesc,
+            Err(_) => OrderByRequest::DateDesc,
+        };
 
-        let total = items.first().map(|p| p.total_count).unwrap_or(0);
+        let res = self
+            .store
+            .list_webhook_out_events(tenant_id, endpoint_id, pagination_req, order_by)
+            .await
+            .map_err(Into::<WebhookApiError>::into)?;
 
         let response = ListWebhookEventsResponse {
-            pagination_meta: req.pagination.into_response(total as u32),
-            events: items
+            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            events: res
+                .items
                 .into_iter()
                 .map(|l| event::to_proto(&l))
                 .collect::<Vec<_>>(),

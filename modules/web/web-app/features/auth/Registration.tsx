@@ -20,7 +20,9 @@ export const Registration: FunctionComponent = () => {
     return <Loader />
   }
 
-  if (data && data.instance?.organizationId && !invite) {
+  console.log(data)
+
+  if (data && data.instanceInitiated && !data.multiOrganizationEnabled && !invite) {
     return (
       <div className="text-center">
         To join your organisation, request an invite link from your administrator

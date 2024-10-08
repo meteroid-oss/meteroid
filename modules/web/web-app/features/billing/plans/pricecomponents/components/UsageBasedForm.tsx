@@ -1,39 +1,49 @@
 import {
-  SelectFormField,
-  InputFormField,
-  GenericFormField,
   Button,
-  Input,
-  SelectItem,
-  Form,
   ComboboxFormField,
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormMessage,
+  GenericFormField,
+  Input,
+  InputFormField,
+  SelectFormField,
+  SelectItem,
 } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
-import { useAtom } from 'jotai'
+import { useAtom, useSetAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { match } from 'ts-pattern'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
-import { UncontrolledPriceInput } from '@/components/form/PriceInput'
+import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import {
   componentFeeAtom,
-  FeeFormProps,
+  componentNameAtom,
   EditPriceComponentCard,
+  FeeFormProps,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
-import { useZodForm, Methods } from '@/hooks/useZodForm'
+import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import {
-  UsageBasedSchema,
-  UsageBased,
-  UsagePricingModelType,
+  Dimension,
+  Matrix,
   TieredAndVolumeRow,
+  UsageFee,
+  UsageFeeSchema,
+  UsagePricingModelType,
 } from '@/lib/schemas/plans'
-import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
+import {
+  getBillableMetric,
+  listBillableMetrics,
+} from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 // type UsagePricingModelType = "per_unit" | "tiered" | "volume" | "package"
@@ -43,15 +53,41 @@ const models: [UsagePricingModelType, string][] = [
   ['tiered', 'Tiered'],
   ['volume', 'Volume'],
   ['package', 'Package'],
+  ['matrix', 'Matrix'],
 ]
+
+const MetricSetter = ({
+  methods,
+  metricsOptions,
+}: {
+  methods: Methods<typeof UsageFeeSchema>
+  metricsOptions: {
+    label: string
+    value: string
+  }[]
+}) => {
+  const metricId = useWatch({
+    control: methods.control,
+    name: 'metricId',
+  })
+
+  const setName = useSetAtom(componentNameAtom)
+
+  useEffect(() => {
+    const metric = metricsOptions.find(m => m.value === metricId)
+    metric?.label && setName(metric.label)
+  }, [setName, metricId, metricsOptions])
+
+  return null
+}
 
 export const UsageBasedForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
   const navigate = useNavigate()
 
   const methods = useZodForm({
-    schema: UsageBasedSchema,
-    defaultValues: component?.data as UsageBased,
+    schema: UsageFeeSchema,
+    defaultValues: component?.data as UsageFee,
   })
 
   const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
@@ -75,11 +111,12 @@ export const UsageBasedForm = (props: FeeFormProps) => {
   return (
     <>
       <Form {...methods}>
+        <MetricSetter methods={methods} metricsOptions={metricsOptions} />
         <EditPriceComponentCard submit={methods.handleSubmit(props.onSubmit)} cancel={props.cancel}>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-1 pr-5 border-r border-border space-y-4">
               <ComboboxFormField
-                name="metric.id"
+                name="metricId"
                 label="Billable metric"
                 control={methods.control}
                 placeholder="Select a metric"
@@ -124,7 +161,7 @@ export const UsageBasedForm = (props: FeeFormProps) => {
 const UsageBasedDataForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const model = useWatch({
     control: methods.control,
@@ -132,6 +169,7 @@ const UsageBasedDataForm = ({
   })
 
   return match(model)
+    .with('matrix', () => <MatrixForm methods={methods} />)
     .with('per_unit', () => <PerUnitForm methods={methods} />)
     .with('tiered', () => <TieredForm methods={methods} />)
     .with('volume', () => <VolumeForm methods={methods} />)
@@ -139,10 +177,151 @@ const UsageBasedDataForm = ({
     .exhaustive()
 }
 
+type DimensionCombination = { dimension1: Dimension; dimension2?: Dimension }
+
+// Helper function to compare dimensions
+const areDimensionsEqual = (dim1: DimensionCombination, dim2: DimensionCombination): boolean => {
+  return (
+    dim1.dimension1.key === dim2.dimension1.key &&
+    dim1.dimension1.value === dim2.dimension1.value &&
+    (!dim1.dimension2 ||
+      !dim2.dimension2 ||
+      (dim1.dimension2.key === dim2.dimension2.key &&
+        dim1.dimension2.value === dim2.dimension2.value))
+  )
+}
+
+const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) => {
+  const currency = useCurrency()
+
+  const { fields, append, remove } = useFieldArray({
+    control: methods.control,
+    name: 'model.data.dimensionRates',
+  })
+
+  const [dimensionHeaders, setDimensionHeaders] = useState<string[]>([])
+
+  const metricId = useWatch({
+    control: methods.control,
+    name: 'metricId',
+  })
+
+  const metric = useQuery(getBillableMetric, { id: metricId }, { enabled: !!metricId })?.data
+
+  useEffect(() => {
+    if (!metric?.billableMetric?.segmentationMatrix) return
+
+    const segmentationMatrix = metric.billableMetric.segmentationMatrix
+    let headers: string[] = []
+    let dimensionCombinations: {
+      dimension1: { key: string; value: string }
+      dimension2?: { key: string; value: string }
+    }[] = []
+
+    match(segmentationMatrix.matrix)
+      .with({ case: 'single' }, ({ value }) => {
+        headers = [value.dimension?.key ?? '']
+        dimensionCombinations = (value.dimension?.values ?? []).map(v => ({
+          dimension1: { key: headers[0], value: v },
+        }))
+      })
+      .with({ case: 'double' }, ({ value }) => {
+        headers = [value.dimension1?.key ?? '', value.dimension2?.key ?? '']
+        dimensionCombinations = (value.dimension1?.values ?? []).flatMap(v1 =>
+          (value.dimension2?.values ?? []).map(v2 => ({
+            dimension1: { key: headers[0], value: v1 },
+            dimension2: { key: headers[1], value: v2 },
+          }))
+        )
+      })
+      .with({ case: 'linked' }, ({ value }) => {
+        headers = [value.dimensionKey, value.linkedDimensionKey]
+        dimensionCombinations = Object.entries(value.values).flatMap(([k, v]) =>
+          v.values.map(linkedV => ({
+            dimension1: { key: headers[0], value: k },
+            dimension2: { key: headers[1], value: linkedV },
+          }))
+        )
+      })
+      .otherwise(() => {})
+
+    setDimensionHeaders(headers)
+
+    // Update or create rows based on the current state
+    const currentDimensions = fields.map(field => ({
+      dimension1: field.dimension1,
+      dimension2: field.dimension2,
+    }))
+    const newRows = dimensionCombinations.filter(
+      combo => !currentDimensions.some(dim => areDimensionsEqual(dim, combo))
+    )
+    const removedRows = currentDimensions.filter(
+      dim => !dimensionCombinations.some(combo => areDimensionsEqual(dim, combo))
+    )
+    newRows.forEach(dimensions => {
+      append({ ...dimensions, price: '0' })
+    })
+
+    removedRows.forEach(dimensions => {
+      const index = fields.findIndex(field => areDimensionsEqual(field, dimensions))
+      if (index !== -1) remove(index)
+    })
+  }, [metric, fields, append, remove])
+
+  const columns = useMemo<ColumnDef<Matrix['dimensionRates'][number]>[]>(
+    () => [
+      {
+        header: dimensionHeaders[0] || 'Dimension 1',
+        accessorFn: row => row.dimension1.value,
+      },
+      ...((dimensionHeaders[1]
+        ? [
+            {
+              header: dimensionHeaders[1],
+              accessorFn: row => row.dimension2?.value,
+            },
+          ]
+        : []) as ColumnDef<Matrix['dimensionRates'][number]>[]),
+      {
+        header: 'Unit price',
+        accessor: 'price',
+        cell: ({ row }) => (
+          <PriceInput
+            {...methods.withControl(`model.data.dimensionRates.${row.index}.price`)}
+            {...methods.withError(`model.data.dimensionRates.${row.index}.price`)}
+            currency={currency}
+            showCurrency={true}
+            precision={8}
+          />
+        ),
+      },
+    ],
+    [dimensionHeaders, methods, currency]
+  )
+
+  if (!metric?.billableMetric) return null
+
+  const segmentationMatrix = metric.billableMetric.segmentationMatrix
+
+  if (!segmentationMatrix) {
+    return (
+      <div className="py-4 text-sm text-muted-foreground">
+        This metric does not have a segmentation matrix
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <SimpleTable columns={columns} data={fields} />
+    </>
+  )
+}
+
 const PerUnitForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
 
@@ -180,7 +359,7 @@ const PerUnitForm = ({
 const TieredForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
   return <TierTable methods={methods} currency={currency} />
@@ -189,7 +368,7 @@ const TieredForm = ({
 const VolumeForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
   return <TierTable methods={methods} currency={currency} />
@@ -198,7 +377,7 @@ const VolumeForm = ({
 const PackageForm = ({
   methods,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema> // TODO
 }) => {
   const currency = useCurrency()
   return (
@@ -214,7 +393,7 @@ const PackageForm = ({
 
       <GenericFormField
         control={methods.control}
-        name="model.data.blockPrice"
+        name="model.data.packagePrice"
         label="Price per block"
         render={({ field }) => (
           <UncontrolledPriceInput
@@ -233,60 +412,45 @@ const TierTable = ({
   methods,
   currency,
 }: {
-  methods: Methods<typeof UsageBasedSchema> // TODO
+  methods: Methods<typeof UsageFeeSchema>
   currency: string
 }) => {
-  const [shouldInitTiers, setShouldInitTiers] = useState(false)
-
   const { fields, append, remove } = useFieldArray({
     control: methods.control,
     name: 'model.data.rows',
   })
 
-  // if no tiers, add 2
+  const [shouldInitTiers, setShouldInitTiers] = useState(false)
+
   useEffect(() => {
     if (fields.length === 0) {
       setShouldInitTiers(true)
     }
-  }, [setShouldInitTiers, fields.length])
+  }, [fields.length])
 
   useEffect(() => {
     if (shouldInitTiers) {
-      append({
-        firstUnit: 0,
-        unitPrice: '',
-      })
-      append({
-        firstUnit: 100,
-        unitPrice: '',
-      })
+      append({ firstUnit: BigInt(0), unitPrice: '' })
+      append({ firstUnit: BigInt(100), unitPrice: '' })
+      setShouldInitTiers(false)
     }
-  }, [append, shouldInitTiers])
+  }, [shouldInitTiers, append])
 
-  const addTier = () => {
-    const tiers = [...fields]
+  const addTier = useCallback(() => {
+    const lastTier = fields[fields.length - 1]
+    const firstUnit = lastTier ? BigInt(lastTier.firstUnit) + BigInt(1) : BigInt(0)
+    append({ firstUnit, unitPrice: '' })
+  }, [fields, append])
 
-    const firstUnit = tiers.length === 0 ? 0 : (tiers[tiers.length - 1]?.lastUnit ?? 0) + 1
-
-    append({
-      firstUnit,
-      unitPrice: '',
-    })
-  }
-
-  const removeTier = (idx: number) => {
-    remove(idx)
-  }
-
-  const columns = useMemo<ColumnDef<TieredAndVolumeRow>[]>(() => {
-    return [
+  const columns = useMemo<ColumnDef<TieredAndVolumeRow>[]>(
+    () => [
       {
-        header: 'First unit ',
+        header: 'First unit',
         cell: ({ row }) => <FirstUnitField methods={methods} rowIndex={row.index} />,
       },
       {
-        header: 'Last unit ',
-        cell: ({ row }) => <LastUnitInput methods={methods} rowIndex={row.index} />,
+        header: 'Last unit',
+        cell: ({ row }) => <LastUnitCell methods={methods} rowIndex={row.index} />,
       },
       {
         header: 'Per unit',
@@ -309,14 +473,21 @@ const TierTable = ({
       {
         header: '',
         id: 'remove',
-        cell: ({ row }) => (
-          <Button variant="link" size="icon" onClick={() => removeTier(row.index)}>
-            <XIcon size={12} />
-          </Button>
-        ),
+        cell: ({ row }) =>
+          fields.length <= 2 || row.index === 0 ? null : (
+            <Button
+              variant="link"
+              size="icon"
+              onClick={() => remove(row.index)}
+              disabled={fields.length <= 2}
+            >
+              <XIcon size={12} />
+            </Button>
+          ),
       },
-    ]
-  }, [methods])
+    ],
+    [methods, currency, fields.length, remove]
+  )
 
   return (
     <>
@@ -328,79 +499,62 @@ const TierTable = ({
   )
 }
 
-const FirstUnitField = ({
+const FirstUnitField = memo(
+  ({ methods, rowIndex }: { methods: Methods<typeof UsageFeeSchema>; rowIndex: number }) => {
+    const { control } = methods
+    const prevRowValue = useWatch({
+      control,
+      name: `model.data.rows.${rowIndex - 1}`,
+    })
+
+    const isFirst = rowIndex === 0
+
+    return (
+      <>
+        <FormField
+          control={control}
+          name={`model.data.rows.${rowIndex}.firstUnit`}
+          rules={{
+            min: isFirst ? 0 : Number(prevRowValue?.firstUnit ?? 0) + 1,
+          }}
+          render={({ field }) => (
+            <FormItem>
+              <FormControl>
+                <Input
+                  {...field}
+                  type="number"
+                  min={isFirst ? 0 : Number(prevRowValue?.firstUnit ?? 0) + 1}
+                  onChange={e => {
+                    const value = e.target.value
+                    field.onChange(BigInt(value))
+                  }}
+                  value={Number(field.value)}
+                  disabled={isFirst}
+                  placeholder={isFirst ? '0' : ''}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </>
+    )
+  }
+)
+
+const LastUnitCell = ({
   methods,
   rowIndex,
 }: {
-  methods: Methods<typeof UsageBasedSchema>
+  methods: Methods<typeof UsageFeeSchema>
   rowIndex: number
 }) => {
-  const { setValue, control } = methods
-  const prevRowValue = useWatch({
-    control,
-    name: `model.data.rows.${rowIndex - 1}`,
-  })
-  const thisValue = useWatch({
-    control,
-    name: `model.data.rows.${rowIndex}.firstUnit`,
-  })
-
-  useEffect(() => {
-    const updatedValue = prevRowValue
-      ? Math.max(prevRowValue.firstUnit, prevRowValue.lastUnit ?? 0)
-      : 0
-    setValue(`model.data.rows.${rowIndex}.firstUnit`, updatedValue)
-  }, [prevRowValue, rowIndex, setValue])
-
-  return thisValue
-}
-
-const LastUnitInput = ({
-  methods,
-  rowIndex,
-}: {
-  methods: Methods<typeof UsageBasedSchema>
-  rowIndex: number
-}) => {
-  const { setValue, control } = methods
   const nextRow = useWatch({
-    control,
+    control: methods.control,
     name: `model.data.rows.${rowIndex + 1}`,
   })
-  const thisRow = useWatch({
-    control,
-    name: `model.data.rows.${rowIndex}`,
-  })
-
-  useEffect(() => {
-    if (nextRow && !thisRow.lastUnit) {
-      // and is not focused todo
-      const updatedValue = thisRow.firstUnit + 1
-      setValue(`model.data.rows.${rowIndex}.lastUnit`, updatedValue)
-    } else if (!nextRow) {
-      setValue(`model.data.rows.${rowIndex}.lastUnit`, undefined)
-    }
-  }, [nextRow, setValue])
 
   const isLast = !nextRow
 
-  return isLast ? (
-    '∞'
-  ) : (
-    <Input
-      type="number"
-      {...methods.register(`model.data.rows.${rowIndex}.lastUnit`, {
-        setValueAs: (value: string) => {
-          const parsed = value === '' ? undefined : parseInt(value)
-          if (!parsed || isNaN(parsed)) {
-            return undefined
-          } else {
-            return parsed
-          }
-        },
-      })}
-      {...methods.withError(`model.data.rows.${rowIndex}.lastUnit`)}
-      placeholder="∞"
-    />
-  )
+  return isLast ? '∞' : `${BigInt(nextRow.firstUnit)}`
 }

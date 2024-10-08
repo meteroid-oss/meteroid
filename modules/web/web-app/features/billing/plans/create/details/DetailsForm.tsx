@@ -1,17 +1,17 @@
 import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
+  cn,
   Form,
+  FormDescription,
+  GenericFormField,
+  Input,
   InputFormField,
-  TextareaFormField,
   Label,
   RadioGroup,
   RadioGroupItem,
-  GenericFormField,
-  Input,
-  cn,
   Spinner,
-  FormDescription,
+  TextareaFormField,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { customAlphabet } from 'nanoid'
@@ -84,7 +84,11 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       planType: PlanType[data.planType],
       productFamilyExternalId: familyExternalId,
     })
-    navigate(`${plan.plan?.plan?.externalId}/onboarding`)
+    if (data.planType === 'FREE') {
+      navigate(`${plan.plan?.plan?.externalId}`)
+    } else {
+      navigate(`${plan.plan?.plan?.externalId}/onboarding`)
+    }
   }
 
   return (
@@ -213,8 +217,10 @@ const PlanTypeFormItem = <
       value={field.value}
       className={className}
     >
-      <div className="flex items-center space-x-4">
-        <RadioGroupItem value="STANDARD" id="r2" />
+      <div className="flex items-center space-x-4 h-14">
+        <div>
+          <RadioGroupItem value="STANDARD" id="r2" />
+        </div>
         <Label htmlFor="r2">
           <PlanTypeCard
             title="Standard"
@@ -227,21 +233,25 @@ const PlanTypeFormItem = <
           />
         </Label>
       </div>
-      <div className="flex items-center space-x-4">
-        <RadioGroupItem value="FREE" id="r1" disabled />
+      <div className="flex items-center space-x-4  h-14">
+        <div>
+          <RadioGroupItem value="FREE" id="r1" />
+        </div>
         <Label htmlFor="r1">
           <PlanTypeCard
-            title="Free / Freemium (disabled)"
-            desc="Free plans can be subscribed to without payment information."
+            title="Free / Freemium "
+            desc="Free plans can be subscribed to without payment information, and cannot include paid components"
           />
         </Label>
       </div>
 
-      <div className="flex items-center space-x-4">
-        <RadioGroupItem value="CUSTOM" id="r3" disabled />
+      <div className="flex items-center space-x-4  h-14">
+        <div>
+          <RadioGroupItem value="CUSTOM" id="r3" className="aspect-square h-4 w-4" />
+        </div>
         <Label htmlFor="r3">
           <PlanTypeCard
-            title="Custom (disabled)"
+            title="Custom "
             desc={
               <>
                 Custom plans allows to generate quotes and to be extended per customer or customer

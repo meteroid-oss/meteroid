@@ -1,7 +1,9 @@
 use crate::auth::ExternalApiAuthLayer;
 use crate::config::Config;
-use crate::connectors::clickhouse::ClickhouseConnector;
+
 use crate::ingest;
+
+#[cfg(feature = "kafka")]
 use crate::ingest::sinks::kafka::KafkaSink;
 
 use common_grpc::middleware::server as common_middleware;
@@ -11,6 +13,17 @@ use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServ
 use std::sync::Arc;
 use tonic::transport::{Channel, Endpoint, Server};
 use tonic_tracing_opentelemetry::middleware as otel_middleware;
+
+#[cfg(not(feature = "kafka"))]
+use crate::ingest::sinks::print::PrintSink;
+
+#[cfg(feature = "openstack")]
+use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhouseExtension;
+#[cfg(feature = "clickhouse")]
+use crate::connectors::clickhouse::ClickhouseConnector;
+
+#[cfg(not(feature = "clickhouse"))]
+use crate::connectors::PrintConnector;
 
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
@@ -27,11 +40,29 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
         config.listen_addr.port()
     );
 
-    let clickhouse_connector =
-        Arc::new(ClickhouseConnector::init(&config.clickhouse, &config.kafka).await?);
-    let kafka_sink = Arc::new(KafkaSink::new(&config.kafka)?);
+    #[cfg(feature = "clickhouse")]
+    let connector = {
+        log::info!("Clickhouse connector enabled");
+        let conn = ClickhouseConnector::init(
+            &config.clickhouse,
+            &config.kafka,
+            vec![
+                #[cfg(feature = "openstack")]
+                Arc::new(OpenstackClickhouseExtension {}),
+            ],
+        )
+        .await?;
 
-    // make it lazy ? we want to be able to start the server without the billing api ?
+        Arc::new(conn)
+    };
+    #[cfg(not(feature = "clickhouse"))]
+    let connector = Arc::new(PrintConnector {});
+
+    #[cfg(feature = "kafka")]
+    let sink = Arc::new(KafkaSink::new(&config.kafka)?);
+
+    #[cfg(not(feature = "kafka"))]
+    let sink = Arc::new(PrintSink {});
 
     let channel = Endpoint::from_shared(config.meteroid_endpoint.clone())
         .expect("Failed to create channel to meteroid from shared endpoint");
@@ -52,7 +83,7 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(meteroid_grpc::_reflection::FILE_DESCRIPTOR_SET)
-        .build()
+        .build_v1()
         .unwrap();
 
     let admin_auth_layer =
@@ -61,11 +92,11 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
     let api_key_auth_layer = ExternalApiAuthLayer::new(internal_client.clone()).filter(only_api);
 
     // Ingest => Api key only (though we may want a way to ingest from the  for debugging, later)
-    let event_service = ingest::service(internal_client.clone(), kafka_sink.clone());
+    let event_service = ingest::service(internal_client.clone(), sink.clone());
 
     // Meters & queries => Admin only. Some passthrough is possible via admin
-    let meter_service = crate::meters::service(clickhouse_connector.clone());
-    let query_service = crate::query::service(clickhouse_connector.clone());
+    let meter_service = crate::meters::service(connector.clone());
+    let query_service = crate::query::service(connector.clone());
 
     Server::builder()
         .layer(common_middleware::metric::create())

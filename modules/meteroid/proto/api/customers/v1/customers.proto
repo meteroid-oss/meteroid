@@ -2,26 +2,23 @@ syntax = "proto3";
 
 package meteroid.api.customers.v1;
 
-import "common/v1/pagination.proto";
 import "api/customers/v1/models.proto";
+import "api/invoices/v1/models.proto";
+import "common/v1/pagination.proto";
 
 message CreateCustomerRequest {
-  string name = 1;
-  optional string alias = 2;
-  optional string email = 3;
-  CustomerBillingConfig billing_config = 4;
+  CustomerNew data = 1;
 }
 
 message CreateCustomerResponse {
-  CustomerList customer = 1;
+  CustomerBrief customer = 1;
 }
 
 message PatchCustomerRequest {
   PatchCustomer customer = 1;
 }
 
-message PatchCustomerResponse {
-}
+message PatchCustomerResponse {}
 
 message ListCustomerRequest {
   optional string search = 1;
@@ -36,22 +33,50 @@ message ListCustomerRequest {
   }
 }
 message ListCustomerResponse {
-  repeated CustomerList customers = 1;
+  repeated CustomerBrief customers = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
-message GetCustomerRequest {
+message GetCustomerByIdRequest {
   string id = 1;
+}
+message GetCustomerByIdResponse {
+  Customer customer = 1;
 }
 
 message GetCustomerByAliasRequest {
   string alias = 1;
 }
+message GetCustomerByAliasResponse {
+  Customer customer = 1;
+}
+
+message TopUpCustomerBalanceRequest {
+  string customer_id = 1;
+  int32 cents = 2;
+  optional string notes = 3;
+}
+
+message TopUpCustomerBalanceResponse {
+  Customer customer = 1;
+}
+
+message BuyCustomerCreditsRequest {
+  string customer_id = 1;
+  int32 cents = 2;
+  optional string notes = 3;
+}
+
+message BuyCustomerCreditsResponse {
+  api.invoices.v1.DetailedInvoice invoice = 1;
+}
 
 service CustomersService {
-  rpc CreateCustomer (CreateCustomerRequest) returns (CreateCustomerResponse) {}
-  rpc PatchCustomer (PatchCustomerRequest) returns (PatchCustomerResponse) {}
-  rpc ListCustomers (ListCustomerRequest) returns (ListCustomerResponse) {}
-  rpc GetCustomer (GetCustomerRequest) returns (Customer) {}
-  rpc GetCustomerByAlias (GetCustomerByAliasRequest) returns (Customer) {}
+  rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
+  rpc PatchCustomer(PatchCustomerRequest) returns (PatchCustomerResponse) {}
+  rpc ListCustomers(ListCustomerRequest) returns (ListCustomerResponse) {}
+  rpc GetCustomerById(GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
+  rpc GetCustomerByAlias(GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
+  rpc TopUpCustomerBalance(TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
+  rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
 }

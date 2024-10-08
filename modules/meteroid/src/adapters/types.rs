@@ -1,11 +1,10 @@
 use crate::errors;
-use deadpool_postgres::Pool;
 use error_stack::Result;
-use meteroid_grpc::meteroid::api::customers::v1::Customer;
 use secrecy::SecretString;
 use std::fmt::Debug;
 
-use meteroid_repository as db;
+use meteroid_store::domain::{Customer, Invoice};
+use meteroid_store::Store;
 
 pub enum IncomingWebhookEvent {
     EventNotSupported,
@@ -37,7 +36,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
     async fn process_webhook_event(
         &self,
         request: &ParsedRequest,
-        db_pool: Pool,
+        store: Store,
     ) -> Result<bool, errors::AdapterWebhookError>;
 }
 
@@ -45,7 +44,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
 pub trait InvoicingAdapter: AdapterCommon + Sync {
     async fn send_invoice(
         &self,
-        invoice: &db::invoices::Invoice,
+        invoice: &Invoice,
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), errors::InvoicingAdapterError>;

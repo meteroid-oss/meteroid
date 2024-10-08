@@ -2,8 +2,8 @@ import {
   Button,
   Command,
   CommandEmpty,
-  CommandGroup,
   CommandItem,
+  CommandList,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -31,7 +31,7 @@ const FamilyPicker: FunctionComponent = () => {
         <Button variant="special" className=" rounded-full ">
           <div className="flex flex-row space-x-2 items-center ">
             <span>
-              <span className="text-xs text-muted-foreground">Family: </span>
+              <span className="text-xs text-muted-foreground">Product line: </span>
               <span>{selected?.name}</span>
             </span>
 
@@ -42,7 +42,7 @@ const FamilyPicker: FunctionComponent = () => {
       <PopoverContent className="w-[200px] p-0">
         <Command>
           <CommandEmpty>No product family found.</CommandEmpty>
-          <CommandGroup>
+          <CommandList>
             {families
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(family => (
@@ -50,7 +50,7 @@ const FamilyPicker: FunctionComponent = () => {
                   <CommandItem key={family.id}>{family.name}</CommandItem>
                 </Link>
               ))}
-          </CommandGroup>
+          </CommandList>
           <CommandItem>
             <Link to="/tenants/new" className="w-full">
               <Button size="content" variant="ghost" hasIcon>

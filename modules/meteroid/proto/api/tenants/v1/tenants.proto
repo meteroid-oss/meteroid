@@ -21,8 +21,7 @@ message GetTenantByIdResponse {
 
 message CreateTenantRequest {
   string name = 1;
-  string slug = 2;
-  string currency = 3;
+  TenantEnvironmentEnum environment = 2;
 }
 
 message CreateTenantResponse {
@@ -42,10 +41,19 @@ message ActiveTenantRequest {}
 message ActiveTenantResponse {
   Tenant tenant = 1;
   TenantBillingConfiguration billing_config = 2;
+  string trade_name = 3;
 }
 
+message UpdateTenantRequest {
+  TenantUpdate data = 1;
+}
+
+message UpdateTenantResponse {
+  Tenant tenant = 1;
+}
 
 service TenantsService {
+  rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse) {}
   rpc ActiveTenant(ActiveTenantRequest) returns (ActiveTenantResponse) {}
   rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse) {}
   rpc GetTenantById(GetTenantByIdRequest) returns (GetTenantByIdResponse) {}

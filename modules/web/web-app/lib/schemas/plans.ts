@@ -31,78 +31,19 @@ const precisionValidation = (str: string, precision: number) => {
 }
 
 const pricePrecision2Schema = z.string().refine(price => precisionValidation(price, 2), {
-  message: 'Price can have a maximum of 2 decimal places',
+  message: 'Price must be defined and have a maximum of 2 decimal places',
   path: [],
 })
 
 // For 8 decimal places
 const pricePrecision8Schema = z.string().refine(price => precisionValidation(price, 8), {
-  message: 'Price can have a maximum of 8 decimal places',
+  message: 'Price must be defined and have a maximum of 8 decimal places',
   path: [],
 })
 
 const BillingType = z.enum(['ARREAR', 'ADVANCE'])
 export type BillingType = z.infer<typeof BillingType>
 
-const BlockSizeSchema = z.object({
-  blockSize: z.number().positive().int(),
-})
-export type BlockSize = z.infer<typeof BlockSizeSchema>
-
-const FixedFeePricingSchema = z.object({
-  unitPrice: pricePrecision2Schema,
-  quantity: z.number().positive().int(),
-  billingType: BillingType,
-})
-export type FixedFeePricing = z.infer<typeof FixedFeePricingSchema>
-
-// PerUnit Schema
-const PerUnitSchema = z.object({
-  unitPrice: pricePrecision8Schema,
-})
-export type PerUnit = z.infer<typeof PerUnitSchema>
-
-// TieredAndVolume Row Schema
-const TieredAndVolumeRowSchema = z
-  .object({
-    firstUnit: z.number().nonnegative().int(),
-    lastUnit: z.number().nonnegative().int().optional(),
-    unitPrice: pricePrecision8Schema,
-    flatFee: pricePrecision2Schema.optional(),
-    flatCap: pricePrecision2Schema.optional(),
-  })
-  .refine(data => data.firstUnit < (data.lastUnit ?? Number.MAX_VALUE), {
-    message: 'First unit must be less than last unit',
-    path: ['lastUnit'],
-  })
-export type TieredAndVolumeRow = z.infer<typeof TieredAndVolumeRowSchema>
-
-// TieredAndVolume Schema
-const TieredAndVolumeSchema = z.object({
-  rows: z.array(TieredAndVolumeRowSchema),
-  blockSize: BlockSizeSchema.optional(),
-})
-export type TieredAndVolume = z.infer<typeof TieredAndVolumeSchema>
-
-// Package Schema
-const PackageSchema = z.object({
-  blockSize: z.number().positive().int(),
-  blockPrice: pricePrecision8Schema,
-})
-export type Package = z.infer<typeof PackageSchema>
-
-// Usage Pricing Model Schema
-const UsagePricingModelSchema = z.discriminatedUnion('model', [
-  z.object({ model: z.literal('per_unit'), data: PerUnitSchema }),
-  z.object({ model: z.literal('tiered'), data: TieredAndVolumeSchema }),
-  z.object({ model: z.literal('volume'), data: TieredAndVolumeSchema }),
-  z.object({ model: z.literal('package'), data: PackageSchema }),
-])
-export type UsagePricingModel = z.infer<typeof UsagePricingModelSchema>
-
-export type UsagePricingModelType = UsagePricingModel['model']
-
-// Cadence Enum
 export const Cadence = z.enum([
   'MONTHLY',
   'QUARTERLY',
@@ -110,58 +51,26 @@ export const Cadence = z.enum([
 ])
 export type Cadence = z.infer<typeof Cadence>
 
-export const OneTimeFeeSchema = z.object({
-  pricing: FixedFeePricingSchema,
-})
-export type OneTimeFee = z.infer<typeof OneTimeFeeSchema>
-
-export const RecurringFixedFeeSchema = z.object({
-  fee: FixedFeePricingSchema,
-  cadence: Cadence,
-})
-export type RecurringFixedFee = z.infer<typeof RecurringFixedFeeSchema>
-
-const SingleTermSchema = z.object({
-  price: pricePrecision2Schema,
-  cadence: Cadence,
-})
-export type SingleTerm = z.infer<typeof SingleTermSchema>
-
 const TermRateSchema = z.object({
   term: Cadence,
   price: pricePrecision2Schema,
 })
 export type TermRate = z.infer<typeof TermRateSchema>
 
-const TermBasedSchema = z.object({
+export const RateFeeSchema = z.object({
   rates: z.array(TermRateSchema),
-  cadence: z.literal('COMMITTED').default('COMMITTED'),
 })
-export type TermBased = z.infer<typeof TermBasedSchema>
+export type RateFee = z.infer<typeof RateFeeSchema>
 
-export const TermFeePricingSchema = z.union([SingleTermSchema, TermBasedSchema])
-export type TermFeePricing = z.infer<typeof TermFeePricingSchema>
-
-export const SubscriptionRateSchema = z.object({
-  pricing: TermFeePricingSchema,
-})
-export type SubscriptionRate = z.infer<typeof SubscriptionRateSchema>
-
-const SlotUnitSchema = z.object({
-  id: z.string().uuid().optional(),
-  name: z.string(),
-})
-export type SlotUnit = z.infer<typeof SlotUnitSchema>
-
-export const SlotBasedSchema = z.object({
-  pricing: TermFeePricingSchema,
-  slotUnit: SlotUnitSchema,
+export const SlotFeeSchema = z.object({
+  rates: z.array(TermRateSchema),
+  slotUnitName: z.string(),
   upgradePolicy: z.enum(['PRORATED']),
   downgradePolicy: z.enum(['REMOVE_AT_END_OF_PERIOD']),
   minimumCount: z.number().positive().int().optional(),
   quota: z.number().positive().int().optional(),
 })
-export type SlotBased = z.infer<typeof SlotBasedSchema>
+export type SlotFee = z.infer<typeof SlotFeeSchema>
 
 const BillableMetricSchema = z.object({
   id: z.string().uuid(),
@@ -169,67 +78,138 @@ const BillableMetricSchema = z.object({
 })
 export type BillableMetric = z.infer<typeof BillableMetricSchema>
 
-const ThresholdSchema = z.object({
-  includedAmount: z.number().nonnegative(),
+const CapacityThresholdSchema = z.object({
+  includedAmount: z.string(),
   price: pricePrecision2Schema,
   perUnitOverage: pricePrecision8Schema,
 })
-export type Threshold = z.infer<typeof ThresholdSchema>
+export type CapacityThreshold = z.infer<typeof CapacityThresholdSchema>
 
-const SingleTermCapacitySchema = z.object({
-  thresholds: z.array(ThresholdSchema),
+export const CapacityFeeSchema = z.object({
+  metricId: z.string().uuid(),
+  thresholds: z.array(CapacityThresholdSchema),
 })
-export type SingleTermCapacity = z.infer<typeof SingleTermCapacitySchema>
+export type CapacityFee = z.infer<typeof CapacityFeeSchema>
 
-const TermBasedCapacitySchema = z.object({
-  rates: z.array(
-    z.object({
-      term: Cadence,
-      thresholds: z.array(ThresholdSchema),
-    })
-  ),
-  cadence: z.literal('COMMITTED').default('COMMITTED'),
+const TieredAndVolumeRowSchema = z.object({
+  firstUnit: z.bigint().nonnegative(),
+  unitPrice: pricePrecision8Schema,
+  flatFee: pricePrecision2Schema.optional(),
+  flatCap: pricePrecision2Schema.optional(),
 })
-export type TermBasedCapacity = z.infer<typeof TermBasedCapacitySchema>
+export type TieredAndVolumeRow = z.infer<typeof TieredAndVolumeRowSchema>
 
-const CapacityPricingSchema = z.union([SingleTermCapacitySchema, TermBasedCapacitySchema])
-export type CapacityPricing = z.infer<typeof CapacityPricingSchema>
+const TieredAndVolumeSchema = z
+  .object({
+    rows: z.array(TieredAndVolumeRowSchema),
+    blockSize: z.bigint().positive().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.rows[0].firstUnit !== BigInt(0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'First unit of first row must be zero',
+        path: ['rows', 0, 'firstUnit'],
+      })
+    }
+    for (let i = 1; i < data.rows.length; i++) {
+      if (data.rows[i].firstUnit <= data.rows[i - 1].firstUnit) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'First unit must be higher than the previous row',
+          path: ['rows', i, 'firstUnit'],
+        })
+      }
+    }
+  })
 
-export const CapacitySchema = z.object({
-  metric: BillableMetricSchema,
-  pricing: CapacityPricingSchema,
+export type TieredAndVolume = z.infer<typeof TieredAndVolumeSchema>
+
+const PerUnitSchema = z.object({
+  unitPrice: pricePrecision8Schema,
 })
-export type Capacity = z.infer<typeof CapacitySchema>
+export type PerUnit = z.infer<typeof PerUnitSchema>
 
-export const UsageBasedSchema = z.object({
-  metric: BillableMetricSchema,
+// Package Schema
+const PackageSchema = z.object({
+  blockSize: z.bigint().positive(),
+  packagePrice: pricePrecision8Schema,
+})
+export type Package = z.infer<typeof PackageSchema>
+
+const dimensionSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+})
+
+export type Dimension = z.infer<typeof dimensionSchema>
+
+const MatrixSchema = z.object({
+  dimensionRates: z
+    .array(
+      z.object({
+        dimension1: dimensionSchema,
+        dimension2: dimensionSchema.optional(),
+        price: pricePrecision2Schema,
+      })
+    )
+    .min(1),
+})
+
+export type Matrix = z.infer<typeof MatrixSchema>
+
+const UsagePricingModelSchema = z.discriminatedUnion('model', [
+  z.object({ model: z.literal('per_unit'), data: PerUnitSchema }),
+  z.object({
+    model: z.literal('volume'),
+    data: TieredAndVolumeSchema,
+  }),
+  z.object({
+    model: z.literal('tiered'),
+    data: TieredAndVolumeSchema,
+  }),
+  z.object({ model: z.literal('package'), data: PackageSchema }),
+  z.object({ model: z.literal('matrix'), data: MatrixSchema }),
+])
+
+export type UsagePricingModel = z.infer<typeof UsagePricingModelSchema>
+export type UsagePricingModelType = UsagePricingModel['model']
+
+export const UsageFeeSchema = z.object({
+  metricId: z.string().uuid(),
   model: UsagePricingModelSchema,
 })
-export type UsageBased = z.infer<typeof UsageBasedSchema>
+export type UsageFee = z.infer<typeof UsageFeeSchema>
+
+export const ExtraRecurringFeeSchema = z.object({
+  unitPrice: pricePrecision2Schema,
+  quantity: z.number().positive().int(),
+  billingType: BillingType,
+  term: Cadence.optional(),
+})
+export type ExtraRecurringFee = z.infer<typeof ExtraRecurringFeeSchema>
+
+export const OneTimeFeeSchema = z.object({
+  unitPrice: pricePrecision2Schema,
+  quantity: z.number().positive().int(),
+})
+export type OneTimeFee = z.infer<typeof OneTimeFeeSchema>
 
 const FeeTypeSchema = z.discriminatedUnion('fee', [
-  z.object({ fee: z.literal('rate'), data: SubscriptionRateSchema }),
-  z.object({ fee: z.literal('slot_based'), data: SlotBasedSchema }),
-  z.object({ fee: z.literal('capacity'), data: CapacitySchema }),
-  z.object({ fee: z.literal('usage_based'), data: UsageBasedSchema }),
-  z.object({ fee: z.literal('recurring'), data: RecurringFixedFeeSchema }),
-  z.object({ fee: z.literal('one_time'), data: OneTimeFeeSchema }),
+  z.object({ fee: z.literal('rate'), data: RateFeeSchema }),
+  z.object({ fee: z.literal('slot'), data: SlotFeeSchema }),
+  z.object({ fee: z.literal('capacity'), data: CapacityFeeSchema }),
+  z.object({ fee: z.literal('usage'), data: UsageFeeSchema }),
+  z.object({ fee: z.literal('extraRecurring'), data: ExtraRecurringFeeSchema }),
+  z.object({ fee: z.literal('oneTime'), data: OneTimeFeeSchema }),
 ])
 export type FeeType = z.infer<typeof FeeTypeSchema>
-
-// type R = z.ZodSchema<FeeType['data']>
-// const x: R = SubscriptionRateSchema
 
 export const PriceComponentSchema = z.object({
   id: z.string(),
   name: z.string(),
   fee: FeeTypeSchema,
-  productItem: z
-    .object({
-      id: z.string(),
-      name: z.string(),
-    })
-    .optional(),
+  productItemId: z.string().optional(),
 })
 export type PriceComponent = z.infer<typeof PriceComponentSchema>
 

@@ -29,13 +29,15 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 
 - Copy the `.env.example` file to `.env`.
 
-- Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering" profile as follows: 
-`docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
+- Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering"
+  profile as follows:
+  `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
   `cargo run -p meteroid --bin meteroid-api`
 
-It will automatically run migrations. You can then apply the seed data (in docker/develop/data/seed.sql) through psql or the tool of your choice.
+It will automatically run migrations. You can then apply the seed data (in docker/develop/data/seed.sql) through psql or
+the tool of your choice.
 
 - Optionally start the Metering Rust backend
   `cargo run -p metering --bin metering-api`
@@ -60,22 +62,26 @@ After a pull, you should update/build the dependencies.
 
 Protobuf files are found in /modules/meteroid/proto
 
-After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the command above, or you can run the following commands for faster feedback:
+After an update, you can rebuild rust, reinstall the web dependencies and generate from proto via the command above, or
+you can run the following commands for faster feedback:
 
 - `cargo build -p meteroid-grpc`
 - for metering: `cargo build -p metering-grpc`
 - `pnpm --prefix modules/web/web-app run generate:proto`
 
-### Updating the database models and queries
+### Database Migrations
 
-Migrations are found in :
+To add new migration following steps are needed (executed from the project root):
 
-/modules/meteroid/crates/meteroid-repository/refinery/migrations
+- make sure the database server is running
+- make sure diesel_cli is installed : `cargo install diesel_cli --no-default-features --features postgres`
+- create the migration file : `diesel migration generate <migration_name>`. Generates empty migrations file under
+  `modules/meteroid/migrations/diesel`
+- add sql code to the generated migration files
+- apply the migration : `diesel migration run`. Applies the migration(s) and regenerates the schema.rs file.
+- revert the migration : `diesel migration revert`. Un-applies the last applied migration(s) and regenerates the
+  schema.rs file.
 
-Queries are in :
+On meteroid_api startup the un-applied migrations run automatically.
 
-/modules/meteroid/crates/meteroid-repository/queries
-
-After an update, make sure you have your docker daemon up and run the following command:
-
-- `cargo build -p meteroid-repository`
+See https://diesel.rs/guides/getting-started for more info.

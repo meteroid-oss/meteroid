@@ -12,6 +12,12 @@ macro_rules! include_proto_serde {
 
 pub mod meteroid {
     pub mod api {
+        pub mod addons {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.addons.v1");
+            }
+        }
+
         pub mod apitokens {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.apitokens.v1");
@@ -36,6 +42,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod coupons {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.coupons.v1");
+            }
+        }
+
         pub mod instance {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.instance.v1");
@@ -48,6 +60,18 @@ pub mod meteroid {
             }
         }
 
+        pub mod invoicingentities {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.invoicingentities.v1");
+            }
+        }
+
+        pub mod organizations {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.organizations.v1");
+            }
+        }
+
         pub mod plans {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.plans.v1");
@@ -56,7 +80,7 @@ pub mod meteroid {
 
         pub mod components {
             pub mod v1 {
-                include_proto_serde!("meteroid.api.components.v1");
+                tonic::include_proto!("meteroid.api.components.v1");
             }
         }
 
@@ -80,7 +104,7 @@ pub mod meteroid {
 
         pub mod subscriptions {
             pub mod v1 {
-                include_proto_serde!("meteroid.api.subscriptions.v1");
+                tonic::include_proto!("meteroid.api.subscriptions.v1");
             }
         }
 

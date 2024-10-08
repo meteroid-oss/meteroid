@@ -7,43 +7,42 @@ use meteroid_grpc::meteroid::internal::v1::{
     ResolveApiKeyRequest, ResolveApiKeyResponse, ResolveCustomerExternalIdsRequest,
     ResolveCustomerExternalIdsResponse, ResolvedId,
 };
-use meteroid_repository as db;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 
 use crate::api::internal::error::InternalApiError;
-use crate::{api::utils::parse_uuid, db::DbService, parse_uuid};
+use crate::api::internal::InternalServiceComponents;
+use crate::{api::utils::parse_uuid, parse_uuid};
+use meteroid_store::repositories::customers::CustomersInterface;
 
 #[tonic::async_trait]
-impl InternalService for DbService {
+impl InternalService for InternalServiceComponents {
     #[tracing::instrument(skip_all)]
     async fn resolve_customer_external_ids(
         &self,
         request: Request<ResolveCustomerExternalIdsRequest>,
     ) -> Result<Response<ResolveCustomerExternalIdsResponse>, Status> {
-        let req = request.into_inner();
-        let connection = self.get_connection().await?;
+        let inner = request.into_inner();
 
-        let res = db::customers::get_customer_ids_by_alias()
-            .bind(&connection, &parse_uuid!(req.tenant_id)?, &req.external_ids)
-            .all()
+        let tenant_id = parse_uuid!(inner.tenant_id)?;
+
+        let res = self
+            .store
+            .find_customer_ids_by_aliases(tenant_id, inner.external_ids.clone())
             .await
-            .map_err(|e| {
-                InternalApiError::DatabaseError(
-                    "unable to resolve customer external ids".to_string(),
-                    e,
-                )
-            })?;
+            .map_err(Into::<InternalApiError>::into)?;
 
         let mut customers: Vec<ResolvedId> = vec![];
 
         for record in &res {
             customers.push(ResolvedId {
-                external_id: record.alias.clone(),
+                external_id: record.alias.clone().unwrap(),
                 meteroid_id: record.id.to_string(),
             });
         }
 
-        let resolved_aliases: HashSet<String> = res.into_iter().map(|x| x.alias).collect();
-        let unresolved_ids: Vec<String> = req
+        let resolved_aliases: HashSet<String> = res.into_iter().map(|x| x.alias.unwrap()).collect();
+
+        let unresolved_ids: Vec<String> = inner
             .external_ids
             .into_iter()
             .filter(|id| !resolved_aliases.contains(id))
@@ -59,19 +58,17 @@ impl InternalService for DbService {
         &self,
         request: Request<ResolveApiKeyRequest>,
     ) -> Result<Response<ResolveApiKeyResponse>, Status> {
-        let req = request.into_inner();
-        let connection = self.get_connection().await?;
+        let inner = request.into_inner();
 
-        let res = db::api_tokens::get_api_token_by_id()
-            .bind(&connection, &parse_uuid!(req.api_key_id)?)
-            .one()
+        let res = self
+            .store
+            .get_api_token_by_id_for_validation(&parse_uuid!(inner.api_key_id)?)
             .await
-            .map_err(|e| {
-                InternalApiError::DatabaseError("unable to resolve api key".to_string(), e)
-            })?;
+            .map_err(Into::<InternalApiError>::into)?;
 
         Ok(Response::new(ResolveApiKeyResponse {
             tenant_id: res.tenant_id.to_string(),
+            organization_id: res.organization_id.to_string(),
             hash: res.hash,
         }))
     }

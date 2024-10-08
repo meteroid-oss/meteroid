@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package meteroid.api.addons.v1;
+
+import "api/pricecomponents/v1/models.proto";
+
+message AddOn {
+  string id = 1;
+  string name = 2;
+  // todo extract in a separate package?
+  meteroid.api.components.v1.Fee fee = 3;
+}

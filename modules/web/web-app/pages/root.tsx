@@ -1,38 +1,54 @@
+import { Button } from '@ui/components'
 import { Navigate } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
-import { listTenants } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
+import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 /**
  * This checks the onboarding status of the user, and redirect accordingly
  */
 export const Root: React.FC = () => {
-  // in the updated version :
-  // - we create User, Organization and Tenant on the first login
-  // therefore no initUser or anything is done on this page.
-  // we simply load : user, with the single org and all tenants
-  // we load the tenants for the user and redirect to the tenant page
-
   const logout = useLogout()
 
   const meQuery = useQuery(me)
+  const getInstanceQuery = useQuery(getInstance)
 
-  const tenantsQuery = useQuery(listTenants)
+  const organizations = (meQuery.data?.organizations ?? []).sort(
+    (a, b) => Number(a.createdAt) - Number(b.createdAt)
+  )
 
-  if (tenantsQuery.isError) {
-    return logout('Tenants error')
+  if (meQuery.isError) {
+    return logout('Failed to load user organizations (/me)')
   }
 
-  if (meQuery.isLoading || tenantsQuery.isLoading) {
+  if (meQuery.isLoading || getInstanceQuery.isLoading) {
     return <Loading />
   }
 
-  if (tenantsQuery.data?.tenants?.length === 1) {
-    return <Navigate to={`/tenant/${tenantsQuery.data.tenants[0].slug}`} />
+  // TODO last accessed organization/tenant
+  if (organizations.length >= 1) {
+    return <Navigate to={`/${organizations[0].slug}`} />
   }
 
-  return <Navigate to="/tenants" />
+  if (getInstanceQuery.data?.instanceInitiated && !getInstanceQuery.data.multiOrganizationEnabled) {
+    return (
+      <div className="p-10">
+        <div>
+          You don&apos;t have access to this instance. Request an invite link to your admin.
+        </div>
+        <div>
+          <Button onClick={() => logout()}>Logout</Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!meQuery.data?.user?.onboarded) {
+    return <Navigate to="/onboarding/user" />
+  }
+
+  return <Navigate to="/onboarding/organization" />
 }

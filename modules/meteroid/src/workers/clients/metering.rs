@@ -4,28 +4,22 @@ use tonic::transport::Channel;
 
 use crate::config::Config;
 use common_config::auth::InternalAuthConfig;
-use common_grpc::middleware::client::{build_layered_client_service, LayeredClientService};
+use common_grpc::middleware::client::build_layered_client_service;
+use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 
+use crate::clients::usage::MeteringUsageClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 
-static METERING_CLIENT: OnceLock<MeteringClient> = OnceLock::new();
+static METERING_CLIENT: OnceLock<MeteringUsageClient> = OnceLock::new();
 
-#[derive(Clone)]
-pub struct MeteringClient {
-    // pub meters: MetersServiceClient<LayeredClientService>,
-    // pub events: EventsServiceClient<LayeredClientService>,
-    pub queries: UsageQueryServiceClient<LayeredClientService>,
-}
-
-impl MeteringClient {
-    pub fn from_channel(channel: Channel, auth_config: &InternalAuthConfig) -> MeteringClient {
+impl MeteringUsageClient {
+    pub fn from_channel(channel: Channel, auth_config: &InternalAuthConfig) -> MeteringUsageClient {
         let service = build_layered_client_service(channel, auth_config);
 
-        Self {
-            // meters: MetersServiceClient::new(service.clone()),
-            // events: EventsServiceClient::new(service.clone()),
-            queries: UsageQueryServiceClient::new(service.clone()),
-        }
+        Self::new(
+            UsageQueryServiceClient::new(service.clone()),
+            MetersServiceClient::new(service.clone()),
+        )
     }
 
     pub fn get() -> &'static Self {

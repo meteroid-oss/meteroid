@@ -4,6 +4,6 @@ use crate::telemetry::TelemetryConfig;
 
 #[derive(Envconfig, Debug, Clone)]
 pub struct CommonConfig {
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub telemetry: TelemetryConfig,
 }

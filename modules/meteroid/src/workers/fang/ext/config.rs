@@ -2,10 +2,10 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Debug, Clone)]
 pub struct FangExtConfig {
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub archiver: FangArchiverConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub cleaner: FangCleanerConfig,
 }
 

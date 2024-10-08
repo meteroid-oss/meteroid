@@ -12,21 +12,21 @@ import { AddressCard } from '@/features/customers/cards/address/AddressCard'
 import { BalanceCard } from '@/features/customers/cards/balance/BalanceCard'
 import { CustomerCard } from '@/features/customers/cards/customer/CustomerCard'
 import { useQuery } from '@/lib/connectrpc'
-import { getCustomer } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 export const Customer = () => {
   const navigate = useNavigate()
   const { customerId } = useTypedParams<{ customerId: string }>()
   const customerQuery = useQuery(
-    getCustomer,
+    getCustomerById,
     {
       id: customerId ?? '',
     },
     { enabled: Boolean(customerId) }
   )
 
-  const data = customerQuery.data
+  const data = customerQuery.data?.customer
   const isLoading = customerQuery.isLoading
 
   return (
@@ -47,7 +47,7 @@ export const Customer = () => {
                     onClick={() => navigate('..')}
                   />
                   <h2 className="font-semibold">
-                    {data.alias || data.name}
+                    {data.name || data.alias}
                     <div className="text-sm font-light text-muted-foreground">{data.email}</div>
                   </h2>
                 </div>

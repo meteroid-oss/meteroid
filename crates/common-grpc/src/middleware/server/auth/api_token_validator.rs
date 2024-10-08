@@ -15,7 +15,7 @@ impl ApiTokenValidator {
 
         let id_part = parts[0];
         let hash_part = parts[1]
-            .rsplitn(2, '_')
+            .rsplit('_')
             .nth(0)
             .ok_or(anyhow!("Invalid API key format."))?;
 
@@ -36,7 +36,7 @@ impl ApiTokenValidator {
         let db_hash_parsed =
             PasswordHash::new(stored_hash).map_err(|_| anyhow!("Failed to parse stored hash"))?;
         Argon2::default()
-            .verify_password(&self.hash_part.as_bytes(), &db_hash_parsed)
+            .verify_password(self.hash_part.as_bytes(), &db_hash_parsed)
             .map_err(|_| anyhow!("Unauthorized"))?;
 
         Ok(())
@@ -45,8 +45,9 @@ impl ApiTokenValidator {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uuid::Uuid;
+
+    use super::*;
 
     #[test]
     fn test_parse_api_key() {

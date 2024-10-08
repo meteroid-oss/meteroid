@@ -1,9 +1,12 @@
 import { createBrowserRouter } from 'react-router-dom'
 
-import { NotImplemented } from '@/features/NotImplemented'
+import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
+import { OrganizationOnboarding, UserOnboarding } from '@/pages/onboarding'
+import { OrganizationRoot } from '@/pages/organizationRoot'
 import { Root } from '@/pages/root'
+import { TenantNew } from '@/pages/tenants/new'
 import { Providers } from 'providers/Providers'
 import { anonymousRoutes } from 'router/anonymous'
 import { tenantRoutes } from 'router/tenant'
@@ -21,10 +24,33 @@ const router = createBrowserRouter(
               index: true,
               element: <Root />,
             },
-            tenantRoutes,
             {
-              path: '/tenants/new',
-              element: <NotImplemented />,
+              path: '/onboarding',
+              element: <OnboardingLayout />,
+              children: [
+                {
+                  path: 'user',
+                  element: <UserOnboarding />,
+                },
+                {
+                  path: 'organization',
+                  element: <OrganizationOnboarding />,
+                },
+              ],
+            },
+            {
+              path: '/:organizationSlug',
+              children: [
+                {
+                  index: true,
+                  element: <OrganizationRoot />,
+                },
+                tenantRoutes,
+                {
+                  path: 'tenants/new',
+                  element: <TenantNew />,
+                },
+              ],
             },
           ],
         },

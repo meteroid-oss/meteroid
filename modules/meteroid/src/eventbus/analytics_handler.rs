@@ -1,27 +1,37 @@
+use chrono::Datelike;
+use opentelemetry::propagation::Injector;
 use secrecy::{ExposeSecret, SecretString};
 use segment::message::{Track, User};
 use segment::{Client, Message};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::constants::OSS_API;
 use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
-use common_logging::unwrapper::UnwrapLogger;
-use common_repository::Pool;
-
-use crate::eventbus::{
-    Event, EventBusError, EventData, EventDataDetails, EventHandler, TenantEventDataDetails,
+use common_eventbus::{
+    Event, EventData, EventDataDetails, EventDataWithMetadataDetails, TenantEventDataDetails,
 };
+use common_eventbus::{EventBusError, EventHandler};
+use common_logging::unwrapper::UnwrapLogger;
+use meteroid_store::domain::DetailedInvoice;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use meteroid_store::repositories::price_components::PriceComponentInterface;
+use meteroid_store::repositories::{
+    CustomersInterface, InvoiceInterface, PlansInterface, SubscriptionInterface,
+};
+use meteroid_store::Store;
 
 pub struct AnalyticsHandler {
-    pool: Pool,
+    store: Store,
     client: segment::HttpClient,
     api_key: SecretString,
     context: Value,
 }
 
 impl AnalyticsHandler {
-    pub fn new(config: AnalyticsConfig, pool: Pool, country: Option<String>) -> Self {
+    pub fn new(config: AnalyticsConfig, store: Store, country: Option<String>) -> Self {
         let build_info = BuildInfo::get();
 
         // https://segment.com/docs/connections/spec/common/#context
@@ -38,18 +48,11 @@ impl AnalyticsHandler {
         });
 
         AnalyticsHandler {
-            pool,
+            store,
             client: segment::HttpClient::default(),
             api_key: config.api_key,
             context,
         }
-    }
-
-    async fn get_db_connection(&self) -> Result<deadpool_postgres::Object, EventBusError> {
-        self.pool
-            .get()
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))
     }
 
     fn actor_as_user(actor: Option<Uuid>) -> User {
@@ -86,11 +89,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &EventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let api_token = meteroid_repository::api_tokens::get_api_token_by_id()
-            .bind(&conn, &event_data_details.entity_id)
-            .one()
+        let api_token = self
+            .store
+            .get_api_token_by_id(&event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -113,15 +114,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let billable_metric = meteroid_repository::billable_metrics::get_billable_metric_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let billable_metric = self
+            .store
+            .find_billable_metric_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -131,10 +126,10 @@ impl AnalyticsHandler {
             serde_json::json!({
                 "billable_metric_id": event_data_details.entity_id,
                 "tenant_id": event_data_details.tenant_id,
-                "aggregation_type": crate::api::billablemetrics::mapping::aggregation_type::db_to_server(billable_metric.aggregation_type).as_str_name()
+                "aggregation_type": crate::api::billablemetrics::mapping::aggregation_type::domain_to_server(billable_metric.aggregation_type).as_str_name()
             }),
         )
-        .await;
+            .await;
 
         Ok(())
     }
@@ -145,11 +140,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let customer = meteroid_repository::customers::get_customer_by_id()
-            .bind(&conn, &event_data_details.entity_id)
-            .one()
+        let customer = self
+            .store
+            .find_customer_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -171,11 +164,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let customer = meteroid_repository::customers::get_customer_by_id()
-            .bind(&conn, &event_data_details.entity_id)
-            .one()
+        let customer = self
+            .store
+            .find_customer_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -216,15 +207,11 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let invoice = meteroid_repository::invoices::get_tenant_invoice_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let DetailedInvoice {
+            invoice, customer, ..
+        } = self
+            .store
+            .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -233,7 +220,7 @@ impl AnalyticsHandler {
             event.actor,
             serde_json::json!({
                 "invoice_id": invoice.id,
-                "customer_id": invoice.customer_id,
+                "customer_id": customer.id,
                 "subscription_id": invoice.subscription_id,
                 "currency": invoice.currency,
             }),
@@ -249,15 +236,11 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let invoice = meteroid_repository::invoices::get_tenant_invoice_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let DetailedInvoice {
+            invoice, customer, ..
+        } = self
+            .store
+            .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -266,7 +249,7 @@ impl AnalyticsHandler {
             event.actor,
             serde_json::json!({
                 "invoice_id": invoice.id,
-                "customer_id": invoice.customer_id,
+                "customer_id": customer.id,
                 "subscription_id": invoice.subscription_id,
                 "currency": invoice.currency,
             }),
@@ -282,15 +265,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let plan_version = meteroid_repository::plans::get_plan_version_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let plan_version = self
+            .store
+            .get_plan_version_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -315,15 +292,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let plan_version = meteroid_repository::plans::get_plan_version_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let plan_version = self
+            .store
+            .get_plan_version_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -367,15 +338,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let price_component = meteroid_repository::price_components::get_price_component()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let price_component = self
+            .store
+            .get_price_component_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -398,15 +363,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let price_component = meteroid_repository::price_components::get_price_component()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let price_component = self
+            .store
+            .get_price_component_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -467,15 +426,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let subscription = self
+            .store
+            .get_subscription_details(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -501,15 +454,9 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let subscription = self
+            .store
+            .get_subscription_details(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -561,21 +508,31 @@ impl AnalyticsHandler {
         event: &Event,
         event_data_details: &EventDataDetails,
     ) -> Result<(), EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let user = meteroid_repository::users::get_user_by_id()
-            .bind(&conn, &event_data_details.entity_id)
-            .one()
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
         self.send_track(
             "user-created".to_string(),
             event.actor,
             serde_json::json!({
-                "user_id": user.id,
-                "role": crate::api::users::mapping::role::db_to_server(user.role).as_str_name(),
+                "user_id": event_data_details.entity_id,
             }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn user_updated(
+        &self,
+        event: &Event,
+        event_data_details: &EventDataWithMetadataDetails,
+    ) -> Result<(), EventBusError> {
+        let mut properties = event_data_details.metadata.clone();
+        properties.set("user_id", event_data_details.entity_id.to_string());
+
+        self.send_track(
+            "user-updated".to_string(),
+            event.actor,
+            serde_json::json!(properties),
         )
         .await;
 
@@ -596,7 +553,9 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::CustomerPatched(details) => self.customer_patched(&event, details).await?,
-            EventData::InstanceInited(details) => self.instance_inited(&event, details).await?,
+            EventData::OrganizationCreated(details) => {
+                self.instance_inited(&event, details).await?
+            }
             EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
             EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
             EventData::PlanCreatedDraft(details) => {
@@ -644,7 +603,7 @@ pub struct GeoIp {
 
 pub async fn get_geoip() -> Result<GeoIp, String> {
     let response = reqwest::Client::new()
-        .get("https://metero.id/ossapi/geoip")
+        .get(format!("{}/geoip", OSS_API))
         .send()
         .await
         .map_err(|e| e.to_string());

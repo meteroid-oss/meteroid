@@ -83,7 +83,7 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
 
     let mut group_by_columns = params.group_by.clone();
     // Add group by columns
-    if !params.customer_ids.is_empty() && !params.group_by.contains(&"customer_id".to_string()) {
+    if !params.customers.is_empty() && !params.group_by.contains(&"customer_id".to_string()) {
         group_by_columns.insert(0, "customer_id".to_string());
     }
 
@@ -92,11 +92,11 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         select_columns.push(column.clone());
     }
 
-    if !params.customer_ids.is_empty() {
+    if !params.customers.is_empty() {
         let subjects_condition = params
-            .customer_ids
+            .customers
             .iter()
-            .map(|customer_id| format!("customer_id = '{}'", customer_id))
+            .map(|customer| format!("customer_id = '{}'", customer.id)) // TODO config for id/ext/custom field
             .collect::<Vec<_>>()
             .join(" OR ");
         where_clauses.push(format!("({})", subjects_condition));
@@ -118,9 +118,7 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
 
     // Time filter clauses
     // TODO limit & probably make from required
-    if let Some(from) = params.from {
-        where_clauses.push(format!("windowstart >= {}", from.timestamp()));
-    }
+    where_clauses.push(format!("windowstart >= {}", params.from.timestamp()));
     if let Some(to) = params.to {
         where_clauses.push(format!("windowend <= {}", to.timestamp()));
     }

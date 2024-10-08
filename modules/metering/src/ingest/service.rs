@@ -49,7 +49,7 @@ impl EventsServiceGrpc for EventsService {
 
         let allow_backfilling = req.allow_backfilling;
 
-        if events.len() == 0 {
+        if events.is_empty() {
             return Err(Status::invalid_argument("No events provided"));
         } else if events.len() > 500 {
             return Err(Status::invalid_argument("Too many events provided"));
@@ -98,7 +98,7 @@ impl EventsServiceGrpc for EventsService {
             };
         }
 
-        if unresolved_ids.len() > 0 {
+        if !unresolved_ids.is_empty() {
             // we call the api to resolve customers by external id & tenant
 
             let mut client = self.internal_client.clone();
@@ -143,7 +143,7 @@ impl EventsServiceGrpc for EventsService {
                     event.clone(),
                     customer.meteroid_id,
                     tenant_id.clone(),
-                    ts.clone(),
+                    *ts,
                 ))
             })
         }
@@ -178,7 +178,7 @@ impl EventsServiceGrpc for EventsService {
             reason: rec.error.to_string(),
         }));
 
-        if failures.len() > 0 {
+        if !failures.is_empty() {
             error!("Failed count {}", failures.len());
         }
         Ok(Response::new(IngestResponse { failures }))
@@ -206,15 +206,11 @@ fn validate_event(
     now: &DateTime<Utc>,
     allow_backfill: bool,
 ) -> Result<(CustomerId, DateTime<Utc>), String> {
-    let customer = event
-        .customer_id
-        .as_ref()
-        .ok_or_else(|| "No customer provided")?;
+    let customer = event.customer_id.as_ref().ok_or("No customer provided")?;
 
-    let ts_opt = event
-        .timestamp
-        .as_ref()
-        .and_then(|ts| chrono::DateTime::from_timestamp(ts.seconds, ts.nanos as u32));
+    let ts_opt = chrono::DateTime::parse_from_rfc3339(&event.timestamp)
+        .map(|ts| ts.to_utc())
+        .ok();
     let ts = match ts_opt {
         Some(ts) => {
             let diff = ts - *now;
@@ -228,7 +224,7 @@ fn validate_event(
                 Ok(ts)
             }
         }
-        None => Ok(now.clone()),
+        None => Ok(*now),
     }?;
 
     Ok((customer.clone(), ts))

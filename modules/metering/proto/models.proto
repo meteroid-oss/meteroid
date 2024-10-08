@@ -10,9 +10,10 @@ message Event {
   oneof customer_id {
     string meteroid_customer_id = 3;
     string external_customer_id = 4;
+    // TODO we can allow external_subscription_id as well if a resource is linked to a specific subscription (and if we don't have the customer_id)
   }
-  // rfc3339 string instead ?
-  google.protobuf.Timestamp timestamp = 5;
+  // rfc3339 string
+  string timestamp = 5;
   map<string, string> properties = 6;
   // sdk : value as an alias to properties["value"] ?
   // optional source ?
@@ -22,8 +23,6 @@ message Metadata {
   string key = 1;
   string value = 2;
 }
-
-
 
 message Meter {
   string meter_slug = 1;

@@ -63,7 +63,7 @@ FROM debian:stable-slim
 ARG PROFILE
 ARG TARGET_DIR=$PROFILE
 RUN apt-get update && \
-    apt-get install --no-install-recommends -y ca-certificates libssl3 libsasl2-2 && \
+    apt-get install --no-install-recommends -y ca-certificates libssl3 libsasl2-2 libpq5 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/src/target/$TARGET_DIR/meteroid-api /usr/local/bin/meteroid-api
 COPY --from=builder /bin/grpc_health_probe /bin/grpc_health_probe

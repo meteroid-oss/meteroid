@@ -6,8 +6,7 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
+    types: [ opened, reopened, synchronize ]
     paths:
       - ".github/workflows/ci-ui.yaml"
       - "modules/meteroid/proto/**"
@@ -25,9 +24,9 @@ jobs:
       TURBO_TELEMETRY_DISABLED: true
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v3
+      - uses: pnpm/action-setup@v4
         with:
-          version: 8.9.0
+          version: 9.9.0
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

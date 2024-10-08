@@ -1,4 +1,3 @@
-use testcontainers::clients::Cli;
 use tonic::Code;
 
 use crate::helpers;
@@ -10,9 +9,8 @@ use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceC
 async fn test_jwt() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
@@ -32,7 +30,7 @@ async fn test_jwt() {
         ))
         .await;
 
-    assert_eq!(auth_response.is_err(), true);
+    assert!(auth_response.is_err());
     assert_eq!(
         auth_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -50,7 +48,7 @@ async fn test_jwt() {
         ))
         .await;
 
-    assert_eq!(auth_response.is_err(), true);
+    assert!(auth_response.is_err());
     assert_eq!(
         auth_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -67,14 +65,18 @@ async fn test_jwt() {
         ))
         .await;
 
-    assert_eq!(auth_response.is_ok(), true);
+    assert!(auth_response.is_ok());
 
     let auth = auth_response.unwrap().into_inner();
-    assert_eq!(auth.token.clone().is_empty(), false);
+    assert!(!auth.token.clone().is_empty());
 
     // # try to access secured method with fake auth token
-    let clients =
-        meteroid_it::clients::AllClients::from_channel(setup.channel.clone(), "faketoken", "");
+    let clients = meteroid_it::clients::AllClients::from_channel(
+        setup.channel.clone(),
+        "faketoken",
+        "TESTORG",
+        "testslug",
+    );
 
     let tenants_response = clients
         .tenants
@@ -83,7 +85,7 @@ async fn test_jwt() {
             meteroid_grpc::meteroid::api::tenants::v1::ListTenantsRequest {},
         ))
         .await;
-    assert_eq!(tenants_response.is_err(), true);
+    assert!(tenants_response.is_err());
     assert_eq!(
         tenants_response.map_err(|e| e.code()).unwrap_err(),
         Code::Unauthenticated
@@ -93,7 +95,8 @@ async fn test_jwt() {
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "",
+        "TESTORG",
+        "testslug",
     );
 
     let tenants_response = clients
@@ -103,7 +106,7 @@ async fn test_jwt() {
             meteroid_grpc::meteroid::api::tenants::v1::ListTenantsRequest {},
         ))
         .await;
-    assert_eq!(tenants_response.is_ok(), true);
+    assert!(tenants_response.is_ok());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;

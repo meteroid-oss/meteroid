@@ -11,6 +11,7 @@
     "@commitlint/cli": "^18.6.0",
     "@commitlint/config-conventional": "^18.6.0",
     "@manypkg/cli": "^0.21.2",
+    "eslint": "^8",
     "dependency-cruiser": "^16.2.0",
     "dotenv-cli": "^7.3.0",
     "husky": "^9.0.10",

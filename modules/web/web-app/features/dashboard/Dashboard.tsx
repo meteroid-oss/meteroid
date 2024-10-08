@@ -2,15 +2,20 @@ import { Card, Checkbox, Separator } from '@md/ui'
 import { Heart } from 'lucide-react'
 import { useMemo } from 'react'
 
+import { Loading } from '@/components/Loading'
 import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
+import { useTenant } from '@/hooks/useTenant'
 
 export const Dashboard = () => {
+  const { isRefetching } = useTenant()
+
   const date = useMemo(() => {
     const today = new Date()
     const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' } as const
-    return today.toLocaleDateString('en-UK', options)
+
+    return today.toLocaleDateString('en-US', options)
   }, [])
 
   // morning, afternoon or evening
@@ -25,11 +30,15 @@ export const Dashboard = () => {
     }
   }, [])
 
+  if (isRefetching) {
+    return <Loading />
+  }
+
   return (
     <>
       <div className="h-full  xl:mx-auto self-center space-y-6 relative">
         <div>
-          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Joe</h1>
+          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Gaspard</h1>
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />
@@ -42,12 +51,13 @@ export const Dashboard = () => {
                 <span className="text-sm">Configure your pricing</span>
               </div>
               <div>
-                <Checkbox disabled className="rounded-full" /> <span className="text-sm">???</span>
+                <Checkbox disabled className="rounded-full" />{' '}
+                <span className="text-sm">Integrate with your product</span>
               </div>
 
               <div>
                 <Checkbox disabled className="rounded-full" />{' '}
-                <span className="text-sm">Profit !</span>
+                <span className="text-sm">Setup your first growth opportunities</span>
               </div>
             </div>
           </div>

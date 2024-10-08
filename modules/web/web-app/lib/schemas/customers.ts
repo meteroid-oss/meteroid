@@ -5,22 +5,5 @@ export const createCustomerSchema = z.object({
   // wrapped to simplify form handling
   primaryEmail: z.string().optional(),
   externalId: z.string().optional(),
-  stripeCustomerId: z.string(),
+  stripeCustomerId: z.string().optional(),
 })
-
-/*
-TODO
-
-accountInformation {
-  companyName
-  externalId
-  accountEmail
-}
-billingInformation {
-  billingEmails
-  billingAddress
-}
-
-
-
-*/

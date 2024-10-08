@@ -42,7 +42,8 @@
 <div>
 <span>
 
-Meteroid addresses the complexities and limitations of traditional billing systems, particularly for businesses transitioning to usage-based models or product-led-growth principles.
+Meteroid addresses the complexities and limitations of traditional billing systems, particularly for businesses
+transitioning to usage-based models or product-led-growth principles.
 It eliminates the gap between customer usage and billing, ensuring accuracy and transparency.
 
 
@@ -63,15 +64,13 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 </a>
 <br/>
 
-
-
-
 ## How It Works
 
 Meteroid integrates with your existing systems via a simple API, collecting data on customer usage and interactions.
 This data fuels the Meteroid billing engine, applying your custom pricing models to generate accurate, timely invoices.
 
-Our platform simplifies the creation, scaling and maintenance of complex billing models, automates invoice generation, and provides *clear, actionable insights* for achieving your KPIs.
+Our platform simplifies the creation, scaling and maintenance of complex billing models, automates invoice generation,
+and provides *clear, actionable insights* for achieving your KPIs.
 
 
 <p align="center">
@@ -82,22 +81,25 @@ width="640"
 />
 </p>
 
-
 ## For whom ?
 
-Meteroid is designed for startups, SMEs, and enterprises looking to embrace some form of usage-based billing or product-led growth.
+Meteroid is designed for startups, SMEs, and enterprises looking to embrace some form of usage-based billing,
+product-led growth or re-invoicing.
 
 ## Build for Sustainable Growth
 
 Our philosophy is deeply rooted in the principles of open source and open startup culture. <br/>
-We believe in **transparency** and **collaboration** as foundational pillars that not only foster innovation but also build trust and community around our mission.
+We believe in **transparency** and **collaboration** as foundational pillars that not only foster innovation but also
+build trust and community around our mission.
 
-By choosing Rust as our core technology, we leverage its efficiency, reliability, and safety features, ensuring our platform is built on a solid, secure foundation.
+By choosing Rust as our core technology, we leverage its efficiency, reliability, and safety features, ensuring our
+platform is built on a solid, secure foundation.
 
-Our focus on Product-Led Growth (PLG) reflects our commitment to creating products that drive user acquisition, retention, and expansion through their inherent value and user experience
+Our focus on Product-Led Growth (PLG) reflects our commitment to creating products that drive user acquisition,
+retention, and expansion through their inherent value and user experience
 
-This approach, combined with our open philosophy, guides us toward creating a more inclusive, sustainable future for the SaaS industries.
-
+This approach, combined with our open philosophy, guides us toward creating a more inclusive, sustainable future for the
+SaaS industries.
 
 ## Developer Guide
 
@@ -116,6 +118,8 @@ Copyright 2024 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE.md](LICENSE.md) for more information.
 
+For enterprise or custom licensing options, please contact us.
+
 ## Contributors ✨
 
 <a href="https://github.com/meteroid-oss/meteroid/graphs/contributors">
@@ -123,3 +127,9 @@ Licensed under the AGPL V3 License. <br/> See [LICENSE.md](LICENSE.md) for more 
     <img width="220" src="https://contrib.rocks/image?repo=meteroid-oss/meteroid" alt="A table of avatars from the project's contributors" />
   </p>
 </a>
+
+## Star History
+
+Thanks for the crazy support 💖
+
+[![Star History Chart](https://api.star-history.com/svg?repos=meteroid-oss/meteroid&type=Date)](https://star-history.com/#meteroid-oss/meteroid&Date)

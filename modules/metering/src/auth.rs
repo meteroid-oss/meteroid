@@ -1,5 +1,4 @@
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
-use common_grpc::middleware::server::auth::strategies::{AuthenticatedState, AuthorizedState};
 use common_grpc::GrpcServiceMethod;
 
 use cached::proc_macro::cached;
@@ -19,6 +18,7 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState};
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
 use uuid::Uuid;
@@ -109,8 +109,13 @@ where
             }?;
 
             let authorized_state = match authenticated_state {
-                AuthenticatedState::ApiKey { tenant_id, id } => Ok(AuthorizedState::Tenant {
+                AuthenticatedState::ApiKey {
                     tenant_id,
+                    id,
+                    organization_id,
+                } => Ok(AuthorizedState::Tenant {
+                    tenant_id,
+                    organization_id,
                     actor_id: id,
                 }),
                 _ => Err(Box::new(Status::permission_denied(
@@ -139,17 +144,17 @@ where
 }
 
 #[cached(
-result = true,
-size = 100,
-time = 120, // 2 min
-key = "String",
-convert = r#"{ api_key_id.to_string() }"#
+    result = true,
+    size = 100,
+    time = 120, // 2 min
+    key = "Uuid",
+    convert = r#"{ *api_key_id }"#
 )]
 async fn validate_api_token_by_id_cached(
     internal_client: &mut InternalServiceClient<LayeredClientService>,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<Uuid, Status> {
+) -> Result<(Uuid, Uuid), Status> {
     let res = internal_client
         .clone()
         .resolve_api_key(ResolveApiKeyRequest {
@@ -172,7 +177,10 @@ async fn validate_api_token_by_id_cached(
     let tenant_uuid = Uuid::parse_str(&inner.tenant_id)
         .map_err(|_| Status::internal("failed to parse tenant id"))?;
 
-    Ok(tenant_uuid)
+    let organization_uuid = Uuid::parse_str(&inner.tenant_id)
+        .map_err(|_| Status::internal("failed to parse tenant id"))?;
+
+    Ok((organization_uuid, tenant_uuid))
 }
 
 pub async fn validate_api_key(
@@ -192,7 +200,12 @@ pub async fn validate_api_key(
         Status::permission_denied("Invalid API key format. Failed to extract identifier")
     })?;
 
-    let tenant_id = validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
+    let (organization_id, tenant_id) =
+        validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
 
-    Ok(AuthenticatedState::ApiKey { id, tenant_id })
+    Ok(AuthenticatedState::ApiKey {
+        id,
+        tenant_id,
+        organization_id,
+    })
 }

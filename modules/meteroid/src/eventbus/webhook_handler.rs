@@ -1,32 +1,34 @@
-use crate::eventbus::{Event, EventBusError, EventData, EventHandler, TenantEventDataDetails};
-use crate::mapping::common::date_to_chrono;
-use crate::webhook;
-use crate::webhook::Webhook;
 use cached::proc_macro::cached;
-use common_repository::Pool;
-use cornucopia_async::Params;
-use meteroid_repository::WebhookOutEventTypeEnum;
+use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
+use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::api::utils::uuid_gen;
-use meteroid_repository::webhook_out_events::CreateEventParams;
-use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
+use common_eventbus::{Event, EventData, TenantEventDataDetails};
+use common_eventbus::{EventBusError, EventHandler};
+use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
+use meteroid_store::domain::webhooks::WebhookOutEventNew;
+use meteroid_store::domain::DetailedInvoice;
+use meteroid_store::repositories::webhooks::WebhooksInterface;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
+use meteroid_store::{crypt, Store};
+
+use crate::webhook;
+use crate::webhook::Webhook;
 
 const ENDPOINT_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const ENDPOINT_RETRIES: u32 = 3;
 
 pub struct WebhookHandler {
-    pub pool: Pool,
+    pub store: Store,
     pub crypt_key: SecretString,
     pub client: ClientWithMiddleware,
     pub cache_enabled: bool,
 }
 
 impl WebhookHandler {
-    pub fn new(pool: Pool, crypt_key: SecretString, cache_enabled: bool) -> Self {
+    pub fn new(store: Store, crypt_key: SecretString, cache_enabled: bool) -> Self {
         let retry_policy = ExponentialBackoff::builder().build_with_max_retries(ENDPOINT_RETRIES);
         let client = ClientBuilder::new(reqwest::Client::new())
             // Retry failed requests.
@@ -34,18 +36,11 @@ impl WebhookHandler {
             .build();
 
         WebhookHandler {
-            pool,
+            store,
             crypt_key,
             client,
             cache_enabled,
         }
-    }
-
-    async fn get_db_connection(&self) -> Result<deadpool_postgres::Object, EventBusError> {
-        self.pool
-            .get()
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))
     }
 
     #[tracing::instrument(skip_all)]
@@ -101,14 +96,14 @@ impl WebhookHandler {
         &self,
         event: &Event,
         endpoint: &Endpoint,
-        webhook_event_payload: &Vec<u8>,
+        webhook_event_payload: &[u8],
         endpoint_response: Result<reqwest::Response, EventBusError>,
     ) -> Result<(), EventBusError> {
         let event_type = get_event_type(event).ok_or_else(|| {
             EventBusError::EventHandlerFailed("Failed to get event type".to_string())
         })?;
 
-        let request_body = String::from_utf8(webhook_event_payload.clone()).map_err(|e| {
+        let request_body = String::from_utf8(webhook_event_payload.to_owned()).map_err(|e| {
             EventBusError::EventHandlerFailed(format!("Failed to convert payload to string: {}", e))
         })?;
 
@@ -117,25 +112,17 @@ impl WebhookHandler {
             Err(e) => (None, None, Some(e.to_string())),
         };
 
-        let conn = self
-            .pool
-            .get()
-            .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-        let params = CreateEventParams {
-            id: uuid_gen::v7(),
-            endpoint_id: endpoint.id,
-            event_type,
-            request_body,
-            response_body,
-            error_message,
-            http_status_code,
-        };
-
-        meteroid_repository::webhook_out_events::create_event()
-            .params(&conn, &params)
-            .one()
+        let _ = self
+            .store
+            .insert_webhook_event(WebhookOutEventNew {
+                endpoint_id: endpoint.id,
+                created_at: chrono::Utc::now().naive_utc(),
+                event_type,
+                request_body,
+                response_body,
+                http_status_code,
+                error_message,
+            })
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -150,14 +137,14 @@ impl WebhookHandler {
         let endpoints = if let (Some(event_type), Some(details)) = (event_type, details) {
             let endpoints = if self.cache_enabled {
                 get_active_endpoints_by_tenant_cached(
-                    self.pool.clone(),
+                    self.store.clone(),
                     &details.tenant_id,
                     &self.crypt_key,
                 )
                 .await?
             } else {
                 get_active_endpoints_by_tenant(
-                    self.pool.clone(),
+                    self.store.clone(),
                     &details.tenant_id,
                     &self.crypt_key,
                 )
@@ -181,11 +168,9 @@ impl WebhookHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let customer = meteroid_repository::customers::get_customer_by_id()
-            .bind(&conn, &event_data_details.entity_id)
-            .one()
+        let customer = self
+            .store
+            .find_customer_by_id(event_data_details.entity_id, event_data_details.tenant_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -210,27 +195,11 @@ impl WebhookHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let subscription = meteroid_repository::subscriptions::get_subscription_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let subscription = self
+            .store
+            .get_subscription_details(event_data_details.tenant_id, event_data_details.entity_id)
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-        let start_date = date_to_chrono(subscription.billing_start_date)
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-        let end_date = subscription
-            .billing_end_date
-            .map(|d| {
-                date_to_chrono(d).map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))
-            })
-            .transpose()?;
 
         let event = WebhookEvent {
             event_type: "subscription.created".to_string(),
@@ -238,8 +207,8 @@ impl WebhookHandler {
             data: to_json(SubscriptionData {
                 customer_name: subscription.customer_name,
                 billing_day: subscription.billing_day,
-                billing_start_date: start_date,
-                billing_end_date: end_date,
+                billing_start_date: subscription.billing_start_date,
+                billing_end_date: subscription.billing_end_date,
                 currency: subscription.currency,
                 net_terms: subscription.net_terms,
             })?,
@@ -254,31 +223,26 @@ impl WebhookHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let invoice = meteroid_repository::invoices::get_tenant_invoice_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let DetailedInvoice {
+            invoice,
+            customer,
+            plan,
+        } = self
+            .store
+            .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-        let invoice_date = date_to_chrono(invoice.invoice_date)
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
         let event = WebhookEvent {
             event_type: "invoice.draft".to_string(),
             timestamp: event.event_timestamp,
             data: to_json(InvoiceData {
-                customer_name: invoice.customer_name,
+                customer_name: customer.name,
                 currency: invoice.currency,
                 status: "draft".to_string(),
-                invoice_date,
-                amount_cents: invoice.amount_cents,
-                plan_name: invoice.plan_name,
+                invoice_date: invoice.invoice_date,
+                amount_cents: Some(invoice.total),
+                plan_name: plan.map(|p| p.plan_name),
             })?,
         };
 
@@ -291,30 +255,23 @@ impl WebhookHandler {
         event: &Event,
         event_data_details: &TenantEventDataDetails,
     ) -> Result<WebhookEvent, EventBusError> {
-        let conn = self.get_db_connection().await?;
-
-        let invoice = meteroid_repository::invoices::get_tenant_invoice_by_id()
-            .bind(
-                &conn,
-                &event_data_details.entity_id,
-                &event_data_details.tenant_id,
-            )
-            .one()
+        let DetailedInvoice {
+            invoice, customer, ..
+        } = self
+            .store
+            .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
             .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-        let invoice_date = date_to_chrono(invoice.invoice_date)
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
         let event = WebhookEvent {
             event_type: "invoice.finalized".to_string(),
             timestamp: event.event_timestamp,
             data: to_json(InvoiceData {
-                customer_name: invoice.customer_name,
+                customer_name: customer.name,
                 currency: invoice.currency,
                 status: "finalized".to_string(),
-                invoice_date,
-                amount_cents: invoice.amount_cents,
+                invoice_date: invoice.invoice_date,
+                amount_cents: Some(invoice.total),
                 plan_name: invoice.plan_name,
             })?,
         };
@@ -409,7 +366,7 @@ struct SubscriptionData {
     pub billing_start_date: chrono::NaiveDate,
     pub billing_end_date: Option<chrono::NaiveDate>,
     pub currency: String,
-    pub net_terms: i32,
+    pub net_terms: u32,
 }
 
 #[derive(Serialize)]
@@ -419,7 +376,7 @@ struct InvoiceData {
     pub status: String,
     pub invoice_date: chrono::NaiveDate,
     pub amount_cents: Option<i64>,
-    pub plan_name: String,
+    pub plan_name: Option<String>,
 }
 
 fn to_json<T: Serialize>(data: T) -> Result<serde_json::Value, EventBusError> {
@@ -428,10 +385,10 @@ fn to_json<T: Serialize>(data: T) -> Result<serde_json::Value, EventBusError> {
 
 fn get_event_type(event: &Event) -> Option<WebhookOutEventTypeEnum> {
     match &event.event_data {
-        EventData::CustomerCreated(_) => Some(WebhookOutEventTypeEnum::CUSTOMER_CREATED),
-        EventData::SubscriptionCreated(_) => Some(WebhookOutEventTypeEnum::SUBSCRIPTION_CREATED),
-        EventData::InvoiceCreated(_) => Some(WebhookOutEventTypeEnum::INVOICE_CREATED),
-        EventData::InvoiceFinalized(_) => Some(WebhookOutEventTypeEnum::INVOICE_FINALIZED),
+        EventData::CustomerCreated(_) => Some(WebhookOutEventTypeEnum::CustomerCreated),
+        EventData::SubscriptionCreated(_) => Some(WebhookOutEventTypeEnum::SubscriptionCreated),
+        EventData::InvoiceCreated(_) => Some(WebhookOutEventTypeEnum::InvoiceCreated),
+        EventData::InvoiceFinalized(_) => Some(WebhookOutEventTypeEnum::InvoiceFinalized),
         _ => None,
     }
 }
@@ -448,28 +405,22 @@ fn get_tenant_event_details(event: &Event) -> Option<&TenantEventDataDetails> {
 
 #[tracing::instrument(skip_all)]
 async fn get_active_endpoints_by_tenant(
-    pool: Pool,
+    store: Store,
     tenant_id: &Uuid,
     crypt_key: &SecretString,
 ) -> Result<Vec<Endpoint>, EventBusError> {
-    let conn = pool
-        .get()
-        .await
-        .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
-
-    let endpoints: Vec<Endpoint> = meteroid_repository::webhook_out_endpoints::list_endpoints()
-        .bind(&conn, tenant_id)
-        .all()
+    let endpoints = store
+        .list_webhook_out_endpoints(*tenant_id)
         .await
         .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?
         .into_iter()
         .filter_map(|e| {
             if e.enabled {
-                let secret = crate::crypt::decrypt(crypt_key, e.secret.as_str()).ok()?;
+                let secret = crypt::decrypt(crypt_key, e.secret.expose_secret()).ok()?;
 
                 Some(Endpoint {
                     id: e.id,
-                    url: e.url,
+                    url: e.url.to_string(),
                     secret: secret.expose_secret().to_string(),
                     event_types: e.events_to_listen,
                 })
@@ -484,16 +435,16 @@ async fn get_active_endpoints_by_tenant(
 
 #[tracing::instrument(skip_all)]
 #[cached(
-  result = true,
-  size = 20,
-  time = 120, // 2 min
-  key = "String",
-  convert = r#"{ tenant_id.to_string() }"#
+    result = true,
+    size = 20,
+    time = 120, // 2 min
+    key = "Uuid",
+    convert = r#"{ *tenant_id }"#
 )]
 async fn get_active_endpoints_by_tenant_cached(
-    pool: Pool,
+    store: Store,
     tenant_id: &Uuid,
     crypt_key: &SecretString,
 ) -> Result<Vec<Endpoint>, EventBusError> {
-    get_active_endpoints_by_tenant(pool, tenant_id, crypt_key).await
+    get_active_endpoints_by_tenant(store, tenant_id, crypt_key).await
 }

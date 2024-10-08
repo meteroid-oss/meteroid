@@ -13,19 +13,15 @@ use crate::errors;
 
 use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::{InvoicingAdapter, ParsedRequest};
-use crate::datetime::time_utc_now;
 use crate::errors::InvoicingAdapterError;
-use crate::models::InvoiceLine;
 use axum::response::IntoResponse;
 use common_domain::StripeSecret;
-use cornucopia_async::Params;
-use deadpool_postgres::Pool;
 use error_stack::ResultExt;
-use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::BillingConfigOneof;
-use meteroid_grpc::meteroid::api::customers::v1::{customer_billing_config, Customer};
-use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
-use meteroid_repository as db;
-use meteroid_repository::{InvoiceExternalStatusEnum, InvoicingProviderEnum};
+use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config;
+use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
+use meteroid_store::domain::{BillingConfig, Customer, LineItem, Stripe as BillingConfigStripe};
+use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
 use stripe_client::webhook::StripeWebhook;
 use uuid::Uuid;
@@ -81,7 +77,7 @@ impl WebhookAdapter for Stripe {
     async fn process_webhook_event(
         &self,
         request: &ParsedRequest,
-        db_pool: Pool,
+        store: Store,
     ) -> Result<bool, errors::AdapterWebhookError> {
         let parsed = StripeWebhook::parse_event(request.json_body.to_string().as_str())
             .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
@@ -90,7 +86,7 @@ impl WebhookAdapter for Stripe {
 
         match object {
             EventObject::Invoice(invoice) => {
-                self.process_invoice_events(parsed, invoice, db_pool).await
+                self.process_invoice_events(parsed, invoice, store).await
             }
         }?;
 
@@ -102,45 +98,37 @@ impl WebhookAdapter for Stripe {
 impl InvoicingAdapter for Stripe {
     async fn send_invoice(
         &self,
-        invoice: &meteroid_repository::invoices::Invoice,
+        invoice: &domain::Invoice,
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), InvoicingAdapterError> {
-        match invoice.invoicing_provider {
-            InvoicingProviderEnum::STRIPE => {
-                let api_key = &StripeSecret(api_key);
+        let api_key = &StripeSecret(api_key);
 
-                let invoice_lines =
-                    serde_json::from_value::<Vec<InvoiceLine>>(invoice.line_items.clone())
-                        .change_context(InvoicingAdapterError::InvalidData)?;
+        let stripe_customer = Self::extract_stripe_customer_id(customer)?;
+        let collection_method = Self::extract_stripe_collection_method(customer)?;
 
-                let stripe_customer = Self::extract_stripe_customer_id(customer)?;
-                let collection_method = Self::extract_stripe_collection_method(customer)?;
+        let create_invoice =
+            Self::db_invoice_to_external(invoice, &stripe_customer, collection_method);
 
-                let create_invoice =
-                    Self::db_invoice_to_external(invoice, &stripe_customer, collection_method);
+        let created_stripe_invoice = self
+            .client
+            .create_invoice(create_invoice, api_key, invoice.id.to_string())
+            .await
+            .change_context(InvoicingAdapterError::StripeError)?;
 
-                let created_stripe_invoice = self
-                    .client
-                    .create_invoice(create_invoice, api_key, invoice.id.to_string())
-                    .await
-                    .change_context(InvoicingAdapterError::StripeError)?;
+        for line in invoice.line_items.iter() {
+            let create_invoice_line =
+                Self::db_invoice_item_to_external(&created_stripe_invoice, invoice, line)?;
 
-                for line in invoice_lines.iter() {
-                    let create_invoice_line =
-                        Self::db_invoice_item_to_external(&created_stripe_invoice, invoice, line)?;
+            let idempotency_key = format!("{}-{}", invoice.id, line.name);
 
-                    let idempotency_key = format!("{}-{}", invoice.id, line.name);
-
-                    self.client
-                        .create_invoice_item(create_invoice_line, api_key, idempotency_key)
-                        .await
-                        .change_context(InvoicingAdapterError::StripeError)?;
-                }
-
-                Ok(())
-            }
+            self.client
+                .create_invoice_item(create_invoice_line, api_key, idempotency_key)
+                .await
+                .change_context(InvoicingAdapterError::StripeError)?;
         }
+
+        Ok(())
     }
 }
 
@@ -151,22 +139,17 @@ impl Stripe {
         })
     }
 
-    fn external_status_to_service(
-        &self,
-        event_type: String,
-    ) -> Option<db::InvoiceExternalStatusEnum> {
+    fn external_status_to_service(&self, event_type: String) -> Option<InvoiceExternalStatusEnum> {
         match event_type.as_str() {
-            event_type::INVOICE_CREATED => Some(db::InvoiceExternalStatusEnum::DRAFT),
-            event_type::INVOICE_DELETED => Some(db::InvoiceExternalStatusEnum::DELETED),
-            event_type::INVOICE_PAID => Some(db::InvoiceExternalStatusEnum::PAID),
-            event_type::INVOICE_PAYMENT_FAILED => {
-                Some(db::InvoiceExternalStatusEnum::PAYMENT_FAILED)
-            }
-            event_type::INVOICE_VOIDED => Some(db::InvoiceExternalStatusEnum::VOID),
+            event_type::INVOICE_CREATED => Some(InvoiceExternalStatusEnum::Draft),
+            event_type::INVOICE_DELETED => Some(InvoiceExternalStatusEnum::Deleted),
+            event_type::INVOICE_PAID => Some(InvoiceExternalStatusEnum::Paid),
+            event_type::INVOICE_PAYMENT_FAILED => Some(InvoiceExternalStatusEnum::PaymentFailed),
+            event_type::INVOICE_VOIDED => Some(InvoiceExternalStatusEnum::Void),
             event_type::INVOICE_MARKED_UNCOLLECTIBLE => {
-                Some(db::InvoiceExternalStatusEnum::UNCOLLECTIBLE)
+                Some(InvoiceExternalStatusEnum::Uncollectible)
             }
-            event_type::INVOICE_FINALIZED => Some(db::InvoiceExternalStatusEnum::FINALIZED),
+            event_type::INVOICE_FINALIZED => Some(InvoiceExternalStatusEnum::Finalized),
             _ => None,
         }
     }
@@ -176,18 +159,8 @@ impl Stripe {
         &self,
         parsed: Event,
         invoice: Invoice,
-        db_pool: Pool,
+        store: Store,
     ) -> Result<bool, errors::AdapterWebhookError> {
-        let mut conn = db_pool
-            .get()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
-        let transaction = conn
-            .transaction()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
         let event_type_clone = parsed.event_type.clone();
         let external_status = match self.external_status_to_service(parsed.event_type) {
             Some(status) => status,
@@ -198,57 +171,19 @@ impl Stripe {
         let invoice_id = Uuid::parse_str(invoice.metadata.meteroid_invoice_id.as_str())
             .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-        db::invoices::update_invoice_external_status()
-            .params(
-                &transaction,
-                &db::invoices::UpdateInvoiceExternalStatusParams {
-                    id: invoice_id,
-                    external_status,
-                },
-            )
-            .one()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
+        let tenant_id = Uuid::parse_str(invoice.metadata.meteroid_tenant_id.as_str())
+            .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-        let invoice = db::invoices::invoice_by_id()
-            .bind(&transaction, &invoice_id)
-            .one()
-            .await
-            .change_context(errors::AdapterWebhookError::DatabaseError)?;
-
-        if let Some(_) = Self::invoice_status_to_subscription_status(external_status) {
-            db::subscriptions::activate_subscription()
-                .params(
-                    &transaction,
-                    &db::subscriptions::ActivateSubscriptionParams {
-                        id: invoice.subscription_id,
-                        activated_at: time_utc_now(),
-                    },
-                )
-                .await
-                .change_context(errors::AdapterWebhookError::DatabaseError)?;
-        }
-
-        transaction
-            .commit()
+        store
+            .update_invoice_external_status(invoice_id, tenant_id, external_status)
             .await
             .change_context(errors::AdapterWebhookError::DatabaseError)?;
 
         Ok(true)
     }
 
-    fn invoice_status_to_subscription_status(
-        invoice_status: InvoiceExternalStatusEnum,
-    ) -> Option<SubscriptionStatus> {
-        match invoice_status {
-            InvoiceExternalStatusEnum::PAID => Some(SubscriptionStatus::Active),
-            // todo what if payment failed? should we leave subscription Pending?
-            _ => None,
-        }
-    }
-
     fn db_invoice_to_external<'a>(
-        invoice: &'a meteroid_repository::invoices::Invoice,
+        invoice: &'a domain::Invoice,
         stripe_customer: &'a String,
         collection_method: CollectionMethod,
     ) -> CreateInvoice<'a> {
@@ -257,7 +192,13 @@ impl Stripe {
             currency: Some(invoice.currency.as_str()),
             collection_method: Some(collection_method),
             days_until_due: match collection_method {
-                CollectionMethod::SendInvoice => invoice.days_until_due.map(|d| d as u32),
+                CollectionMethod::SendInvoice => {
+                    if invoice.net_terms > 0 {
+                        Some(invoice.net_terms as u32)
+                    } else {
+                        None
+                    }
+                }
                 _ => None,
             },
             customer: Some(stripe_customer.as_ref()),
@@ -271,8 +212,8 @@ impl Stripe {
 
     fn db_invoice_item_to_external<'a>(
         stripe_invoice: &'a Invoice,
-        invoice: &'a meteroid_repository::invoices::Invoice,
-        line: &'a InvoiceLine,
+        invoice: &'a domain::Invoice,
+        line: &'a LineItem,
     ) -> Result<CreateInvoiceItem<'a>, InvoicingAdapterError> {
         Ok(CreateInvoiceItem {
             amount: Some(line.total),
@@ -280,16 +221,10 @@ impl Stripe {
             customer: stripe_invoice.customer.as_deref().unwrap(),
             description: Some(line.name.as_str()),
             invoice: Some(stripe_invoice.id.as_str()),
-            period: line
-                .period
-                .as_ref()
-                .map(|period| {
-                    Ok::<Period, Report<InvoicingAdapterError>>(Period {
-                        start: Some(Self::chrono_date_to_timestamp(period.from)?),
-                        end: Some(Self::chrono_date_to_timestamp(period.to)?),
-                    })
-                })
-                .transpose()?,
+            period: Some(Period {
+                start: Some(Self::chrono_date_to_timestamp(line.start_date)?),
+                end: Some(Self::chrono_date_to_timestamp(line.end_date)?),
+            }),
         })
     }
 
@@ -297,7 +232,7 @@ impl Stripe {
         let date_time = date
             .and_hms_opt(0, 0, 0)
             .ok_or(InvoicingAdapterError::InvalidData)?;
-        Ok(date_time.timestamp())
+        Ok(date_time.and_utc().timestamp())
     }
 
     fn extract_stripe_collection_method(
@@ -320,19 +255,17 @@ impl Stripe {
     }
 
     fn extract_stripe_customer_id(customer: &Customer) -> Result<String, InvoicingAdapterError> {
-        Ok(Self::extract_stripe_billing_config(customer)?.customer_id)
+        Ok(Self::extract_stripe_billing_config(customer)?
+            .customer_id
+            .clone())
     }
 
     fn extract_stripe_billing_config(
         customer: &Customer,
-    ) -> Result<customer_billing_config::Stripe, InvoicingAdapterError> {
-        customer
-            .billing_config
-            .clone()
-            .and_then(|bc| bc.billing_config_oneof)
-            .map(|oneof| match oneof {
-                BillingConfigOneof::Stripe(stripe) => stripe,
-            })
-            .ok_or(Report::new(InvoicingAdapterError::InvalidData))
+    ) -> Result<&BillingConfigStripe, InvoicingAdapterError> {
+        match &customer.billing_config {
+            BillingConfig::Stripe(s) => Ok(s),
+            BillingConfig::Manual => bail!(InvoicingAdapterError::InvalidData),
+        }
     }
 }

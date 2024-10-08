@@ -4,10 +4,9 @@ package meteroid.metering.v1;
 
 import "models.proto";
 
-
 message IngestRequest {
   repeated Event events = 1;
-  // allow ingesting events with a timestamp in the past (with a larger diff that the grace period)
+  // allow ingesting events with a timestamp in the past (with a larger diff than the grace period)
   bool allow_backfilling = 2;
 }
 
@@ -18,8 +17,6 @@ message IngestFailure {
 message IngestResponse {
   repeated IngestFailure failures = 1;
 }
-
-
 
 service EventsService {
   rpc Ingest(IngestRequest) returns (IngestResponse);

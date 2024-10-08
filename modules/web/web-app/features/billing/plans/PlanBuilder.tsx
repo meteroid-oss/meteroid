@@ -1,11 +1,11 @@
-import { useMutation, createConnectQueryKey, disableQuery } from '@connectrpc/connect-query'
+import { disableQuery } from '@connectrpc/connect-query'
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
-import { useQueryClient } from '@tanstack/react-query'
-import { ColumnDef } from '@tanstack/react-table'
+import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
 import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
-import { ReactNode, useMemo } from 'react'
+import { ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -20,18 +20,15 @@ import {
   useIsDraftVersion,
   usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
+import { SubscriptionsTable } from '@/features/subscriptions'
 import { useQuery } from '@/lib/connectrpc'
-import { mapBillingPeriod, mapDate } from '@/lib/mapping'
-import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
-import {
-  createSubscription,
-  listSubscriptions,
-} from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
+import { PlanType } from '@/rpc/api/plans/v1/models_pb'
+import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 
 interface Props {
   children?: ReactNode
 }
+
 export const PlanBuilder: React.FC<Props> = ({ children }) => {
   const navigate = useNavigate()
 
@@ -61,6 +58,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                 <TabsTrigger value="overview">Details</TabsTrigger>
                 <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
                 <TabsTrigger value="alerts">Alerts</TabsTrigger>
+                <TabsTrigger value="versions">Versions</TabsTrigger>
               </TabsList>
               <TabsContent value="overview">
                 <PlanBody />
@@ -71,6 +69,9 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
               <TabsContent value="alerts">
                 <>Alerts are not implemented yet</>
               </TabsContent>
+              <TabsContent value="versions">
+                <>No UI yet</>
+              </TabsContent>
             </Tabs>
           </>
         )}
@@ -80,102 +81,46 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
   )
 }
 
-interface SubscriptionTableData {
-  name: string
-  version: number
-  accrued: string
-}
 const SubscriptionsTab = () => {
   const overview = usePlanOverview()
 
-  const queryClient = useQueryClient()
-
-  const createSubscriptionMutation = useMutation(createSubscription, {
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(listSubscriptions, { planId: overview?.planId }),
-      })
-    },
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 15,
   })
 
-  const { data: subscriptions } = useQuery(
+  const subscriptionsQuery = useQuery(
     listSubscriptions,
     overview
       ? {
           planId: overview.planId,
+          pagination: {
+            perPage: pagination.pageSize,
+            page: pagination.pageIndex,
+          },
         }
       : disableQuery
   )
 
-  // temporary
-  const { data: customers } = useQuery(listCustomers, {
-    pagination: {
-      limit: 1,
-      offset: 0,
-    },
-    sortBy: ListCustomerRequest_SortBy.NAME_ASC,
-  })
-
-  const subscriptionsData = subscriptions?.subscriptions?.map(subscription => ({
-    name: subscription.customerName,
-    version: subscription.version,
-    accrued: '$0',
-  }))
-
-  const customer = customers?.customers?.find(a => a.name === 'Comodo')
-
-  const quickCreateSubscription = async () => {
-    await createSubscriptionMutation.mutateAsync({
-      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
-      planVersionId: overview?.planVersionId!,
-      // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain
-      customerId: customer?.id!,
-      billingDay: 1,
-      billingStart: mapDate(new Date()),
-      netTerms: 0,
-      parameters: {
-        committedBillingPeriod: mapBillingPeriod('MONTHLY'),
-        parameters: [
-          {
-            componentId: '3b083801-c77c-4488-848e-a185f0f0a8be',
-            value: BigInt(3),
-          },
-        ],
-      },
-    })
-  }
-  // end temporaary
-
-  const columns = useMemo<ColumnDef<SubscriptionTableData>[]>(
-    () => [
-      {
-        header: 'Name',
-        accessorKey: 'name',
-      },
-      {
-        header: 'Version',
-        accessorKey: 'version',
-      },
-      {
-        header: 'Accrued',
-        accessorKey: 'accrued',
-      },
-    ],
-    []
-  )
+  const data = subscriptionsQuery.data?.subscriptions ?? []
+  const count = Number(subscriptionsQuery.data?.pagination?.totalItems ?? 0)
+  const isLoading = subscriptionsQuery.isLoading
 
   return (
     <div>
       <div className="flex py-2 justify-end">
-        <Button variant="secondary" onClick={quickCreateSubscription}>
+        <Button variant="secondary" onClick={() => toast('Unimplemented')}>
           + New subscription
         </Button>
       </div>
 
-      <SimpleTable
-        columns={columns}
-        data={subscriptionsData ?? []}
-        emptyMessage="No subscription"
+      <SubscriptionsTable
+        data={data}
+        totalCount={count}
+        pagination={pagination}
+        setPagination={setPagination}
+        isLoading={isLoading}
+        hidePlan
       />
     </div>
   )
@@ -196,63 +141,72 @@ const PlanBody = () => {
     return <>Failed to load plan</>
   }
 
+  const planType = plan.planDetails?.plan?.planType
+
   return (
     <>
       {plan.planDetails?.currentVersion && plan.planDetails.plan && (
         <PlanOverview plan={plan.planDetails.plan} version={plan.planDetails.currentVersion} />
       )}
+      {planType !== PlanType.FREE && (
+        <>
+          <PriceComponentSection />
 
-      <PriceComponentSection />
+          <PageSection
+            header={{
+              title: 'Trial',
+              subtitle:
+                'Define a period during which your customers can try out this plan for free.',
+            }}
+          >
+            <div className="space-x-4 ">
+              <div className="flex items-center space-x-3 opacity-75 text-muted-foreground text-sm">
+                <AlertCircleIcon size={16} strokeWidth={2} />
+                <div className="text-muted-foreground w-full">
+                  This plan has no configured trial.
+                </div>
+              </div>
+            </div>
+          </PageSection>
 
-      <PageSection
-        header={{
-          title: 'Trial',
-          subtitle: 'Define a period during which your customers can try out this plan for free.',
-        }}
-      >
-        <div className="space-x-4 ">
-          <div className="flex items-center space-x-3 opacity-75 text-muted-foreground text-sm">
-            <AlertCircleIcon size={16} strokeWidth={2} />
-            <div className="text-muted-foreground w-full">This plan has no configured trial.</div>
-          </div>
-        </div>
-      </PageSection>
+          <PageSection
+            header={{
+              title: 'Schedules',
+              subtitle: 'Define the phases of your plan.',
+            }}
+          >
+            <div className="space-x-4 ">
+              <SimpleTable columns={[]} data={[]} emptyMessage="No schedule configured" />
+            </div>
+          </PageSection>
+          <PageSection
+            header={{
+              title: 'Price points',
+              subtitle:
+                'Define alternative prices and currencies for this plans, for specific countries or audiences.',
+            }}
+          >
+            <Tabs defaultValue="localizations" className="w-full">
+              <TabsList className="w-full justify-start">
+                <TabsTrigger value="localizations">Localizations</TabsTrigger>
+                <TabsTrigger value="audiences">Audiences</TabsTrigger>
+                <TabsTrigger value="experimentations">Experimentations</TabsTrigger>
+              </TabsList>
+              <TabsContent value="localizations" className="pt-4">
+                <SimpleTable
+                  headTrClasses="!hidden"
+                  columns={[]}
+                  data={[]}
+                  emptyMessage="No price point"
+                />
+              </TabsContent>
+              <TabsContent value="audiences">Not implemented. Upvote TODO</TabsContent>
+              <TabsContent value="experimentations">Not implemented. Upvote TODO</TabsContent>
+            </Tabs>
+          </PageSection>
+        </>
+      )}
 
-      <PageSection
-        header={{
-          title: 'Schedules',
-          subtitle: 'Define the phases of your plan.',
-        }}
-      >
-        <div className="space-x-4 ">
-          <SimpleTable columns={[]} data={[]} emptyMessage="No schedule configured" />
-        </div>
-      </PageSection>
-      <PageSection
-        header={{
-          title: 'Price points',
-          subtitle:
-            'Define alternative prices and currencies for this plans, for specific countries or audiences.',
-        }}
-      >
-        <Tabs defaultValue="localizations" className="w-full">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="localizations">Localizations</TabsTrigger>
-            <TabsTrigger value="audiences">Audiences</TabsTrigger>
-            <TabsTrigger value="experimentations">Experimentations</TabsTrigger>
-          </TabsList>
-          <TabsContent value="localizations" className="pt-4">
-            <SimpleTable
-              headTrClasses="!hidden"
-              columns={[]}
-              data={[]}
-              emptyMessage="No price point"
-            />
-          </TabsContent>
-          <TabsContent value="audiences">Not implemented. Upvote TODO</TabsContent>
-          <TabsContent value="experimentations">Not implemented. Upvote TODO</TabsContent>
-        </Tabs>
-      </PageSection>
       <PageSection
         header={{
           title: 'Addons',

@@ -1,7 +1,10 @@
-use deadpool_postgres::tokio_postgres;
+use std::error::Error;
+
+use error_stack::Report;
 use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
 pub enum UserApiError {
@@ -13,27 +16,11 @@ pub enum UserApiError {
     #[code(InvalidArgument)]
     MissingArgument(String),
 
-    #[error("Serialization error: {0}")]
-    #[code(InvalidArgument)]
-    SerializationError(String, #[source] serde_json::Error),
-
-    #[error("Mapping error: {0}")]
-    #[code(Internal)]
-    MappingError(String, #[source] crate::api::errors::DatabaseError),
-
-    #[error("JWT error: {0}")]
-    #[code(Internal)]
-    JWTError(String, #[source] jsonwebtoken::errors::Error),
-
-    #[error("Password hashing error: {0}")]
-    #[code(Internal)]
-    PasswordHashingError(String),
-
     #[error("Authentication error: {0}")]
     #[code(Unauthenticated)]
     AuthenticationError(String),
 
-    #[error("User already exists error")]
+    #[error("A user with that email already exists.")]
     #[code(AlreadyExists)]
     UserAlreadyExistsError,
 
@@ -41,11 +28,23 @@ pub enum UserApiError {
     #[code(PermissionDenied)]
     RegistrationClosed(String),
 
-    #[error("Entity not found: {0}")]
-    #[code(NotFound)]
-    DatabaseEntityNotFoundError(String, #[source] tokio_postgres::Error),
-
-    #[error("Database error: {0}")]
+    #[error("Store error: {0}")]
     #[code(Internal)]
-    DatabaseError(String, #[source] tokio_postgres::Error),
+    StoreError(String, #[source] Box<dyn Error>),
+}
+
+impl From<Report<StoreError>> for UserApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        let err = value.current_context();
+
+        match err {
+            StoreError::LoginError(str) => Self::AuthenticationError(str.clone()),
+            StoreError::DuplicateValue { entity: _, key: _ } => Self::UserAlreadyExistsError,
+            StoreError::UserRegistrationClosed(value) => Self::RegistrationClosed(value.clone()),
+            _e => Self::StoreError(
+                "Error in user service".to_string(),
+                Box::new(value.into_error()),
+            ),
+        }
+    }
 }

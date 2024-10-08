@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package meteroid.api.invoicingentities.v1;
+
+import "api/invoicingentities/v1/models.proto";
+
+message ListInvoicingEntitiesRequest {}
+
+message ListInvoicingEntitiesResponse {
+  repeated InvoicingEntity entities = 1;
+}
+
+message CreateInvoicingEntityRequest {
+  InvoicingEntityData data = 1;
+}
+
+message CreateInvoicingEntityResponse {
+  InvoicingEntity entity = 1;
+}
+
+message UpdateInvoicingEntityRequest {
+  string id = 1;
+  InvoicingEntityData data = 2;
+}
+
+message UpdateInvoicingEntityResponse {
+  InvoicingEntity entity = 1;
+}
+
+message UploadInvoicingEntityLogoRequest {
+  string id = 1;
+  FileData file = 2;
+}
+
+message UploadInvoicingEntityLogoResponse {
+  optional string logo_uid = 1;
+}
+
+message GetInvoicingEntityRequest {
+  // use null for default
+  optional string id = 1;
+}
+
+message GetInvoicingEntityResponse {
+  InvoicingEntity entity = 1;
+}
+
+service InvoicingEntitiesService {
+  rpc GetInvoicingEntity(GetInvoicingEntityRequest) returns (GetInvoicingEntityResponse) {}
+  rpc ListInvoicingEntities(ListInvoicingEntitiesRequest) returns (ListInvoicingEntitiesResponse) {}
+  rpc CreateInvoicingEntity(CreateInvoicingEntityRequest) returns (CreateInvoicingEntityResponse) {}
+  rpc UpdateInvoicingEntity(UpdateInvoicingEntityRequest) returns (UpdateInvoicingEntityResponse) {}
+  rpc UploadInvoicingEntityLogo(UploadInvoicingEntityLogoRequest) returns (UploadInvoicingEntityLogoResponse) {}
+}

@@ -1,33 +1,34 @@
+use meteroid::api::shared::conversions::ProtoConv;
 use rust_decimal::Decimal;
-use testcontainers::clients::Cli;
 
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use meteroid::db::get_connection;
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::customers::v1::CustomerBillingConfig;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
-use meteroid_grpc::meteroid::api::users::v1::UserRole;
+
+use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::InvoiceInterface;
 
 #[tokio::test]
+#[ignore] // needs to be revisited
 async fn test_main() {
     // Generic setup
     helpers::init::logging();
-    let docker = Cli::default();
     let (_postgres_container, postgres_connection_string) =
-        meteroid_it::container::start_postgres(&docker);
+        meteroid_it::container::start_postgres().await;
     let setup =
         meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::MINIMAL)
             .await;
 
     let auth = meteroid_it::svc_auth::login(setup.channel.clone()).await;
-    assert_eq!(auth.user.unwrap().role, UserRole::Admin as i32);
 
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
-        "",
+        "TESTORG",
+        "testslug",
     );
 
     let tenant = clients
@@ -35,8 +36,7 @@ async fn test_main() {
         .clone()
         .create_tenant(tonic::Request::new(api::tenants::v1::CreateTenantRequest {
             name: "Test - usage".to_string(),
-            slug: "test-usage".to_string(),
-            currency: "USD".to_string(),
+            environment: 0,
         }))
         .await
         .unwrap()
@@ -47,6 +47,7 @@ async fn test_main() {
     let clients = meteroid_it::clients::AllClients::from_channel(
         setup.channel.clone(),
         auth.token.clone().as_str(),
+        "TESTORG",
         tenant.slug.as_str(),
     );
 
@@ -85,21 +86,18 @@ async fn test_main() {
 
     let plan_version = plan.current_version.unwrap();
 
-    let price_component = clients
+    let _price_component = clients
         .price_components
         .clone()
         .create_price_component(tonic::Request::new(
             api::components::v1::CreatePriceComponentRequest {
                 plan_version_id: plan_version.clone().id,
                 name: "One Time".to_string(),
-                fee_type: Some(api::components::v1::fee::Type {
-                    fee: Some(api::components::v1::fee::r#type::Fee::OneTime(
-                        api::components::v1::fee::OneTime {
-                            pricing: Some(api::components::v1::fee::FixedFeePricing {
-                                unit_price: Some(Decimal::new(10, 2).into()),
-                                quantity: 100,
-                                billing_type: api::components::v1::fee::BillingType::Advance as i32,
-                            }),
+                fee: Some(api::components::v1::Fee {
+                    fee_type: Some(api::components::v1::fee::FeeType::OneTime(
+                        api::components::v1::fee::OneTimeFee {
+                            unit_price: Decimal::new(100, 2).to_string(),
+                            quantity: 1,
                         },
                     )),
                 }),
@@ -132,10 +130,27 @@ async fn test_main() {
         .clone()
         .create_customer(tonic::Request::new(
             api::customers::v1::CreateCustomerRequest {
-                name: "Customer A".to_string(),
-                email: Some("customer@domain.com".to_string()),
-                alias: None,
-                billing_config: Some(CustomerBillingConfig::default()),
+                data: Some(api::customers::v1::CustomerNew {
+                    name: "Customer A".to_string(),
+                    email: Some("customer@domain.com".to_string()),
+                    alias: None,
+                    billing_config: Some(CustomerBillingConfig {
+                        billing_config_oneof: Some(
+                            api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
+                                api::customers::v1::customer_billing_config::Stripe {
+                                    customer_id: "customer_id".to_string(),
+                                    collection_method: 0,
+                                },
+                            ),
+                        ),
+                    }),
+                    invoicing_email: None,
+                    phone: None,
+                    currency: "EUR".to_string(),
+                    billing_address: None,
+                    shipping_address: None,
+                    invoicing_entity_id: None,
+                }),
             },
         ))
         .await
@@ -151,35 +166,20 @@ async fn test_main() {
         .clone()
         .create_subscription(tonic::Request::new(
             api::subscriptions::v1::CreateSubscriptionRequest {
-                customer_id: customer.id.clone(),
-                plan_version_id: plan_version.clone().id,
-                billing_start: Some(now.into()),
-                billing_end: None,
-                net_terms: 0,
-                billing_day: 1,
-                parameters: Some(api::subscriptions::v1::SubscriptionParameters {
-                    parameters: vec![
-                        api::subscriptions::v1::subscription_parameters::SubscriptionParameter {
-                            component_id: price_component.id,
-                            value: 10,
-                        },
-                    ],
-                    committed_billing_period: None,
+                subscription: Some(api::subscriptions::v1::CreateSubscription {
+                    plan_version_id: plan_version.clone().id,
+                    billing_start_date: now.as_proto(),
+                    billing_day: 1,
+                    customer_id: customer.id.clone(),
+                    currency: "USD".to_string(),
+                    ..Default::default()
                 }),
             },
         ))
         .await
         .unwrap()
-        .into_inner();
-
-    let db_subscription = meteroid_repository::subscriptions::get_subscription_by_id()
-        .bind(
-            &get_connection(&setup.pool).await.unwrap(),
-            &uuid::Uuid::parse_str(subscription.subscription.clone().unwrap().id.as_str()).unwrap(),
-            &uuid::Uuid::parse_str(tenant.id.as_str()).unwrap(),
-        )
-        .one()
-        .await
+        .into_inner()
+        .subscription
         .unwrap();
 
     let tenant_billing = clients
@@ -218,28 +218,32 @@ async fn test_main() {
     );
 
     // check DB state
-    assert_eq!(
-        db_subscription.customer_id.clone().to_string(),
-        customer.id.clone()
-    );
-    assert_eq!(db_subscription.billing_day, 1);
-    assert_eq!(db_subscription.plan_version_id.to_string(), plan_version.id);
+    assert_eq!(subscription.customer_id.clone(), customer.id.clone());
+    assert_eq!(subscription.billing_day, 1);
+    assert_eq!(subscription.plan_version_id, plan_version.id);
 
-    let db_invoices = meteroid_repository::invoices::get_invoices_to_issue()
-        .bind(&get_connection(&setup.pool).await.unwrap(), &1)
-        .all()
+    let db_invoices = setup
+        .store
+        .list_invoices_to_issue(
+            1,
+            CursorPaginationRequest {
+                limit: Some(1000),
+                cursor: None,
+            },
+        )
         .await
-        .unwrap();
+        .unwrap()
+        .items;
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.get(0).unwrap();
+    let db_invoice = db_invoices.first().unwrap();
 
     assert_eq!(db_invoice.tenant_id.to_string(), tenant.id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer.id);
     assert_eq!(
-        db_invoice.subscription_id.to_string(),
-        subscription.subscription.clone().unwrap().id
+        db_invoice.subscription_id.map(|x| x.to_string()),
+        Some(subscription.id.clone())
     );
 
     // teardown

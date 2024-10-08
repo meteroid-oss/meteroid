@@ -1,7 +1,7 @@
 import {
   createConnectQueryKey,
-  useMutation,
   createProtobufSafeUpdater,
+  useMutation,
 } from '@connectrpc/connect-query'
 import { Button } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
@@ -9,7 +9,7 @@ import { atom, useAtom, useSetAtom } from 'jotai'
 import { useHydrateAtoms } from 'jotai/utils'
 import { focusAtom } from 'jotai-optics'
 import { ScopeProvider } from 'jotai-scope'
-import { ChevronRightIcon, ChevronDownIcon, PencilIcon, CheckIcon, XIcon } from 'lucide-react'
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, PencilIcon, XIcon } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { DeepPartial } from 'react-hook-form'
 import { match } from 'ts-pattern'
@@ -26,8 +26,8 @@ import {
   feeTypeToHuman,
   usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
-import { mapFeeType } from '@/lib/mapping/feesToGrpc'
-import { formPriceCompoentSchema, FormPriceComponent, PriceComponent } from '@/lib/schemas/plans'
+import { mapFee } from '@/lib/mapping/feesToGrpc'
+import { FormPriceComponent, PriceComponent, formPriceCompoentSchema } from '@/lib/schemas/plans'
 import {
   createPriceComponent as createPriceComponentMutation,
   editPriceComponent as editPriceComponentMutation,
@@ -38,6 +38,7 @@ interface CreatePriceComponentProps {
   createRef: string
   component: DeepPartial<PriceComponent>
 }
+
 export const CreatePriceComponent = ({ createRef, component }: CreatePriceComponentProps) => {
   const setAddedComponents = useSetAtom(addedComponentsAtom)
 
@@ -78,7 +79,7 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
       planVersionId: overview.planVersionId,
       // productItemId: undefined, // TODO
       name: data.name,
-      feeType: mapFeeType(data.fee),
+      fee: mapFee(data.fee),
     })
   }
 
@@ -92,6 +93,7 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
 interface EditPriceComponentProps {
   component: PriceComponent
 }
+
 export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   const setEditedComponents = useSetAtom(editedComponentsAtom)
 
@@ -136,9 +138,9 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
       planVersionId: overview.planVersionId,
       component: {
         id: component.id,
-        feeType: mapFeeType(data.fee),
+        fee: mapFee(data.fee),
         name: data.name,
-        productItem: undefined, // TODO
+        productItemId: undefined, // TODO
       },
     })
   }
@@ -173,6 +175,7 @@ interface PriceComponentFormProps {
   cancel: () => void
   onSubmit: (data: FormPriceComponent) => void
 }
+
 const PriceComponentForm = ({ cancel, onSubmit: _onSubmit }: PriceComponentFormProps) => {
   const [feeType] = useAtom(componentFeeTypeAtom)
   const [name] = useAtom(componentNameAtom)
@@ -183,17 +186,17 @@ const PriceComponentForm = ({ cancel, onSubmit: _onSubmit }: PriceComponentFormP
 
   return match<typeof feeType, ReactNode>(feeType)
     .with('rate', () => <SubscriptionRateForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('slot_based', () => <SlotsForm cancel={cancel} onSubmit={onSubmit} />)
+    .with('slot', () => <SlotsForm cancel={cancel} onSubmit={onSubmit} />)
     .with('capacity', () => <CapacityForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('usage_based', () => <UsageBasedForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('recurring', () => <RecurringForm cancel={cancel} onSubmit={onSubmit} />)
-    .with('one_time', () => <OneTimeForm cancel={cancel} onSubmit={onSubmit} />)
+    .with('usage', () => <UsageBasedForm cancel={cancel} onSubmit={onSubmit} />)
+    .with('extraRecurring', () => <RecurringForm cancel={cancel} onSubmit={onSubmit} />)
+    .with('oneTime', () => <OneTimeForm cancel={cancel} onSubmit={onSubmit} />)
     .otherwise(() => <div>Unknown fee type. Please contact support</div>)
 }
 
 const editedComponentAtom = atom<DeepPartial<PriceComponent>>({})
 
-const componentNameAtom = focusAtom(editedComponentAtom, optic => optic.prop('name'))
+export const componentNameAtom = focusAtom(editedComponentAtom, optic => optic.prop('name'))
 export const componentFeeAtom = focusAtom(editedComponentAtom, optic => optic.prop('fee'))
 const componentFeeTypeAtom = focusAtom(componentFeeAtom, optic => optic.optional().prop('fee'))
 
@@ -213,6 +216,7 @@ export interface EditPriceComponentCard {
   submit: () => void
   children: ReactNode
 }
+
 export const EditPriceComponentCard = ({ cancel, submit, children }: EditPriceComponentCard) => {
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [feeType] = useAtom(componentFeeTypeAtom)

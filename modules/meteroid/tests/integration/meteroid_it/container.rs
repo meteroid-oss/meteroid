@@ -1,27 +1,28 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use deadpool_postgres::Pool;
-use testcontainers::clients::Cli;
-use testcontainers::{Container, RunnableImage};
-
+use diesel_async::SimpleAsyncConnection;
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{ContainerAsync, ImageExt};
 use testcontainers_modules::postgres::Postgres;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
 
-use meteroid::config::Config;
-use meteroid::repo::provider_config::ProviderConfigRepoCornucopia;
-use meteroid_repository::migrations;
-
 use crate::helpers;
+use meteroid::config::Config;
+use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
+use meteroid::migrations;
+use meteroid::services::storage::in_memory_object_store;
+use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
+use meteroid_store::store::PgPool;
 
 pub struct MeteroidSetup {
     pub token: CancellationToken,
     pub join_handle: JoinHandle<()>,
     pub channel: Channel,
     pub config: Config,
-    pub pool: Pool,
+    pub store: meteroid_store::Store,
 }
 
 pub async fn start_meteroid_with_port(
@@ -29,32 +30,40 @@ pub async fn start_meteroid_with_port(
     metering_port: u16,
     postgres_connection_string: String,
     seed_level: SeedLevel,
+    usage_client: Arc<dyn UsageClient>,
 ) -> MeteroidSetup {
-    let invoicing_webhook_addr =
-        helpers::network::free_local_socket().expect("Could not get webhook addr");
+    let rest_api_addr = helpers::network::free_local_socket().expect("Could not get webhook addr");
 
     let config = super::config::mocked_config(
         postgres_connection_string,
-        invoicing_webhook_addr,
+        rest_api_addr,
         meteroid_port,
         metering_port,
     );
 
-    let pool = meteroid_repository::create_pool(&config.database_url);
-
-    populate_postgres(pool.clone(), seed_level).await;
-
     let token = CancellationToken::new();
     let cloned_token = token.clone();
 
-    let provider_config_repo = Arc::new(ProviderConfigRepoCornucopia {
-        pool: pool.clone(),
-        crypt_key: config.secrets_crypt_key.clone(),
-    });
+    let store = meteroid_store::Store::new(
+        config.database_url.clone(),
+        config.secrets_crypt_key.clone(),
+        config.jwt_secret.clone(),
+        config.multi_organization_enabled,
+        create_eventbus_memory(),
+        usage_client,
+    )
+    .expect("Could not create store");
 
-    log::info!("Starting gRPC server {}", config.listen_addr);
-    let private_server =
-        meteroid::api::server::start_api_server(config.clone(), pool.clone(), provider_config_repo);
+    populate_postgres(&store.pool, seed_level).await;
+
+    setup_eventbus_handlers(store.clone(), config.clone()).await;
+
+    log::info!("Starting gRPC server {}", config.grpc_listen_addr);
+    let private_server = meteroid::api::server::start_api_server(
+        config.clone(),
+        store.clone(),
+        in_memory_object_store(),
+    );
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
@@ -67,7 +76,7 @@ pub async fn start_meteroid_with_port(
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let meteroid_endpoint = format!("http://{}", config.listen_addr);
+    let meteroid_endpoint = format!("http://{}", config.grpc_listen_addr);
 
     log::info!("Creating gRPC channel {}", meteroid_endpoint);
 
@@ -76,11 +85,11 @@ pub async fn start_meteroid_with_port(
         .connect_lazy();
 
     MeteroidSetup {
-        token: token,
+        token,
         join_handle: join_handle_meteroid,
-        channel: channel,
+        channel,
         config: config.clone(),
-        pool: pool,
+        store,
     }
 }
 
@@ -96,6 +105,7 @@ pub async fn start_meteroid(
         metering_port,
         postgres_connection_string,
         seed_level,
+        Arc::new(MockUsageClient::noop()),
     )
     .await
 }
@@ -117,11 +127,10 @@ pub async fn terminate_meteroid(token: CancellationToken, join_handle: JoinHandl
     log::info!("Stopped meteroid server");
 }
 
-pub fn start_postgres<'a>(docker: &'a Cli) -> (Container<'a, Postgres>, String) {
-    let image = RunnableImage::from(Postgres::default()).with_tag("15.2");
-    let container = docker.run(image);
+pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
+    let container = Postgres::default().with_tag("15.2").start().await.unwrap();
 
-    let port = container.get_host_port_ipv4(5432);
+    let port = container.get_host_port_ipv4(5432).await.unwrap();
 
     let connection_string = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
 
@@ -130,23 +139,23 @@ pub fn start_postgres<'a>(docker: &'a Cli) -> (Container<'a, Postgres>, String) 
     (container, connection_string)
 }
 
-pub async fn populate_postgres(pool: Pool, seed_level: SeedLevel) {
-    let mut conn = meteroid::db::get_connection(&pool).await.unwrap();
+pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
+    migrations::run(pool).await.unwrap();
 
-    migrations::run_migrations(&mut **conn).await.unwrap();
+    let mut conn = pool.get().await.unwrap();
 
     for seed in seed_level.seeds() {
         let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
         conn.batch_execute(contents.as_str())
             .await
-            .map_err(|err| {
+            .inspect_err(|_err| {
                 eprintln!("Seed failed to apply : {}", seed.path());
-                err
             })
             .unwrap();
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum SeedLevel {
     MINIMAL,
     PRODUCT,
@@ -171,6 +180,7 @@ impl SeedLevel {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum Seed {
     MINIMAL,
     CUSTOMERS,

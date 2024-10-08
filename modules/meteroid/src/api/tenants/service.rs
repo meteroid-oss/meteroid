@@ -1,50 +1,84 @@
 use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::BillingConfigOneof;
 use meteroid_grpc::meteroid::api::tenants::v1::{
     tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
     ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest,
     CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest,
-    ListTenantsResponse, Tenant,
+    ListTenantsResponse, UpdateTenantRequest, UpdateTenantResponse,
 };
-use meteroid_repository as db;
-use meteroid_repository::Params;
+use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
+use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
+use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 
 use crate::api::tenants::error::TenantApiError;
-use crate::repo::provider_config::model::InvoicingProvider;
-use crate::{
-    api::utils::{parse_uuid, uuid_gen},
-    parse_uuid,
-};
+use crate::{api::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, TenantServiceComponents};
 
 #[tonic::async_trait]
 impl TenantsService for TenantServiceComponents {
     #[tracing::instrument(skip_all)]
+    async fn update_tenant(
+        &self,
+        request: Request<UpdateTenantRequest>,
+    ) -> Result<Response<UpdateTenantResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let organization_id = request.organization()?;
+
+        let inner = request
+            .into_inner()
+            .data
+            .ok_or(TenantApiError::MissingArgument(
+                "No data provided".to_string(),
+            ))?;
+
+        let req = mapping::tenants::update_req_to_domain(inner);
+
+        let organization = self
+            .store
+            .get_organization_by_id(organization_id)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        let res = self
+            .store
+            .update_tenant(req, organization_id, tenant_id)
+            .await
+            .map(mapping::tenants::domain_to_server)
+            .map_err(Into::<TenantApiError>::into)?;
+
+        invalidate_resolve_slugs_cache(&organization.slug, &res.slug).await;
+        invalidate_reporting_currency_cache(&tenant_id).await;
+
+        Ok(Response::new(UpdateTenantResponse { tenant: Some(res) }))
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn active_tenant(
         &self,
         request: Request<ActiveTenantRequest>,
     ) -> Result<Response<ActiveTenantResponse>, Status> {
         let tenant_id = request.tenant()?;
-        let connection = self.get_connection().await?;
+        let organization_id = request.organization()?;
 
-        let db_tenant = db::tenants::get_tenant_by_id()
-            .bind(&connection, &tenant_id)
-            .one()
+        let tenant = self
+            .store
+            .find_tenant_by_id_and_organization(tenant_id, organization_id)
             .await
-            .map_err(|e| {
-                TenantApiError::DatabaseError("failed to get tenant by id".to_string(), e)
-            })?;
+            .map(mapping::tenants::domain_to_server)
+            .map_err(Into::<TenantApiError>::into)?;
+
+        let organization = self
+            .store
+            .get_organization_by_id(organization_id)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
 
         Ok(Response::new(ActiveTenantResponse {
-            tenant: Some(Tenant {
-                id: db_tenant.id.to_string(),
-                name: db_tenant.name,
-                slug: db_tenant.slug,
-                currency: db_tenant.currency,
-            }),
+            tenant: Some(tenant),
+            trade_name: organization.trade_name,
             billing_config: None, // todo load it from provider_config if needed
         }))
     }
@@ -54,20 +88,18 @@ impl TenantsService for TenantServiceComponents {
         &self,
         request: Request<ListTenantsRequest>,
     ) -> Result<Response<ListTenantsResponse>, Status> {
-        let connection = self.get_connection().await?;
+        let organization = request.organization()?;
 
-        let tenants = db::tenants::tenants_per_user()
-            .bind(&connection, &request.actor()?)
-            .all()
+        let result = self
+            .store
+            .list_tenants_by_organization_id(organization)
             .await
-            .map_err(|e| {
-                TenantApiError::DatabaseError("failed to get tenants for user".to_string(), e)
-            })?;
-
-        let result = tenants
-            .into_iter()
-            .map(mapping::tenants::db_to_server)
-            .collect::<Vec<_>>();
+            .map(|x| {
+                x.into_iter()
+                    .map(mapping::tenants::domain_to_server)
+                    .collect()
+            })
+            .map_err(Into::<TenantApiError>::into)?;
 
         Ok(Response::new(ListTenantsResponse { tenants: result }))
     }
@@ -77,24 +109,20 @@ impl TenantsService for TenantServiceComponents {
         &self,
         request: Request<GetTenantByIdRequest>,
     ) -> Result<Response<GetTenantByIdResponse>, Status> {
-        let req = request.into_inner();
-        let connection = self.get_connection().await?;
+        let organization_id = request.organization()?;
 
-        let db_tenant = db::tenants::get_tenant_by_id()
-            .bind(&connection, &parse_uuid!(&req.tenant_id)?)
-            .one()
+        let req = request.into_inner();
+        let tenant_id = parse_uuid!(&req.tenant_id)?;
+
+        let tenant = self
+            .store
+            .find_tenant_by_id_and_organization(tenant_id, organization_id)
             .await
-            .map_err(|e| {
-                TenantApiError::DatabaseError("failed to get tenant by id".to_string(), e)
-            })?;
+            .map(mapping::tenants::domain_to_server)
+            .map_err(Into::<TenantApiError>::into)?;
 
         Ok(Response::new(GetTenantByIdResponse {
-            tenant: Some(Tenant {
-                id: db_tenant.id.to_string(),
-                name: db_tenant.name,
-                slug: db_tenant.slug,
-                currency: db_tenant.currency,
-            }),
+            tenant: Some(tenant),
             billing_config: None, // todo load it from provider_config if needed
         }))
     }
@@ -104,27 +132,19 @@ impl TenantsService for TenantServiceComponents {
         &self,
         request: Request<CreateTenantRequest>,
     ) -> Result<Response<CreateTenantResponse>, Status> {
-        let actor = request.actor()?;
+        let organization_id = request.organization()?;
 
-        let req = request.into_inner();
-        let connection = self.get_connection().await?;
+        let req = mapping::tenants::create_req_to_domain(request.into_inner());
 
-        let params = db::tenants::CreateTenantForUserParams {
-            id: uuid_gen::v7(),
-            name: req.name,
-            slug: req.slug,
-            currency: req.currency,
-            user_id: actor,
-        };
-
-        let tenant = db::tenants::create_tenant_for_user()
-            .params(&connection, &params)
-            .one()
+        let res = self
+            .store
+            .insert_tenant(req, organization_id)
             .await
-            .map_err(|e| TenantApiError::DatabaseError("failed to create tenant".to_string(), e))?;
+            .map_err(Into::<TenantApiError>::into)?;
 
-        let rs = mapping::tenants::db_to_server(tenant);
-        Ok(Response::new(CreateTenantResponse { tenant: Some(rs) }))
+        Ok(Response::new(CreateTenantResponse {
+            tenant: Some(mapping::tenants::domain_to_server(res)),
+        }))
     }
 
     #[tracing::instrument(skip_all)]
@@ -135,42 +155,17 @@ impl TenantsService for TenantServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let billing_config = req
-            .billing_config
-            .clone()
-            .ok_or(TenantApiError::MissingArgument(
-                "billing_config".to_string(),
-            ))?
-            .billing_config_oneof
-            .ok_or(TenantApiError::MissingArgument(
-                "billing_config_oneof".to_string(),
-            ))?;
+        let cfg = mapping::provider_configs::create_req_server_to_domain(req, tenant_id)?;
 
-        match billing_config {
-            BillingConfigOneof::Stripe(stripe) => {
-                let wh_secret = secrecy::SecretString::new(stripe.webhook_secret);
-                let api_secret = secrecy::SecretString::new(stripe.api_secret);
+        let res = self
+            .store
+            .insert_provider_config(cfg)
+            .await
+            .map(mapping::provider_configs::domain_to_server)
+            .map_err(Into::<TenantApiError>::into)?;
 
-                let cfg = self
-                    .provider_config_repo
-                    .create_provider_config(
-                        InvoicingProvider::Stripe,
-                        tenant_id,
-                        api_secret,
-                        wh_secret,
-                    )
-                    .await
-                    .map_err(|e| {
-                        TenantApiError::DownstreamApiError(
-                            "failed to create tenant billing_config".to_string(),
-                            Box::new(e.into_error()),
-                        )
-                    })?;
-
-                Ok(Response::new(ConfigureTenantBillingResponse {
-                    billing_config: mapping::provider_configs::db_to_server(cfg),
-                }))
-            }
-        }
+        Ok(Response::new(ConfigureTenantBillingResponse {
+            billing_config: Some(res),
+        }))
     }
 }

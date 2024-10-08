@@ -1,8 +1,16 @@
-import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { FormControl, FormField, FormItem, FormLabel, FormMessage, Input, Separator , Modal ,
+import {
   Button,
   Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  Input,
+  Modal,
+  Separator,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -63,17 +71,21 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
             <form
               onSubmit={methods.handleSubmit(async values => {
                 const res = await createCustomerMut.mutateAsync({
-                  name: values.companyName,
-                  alias: values.externalId,
-                  billingConfig: {
-                    billingConfigOneof: {
-                      case: 'stripe',
-                      value: {
-                        collectionMethod:
-                          CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
-                        customerId: values.stripeCustomerId,
-                      },
-                    },
+                  data: {
+                    name: values.companyName,
+                    alias: values.externalId,
+                    billingConfig: values.stripeCustomerId
+                      ? {
+                          billingConfigOneof: {
+                            case: 'stripe',
+                            value: {
+                              collectionMethod:
+                                CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
+                              customerId: values.stripeCustomerId,
+                            },
+                          },
+                        }
+                      : undefined,
                   },
                 })
                 if (res.customer?.id) {

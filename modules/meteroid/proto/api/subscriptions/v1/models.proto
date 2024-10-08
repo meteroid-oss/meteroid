@@ -1,12 +1,12 @@
 syntax = "proto3";
 
-package meteroid.api.subscriptions.v1;
-
-import "common/v1/date.proto";
-import "api/pricecomponents/v1/models.proto";
 import "api/shared/v1/shared.proto";
+
 import "api/schedules/v1/models.proto";
-import "google/protobuf/timestamp.proto";
+import "api/pricecomponents/v1/models.proto";
+import "api/coupons/v1/models.proto";
+
+package meteroid.api.subscriptions.v1;
 
 enum SubscriptionStatus {
   PENDING = 0;
@@ -16,71 +16,223 @@ enum SubscriptionStatus {
   ENDED = 4;
 }
 
-message SubscriptionParameters {
-  repeated SubscriptionParameter parameters = 1;
-  optional meteroid.api.shared.v1.BillingPeriod committed_billing_period = 2;
+message Subscription {
+  string id = 1;
+  string customer_id = 2;
+  string customer_name = 3;
+  optional string customer_alias = 4;
+  uint32 billing_day = 5;
+  string tenant_id = 6;
+  string currency = 7;
+  optional string trial_start_date = 8;
+  string billing_start_date = 9;
+  optional string billing_end_date = 10;
+  string plan_id = 11;
+  string plan_name = 12;
+  string plan_version_id = 13;
+  uint32 version = 14;
+  string created_at = 15;
+  string created_by = 16;
+  uint32 net_terms = 17;
+  optional string invoice_memo = 18;
+  optional string invoice_threshold = 19;
+  optional string activated_at = 20;
+  optional string canceled_at = 21;
+  optional string cancellation_reason = 22;
+  uint64 mrr_cents = 23;
+  SubscriptionStatus status = 24;
+  // TODO accrued (total up until now ? ) , due (next billing cycle) , last X months of revenue for a graph ?
+}
 
-  message SubscriptionParameter {
-    string component_id = 1;
-    uint64 value = 2;
+message SubscriptionDetails {
+  Subscription subscription = 1;
+  repeated meteroid.api.schedules.v1.Schedule schedules = 2;
+  repeated SubscriptionComponent price_components = 3;
+  repeated BillableMetric metrics = 4;
+  repeated SubscriptionAddOn add_ons = 5;
+  repeated meteroid.api.coupons.v1.Coupon coupons = 6;
+}
+
+// TODO replace by subscription or even subscription details
+message CreatedSubscription {
+  string id = 1;
+  string customer_id = 2;
+  uint32 billing_day = 3;
+  string tenant_id = 4;
+  string currency = 5;
+  optional string trial_start_date = 6;
+  string billing_start_date = 7;
+  optional string billing_end_date = 8;
+  string plan_version_id = 9;
+  string created_at = 10;
+  string created_by = 11;
+  uint32 net_terms = 12;
+  optional string invoice_memo = 13;
+  optional string invoice_threshold = 14;
+  optional string activated_at = 15;
+  uint64 mrr_cents = 18;
+}
+
+message CreateSubscription {
+  string plan_version_id = 2;
+  string customer_id = 3;
+  string currency = 4;
+  optional string trial_start_date = 5;
+  string billing_start_date = 6;
+  optional string billing_end_date = 7;
+  uint32 billing_day = 8;
+  uint32 net_terms = 10;
+  optional string invoice_memo = 11;
+  optional string invoice_threshold = 12;
+  CreateSubscriptionComponents components = 14;
+  CreateSubscriptionAddOns add_ons = 15;
+  CreateSubscriptionCoupons coupons = 16;
+}
+
+message CreateSubscriptionAddOn {
+  string add_on_id = 1;
+
+  oneof customization {
+    AddOnParameterization parameterization = 2;
+    AddOnOverride override = 3;
+  }
+
+  message AddOnParameterization {
+    optional uint32 initial_slot_count = 1;
+    optional meteroid.api.shared.v1.BillingPeriod billing_period = 2;
+    optional uint64 committed_capacity = 3;
+  }
+
+  message AddOnOverride {
+    string name = 1;
+    SubscriptionFeeBillingPeriod period = 2;
+    SubscriptionFee fee = 3;
   }
 }
 
-message Subscription {
+message CreateSubscriptionAddOns {
+  repeated CreateSubscriptionAddOn add_ons = 1;
+}
+
+message SubscriptionAddOn {
   string id = 1;
-  string tenant_id = 2;
-  string customer_id = 3;
-  string plan_version_id = 4;
-  uint32 version = 5;
-  // string price_point_id = 5;
-  meteroid.common.v1.Date billing_start_date = 6;
-  meteroid.common.v1.Date billing_end_date = 7;
-  int32 net_terms = 8;
-  string currency = 9;
-  string customer_name = 10;
-  string plan_id = 11;
-  string plan_name = 12;
-  SubscriptionParameters parameters = 13;
-  SubscriptionStatus status = 14;
-  google.protobuf.Timestamp canceled_at = 15;
+  string add_on_id = 2;
+  string subscription_id = 3;
+  string name = 4;
+  SubscriptionFeeBillingPeriod period = 5;
+  SubscriptionFee fee = 6;
 }
 
+message CreateSubscriptionCoupon {
+  string coupon_id = 1;
+}
 
-// kept for compatibility, TODO remove
-message SubscriptionToInvoice {
+message CreateSubscriptionCoupons {
+  repeated CreateSubscriptionCoupon coupons = 1;
+}
+
+message CreateSubscriptionComponents {
+  repeated ComponentParameterization parameterized_components = 18;
+  repeated ComponentOverride overridden_components = 19;
+  repeated ExtraComponent extra_components = 20;
+  repeated string remove_components = 21;
+
+  message ComponentParameterization {
+    string component_id = 1;
+    optional uint32 initial_slot_count = 2;
+    optional meteroid.api.shared.v1.BillingPeriod billing_period = 3;
+    optional uint64 committed_capacity = 4;
+  }
+
+  message ComponentOverride {
+    string component_id = 1;
+    SubscriptionComponentNewInternal component = 2;
+  }
+
+  message ExtraComponent {
+    SubscriptionComponentNewInternal component = 1;
+  }
+}
+
+message BillableMetric {
   string id = 1;
-  string tenant_id = 2;
-  string customer_id = 3;
-  string plan_version_id = 4;
-  // string price_point_id = 5;
-  meteroid.common.v1.Date period_start = 6;
-  meteroid.common.v1.Date period_end = 7;
-  int32 net_terms = 8;
-  string currency = 9;
-  uint32 version = 10;
+  string alias = 2;
+  string name = 3;
 }
 
-// kept for compatibility, TODO remove
-message GetSubscriptionForComputeRequest {
-  string subscription_id = 1;
+
+message SubscriptionComponent {
+  string id = 1;
+  optional string price_component_id = 2;
+  optional string product_item_id = 3;
+  string subscription_id = 4;
+  string name = 5;
+  SubscriptionFeeBillingPeriod period = 6;
+  SubscriptionFee fee = 7;
+  bool is_override = 8;
 }
 
-// kept for compatibility, TODO remove
-message SubscriptionForCompute {
-  repeated components.v1.PriceComponent price_components = 1;
-  schedules.v1.Schedule schedule = 2;
-  uint32 current_period_idx = 3;
-  meteroid.common.v1.Date billing_start = 4;
-  meteroid.common.v1.Date billing_end = 5;
-  meteroid.common.v1.Date period_start = 6;
-  meteroid.common.v1.Date period_end = 7;
-  string currency = 8;
-  uint32 net_terms = 9;
-  bool group_by_product = 10;
-  // the minimum frequency at which we can emit invoices.
-  // ex: if yearly subscription rate + monthly usage-based, this is monthly.
-  meteroid.api.shared.v1.BillingPeriod effective_billing_period = 11;
 
-  SubscriptionParameters parameters = 12;
-  string customer_id = 13;
+message SubscriptionComponentNewInternal {
+  optional string price_component_id = 1;
+  optional string product_item_id = 2;
+  string name = 3;
+  SubscriptionFeeBillingPeriod period = 4;
+  SubscriptionFee fee = 5;
+}
+
+enum SubscriptionFeeBillingPeriod {
+  ONE_TIME = 0;
+  MONTHLY = 1;
+  QUARTERLY = 2;
+  YEARLY = 3;
+}
+
+
+message SubscriptionFee {
+  oneof fee {
+    RateSubscriptionFee rate = 1;
+    OneTimeSubscriptionFee one_time = 2;
+    ExtraRecurringSubscriptionFee recurring = 3;
+    CapacitySubscriptionFee capacity = 4;
+    SlotSubscriptionFee slot = 5;
+    meteroid.api.components.v1.UsageFee usage = 6;
+  }
+
+
+
+  message RateSubscriptionFee {
+    string rate = 1;
+  }
+
+  message OneTimeSubscriptionFee {
+    string rate = 1;
+    uint32 quantity = 2;
+    string total = 3;
+  }
+
+
+  message ExtraRecurringSubscriptionFee {
+    string rate = 1;
+    uint32 quantity = 2;
+    string total = 3;
+    meteroid.api.components.v1.Fee.BillingType billing_type = 4;
+  }
+
+  message CapacitySubscriptionFee {
+    string rate = 1;
+    uint64 included = 2;
+    string overage_rate = 3;
+    string metric_id = 4;
+  }
+
+  message SlotSubscriptionFee {
+    string unit = 1;
+    string unit_rate = 2;
+    optional uint32 min_slots = 3;
+    optional uint32 max_slots = 4;
+    uint32 initial_slots = 5;
+    meteroid.api.components.v1.Fee.UpgradePolicy upgrade_policy = 6;
+    meteroid.api.components.v1.Fee.DowngradePolicy downgrade_policy = 7;
+  }
 }

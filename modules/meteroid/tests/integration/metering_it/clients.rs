@@ -14,9 +14,9 @@ use common_grpc::middleware::client::auth::{
 pub type TestLayeredClientService = AdminAuthService<ApiAuthService<Channel>>;
 
 pub struct AllClients {
-    pub meters: MetersServiceClient<TestLayeredClientService>,
+    pub _meters: MetersServiceClient<TestLayeredClientService>,
     pub events: EventsServiceClient<TestLayeredClientService>,
-    pub usage: UsageQueryServiceClient<TestLayeredClientService>,
+    pub _usage: UsageQueryServiceClient<TestLayeredClientService>,
 }
 
 impl AllClients {
@@ -25,12 +25,12 @@ impl AllClients {
         api_token: &str,
         auth_config: &InternalAuthConfig,
     ) -> AllClients {
-        let service = Self::build_layered_client_service(channel, api_token, &auth_config);
+        let service = Self::build_layered_client_service(channel, api_token, auth_config);
 
         Self {
-            meters: MetersServiceClient::new(service.clone()),
+            _meters: MetersServiceClient::new(service.clone()),
             events: EventsServiceClient::new(service.clone()),
-            usage: UsageQueryServiceClient::new(service.clone()),
+            _usage: UsageQueryServiceClient::new(service.clone()),
         }
     }
 

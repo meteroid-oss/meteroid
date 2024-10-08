@@ -1,3 +1,5 @@
 pub mod currency_rates;
-pub mod stats;
+pub mod invoice_rendering;
+pub mod outbox;
+pub mod storage;
 pub mod subscription;

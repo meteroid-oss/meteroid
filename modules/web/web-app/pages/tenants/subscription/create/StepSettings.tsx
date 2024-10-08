@@ -3,11 +3,11 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
   DatePicker,
-  RadioGroupItem,
-  Label,
-  RadioGroup,
   Form,
   GenericFormField,
+  Label,
+  RadioGroup,
+  RadioGroupItem,
 } from '@ui/components'
 import { useAtom } from 'jotai'
 import { useNavigate } from 'react-router-dom'
@@ -17,7 +17,7 @@ import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { useZodForm } from '@/hooks/useZodForm'
-import { mapDate } from '@/lib/mapping'
+import { mapDatev2 } from '@/lib/mapping'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
 import {
   createSubscription,
@@ -44,12 +44,18 @@ export const StepSettings = () => {
       ...state,
       ...data,
     })
+
+    // TOD missing quite a lot of properties
     await createSubscriptionMutation.mutateAsync({
-      planVersionId: state.planVersionId,
-      customerId: state.customerId,
-      billingStart: mapDate(data.fromDate),
-      billingEnd: data.toDate && mapDate(data.toDate),
-      billingDay: data.billingDay === 'FIRST' ? 1 : data.fromDate.getDate(),
+      subscription: {
+        planVersionId: state.planVersionId,
+        customerId: state.customerId,
+        billingStartDate: mapDatev2(data.fromDate),
+        billingEndDate: data.toDate && mapDatev2(data.toDate),
+        billingDay: data.billingDay === 'FIRST' ? 1 : data.fromDate.getDate(),
+        currency: 'EUR', // TODO drop currency from subscription. That's a customer field
+        netTerms: 30,
+      },
     })
     toast.success('Subscription created')
     navigate('..')

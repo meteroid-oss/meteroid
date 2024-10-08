@@ -10,9 +10,8 @@ rand.workspace = true
 async-trait.workspace = true
 backon.workspace = true
 cached = { workspace = true, features = ["async", "tokio", "redis_store", "redis_tokio"] }
-chrono.workspace = true
+chrono = { workspace = true, features = ["clock", "serde"] }
 chrono-tz.workspace = true
-clickhouse-rs.workspace = true
 common-build-info.workspace = true
 common-config.workspace = true
 common-logging.workspace = true
@@ -20,16 +19,15 @@ dotenvy.workspace = true
 envconfig.workspace = true
 error-stack.workspace = true
 futures.workspace = true
-kafka.workspace = true
 log.workspace = true
 metering-grpc = { workspace = true, features = ["server"] }
 meteroid-grpc = { workspace = true, features = ["client"] }
 common-grpc = { workspace = true, features = ["server", "client"] }
-rdkafka = { workspace = true, features = ["ssl", "sasl"] }
 reqwest = { workspace = true }
 rust_decimal = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
+tap.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tonic.workspace = true
@@ -46,11 +44,25 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 tonic-tracing-opentelemetry.workspace = true
 once_cell = { workspace = true }
 opentelemetry = { workspace = true }
-uuid = { version = "1.6.1", features = ["v4"] }
+uuid = { workspace = true, features = ["v4"] }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
 prost-types.workspace = true
 quick_cache.workspace = true
 
+
+# kafka ingest deps
+kafka = { workspace = true, optional = true }
+rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
+
+# clickhosue connector deps
+clickhouse-rs = { workspace = true, optional = true }
+
 [[bin]]
 name = "metering-api"
 path = "src/bin/server.rs"
+
+[features]
+default = ["clickhouse", "kafka"]
+kafka = ["dep:kafka", "dep:rdkafka"]
+clickhouse = ["dep:clickhouse-rs"]
+openstack = []

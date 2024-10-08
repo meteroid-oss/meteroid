@@ -34,7 +34,7 @@ export const TenantPageLayout = ({
             <LayoutHeader familyPicker={familyPicker} title={displayTitle ? title : undefined} />
           </div>
         )}
-        <ScrollArea className="relative py-8 px-4">
+        <ScrollArea className="relative py-8 px-4 h-full">
           <div>{children}</div>
         </ScrollArea>
       </main>
@@ -52,7 +52,6 @@ export const TenantLayoutOutlet = ({
     <div className="flex h-full">
       {/* Left-most navigation side bar */}
       {!hideIconBar && <NavigationBar />}
-
       <Outlet />
     </div>
   )
