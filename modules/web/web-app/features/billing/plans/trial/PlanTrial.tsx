@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { forwardRef, useState } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -148,17 +148,32 @@ export function PlanTrialForm({
 
   const data = methods.watch()
 
-  const plansOptions = (plans.data?.plans ?? []).map(plan => ({
-    value: plan.id,
-    name: plan.name,
-  }))
+  const plansOptions = (plans.data?.plans ?? []).map(plan => {
+    const isCurrent = plan.id === currentPlanId
 
-  const nonFreePlansOptions = (
-    plans.data?.plans.filter(p => p.planType !== PlanType.FREE) ?? []
-  ).map(plan => ({
-    value: plan.id,
-    name: plan.name,
-  }))
+    return {
+      value: isCurrent ? null : plan.id,
+      name: isCurrent ? 'current' : plan.name,
+      type: plan.planType,
+      status: plan.planStatus,
+    }
+  })
+
+  const nonFreePlansOptions = plansOptions.filter(p => p.type !== PlanType.FREE)
+
+  const [trialingPlanId, trialType] = methods.watch(['trialingPlanId', 'trialType'])
+
+  useEffect(() => {
+    if (trialingPlanId === null) {
+      methods.resetField('trialType')
+    }
+  }, [trialingPlanId, currentPlanId, methods.resetField])
+
+  useEffect(() => {
+    if (trialType === 'paid') {
+      methods.resetField('downgradePlanId')
+    }
+  }, [trialType, currentPlanId, methods.resetField])
 
   return (
     <div className="space-y-4">
@@ -424,9 +439,9 @@ export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyPr
 }
 
 interface EditableSpanProps {
-  value?: string | number
-  onChange: (newValue: string | number) => void
-  options?: { name: string; value: string; label?: string }[]
+  value?: string | number | null
+  onChange: (newValue: string | number | null) => void
+  options?: { name: string; value: string | null; label?: string }[]
   type?: 'text' | 'number'
   emptyMessage?: string
   quotes?: boolean
@@ -460,7 +475,7 @@ const EditableSpan = forwardRef(
             </SelectTrigger>
             <SelectContent>
               {options.map(option => (
-                <SelectItem key={option.value} value={option.value}>
+                <SelectItem key={option.value} value={option.value as string}>
                   {option.name || option.label}
                 </SelectItem>
               ))}
@@ -471,7 +486,7 @@ const EditableSpan = forwardRef(
         return (
           <Input
             type={type}
-            value={value}
+            value={value as string | number}
             className="w-[200px] inline-flex"
             onChange={e =>
               onChange(type === 'number' ? parseInt(e.target.value, 10) : e.target.value)
@@ -486,12 +501,17 @@ const EditableSpan = forwardRef(
       }
     }
 
-    const msg = options ? options.find(o => o.value === value)?.name || value : value
+    const msg = options
+      ? options.find(o => o.value === value)?.name || value
+      : value ?? emptyMessage
+
+    const shouldQuote = quotes && msg != 'current'
+
     return (
       <span onClick={() => setIsEditing(true)} className="font-bold cursor-pointer underline">
-        {quotes && msg && <span>&quot;</span>}
+        {shouldQuote && <span>&quot;</span>}
         {msg ?? emptyMessage}
-        {quotes && msg && <span>&quot;</span>}
+        {shouldQuote && <span>&quot;</span>}
       </span>
     )
   }
