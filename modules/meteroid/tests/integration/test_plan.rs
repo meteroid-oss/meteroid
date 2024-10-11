@@ -103,6 +103,8 @@ async fn test_plans_basic() {
             sort_by: 0,
             search: None,
             pagination: None,
+            plan_type_filter: None,
+            plan_status_filter: None,
         })
         .await
         .unwrap()

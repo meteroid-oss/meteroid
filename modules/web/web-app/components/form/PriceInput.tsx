@@ -1,5 +1,5 @@
-import { InputProps, useFormField, cn } from '@md/ui'
-import { useEffect, useMemo, useState, forwardRef } from 'react'
+import { InputProps, cn, useFormField } from '@md/ui'
+import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { Control, FieldValues, UseControllerProps, useController } from 'react-hook-form'
 
 type BaseProps = {
@@ -36,7 +36,7 @@ const PriceInput = <T extends FieldValues>({
   precision = 2,
   ...props
 }: Props<T>) => {
-  const { field, fieldState } = useController({ ...props })
+  const { field, fieldState } = useController(props)
 
   const [inputValue, setInputValue] = useState('')
 

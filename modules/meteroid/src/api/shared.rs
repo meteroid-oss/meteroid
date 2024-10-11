@@ -65,8 +65,6 @@ pub mod mapping {
 pub mod conversions {
     use std::str::FromStr;
 
-    //  custom error instead of status ?
-
     pub trait ProtoConv<T> {
         fn as_proto(&self) -> T;
         fn from_proto(proto: T) -> Result<Self, tonic::Status>

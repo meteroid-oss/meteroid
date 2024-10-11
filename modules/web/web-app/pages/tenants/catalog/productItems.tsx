@@ -2,6 +2,7 @@ import { disableQuery } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent, useState } from 'react'
+import { toast } from 'sonner'
 
 import { ProductEditPanel } from '@/features/productCatalog/items/ProductEditPanel'
 import { ProductItemsHeader } from '@/features/productCatalog/items/ProductItemsHeader'
@@ -41,6 +42,9 @@ export const ProductItems: FunctionComponent = () => {
           setEditPanelVisible={setEditPanelVisible}
           isLoading={isLoading}
           refetch={refetch}
+          setSearch={() => {
+            toast.error('Search not implemented')
+          }}
         />
         <ProductItemsTable
           data={data}

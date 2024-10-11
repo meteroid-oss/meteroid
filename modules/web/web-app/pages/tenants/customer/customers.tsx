@@ -4,7 +4,7 @@ import { Fragment, FunctionComponent, useState } from 'react'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomersEditPanel, CustomersHeader, CustomersTable } from '@/features/customers'
-import useDebounce from '@/hooks/useDebounce'
+import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
@@ -15,7 +15,7 @@ export const Customers: FunctionComponent = () => {
   const [editPanelVisible, setEditPanelVisible] = useState(false)
   const [search, setSearch] = useState('')
 
-  const debouncedSearch = useDebounce(search, 400)
+  const debouncedSearch = useDebounceValue(search, 400)
 
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,

@@ -4,17 +4,21 @@ pub mod plans {
         plan_billing_configuration as billing_config_grpc, ListPlanVersion, PlanOverview,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
-        ListPlan, ListSubscribablePlanVersion, Plan, PlanBillingConfiguration, PlanDetails,
-        PlanStatus, PlanType, PlanVersion, TrialConfig,
+        trial_config::ActionAfterTrial, ListPlan, ListSubscribablePlanVersion, Plan,
+        PlanBillingConfiguration, PlanDetails, PlanStatus, PlanType, PlanVersion, TrialConfig,
     };
+
+    use crate::api::shared::conversions::AsProtoOpt;
     use meteroid_store::domain;
-    use meteroid_store::domain::enums::{PlanStatusEnum, PlanTypeEnum};
+    use meteroid_store::domain::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
 
     pub struct PlanDetailsWrapper(pub PlanDetails);
 
     pub struct PlanVersionWrapper(pub PlanVersion);
 
     pub struct PlanTypeWrapper(pub PlanType);
+
+    pub struct ActionAfterTrialWrapper(pub ActionAfterTrial);
 
     pub struct PlanStatusWrapper(pub PlanStatus);
 
@@ -40,10 +44,21 @@ pub mod plans {
     impl From<domain::PlanVersion> for PlanVersionWrapper {
         fn from(value: domain::PlanVersion) -> Self {
             fn trial_config(version: &domain::PlanVersion) -> Option<TrialConfig> {
-                Some(TrialConfig {
-                    duration_in_days: version.trial_duration_days? as u32,
-                    fallback_plan_id: version.trial_fallback_plan_id?.to_string(),
-                })
+                match version.trial_duration_days {
+                    Some(days) if days > 0 => Some(TrialConfig {
+                        trialing_plan_id: version.trialing_plan_id.as_proto(),
+                        downgrade_plan_id: version.downgrade_plan_id.as_proto(),
+                        action_after_trial: version
+                            .action_after_trial
+                            .as_ref()
+                            .map(|a| ActionAfterTrialWrapper::from(a.clone()).0)
+                            .unwrap_or(ActionAfterTrial::Block)
+                            .into(),
+                        duration_days: days as u32,
+                        trial_is_free: version.trial_is_free,
+                    }),
+                    _ => None,
+                }
             }
 
             fn billing_config(version: &domain::PlanVersion) -> Option<PlanBillingConfiguration> {
@@ -105,6 +120,23 @@ pub mod plans {
         }
     }
 
+    impl From<domain::PlanWithVersion> for PlanDetailsWrapper {
+        fn from(value: domain::PlanWithVersion) -> Self {
+            Self(PlanDetails {
+                plan: Some(Plan {
+                    id: value.plan.id.to_string(),
+                    external_id: value.plan.external_id,
+                    name: value.plan.name,
+                    description: value.plan.description,
+                    plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
+                    plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
+                }),
+                current_version: Some(PlanVersionWrapper::from(value.version).0),
+                metadata: vec![],
+            })
+        }
+    }
+
     impl From<PlanTypeWrapper> for PlanTypeEnum {
         fn from(val: PlanTypeWrapper) -> Self {
             match val.0 {
@@ -121,6 +153,26 @@ pub mod plans {
                 PlanTypeEnum::Standard => PlanType::Standard,
                 PlanTypeEnum::Free => PlanType::Free,
                 PlanTypeEnum::Custom => PlanType::Custom,
+            })
+        }
+    }
+
+    impl From<ActionAfterTrialWrapper> for ActionAfterTrialEnum {
+        fn from(val: ActionAfterTrialWrapper) -> Self {
+            match val.0 {
+                ActionAfterTrial::Block => ActionAfterTrialEnum::Block,
+                ActionAfterTrial::Charge => ActionAfterTrialEnum::Charge,
+                ActionAfterTrial::Downgrade => ActionAfterTrialEnum::Downgrade,
+            }
+        }
+    }
+
+    impl From<ActionAfterTrialEnum> for ActionAfterTrialWrapper {
+        fn from(e: ActionAfterTrialEnum) -> Self {
+            Self(match e {
+                ActionAfterTrialEnum::Block => ActionAfterTrial::Block,
+                ActionAfterTrialEnum::Charge => ActionAfterTrial::Charge,
+                ActionAfterTrialEnum::Downgrade => ActionAfterTrial::Downgrade,
             })
         }
     }
@@ -170,8 +222,20 @@ pub mod plans {
                 plan_name: value.plan_name,
                 version: value.version,
                 created_by: value.created_by.to_string(),
-                trial_duration_days: value.trial_duration_days,
-                trial_fallback_plan_id: value.trial_fallback_plan_id.map(|x| x.to_string()),
+                trial_config: match value.trial_duration_days {
+                    Some(days) if days > 0 => Some(TrialConfig {
+                        trialing_plan_id: value.trialing_plan_id.as_proto(),
+                        downgrade_plan_id: value.downgrade_plan_id.as_proto(),
+                        action_after_trial: value
+                            .action_after_trial
+                            .map(|a| ActionAfterTrialWrapper::from(a).0)
+                            .unwrap_or(ActionAfterTrial::Block)
+                            .into(),
+                        duration_days: days as u32,
+                        trial_is_free: value.trial_is_free,
+                    }),
+                    _ => None,
+                },
                 period_start_day: value.period_start_day.map(|x| x as i32),
                 net_terms: value.net_terms,
                 currency: value.currency,

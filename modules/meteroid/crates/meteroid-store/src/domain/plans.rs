@@ -11,7 +11,7 @@ use diesel_models::plans::PlanWithVersionRow;
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
-use super::enums::{BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
+use super::enums::{ActionAfterTrialEnum, BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
 
@@ -52,13 +52,23 @@ pub struct FullPlanNew {
 #[derive(Debug, Clone)]
 pub struct PlanVersionNewInternal {
     pub is_draft_version: bool,
-    pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: Option<String>,
     pub billing_cycles: Option<i32>,
     pub billing_periods: Vec<BillingPeriodEnum>,
+    pub trial: Option<PlanTrial>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlanTrial {
+    pub duration_days: u32,
+    // which plan is resolved after trial ends (if different from the current plan)
+    pub downgrade_plan_id: Option<Uuid>,
+    // which plan is resolved during trial (if different from the current plan)
+    pub trialing_plan_id: Option<Uuid>,
+    pub action_after_trial: Option<ActionAfterTrialEnum>,
+    pub require_pre_authorization: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -79,8 +89,29 @@ impl PlanVersionNew {
             version: self.version,
             tenant_id: self.tenant_id,
             is_draft_version: self.internal.is_draft_version,
-            trial_duration_days: self.internal.trial_duration_days,
-            trial_fallback_plan_id: self.internal.trial_fallback_plan_id,
+            trial_duration_days: self.internal.trial.as_ref().map(|v| v.duration_days as i32),
+            action_after_trial: self
+                .internal
+                .trial
+                .as_ref()
+                .and_then(|v| v.action_after_trial.as_ref())
+                .map(|v| v.clone().into()),
+            downgrade_plan_id: self
+                .internal
+                .trial
+                .as_ref()
+                .and_then(|v| v.downgrade_plan_id),
+            trialing_plan_id: self
+                .internal
+                .trial
+                .as_ref()
+                .and_then(|v| v.trialing_plan_id),
+            trial_is_free: self
+                .internal
+                .trial
+                .as_ref()
+                .map(|v| v.require_pre_authorization)
+                .unwrap_or(false),
             period_start_day: self.internal.period_start_day,
             net_terms: self.internal.net_terms,
             currency: self.internal.currency.unwrap_or(tenant_currency),
@@ -119,8 +150,6 @@ pub struct PlanVersion {
     pub is_draft_version: bool,
     pub plan_id: Uuid,
     pub version: i32,
-    pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
     pub tenant_id: Uuid,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
@@ -130,6 +159,12 @@ pub struct PlanVersion {
     pub created_by: Uuid,
     #[from(~.into_iter().filter_map(| v | v.map(| v | v.into())).collect::< Vec < _ >> ())]
     pub billing_periods: Vec<BillingPeriodEnum>,
+    pub trialing_plan_id: Option<Uuid>,
+    #[from(~.map(| v | v.into()))]
+    pub action_after_trial: Option<ActionAfterTrialEnum>,
+    pub trial_is_free: bool,
+    pub downgrade_plan_id: Option<Uuid>,
+    pub trial_duration_days: Option<i32>,
 }
 
 pub struct FullPlan {
@@ -167,13 +202,17 @@ pub struct PlanVersionLatest {
     pub external_id: String,
     pub version: i32,
     pub created_by: Uuid,
-    pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
     pub product_family_id: Uuid,
     pub product_family_name: String,
+    pub trialing_plan_id: Option<Uuid>,
+    #[from(~.map(| v | v.into()))]
+    pub action_after_trial: Option<ActionAfterTrialEnum>,
+    pub trial_is_free: bool,
+    pub downgrade_plan_id: Option<Uuid>,
+    pub trial_duration_days: Option<i32>,
 }
 
 #[derive(Debug, o2o)]
@@ -209,4 +248,10 @@ pub struct PlanWithVersion {
     pub plan: Plan,
     #[from(~.into())]
     pub version: PlanVersion,
+}
+
+pub struct TrialPatch {
+    pub plan_version_id: Uuid,
+    pub tenant_id: Uuid,
+    pub trial: Option<PlanTrial>,
 }

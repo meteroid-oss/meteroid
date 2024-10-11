@@ -87,8 +87,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
                 description: None,
                 plan_type: PlanTypeEnum::Free,
                 version_details: domain::PlanVersion {
-                    trial_duration_days: None,
-                    trial_fallback_plan_id: None,
+                    trial: None,
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
@@ -105,8 +104,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
                 description: None,
                 plan_type: PlanTypeEnum::Standard,
                 version_details: domain::PlanVersion {
-                    trial_duration_days: None,
-                    trial_fallback_plan_id: None,
+                    trial: None,
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
@@ -138,8 +136,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
                 description: None,
                 plan_type: PlanTypeEnum::Standard,
                 version_details: domain::PlanVersion {
-                    trial_duration_days: None,
-                    trial_fallback_plan_id: None,
+                    trial: None,
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,

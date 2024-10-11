@@ -4,7 +4,7 @@ import { Fragment, useState } from 'react'
 
 import { InvoicesHeader, InvoicesTable } from '@/features/invoices'
 import { InvoicesSearch } from '@/features/invoices/types'
-import useDebounce from '@/hooks/useDebounce'
+import { useDebounceValue } from '@/hooks/useDebounce'
 import { useQuery } from '@/lib/connectrpc'
 import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { ListInvoicesRequest_SortBy } from '@/rpc/api/invoices/v1/invoices_pb'
@@ -15,7 +15,7 @@ export const Invoices = () => {
   const [, setEditPanelVisible] = useState(false)
   const [search, setSearch] = useState<InvoicesSearch>({})
 
-  const debouncedSearch = useDebounce(search, 400)
+  const debouncedSearch = useDebounceValue(search, 400)
 
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,

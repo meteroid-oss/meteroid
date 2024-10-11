@@ -2,6 +2,10 @@
 
 pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ActionAfterTrialEnum"))]
+    pub struct ActionAfterTrialEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BillingMetricAggregateEnum"))]
     pub struct BillingMetricAggregateEnum;
 
@@ -472,6 +476,7 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
+    use super::sql_types::ActionAfterTrialEnum;
 
     plan_version (id) {
         id -> Uuid,
@@ -479,7 +484,7 @@ diesel::table! {
         plan_id -> Uuid,
         version -> Int4,
         trial_duration_days -> Nullable<Int4>,
-        trial_fallback_plan_id -> Nullable<Uuid>,
+        downgrade_plan_id -> Nullable<Uuid>,
         tenant_id -> Uuid,
         period_start_day -> Nullable<Int2>,
         net_terms -> Int4,
@@ -488,6 +493,9 @@ diesel::table! {
         created_at -> Timestamp,
         created_by -> Uuid,
         billing_periods -> Array<Nullable<BillingPeriodEnum>>,
+        trialing_plan_id -> Nullable<Uuid>,
+        action_after_trial -> Nullable<ActionAfterTrialEnum>,
+        trial_is_free -> Bool,
     }
 }
 
@@ -760,7 +768,6 @@ diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
 diesel::joinable!(plan -> product_family (product_family_id));
 diesel::joinable!(plan -> tenant (tenant_id));
-diesel::joinable!(plan_version -> plan (plan_id));
 diesel::joinable!(price_component -> billable_metric (billable_metric_id));
 diesel::joinable!(price_component -> plan_version (plan_version_id));
 diesel::joinable!(price_component -> product (product_item_id));

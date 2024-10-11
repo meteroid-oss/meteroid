@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::BillingPeriodEnum;
+use crate::enums::{ActionAfterTrialEnum, BillingPeriodEnum};
 
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -14,7 +14,7 @@ pub struct PlanVersionRow {
     pub plan_id: Uuid,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
+    pub downgrade_plan_id: Option<Uuid>,
     pub tenant_id: Uuid,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
@@ -23,6 +23,9 @@ pub struct PlanVersionRow {
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub billing_periods: Vec<Option<BillingPeriodEnum>>,
+    pub trialing_plan_id: Option<Uuid>,
+    pub action_after_trial: Option<ActionAfterTrialEnum>,
+    pub trial_is_free: bool,
 }
 
 #[derive(Debug, Insertable, Default)]
@@ -34,7 +37,7 @@ pub struct PlanVersionRowNew {
     pub plan_id: Uuid,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
+    pub downgrade_plan_id: Option<Uuid>,
     pub tenant_id: Uuid,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
@@ -42,6 +45,9 @@ pub struct PlanVersionRowNew {
     pub billing_cycles: Option<i32>,
     pub created_by: Uuid,
     pub billing_periods: Vec<BillingPeriodEnum>,
+    pub trialing_plan_id: Option<Uuid>,
+    pub action_after_trial: Option<ActionAfterTrialEnum>,
+    pub trial_is_free: bool,
 }
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]
@@ -59,7 +65,10 @@ pub struct PlanVersionRowLatest {
     pub version: i32,
     pub created_by: Uuid,
     pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
+    pub downgrade_plan_id: Option<Uuid>,
+    pub trialing_plan_id: Option<Uuid>,
+    pub action_after_trial: Option<ActionAfterTrialEnum>,
+    pub trial_is_free: bool,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
@@ -81,4 +90,18 @@ pub struct PlanVersionRowPatch {
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
     pub billing_periods: Option<Vec<BillingPeriodEnum>>,
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::plan_version)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(primary_key(id, tenant_id))]
+pub struct PlanVersionTrialRowPatch {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub trialing_plan_id: Option<Option<Uuid>>,
+    pub action_after_trial: Option<Option<ActionAfterTrialEnum>>,
+    pub trial_is_free: Option<bool>,
+    pub trial_duration_days: Option<Option<i32>>,
+    pub downgrade_plan_id: Option<Option<Uuid>>,
 }
