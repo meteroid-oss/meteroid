@@ -3,6 +3,7 @@ use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::plan_versions::PlanVersionRowLatest;
 use diesel_models::plan_versions::PlanVersionRowNew;
 use diesel_models::plan_versions::PlanVersionRowPatch;
+use diesel_models::plans::PlanFilters as PlanFiltersDb;
 use diesel_models::plans::PlanRow;
 use diesel_models::plans::PlanRowForList;
 use diesel_models::plans::PlanRowNew;
@@ -254,4 +255,14 @@ pub struct TrialPatch {
     pub plan_version_id: Uuid,
     pub tenant_id: Uuid,
     pub trial: Option<PlanTrial>,
+}
+
+#[derive(Debug, o2o)]
+#[owned_into(PlanFiltersDb)]
+pub struct PlanFilters {
+    pub search: Option<String>,
+    #[into(~.map(| v | v.into()))]
+    pub filter_status: Option<PlanStatusEnum>,
+    #[into(~.map(| v | v.into()))]
+    pub filter_type: Option<PlanTypeEnum>,
 }

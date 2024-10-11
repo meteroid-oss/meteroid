@@ -31,7 +31,7 @@ use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    OrderByRequest, PlanAndVersionPatch, PlanPatch, PlanVersionPatch, TrialPatch,
+    OrderByRequest, PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionPatch, TrialPatch,
 };
 use meteroid_store::repositories::PlansInterface;
 
@@ -140,10 +140,12 @@ impl PlansService for PlanServiceComponents {
             .store
             .list_plans(
                 tenant_id,
-                req.search,
                 req.product_family_external_id,
-                filter_status,
-                filter_type,
+                PlanFilters {
+                    search: req.search,
+                    filter_status,
+                    filter_type,
+                },
                 pagination_req,
                 order_by,
             )

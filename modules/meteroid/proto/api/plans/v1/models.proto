@@ -55,7 +55,7 @@ message PlanBillingConfiguration {
 message TrialConfig {
   uint32 duration_days = 1;
   ActionAfterTrial action_after_trial = 2;
-  // if true, nothing will be charged. If true, the normal plan price is charged from the start, no matter the plan that this trial gives access to.
+  // if true, nothing will be charged. If false, the normal plan price is charged from the start, no matter the plan that this trial gives access to.
   bool trial_is_free = 3;
   // what plan is applied after the trial completes and before any payment
   optional string downgrade_plan_id = 4;

@@ -1,11 +1,10 @@
 use crate::store::Store;
 use crate::StoreResult;
 
-use crate::domain::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
-    PlanAndVersionPatch, PlanForList, PlanPatch, PlanVersion, PlanVersionLatest, PlanVersionNew,
-    PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
+    PlanAndVersionPatch, PlanFilters, PlanForList, PlanPatch, PlanVersion, PlanVersionLatest,
+    PlanVersionNew, PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
 };
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -49,10 +48,8 @@ pub trait PlansInterface {
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
-        search: Option<String>,
         product_family_external_id: Option<String>,
-        filter_status: Option<PlanStatusEnum>,
-        filter_type: Option<PlanTypeEnum>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<PlanForList>>;
@@ -299,10 +296,8 @@ impl PlansInterface for Store {
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
-        search: Option<String>,
         product_family_external_id: Option<String>,
-        filter_status: Option<PlanStatusEnum>,
-        filter_type: Option<PlanTypeEnum>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<PlanForList>> {
@@ -311,10 +306,8 @@ impl PlansInterface for Store {
         let rows = PlanRowForList::list(
             &mut conn,
             auth_tenant_id,
-            search,
             product_family_external_id,
-            filter_status.map(|v| v.into()),
-            filter_type.map(|v| v.into()),
+            filters.into(),
             pagination.into(),
             order_by.into(),
         )

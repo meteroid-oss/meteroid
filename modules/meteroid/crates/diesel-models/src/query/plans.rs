@@ -1,10 +1,12 @@
 use crate::errors::IntoDbResult;
-use crate::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow};
+use crate::plans::{
+    PlanFilters, PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow,
+};
 use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::{PlanStatusEnum, PlanTypeEnum};
+use crate::enums::PlanStatusEnum;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use diesel::{
@@ -174,10 +176,8 @@ impl PlanRowForList {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: Uuid,
-        search: Option<String>,
         product_family_external_id: Option<String>,
-        filter_status: Option<PlanStatusEnum>,
-        filter_type: Option<PlanTypeEnum>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<PlanRowForList>> {
@@ -194,15 +194,15 @@ impl PlanRowForList {
             query = query.filter(pf_dsl::external_id.eq(product_family_external_id))
         }
 
-        if let Some(filter_status) = filter_status {
+        if let Some(filter_status) = filters.filter_status {
             query = query.filter(p_dsl::status.eq(filter_status));
         }
 
-        if let Some(filter_type) = filter_type {
+        if let Some(filter_type) = filters.filter_type {
             query = query.filter(p_dsl::plan_type.eq(filter_type));
         }
 
-        if let Some(search) = search.filter(|s| !s.is_empty()) {
+        if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
             query = query.filter(
                 p_dsl::name
                     .ilike(format!("%{}%", search))
