@@ -9,7 +9,7 @@ interface PageSectionProps {
 }
 export const PageSection: React.FC<PageSectionProps> = ({ children, header, className = '' }) => {
   return (
-    <div className={`relative pb-4 ${className}`}>
+    <div className={`relative pb-4 ml-[1px] ${className} `}>
       {header && (
         <div className="pb-3 border-b border-muted-foreground space-y-1">
           <div className="flex justify-between items-end">
@@ -21,7 +21,7 @@ export const PageSection: React.FC<PageSectionProps> = ({ children, header, clas
           )}
         </div>
       )}
-      <div className="py-6">{children}</div>
+      <div className="py-6  ">{children}</div>
     </div>
   )
 }

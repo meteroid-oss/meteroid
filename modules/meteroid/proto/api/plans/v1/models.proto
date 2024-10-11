@@ -11,11 +11,19 @@ enum PlanStatus {
   ARCHIVED = 3;
 }
 
+message PlanStatusFilter {
+  PlanStatus plan_status = 1;
+}
+
 enum PlanType {
   STANDARD = 0;
   FREE = 1;
   CUSTOM = 2;
   // template 3 ?
+}
+
+message PlanTypeFilter {
+  PlanType plan_type = 1;
 }
 
 message PlanBillingConfiguration {
@@ -44,11 +52,25 @@ message PlanBillingConfiguration {
   message Forever {}
 }
 
-// TODO allow more complexity, ex: via full Adjustment view (included units, credits, maximums/limits, discounts for some lines ,etc)
-// TODO in addition to fallback plan, maybe we want a "trial plan" or "use_trial_from_plan_id", aka a unique "entreprise_trial" no matter the selected plan, that then fallbacks on the current plan
 message TrialConfig {
-  uint32 duration_in_days = 1;
-  string fallback_plan_id = 2; // TODO only if no credit card added
+  uint32 duration_days = 1;
+  ActionAfterTrial action_after_trial = 2;
+  // if true, nothing will be charged. If false, the normal plan price is charged from the start, no matter the plan that this trial gives access to.
+  bool trial_is_free = 3;
+  // what plan is applied after the trial completes and before any payment
+  optional string downgrade_plan_id = 4;
+  // what plan is applied during the trial (ex: Enterprise for X days after paying Pro plan). None for current plan
+  optional string trialing_plan_id = 5;
+
+  // advanced options :
+  //  optional bool requires_pre_authorization = 6;
+  // usage_credits, custom trial limits, etc
+
+  enum ActionAfterTrial {
+    BLOCK = 0;
+    CHARGE = 1;
+    DOWNGRADE = 2;
+  }
 }
 
 message PlanVersion {
@@ -73,13 +95,12 @@ message ListSubscribablePlanVersion {
   string plan_name = 3;
   int32 version = 4;
   string created_by = 5;
-  optional int32 trial_duration_days = 6;
-  optional string trial_fallback_plan_id = 7;
   optional int32 period_start_day = 8;
   int32 net_terms = 9;
   string currency = 10;
   string product_family_id = 11;
   string product_family_name = 12;
+  TrialConfig trial_config = 13;
 }
 
 message Metadata {

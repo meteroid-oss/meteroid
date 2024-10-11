@@ -12,7 +12,7 @@ import { useTypedParams } from '@/utils/params'
 
 import type { FunctionComponent } from 'react'
 
-export const PlansTable: FunctionComponent = () => {
+export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ search }) => {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 20,
@@ -27,6 +27,7 @@ export const PlansTable: FunctionComponent = () => {
       offset: pagination.pageIndex * pagination.pageSize,
     },
     sortBy: ListPlansRequest_SortBy.DATE_DESC,
+    search: search ? search : undefined,
   })
   const isLoading = plansQuery.isLoading
 

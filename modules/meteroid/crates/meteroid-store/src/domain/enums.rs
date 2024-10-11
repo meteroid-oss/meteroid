@@ -3,6 +3,14 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+#[derive(o2o, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[map_owned(diesel_enums::ActionAfterTrialEnum)]
+pub enum ActionAfterTrialEnum {
+    Block,
+    Charge,
+    Downgrade,
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]
 #[map_owned(diesel_enums::BillingMetricAggregateEnum)]
 pub enum BillingMetricAggregateEnum {

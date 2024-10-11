@@ -1,4 +1,13 @@
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::ActionAfterTrialEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ActionAfterTrialEnum {
+    Block,
+    Charge,
+    Downgrade,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BillingMetricAggregateEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BillingMetricAggregateEnum {

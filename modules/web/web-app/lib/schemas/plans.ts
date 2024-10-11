@@ -195,7 +195,7 @@ export const OneTimeFeeSchema = z.object({
 })
 export type OneTimeFee = z.infer<typeof OneTimeFeeSchema>
 
-const FeeTypeSchema = z.discriminatedUnion('fee', [
+export const FeeTypeSchema = z.discriminatedUnion('fee', [
   z.object({ fee: z.literal('rate'), data: RateFeeSchema }),
   z.object({ fee: z.literal('slot'), data: SlotFeeSchema }),
   z.object({ fee: z.literal('capacity'), data: CapacityFeeSchema }),
@@ -263,3 +263,12 @@ export const publishedPlanOverviewSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
 })
+
+export const trialConfigSchema = z.object({
+  durationDays: z.number().int(),
+  downgradePlanId: z.string().uuid().optional(),
+  trialingPlanId: z.string().uuid().optional(),
+  requiresPreAuthorization: z.boolean().optional(),
+  actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
+})
+export type TrialConfigSchema = z.infer<typeof trialConfigSchema>

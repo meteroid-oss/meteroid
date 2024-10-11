@@ -3,14 +3,15 @@ use crate::StoreResult;
 
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
-    PlanAndVersionPatch, PlanForList, PlanPatch, PlanVersion, PlanVersionLatest, PlanVersionNew,
-    PlanWithVersion, PriceComponent, PriceComponentNew,
+    PlanAndVersionPatch, PlanFilters, PlanForList, PlanPatch, PlanVersion, PlanVersionLatest,
+    PlanVersionNew, PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
 };
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use diesel_models::plan_versions::{
     PlanVersionRow, PlanVersionRowLatest, PlanVersionRowNew, PlanVersionRowPatch,
+    PlanVersionTrialRowPatch,
 };
 use diesel_models::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRow;
@@ -24,11 +25,18 @@ use crate::errors::StoreError;
 #[async_trait::async_trait]
 pub trait PlansInterface {
     async fn insert_plan(&self, plan: FullPlanNew) -> StoreResult<FullPlan>;
+
     async fn get_plan_by_external_id(
         &self,
         external_id: &str,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<FullPlan>;
+    ) -> StoreResult<PlanWithVersion>;
+
+    async fn get_plan_by_id(
+        &self,
+        plan_id: Uuid,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanWithVersion>;
 
     async fn find_plan_by_external_id_and_status(
         &self,
@@ -40,11 +48,12 @@ pub trait PlansInterface {
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
-        search: Option<String>,
         product_family_external_id: Option<String>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<PlanForList>>;
+
     async fn list_latest_published_plan_versions(
         &self,
         auth_tenant_id: Uuid,
@@ -96,6 +105,8 @@ pub trait PlansInterface {
     ) -> StoreResult<PlanWithVersion>;
 
     async fn patch_draft_plan(&self, patch: PlanAndVersionPatch) -> StoreResult<PlanWithVersion>;
+
+    async fn patch_trial(&self, patch: TrialPatch) -> StoreResult<PlanWithVersion>;
 }
 
 #[async_trait::async_trait]
@@ -196,7 +207,7 @@ impl PlansInterface for Store {
         &self,
         external_id: &str,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<FullPlan> {
+    ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
         let plan: Plan =
@@ -211,19 +222,27 @@ impl PlansInterface for Store {
                 .map(Into::into)
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let price_components: Vec<PriceComponent> =
-            PriceComponentRow::list_by_plan_version_id(&mut conn, auth_tenant_id, version.id)
-                .await
-                .map_err(|err| StoreError::DatabaseError(err.error))?
-                .into_iter()
-                .map(TryInto::try_into)
-                .collect::<Result<Vec<_>, _>>()?;
+        Ok(PlanWithVersion { plan, version })
+    }
+    async fn get_plan_by_id(
+        &self,
+        plan_id: Uuid,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanWithVersion> {
+        let mut conn = self.get_conn().await?;
 
-        Ok(FullPlan {
-            plan,
-            version,
-            price_components,
-        })
+        let plan: Plan = PlanRow::get_by_id_and_tenant_id(&mut conn, plan_id, auth_tenant_id)
+            .await
+            .map(Into::into)
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let version: PlanVersion =
+            PlanVersionRow::get_latest_by_plan_id_and_tenant_id(&mut conn, plan.id, auth_tenant_id)
+                .await
+                .map(Into::into)
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        Ok(PlanWithVersion { plan, version })
     }
 
     async fn find_plan_by_external_id_and_status(
@@ -277,8 +296,8 @@ impl PlansInterface for Store {
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
-        search: Option<String>,
         product_family_external_id: Option<String>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<PlanForList>> {
@@ -287,8 +306,8 @@ impl PlansInterface for Store {
         let rows = PlanRowForList::list(
             &mut conn,
             auth_tenant_id,
-            search,
             product_family_external_id,
+            filters.into(),
             pagination.into(),
             order_by.into(),
         )
@@ -382,7 +401,10 @@ impl PlansInterface for Store {
                     plan_id: original.plan_id,
                     version: original.version + 1,
                     trial_duration_days: original.trial_duration_days,
-                    trial_fallback_plan_id: original.trial_fallback_plan_id,
+                    downgrade_plan_id: original.downgrade_plan_id,
+                    trialing_plan_id: original.trialing_plan_id,
+                    action_after_trial: original.action_after_trial,
+                    trial_is_free: original.trial_is_free,
                     tenant_id: original.tenant_id,
                     period_start_day: original.period_start_day,
                     net_terms: original.net_terms,
@@ -563,6 +585,50 @@ impl PlansInterface for Store {
 
                     patch_plan
                         .update(conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    Ok(patched_version)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        PlanRow::get_with_version(&mut conn, version.id, version.tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
+    async fn patch_trial(&self, patch: TrialPatch) -> StoreResult<PlanWithVersion> {
+        let mut conn = self.get_conn().await?;
+
+        let version = self
+            .transaction(|conn| {
+                async move {
+                    let patch: PlanVersionTrialRowPatch = match patch.trial {
+                        None => PlanVersionTrialRowPatch {
+                            id: patch.plan_version_id,
+                            tenant_id: patch.tenant_id,
+                            trialing_plan_id: Some(None),
+                            action_after_trial: Some(None),
+                            trial_is_free: Some(false),
+                            trial_duration_days: Some(None),
+                            downgrade_plan_id: Some(None),
+                        },
+                        Some(trial) => PlanVersionTrialRowPatch {
+                            id: patch.plan_version_id,
+                            tenant_id: patch.tenant_id,
+                            trialing_plan_id: Some(trial.trialing_plan_id),
+                            action_after_trial: Some(trial.action_after_trial.map(Into::into)),
+                            trial_is_free: Some(trial.require_pre_authorization),
+                            trial_duration_days: Some(Some(trial.duration_days as i32)),
+                            downgrade_plan_id: Some(trial.downgrade_plan_id),
+                        },
+                    };
+
+                    let patched_version = patch
+                        .update_trial(conn)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
