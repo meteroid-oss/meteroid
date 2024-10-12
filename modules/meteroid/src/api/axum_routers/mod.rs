@@ -8,6 +8,7 @@ mod file_router;
 mod webhook_in_router;
 
 pub use file_router::file_routes;
+pub use file_router::FileApi;
 pub use webhook_in_router::webhook_in_routes;
 
 #[derive(Clone)]

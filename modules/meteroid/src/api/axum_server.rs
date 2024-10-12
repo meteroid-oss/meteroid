@@ -9,7 +9,39 @@ use secrecy::SecretString;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use utoipa::{
+    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
+    Modify, OpenApi,
+};
+use utoipa_rapidoc::RapiDoc;
+use utoipa_redoc::{Redoc, Servable};
+use utoipa_scalar::{Scalar, Servable as ScalarServable};
+use utoipa_swagger_ui::SwaggerUi;
 
+#[derive(OpenApi)]
+#[openapi(
+    modifiers(&SecurityAddon),
+    nest(
+        (path = "/files", api = axum_routers::FileApi)
+    ),
+    tags(
+        (name = "meteroid", description = "Meteroid API")
+    )
+)]
+struct ApiDoc;
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "api_key",
+                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("apikey"))),
+            )
+        }
+    }
+}
 pub async fn serve(
     listen_addr: SocketAddr,
     object_store: Arc<dyn ObjectStoreService>,
@@ -25,6 +57,14 @@ pub async fn serve(
     };
 
     let app = Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
+        // There is no need to create `RapiDoc::with_openapi` because the OpenApi is served
+        // via SwaggerUi instead we only make rapidoc to point to the existing doc.
+        .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
+        // Alternative to above
+        // .merge(RapiDoc::with_openapi("/api-docs/openapi2.json", ApiDoc::openapi()).path("/rapidoc"))
+        .merge(Scalar::with_url("/scalar", ApiDoc::openapi()))
         .nest("/files", axum_routers::file_routes())
         .nest("/webhooks", axum_routers::webhook_in_routes())
         .fallback(handler_404)
