@@ -2,7 +2,7 @@ import { disableQuery } from '@connectrpc/connect-query'
 import { Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
-import { AlertCircleIcon, ChevronLeftIcon } from 'lucide-react'
+import { ChevronLeftIcon } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -20,6 +20,7 @@ import {
   useIsDraftVersion,
   usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
+import { PlanTrial } from '@/features/billing/plans/trial/PlanTrial'
 import { SubscriptionsTable } from '@/features/subscriptions'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
@@ -127,7 +128,7 @@ const SubscriptionsTab = () => {
 }
 
 const PlanBody = () => {
-  const { data: plan, isLoading } = usePlan()
+  const { data: planData, isLoading } = usePlan()
 
   if (isLoading) {
     return (
@@ -137,18 +138,17 @@ const PlanBody = () => {
     )
   }
 
-  if (!plan) {
+  if (!planData?.planDetails?.plan || !planData.planDetails.currentVersion) {
     return <>Failed to load plan</>
   }
 
-  const planType = plan.planDetails?.plan?.planType
+  const plan = planData.planDetails.plan
+  const current = planData.planDetails.currentVersion
 
   return (
     <>
-      {plan.planDetails?.currentVersion && plan.planDetails.plan && (
-        <PlanOverview plan={plan.planDetails.plan} version={plan.planDetails.currentVersion} />
-      )}
-      {planType !== PlanType.FREE && (
+      {current && <PlanOverview plan={plan} version={current} />}
+      {plan.planType !== PlanType.FREE && (
         <>
           <PriceComponentSection />
 
@@ -159,14 +159,12 @@ const PlanBody = () => {
                 'Define a period during which your customers can try out this plan for free.',
             }}
           >
-            <div className="space-x-4 ">
-              <div className="flex items-center space-x-3 opacity-75 text-muted-foreground text-sm">
-                <AlertCircleIcon size={16} strokeWidth={2} />
-                <div className="text-muted-foreground w-full">
-                  This plan has no configured trial.
-                </div>
-              </div>
-            </div>
+            <PlanTrial
+              config={current?.trialConfig}
+              currentPlanId={plan.id}
+              currentPlanVersionId={current.id}
+              currentPlanExternalId={plan.externalId}
+            />
           </PageSection>
 
           <PageSection

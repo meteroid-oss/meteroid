@@ -1,6 +1,6 @@
 import { Control, FieldPath, FieldValues, PathValue, UseControllerProps } from 'react-hook-form'
 
-import { Input } from '..'
+import { Input, InputProps } from '..'
 
 import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
 import { destructuredFormProps } from './utils'
@@ -11,7 +11,7 @@ interface Transformer<T> {
 }
 
 interface InputFieldProps<TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>>
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'defaultValue' | 'name'>,
+  extends Omit<InputProps, 'defaultValue' | 'name'>,
     UseControllerProps<TFieldValues, TName> {
   label?: string
   description?: string

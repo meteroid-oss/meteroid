@@ -117,8 +117,7 @@ pub async fn run(
                 },
                 version: store_domain::PlanVersionNewInternal {
                     is_draft_version: false,
-                    trial_duration_days: plan.version_details.trial_duration_days,
-                    trial_fallback_plan_id: plan.version_details.trial_fallback_plan_id,
+                    trial: plan.version_details.trial.clone(),
                     period_start_day: plan.version_details.period_start_day,
                     net_terms: plan.version_details.net_terms,
                     currency: Some(plan.version_details.currency),
@@ -321,6 +320,7 @@ pub async fn run(
             subscription,
             price_components: create_subscription_components,
             add_ons: None, // todo generate add-ons
+            coupons: None, // todo generate coupons
         };
 
         subscriptions_to_create.push(params);

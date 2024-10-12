@@ -79,3 +79,9 @@ pub struct PlanRowPatch {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
 }
+
+pub struct PlanFilters {
+    pub search: Option<String>,
+    pub filter_status: Option<PlanStatusEnum>,
+    pub filter_type: Option<PlanTypeEnum>,
+}

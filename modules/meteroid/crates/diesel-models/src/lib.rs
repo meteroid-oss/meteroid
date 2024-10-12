@@ -31,6 +31,7 @@ pub mod outbox;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;
+pub mod subscription_coupons;
 pub mod subscription_events;
 pub mod tenants;
 pub mod users;

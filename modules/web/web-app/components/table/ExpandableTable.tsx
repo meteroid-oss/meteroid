@@ -1,4 +1,4 @@
-import { TableRow, TableCell } from '@md/ui'
+import { TableCell, TableRow } from '@md/ui'
 import {
   ColumnDef,
   OnChangeFn,
@@ -92,9 +92,7 @@ export const expandColumn: ColumnDef<unknown> = {
       <button
         {...{
           onClick: () => {
-            console.log('BEFORE', row.getIsExpanded())
             row.toggleExpanded()
-            console.log('AFTER', row.getIsExpanded())
           },
           style: { cursor: 'pointer' },
         }}

@@ -62,11 +62,16 @@ impl SubscriptionRow {
     ) -> DbResult<SubscriptionForDisplayRow> {
         use crate::schema::subscription::dsl::*;
 
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+
         let query = subscription
             .filter(id.eq(subscription_id))
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
-            .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -83,13 +88,17 @@ impl SubscriptionRow {
         tenant_id_param: &uuid::Uuid,
         subscription_ids: &[uuid::Uuid],
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl::*;
 
         let query = subscription
             .filter(id.eq_any(subscription_ids))
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
-            .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -183,12 +192,16 @@ impl SubscriptionRow {
         plan_id_param_opt: Option<uuid::Uuid>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl::*;
 
         let mut query = subscription
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
-            .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .into_boxed();
 
         if let Some(customer_id_param) = customer_id_opt {
@@ -253,7 +266,9 @@ impl SubscriptionRow {
                     .and(i_dsl::invoice_date.gt(input_date_param))),
             )
             .filter(i_dsl::id.is_null())
-            .inner_join(pv_dsl::plan_version.inner_join(p_dsl::plan))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .left_join(sc_dsl::subscription_component)
             .select(SubscriptionInvoiceCandidateRow::as_select())
             .cursor_paginate(pagination, "id");

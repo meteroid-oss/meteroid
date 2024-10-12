@@ -40,6 +40,8 @@ message ListPlansRequest {
   SortBy sort_by = 2;
   optional string search = 3;
   meteroid.common.v1.Pagination pagination = 4;
+  PlanTypeFilter plan_type_filter = 5;
+  PlanStatusFilter plan_status_filter = 6;
 }
 
 message ListPlansResponse {
@@ -68,8 +70,7 @@ message ListPlanVersionByIdResponse {
 }
 
 // Request and response messages for ListSubscribablePlansVersions RPC
-message ListSubscribablePlanVersionRequest {
-}
+message ListSubscribablePlanVersionRequest {}
 
 message ListSubscribablePlanVersionResponse {
   repeated ListSubscribablePlanVersion plan_versions = 1;
@@ -155,13 +156,31 @@ message GetPlanParametersResponse {
   repeated PlanParameter parameters = 1;
 }
 
-// Response message for all RPCs returning EmptyResponse
-message EmptyResponse {
+message UpdatePlanTrialRequest {
+  string plan_id = 1;
+  string plan_version_id = 2;
+  TrialConfig trial = 3;
 }
+
+message UpdatePlanTrialResponse {
+  PlanOverview plan_overview = 1;
+}
+
+message GetPlanByIdRequest {
+  string plan_id = 1;
+}
+
+message GetPlanByIdResponse {
+  PlanDetails plan_details = 1;
+}
+
+// Response message for all RPCs returning EmptyResponse
+message EmptyResponse {}
 
 service PlansService {
   rpc CreateDraftPlan(CreateDraftPlanRequest) returns (CreateDraftPlanResponse) {}
   rpc GetPlanByExternalId(GetPlanByExternalIdRequest) returns (GetPlanByExternalIdResponse) {}
+  rpc GetPlanById(GetPlanByIdRequest) returns (GetPlanByIdResponse) {}
   rpc ListPlans(ListPlansRequest) returns (ListPlansResponse) {}
 
   rpc GetPlanVersionById(GetPlanVersionByIdRequest) returns (GetPlanVersionByIdResponse) {}
@@ -176,6 +195,8 @@ service PlansService {
   rpc UpdateDraftPlanOverview(UpdateDraftPlanOverviewRequest) returns (UpdateDraftPlanOverviewResponse) {}
   rpc UpdatePublishedPlanOverview(UpdatePublishedPlanOverviewRequest) returns (UpdatePublishedPlanOverviewResponse) {}
   rpc GetPlanOverviewByExternalId(GetPlanOverviewByExternalIdRequest) returns (GetPlanOverviewByExternalIdResponse) {}
+
+  rpc UpdatePlanTrial(UpdatePlanTrialRequest) returns (UpdatePlanTrialResponse) {}
 
   rpc GetPlanParameters(GetPlanParametersRequest) returns (GetPlanParametersResponse) {}
 }

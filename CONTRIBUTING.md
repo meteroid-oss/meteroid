@@ -79,6 +79,8 @@ To add new migration following steps are needed (executed from the project root)
   `modules/meteroid/migrations/diesel`
 - add sql code to the generated migration files
 - apply the migration : `diesel migration run`. Applies the migration(s) and regenerates the schema.rs file.
+- revert the migration : `diesel migration revert`. Un-applies the last applied migration(s) and regenerates the
+  schema.rs file.
 
 On meteroid_api startup the un-applied migrations run automatically.
 

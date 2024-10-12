@@ -9,11 +9,10 @@ pub mod subscriptions {
 
     use crate::api::shared::conversions::*;
 
+    use crate::api::coupons::mapping::coupons as coupon_mapping;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
 
-    pub(crate) fn domain_to_proto(
-        s: meteroid_store::domain::Subscription,
-    ) -> Result<proto2::Subscription, Status> {
+    pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
         let status = s.status_proto()? as i32;
 
         Ok(proto2::Subscription {
@@ -63,7 +62,7 @@ pub mod subscriptions {
             activated_at: None, //NaiveDateTime::from_proto_opt(param.activated_at)?,
         };
 
-        let res = meteroid_store::domain::CreateSubscription {
+        let res = domain::CreateSubscription {
             subscription: subscription_new,
             price_components: param
                 .components
@@ -72,6 +71,11 @@ pub mod subscriptions {
             add_ons: param
                 .add_ons
                 .map(super::add_ons::create_subscription_add_ons_from_grpc)
+                .transpose()?,
+            coupons: param
+                .coupons
+                .as_ref()
+                .map(super::coupons::create_subscription_coupons_from_grpc)
                 .transpose()?,
         };
 
@@ -151,6 +155,11 @@ pub mod subscriptions {
                     name: m.name,
                     alias: m.code,
                 })
+                .collect(),
+            coupons: sub
+                .coupons
+                .into_iter()
+                .map(coupon_mapping::to_server)
                 .collect(),
         })
     }
@@ -729,4 +738,32 @@ pub mod ext {
         billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_from_grpc,
         usage_pricing_model_to_grpc,
     };
+}
+
+pub mod coupons {
+    use crate::api::shared::conversions::ProtoConv;
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain;
+    use uuid::Uuid;
+
+    pub fn create_subscription_coupons_from_grpc(
+        data: &api::CreateSubscriptionCoupons,
+    ) -> tonic::Result<domain::CreateSubscriptionCoupons> {
+        let coupons = data
+            .coupons
+            .as_slice()
+            .iter()
+            .map(create_subscription_coupon_from_grpc)
+            .collect::<tonic::Result<Vec<_>, _>>()?;
+
+        Ok(domain::CreateSubscriptionCoupons { coupons })
+    }
+
+    pub fn create_subscription_coupon_from_grpc(
+        data: &api::CreateSubscriptionCoupon,
+    ) -> tonic::Result<domain::CreateSubscriptionCoupon> {
+        Ok(domain::CreateSubscriptionCoupon {
+            coupon_id: Uuid::from_proto_ref(&data.coupon_id)?,
+        })
+    }
 }

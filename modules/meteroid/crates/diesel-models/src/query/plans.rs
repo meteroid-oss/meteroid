@@ -1,5 +1,7 @@
 use crate::errors::IntoDbResult;
-use crate::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow};
+use crate::plans::{
+    PlanFilters, PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow,
+};
 use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
@@ -42,6 +44,27 @@ impl PlanRow {
 
         let query = p_dsl::plan
             .filter(p_dsl::external_id.eq(external_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while getting plan")
+            .into_db_result()
+    }
+
+    pub async fn get_by_id_and_tenant_id(
+        conn: &mut PgConn,
+        id: Uuid,
+        tenant_id: Uuid,
+    ) -> DbResult<PlanRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -153,8 +176,8 @@ impl PlanRowForList {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: Uuid,
-        search: Option<String>,
         product_family_external_id: Option<String>,
+        filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<PlanRowForList>> {
@@ -171,7 +194,15 @@ impl PlanRowForList {
             query = query.filter(pf_dsl::external_id.eq(product_family_external_id))
         }
 
-        if let Some(search) = search {
+        if let Some(filter_status) = filters.filter_status {
+            query = query.filter(p_dsl::status.eq(filter_status));
+        }
+
+        if let Some(filter_type) = filters.filter_type {
+            query = query.filter(p_dsl::plan_type.eq(filter_type));
+        }
+
+        if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
             query = query.filter(
                 p_dsl::name
                     .ilike(format!("%{}%", search))
