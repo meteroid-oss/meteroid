@@ -164,11 +164,6 @@ const ProviderWrapper = ({
   )
 }
 
-export interface FeeFormProps {
-  cancel: () => void
-  onSubmit: (data: FormPriceComponent['fee']['data']) => void
-}
-
 interface PriceComponentFormProps {
   cancel: () => void
   onSubmit: (data: FormPriceComponent) => void
