@@ -7,15 +7,15 @@ import { useNavigate } from 'react-router-dom'
 
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
-import {
-  EditPriceComponentCard,
-  FeeFormProps,
-  componentFeeAtom,
-} from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
+import { EditPriceComponentCard } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useBillingPeriods, useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { BillingPeriod } from '@/lib/mapping'
 import { RateFee, RateFeeSchema, SlotFeeSchema, TermRate } from '@/lib/schemas/plans'
+
+import { componentFeeAtom } from '../atoms'
+
+import { FeeFormProps } from './shared'
 
 export const SubscriptionRateForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)

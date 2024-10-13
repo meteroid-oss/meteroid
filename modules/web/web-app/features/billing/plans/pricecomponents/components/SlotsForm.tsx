@@ -1,15 +1,15 @@
 import { Form, InputFormField } from '@md/ui'
 import { useAtom } from 'jotai'
 
-import {
-  EditPriceComponentCard,
-  FeeFormProps,
-  componentFeeAtom,
-} from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
+import { EditPriceComponentCard } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { TermRateTable } from '@/features/billing/plans/pricecomponents/components/SubscriptionRateForm'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { SlotFee, SlotFeeSchema } from '@/lib/schemas/plans'
+
+import { componentFeeAtom } from '../atoms'
+
+import { FeeFormProps } from './shared'
 
 export const SlotsForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)

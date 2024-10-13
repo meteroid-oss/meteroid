@@ -23,12 +23,7 @@ import { match } from 'ts-pattern'
 import { AccordionPanel } from '@/components/AccordionPanel'
 import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
-import {
-  componentFeeAtom,
-  componentNameAtom,
-  EditPriceComponentCard,
-  FeeFormProps,
-} from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
+import { EditPriceComponentCard } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -45,6 +40,10 @@ import {
   listBillableMetrics,
 } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
+
+import { componentFeeAtom, componentNameAtom } from '../atoms'
+
+import { FeeFormProps } from './shared'
 
 // type UsagePricingModelType = "per_unit" | "tiered" | "volume" | "package"
 

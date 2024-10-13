@@ -3,7 +3,7 @@ import { FC, useMemo } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
 import { Loading } from '@/components/Loading'
-import { useSession } from '@/features/auth'
+import { useSession } from '@/features/auth/session'
 import { useLogout } from '@/hooks/useLogout'
 import { useQuery } from '@/lib/connectrpc'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
