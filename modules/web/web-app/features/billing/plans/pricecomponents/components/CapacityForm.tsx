@@ -8,17 +8,16 @@ import { useNavigate } from 'react-router-dom'
 
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
-import {
-  EditPriceComponentCard,
-  FeeFormProps,
-  componentFeeAtom,
-} from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
+import { EditPriceComponentCard } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
+import { componentFeeAtom } from '@/features/billing/plans/pricecomponents/atoms'
 import { useCurrency } from '@/features/billing/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { CapacityFee, CapacityFeeSchema, CapacityThreshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
+
+import { FeeFormProps } from './shared'
 
 export const CapacityForm = (props: FeeFormProps) => {
   const [component] = useAtom(componentFeeAtom)
