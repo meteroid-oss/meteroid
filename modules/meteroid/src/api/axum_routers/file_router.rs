@@ -40,7 +40,7 @@ pub fn file_routes() -> Router<AppState> {
     tag = "file",
     path = "/v1/logo/{uuid}",
     params(
-        ("uuid" = str, Path, description = "Logo database UUID")
+        ("uuid" = Uuid, Path, description = "Logo database UUID")
     ),
     responses(
         (status = 200, content_type = "image/png", description = "Logo as PNG image", body = [u8]),
@@ -97,7 +97,7 @@ struct TokenParams {
     tag = "file",
     path = "/v1/invoice/pdf/{uuid}",
     params(
-        ("uuid" = str, Path, description = "Invoice database UUID"),
+        ("uuid" = Uuid, Path, description = "Invoice database UUID"),
         ("token" = str, Query, description = "Security token"),
     ),
     responses(
