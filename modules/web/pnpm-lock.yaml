@@ -673,9 +673,6 @@ importers:
       vite:
         specifier: ^5.0.13
         version: 5.0.13(@types/node@20.11.16)(sass@1.70.0)(terser@5.27.0)
-      vite-plugin-circular-dependency:
-        specifier: ^0.5.0
-        version: 0.5.0(rollup@4.9.6)
       vite-plugin-svgr:
         specifier: ^4.2.0
         version: 4.2.0(rollup@4.9.6)(typescript@5.3.3)(vite@5.0.13(@types/node@20.11.16)(sass@1.70.0)(terser@5.27.0))
@@ -8024,9 +8021,6 @@ packages:
   vary@1.1.2:
     resolution: {integrity: sha512-BNGbWLfd0eUPabhkXUVm0j8uuvREyTh5ovRa/dyow/BqAbZJyC+5fU+IzQOzmAKzYqYRAISoRhdQr3eIZ/PXqg==}
     engines: {node: '>= 0.8'}
-
-  vite-plugin-circular-dependency@0.5.0:
-    resolution: {integrity: sha512-7SQX1IZbf5to/S3A3/syfntRNg20Cth6KgTCwHpNZIcuDCtPclV2Bwvdd9HWG+alKZ04mmdlchNOPQgBl7/vQQ==}
 
   vite-plugin-dts@3.7.2:
     resolution: {integrity: sha512-kg//1nDA01b8rufJf4TsvYN8LMkdwv0oBYpiQi6nRwpHyue+wTlhrBiqgipdFpMnW1oOYv6ywmzE5B0vg6vSEA==}
@@ -16847,13 +16841,6 @@ snapshots:
   validator@13.11.0: {}
 
   vary@1.1.2: {}
-
-  vite-plugin-circular-dependency@0.5.0(rollup@4.9.6):
-    dependencies:
-      '@rollup/pluginutils': 5.1.0(rollup@4.9.6)
-      chalk: 4.1.2
-    transitivePeerDependencies:
-      - rollup
 
   vite-plugin-dts@3.7.2(@types/node@20.11.16)(rollup@4.9.6)(typescript@5.3.3)(vite@5.0.13(@types/node@20.11.16)(sass@1.70.0)(terser@5.27.0)):
     dependencies:

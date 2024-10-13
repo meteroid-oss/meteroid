@@ -1,7 +1,6 @@
 import basicSsl from '@vitejs/plugin-basic-ssl'
 import react from '@vitejs/plugin-react'
 import { UserConfigExport, defineConfig } from 'vite'
-import circleDependency from 'vite-plugin-circular-dependency'
 import svgr from 'vite-plugin-svgr'
 import tsconfigPaths from 'vite-tsconfig-paths'
 
@@ -23,7 +22,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     envDir: '../../../',
-    plugins: [react(), tsconfigPaths(), svgr(), circleDependency()],
+    plugins: [react(), tsconfigPaths(), svgr()],
   }
   return localSsl
     ? {
