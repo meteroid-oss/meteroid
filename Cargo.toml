@@ -172,7 +172,7 @@ uuid7 = "1.0.0"
 utoipa = { version = "5.0.0-beta.0", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "7.1.1-beta.0", features = ["axum"] }
 utoipa-redoc = { version = "4.0.1-beta.0", features = ["axum"] }
-utoipa-rapidoc = { version = "4.0.1-beta.0", features = ["axum"] }
+utoipa-rapidoc = { version = "5.0.0", features = ["axum"] }
 utoipa-scalar = { version = "0.2.0-beta.0", features = ["axum"] }
 
 
