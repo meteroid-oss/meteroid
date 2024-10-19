@@ -223,7 +223,9 @@ diesel::table! {
         reusable -> Bool,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        redemption_count -> Int4,
         last_redemption_at -> Nullable<Timestamp>,
+        disabled -> Bool,
         archived_at -> Nullable<Timestamp>,
     }
 }

@@ -148,28 +148,24 @@ impl CouponRow {
             .into_db_result()
     }
 
-    pub async fn subscriptions_count(
+    pub async fn inc_redemption_count(
         conn: &mut PgConn,
-        coupons: &[uuid::Uuid],
-    ) -> DbResult<HashMap<uuid::Uuid, i64>> {
-        use crate::schema::applied_coupon::dsl as ac_dsl;
+        coupon_id: uuid::Uuid,
+        delta: i32,
+    ) -> DbResult<CouponRow> {
+        use crate::schema::coupon::dsl as c_dsl;
 
-        let query = ac_dsl::applied_coupon
-            .filter(ac_dsl::coupon_id.eq_any(coupons))
-            .group_by(ac_dsl::coupon_id)
-            .select((
-                ac_dsl::coupon_id,
-                diesel::dsl::count(ac_dsl::subscription_id),
-            ));
+        let query = diesel::update(c_dsl::coupon)
+            .filter(c_dsl::id.eq(coupon_id))
+            .set(c_dsl::redemption_count.eq(c_dsl::redemption_count + delta));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .load::<(uuid::Uuid, i64)>(conn)
+            .get_result(conn)
             .await
-            .attach_printable("Error while counting subscriptions for coupons")
+            .attach_printable("Error while incrementing coupon redemption count")
             .into_db_result()
-            .map(|rows: Vec<(uuid::Uuid, i64)>| rows.into_iter().collect())
     }
 
     pub async fn customers_count(

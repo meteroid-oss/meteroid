@@ -17,7 +17,9 @@ pub struct CouponRow {
     pub reusable: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub redemption_count: i32,
     pub last_redemption_at: Option<NaiveDateTime>,
+    pub disabled: bool,
     pub archived_at: Option<NaiveDateTime>,
 }
 
