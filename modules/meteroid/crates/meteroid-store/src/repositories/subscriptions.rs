@@ -485,20 +485,6 @@ impl SubscriptionInterface for Store {
 
                     apply_coupons(conn, &insertable_subscription_coupons, tenant_id).await?;
 
-                    validate_coupons(conn, &insertable_subscription_coupons, tenant_id).await?;
-
-                    AppliedCouponRow::insert_batch(conn, insertable_subscription_coupons)
-                        .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
-
-                    CouponRow::update_last_redemption_at(
-                        conn,
-                        &all_coupons.iter().map(|c| c.id).collect::<Vec<_>>(),
-                        chrono::Utc::now().naive_utc(),
-                    )
-                    .await
-                    .map_err(Into::<DatabaseErrorContainer>::into)?;
-
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
                         .map_err(Into::<DatabaseErrorContainer>::into)?;
