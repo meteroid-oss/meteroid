@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
-use diesel_models::subscription_coupons::SubscriptionCouponRow;
+use diesel_models::applied_coupons::AppliedCouponRow;
 use o2o::o2o;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -15,11 +16,16 @@ pub struct CreateSubscriptionCoupons {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
-#[from_owned(SubscriptionCouponRow)]
-#[owned_into(SubscriptionCouponRow)]
-pub struct SubscriptionCoupon {
+#[from_owned(AppliedCouponRow)]
+#[owned_into(AppliedCouponRow)]
+pub struct AppliedCoupon {
     pub id: Uuid,
-    pub subscription_id: Uuid,
     pub coupon_id: Uuid,
+    pub customer_id: Uuid,
+    pub subscription_id: Uuid,
+    pub is_active: bool,
+    pub applied_amount: Option<Decimal>,
+    pub applied_count: Option<i32>,
+    pub last_applied_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
 }

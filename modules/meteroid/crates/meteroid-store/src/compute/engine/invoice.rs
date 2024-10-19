@@ -68,9 +68,12 @@ impl InvoiceLineInterface for Store {
         )
         .await?;
 
+        let coupon_lines = compute_coupon_lines().await?;
+
         let invoice_lines = price_components_lines
             .into_iter()
             .chain(add_ons_lines)
+            .chain(coupon_lines)
             .collect();
 
         Ok(invoice_lines)
@@ -123,4 +126,9 @@ async fn compute_invoice_lines<T: SubscriptionFeeInterface>(
     }
 
     Ok(invoice_lines)
+}
+
+async fn compute_coupon_lines() -> Result<Vec<LineItem>, ComputeError> {
+    // TODO
+    Ok(Vec::new())
 }

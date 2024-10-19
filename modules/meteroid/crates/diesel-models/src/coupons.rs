@@ -13,10 +13,12 @@ pub struct CouponRow {
     pub discount: serde_json::Value,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
-    pub recurring_value: i32,
+    pub recurring_value: Option<i32>,
     pub reusable: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub last_redemption_at: Option<NaiveDateTime>,
+    pub archived_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -30,7 +32,7 @@ pub struct CouponRowNew {
     pub discount: serde_json::Value,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
-    pub recurring_value: i32,
+    pub recurring_value: Option<i32>,
     pub reusable: bool,
 }
 

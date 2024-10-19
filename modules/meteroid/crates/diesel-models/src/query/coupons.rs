@@ -107,14 +107,14 @@ impl CouponRow {
         tenant_id: &uuid::Uuid,
         subscription_id: &uuid::Uuid,
     ) -> DbResult<Vec<CouponRow>> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
         use crate::schema::coupon::dsl as c_dsl;
         use crate::schema::subscription::dsl as s_dsl;
-        use crate::schema::subscription_coupon::dsl as sc_dsl;
 
-        let query = sc_dsl::subscription_coupon
+        let query = ac_dsl::applied_coupon
             .inner_join(s_dsl::subscription)
             .inner_join(c_dsl::coupon)
-            .filter(sc_dsl::subscription_id.eq(subscription_id))
+            .filter(ac_dsl::subscription_id.eq(subscription_id))
             .filter(s_dsl::tenant_id.eq(tenant_id))
             .select(CouponRow::as_select());
 
@@ -152,14 +152,14 @@ impl CouponRow {
         conn: &mut PgConn,
         coupons: &[uuid::Uuid],
     ) -> DbResult<HashMap<uuid::Uuid, i64>> {
-        use crate::schema::subscription_coupon::dsl as sc_dsl;
+        use crate::schema::applied_coupon::dsl as ac_dsl;
 
-        let query = sc_dsl::subscription_coupon
-            .filter(sc_dsl::coupon_id.eq_any(coupons))
-            .group_by(sc_dsl::coupon_id)
+        let query = ac_dsl::applied_coupon
+            .filter(ac_dsl::coupon_id.eq_any(coupons))
+            .group_by(ac_dsl::coupon_id)
             .select((
-                sc_dsl::coupon_id,
-                diesel::dsl::count(sc_dsl::subscription_id),
+                ac_dsl::coupon_id,
+                diesel::dsl::count(ac_dsl::subscription_id),
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -170,6 +170,48 @@ impl CouponRow {
             .attach_printable("Error while counting subscriptions for coupons")
             .into_db_result()
             .map(|rows: Vec<(uuid::Uuid, i64)>| rows.into_iter().collect())
+    }
+
+    pub async fn customers_count(
+        conn: &mut PgConn,
+        coupons: &[uuid::Uuid],
+    ) -> DbResult<HashMap<uuid::Uuid, i64>> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+
+        let query = ac_dsl::applied_coupon
+            .filter(ac_dsl::coupon_id.eq_any(coupons))
+            .group_by(ac_dsl::coupon_id)
+            .select((ac_dsl::coupon_id, diesel::dsl::count(ac_dsl::customer_id)));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load::<(uuid::Uuid, i64)>(conn)
+            .await
+            .attach_printable("Error while counting customers for coupons")
+            .into_db_result()
+            .map(|rows: Vec<(uuid::Uuid, i64)>| rows.into_iter().collect())
+    }
+
+    pub async fn update_last_redemption_at(
+        conn: &mut PgConn,
+        coupon_ids: &[uuid::Uuid],
+        last_redemption_at: chrono::NaiveDateTime,
+    ) -> DbResult<()> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = diesel::update(c_dsl::coupon)
+            .filter(c_dsl::id.eq_any(coupon_ids))
+            .set(c_dsl::last_redemption_at.eq(last_redemption_at));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach_printable("Error while updating coupon last redemption at")
+            .into_db_result()
     }
 }
 

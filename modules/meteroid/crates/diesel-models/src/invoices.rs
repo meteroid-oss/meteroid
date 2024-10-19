@@ -52,6 +52,7 @@ pub struct InvoiceRow {
     pub seller_details: serde_json::Value,
     pub xml_document_id: Option<String>,
     pub pdf_document_id: Option<String>,
+    pub applied_invoice_ids: Vec<Option<Uuid>>,
 }
 
 #[derive(Debug, AsChangeset)]
