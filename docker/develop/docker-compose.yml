@@ -4,8 +4,11 @@ x-default-logging: &logging
     max-size: "5m"
     max-file: "2"
 
+  # postgresql
+  #   inspired by https://stackoverflow.com/questions/68626017/docker-compose-psql-error-fatal-role-postgres-does-not-exist
 volumes:
-  pg_data:
+  volume_name:
+    name: volume_name
   redpanda_data:
   clickhouse_data:
   minio_data:
@@ -29,7 +32,7 @@ services:
       - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
       - POSTGRES_DB=${DATABASE_NAME:-meteroid}
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - volume_name:/var/lib/postgresql/data
     healthcheck:
       test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
       interval: 10s
@@ -336,5 +339,3 @@ services:
     profiles:
       - telemetry
     logging: *logging
-
-
