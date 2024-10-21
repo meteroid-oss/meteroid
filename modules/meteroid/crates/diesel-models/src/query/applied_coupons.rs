@@ -1,7 +1,7 @@
-use crate::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
+use crate::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use diesel::{debug_query, ExpressionMethods, QueryDsl};
+use diesel::{debug_query, ExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -53,6 +53,29 @@ impl AppliedCouponRow {
             .get_results(conn)
             .await
             .attach_printable("Error while inserting AppliedCoupon batch")
+            .into_db_result()
+    }
+}
+
+impl AppliedCouponDetailedRow {
+    pub async fn list_by_subscription_id(
+        conn: &mut PgConn,
+        param_subscription_id: &Uuid,
+    ) -> DbResult<Vec<AppliedCouponDetailedRow>> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = ac_dsl::applied_coupon
+            .inner_join(c_dsl::coupon)
+            .filter(ac_dsl::subscription_id.eq(param_subscription_id))
+            .select(AppliedCouponDetailedRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while listing applied coupons by subscription id")
             .into_db_result()
     }
 }

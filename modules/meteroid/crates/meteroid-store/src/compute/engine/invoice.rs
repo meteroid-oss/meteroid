@@ -15,7 +15,7 @@ pub trait InvoiceLineInterface {
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
-        subscription_details: SubscriptionDetails,
+        subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError>;
 }
 
@@ -27,7 +27,7 @@ impl InvoiceLineInterface for Store {
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
-        subscription_details: SubscriptionDetails,
+        subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError> {
         if *invoice_date < subscription_details.billing_start_date {
             return Err(ComputeError::InvalidInvoiceDate);
@@ -68,12 +68,9 @@ impl InvoiceLineInterface for Store {
         )
         .await?;
 
-        let coupon_lines = compute_coupon_lines().await?;
-
         let invoice_lines = price_components_lines
             .into_iter()
             .chain(add_ons_lines)
-            .chain(coupon_lines)
             .collect();
 
         Ok(invoice_lines)
@@ -126,9 +123,4 @@ async fn compute_invoice_lines<T: SubscriptionFeeInterface>(
     }
 
     Ok(invoice_lines)
-}
-
-async fn compute_coupon_lines() -> Result<Vec<LineItem>, ComputeError> {
-    // TODO
-    Ok(Vec::new())
 }

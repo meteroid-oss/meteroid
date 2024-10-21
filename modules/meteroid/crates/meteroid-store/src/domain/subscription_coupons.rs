@@ -1,5 +1,7 @@
+use crate::domain::coupons::{Coupon, CouponDiscount};
+use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
-use diesel_models::applied_coupons::AppliedCouponRow;
+use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use o2o::o2o;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -28,4 +30,53 @@ pub struct AppliedCoupon {
     pub applied_count: Option<i32>,
     pub last_applied_at: Option<NaiveDateTime>,
     pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone)]
+pub struct AppliedCouponDetailed {
+    pub coupon: Coupon,
+    pub applied_coupon: AppliedCoupon,
+}
+
+impl AppliedCouponDetailed {
+    pub fn is_invoice_applicable(&self) -> bool {
+        self.applied_coupon.is_active
+            && !self.reached_recurring_limit()
+            && !self.is_fully_consumed()
+    }
+
+    fn reached_recurring_limit(&self) -> bool {
+        self.coupon
+            .recurring_value
+            .map(|x| x <= self.applied_coupon.applied_count.unwrap_or(0))
+            .unwrap_or(false)
+    }
+
+    fn is_fully_consumed(&self) -> bool {
+        match &self.coupon.discount {
+            CouponDiscount::Percentage(_) => false,
+            CouponDiscount::Fixed { amount, .. } => {
+                // todo currency conversion
+                &self
+                    .applied_coupon
+                    .applied_amount
+                    .unwrap_or(Decimal::from(0))
+                    >= amount
+            }
+        }
+    }
+}
+
+impl TryInto<AppliedCouponDetailed> for AppliedCouponDetailedRow {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<AppliedCouponDetailed, Self::Error> {
+        let coupon: Coupon = self.coupon.try_into()?;
+        let applied_coupon: AppliedCoupon = self.applied_coupon.into();
+
+        Ok(AppliedCouponDetailed {
+            coupon,
+            applied_coupon,
+        })
+    }
 }

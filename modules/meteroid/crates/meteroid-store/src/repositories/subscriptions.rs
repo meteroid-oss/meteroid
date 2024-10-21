@@ -34,7 +34,9 @@ use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
-use diesel_models::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
+use diesel_models::applied_coupons::{
+    AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew,
+};
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::price_components::PriceComponentRow;
@@ -616,8 +618,8 @@ impl SubscriptionInterface for Store {
 
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
-        let subscription_coupons =
-            CouponRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+        let applied_coupons =
+            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -645,7 +647,7 @@ impl SubscriptionInterface for Store {
             net_terms: subscription.net_terms,
             price_components: subscription_components,
             add_ons: subscription_add_ons,
-            coupons: subscription_coupons,
+            applied_coupons,
             metrics: billable_metrics,
             mrr_cents: subscription.mrr_cents,
             version: subscription.version,

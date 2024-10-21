@@ -1,7 +1,7 @@
 use crate::coupons::{CouponRow, CouponRowNew, CouponRowPatch};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use diesel::{debug_query, ExpressionMethods, QueryDsl, SelectableHelper};
+use diesel::{debug_query, ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use std::collections::HashMap;
@@ -99,31 +99,6 @@ impl CouponRow {
             .await
             .tap_err(|e| log::error!("Error while fetching coupons: {:?}", e))
             .attach_printable("Error while fetching coupons")
-            .into_db_result()
-    }
-
-    pub async fn list_by_subscription_id(
-        conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
-        subscription_id: &uuid::Uuid,
-    ) -> DbResult<Vec<CouponRow>> {
-        use crate::schema::applied_coupon::dsl as ac_dsl;
-        use crate::schema::coupon::dsl as c_dsl;
-        use crate::schema::subscription::dsl as s_dsl;
-
-        let query = ac_dsl::applied_coupon
-            .inner_join(s_dsl::subscription)
-            .inner_join(c_dsl::coupon)
-            .filter(ac_dsl::subscription_id.eq(subscription_id))
-            .filter(s_dsl::tenant_id.eq(tenant_id))
-            .select(CouponRow::as_select());
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .get_results(conn)
-            .await
-            .attach_printable("Error while listing Coupon by subscription_id")
             .into_db_result()
     }
 
