@@ -9,7 +9,6 @@ pub mod subscriptions {
 
     use crate::api::shared::conversions::*;
 
-    use crate::api::coupons::mapping::coupons as coupon_mapping;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
 
     pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
@@ -156,10 +155,10 @@ pub mod subscriptions {
                     alias: m.code,
                 })
                 .collect(),
-            coupons: sub
-                .coupons
+            applied_coupons: sub
+                .applied_coupons
                 .into_iter()
-                .map(coupon_mapping::to_server)
+                .map(super::coupons::applied_coupon_detailed_to_grpc)
                 .collect(),
         })
     }
@@ -741,7 +740,10 @@ pub mod ext {
 }
 
 pub mod coupons {
+    use crate::api::coupons::mapping::coupons as coupon_mapping;
     use crate::api::shared::conversions::ProtoConv;
+    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use meteroid_grpc::meteroid::api::coupons::v1 as coupon_api;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
     use uuid::Uuid;
@@ -765,5 +767,33 @@ pub mod coupons {
         Ok(domain::CreateSubscriptionCoupon {
             coupon_id: Uuid::from_proto_ref(&data.coupon_id)?,
         })
+    }
+
+    pub fn applied_coupon_detailed_to_grpc(
+        applied_coupon: domain::AppliedCouponDetailed,
+    ) -> coupon_api::AppliedCouponDetailed {
+        coupon_api::AppliedCouponDetailed {
+            coupon: Some(coupon_mapping::to_server(applied_coupon.coupon)),
+            applied_coupon: Some(applied_coupon_to_grpc(&applied_coupon.applied_coupon)),
+        }
+    }
+
+    pub fn applied_coupon_to_grpc(
+        applied_coupon: &domain::AppliedCoupon,
+    ) -> coupon_api::AppliedCoupon {
+        coupon_api::AppliedCoupon {
+            id: applied_coupon.id.to_string(),
+            coupon_id: applied_coupon.coupon_id.to_string(),
+            customer_id: applied_coupon.customer_id.to_string(),
+            subscription_id: applied_coupon.subscription_id.to_string(),
+            is_active: applied_coupon.is_active,
+            applied_amount: applied_coupon
+                .applied_amount
+                .as_ref()
+                .map(|a| a.to_string()),
+            applied_count: applied_coupon.applied_count,
+            last_applied_at: applied_coupon.last_applied_at.map(chrono_to_timestamp),
+            created_at: Some(chrono_to_timestamp(applied_coupon.created_at)),
+        }
     }
 }

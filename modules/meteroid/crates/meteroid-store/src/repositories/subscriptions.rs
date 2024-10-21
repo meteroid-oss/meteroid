@@ -34,6 +34,9 @@ use crate::repositories::{CustomersInterface, InvoiceInterface};
 use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
+use diesel_models::applied_coupons::{
+    AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew,
+};
 use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::price_components::PriceComponentRow;
@@ -44,7 +47,6 @@ use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddO
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
-use diesel_models::subscription_coupons::{SubscriptionCouponRow, SubscriptionCouponRowNew};
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
 use diesel_models::DbResult;
@@ -253,7 +255,7 @@ impl SubscriptionInterface for Store {
             subscription: SubscriptionRowNew,
             price_components: Vec<SubscriptionComponentRowNew>,
             add_ons: Vec<SubscriptionAddOnRowNew>,
-            coupons: Vec<SubscriptionCouponRowNew>,
+            coupons: Vec<AppliedCouponRowNew>,
             event: SubscriptionEventRow,
         }
 
@@ -309,6 +311,7 @@ impl SubscriptionInterface for Store {
         let customer_ids = batch
             .iter()
             .map(|c| c.subscription.customer_id)
+            .unique()
             .collect::<Vec<_>>();
 
         let customers = self
@@ -375,6 +378,7 @@ impl SubscriptionInterface for Store {
                 insertable_subscription.id,
                 &coupons,
                 &all_coupons,
+                insertable_subscription.customer_id,
             )?;
 
             let cmrr = insertable_subscription_components
@@ -389,7 +393,7 @@ impl SubscriptionInterface for Store {
 
             let mrr_delta = cmrr + ao_mrr;
 
-            let mrr_delta = apply_coupons(
+            let mrr_delta = calculate_coupons_discount(
                 self,
                 &all_coupons,
                 subscription_currency,
@@ -464,8 +468,6 @@ impl SubscriptionInterface for Store {
         let inserted_subscriptions = conn
             .transaction(|conn| {
                 async move {
-                    validate_coupons(conn, &insertable_subscription_coupons, tenant_id).await?;
-
                     let inserted_subscriptions: Vec<CreatedSubscription> =
                         SubscriptionRow::insert_subscription_batch(conn, insertable_subscriptions)
                             .await
@@ -483,9 +485,7 @@ impl SubscriptionInterface for Store {
                         .await
                         .map_err(Into::<DatabaseErrorContainer>::into)?;
 
-                    SubscriptionCouponRow::insert_batch(conn, insertable_subscription_coupons)
-                        .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
+                    apply_coupons(conn, &insertable_subscription_coupons, tenant_id).await?;
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
@@ -618,8 +618,8 @@ impl SubscriptionInterface for Store {
 
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
-        let subscription_coupons =
-            CouponRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+        let applied_coupons =
+            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -647,7 +647,7 @@ impl SubscriptionInterface for Store {
             net_terms: subscription.net_terms,
             price_components: subscription_components,
             add_ons: subscription_add_ons,
-            coupons: subscription_coupons,
+            applied_coupons,
             metrics: billable_metrics,
             mrr_cents: subscription.mrr_cents,
             version: subscription.version,
@@ -890,7 +890,8 @@ fn process_create_subscription_coupons(
     subscription_id: Uuid,
     create: &Option<CreateSubscriptionCoupons>,
     coupons: &[Coupon],
-) -> Result<Vec<SubscriptionCouponRowNew>, StoreError> {
+    customer_id: Uuid,
+) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
     let mut processed_coupons = Vec::new();
     if let Some(create) = create {
         for cs_coupon in &create.coupons {
@@ -898,10 +899,15 @@ fn process_create_subscription_coupons(
                 StoreError::ValueNotFound(format!("coupon {} not found", cs_coupon.coupon_id)),
             )?;
 
-            processed_coupons.push(SubscriptionCouponRowNew {
+            processed_coupons.push(AppliedCouponRowNew {
                 id: Uuid::now_v7(),
                 subscription_id,
                 coupon_id: coupon.id,
+                customer_id,
+                is_active: true,
+                applied_amount: None,
+                applied_count: None,
+                last_applied_at: None,
             });
         }
     }
@@ -914,11 +920,46 @@ fn process_create_subscription_coupons(
     Ok(processed_coupons)
 }
 
+async fn apply_coupons(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&AppliedCouponRowNew],
+    tenant_id: Uuid,
+) -> DbResult<()> {
+    validate_coupons(tx_conn, subscription_coupons, tenant_id).await?;
+
+    AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec())
+        .await
+        .map_err(Into::<DatabaseErrorContainer>::into)?;
+
+    CouponRow::update_last_redemption_at(
+        tx_conn,
+        &subscription_coupons
+            .iter()
+            .map(|c| c.coupon_id)
+            .unique()
+            .collect::<Vec<_>>(),
+        chrono::Utc::now().naive_utc(),
+    )
+    .await
+    .map_err(Into::<DatabaseErrorContainer>::into)?;
+
+    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+        subscription_coupons.iter().counts_by(|x| x.coupon_id);
+
+    for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
+        CouponRow::inc_redemption_count(tx_conn, coupon_id, subscriptions_count as i32)
+            .await
+            .map_err(Into::<DatabaseErrorContainer>::into)?;
+    }
+
+    Ok(())
+}
+
 /// validate coupons can be applied to subscriptions
 /// must be inside tx to handle concurrent inserts
 async fn validate_coupons(
     tx_conn: &mut PgConn,
-    subscription_coupons: &[&SubscriptionCouponRowNew],
+    subscription_coupons: &[&AppliedCouponRowNew],
     tenant_id: Uuid,
 ) -> DbResult<()> {
     if subscription_coupons.is_empty() {
@@ -935,7 +976,7 @@ async fn validate_coupons(
 
     let now = chrono::Utc::now().naive_utc();
 
-    // expired coupons
+    // check expired coupons
     for coupon in coupons {
         let expired = coupon.expires_at.map(|x| x <= now).unwrap_or(false);
         if expired {
@@ -947,22 +988,51 @@ async fn validate_coupons(
         }
     }
 
-    let subscriptions_by_coupon: HashMap<Uuid, usize> =
-        subscription_coupons.iter().counts_by(|x| x.coupon_id);
-
-    let db_counts = CouponRow::subscriptions_count(tx_conn, &coupons_ids).await?;
+    // check archived coupons
+    for coupon in coupons {
+        if coupon.archived_at.is_some() {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} is archived",
+                coupon.code
+            )))
+            .into());
+        }
+    }
 
     // check if the coupon has reached its redemption limit
+    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+        subscription_coupons.iter().counts_by(|x| x.coupon_id);
     for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
-        let applied_count = db_counts.get(&coupon_id).unwrap_or(&0);
         let coupon = coupons.iter().find(|x| x.id == coupon_id).ok_or(report!(
             DatabaseError::ValidationError(format!("coupon {} not found", coupon_id))
         ))?;
 
         if let Some(redemption_limit) = coupon.redemption_limit {
-            if (redemption_limit as i64) < (subscriptions_count as i64 + *applied_count) {
+            if redemption_limit < subscriptions_count as i32 + coupon.redemption_count {
                 return Err(report!(DatabaseError::ValidationError(format!(
                     "coupon {} has reached its maximum redemptions",
+                    coupon.code
+                )))
+                .into());
+            }
+        }
+    }
+
+    // check non-reusable coupons
+    let non_reusable_coupons = coupons.iter().filter(|x| !x.reusable).collect::<Vec<_>>();
+    if !non_reusable_coupons.is_empty() {
+        let non_reusable_coupons_ids = non_reusable_coupons
+            .iter()
+            .map(|x| x.id)
+            .collect::<Vec<_>>();
+
+        let db_customers_by_coupon =
+            CouponRow::customers_count(tx_conn, &non_reusable_coupons_ids).await?;
+
+        for coupon in non_reusable_coupons {
+            if db_customers_by_coupon.contains_key(&coupon.id) {
+                return Err(report!(DatabaseError::ValidationError(format!(
+                    "coupon {} is not reusable",
                     coupon.code
                 )))
                 .into());
@@ -973,7 +1043,7 @@ async fn validate_coupons(
     Ok(())
 }
 
-async fn apply_coupons(
+async fn calculate_coupons_discount(
     store: &Store,
     coupons: &[Coupon],
     subscription_currency: &String,

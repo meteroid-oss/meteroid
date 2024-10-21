@@ -432,7 +432,7 @@ pub async fn run(
             i += 1;
             // we get all components that need to be invoiced for this date
             let invoice_lines = store
-                .compute_dated_invoice_lines(&invoice_date, subscription_details.clone())
+                .compute_dated_invoice_lines(&invoice_date, &subscription_details)
                 .await
                 .change_context(SeederError::TempError)?;
 

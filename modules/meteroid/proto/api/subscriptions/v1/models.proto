@@ -50,7 +50,7 @@ message SubscriptionDetails {
   repeated SubscriptionComponent price_components = 3;
   repeated BillableMetric metrics = 4;
   repeated SubscriptionAddOn add_ons = 5;
-  repeated meteroid.api.coupons.v1.Coupon coupons = 6;
+  repeated meteroid.api.coupons.v1.AppliedCouponDetailed applied_coupons = 6;
 }
 
 // TODO replace by subscription or even subscription details

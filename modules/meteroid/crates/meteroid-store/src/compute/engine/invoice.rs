@@ -15,7 +15,7 @@ pub trait InvoiceLineInterface {
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
-        subscription_details: SubscriptionDetails,
+        subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError>;
 }
 
@@ -27,7 +27,7 @@ impl InvoiceLineInterface for Store {
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
-        subscription_details: SubscriptionDetails,
+        subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError> {
         if *invoice_date < subscription_details.billing_start_date {
             return Err(ComputeError::InvalidInvoiceDate);

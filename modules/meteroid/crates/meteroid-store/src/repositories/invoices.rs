@@ -243,9 +243,11 @@ impl InvoiceInterface for Store {
 
     async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
         let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let row_patch = patch.try_into()?;
+
         self.transaction(|conn| {
             async move {
-                let refreshed = refresh_invoice_data(conn, id, tenant_id, &patch).await?;
+                let refreshed = refresh_invoice_data(conn, id, tenant_id, &row_patch).await?;
 
                 if refreshed.invoice.applied_credits > 0 {
                     CustomerBalance::update(
@@ -406,7 +408,9 @@ impl InvoiceInterface for Store {
         id: Uuid,
         tenant_id: Uuid,
     ) -> StoreResult<DetailedInvoice> {
-        let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let patch = compute_invoice_patch(self, id, tenant_id)
+            .await?
+            .try_into()?;
         let mut conn = self.get_conn().await?;
         refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
     }
@@ -543,7 +547,7 @@ async fn compute_invoice_patch(
     store: &Store,
     invoice_id: Uuid,
     tenant_id: Uuid,
-) -> StoreResult<InvoiceRowLinesPatch> {
+) -> StoreResult<InvoiceLinesPatch> {
     let invoice = store.find_invoice_by_id(tenant_id, invoice_id).await?;
 
     match invoice.invoice.subscription_id {
@@ -556,10 +560,14 @@ async fn compute_invoice_patch(
                 .get_subscription_details(tenant_id, subscription_id)
                 .await?;
             let lines = store
-                .compute_dated_invoice_lines(&invoice.invoice.invoice_date, subscription_details)
+                .compute_dated_invoice_lines(&invoice.invoice.invoice_date, &subscription_details)
                 .await?;
 
-            InvoiceLinesPatch::from_invoice_and_lines(&invoice, lines).try_into()
+            Ok(InvoiceLinesPatch::new(
+                &invoice,
+                lines,
+                &subscription_details.applied_coupons,
+            ))
         }
     }
 }

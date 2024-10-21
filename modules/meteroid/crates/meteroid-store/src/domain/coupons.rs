@@ -15,15 +15,17 @@ pub struct Coupon {
     pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>, // max number of subscriptions it can be applied to
-    pub recurring_value: i32, // 1 once, -1 infinite, > 1 number of times (applied on recurring invoices for a single subscription)
-    pub reusable: bool,       // can it be applied to multiple subscriptions of the same customer
+    pub recurring_value: Option<i32>, // max number of times can be applied on recurring invoices for a single subscription.
+    pub reusable: bool, // can it be applied to multiple subscriptions of the same customer
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub last_redemption_at: Option<NaiveDateTime>,
+    pub archived_at: Option<NaiveDateTime>,
 }
 
 impl Coupon {
     pub fn is_infinite(&self) -> bool {
-        self.recurring_value == -1
+        self.recurring_value.is_none()
     }
 
     pub fn is_expired(&self, now: NaiveDateTime) -> bool {
@@ -56,6 +58,8 @@ impl TryInto<Coupon> for CouponRow {
             reusable: self.reusable,
             created_at: self.created_at,
             updated_at: self.updated_at,
+            last_redemption_at: self.last_redemption_at,
+            archived_at: self.archived_at,
         })
     }
 }
@@ -68,7 +72,7 @@ pub struct CouponNew {
     pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
-    pub recurring_value: i32,
+    pub recurring_value: Option<i32>,
     pub reusable: bool,
 }
 

@@ -22,6 +22,7 @@ pub mod slot_transactions;
 pub mod subscriptions;
 
 pub mod add_ons;
+pub mod applied_coupons;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod extend;
@@ -31,7 +32,6 @@ pub mod outbox;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;
-pub mod subscription_coupons;
 pub mod subscription_events;
 pub mod tenants;
 pub mod users;
