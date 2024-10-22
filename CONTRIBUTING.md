@@ -32,6 +32,9 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering"
   profile as follows:
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
+- If docker display
+  `meteroid-db  |  FATAL:  role "meteroid" does not exist`
+  You can check your docker version and update
 
 - Start the Rust backend
   `cargo run -p meteroid --bin meteroid-api`
