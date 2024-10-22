@@ -1,6 +1,8 @@
 use crate::domain::coupons::{Coupon, CouponNew, CouponPatch};
+use crate::domain::AppliedCouponDetailed;
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
+use diesel_models::applied_coupons::AppliedCouponDetailedRow;
 use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch};
 use error_stack::Report;
 use uuid::Uuid;
@@ -12,6 +14,10 @@ pub trait CouponInterface {
     async fn create_coupon(&self, coupon: CouponNew) -> StoreResult<Coupon>;
     async fn delete_coupon(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<()>;
     async fn update_coupon(&self, coupon: CouponPatch) -> StoreResult<Coupon>;
+    async fn list_applied_coupons(
+        &self,
+        applied_ids: &[Uuid],
+    ) -> StoreResult<Vec<AppliedCouponDetailed>>;
 }
 
 #[async_trait::async_trait]
@@ -69,5 +75,21 @@ impl CouponInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .and_then(TryInto::try_into)
+    }
+
+    async fn list_applied_coupons(
+        &self,
+        applied_ids: &[Uuid],
+    ) -> StoreResult<Vec<AppliedCouponDetailed>> {
+        let mut conn = self.get_conn().await?;
+
+        let applied_coupons = AppliedCouponDetailedRow::list_by_ids(&mut conn, applied_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        applied_coupons
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()
     }
 }

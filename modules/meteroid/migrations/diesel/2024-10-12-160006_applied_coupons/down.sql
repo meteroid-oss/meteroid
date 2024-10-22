@@ -10,4 +10,4 @@ DROP INDEX IF EXISTS coupon_tenant_id_code_idx;
 
 drop table if exists applied_coupon;
 
-alter table invoice drop column if exists applied_invoice_ids;
+alter table invoice drop column if exists applied_coupon_ids;

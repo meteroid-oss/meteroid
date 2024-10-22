@@ -222,11 +222,16 @@ impl InvoiceRow {
         id: uuid::Uuid,
         tenant_id: uuid::Uuid,
         new_invoice_number: String,
+        applied_coupon_ids: &[uuid::Uuid],
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
 
         let now = chrono::Utc::now().naive_utc();
+        let applied_coupon_ids = applied_coupon_ids
+            .into_iter()
+            .map(|x| Some(*x))
+            .collect::<Vec<_>>();
 
         let query = diesel::update(i_dsl::invoice)
             .filter(i_dsl::id.eq(id))
@@ -240,6 +245,7 @@ impl InvoiceRow {
                 i_dsl::data_updated_at.eq(now),
                 i_dsl::finalized_at.eq(now),
                 i_dsl::invoice_number.eq(new_invoice_number),
+                i_dsl::applied_coupon_ids.eq(applied_coupon_ids),
             ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

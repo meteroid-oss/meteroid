@@ -31,6 +31,10 @@ impl Coupon {
     pub fn is_expired(&self, now: NaiveDateTime) -> bool {
         self.expires_at.map(|x| x <= now).unwrap_or(false)
     }
+
+    pub fn applies_once(&self) -> bool {
+        self.redemption_limit.is_some_and(|x| x == 1)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

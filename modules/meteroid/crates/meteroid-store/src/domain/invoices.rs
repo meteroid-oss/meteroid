@@ -5,6 +5,7 @@ use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionLatest};
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::utils::decimals::ToSubunit;
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
@@ -18,6 +19,7 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
@@ -146,7 +148,7 @@ pub struct InvoiceLinesPatch {
     pub tax_amount: i64,
     pub applied_credits: i64,
     #[ghost({vec![]})]
-    pub applied_coupons: Vec<(Uuid, i64)>,
+    pub applied_coupons: BTreeMap<Uuid, i64>,
 }
 
 impl InvoiceLinesPatch {
@@ -162,6 +164,7 @@ impl InvoiceLinesPatch {
             tax_rate: detailed_invoice.invoice.tax_rate,
             customer_balance_cents: detailed_invoice.customer.balance_value_cents,
             subscription_applied_coupons: &applied_coupons.to_vec(),
+            invoice_currency: detailed_invoice.invoice.currency.as_str(),
         });
 
         InvoiceLinesPatch {
@@ -240,6 +243,7 @@ pub struct InvoiceTotalsParams<'a> {
     pub amount_due: i64,
     pub tax_rate: i32,
     pub customer_balance_cents: i32,
+    pub invoice_currency: &'a str,
 }
 
 pub struct InvoiceTotals {
@@ -249,20 +253,23 @@ pub struct InvoiceTotals {
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
-    pub applied_coupons: Vec<(Uuid, i64)>,
+    pub applied_coupons: BTreeMap<Uuid, i64>,
 }
 
 struct AppliedCouponsDiscount {
-    pub discount_cents: i64,
-    pub applied_coupons: Vec<(Uuid, i64)>,
+    pub discount_subunit: i64,
+    pub applied_coupons: BTreeMap<Uuid, i64>,
 }
 
 impl InvoiceTotals {
     pub fn from_params(params: InvoiceTotalsParams) -> Self {
         let subtotal = params.line_items.iter().fold(0, |acc, x| acc + x.subtotal);
-        let coupons_discount =
-            Self::calculate_coupons_discount(subtotal, params.subscription_applied_coupons);
-        let subtotal_with_discounts = subtotal - coupons_discount.discount_cents;
+        let coupons_discount = Self::calculate_coupons_discount(
+            subtotal,
+            params.invoice_currency,
+            params.subscription_applied_coupons,
+        );
+        let subtotal_with_discounts = subtotal - coupons_discount.discount_subunit;
         let tax_amount = subtotal_with_discounts * params.tax_rate as i64 / 100;
 
         let total = subtotal_with_discounts + tax_amount;
@@ -288,6 +295,7 @@ impl InvoiceTotals {
 
     fn calculate_coupons_discount(
         subtotal: i64,
+        invoice_currency: &str,
         coupons: &[AppliedCouponDetailed],
     ) -> AppliedCouponsDiscount {
         let applicable_coupons: Vec<&AppliedCouponDetailed> = coupons
@@ -296,32 +304,47 @@ impl InvoiceTotals {
             .sorted_by_key(|x| x.applied_coupon.created_at)
             .collect::<Vec<_>>();
 
-        let mut applied_coupons = vec![];
+        let mut applied_coupons: BTreeMap<Uuid, i64> = BTreeMap::new();
 
-        let mut subtotal_cents = Decimal::from(subtotal);
+        let mut subtotal_subunits = Decimal::from(subtotal);
 
         for applicable_coupon in applicable_coupons {
-            if subtotal_cents <= Decimal::ONE {
+            if subtotal_subunits <= Decimal::ONE {
                 break;
             }
-            let discount = match applicable_coupon.coupon.discount {
+            let discount = match &applicable_coupon.coupon.discount {
                 CouponDiscount::Percentage(percentage) => {
-                    subtotal_cents * percentage / Decimal::ONE_HUNDRED
+                    subtotal_subunits * percentage / Decimal::ONE_HUNDRED
                 }
-                // todo currency conversion + cents conversion
-                CouponDiscount::Fixed { amount, .. } => {
-                    (amount * Decimal::ONE_HUNDRED).min(subtotal_cents)
+                CouponDiscount::Fixed { amount, currency } => {
+                    // todo currency conversion
+                    if currency != invoice_currency {
+                        continue;
+                    }
+                    // todo domain should use Currency type instead of string
+                    let cur = rusty_money::iso::find(currency).unwrap_or(rusty_money::iso::USD);
+
+                    let consumed_amount = &applicable_coupon
+                        .applied_coupon
+                        .applied_amount
+                        .unwrap_or(Decimal::ZERO);
+
+                    let discount_subunits = (amount - consumed_amount)
+                        .to_subunit_opt(cur.exponent as u8)
+                        .unwrap_or(0);
+
+                    Decimal::from(discount_subunits).min(subtotal_subunits)
                 }
             };
 
-            subtotal_cents -= discount;
+            subtotal_subunits -= discount;
 
             let discount = discount.to_i64().unwrap_or(0);
-            applied_coupons.push((applicable_coupon.applied_coupon.id, discount));
+            applied_coupons.insert(applicable_coupon.applied_coupon.id, discount);
         }
 
         AppliedCouponsDiscount {
-            discount_cents: applied_coupons.iter().map(|(_, value)| value).sum(),
+            discount_subunit: applied_coupons.values().sum::<i64>(),
             applied_coupons,
         }
     }

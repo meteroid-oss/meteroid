@@ -42,7 +42,7 @@ impl AppliedCouponDetailed {
     pub fn is_invoice_applicable(&self) -> bool {
         self.applied_coupon.is_active
             && !self.reached_recurring_limit()
-            && !self.is_fully_consumed()
+            && !self.amount_is_fully_consumed()
     }
 
     fn reached_recurring_limit(&self) -> bool {
@@ -52,16 +52,20 @@ impl AppliedCouponDetailed {
             .unwrap_or(false)
     }
 
-    fn is_fully_consumed(&self) -> bool {
+    fn amount_is_fully_consumed(&self) -> bool {
         match &self.coupon.discount {
             CouponDiscount::Percentage(_) => false,
             CouponDiscount::Fixed { amount, .. } => {
-                // todo currency conversion
-                &self
+                // todo currency conversion?
+                let fully_consumed = &self
                     .applied_coupon
                     .applied_amount
                     .unwrap_or(Decimal::from(0))
-                    >= amount
+                    >= amount;
+
+                let applies_once = self.coupon.applies_once();
+
+                applies_once && fully_consumed
             }
         }
     }

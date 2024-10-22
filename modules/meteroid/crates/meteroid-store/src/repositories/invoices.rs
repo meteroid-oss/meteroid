@@ -13,9 +13,12 @@ use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
     InvoiceNew, InvoiceWithCustomer, OrderByRequest, OutboxEvent, PaginatedVec, PaginationRequest,
 };
+use crate::repositories::coupons::CouponInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
+use crate::utils::decimals::ToUnit;
 use common_eventbus::Event;
+use diesel_models::applied_coupons::AppliedCouponRow;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -243,11 +246,40 @@ impl InvoiceInterface for Store {
 
     async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
         let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let applied_coupons = patch.applied_coupons.clone();
         let row_patch = patch.try_into()?;
+
+        let applied_coupons_ids: Vec<Uuid> = applied_coupons.keys().copied().collect();
+        let applied_coupons_detailed = if applied_coupons.is_empty() {
+            vec![]
+        } else {
+            self.list_applied_coupons(&applied_coupons_ids).await?
+        };
 
         self.transaction(|conn| {
             async move {
                 let refreshed = refresh_invoice_data(conn, id, tenant_id, &row_patch).await?;
+
+                AppliedCouponRow::list_by_ids_for_update(conn, &applied_coupons_ids).await?;
+                for applied_coupon_detailed in applied_coupons_detailed {
+                    let amount_delta = if applied_coupon_detailed.coupon.applies_once() {
+                        let cur = rusty_money::iso::find(&refreshed.invoice.currency).unwrap();
+
+                        applied_coupons
+                            .get(&applied_coupon_detailed.applied_coupon.id)
+                            .copied()
+                            .map(|x| x.to_unit(cur.exponent as u8))
+                    } else {
+                        None
+                    };
+
+                    AppliedCouponRow::refresh_state(
+                        conn,
+                        applied_coupon_detailed.applied_coupon.id,
+                        amount_delta,
+                    )
+                    .await?;
+                }
 
                 if refreshed.invoice.applied_credits > 0 {
                     CustomerBalance::update(
@@ -274,9 +306,15 @@ impl InvoiceInterface for Store {
                     refreshed.invoice.invoice_date,
                 );
 
-                let res = InvoiceRow::finalize(conn, id, tenant_id, new_invoice_number)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let res = InvoiceRow::finalize(
+                    conn,
+                    id,
+                    tenant_id,
+                    new_invoice_number,
+                    &applied_coupons_ids,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
                 InvoicingEntityRow::update_invoicing_entity_number(
                     conn,

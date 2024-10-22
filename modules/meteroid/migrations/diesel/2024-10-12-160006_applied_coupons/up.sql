@@ -36,4 +36,4 @@ create index if not exists applied_coupon_coupon_id_idx
 create index if not exists applied_coupon_customer_id_coupon_id_idx
   on applied_coupon (customer_id, coupon_id);
 
-alter table invoice add column applied_invoice_ids uuid[] not null default '{}';
+alter table invoice add column applied_coupon_ids uuid[] not null default '{}';

@@ -224,8 +224,8 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Timestamp,
         redemption_count -> Int4,
-        last_redemption_at -> Nullable<Timestamp>,
         disabled -> Bool,
+        last_redemption_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
     }
 }
@@ -396,7 +396,7 @@ diesel::table! {
         seller_details -> Jsonb,
         xml_document_id -> Nullable<Text>,
         pdf_document_id -> Nullable<Text>,
-        applied_invoice_ids -> Array<Nullable<Uuid>>,
+        applied_coupon_ids -> Array<Nullable<Uuid>>,
     }
 }
 
