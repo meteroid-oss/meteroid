@@ -229,7 +229,7 @@ impl InvoiceRow {
 
         let now = chrono::Utc::now().naive_utc();
         let applied_coupon_ids = applied_coupon_ids
-            .into_iter()
+            .iter()
             .map(|x| Some(*x))
             .collect::<Vec<_>>();
 
