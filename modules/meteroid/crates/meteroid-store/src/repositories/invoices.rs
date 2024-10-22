@@ -246,11 +246,11 @@ impl InvoiceInterface for Store {
 
     async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
         let patch = compute_invoice_patch(self, id, tenant_id).await?;
-        let applied_coupons = patch.applied_coupons.clone();
+        let applied_coupons_amounts = patch.applied_coupons.clone();
         let row_patch = patch.try_into()?;
 
-        let applied_coupons_ids: Vec<Uuid> = applied_coupons.keys().copied().collect();
-        let applied_coupons_detailed = if applied_coupons.is_empty() {
+        let applied_coupons_ids: Vec<Uuid> = applied_coupons_amounts.keys().copied().collect();
+        let applied_coupons_detailed = if applied_coupons_amounts.is_empty() {
             vec![]
         } else {
             self.list_applied_coupons(&applied_coupons_ids).await?
@@ -265,7 +265,7 @@ impl InvoiceInterface for Store {
                     let amount_delta = if applied_coupon_detailed.coupon.applies_once() {
                         let cur = rusty_money::iso::find(&refreshed.invoice.currency).unwrap();
 
-                        applied_coupons
+                        applied_coupons_amounts
                             .get(&applied_coupon_detailed.applied_coupon.id)
                             .copied()
                             .map(|x| x.to_unit(cur.exponent as u8))
