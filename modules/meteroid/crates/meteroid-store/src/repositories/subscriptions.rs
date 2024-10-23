@@ -484,7 +484,13 @@ impl SubscriptionInterface for Store {
                         .await
                         .map_err(Into::<DatabaseErrorContainer>::into)?;
 
-                    apply_coupons(conn, &insertable_subscription_coupons, tenant_id).await?;
+                    apply_coupons(
+                        conn,
+                        &insertable_subscription_coupons,
+                        &inserted_subscriptions,
+                        tenant_id,
+                    )
+                    .await?;
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
@@ -897,16 +903,6 @@ fn process_create_subscription_coupons(
                 StoreError::ValueNotFound(format!("coupon {} not found", cs_coupon.coupon_id)),
             )?;
 
-            if coupon
-                .currency()
-                .is_some_and(|x| x != subscription.currency)
-            {
-                return Err(StoreError::InvalidArgument(format!(
-                    "coupon {} currency does not match subscription currency",
-                    coupon.code
-                )));
-            }
-
             processed_coupons.push(AppliedCouponRowNew {
                 id: Uuid::now_v7(),
                 subscription_id: subscription.id,
@@ -931,9 +927,10 @@ fn process_create_subscription_coupons(
 async fn apply_coupons(
     tx_conn: &mut PgConn,
     subscription_coupons: &[&AppliedCouponRowNew],
+    subscriptions: &[CreatedSubscription],
     tenant_id: Uuid,
 ) -> DbResult<()> {
-    validate_coupons(tx_conn, subscription_coupons, tenant_id).await?;
+    validate_coupons(tx_conn, subscription_coupons, subscriptions, tenant_id).await?;
 
     AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec())
         .await
@@ -968,6 +965,7 @@ async fn apply_coupons(
 async fn validate_coupons(
     tx_conn: &mut PgConn,
     subscription_coupons: &[&AppliedCouponRowNew],
+    subscriptions: &[CreatedSubscription],
     tenant_id: Uuid,
 ) -> DbResult<()> {
     if subscription_coupons.is_empty() {
@@ -980,27 +978,59 @@ async fn validate_coupons(
         .unique()
         .collect::<Vec<_>>();
 
-    let coupons = &CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
+    let coupons = CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
 
     let now = chrono::Utc::now().naive_utc();
 
-    // check expired coupons
-    for coupon in coupons {
-        let expired = coupon.expires_at.map(|x| x <= now).unwrap_or(false);
-        if expired {
+    for coupon in coupons.iter() {
+        let applied_coupon = subscription_coupons
+            .iter()
+            .find(|x| x.coupon_id == coupon.id)
+            .ok_or(report!(DatabaseError::ValidationError(format!(
+                "Applied coupon {} not found",
+                coupon.code
+            ))))?;
+
+        let subscription = subscriptions
+            .iter()
+            .find(|x| x.id == applied_coupon.subscription_id)
+            .ok_or(report!(DatabaseError::ValidationError(format!(
+                "Subscription {} not found",
+                applied_coupon.subscription_id
+            ))))?;
+
+        // check expired coupons
+        if coupon.expires_at.is_some_and(|x| x <= now) {
             return Err(report!(DatabaseError::ValidationError(format!(
                 "coupon {} is expired",
                 coupon.code
             )))
             .into());
         }
-    }
-
-    // check archived coupons
-    for coupon in coupons {
+        // check archived coupons
         if coupon.archived_at.is_some() {
             return Err(report!(DatabaseError::ValidationError(format!(
                 "coupon {} is archived",
+                coupon.code
+            )))
+            .into());
+        }
+
+        // TEMPORARY CHECK: currency is the same as in subscription
+        let discount: CouponDiscount =
+            serde_json::from_value(coupon.discount.clone()).map_err(|_| {
+                report!(DatabaseError::ValidationError(format!(
+                    "Discount serde error for coupon {}",
+                    &coupon.code
+                )))
+            })?;
+
+        if discount
+            .currency()
+            .is_some_and(|x| x != subscription.currency)
+        {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} currency does not match subscription currency",
                 coupon.code
             )))
             .into());

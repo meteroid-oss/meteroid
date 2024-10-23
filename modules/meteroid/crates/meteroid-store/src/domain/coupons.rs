@@ -37,10 +37,7 @@ impl Coupon {
     }
 
     pub fn currency(&self) -> Option<&str> {
-        match &self.discount {
-            CouponDiscount::Fixed { currency, .. } => Some(currency),
-            _ => None,
-        }
+        self.discount.currency()
     }
 }
 
@@ -48,6 +45,15 @@ impl Coupon {
 pub enum CouponDiscount {
     Percentage(Decimal),
     Fixed { currency: String, amount: Decimal },
+}
+
+impl CouponDiscount {
+    pub fn currency(&self) -> Option<&str> {
+        match self {
+            CouponDiscount::Fixed { currency, .. } => Some(currency),
+            _ => None,
+        }
+    }
 }
 
 impl TryInto<Coupon> for CouponRow {
