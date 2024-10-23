@@ -102,6 +102,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    applied_coupon (id) {
+        id -> Uuid,
+        coupon_id -> Uuid,
+        customer_id -> Uuid,
+        subscription_id -> Uuid,
+        is_active -> Bool,
+        applied_amount -> Nullable<Numeric>,
+        applied_count -> Nullable<Int4>,
+        last_applied_at -> Nullable<Timestamp>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     bi_customer_ytd_summary (tenant_id, customer_id, currency, revenue_year) {
         tenant_id -> Uuid,
         customer_id -> Uuid,
@@ -205,10 +219,14 @@ diesel::table! {
         discount -> Jsonb,
         expires_at -> Nullable<Timestamp>,
         redemption_limit -> Nullable<Int4>,
-        recurring_value -> Int4,
+        recurring_value -> Nullable<Int4>,
         reusable -> Bool,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        redemption_count -> Int4,
+        disabled -> Bool,
+        last_redemption_at -> Nullable<Timestamp>,
+        archived_at -> Nullable<Timestamp>,
     }
 }
 
@@ -378,6 +396,7 @@ diesel::table! {
         seller_details -> Jsonb,
         xml_document_id -> Nullable<Text>,
         pdf_document_id -> Nullable<Text>,
+        applied_coupon_ids -> Array<Nullable<Uuid>>,
     }
 }
 
@@ -634,15 +653,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    subscription_coupon (id) {
-        id -> Uuid,
-        subscription_id -> Uuid,
-        coupon_id -> Uuid,
-        created_at -> Timestamp,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::SubscriptionEventType;
 
@@ -736,6 +746,9 @@ diesel::table! {
 
 diesel::joinable!(add_on -> tenant (tenant_id));
 diesel::joinable!(api_token -> tenant (tenant_id));
+diesel::joinable!(applied_coupon -> coupon (coupon_id));
+diesel::joinable!(applied_coupon -> customer (customer_id));
+diesel::joinable!(applied_coupon -> subscription (subscription_id));
 diesel::joinable!(bi_delta_mrr_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(bi_mrr_movement_log -> credit_note (credit_note_id));
 diesel::joinable!(bi_mrr_movement_log -> invoice (invoice_id));
@@ -785,8 +798,6 @@ diesel::joinable!(subscription_add_on -> subscription (subscription_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
 diesel::joinable!(subscription_component -> product (product_item_id));
 diesel::joinable!(subscription_component -> subscription (subscription_id));
-diesel::joinable!(subscription_coupon -> coupon (coupon_id));
-diesel::joinable!(subscription_coupon -> subscription (subscription_id));
 diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log_id));
 diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
@@ -797,6 +808,7 @@ diesel::joinable!(webhook_out_event -> webhook_out_endpoint (endpoint_id));
 diesel::allow_tables_to_appear_in_same_query!(
     add_on,
     api_token,
+    applied_coupon,
     bi_customer_ytd_summary,
     bi_delta_mrr_daily,
     bi_mrr_movement_log,
@@ -826,7 +838,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     subscription,
     subscription_add_on,
     subscription_component,
-    subscription_coupon,
     subscription_event,
     tenant,
     user,

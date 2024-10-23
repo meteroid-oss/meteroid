@@ -13,3 +13,13 @@ impl ToSubunit for Decimal {
             .to_i64()
     }
 }
+
+pub trait ToUnit {
+    fn to_unit(&self, precision: u8) -> Decimal;
+}
+
+impl ToUnit for i64 {
+    fn to_unit(&self, precision: u8) -> Decimal {
+        Decimal::from(*self) / Decimal::from(10i64.pow(precision as u32))
+    }
+}

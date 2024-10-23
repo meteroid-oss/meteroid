@@ -1,9 +1,11 @@
 use super::enums::{
     InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
 };
+use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
-use crate::domain::{Address, Customer, PlanVersionLatest};
+use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionLatest};
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::utils::decimals::ToSubunit;
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
@@ -11,7 +13,10 @@ use diesel_models::invoices::InvoiceRowLinesPatch;
 use diesel_models::invoices::InvoiceRowNew;
 use diesel_models::invoices::InvoiceWithCustomerRow;
 use error_stack::Report;
+use itertools::Itertools;
 use o2o::o2o;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use uuid::Uuid;
@@ -141,12 +146,15 @@ pub struct InvoiceLinesPatch {
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
+    #[ghost({vec![]})]
+    pub applied_coupons: Vec<(Uuid, i64)>,
 }
 
 impl InvoiceLinesPatch {
-    pub fn from_invoice_and_lines(
+    pub fn new(
         detailed_invoice: &DetailedInvoice,
         line_items: Vec<LineItem>,
+        applied_coupons: &[AppliedCouponDetailed],
     ) -> Self {
         let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
             line_items: &line_items,
@@ -154,6 +162,8 @@ impl InvoiceLinesPatch {
             amount_due: detailed_invoice.invoice.amount_due,
             tax_rate: detailed_invoice.invoice.tax_rate,
             customer_balance_cents: detailed_invoice.customer.balance_value_cents,
+            subscription_applied_coupons: &applied_coupons.to_vec(),
+            invoice_currency: detailed_invoice.invoice.currency.as_str(),
         });
 
         InvoiceLinesPatch {
@@ -164,6 +174,7 @@ impl InvoiceLinesPatch {
             total: totals.total,
             tax_amount: totals.tax_amount,
             applied_credits: totals.applied_credits,
+            applied_coupons: totals.applied_coupons,
         }
     }
 }
@@ -226,10 +237,12 @@ impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
 
 pub struct InvoiceTotalsParams<'a> {
     pub line_items: &'a Vec<LineItem>,
+    pub subscription_applied_coupons: &'a Vec<AppliedCouponDetailed>,
     pub total: i64,
     pub amount_due: i64,
     pub tax_rate: i32,
     pub customer_balance_cents: i32,
+    pub invoice_currency: &'a str,
 }
 
 pub struct InvoiceTotals {
@@ -239,13 +252,26 @@ pub struct InvoiceTotals {
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
+    pub applied_coupons: Vec<(Uuid, i64)>,
+}
+
+struct AppliedCouponsDiscount {
+    pub discount_subunit: i64,
+    pub applied_coupons: Vec<(Uuid, i64)>,
 }
 
 impl InvoiceTotals {
     pub fn from_params(params: InvoiceTotalsParams) -> Self {
         let subtotal = params.line_items.iter().fold(0, |acc, x| acc + x.subtotal);
-        let tax_amount = subtotal * params.tax_rate as i64 / 100;
-        let total = subtotal + tax_amount; // TODO discounts etc
+        let coupons_discount = Self::calculate_coupons_discount(
+            subtotal,
+            params.invoice_currency,
+            params.subscription_applied_coupons,
+        );
+        let subtotal_with_discounts = subtotal - coupons_discount.discount_subunit;
+        let tax_amount = subtotal_with_discounts * params.tax_rate as i64 / 100;
+
+        let total = subtotal_with_discounts + tax_amount;
         let applied_credits = min(total, params.customer_balance_cents as i64);
         let already_paid = params.total - params.amount_due;
         let amount_due = total - already_paid - applied_credits;
@@ -262,6 +288,63 @@ impl InvoiceTotals {
             total,
             tax_amount,
             applied_credits,
+            applied_coupons: coupons_discount.applied_coupons,
+        }
+    }
+
+    fn calculate_coupons_discount(
+        subtotal: i64,
+        invoice_currency: &str,
+        coupons: &[AppliedCouponDetailed],
+    ) -> AppliedCouponsDiscount {
+        let applicable_coupons: Vec<&AppliedCouponDetailed> = coupons
+            .iter()
+            .filter(|x| x.is_invoice_applicable())
+            .sorted_by_key(|x| x.applied_coupon.created_at)
+            .collect::<Vec<_>>();
+
+        let mut applied_coupons_amount = vec![];
+
+        let mut subtotal_subunits = Decimal::from(subtotal);
+
+        for applicable_coupon in applicable_coupons {
+            if subtotal_subunits <= Decimal::ONE {
+                break;
+            }
+            let discount = match &applicable_coupon.coupon.discount {
+                CouponDiscount::Percentage(percentage) => {
+                    subtotal_subunits * percentage / Decimal::ONE_HUNDRED
+                }
+                CouponDiscount::Fixed { amount, currency } => {
+                    // todo currency conversion
+                    if currency != invoice_currency {
+                        continue;
+                    }
+                    // todo domain should use Currency type instead of string
+                    let cur = rusty_money::iso::find(currency).unwrap_or(rusty_money::iso::USD);
+
+                    let consumed_amount = &applicable_coupon
+                        .applied_coupon
+                        .applied_amount
+                        .unwrap_or(Decimal::ZERO);
+
+                    let discount_subunits = (amount - consumed_amount)
+                        .to_subunit_opt(cur.exponent as u8)
+                        .unwrap_or(0);
+
+                    Decimal::from(discount_subunits).min(subtotal_subunits)
+                }
+            };
+
+            subtotal_subunits -= discount;
+
+            let discount = discount.to_i64().unwrap_or(0);
+            applied_coupons_amount.push((applicable_coupon.applied_coupon.id, discount));
+        }
+
+        AppliedCouponsDiscount {
+            discount_subunit: applied_coupons_amount.iter().map(|x| x.1).sum(),
+            applied_coupons: applied_coupons_amount,
         }
     }
 }
