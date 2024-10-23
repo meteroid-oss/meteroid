@@ -1,5 +1,6 @@
 pub mod add_ons;
 pub mod api_tokens;
+pub mod applied_coupons;
 pub mod bi;
 pub mod billable_metrics;
 pub mod configs;
@@ -22,7 +23,6 @@ pub mod slot_transactions;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;
-pub mod subscription_coupons;
 pub mod subscription_events;
 pub mod subscriptions;
 pub mod tenants;
