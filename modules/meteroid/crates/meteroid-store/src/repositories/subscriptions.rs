@@ -375,10 +375,9 @@ impl SubscriptionInterface for Store {
                 subscription.map_to_row(period, should_activate, tenant_id);
 
             let insertable_subscription_coupons = process_create_subscription_coupons(
-                insertable_subscription.id,
+                &insertable_subscription,
                 &coupons,
                 &all_coupons,
-                insertable_subscription.customer_id,
             )?;
 
             let cmrr = insertable_subscription_components
@@ -887,10 +886,9 @@ fn process_create_subscription_add_ons(
 }
 
 fn process_create_subscription_coupons(
-    subscription_id: Uuid,
+    subscription: &SubscriptionRowNew,
     create: &Option<CreateSubscriptionCoupons>,
     coupons: &[Coupon],
-    customer_id: Uuid,
 ) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
     let mut processed_coupons = Vec::new();
     if let Some(create) = create {
@@ -899,11 +897,21 @@ fn process_create_subscription_coupons(
                 StoreError::ValueNotFound(format!("coupon {} not found", cs_coupon.coupon_id)),
             )?;
 
+            if coupon
+                .currency()
+                .is_some_and(|x| x != subscription.currency)
+            {
+                return Err(StoreError::InvalidArgument(format!(
+                    "coupon {} currency does not match subscription currency",
+                    coupon.code
+                )));
+            }
+
             processed_coupons.push(AppliedCouponRowNew {
                 id: Uuid::now_v7(),
-                subscription_id,
+                subscription_id: subscription.id,
                 coupon_id: coupon.id,
-                customer_id,
+                customer_id: subscription.customer_id,
                 is_active: true,
                 applied_amount: None,
                 applied_count: None,

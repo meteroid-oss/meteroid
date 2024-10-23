@@ -5,7 +5,7 @@ use crate::{domain, StoreResult};
 use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
-use diesel_models::PgConn;
+use diesel_models::{DbResult, PgConn};
 use error_stack::Report;
 
 use crate::compute::InvoiceLineInterface;
@@ -13,12 +13,11 @@ use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
     InvoiceNew, InvoiceWithCustomer, OrderByRequest, OutboxEvent, PaginatedVec, PaginationRequest,
 };
-use crate::repositories::coupons::CouponInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
 use crate::utils::decimals::ToUnit;
 use common_eventbus::Event;
-use diesel_models::applied_coupons::AppliedCouponRow;
+use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -249,38 +248,9 @@ impl InvoiceInterface for Store {
         let applied_coupons_amounts = patch.applied_coupons.clone();
         let row_patch = patch.try_into()?;
 
-        let applied_coupons_ids: Vec<Uuid> = applied_coupons_amounts.keys().copied().collect();
-        let applied_coupons_detailed = if applied_coupons_amounts.is_empty() {
-            vec![]
-        } else {
-            self.list_applied_coupons(&applied_coupons_ids).await?
-        };
-
         self.transaction(|conn| {
             async move {
                 let refreshed = refresh_invoice_data(conn, id, tenant_id, &row_patch).await?;
-
-                AppliedCouponRow::list_by_ids_for_update(conn, &applied_coupons_ids).await?;
-                for applied_coupon_detailed in applied_coupons_detailed {
-                    let amount_delta = if applied_coupon_detailed.coupon.applies_once() {
-                        let cur = rusty_money::iso::find(&refreshed.invoice.currency).unwrap();
-
-                        applied_coupons_amounts
-                            .get(&applied_coupon_detailed.applied_coupon.id)
-                            .copied()
-                            .map(|x| x.to_unit(cur.exponent as u8))
-                    } else {
-                        None
-                    };
-
-                    AppliedCouponRow::refresh_state(
-                        conn,
-                        applied_coupon_detailed.applied_coupon.id,
-                        amount_delta,
-                    )
-                    .await?;
-                }
-
                 if refreshed.invoice.applied_credits > 0 {
                     CustomerBalance::update(
                         conn,
@@ -305,6 +275,9 @@ impl InvoiceInterface for Store {
                     invoicing_entity.invoice_number_pattern,
                     refreshed.invoice.invoice_date,
                 );
+
+                let applied_coupons_ids =
+                    refresh_applied_coupons(conn, &refreshed, &applied_coupons_amounts).await?;
 
                 let res = InvoiceRow::finalize(
                     conn,
@@ -646,4 +619,41 @@ async fn process_pending_tx(conn: &mut PgConn, invoice_id: Uuid) -> StoreResult<
     }
 
     Ok(())
+}
+
+async fn refresh_applied_coupons(
+    tx_conn: &mut PgConn,
+    invoice: &DetailedInvoice,
+    applied_coupons_amounts: &[(Uuid, i64)],
+) -> DbResult<Vec<Uuid>> {
+    let applied_coupons_ids: Vec<Uuid> = applied_coupons_amounts.iter().map(|(k, _)| *k).collect();
+
+    let applied_coupons_detailed =
+        AppliedCouponDetailedRow::list_by_ids_for_update(tx_conn, &applied_coupons_ids).await?;
+
+    for applied_coupon_detailed in applied_coupons_detailed {
+        let amount_delta = if applied_coupon_detailed
+            .coupon
+            .recurring_value
+            .is_some_and(|x| x == 1)
+        {
+            let cur = rusty_money::iso::find(&invoice.invoice.currency).unwrap();
+
+            applied_coupons_amounts
+                .iter()
+                .find(|x| x.0 == applied_coupon_detailed.applied_coupon.id)
+                .map(|x| x.1.to_unit(cur.exponent as u8))
+        } else {
+            None
+        };
+
+        AppliedCouponRow::refresh_state(
+            tx_conn,
+            applied_coupon_detailed.applied_coupon.id,
+            amount_delta,
+        )
+        .await?;
+    }
+
+    Ok(applied_coupons_ids)
 }

@@ -57,25 +57,6 @@ impl AppliedCouponRow {
             .into_db_result()
     }
 
-    pub async fn list_by_ids_for_update(
-        conn: &mut PgConn,
-        ids: &[Uuid],
-    ) -> DbResult<Vec<AppliedCouponRow>> {
-        use crate::schema::applied_coupon::dsl as ac_dsl;
-
-        let query = ac_dsl::applied_coupon
-            .filter(ac_dsl::id.eq_any(ids))
-            .for_update();
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .get_results(conn)
-            .await
-            .attach_printable("Error while fetching applied coupons for update")
-            .into_db_result()
-    }
-
     pub async fn refresh_state(
         conn: &mut PgConn,
         id: Uuid,
@@ -126,7 +107,7 @@ impl AppliedCouponDetailedRow {
             .into_db_result()
     }
 
-    pub async fn list_by_ids(
+    pub async fn list_by_ids_for_update(
         conn: &mut PgConn,
         applied_coupons_ids: &[Uuid],
     ) -> DbResult<Vec<AppliedCouponDetailedRow>> {
@@ -136,7 +117,8 @@ impl AppliedCouponDetailedRow {
         let query = ac_dsl::applied_coupon
             .inner_join(c_dsl::coupon)
             .filter(ac_dsl::id.eq_any(applied_coupons_ids))
-            .select(AppliedCouponDetailedRow::as_select());
+            .select(AppliedCouponDetailedRow::as_select())
+            .for_update();
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

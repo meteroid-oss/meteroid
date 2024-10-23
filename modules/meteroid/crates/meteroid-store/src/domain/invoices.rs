@@ -19,7 +19,6 @@ use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
@@ -148,7 +147,7 @@ pub struct InvoiceLinesPatch {
     pub tax_amount: i64,
     pub applied_credits: i64,
     #[ghost({vec![]})]
-    pub applied_coupons: BTreeMap<Uuid, i64>,
+    pub applied_coupons: Vec<(Uuid, i64)>,
 }
 
 impl InvoiceLinesPatch {
@@ -253,12 +252,12 @@ pub struct InvoiceTotals {
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
-    pub applied_coupons: BTreeMap<Uuid, i64>,
+    pub applied_coupons: Vec<(Uuid, i64)>,
 }
 
 struct AppliedCouponsDiscount {
     pub discount_subunit: i64,
-    pub applied_coupons: BTreeMap<Uuid, i64>,
+    pub applied_coupons: Vec<(Uuid, i64)>,
 }
 
 impl InvoiceTotals {
@@ -304,7 +303,7 @@ impl InvoiceTotals {
             .sorted_by_key(|x| x.applied_coupon.created_at)
             .collect::<Vec<_>>();
 
-        let mut applied_coupons: BTreeMap<Uuid, i64> = BTreeMap::new();
+        let mut applied_coupons_amount = vec![];
 
         let mut subtotal_subunits = Decimal::from(subtotal);
 
@@ -340,12 +339,12 @@ impl InvoiceTotals {
             subtotal_subunits -= discount;
 
             let discount = discount.to_i64().unwrap_or(0);
-            applied_coupons.insert(applicable_coupon.applied_coupon.id, discount);
+            applied_coupons_amount.push((applicable_coupon.applied_coupon.id, discount));
         }
 
         AppliedCouponsDiscount {
-            discount_subunit: applied_coupons.values().sum::<i64>(),
-            applied_coupons,
+            discount_subunit: applied_coupons_amount.iter().map(|x| x.1).sum(),
+            applied_coupons: applied_coupons_amount,
         }
     }
 }

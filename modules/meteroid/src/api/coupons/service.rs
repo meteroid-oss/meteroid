@@ -54,8 +54,8 @@ impl CouponsService for CouponsServiceComponents {
             expires_at: req.expires_at.map(chrono_from_timestamp).transpose()?,
             redemption_limit: req.redemption_limit,
             tenant_id,
-            recurring_value: None, // todo fixme later
-            reusable: false,       // todo fixme later
+            recurring_value: req.recurring_value,
+            reusable: req.reusable,
         };
 
         let added = self
