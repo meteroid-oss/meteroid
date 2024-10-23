@@ -59,10 +59,6 @@ export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ 
         accessorFn: () => '-',
       },
       {
-        header: 'Plan status',
-        accessorFn: () => '-',
-      },
-      {
         header: 'Api Name',
         accessorKey: 'externalId',
       },
