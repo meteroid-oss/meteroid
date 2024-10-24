@@ -18,6 +18,7 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - Node >= 20
 - pnpm >= 8
 - protoc >= 3.17
+- Docker >= 27
 
 ### Install the dependencies & build
 
@@ -29,12 +30,11 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 
 - Copy the `.env.example` file to `.env`.
 
-- Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering"
-  profile as follows:
+- Start the database with :
+  `docker compose -f docker/develop/docker-compose.yml --env-file .env up`.
+  If you intend to run the Metering app as well, you will need to use the "metering"
+  profile instead :
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
-- If docker display
-  `meteroid-db  |  FATAL:  role "meteroid" does not exist`
-  You can check your docker version and update
 
 - Start the Rust backend
   `cargo run -p meteroid --bin meteroid-api`
