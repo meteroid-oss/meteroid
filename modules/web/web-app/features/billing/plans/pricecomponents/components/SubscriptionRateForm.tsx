@@ -17,7 +17,7 @@ import {
 import { useAtom } from 'jotai'
 import { XIcon } from 'lucide-react'
 import { useState } from 'react'
-import { useFieldArray, useFormContext } from 'react-hook-form'
+import { useFieldArray } from 'react-hook-form'
 
 import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { EditPriceComponentCard } from '@/features/billing/plans/pricecomponents/EditPriceComponentCard'
@@ -27,7 +27,6 @@ import { BillingPeriod } from '@/lib/mapping'
 import { RateFee, RateFeeSchema, SlotFeeSchema } from '@/lib/schemas/plans'
 
 import { componentFeeAtom } from '../atoms'
-
 
 import { FeeFormProps } from './shared'
 
@@ -112,7 +111,6 @@ export const TermRateTable = ({
 
   return (
     <div>
-      <DebugForm />
       <Tabs value={selectedTab} onValueChange={setActiveTab}>
         <TabsList>
           {fields.map(field => (
@@ -191,12 +189,4 @@ const BillingPeriodSelect = ({ periods, onSelect, label }: BillingPeriodSelectPr
       </PopoverContent>
     </Popover>
   )
-}
-
-const DebugForm = () => {
-  const ctx = useFormContext()
-
-  console.log('debug_form', ctx.control._formValues)
-
-  return null
 }
