@@ -74,8 +74,6 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
 
   const navigate = useNavigate()
 
-  useProductFamily
-
   const onSubmit = async (data: z.infer<typeof createPlanSchema>) => {
     const plan = await createPlan.mutateAsync({
       name: data.planName,

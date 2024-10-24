@@ -1,6 +1,7 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
 import { NotImplemented } from '@/features/NotImplemented'
+import { DetailsFormModal } from '@/features/billing/plans/create/details/DetailsFormModal'
 import { Addons } from '@/pages/tenants/billing/addons'
 import { Plans } from '@/pages/tenants/billing/plans'
 import { CreatePriceComponent } from '@/pages/tenants/billing/plans/createPriceComponent'
@@ -63,6 +64,10 @@ export const productCatalogRoutes: RouteObject = {
                 {
                   path: 'add-metric',
                   element: <CreateBillableMetric />,
+                },
+                {
+                  path: 'edit-overview',
+                  element: <DetailsFormModal />,
                 },
 
                 // TODO component/:priceComponentId

@@ -15,6 +15,12 @@ export const createPlanSchema = z.object({
   planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
 })
 
+export const editPlanSchema = z.object({
+  planName: z.string().nonempty('Name is required').max(256),
+  description: z.string().max(2048).optional(),
+  netTerms: z.number().int(),
+})
+
 const isValidNumber = (str: string) => {
   const replacedStr = str.replace(',', '.')
   return !isNaN(parseFloat(replacedStr)) && isFinite(parseFloat(replacedStr))
