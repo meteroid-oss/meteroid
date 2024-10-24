@@ -8,6 +8,7 @@ pub enum IdType {
     Customer,
     Invoice,
     Subscription,
+    Plan,
     Other,
 }
 

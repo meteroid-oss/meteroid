@@ -37,11 +37,9 @@ message ListPlansRequest {
     NAME_ASC = 3;
   }
   optional string product_family_external_id = 1;
-  SortBy sort_by = 2;
-  optional string search = 3;
+  PlanFilters filters = 2;
+  SortBy sort_by = 3;
   meteroid.common.v1.Pagination pagination = 4;
-  PlanTypeFilter plan_type_filter = 5;
-  PlanStatusFilter plan_status_filter = 6;
 }
 
 message ListPlansResponse {

@@ -129,23 +129,31 @@ impl PlansService for PlanServiceComponents {
             Err(_) => OrderByRequest::DateDesc,
         };
 
-        let filter_status = req
-            .plan_status_filter
-            .map(|filter| PlanStatusWrapper(filter.plan_status()).into());
-        let filter_type = req
-            .plan_type_filter
-            .map(|filter| PlanTypeWrapper(filter.plan_type()).into());
+        let plan_filters = match req.filters {
+            None => PlanFilters {
+                search: None,
+                filter_status: vec![],
+                filter_type: vec![],
+            },
+            Some(filter) => PlanFilters {
+                search: filter.search.clone(),
+                filter_status: filter
+                    .statuses()
+                    .map(|status| PlanStatusWrapper(status).into())
+                    .collect(),
+                filter_type: filter
+                    .types()
+                    .map(|plan_type| PlanTypeWrapper(plan_type).into())
+                    .collect(),
+            },
+        };
 
         let res = self
             .store
             .list_plans(
                 tenant_id,
                 req.product_family_external_id,
-                PlanFilters {
-                    search: req.search,
-                    filter_status,
-                    filter_type,
-                },
+                plan_filters,
                 pagination_req,
                 order_by,
             )

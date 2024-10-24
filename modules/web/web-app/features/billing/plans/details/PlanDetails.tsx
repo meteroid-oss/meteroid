@@ -2,7 +2,7 @@ import { disableQuery } from '@connectrpc/connect-query'
 import { Badge } from '@md/ui'
 import { CopyIcon, LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { Property } from '@/components/Property'
@@ -28,6 +28,7 @@ const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
 
 export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
   const overview = usePlanOverview()
+  const navigate = useNavigate()
 
   const lastPublishedVersion = useQuery(
     getLastPublishedPlanVersion,
@@ -125,7 +126,7 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
         </div>
       </div>
       <div className="absolute top-0 right-3 text-muted-foreground hover:text-foreground hover:cursor-pointer">
-        <PencilIcon size={14} strokeWidth={2} />
+        <PencilIcon size={14} strokeWidth={2} onClick={() => navigate('edit-overview')} />
       </div>
     </div>
   )

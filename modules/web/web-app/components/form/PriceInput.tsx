@@ -144,13 +144,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
   ) => {
     const { error } = useFormField()
 
-    const [inputValue, setInputValue] = useState('')
-
-    useEffect(() => {
-      if (value) {
-        setInputValue(value as string)
-      }
-    }, [value])
+    const [inputValue, setInputValue] = useState<string | undefined>(undefined)
 
     const formatCurrencyAmountWithoutRounding = (amount: number) => {
       const negativeSign = Number(amount) < 0 ? '-' : ''
@@ -163,21 +157,38 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
         .replaceAll(' ', '')}` // TODO currencyjs or something
     }
 
+    const format = (value: string | undefined) =>
+      value && POSITIVE_NUM_REGEX.test(value)
+        ? formatCurrencyAmountWithoutRounding(parseFloat(value))
+        : value
+          ? value
+          : '0.00'
+
+    useEffect(() => {
+      if (inputValue === undefined) {
+        setInputValue(format(value as string))
+      } else if (value) {
+        console.log('setV', value as string)
+        setInputValue(value as string)
+      } else {
+        setInputValue('')
+      }
+    }, [value])
+
     const handleBlur = () => {
-      const formattedValue =
-        inputValue && POSITIVE_NUM_REGEX.test(inputValue)
-          ? formatCurrencyAmountWithoutRounding(parseFloat(inputValue))
-          : inputValue
+      const formattedValue = format(inputValue)
       setInputValue(formattedValue)
       onChange?.({ target: { value: formattedValue } } as React.ChangeEvent<HTMLInputElement>)
     }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const { value } = e.target
-      if (value && value.length && POSITIVE_NUM_REGEX.test(value)) {
+      if (value && POSITIVE_NUM_REGEX.test(value)) {
         setInputValue(value)
+        onChange?.({ target: { value: value } } as React.ChangeEvent<HTMLInputElement>)
       } else if (!value.length) {
-        setInputValue('0.00')
+        setInputValue('')
+        onChange?.({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>)
       }
     }
 

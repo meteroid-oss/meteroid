@@ -101,10 +101,8 @@ async fn test_plans_basic() {
         .list_plans(api::plans::v1::ListPlansRequest {
             product_family_external_id: None,
             sort_by: 0,
-            search: None,
             pagination: None,
-            plan_type_filter: None,
-            plan_status_filter: None,
+            filters: None,
         })
         .await
         .unwrap()

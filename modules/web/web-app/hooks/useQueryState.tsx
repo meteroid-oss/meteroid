@@ -54,7 +54,7 @@ export function useQueryState<T>(
 
         setSearchParams(prevParams => {
           const newParams = new URLSearchParams(prevParams)
-          if (newState === defaultValue) {
+          if (newState === defaultValue || newState === '') {
             newParams.delete(key)
           } else {
             newParams.set(key, serialize(newState))

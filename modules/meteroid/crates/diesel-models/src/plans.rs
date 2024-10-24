@@ -82,6 +82,6 @@ pub struct PlanRowPatch {
 
 pub struct PlanFilters {
     pub search: Option<String>,
-    pub filter_status: Option<PlanStatusEnum>,
-    pub filter_type: Option<PlanTypeEnum>,
+    pub filter_status: Vec<PlanStatusEnum>,
+    pub filter_type: Vec<PlanTypeEnum>,
 }

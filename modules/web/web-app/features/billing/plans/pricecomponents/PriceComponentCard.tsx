@@ -182,12 +182,18 @@ const toPriceElements = (feeType: FeeType): PriceElement | undefined => {
   return match<FeeType, PriceElement | undefined>(feeType ?? undefined)
     .with({ fee: 'rate' }, ({ data }) => ({
       feeType: 'Rate',
-      cadence: mapCadence(data.rates[0].term),
+      cadence:
+        data.rates.length === 1
+          ? mapCadence(data.rates[0].term)
+          : data.rates.map(a => mapCadence(a.term)).join(' or '),
     }))
     .with({ fee: 'slot' }, ({ data }) => ({
       feeType: 'Slot-based',
       linkedItem: { type: 'Unit type', item: data.slotUnitName },
-      cadence: mapCadence(data.rates[0].term),
+      cadence:
+        data.rates.length === 1
+          ? mapCadence(data.rates[0].term)
+          : data.rates.map(a => mapCadence(a.term)).join(' or '),
     }))
     .with({ fee: 'capacity' }, ({ data }) => ({
       feeType: 'Committed capacity',

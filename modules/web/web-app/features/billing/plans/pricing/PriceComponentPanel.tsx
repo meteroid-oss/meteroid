@@ -57,7 +57,7 @@ export const PriceComponentPanel: React.FC = () => {
             <Row
               to="capacity"
               label="Capacity commitment"
-              description="Threshold-based pricing system where users pay based on the capacity they purchase, with overage charges for additional usage or upsell opportunities."
+              description="Threshold-based pricing system where users pay based on the capacity they purchase, with overage charges for additional usage."
               icon={<ParkingMeterIcon size={14} />}
             />
             <div className="pl-4 pt-6 pb-2  text-sm font-semibold text-muted-foreground">

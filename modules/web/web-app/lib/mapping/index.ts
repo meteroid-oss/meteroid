@@ -46,3 +46,10 @@ export const mapBillingPeriodFromGrpc = (period: BillingPeriodMessage): BillingP
       return 'ANNUAL'
   }
 }
+
+export const sortBillingPeriods = (periods: BillingPeriod[]) => {
+  return periods.sort((a, b) => {
+    const order = ['MONTHLY', 'QUARTERLY', 'ANNUAL']
+    return order.indexOf(a) - order.indexOf(b)
+  })
+}

@@ -382,7 +382,7 @@ export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyPr
   })
 
   const resolvePlanName = (id: string): string => {
-    if (isLoading) return 'loading'
+    if (isLoading) return '...'
     const plan = plansData?.plans.find(p => p.id === id)
     return plan?.name ?? 'unknown'
   }

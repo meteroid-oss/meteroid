@@ -30,7 +30,7 @@ export const PlanCreateInitModal: FC<Props> = ({ modalVisible, setModalVisible }
       onCancel={onSelectCancel}
       hideFooter
     >
-      <div className="px-4 py-3">
+      <div className="px-5 py-4">
         <DetailsForm onCancel={onSelectCancel} />
       </div>
     </Modal>
