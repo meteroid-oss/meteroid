@@ -64,12 +64,12 @@ const TermRateSchema = z.object({
 export type TermRate = z.infer<typeof TermRateSchema>
 
 export const RateFeeSchema = z.object({
-  rates: z.array(TermRateSchema).nonempty('At least one rate is required'),
+  rates: z.array(TermRateSchema).min(1, 'At least one rate is required'),
 })
 export type RateFee = z.infer<typeof RateFeeSchema>
 
 export const SlotFeeSchema = z.object({
-  rates: z.array(TermRateSchema).nonempty('At least one rate is required'),
+  rates: z.array(TermRateSchema).min(1, 'At least one rate is required'),
   slotUnitName: z.string(),
   upgradePolicy: z.enum(['PRORATED']),
   downgradePolicy: z.enum(['REMOVE_AT_END_OF_PERIOD']),
