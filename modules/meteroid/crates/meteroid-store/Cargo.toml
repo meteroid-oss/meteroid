@@ -32,6 +32,7 @@ diesel-models.workspace = true
 async-trait.workspace = true
 rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
+rusty-money = { workspace = true }
 common-utils = { workspace = true, features = ["decimal"] }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
