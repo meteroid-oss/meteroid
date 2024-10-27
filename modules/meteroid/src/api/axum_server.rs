@@ -93,8 +93,11 @@ pub async fn start_rest_server(
         // Alternative to above
         // .merge(RapiDoc::with_openapi("/api-docs/openapi2.json", ApiDoc::openapi()).path("/rapidoc"))
         .merge(Scalar::with_url("/scalar", ApiDoc::openapi()))
+        //todo add "/api" to path and merge with api_routes
         .nest("/files", axum_routers::file_routes())
         .nest("/webhooks", axum_routers::webhook_in_routes())
+        //
+        .nest("/api", axum_routers::api_routes())
         .fallback(handler_404)
         .with_state(app_state)
         //.layer(ServiceBuilder::new().layer(auth_layer))

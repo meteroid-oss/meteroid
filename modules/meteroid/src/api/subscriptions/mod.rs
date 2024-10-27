@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 
-mod error;
+pub mod error;
 mod mapping;
 
 pub use mapping::ext;
