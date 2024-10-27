@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
-import { useSession } from '@/features/auth'
+import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { login } from '@/rpc/api/users/v1/users-UsersService_connectquery'

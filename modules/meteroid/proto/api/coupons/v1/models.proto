@@ -27,3 +27,20 @@ message CouponDiscount {
     string currency = 2;
   }
 }
+
+message AppliedCoupon {
+  string id = 1;
+  string coupon_id = 2;
+  string customer_id = 3;
+  string subscription_id = 4;
+  bool is_active = 5;
+  optional string applied_amount = 6;
+  optional int32 applied_count = 7;
+  google.protobuf.Timestamp last_applied_at = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message AppliedCouponDetailed {
+  Coupon coupon = 1;
+  AppliedCoupon applied_coupon = 2;
+}

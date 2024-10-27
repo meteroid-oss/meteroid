@@ -48,6 +48,8 @@ async fn test_coupons_basic() {
             discount: Some(fixed_discount.clone()),
             expires_at: None,
             redemption_limit: Some(10),
+            recurring_value: None,
+            reusable: false,
         })
         .await
         .unwrap()

@@ -80,13 +80,10 @@ impl TenantInterface for Store {
                 async move {
                     // we update org trade name
 
-                    match &tenant.trade_name {
-                        Some(trade_name) => {
-                            OrganizationRow::update_trade_name(conn, organization_id, trade_name)
-                                .await
-                                .map_err(Into::<Report<StoreError>>::into)?;
-                        }
-                        None => {}
+                    if let Some(trade_name) = &tenant.trade_name {
+                        OrganizationRow::update_trade_name(conn, organization_id, trade_name)
+                            .await
+                            .map_err(Into::<Report<StoreError>>::into)?;
                     }
 
                     let patch: TenantRowPatch = tenant.into();

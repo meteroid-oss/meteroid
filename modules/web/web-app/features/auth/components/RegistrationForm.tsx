@@ -5,7 +5,7 @@ import { FormItem } from '@ui/components/legacy'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
-import { useSession } from '@/features/auth'
+import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'

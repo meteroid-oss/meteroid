@@ -17,6 +17,8 @@ message CreateCouponRequest {
   CouponDiscount discount = 3;
   optional google.protobuf.Timestamp expires_at = 4;
   optional int32 redemption_limit = 5;
+  optional int32 recurring_value = 6;
+  bool reusable = 7;
 }
 
 message CreateCouponResponse {

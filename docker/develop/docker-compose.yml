@@ -336,5 +336,3 @@ services:
     profiles:
       - telemetry
     logging: *logging
-
-

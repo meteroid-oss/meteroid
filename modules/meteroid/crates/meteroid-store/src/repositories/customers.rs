@@ -337,6 +337,8 @@ impl CustomersInterface for Store {
                         amount_due: 0,
                         tax_rate: 0,
                         customer_balance_cents: 0,
+                        subscription_applied_coupons: &vec![],
+                        invoice_currency: customer.currency.as_str(),
                     });
 
                     let invoicing_entity: InvoicingEntity =
