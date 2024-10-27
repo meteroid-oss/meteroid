@@ -44,6 +44,8 @@ pub enum StoreError {
     NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
     #[error("Metering Service error: {0}")]
     MeteringServiceError(String, #[source] ComputeError),
+    #[error("Webhook Service error: {0}")]
+    WebhookServiceError(String),
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862

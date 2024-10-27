@@ -30,6 +30,7 @@ services:
       - POSTGRES_DB=${DATABASE_NAME:-meteroid}
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
     healthcheck:
       test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
       interval: 10s
@@ -39,6 +40,37 @@ services:
       - "postgres"
       - "-c"
       - "wal_level=logical"
+    networks:
+      - meteroid_net
+
+  svix-server:
+    image: "docker.io/svix/svix-server:v1.41.0"
+    environment:
+      SVIX_JWT_SECRET: "8KjzRXrKkd9YFcNyqLSIY9JwiaCeRc6WK4UkMnSW"
+      SVIX_DB_DSN: postgresql://${DATABASE_USER:-meteroid}:${DATABASE_PASSWORD:-meteroid}@pgbouncer/svix
+      SVIX_QUEUE_TYPE: "memory"
+    ports:
+      - "8071:8071"
+    depends_on:
+      - pgbouncer
+    networks:
+      - meteroid_net
+
+  pgbouncer:
+    image: "docker.io/edoburu/pgbouncer:v1.23.1-p2"
+    healthcheck:
+      test: "pg_isready -h localhost"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      DB_HOST: "meteroid-db"
+      DB_USER: "meteroid"
+      DB_PASSWORD: ${DATABASE_PASSWORD}
+      MAX_CLIENT_CONN: 200
+      AUTH_TYPE: "scram-sha-256"
+    depends_on:
+      - meteroid-db
     networks:
       - meteroid_net
 

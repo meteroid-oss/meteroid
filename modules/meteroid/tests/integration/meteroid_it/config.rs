@@ -46,5 +46,7 @@ pub fn mocked_config(
         fang_ext: FangExtConfig::init_from_env().unwrap(),
         openexchangerates_api_key: None,
         gotenberg_url: "http://localhost:3000".to_owned(),
+        svix_server_url: "http://localhost:8071".to_owned(),
+        svix_jwt_token: "fake".to_owned().into(),
     }
 }
