@@ -62,27 +62,12 @@ pub async fn start_rest_server(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = axum_routers::AppState {
         object_store,
-        store,
+        store: store.clone(),
         stripe_adapter,
         jwt_secret,
     };
 
-    let channel = Endpoint::from_shared(config.metering_endpoint.clone())
-        .expect("Failed to create channel to meteroid from shared endpoint");
-    let channel = channel
-        .connect()
-        .await
-        .or_else(|e| {
-            log::warn!("Failed to connect to the meteroid GRPC channel for endpoint {}: {}. Starting in lazy mode.", config.metering_endpoint.clone(), e);
-            Ok::<Channel, tonic::transport::Error>(channel.connect_lazy())
-        })?;
-
-    let service = build_layered_client_service(channel, &config.internal_auth);
-
-    let internal_client: InternalServiceClient<LayeredClientService> =
-        InternalServiceClient::new(service.clone());
-
-    let auth_layer = ExternalApiAuthLayer::new(internal_client.clone()).filter(only_api);
+    let auth_layer = ExternalApiAuthLayer::new(store.clone()).filter(only_api);
 
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))

@@ -25,31 +25,35 @@ use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState}
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
 use uuid::Uuid;
+use meteroid_store::domain::ApiTokenNew;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use meteroid_store::Store;
+use crate::parse_uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct AuthStatus {
     status: StatusCode,
     msg: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApiAuthMiddleware<S> {
     inner: S,
     filter: Option<Filter>,
-    internal_client: InternalServiceClient<LayeredClientService>,
+    store: Store,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ExternalApiAuthLayer {
-    internal_client: InternalServiceClient<LayeredClientService>,
+    store: Store,
     filter: Option<Filter>,
 }
 
 impl ExternalApiAuthLayer {
     #[allow(clippy::new_without_default)]
-    pub fn new(internal_client: InternalServiceClient<LayeredClientService>) -> Self {
+    pub fn new(store: Store) -> Self {
         ExternalApiAuthLayer {
-            internal_client,
+            store,
             filter: None,
         }
     }
@@ -68,7 +72,7 @@ impl<S> Layer<S> for ExternalApiAuthLayer {
         ApiAuthMiddleware {
             inner,
             filter: self.filter,
-            internal_client: self.internal_client.clone(),
+            store: self.store.clone(),
         }
     }
 }
@@ -100,11 +104,11 @@ where
         let mut inner = std::mem::replace(&mut self.inner, clone);
 
         let metadata = request.headers().clone();
-        let mut internal_client = self.internal_client.clone();
+        let mut store = self.store.clone();
 
         let future = async move {
             let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
-                validate_api_key(&metadata, &mut internal_client)
+                validate_api_key(&metadata, &mut store)
                     .await
                     .map_err(|e| {
                         log::error!("Failed to validate api key: {:?}", e);
@@ -146,6 +150,7 @@ where
     }
 }
 
+
 #[cached(
     result = true,
     size = 100,
@@ -154,49 +159,35 @@ where
     convert = r#"{ *api_key_id }"#
 )]
 async fn validate_api_token_by_id_cached(
-    internal_client: &mut InternalServiceClient<LayeredClientService>,
+    store: &mut Store,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
 ) -> Result<(Uuid, Uuid), AuthStatus> {
-    let res = internal_client
-        .clone()
-        .resolve_api_key(ResolveApiKeyRequest {
-            api_key_id: api_key_id.to_string(),
-        })
-        .await
-        .map_err(|err| {
-            error!("Failed to resolve api key: {:?}", err);
-            AuthStatus {
-                status: StatusCode::UNAUTHORIZED,
-                msg: Some("Failed to resolve api key".to_string()),
-            }
-        })?;
-
-    let inner = res.into_inner();
+    let res =
+        store
+            .get_api_token_by_id_for_validation(api_key_id)
+            .await
+            .map_err(|err| {
+                error!("Failed to resolve api key: {:?}", err);
+                AuthStatus {
+                    status: StatusCode::UNAUTHORIZED,
+                    msg: Some("Failed to resolve api key".to_string()),
+                }
+            })?;
 
     validator
-        .validate_hash(&inner.hash)
+        .validate_hash(&res.hash)
         .map_err(|_e| AuthStatus {
             status: StatusCode::UNAUTHORIZED,
             msg: Some("Unauthorized. Invalid hash".to_string()),
         })?;
 
-    let tenant_uuid = Uuid::parse_str(&inner.tenant_id).map_err(|_| AuthStatus {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        msg: Some("failed to parse tenant id".to_string()),
-    })?;
-
-    let organization_uuid = Uuid::parse_str(&inner.tenant_id).map_err(|_| AuthStatus {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        msg: Some("failed to parse tenant id".to_string()),
-    })?;
-
-    Ok((organization_uuid, tenant_uuid))
+    Ok((res.organization_id, res.tenant_id))
 }
 
 pub async fn validate_api_key(
     header_map: &HeaderMap,
-    internal_client: &mut InternalServiceClient<LayeredClientService>,
+    store: &mut Store,
 ) -> Result<AuthenticatedState, AuthStatus> {
     let api_key = header_map
         .get(API_KEY_HEADER)
@@ -221,7 +212,28 @@ pub async fn validate_api_key(
     })?;
 
     let (organization_id, tenant_id) =
-        validate_api_token_by_id_cached(internal_client, &validator, &id).await?;
+        validate_api_token_by_id_cached(store, &validator, &id).await?;
+
+    let res = store
+        .get_api_token_by_id_for_validation(&id)
+        .await
+        .map_err(|e| AuthStatus {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            msg: Some("failed".into())
+        })?;
+
+    validator
+        .validate_hash(&res.hash)
+        .map_err(|_e| AuthStatus {
+            status: StatusCode::UNAUTHORIZED,
+            msg: Some("Unauthorized. Invalid hash".to_string()),
+        })?;
+
+    // Ok(Response::new(ResolveApiKeyResponse {
+    //     tenant_id: res.tenant_id.to_string(),
+    //     organization_id: res.organization_id.to_string(),
+    //     hash: res.hash,
+    // }))
 
     Ok(AuthenticatedState::ApiKey {
         id,
