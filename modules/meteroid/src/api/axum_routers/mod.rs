@@ -4,6 +4,7 @@ use meteroid_store::Store;
 use secrecy::SecretString;
 use std::sync::Arc;
 
+pub mod auth;
 mod file_router;
 mod webhook_in_router;
 

@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.object_store_prefix,
     )?);
 
-    let private_server = meteroid::api::server::start_api_server(
+    let grpc_server = meteroid::api::server::start_api_server(
         config.clone(),
         store.clone(),
         object_store_service.clone(),
@@ -71,15 +71,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client: stripe_client::client::StripeClient::new(),
     });
 
+    let rest_server = meteroid::api::axum_server::start_rest_server(
+        config,
+        config.rest_api_addr,
+        object_store_service.clone(),
+        stripe_adapter.clone(),
+        store.clone(),
+        config.jwt_secret.clone(),
+    );
+
     tokio::select! {
-        _ = private_server => {},
-        _ = meteroid::api::axum_server::serve(
-            config.rest_api_addr,
-            object_store_service.clone(),
-            stripe_adapter.clone(),
-            store.clone(),
-            config.jwt_secret.clone(),
-        ) => {},
+        grpc_result = grpc_server => {
+            if let Err(e) = grpc_result {
+                log::error!("Error starting gRPC API server: {}", e);
+            }
+        },
+        rest_result = rest_server => {
+            if let Err(e) = rest_result {
+                log::error!("Error starting REST API server: {}", e);
+            }
+
+        },
         _ = exit => {
               log::info!("Interrupted");
         }
