@@ -1,7 +1,6 @@
 use crate::adapters::stripe::Stripe;
 use crate::services::storage::ObjectStoreService;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
 use axum::Router;
 use common_grpc::middleware::server::AuthorizedState;
 use http::StatusCode;
@@ -21,7 +20,7 @@ pub use file_router::FileApi;
 pub use webhook_in_router::webhook_in_routes;
 
 pub fn api_routes() -> Router<AppState> {
-    Router::new().merge(get(subscription_router::subscription_routes()))
+    Router::new().merge(subscription_router::subscription_routes())
 }
 
 #[derive(Clone)]
@@ -38,27 +37,21 @@ pub fn extract_tenant(auth: AuthorizedState) -> Result<Uuid, Response> {
 
 pub fn extract_maybe_tenant(
     maybe_auth: Option<&AuthorizedState>,
-) -> Result<Uuid, Response<String>> {
+) -> Result<Uuid, Response> {
     let authorized = maybe_auth.ok_or(
-        Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .body("Missing authorized state in request extensions".into()),
+        (StatusCode::UNAUTHORIZED, "Missing authorized state in request extensions").into_response()
     )?;
 
     let res = match authorized {
         AuthorizedState::Tenant { tenant_id, .. } => { Ok(*tenant_id) }
         AuthorizedState::Organization { .. } => {
             Err(
-                Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body("Tenant is absent from the authorized state. This indicates an incomplete x-md-context header.".into())
+                (StatusCode::UNAUTHORIZED, "Tenant is absent from the authorized state. This indicates an incomplete x-md-context header.").into_response()
             )
         }
         AuthorizedState::User { .. } => {
             Err(
-                Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body("Tenant is absent from the authorized state. This indicates a missing x-md-context header.".into())
+                (StatusCode::UNAUTHORIZED, "Tenant is absent from the authorized state. This indicates a missing x-md-context header.").into_response()
             )
         }
     }?;

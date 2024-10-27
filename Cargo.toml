@@ -40,7 +40,7 @@ repository = "https://github.com/meteroid-oss/meteroid"
 anyhow = "1.0.75"
 argon2 = "0.5.2"
 async-trait = "0.1.74"
-axum = { version = "0.7.7" }
+axum = { version = "0.7.7", features = ["json", "query", "tower-log", "http1"] }
 backon = "1.2.0"
 base62 = "2.0.2"
 base64 = "0.22.0"

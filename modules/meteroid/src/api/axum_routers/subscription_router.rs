@@ -1,5 +1,4 @@
 use super::{extract_tenant, AppState};
-use std::io::Cursor;
 
 use axum::extract::Query;
 use axum::routing::get;
@@ -8,19 +7,19 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+
 use axum::{Extension, Router};
 use hyper::StatusCode;
 
 use crate::{api, errors};
 
 use crate::api::axum_routers::model::{PaginatedRequest, PaginatedResponse};
-use crate::api::axum_routers::subscription_router::rest_model::Subscription;
+use crate::api::axum_routers::subscription_router::rest_model::{Subscription, SubscriptionRequest};
 use crate::api::sharable::ShareableEntityClaims;
 use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::errors::RestApiError;
 use crate::services::storage::Prefix;
 use common_grpc::middleware::server::AuthorizedState;
-use error_stack::{Report, Result, ResultExt};
 use fang::Deserialize;
 use image::ImageFormat::Png;
 use jsonwebtoken::{decode, DecodingKey, Validation};
@@ -55,20 +54,19 @@ pub fn subscription_routes() -> Router<AppState> {
 #[axum::debug_handler]
 async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedState>,
-    Query(pagination): Query<Option<PaginatedRequest>>,
-    Query(customer_id): Query<Option<Uuid>>,
-    Query(plan_id): Query<Option<Uuid>>,
+    Query(request): Query<SubscriptionRequest>,
     State(app_state): State<AppState>,
 ) -> Response {
-    let tenant_id = extract_tenant(authorized_state)?;
+    let tenant_id = extract_tenant(authorized_state).unwrap();
 
-    match list_subscriptions_handler(app_state.store, pagination, tenant_id, customer_id, plan_id)
+    match list_subscriptions_handler(app_state.store, request.pagination, tenant_id, request.customer_id, request.plan_id)
         .await
     {
         Ok(r) => (StatusCode::OK, Json(r)).into_response(),
         Err(e) => {
             log::error!("Error handling logo: {}", e);
-            e.current_context().clone().into_response()
+            // todo add mapping for RestApiError
+            (StatusCode::INTERNAL_SERVER_ERROR, "error").into_response()
         }
     }
 }
@@ -108,11 +106,20 @@ async fn list_subscriptions_handler(
 
 pub mod rest_model {
     use uuid::Uuid;
+    use crate::api::axum_routers::model::PaginatedRequest;
+
+    #[derive(serde::Deserialize)]
+    pub struct SubscriptionRequest {
+        pub pagination: Option<PaginatedRequest>,
+        pub customer_id: Option<Uuid>,
+        pub plan_id: Option<Uuid>,
+    }
 
     #[derive(serde::Serialize, serde::Deserialize)]
     pub struct Subscription {
         pub id: Uuid,
     }
+
 }
 pub mod subscriptions {
     use meteroid_store::domain;
