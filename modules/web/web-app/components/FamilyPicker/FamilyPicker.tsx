@@ -32,7 +32,9 @@ const FamilyPicker: FunctionComponent = () => {
           <div className="flex flex-row space-x-2 items-center ">
             <span>
               <span className="text-xs text-muted-foreground">Product line: </span>
-              <span>{selected?.name}</span>
+              <span className="max-w-36 overflow-hidden text-nowrap text-xs" title={selected?.name}>
+                {selected?.name}
+              </span>
             </span>
 
             <ChevronsUpDown size="10" />
@@ -53,7 +55,7 @@ const FamilyPicker: FunctionComponent = () => {
           </CommandList>
           <CommandItem>
             <Link to="/tenants/new" className="w-full">
-              <Button size="content" variant="ghost" hasIcon>
+              <Button size="content" variant="ghost" hasIcon className="text-xs">
                 <PlusIcon size="12" /> New product family
               </Button>
             </Link>

@@ -1,7 +1,7 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
 import { NotImplemented } from '@/features/NotImplemented'
-import { BillingPeriodModal } from '@/features/billing/plans/details/BillingPeriodModal'
+import { DetailsFormModal } from '@/features/billing/plans/create/details/DetailsFormModal'
 import { Addons } from '@/pages/tenants/billing/addons'
 import { Plans } from '@/pages/tenants/billing/plans'
 import { CreatePriceComponent } from '@/pages/tenants/billing/plans/createPriceComponent'
@@ -62,12 +62,12 @@ export const productCatalogRoutes: RouteObject = {
                   element: <PlanOnboardingComponent />,
                 },
                 {
-                  path: 'billing-terms',
-                  element: <BillingPeriodModal />,
-                },
-                {
                   path: 'add-metric',
                   element: <CreateBillableMetric />,
+                },
+                {
+                  path: 'edit-overview',
+                  element: <DetailsFormModal />,
                 },
 
                 // TODO component/:priceComponentId

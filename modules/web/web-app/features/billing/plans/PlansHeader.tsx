@@ -9,11 +9,13 @@ import PageHeading from '@/components/PageHeading/PageHeading'
 interface PlansHeaderProps {
   setEditPanelVisible: (visible: boolean) => void
   setSearch: (value: string | undefined) => void
+  search: string | undefined
 }
 
 export const PlansHeader: FunctionComponent<PlansHeaderProps> = ({
   setEditPanelVisible,
   setSearch,
+  search,
 }) => {
   return (
     <Flex direction="column" gap={spaces.space9}>
@@ -31,6 +33,7 @@ export const PlansHeader: FunctionComponent<PlansHeaderProps> = ({
           icon={<SearchIcon size={16} />}
           width="fit-content"
           onChange={e => setSearch(e.target.value)}
+          value={search}
         />
       </Flex>
     </Flex>
