@@ -21,14 +21,14 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
+use crate::parse_uuid;
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState};
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
-use uuid::Uuid;
 use meteroid_store::domain::ApiTokenNew;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::Store;
-use crate::parse_uuid;
+use uuid::Uuid;
 
 #[derive(Debug)]
 struct AuthStatus {
@@ -108,14 +108,12 @@ where
 
         let future = async move {
             let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
-                validate_api_key(&metadata, &mut store)
-                    .await
-                    .map_err(|e| {
-                        log::error!("Failed to validate api key: {:?}", e);
-                        Response::builder()
-                            .status(StatusCode::INTERNAL_SERVER_ERROR)
-                            .body(ResBody::default())
-                    })
+                validate_api_key(&metadata, &mut store).await.map_err(|e| {
+                    log::error!("Failed to validate api key: {:?}", e);
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(ResBody::default())
+                })
             } else {
                 Err(Response::builder()
                     .status(StatusCode::UNAUTHORIZED)
@@ -150,7 +148,6 @@ where
     }
 }
 
-
 #[cached(
     result = true,
     size = 100,
@@ -163,17 +160,16 @@ async fn validate_api_token_by_id_cached(
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
 ) -> Result<(Uuid, Uuid), AuthStatus> {
-    let res =
-        store
-            .get_api_token_by_id_for_validation(api_key_id)
-            .await
-            .map_err(|err| {
-                error!("Failed to resolve api key: {:?}", err);
-                AuthStatus {
-                    status: StatusCode::UNAUTHORIZED,
-                    msg: Some("Failed to resolve api key".to_string()),
-                }
-            })?;
+    let res = store
+        .get_api_token_by_id_for_validation(api_key_id)
+        .await
+        .map_err(|err| {
+            error!("Failed to resolve api key: {:?}", err);
+            AuthStatus {
+                status: StatusCode::UNAUTHORIZED,
+                msg: Some("Failed to resolve api key".to_string()),
+            }
+        })?;
 
     validator
         .validate_hash(&res.hash)
@@ -219,7 +215,7 @@ pub async fn validate_api_key(
         .await
         .map_err(|e| AuthStatus {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            msg: Some("failed".into())
+            msg: Some("failed".into()),
         })?;
 
     validator
