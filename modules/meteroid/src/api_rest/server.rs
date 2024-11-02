@@ -1,6 +1,7 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::auth::ExternalApiAuthLayer;
 use crate::api_rest::files;
+use crate::api_rest::subscriptions;
 use crate::api_rest::AppState;
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
@@ -29,7 +30,8 @@ use utoipa_swagger_ui::SwaggerUi;
 #[openapi(
     modifiers(&SecurityAddon),
     nest(
-        (path = "/files", api = files::FileApi)
+        (path = "/files", api = files::FileApi),
+        (path = "/api/v1/subscriptions", api = subscriptions::SubscriptionApi)
     ),
     tags(
         (name = "meteroid", description = "Meteroid API")

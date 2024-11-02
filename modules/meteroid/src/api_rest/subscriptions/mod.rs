@@ -6,6 +6,8 @@ mod mapping;
 mod model;
 pub mod subscription_router;
 
+pub use subscription_router::SubscriptionApi;
+
 pub fn subscription_routes() -> Router<AppState> {
     Router::new().route(
         "/v1/subscriptions",
