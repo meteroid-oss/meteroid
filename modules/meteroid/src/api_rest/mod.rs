@@ -10,9 +10,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 mod auth;
-pub mod axum_server;
 mod files;
 mod model;
+pub mod server;
 mod subscriptions;
 mod webhooks;
 
