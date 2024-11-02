@@ -50,7 +50,7 @@ impl Modify for SecurityAddon {
     }
 }
 fn only_api(path: &str) -> bool {
-    true
+    path.starts_with("/api/")
 }
 
 pub async fn start_rest_server(
