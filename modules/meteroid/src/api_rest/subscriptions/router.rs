@@ -76,7 +76,7 @@ pub async fn list_subscriptions(
 
 async fn list_subscriptions_handler(
     store: Store,
-    pagination: Option<PaginatedRequest>,
+    pagination: PaginatedRequest,
     tenant_id: Uuid,
     customer_id: Option<Uuid>,
     plan_id: Option<Uuid>,
@@ -87,8 +87,8 @@ async fn list_subscriptions_handler(
             customer_id,
             plan_id,
             domain::PaginationRequest {
-                page: pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-                per_page: pagination.as_ref().map(|p| p.limit),
+                page: pagination.offset.unwrap_or(0),
+                per_page: pagination.limit,
             },
         )
         .await

@@ -4,7 +4,8 @@ use uuid::Uuid;
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct SubscriptionRequest {
-    pub pagination: Option<PaginatedRequest>,
+    #[serde(flatten)]
+    pub pagination: PaginatedRequest,
     pub customer_id: Option<Uuid>,
     pub plan_id: Option<Uuid>,
 }
@@ -12,4 +13,7 @@ pub struct SubscriptionRequest {
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct Subscription {
     pub id: Uuid,
+    pub customer_id: Uuid,
+    pub customer_name: String,
+    pub customer_alias: Option<String>,
 }

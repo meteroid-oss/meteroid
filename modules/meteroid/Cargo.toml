@@ -36,6 +36,7 @@ reqwest-retry = { workspace = true }
 segment.workspace = true
 serde_json.workspace = true
 serde.workspace = true
+serde_with.workspace = true
 tap.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }

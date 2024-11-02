@@ -1,10 +1,14 @@
+use serde_with::{serde_as, DisplayFromStr};
 use utoipa::OpenApi;
 use utoipa::ToSchema;
 
+#[serde_as]
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct PaginatedRequest {
-    pub offset: u32,
-    pub limit: u32,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub offset: Option<u32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub limit: Option<u32>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
