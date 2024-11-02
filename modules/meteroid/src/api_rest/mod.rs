@@ -9,18 +9,15 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub mod auth;
-mod file_router;
+mod auth;
+pub mod axum_server;
+mod files;
 mod model;
-mod subscription_router;
-mod webhook_in_router;
-
-pub use file_router::file_routes;
-pub use file_router::FileApi;
-pub use webhook_in_router::webhook_in_routes;
+mod subscriptions;
+mod webhooks;
 
 pub fn api_routes() -> Router<AppState> {
-    Router::new().merge(subscription_router::subscription_routes())
+    Router::new().merge(subscriptions::subscription_routes())
 }
 
 #[derive(Clone)]
@@ -35,11 +32,13 @@ pub fn extract_tenant(auth: AuthorizedState) -> Result<Uuid, Response> {
     extract_maybe_tenant(Some(&auth))
 }
 
-pub fn extract_maybe_tenant(
-    maybe_auth: Option<&AuthorizedState>,
-) -> Result<Uuid, Response> {
+pub fn extract_maybe_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Response> {
     let authorized = maybe_auth.ok_or(
-        (StatusCode::UNAUTHORIZED, "Missing authorized state in request extensions").into_response()
+        (
+            StatusCode::UNAUTHORIZED,
+            "Missing authorized state in request extensions",
+        )
+            .into_response(),
     )?;
 
     let res = match authorized {

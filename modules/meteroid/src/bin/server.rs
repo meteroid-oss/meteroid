@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client: stripe_client::client::StripeClient::new(),
     });
 
-    let rest_server = meteroid::api::axum_server::start_rest_server(
+    let rest_server = meteroid::api_rest::axum_server::start_rest_server(
         config,
         config.rest_api_addr,
         object_store_service.clone(),

@@ -1,6 +1,7 @@
 use crate::adapters::stripe::Stripe;
-use crate::api::axum_routers;
-use crate::api::axum_routers::auth::ExternalApiAuthLayer;
+use crate::api_rest::auth::ExternalApiAuthLayer;
+use crate::api_rest::files;
+use crate::api_rest::AppState;
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
 use axum::{
@@ -28,7 +29,7 @@ use utoipa_swagger_ui::SwaggerUi;
 #[openapi(
     modifiers(&SecurityAddon),
     nest(
-        (path = "/files", api = axum_routers::FileApi)
+        (path = "/files", api = files::FileApi)
     ),
     tags(
         (name = "meteroid", description = "Meteroid API")
@@ -60,7 +61,7 @@ pub async fn start_rest_server(
     store: Store,
     jwt_secret: SecretString,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let app_state = axum_routers::AppState {
+    let app_state = AppState {
         object_store,
         store: store.clone(),
         stripe_adapter,
@@ -79,10 +80,10 @@ pub async fn start_rest_server(
         // .merge(RapiDoc::with_openapi("/api-docs/openapi2.json", ApiDoc::openapi()).path("/rapidoc"))
         .merge(Scalar::with_url("/scalar", ApiDoc::openapi()))
         //todo add "/api" to path and merge with api_routes
-        .nest("/files", axum_routers::file_routes())
-        .nest("/webhooks", axum_routers::webhook_in_routes())
+        .nest("/files", crate::api_rest::files::file_routes())
+        .nest("/webhooks", crate::api_rest::webhooks::webhook_routes())
         //
-        .nest("/api", axum_routers::api_routes())
+        .nest("/api", crate::api_rest::api_routes())
         .fallback(handler_404)
         .with_state(app_state)
         //.layer(ServiceBuilder::new().layer(auth_layer))

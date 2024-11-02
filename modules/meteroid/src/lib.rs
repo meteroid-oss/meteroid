@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod api;
+pub mod api_rest;
 pub mod clients;
 pub mod config;
 pub mod constants;

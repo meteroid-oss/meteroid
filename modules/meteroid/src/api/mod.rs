@@ -6,8 +6,6 @@ pub mod utils;
 
 pub mod addons;
 pub mod apitokens;
-mod axum_routers;
-pub mod axum_server;
 pub mod billablemetrics;
 pub mod coupons;
 pub mod customers;
@@ -23,7 +21,7 @@ pub mod pricecomponents;
 pub mod productfamilies;
 pub mod productitems;
 pub mod schedules;
-mod sharable;
+pub mod sharable;
 pub mod stats;
 pub mod subscriptions;
 pub mod tenants;

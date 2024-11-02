@@ -1,4 +1,4 @@
-use super::{extract_tenant, AppState};
+use super::AppState;
 
 use axum::extract::Query;
 use axum::routing::get;
@@ -13,10 +13,12 @@ use hyper::StatusCode;
 
 use crate::{api, errors};
 
-use crate::api::axum_routers::model::{PaginatedRequest, PaginatedResponse};
-use crate::api::axum_routers::subscription_router::rest_model::{Subscription, SubscriptionRequest};
 use crate::api::sharable::ShareableEntityClaims;
 use crate::api::subscriptions::error::SubscriptionApiError;
+use crate::api_rest::extract_tenant;
+use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
+use crate::api_rest::subscriptions::mapping::domain_to_rest;
+use crate::api_rest::subscriptions::model::{Subscription, SubscriptionRequest};
 use crate::errors::RestApiError;
 use crate::services::storage::Prefix;
 use common_grpc::middleware::server::AuthorizedState;
@@ -33,10 +35,6 @@ use uuid::Uuid;
 #[openapi(paths(list_subscriptions))]
 pub struct SubscriptionApi;
 
-pub fn subscription_routes() -> Router<AppState> {
-    Router::new().route("/v1/subscriptions", get(list_subscriptions))
-}
-
 #[utoipa::path(
     get,
     tag = "subscription",
@@ -52,15 +50,21 @@ pub fn subscription_routes() -> Router<AppState> {
     )
 )]
 #[axum::debug_handler]
-async fn list_subscriptions(
+pub async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedState>,
     Query(request): Query<SubscriptionRequest>,
     State(app_state): State<AppState>,
 ) -> Response {
     let tenant_id = extract_tenant(authorized_state).unwrap();
 
-    match list_subscriptions_handler(app_state.store, request.pagination, tenant_id, request.customer_id, request.plan_id)
-        .await
+    match list_subscriptions_handler(
+        app_state.store,
+        request.pagination,
+        tenant_id,
+        request.customer_id,
+        request.plan_id,
+    )
+    .await
     {
         Ok(r) => (StatusCode::OK, Json(r)).into_response(),
         Err(e) => {
@@ -91,10 +95,10 @@ async fn list_subscriptions_handler(
         .await
         .map_err(|e| RestApiError::StoreError)?;
 
-    let subscriptions: Vec<rest_model::Subscription> = res
+    let subscriptions: Vec<Subscription> = res
         .items
         .into_iter()
-        .map(subscriptions::domain_to_rest)
+        .map(domain_to_rest)
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(PaginatedResponse {
@@ -102,34 +106,4 @@ async fn list_subscriptions_handler(
         total: res.total_results,
         offset: res.total_pages,
     })
-}
-
-pub mod rest_model {
-    use uuid::Uuid;
-    use crate::api::axum_routers::model::PaginatedRequest;
-
-    #[derive(serde::Deserialize)]
-    pub struct SubscriptionRequest {
-        pub pagination: Option<PaginatedRequest>,
-        pub customer_id: Option<Uuid>,
-        pub plan_id: Option<Uuid>,
-    }
-
-    #[derive(serde::Serialize, serde::Deserialize)]
-    pub struct Subscription {
-        pub id: Uuid,
-    }
-
-}
-pub mod subscriptions {
-    use meteroid_store::domain;
-
-    use crate::api::axum_routers::subscription_router::rest_model;
-    use crate::errors::RestApiError;
-
-    pub fn domain_to_rest(
-        s: domain::Subscription,
-    ) -> Result<rest_model::Subscription, RestApiError> {
-        Ok(rest_model::Subscription { id: s.id })
-    }
 }

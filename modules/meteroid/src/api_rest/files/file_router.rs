@@ -27,12 +27,6 @@ use uuid::Uuid;
 #[openapi(paths(get_logo, get_invoice_pdf))]
 pub struct FileApi;
 
-pub fn file_routes() -> Router<AppState> {
-    Router::new()
-        .route("/v1/logo/:uuid", get(get_logo))
-        .route("/v1/invoice/pdf/:uuid", get(get_invoice_pdf))
-}
-
 //todo: switch to binary response body
 //todo: switch str to uuid
 #[utoipa::path(
@@ -49,7 +43,7 @@ pub fn file_routes() -> Router<AppState> {
     )
 )]
 #[axum::debug_handler]
-async fn get_logo(
+pub async fn get_logo(
     Path(uuid): Path<String>,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
@@ -88,7 +82,7 @@ async fn get_logo_handler(
 }
 
 #[derive(Deserialize)]
-struct TokenParams {
+pub struct TokenParams {
     token: String,
 }
 
@@ -108,7 +102,7 @@ struct TokenParams {
     )
 )]
 #[axum::debug_handler]
-async fn get_invoice_pdf(
+pub async fn get_invoice_pdf(
     Path(uuid): Path<String>,
     Query(params): Query<TokenParams>,
     State(app_state): State<AppState>,
