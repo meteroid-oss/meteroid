@@ -3,13 +3,13 @@ use axum::extract::DefaultBodyLimit;
 use axum::routing::post;
 use axum::Router;
 
-mod webhook_router;
+mod router;
 
 pub fn webhook_routes() -> Router<AppState> {
     Router::new()
         .route(
             "/v1/:provider/:endpoint_uid",
-            post(crate::api_rest::webhooks::webhook_router::axum_handler),
+            post(crate::api_rest::webhooks::router::axum_handler),
         )
         .layer(DefaultBodyLimit::max(4096))
 }

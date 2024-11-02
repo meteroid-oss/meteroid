@@ -4,13 +4,10 @@ use axum::Router;
 
 mod mapping;
 mod model;
-pub mod subscription_router;
+pub mod router;
 
-pub use subscription_router::SubscriptionApi;
+pub use router::SubscriptionApi;
 
 pub fn subscription_routes() -> Router<AppState> {
-    Router::new().route(
-        "/v1/subscriptions",
-        get(subscription_router::list_subscriptions),
-    )
+    Router::new().route("/v1/subscriptions", get(router::list_subscriptions))
 }
