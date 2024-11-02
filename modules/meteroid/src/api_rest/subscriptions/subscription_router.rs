@@ -40,12 +40,11 @@ pub struct SubscriptionApi;
     tag = "subscription",
     path = "/v1/subscriptions",
     params(
-        ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 1),
-        ("limit" = usize, Query, description = "The maximum number of objects to return", example = 10)
+        ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 1, minimum = 0),
+        ("limit" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1)
     ),
     responses(
-        (status = 200, content_type = "image/png", description = "Logo as PNG image", body = [u8]),
-        (status = 400, description = "Invalid UUID"),
+        (status = 200, description = "List of subscriptions", body = PaginatedResponse<Subscription>),
         (status = 500, description = "Internal error"),
     )
 )]
