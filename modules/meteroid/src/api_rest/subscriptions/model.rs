@@ -16,4 +16,7 @@ pub struct Subscription {
     pub customer_id: Uuid,
     pub customer_name: String,
     pub customer_alias: Option<String>,
+    pub billing_day: i16,
+    pub tenant_id: Uuid,
+    pub currency: String,
 }

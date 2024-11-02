@@ -8,5 +8,8 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         customer_id: s.customer_id,
         customer_name: s.customer_name,
         customer_alias: s.customer_alias,
+        billing_day: s.billing_day,
+        tenant_id: s.tenant_id,
+        currency: s.currency,
     })
 }
