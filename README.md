@@ -116,7 +116,7 @@ Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Met
 
 Copyright 2024 Meteroid
 
-Licensed under the AGPL V3 License. <br/> See [LICENSE.md](LICENSE.md) for more information.
+Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
 For enterprise or custom licensing options, please contact us.
 
