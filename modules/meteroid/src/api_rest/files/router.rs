@@ -87,9 +87,9 @@ pub struct TokenParams {
 #[utoipa::path(
     get,
     tag = "file",
-    path = "/v1/invoice/pdf/{uuid}",
+    path = "/v1/invoice/pdf/{uid}",
     params(
-        ("uuid" = Uuid, Path, description = "Invoice database UUID"),
+        ("uuid" = Uuid, Path, description = "Invoice database UID"),
         ("token" = str, Query, description = "Security token"),
     ),
     responses(
@@ -101,11 +101,11 @@ pub struct TokenParams {
 )]
 #[axum::debug_handler]
 pub async fn get_invoice_pdf(
-    Path(uuid): Path<String>,
+    Path(uid): Path<String>,
     Query(params): Query<TokenParams>,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
-    match get_invoice_pdf_handler(uuid, params, app_state).await {
+    match get_invoice_pdf_handler(uid, params, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
             log::error!("Error handling invoice PDF: {}", e);
@@ -115,7 +115,7 @@ pub async fn get_invoice_pdf(
 }
 
 async fn get_invoice_pdf_handler(
-    invoice_uuid: String,
+    invoice_uid: String,
     token: TokenParams,
     app_state: AppState,
 ) -> Result<Response, errors::RestApiError> {
@@ -133,7 +133,7 @@ async fn get_invoice_pdf_handler(
         .await
         .change_context(errors::RestApiError::StoreError)?;
 
-    if invoice.invoice.local_id != invoice_uuid {
+    if invoice.invoice.local_id != invoice_uid {
         return Err(Report::new(errors::RestApiError::Forbidden));
     }
     match invoice.invoice.pdf_document_id {
