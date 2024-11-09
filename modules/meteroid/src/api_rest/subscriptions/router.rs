@@ -42,8 +42,8 @@ pub async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     Query(request): Query<SubscriptionRequest>,
     State(app_state): State<AppState>,
-) -> Response {
-    match list_subscriptions_handler(
+) -> Result<impl IntoResponse, RestApiError> {
+    list_subscriptions_handler(
         app_state.store,
         request.pagination,
         authorized_state.tenant_id,
@@ -51,14 +51,11 @@ pub async fn list_subscriptions(
         request.plan_id,
     )
     .await
-    {
-        Ok(r) => (StatusCode::OK, Json(r)).into_response(),
-        Err(e) => {
-            log::error!("Error handling logo: {}", e);
-            // todo add mapping for RestApiError
-            (StatusCode::INTERNAL_SERVER_ERROR, "error").into_response()
-        }
-    }
+    .map(Json)
+    .map_err(|e| {
+        log::error!("Error handling list_subscriptions: {}", e);
+        e
+    })
 }
 
 async fn list_subscriptions_handler(
@@ -79,7 +76,10 @@ async fn list_subscriptions_handler(
             },
         )
         .await
-        .map_err(|_| RestApiError::StoreError)?;
+        .map_err(|e| {
+            log::error!("Error handling list_subscriptions: {}", e);
+            RestApiError::StoreError
+        })?;
 
     let subscriptions: Vec<Subscription> = res
         .items

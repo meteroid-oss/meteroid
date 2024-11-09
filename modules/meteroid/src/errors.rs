@@ -112,7 +112,7 @@ pub enum RestApiError {
     ImageLoadingError,
     #[error("Unauthorized")]
     Unauthorized,
-    #[error("Unauthorized")]
+    #[error("Internal server error")]
     StoreError,
     #[error("Forbidden")]
     Forbidden,
