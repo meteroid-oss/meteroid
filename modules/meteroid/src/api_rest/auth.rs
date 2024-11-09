@@ -117,11 +117,11 @@ where
                     id,
                     organization_id,
                 }) => {
-                    let state = AuthorizedState::Tenant(AuthorizedAsTenant {
+                    let state = AuthorizedAsTenant {
                         tenant_id,
                         organization_id,
                         actor_id: id,
-                    });
+                    };
                     request.extensions_mut().insert(state);
                     inner.call(request).await
                 }

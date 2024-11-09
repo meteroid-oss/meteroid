@@ -1,9 +1,8 @@
 use crate::api_rest::subscriptions::model::Subscription;
-use crate::errors::RestApiError;
 use meteroid_store::domain;
 
-pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiError> {
-    Ok(Subscription {
+pub fn domain_to_rest(s: domain::Subscription) -> Subscription {
+    Subscription {
         id: s.id,
         customer_id: s.customer_id,
         customer_name: s.customer_name,
@@ -11,5 +10,5 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         billing_day: s.billing_day,
         tenant_id: s.tenant_id,
         currency: s.currency,
-    })
+    }
 }

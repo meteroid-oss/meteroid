@@ -10,7 +10,7 @@ pub struct SubscriptionRequest {
     pub plan_id: Option<Uuid>,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct Subscription {
     pub id: Uuid,
     pub customer_id: Uuid,
