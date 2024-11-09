@@ -15,6 +15,12 @@ export const createPlanSchema = z.object({
   planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
 })
 
+export const editPlanSchema = z.object({
+  planName: z.string().nonempty('Name is required').max(256),
+  description: z.string().max(2048).optional(),
+  netTerms: z.number().int(),
+})
+
 const isValidNumber = (str: string) => {
   const replacedStr = str.replace(',', '.')
   return !isNaN(parseFloat(replacedStr)) && isFinite(parseFloat(replacedStr))
@@ -58,12 +64,12 @@ const TermRateSchema = z.object({
 export type TermRate = z.infer<typeof TermRateSchema>
 
 export const RateFeeSchema = z.object({
-  rates: z.array(TermRateSchema),
+  rates: z.array(TermRateSchema).min(1, 'At least one rate is required'),
 })
 export type RateFee = z.infer<typeof RateFeeSchema>
 
 export const SlotFeeSchema = z.object({
-  rates: z.array(TermRateSchema),
+  rates: z.array(TermRateSchema).min(1, 'At least one rate is required'),
   slotUnitName: z.string(),
   upgradePolicy: z.enum(['PRORATED']),
   downgradePolicy: z.enum(['REMOVE_AT_END_OF_PERIOD']),

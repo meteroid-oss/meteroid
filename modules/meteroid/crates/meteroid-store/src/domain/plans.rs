@@ -261,8 +261,8 @@ pub struct TrialPatch {
 #[owned_into(PlanFiltersDb)]
 pub struct PlanFilters {
     pub search: Option<String>,
-    #[into(~.map(| v | v.into()))]
-    pub filter_status: Option<PlanStatusEnum>,
-    #[into(~.map(| v | v.into()))]
-    pub filter_type: Option<PlanTypeEnum>,
+    #[into(~.into_iter().map(| v | v.into()).collect::< Vec < _ >> ())]
+    pub filter_status: Vec<PlanStatusEnum>,
+    #[into(~.into_iter().map(| v | v.into()).collect::< Vec < _ >> ())]
+    pub filter_type: Vec<PlanTypeEnum>,
 }

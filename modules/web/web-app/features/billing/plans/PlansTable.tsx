@@ -27,7 +27,11 @@ export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ 
       offset: pagination.pageIndex * pagination.pageSize,
     },
     sortBy: ListPlansRequest_SortBy.DATE_DESC,
-    search: search ? search : undefined,
+    filters: {
+      statuses: [],
+      types: [],
+      search: search ? search : undefined,
+    },
   })
   const isLoading = plansQuery.isLoading
 

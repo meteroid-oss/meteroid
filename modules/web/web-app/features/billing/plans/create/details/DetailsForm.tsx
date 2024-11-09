@@ -74,8 +74,6 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
 
   const navigate = useNavigate()
 
-  useProductFamily
-
   const onSubmit = async (data: z.infer<typeof createPlanSchema>) => {
     const plan = await createPlan.mutateAsync({
       name: data.planName,
@@ -227,7 +225,7 @@ const PlanTypeFormItem = <
             desc={
               <>
                 Standard plans are meant to be subscribed by your customers in a <b>self-serve</b>{' '}
-                manner.
+                or scalable manner.
               </>
             }
           />
@@ -240,7 +238,7 @@ const PlanTypeFormItem = <
         <Label htmlFor="r1">
           <PlanTypeCard
             title="Free / Freemium "
-            desc="Free plans can be subscribed to without payment information, and cannot include paid components"
+            desc="Free plans cannot include paid components, but can give access to some features."
           />
         </Label>
       </div>

@@ -1,5 +1,4 @@
-import { createConnectQueryKey, disableQuery, useMutation } from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
+import { disableQuery } from '@connectrpc/connect-query'
 import { atom, useAtomValue, useSetAtom } from 'jotai'
 import { nanoid } from 'nanoid'
 import { DeepPartial } from 'react-hook-form'
@@ -8,11 +7,7 @@ import { match } from 'ts-pattern'
 import { usePlan } from '@/features/billing/plans/hooks/usePlan'
 import { PriceComponent, PriceComponentType } from '@/features/billing/plans/types'
 import { useQuery } from '@/lib/connectrpc'
-import { BillingPeriod, mapBillingPeriod, mapBillingPeriodFromGrpc } from '@/lib/mapping'
-import {
-  getPlanOverviewByExternalId,
-  updateDraftPlanOverview,
-} from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { getPlanOverviewByExternalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 interface AddedComponent {
@@ -21,38 +16,6 @@ interface AddedComponent {
 }
 export const addedComponentsAtom = atom<AddedComponent[]>([])
 export const editedComponentsAtom = atom<string[]>([])
-
-export const useBillingPeriods = () => {
-  const data = usePlanOverview()
-
-  const queryClient = useQueryClient()
-
-  const billingPeriods = data?.billingPeriods
-    ?.map(mapBillingPeriodFromGrpc)
-    .filter((period): period is BillingPeriod => !!period)
-  const editDraftOverview = useMutation(updateDraftPlanOverview, {
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getPlanOverviewByExternalId),
-      })
-    },
-  })
-
-  const setBillingPeriods = (billingPeriods: BillingPeriod[]) => {
-    data &&
-      editDraftOverview.mutate(
-        {
-          ...data,
-          billingPeriods: billingPeriods.map(mapBillingPeriod),
-          planId: data.planId,
-          planVersionId: data.planVersionId,
-        },
-        {}
-      )
-  }
-
-  return [billingPeriods, setBillingPeriods] as const
-}
 
 export const usePlanOverview = () => {
   const { planExternalId } = useTypedParams<{ planExternalId: string }>()

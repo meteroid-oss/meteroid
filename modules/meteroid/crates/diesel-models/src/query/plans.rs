@@ -194,12 +194,12 @@ impl PlanRowForList {
             query = query.filter(pf_dsl::external_id.eq(product_family_external_id))
         }
 
-        if let Some(filter_status) = filters.filter_status {
-            query = query.filter(p_dsl::status.eq(filter_status));
+        if !filters.filter_status.is_empty() {
+            query = query.filter(p_dsl::status.eq_any(filters.filter_status));
         }
 
-        if let Some(filter_type) = filters.filter_type {
-            query = query.filter(p_dsl::plan_type.eq(filter_type));
+        if !filters.filter_type.is_empty() {
+            query = query.filter(p_dsl::plan_type.eq_any(filters.filter_type));
         }
 
         if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
