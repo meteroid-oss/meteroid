@@ -14,7 +14,9 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState};
+use common_grpc::middleware::server::auth::{
+    AuthenticatedState, AuthorizedAsTenant, AuthorizedState,
+};
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::Store;
 use uuid::Uuid;
@@ -115,11 +117,11 @@ where
                     id,
                     organization_id,
                 }) => {
-                    let state = AuthorizedState::Tenant {
+                    let state = AuthorizedState::Tenant(AuthorizedAsTenant {
                         tenant_id,
                         organization_id,
                         actor_id: id,
-                    };
+                    });
                     request.extensions_mut().insert(state);
                     inner.call(request).await
                 }

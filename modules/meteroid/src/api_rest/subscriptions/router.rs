@@ -10,12 +10,11 @@ use axum::{
 use axum::Extension;
 use hyper::StatusCode;
 
-use crate::api_rest::extract_tenant;
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::subscriptions::mapping::domain_to_rest;
 use crate::api_rest::subscriptions::model::{Subscription, SubscriptionRequest};
 use crate::errors::RestApiError;
-use common_grpc::middleware::server::AuthorizedState;
+use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::{domain, Store};
 use utoipa::OpenApi;
@@ -40,16 +39,14 @@ pub struct SubscriptionApi;
 )]
 #[axum::debug_handler]
 pub async fn list_subscriptions(
-    Extension(authorized_state): Extension<AuthorizedState>,
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
     Query(request): Query<SubscriptionRequest>,
     State(app_state): State<AppState>,
 ) -> Response {
-    let tenant_id = extract_tenant(authorized_state).unwrap();
-
     match list_subscriptions_handler(
         app_state.store,
         request.pagination,
-        tenant_id,
+        authorized_state.tenant_id,
         request.customer_id,
         request.plan_id,
     )

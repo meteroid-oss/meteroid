@@ -52,7 +52,7 @@ pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Statu
     ))?;
 
     let res = match authorized {
-        AuthorizedState::Tenant { actor_id, .. } => *actor_id,
+        AuthorizedState::Tenant(tenant) => tenant.actor_id,
         AuthorizedState::Organization { actor_id, .. } => *actor_id,
         AuthorizedState::User { user_id } => *user_id,
     };
@@ -66,7 +66,7 @@ pub fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Stat
     ))?;
 
     let res = match authorized {
-        AuthorizedState::Tenant { tenant_id, .. } => { Ok(*tenant_id) }
+        AuthorizedState::Tenant(tenant) => { Ok(tenant.tenant_id) }
         AuthorizedState::Organization { .. }  => { Err(Status::invalid_argument("Tenant is absent from the authorized state. This indicates an incomplete x-md-context header.")) }
         AuthorizedState::User { .. }  => { Err(Status::invalid_argument("Tenant is absent from the authorized state. This indicates a missing x-md-context header.")) }
     }?;
@@ -79,7 +79,7 @@ pub fn extract_organization(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid
     ))?;
 
     let res = match authorized {
-        AuthorizedState::Tenant { organization_id, .. } => { Ok(*organization_id) }
+        AuthorizedState::Tenant(tenant) => { Ok(tenant.organization_id) }
         AuthorizedState::Organization { organization_id, .. } => { Ok(*organization_id) }
         AuthorizedState::User { .. } => { Err(Status::invalid_argument("Organization is absent from the authorized state. This indicates a missing x-md-context header.")) }
     }?;
@@ -98,12 +98,15 @@ pub enum AuthenticatedState {
 }
 
 #[derive(Clone)]
+pub struct AuthorizedAsTenant {
+    pub actor_id: Uuid,
+    pub tenant_id: Uuid,
+    pub organization_id: Uuid,
+}
+
+#[derive(Clone)]
 pub enum AuthorizedState {
-    Tenant {
-        actor_id: Uuid,
-        tenant_id: Uuid,
-        organization_id: Uuid,
-    },
+    Tenant(AuthorizedAsTenant),
     Organization {
         actor_id: Uuid,
         organization_id: Uuid,
