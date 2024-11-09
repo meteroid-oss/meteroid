@@ -1,14 +1,9 @@
 use super::AppState;
 
 use axum::extract::Query;
-use axum::{
-    extract::State,
-    response::{IntoResponse, Response},
-    Json,
-};
+use axum::{extract::State, response::IntoResponse, Json};
 
 use axum::Extension;
-use hyper::StatusCode;
 
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::subscriptions::mapping::domain_to_rest;
