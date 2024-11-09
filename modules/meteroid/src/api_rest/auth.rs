@@ -1,17 +1,10 @@
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
 
-use async_trait::async_trait;
-use axum::body::Body;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use axum::{extract::FromRequestParts, http::request::Parts, Json, RequestPartsExt};
+use axum::response::Response;
 use cached::proc_macro::cached;
-use common_grpc::middleware::client::LayeredClientService;
 use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
-use futures::TryFutureExt;
 use http::{HeaderMap, Request};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -21,17 +14,13 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
-use crate::parse_uuid;
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState};
-use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
-use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
-use meteroid_store::domain::ApiTokenNew;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::Store;
 use uuid::Uuid;
 
 #[derive(Debug)]
-struct AuthStatus {
+pub struct AuthStatus {
     status: StatusCode,
     msg: Option<String>,
 }
@@ -209,27 +198,6 @@ pub async fn validate_api_key(
 
     let (organization_id, tenant_id) =
         validate_api_token_by_id_cached(store, &validator, &id).await?;
-
-    let res = store
-        .get_api_token_by_id_for_validation(&id)
-        .await
-        .map_err(|e| AuthStatus {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            msg: Some("failed".into()),
-        })?;
-
-    validator
-        .validate_hash(&res.hash)
-        .map_err(|_e| AuthStatus {
-            status: StatusCode::UNAUTHORIZED,
-            msg: Some("Unauthorized. Invalid hash".to_string()),
-        })?;
-
-    // Ok(Response::new(ResolveApiKeyResponse {
-    //     tenant_id: res.tenant_id.to_string(),
-    //     organization_id: res.organization_id.to_string(),
-    //     hash: res.hash,
-    // }))
 
     Ok(AuthenticatedState::ApiKey {
         id,

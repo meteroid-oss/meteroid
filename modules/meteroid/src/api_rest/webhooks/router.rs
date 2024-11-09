@@ -2,11 +2,10 @@ use crate::{adapters::types::ParsedRequest, encoding};
 use crate::{adapters::types::WebhookAdapter, errors};
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{Path, State},
     http::Request,
     response::{IntoResponse, Response},
 };
-use axum::{routing::post, Router};
 
 use crate::api_rest::AppState;
 use crate::services::storage::Prefix;

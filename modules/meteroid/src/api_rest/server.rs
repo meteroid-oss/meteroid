@@ -8,15 +8,11 @@ use crate::services::storage::ObjectStoreService;
 use axum::{
     extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse, Router,
 };
-use common_grpc::middleware::client::{build_layered_client_service, LayeredClientService};
-use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_store::Store;
 use secrecy::SecretString;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tonic::transport::{Channel, Endpoint};
-use tower::ServiceBuilder;
 use utoipa::{
     openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
     Modify, OpenApi,
@@ -56,7 +52,7 @@ fn only_api(path: &str) -> bool {
 }
 
 pub async fn start_rest_server(
-    config: &Config,
+    _config: &Config,
     listen_addr: SocketAddr,
     object_store: Arc<dyn ObjectStoreService>,
     stripe_adapter: Arc<Stripe>,

@@ -1,34 +1,24 @@
 use super::AppState;
 
 use axum::extract::Query;
-use axum::routing::get;
 use axum::{
-    extract::{Path, State},
+    extract::State,
     response::{IntoResponse, Response},
     Json,
 };
 
-use axum::{Extension, Router};
+use axum::Extension;
 use hyper::StatusCode;
 
-use crate::{api, errors};
-
-use crate::api::sharable::ShareableEntityClaims;
-use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::api_rest::extract_tenant;
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::subscriptions::mapping::domain_to_rest;
 use crate::api_rest::subscriptions::model::{Subscription, SubscriptionRequest};
 use crate::errors::RestApiError;
-use crate::services::storage::Prefix;
 use common_grpc::middleware::server::AuthorizedState;
-use fang::Deserialize;
-use image::ImageFormat::Png;
-use jsonwebtoken::{decode, DecodingKey, Validation};
-use meteroid_store::repositories::{InvoiceInterface, SubscriptionInterface};
+use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::{domain, Store};
-use secrecy::ExposeSecret;
-use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa::OpenApi;
 use uuid::Uuid;
 
 #[derive(OpenApi)]
@@ -92,7 +82,7 @@ async fn list_subscriptions_handler(
             },
         )
         .await
-        .map_err(|e| RestApiError::StoreError)?;
+        .map_err(|_| RestApiError::StoreError)?;
 
     let subscriptions: Vec<Subscription> = res
         .items

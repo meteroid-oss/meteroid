@@ -2,8 +2,6 @@ use super::AppState;
 use std::io::Cursor;
 
 use axum::extract::Query;
-use axum::routing::get;
-use axum::Router;
 use axum::{
     extract::{Path, State},
     response::{IntoResponse, Response},
@@ -20,7 +18,7 @@ use image::ImageFormat::Png;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
-use utoipa::{IntoParams, OpenApi, ToSchema};
+use utoipa::OpenApi;
 use uuid::Uuid;
 
 #[derive(OpenApi)]

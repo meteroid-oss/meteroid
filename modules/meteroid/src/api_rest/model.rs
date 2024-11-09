@@ -1,5 +1,4 @@
 use serde_with::{serde_as, DisplayFromStr};
-use utoipa::OpenApi;
 use utoipa::ToSchema;
 
 #[serde_as]
