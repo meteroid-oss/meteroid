@@ -2,8 +2,6 @@ use super::AppState;
 use std::io::Cursor;
 
 use axum::extract::Query;
-use axum::routing::get;
-use axum::Router;
 use axum::{
     extract::{Path, State},
     response::{IntoResponse, Response},
@@ -20,37 +18,47 @@ use image::ImageFormat::Png;
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
+use utoipa::OpenApi;
 use uuid::Uuid;
 
-pub fn file_routes() -> Router<AppState> {
-    Router::new()
-        .route("/v1/logo/:uid", get(get_logo))
-        .route("/v1/invoice/pdf/:invoice_uid", get(get_invoice_pdf))
-}
+#[derive(OpenApi)]
+#[openapi(paths(get_logo, get_invoice_pdf))]
+pub struct FileApi;
 
+#[utoipa::path(
+    get,
+    tag = "file",
+    path = "/v1/logo/{uuid}",
+    params(
+        ("uuid" = Uuid, Path, description = "Logo database UUID")
+    ),
+    responses(
+        (status = 200, content_type = "image/png", description = "Logo as PNG image", body = [u8]),
+        (status = 400, description = "Invalid UUID"),
+        (status = 500, description = "Internal error"),
+    )
+)]
 #[axum::debug_handler]
-async fn get_logo(
-    Path(invoice_uid): Path<String>,
+pub async fn get_logo(
+    Path(uuid): Path<Uuid>,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
-    match get_logo_handler(invoice_uid, app_state).await {
+    match get_logo_handler(uuid, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling webhook: {}", e);
+            log::error!("Error handling logo: {}", e);
             e.current_context().clone().into_response()
         }
     }
 }
 
 async fn get_logo_handler(
-    image_uid: String,
+    image_uuid: Uuid,
     app_state: AppState,
 ) -> Result<Response, errors::RestApiError> {
-    let uid = Uuid::parse_str(&image_uid).change_context(errors::RestApiError::InvalidInput)?;
-
     let data = app_state
         .object_store
-        .retrieve(uid, Prefix::ImageLogo)
+        .retrieve(image_uuid, Prefix::ImageLogo)
         .await
         .change_context(errors::RestApiError::ObjectStoreError)?;
 
@@ -68,12 +76,27 @@ async fn get_logo_handler(
 }
 
 #[derive(Deserialize)]
-struct TokenParams {
+pub struct TokenParams {
     token: String,
 }
 
+#[utoipa::path(
+    get,
+    tag = "file",
+    path = "/v1/invoice/pdf/{uid}",
+    params(
+        ("uuid" = String, Path, description = "Invoice database UID"),
+        ("token" = str, Query, description = "Security token"),
+    ),
+    responses(
+        (status = 200, content_type = "application/pdf", description = "Invoice in PDF", body = [u8]),
+        (status = 400, description = "Invalid UUID or token"),
+        (status = 401, description = "Unauthorized - invalid token"),
+        (status = 500, description = "Internal error"),
+    )
+)]
 #[axum::debug_handler]
-async fn get_invoice_pdf(
+pub async fn get_invoice_pdf(
     Path(uid): Path<String>,
     Query(params): Query<TokenParams>,
     State(app_state): State<AppState>,
@@ -81,7 +104,7 @@ async fn get_invoice_pdf(
     match get_invoice_pdf_handler(uid, params, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling webhook: {}", e);
+            log::error!("Error handling invoice PDF: {}", e);
             e.current_context().clone().into_response()
         }
     }

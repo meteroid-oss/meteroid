@@ -1,14 +1,20 @@
 use crate::adapters::stripe::Stripe;
 use crate::services::storage::ObjectStoreService;
+use axum::Router;
 use meteroid_store::Store;
 use secrecy::SecretString;
 use std::sync::Arc;
 
-mod file_router;
-mod webhook_in_router;
+mod auth;
+mod files;
+mod model;
+pub mod server;
+mod subscriptions;
+mod webhooks;
 
-pub use file_router::file_routes;
-pub use webhook_in_router::webhook_in_routes;
+pub fn api_routes() -> Router<AppState> {
+    Router::new().merge(subscriptions::subscription_routes())
+}
 
 #[derive(Clone)]
 pub struct AppState {

@@ -18,7 +18,9 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedState};
+use common_grpc::middleware::server::auth::{
+    AuthenticatedState, AuthorizedAsTenant, AuthorizedState,
+};
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
 use uuid::Uuid;
@@ -113,11 +115,11 @@ where
                     tenant_id,
                     id,
                     organization_id,
-                } => Ok(AuthorizedState::Tenant {
+                } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
                     tenant_id,
                     organization_id,
                     actor_id: id,
-                }),
+                })),
                 _ => Err(Box::new(Status::permission_denied(
                     "Only Api Key authentication is enabled for this service",
                 )) as BoxError),

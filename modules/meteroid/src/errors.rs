@@ -104,6 +104,7 @@ pub enum InvoicingRenderError {
     StoreError,
 }
 
+#[allow(unused)]
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum RestApiError {
     #[error("Object store error")]
@@ -112,7 +113,7 @@ pub enum RestApiError {
     ImageLoadingError,
     #[error("Unauthorized")]
     Unauthorized,
-    #[error("Unauthorized")]
+    #[error("Internal server error")]
     StoreError,
     #[error("Forbidden")]
     Forbidden,

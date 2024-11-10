@@ -6,7 +6,7 @@ use crate::server::auth::strategies::api_key_strategy::validate_api_key;
 use crate::server::auth::strategies::jwt_strategy::{authorize_user, validate_jwt};
 use common_grpc::middleware::common::auth::{API_KEY_HEADER, BEARER_AUTH_HEADER};
 use common_grpc::middleware::common::filters::Filter;
-use common_grpc::middleware::server::auth::AuthenticatedState;
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use common_grpc::middleware::server::AuthorizedState;
 use common_grpc::GrpcServiceMethod;
 use futures_util::TryFutureExt;
@@ -138,11 +138,11 @@ where
                     tenant_id,
                     id,
                     organization_id,
-                } => Ok(AuthorizedState::Tenant {
+                } => Ok(AuthorizedState::Tenant(AuthorizedAsTenant {
                     tenant_id,
                     organization_id,
                     actor_id: id,
-                }),
+                })),
                 AuthenticatedState::User { id } => {
                     if UNAUTHORIZED_SERVICES.contains(&request.uri().path()) {
                         Ok(AuthorizedState::User { user_id: id })

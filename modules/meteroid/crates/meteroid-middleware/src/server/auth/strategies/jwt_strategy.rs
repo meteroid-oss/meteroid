@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
 use common_grpc::middleware::common::jwt::Claims;
-use common_grpc::middleware::server::auth::AuthenticatedState;
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use common_grpc::middleware::server::AuthorizedState;
 use common_grpc::GrpcServiceMethod;
 use meteroid_store::domain::enums::OrganizationUserRole;
@@ -162,11 +162,11 @@ pub async fn authorize_user(
     let (role, state) = if let Some(tenant_id) = tenant_id {
         (
             role,
-            AuthorizedState::Tenant {
+            AuthorizedState::Tenant(AuthorizedAsTenant {
                 tenant_id,
                 organization_id,
                 actor_id: user_id,
-            },
+            }),
         )
     } else {
         (

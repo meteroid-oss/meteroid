@@ -40,7 +40,7 @@ repository = "https://github.com/meteroid-oss/meteroid"
 anyhow = "1.0.75"
 argon2 = "0.5.2"
 async-trait = "0.1.74"
-axum = { version = "0.7.7" }
+axum = { version = "0.7.7", features = ["json", "query", "tower-log", "http1"] }
 backon = "1.2.0"
 base62 = "2.0.2"
 base64 = "0.22.0"
@@ -131,6 +131,7 @@ segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
 serde_json = "1.0.107"
 serde_path_to_error = "0.1.14"
+serde_with = "3.11.0"
 serde_qs = "0.13.0"
 serde_yaml = "0.9.30"
 sha2 = "0.10.8"
@@ -169,7 +170,7 @@ unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
 uuid7 = "1.0.0"
-utoipa = { version = "5.0.0-beta.0", features = ["axum_extras"] }
+utoipa = { version = "5.0.0-beta.0", features = ["axum_extras", "uuid"] }
 utoipa-swagger-ui = { version = "8.0.0", features = ["axum"] }
 utoipa-redoc = { version = "5.0.0", features = ["axum"] }
 utoipa-rapidoc = { version = "5.0.0", features = ["axum"] }

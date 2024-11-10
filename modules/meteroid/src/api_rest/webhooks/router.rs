@@ -1,15 +1,13 @@
-use super::AppState;
-
 use crate::{adapters::types::ParsedRequest, encoding};
 use crate::{adapters::types::WebhookAdapter, errors};
 use axum::{
     body::Body,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{Path, State},
     http::Request,
     response::{IntoResponse, Response},
 };
-use axum::{routing::post, Router};
 
+use crate::api_rest::AppState;
 use crate::services::storage::Prefix;
 use error_stack::{bail, Result, ResultExt};
 use meteroid_store::domain::enums::InvoicingProviderEnum;
@@ -18,14 +16,8 @@ use meteroid_store::repositories::configs::ConfigsInterface;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use secrecy::SecretString;
 
-pub fn webhook_in_routes() -> Router<AppState> {
-    Router::new()
-        .route("/v1/:provider/:endpoint_uid", post(axum_handler))
-        .layer(DefaultBodyLimit::max(4096))
-}
-
 #[axum::debug_handler]
-async fn axum_handler(
+pub async fn axum_handler(
     Path((provider, endpoint_uid)): Path<(String, String)>,
     State(app_state): State<AppState>,
     req: Request<Body>,
