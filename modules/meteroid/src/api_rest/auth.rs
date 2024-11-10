@@ -132,8 +132,6 @@ where
             }
         };
 
-        // if the future is an error , we recover by providing an empty Response
-        //let future = future.or_else(|e| async move { Ok(StatusCode::UNAUTHORIZED) });
         Box::pin(future)
     }
 }
