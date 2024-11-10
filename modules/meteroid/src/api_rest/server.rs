@@ -86,7 +86,7 @@ pub async fn start_rest_server(
 
     tracing::info!("listening on {}", config.rest_api_addr.clone());
 
-    let listener = TcpListener::bind(config.rest_api_addr.clone())
+    let listener = TcpListener::bind(&config.rest_api_addr)
         .await
         .expect("Could not bind listener");
 
