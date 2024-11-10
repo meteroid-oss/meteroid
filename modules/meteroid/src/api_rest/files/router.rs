@@ -25,8 +25,6 @@ use uuid::Uuid;
 #[openapi(paths(get_logo, get_invoice_pdf))]
 pub struct FileApi;
 
-//todo: switch to binary response body
-//todo: switch str to uuid
 #[utoipa::path(
     get,
     tag = "file",
@@ -87,7 +85,7 @@ pub struct TokenParams {
     tag = "file",
     path = "/v1/invoice/pdf/{uid}",
     params(
-        ("uuid" = Uuid, Path, description = "Invoice database UID"),
+        ("uuid" = String, Path, description = "Invoice database UID"),
         ("token" = str, Query, description = "Security token"),
     ),
     responses(

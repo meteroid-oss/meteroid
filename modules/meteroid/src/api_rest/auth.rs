@@ -87,7 +87,7 @@ where
             return Box::pin(self.inner.call(request));
         }
 
-        // This is necessary because tonic internally uses `tower::buffer::Buffer`.
+        // This is necessary because axum internally uses `tower::buffer::Buffer`.
         // See https://github.com/tower-rs/tower/issues/547#issuecomment-767629149
         // for details on why this is necessary
         let clone = self.inner.clone();
