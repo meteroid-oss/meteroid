@@ -80,7 +80,6 @@ pub async fn start_rest_server(
         .nest("/api", crate::api_rest::api_routes())
         .fallback(handler_404)
         .with_state(app_state)
-        //.layer(ServiceBuilder::new().layer(auth_layer))
         .layer(auth_layer)
         .layer(DefaultBodyLimit::max(4096));
 
