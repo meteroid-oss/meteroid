@@ -42,7 +42,7 @@ pub struct FileApi;
 )]
 #[axum::debug_handler]
 pub async fn get_logo(
-    Path(uuid): Path<String>,
+    Path(uuid): Path<Uuid>,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
     match get_logo_handler(uuid, app_state).await {
@@ -55,14 +55,12 @@ pub async fn get_logo(
 }
 
 async fn get_logo_handler(
-    image_uuid: String,
+    image_uuid: Uuid,
     app_state: AppState,
 ) -> Result<Response, errors::RestApiError> {
-    let uid = Uuid::parse_str(&image_uuid).change_context(errors::RestApiError::InvalidInput)?;
-
     let data = app_state
         .object_store
-        .retrieve(uid, Prefix::ImageLogo)
+        .retrieve(image_uuid, Prefix::ImageLogo)
         .await
         .change_context(errors::RestApiError::ObjectStoreError)?;
 

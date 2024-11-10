@@ -104,6 +104,7 @@ pub enum InvoicingRenderError {
     StoreError,
 }
 
+#[allow(unused)]
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum RestApiError {
     #[error("Object store error")]

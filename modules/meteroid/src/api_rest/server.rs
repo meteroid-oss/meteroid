@@ -9,8 +9,6 @@ use axum::{
     extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse, Router,
 };
 use meteroid_store::Store;
-use secrecy::SecretString;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use utoipa::{
@@ -52,18 +50,16 @@ fn only_api(path: &str) -> bool {
 }
 
 pub async fn start_rest_server(
-    _config: &Config,
-    listen_addr: SocketAddr,
+    config: &Config,
     object_store: Arc<dyn ObjectStoreService>,
     stripe_adapter: Arc<Stripe>,
     store: Store,
-    jwt_secret: SecretString,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState {
         object_store,
         store: store.clone(),
         stripe_adapter,
-        jwt_secret,
+        jwt_secret: config.jwt_secret.clone(),
     };
 
     let auth_layer = ExternalApiAuthLayer::new(store.clone()).filter(only_api);
@@ -88,9 +84,9 @@ pub async fn start_rest_server(
         .layer(auth_layer)
         .layer(DefaultBodyLimit::max(4096));
 
-    tracing::info!("listening on {}", listen_addr);
+    tracing::info!("listening on {}", config.rest_api_addr.clone());
 
-    let listener = TcpListener::bind(&listen_addr)
+    let listener = TcpListener::bind(config.rest_api_addr.clone())
         .await
         .expect("Could not bind listener");
 

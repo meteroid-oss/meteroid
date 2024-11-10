@@ -73,11 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let rest_server = meteroid::api_rest::server::start_rest_server(
         config,
-        config.rest_api_addr,
         object_store_service.clone(),
         stripe_adapter.clone(),
         store.clone(),
-        config.jwt_secret.clone(),
     );
 
     tokio::select! {
