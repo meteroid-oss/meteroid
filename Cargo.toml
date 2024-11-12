@@ -153,7 +153,7 @@ tonic = "0.12.3"
 tonic-build = "0.12.3"
 tonic-health = "0.12.3"
 tonic-reflection = "0.12.3"
-tonic-tracing-opentelemetry = "0.21.1"
+tonic-tracing-opentelemetry = "0.23.0"
 tonic-types = "0.12.2"
 tonic-web = "0.12.3"
 tower = { version = "0.5.0" }
