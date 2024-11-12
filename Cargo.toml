@@ -64,7 +64,7 @@ dotenvy = "0.15.7"
 env_logger = "0.11.5"
 envconfig = "0.11.0"
 error-stack = "0.5.0"
-fake = "2.9.2"
+fake = "3.0.0"
 fang = { version = "0.10.4", default-features = false }
 fastrand = "2.0.1"
 fluent = "0.16"
