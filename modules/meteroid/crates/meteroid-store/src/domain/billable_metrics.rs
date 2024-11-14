@@ -12,6 +12,7 @@ use uuid::Uuid;
 #[try_map_owned(BillableMetricRow, StoreErrorReport)]
 pub struct BillableMetric {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub description: Option<String>,
     pub code: String,
@@ -41,6 +42,7 @@ pub struct BillableMetric {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
+    pub product_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -76,7 +78,8 @@ pub struct BillableMetricNew {
     pub usage_group_key: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub family_external_id: String,
+    pub family_local_id: String, 
+    pub product_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -84,6 +87,7 @@ pub struct BillableMetricNew {
 #[owned_into(BillableMetricMetaRow)]
 pub struct BillableMetricMeta {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub code: String,
     #[map(~.into())]

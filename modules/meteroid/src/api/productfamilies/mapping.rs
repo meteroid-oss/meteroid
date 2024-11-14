@@ -9,7 +9,7 @@ pub mod product_family {
             ProductFamilyWrapper(ProductFamily {
                 id: domain_family.id.to_string(),
                 name: domain_family.name,
-                external_id: domain_family.external_id,
+                local_id: domain_family.local_id,
             })
         }
     }

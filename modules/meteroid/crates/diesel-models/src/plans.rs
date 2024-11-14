@@ -18,9 +18,11 @@ pub struct PlanRow {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
+    pub active_version_id: Option<Uuid>,
+    pub draft_version_id: Option<Uuid>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -33,8 +35,7 @@ pub struct PlanRowNew {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
-
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
 }
@@ -52,9 +53,11 @@ pub struct PlanRowForList {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
+    pub active_version_id: Option<Uuid>,
+    pub draft_version_id: Option<Uuid>,
     #[diesel(select_expression = crate::schema::product_family::name)]
     #[diesel(select_expression_type = crate::schema::product_family::name)]
     pub product_family_name: String,
@@ -79,6 +82,12 @@ pub struct PlanRowPatch {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
 }
+
+// Patch for
+/*
+   pub active_version_id: Option<Uuid>,
+   pub draft_version_id: Option<Uuid>,
+*/
 
 pub struct PlanFilters {
     pub search: Option<String>,

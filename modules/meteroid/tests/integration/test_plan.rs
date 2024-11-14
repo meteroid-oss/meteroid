@@ -34,8 +34,8 @@ async fn test_plans_basic() {
         .clone()
         .create_draft_plan(api::plans::v1::CreateDraftPlanRequest {
             name: "plan_name".into(),
-            external_id: "plan_external_id".into(),
-            product_family_external_id: "default".into(),
+            local_id: "plan_local_id".into(),
+            product_family_local_id: "default".into(),
             description: Some("plan_description".into()),
             plan_type: api::plans::v1::PlanType::Standard as i32,
         })
@@ -50,7 +50,7 @@ async fn test_plans_basic() {
     let created_metadata = created_plan_details.metadata.clone();
 
     assert_eq!(created_plan.name.as_str(), "plan_name");
-    assert_eq!(created_plan.external_id.as_str(), "plan_external_id");
+    assert_eq!(created_plan.local_id.as_str(), "plan_local_id");
     assert_eq!(
         created_plan.description,
         Some("plan_description".to_string())
@@ -79,12 +79,12 @@ async fn test_plans_basic() {
 
     assert_eq!(created_metadata.len(), 0);
 
-    // get plan by external_id
+    // get plan by local_id
     let plan_details = clients
         .plans
         .clone()
-        .get_plan_by_external_id(api::plans::v1::GetPlanByExternalIdRequest {
-            external_id: "plan_external_id".into(),
+        .get_plan_by_local_id(api::plans::v1::GetPlanByLocalIdRequest {
+            local_id: "plan_local_id".into(),
         })
         .await
         .unwrap()
@@ -99,7 +99,7 @@ async fn test_plans_basic() {
         .plans
         .clone()
         .list_plans(api::plans::v1::ListPlansRequest {
-            product_family_external_id: None,
+            product_family_local_id: None,
             sort_by: 0,
             pagination: None,
             filters: None,
@@ -112,7 +112,7 @@ async fn test_plans_basic() {
     assert_eq!(plans.len(), 1);
     let plan_list = plans.first().unwrap();
     assert_eq!(plan_list.name.as_str(), "plan_name");
-    assert_eq!(plan_list.external_id.as_str(), "plan_external_id");
+    assert_eq!(plan_list.local_id.as_str(), "plan_local_id");
     assert_eq!(plan_list.description, Some("plan_description".to_string()));
     assert_eq!(plan_list.plan_status(), api::plans::v1::PlanStatus::Draft);
     assert_eq!(plan_list.plan_type(), api::plans::v1::PlanType::Standard);
@@ -283,12 +283,12 @@ async fn test_plans_basic() {
 
     assert_eq!(plan_versions.len(), 1);
 
-    // get plan overview by external_id
+    // get plan overview by local_id
     let plan_overview = clients
         .plans
         .clone()
-        .get_plan_overview_by_external_id(api::plans::v1::GetPlanOverviewByExternalIdRequest {
-            external_id: created_plan.external_id,
+        .get_plan_overview_by_local_id(api::plans::v1::GetPlanOverviewByLocalIdRequest {
+            local_id: created_plan.local_id,
         })
         .await
         .unwrap()

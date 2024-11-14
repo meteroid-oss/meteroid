@@ -9,9 +9,9 @@ import "common/v1/pagination.proto";
 // Request and response messages for CreateDraftPlan RPC
 message CreateDraftPlanRequest {
   string name = 1;
-  string external_id = 2;
+  string local_id = 2;
   optional string description = 3;
-  string product_family_external_id = 4;
+  string product_family_local_id = 4;
   PlanType plan_type = 5;
 }
 
@@ -19,12 +19,12 @@ message CreateDraftPlanResponse {
   PlanDetails plan = 1;
 }
 
-// Request and response messages for GetPlanByExternalId RPC
-message GetPlanByExternalIdRequest {
-  string external_id = 1;
+// Request and response messages for GetPlanByLocalId RPC
+message GetPlanByLocalIdRequest {
+  string local_id = 1;
 }
 
-message GetPlanByExternalIdResponse {
+message GetPlanByLocalIdResponse {
   PlanDetails plan_details = 1;
 }
 
@@ -36,7 +36,7 @@ message ListPlansRequest {
     NAME_DESC = 2;
     NAME_ASC = 3;
   }
-  optional string product_family_external_id = 1;
+  optional string product_family_local_id = 1;
   PlanFilters filters = 2;
   SortBy sort_by = 3;
   meteroid.common.v1.Pagination pagination = 4;
@@ -138,12 +138,12 @@ message UpdatePublishedPlanOverviewResponse {
   PlanOverview plan_overview = 1;
 }
 
-// Request and response messages for GetPlanOverviewByExternalId RPC
-message GetPlanOverviewByExternalIdRequest {
-  string external_id = 1;
+// Request and response messages for GetPlanOverviewByLocalId RPC
+message GetPlanOverviewByLocalIdRequest {
+  string local_id = 1;
 }
 
-message GetPlanOverviewByExternalIdResponse {
+message GetPlanOverviewByLocalIdResponse {
   PlanOverview plan_overview = 1;
 }
 
@@ -177,7 +177,7 @@ message EmptyResponse {}
 
 service PlansService {
   rpc CreateDraftPlan(CreateDraftPlanRequest) returns (CreateDraftPlanResponse) {}
-  rpc GetPlanByExternalId(GetPlanByExternalIdRequest) returns (GetPlanByExternalIdResponse) {}
+  rpc GetPlanByLocalId(GetPlanByLocalIdRequest) returns (GetPlanByLocalIdResponse) {}
   rpc GetPlanById(GetPlanByIdRequest) returns (GetPlanByIdResponse) {}
   rpc ListPlans(ListPlansRequest) returns (ListPlansResponse) {}
 
@@ -192,7 +192,7 @@ service PlansService {
 
   rpc UpdateDraftPlanOverview(UpdateDraftPlanOverviewRequest) returns (UpdateDraftPlanOverviewResponse) {}
   rpc UpdatePublishedPlanOverview(UpdatePublishedPlanOverviewRequest) returns (UpdatePublishedPlanOverviewResponse) {}
-  rpc GetPlanOverviewByExternalId(GetPlanOverviewByExternalIdRequest) returns (GetPlanOverviewByExternalIdResponse) {}
+  rpc GetPlanOverviewByLocalId(GetPlanOverviewByLocalIdRequest) returns (GetPlanOverviewByLocalIdResponse) {}
 
   rpc UpdatePlanTrial(UpdatePlanTrialRequest) returns (UpdatePlanTrialResponse) {}
 

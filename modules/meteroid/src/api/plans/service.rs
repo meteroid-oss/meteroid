@@ -6,9 +6,9 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     list_plans_request::SortBy, plans_service_server::PlansService, CopyVersionToDraftRequest,
     CopyVersionToDraftResponse, CreateDraftPlanRequest, CreateDraftPlanResponse,
     DiscardDraftVersionRequest, DiscardDraftVersionResponse, GetLastPublishedPlanVersionRequest,
-    GetLastPublishedPlanVersionResponse, GetPlanByExternalIdRequest, GetPlanByExternalIdResponse,
-    GetPlanByIdRequest, GetPlanByIdResponse, GetPlanOverviewByExternalIdRequest,
-    GetPlanOverviewByExternalIdResponse, GetPlanParametersRequest, GetPlanParametersResponse,
+    GetLastPublishedPlanVersionResponse, GetPlanByIdRequest, GetPlanByIdResponse,
+    GetPlanByLocalIdRequest, GetPlanByLocalIdResponse, GetPlanOverviewByLocalIdRequest,
+    GetPlanOverviewByLocalIdResponse, GetPlanParametersRequest, GetPlanParametersResponse,
     GetPlanVersionByIdRequest, GetPlanVersionByIdResponse, ListPlanVersionByIdRequest,
     ListPlanVersionByIdResponse, ListPlansRequest, ListPlansResponse,
     ListSubscribablePlanVersionRequest, ListSubscribablePlanVersionResponse,
@@ -16,11 +16,9 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     UpdateDraftPlanOverviewResponse, UpdatePlanTrialRequest, UpdatePlanTrialResponse,
     UpdatePublishedPlanOverviewRequest, UpdatePublishedPlanOverviewResponse,
 };
-use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 
 use crate::api::plans::error::PlanApiError;
 
-use crate::api::domain_mapping::billing_period;
 use crate::api::plans::mapping::plans::{
     ActionAfterTrialWrapper, ListPlanVersionWrapper, ListPlanWrapper,
     ListSubscribablePlanVersionWrapper, PlanDetailsWrapper, PlanOverviewWrapper, PlanStatusWrapper,
@@ -57,8 +55,8 @@ impl PlansService for PlanServiceComponents {
                 description: req.description,
                 created_by,
                 tenant_id,
-                external_id: req.external_id,
-                product_family_external_id: req.product_family_external_id,
+                local_id: req.local_id,
+                product_family_local_id: req.product_family_local_id,
                 status: domain::enums::PlanStatusEnum::Draft,
                 plan_type,
             },
@@ -69,7 +67,6 @@ impl PlansService for PlanServiceComponents {
                 net_terms: 0,
                 currency: None,
                 billing_cycles: None,
-                billing_periods: vec![],
             },
             price_components: vec![],
         };
@@ -87,22 +84,22 @@ impl PlansService for PlanServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_plan_by_external_id(
+    async fn get_plan_by_local_id(
         &self,
-        request: Request<GetPlanByExternalIdRequest>,
-    ) -> Result<Response<GetPlanByExternalIdResponse>, Status> {
+        request: Request<GetPlanByLocalIdRequest>,
+    ) -> Result<Response<GetPlanByLocalIdResponse>, Status> {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
 
         let plan_details = self
             .store
-            .get_plan_by_external_id(req.external_id.as_str(), tenant_id)
+            .get_plan_by_local_id(req.local_id.as_str(), tenant_id)
             .await
             .map(|x| PlanDetailsWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
 
-        Ok(Response::new(GetPlanByExternalIdResponse {
+        Ok(Response::new(GetPlanByLocalIdResponse {
             plan_details: Some(plan_details),
         }))
     }
@@ -152,7 +149,7 @@ impl PlansService for PlanServiceComponents {
             .store
             .list_plans(
                 tenant_id,
-                req.product_family_external_id,
+                req.product_family_local_id,
                 plan_filters,
                 pagination_req,
                 order_by,
@@ -349,16 +346,6 @@ impl PlansService for PlanServiceComponents {
 
         let plan_version_id = parse_uuid!(&req.plan_version_id)?;
 
-        let frequencies = req
-            .billing_periods
-            .iter()
-            .map(|f| {
-                BillingPeriod::try_from(*f)
-                    .map_err(|_| PlanApiError::InvalidArgument("billing period".to_string()))
-                    .map(billing_period::from_proto)
-            })
-            .collect::<Result<Vec<domain::enums::BillingPeriodEnum>, PlanApiError>>()?;
-
         let res = self
             .store
             .patch_draft_plan(PlanAndVersionPatch {
@@ -367,7 +354,6 @@ impl PlansService for PlanServiceComponents {
                     tenant_id,
                     currency: Some(req.currency),
                     net_terms: Some(req.net_terms as i32),
-                    billing_periods: Some(frequencies),
                 },
                 name: Some(req.name),
                 description: Some(req.description),
@@ -408,21 +394,21 @@ impl PlansService for PlanServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_plan_overview_by_external_id(
+    async fn get_plan_overview_by_local_id(
         &self,
-        request: Request<GetPlanOverviewByExternalIdRequest>,
-    ) -> Result<Response<GetPlanOverviewByExternalIdResponse>, Status> {
+        request: Request<GetPlanOverviewByLocalIdRequest>,
+    ) -> Result<Response<GetPlanOverviewByLocalIdResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
         let res = self
             .store
-            .get_plan_with_version_by_external_id(&req.external_id, tenant_id)
+            .get_plan_with_version_by_local_id(&req.local_id, tenant_id)
             .await
             .map_err(Into::<PlanApiError>::into)
             .map(|x| PlanOverviewWrapper::from(x).0)?;
 
-        let response = GetPlanOverviewByExternalIdResponse {
+        let response = GetPlanOverviewByLocalIdResponse {
             plan_overview: Some(res),
         };
 

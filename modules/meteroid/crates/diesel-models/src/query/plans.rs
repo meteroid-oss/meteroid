@@ -34,16 +34,16 @@ impl PlanRowNew {
 }
 
 impl PlanRow {
-    pub async fn get_by_external_id_and_tenant_id(
+    pub async fn get_by_local_id_and_tenant_id(
         conn: &mut PgConn,
-        external_id: &str,
+        local_id: &str,
         tenant_id: Uuid,
     ) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = p_dsl::plan
-            .filter(p_dsl::external_id.eq(external_id))
+            .filter(p_dsl::local_id.eq(local_id))
             .filter(p_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -146,9 +146,9 @@ impl PlanRow {
             .into_db_result()
     }
 
-    pub async fn get_with_version_by_external_id(
+    pub async fn get_with_version_by_local_id(
         conn: &mut PgConn,
-        external_id: &str,
+        local_id: &str,
         tenant_id: Uuid,
     ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
@@ -157,7 +157,7 @@ impl PlanRow {
 
         let query = p_dsl::plan
             .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
-            .filter(p_dsl::external_id.eq(external_id))
+            .filter(p_dsl::local_id.eq(local_id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .order(pv_dsl::version.desc())
             .select(PlanWithVersionRow::as_select());
@@ -167,7 +167,7 @@ impl PlanRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting plan with version by external_id")
+            .attach_printable("Error while getting plan with version by local_id")
             .into_db_result()
     }
 }
@@ -176,7 +176,7 @@ impl PlanRowForList {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: Uuid,
-        product_family_external_id: Option<String>,
+        product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -190,8 +190,8 @@ impl PlanRowForList {
             .select(PlanRowForList::as_select())
             .into_boxed();
 
-        if let Some(product_family_external_id) = product_family_external_id {
-            query = query.filter(pf_dsl::external_id.eq(product_family_external_id))
+        if let Some(product_family_local_id) = product_family_local_id {
+            query = query.filter(pf_dsl::local_id.eq(product_family_local_id))
         }
 
         if !filters.filter_status.is_empty() {
@@ -206,7 +206,7 @@ impl PlanRowForList {
             query = query.filter(
                 p_dsl::name
                     .ilike(format!("%{}%", search))
-                    .or(p_dsl::external_id.ilike(format!("%{}%", search))),
+                    .or(p_dsl::local_id.ilike(format!("%{}%", search))),
             );
         }
 

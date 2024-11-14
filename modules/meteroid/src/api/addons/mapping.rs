@@ -7,6 +7,7 @@ pub mod addons {
         fn from(value: domain::add_ons::AddOn) -> Self {
             Self(server::AddOn {
                 id: value.id.to_string(),
+                local_id: value.local_id,
                 name: value.name,
                 fee: Some(
                     crate::api::pricecomponents::mapping::components::map_fee_domain_to_api(

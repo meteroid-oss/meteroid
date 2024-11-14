@@ -57,7 +57,7 @@ async fn test_main() {
         .create_product_family(tonic::Request::new(
             api::productfamilies::v1::CreateProductFamilyRequest {
                 name: "Test - usage".to_string(),
-                external_id: "test-usage".to_string(),
+                local_id: "test-usage".to_string(),
             },
         ))
         .await
@@ -72,9 +72,9 @@ async fn test_main() {
         .create_draft_plan(tonic::Request::new(
             api::plans::v1::CreateDraftPlanRequest {
                 name: "Test - usage".to_string(),
-                external_id: "test-usage-plan".to_string(),
+                local_id: "test-usage-plan".to_string(),
                 description: None,
-                product_family_external_id: product_family.external_id,
+                product_family_local_id: product_family.local_id,
                 plan_type: PlanType::Standard as i32,
             },
         ))
@@ -101,7 +101,7 @@ async fn test_main() {
                         },
                     )),
                 }),
-                product_item_id: None,
+                product_id: None,
             },
         ))
         .await

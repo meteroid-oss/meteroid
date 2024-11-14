@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
+use meteroid_store::domain::enums::PlanTypeEnum;
 use meteroid_store::domain::PlanTrial;
 
 // pub enum PlanType {
@@ -23,7 +23,6 @@ pub struct PlanVersion {
     pub period_start_day: Option<i16>,
     pub currency: String,
     pub billing_cycles: Option<i32>,
-    pub billing_periods: Vec<BillingPeriodEnum>,
     pub net_terms: i32,
     pub trial: Option<PlanTrial>,
 }

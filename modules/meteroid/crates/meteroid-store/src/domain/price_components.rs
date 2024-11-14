@@ -6,15 +6,17 @@ use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod}
 
 use crate::domain::SubscriptionFee;
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct PriceComponent {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub fee: FeeType,
-    pub product_item_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
 }
 
 impl TryInto<PriceComponent> for PriceComponentRow {
@@ -29,8 +31,9 @@ impl TryInto<PriceComponent> for PriceComponentRow {
         Ok(PriceComponent {
             id: self.id,
             name: self.name,
+            local_id: self.local_id,
             fee,
-            product_item_id: self.product_item_id,
+            product_id: self.product_id,
         })
     }
 }
@@ -39,7 +42,7 @@ impl TryInto<PriceComponent> for PriceComponentRow {
 pub struct PriceComponentNew {
     pub name: String,
     pub fee: FeeType,
-    pub product_item_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
     pub plan_version_id: Uuid,
 }
 
@@ -47,7 +50,7 @@ pub struct PriceComponentNew {
 pub struct PriceComponentNewInternal {
     pub name: String,
     pub fee: FeeType,
-    pub product_item_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
 }
 
 impl TryInto<PriceComponentRowNew> for PriceComponentNew {
@@ -60,10 +63,11 @@ impl TryInto<PriceComponentRowNew> for PriceComponentNew {
 
         Ok(PriceComponentRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::PriceComponent),
             plan_version_id: self.plan_version_id,
             name: self.name,
             fee: json_fee,
-            product_item_id: self.product_item_id,
+            product_id: self.product_id,
             billable_metric_id: self.fee.metric_id(),
         })
     }

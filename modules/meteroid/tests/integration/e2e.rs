@@ -295,7 +295,7 @@ async fn test_metering_e2e() {
                 })),
             }),
             usage_group_key: None,
-            family_external_id: "default".to_string(),
+            family_local_id: "default".to_string(),
         }))
         .await
         .expect("Could not create meter");
@@ -344,9 +344,9 @@ async fn test_metering_e2e() {
         .create_draft_plan(Request::new(
             meteroid_grpc::meteroid::api::plans::v1::CreateDraftPlanRequest {
                 name: "Meteroid AI".to_string(),
-                external_id: "meteroid_ai".to_string(),
+                local_id: "meteroid_ai".to_string(),
                 description: None,
-                product_family_external_id: "default".to_string(),
+                product_family_local_id: "default".to_string(),
                 plan_type: PlanType::Standard as i32,
             },
         ))
@@ -386,7 +386,7 @@ async fn test_metering_e2e() {
                     )),
                 }),
 
-                product_item_id: None,
+                product_id: None,
             },
         ))
         .await

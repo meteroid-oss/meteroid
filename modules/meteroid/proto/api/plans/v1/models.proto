@@ -25,7 +25,6 @@ message PlanFilters {
 }
 
 message PlanBillingConfiguration {
-  repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 1;
   uint32 net_terms = 2;
 
   oneof service_period_start {
@@ -109,7 +108,7 @@ message Metadata {
 message Plan {
   string id = 1;
   string name = 2;
-  string external_id = 3;
+  string local_id = 3;
   optional string description = 4;
   PlanType plan_type = 5;
   PlanStatus plan_status = 6;
@@ -121,7 +120,7 @@ message Plan {
 message ListPlan {
   string id = 1;
   string name = 2;
-  string external_id = 3;
+  string local_id = 3;
   optional string description = 4;
   PlanType plan_type = 5;
   PlanStatus plan_status = 6;
@@ -143,7 +142,6 @@ message PlanOverview {
   optional string description = 5;
   string currency = 6;
   uint32 net_terms = 7;
-  repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 8;
   bool is_draft = 9;
   PlanType plan_type = 10;
 }

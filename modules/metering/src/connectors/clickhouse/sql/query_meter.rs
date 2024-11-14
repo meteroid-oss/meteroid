@@ -96,7 +96,7 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         let subjects_condition = params
             .customers
             .iter()
-            .map(|customer| format!("customer_id = '{}'", customer.id)) // TODO config for id/ext/custom field
+            .map(|customer| format!("customer_id = '{}'", customer.local_id)) // TODO config for id/ext/custom field
             .collect::<Vec<_>>()
             .join(" OR ");
         where_clauses.push(format!("({})", subjects_condition));

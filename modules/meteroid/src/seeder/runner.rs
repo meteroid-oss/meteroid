@@ -34,7 +34,6 @@ use meteroid_store::domain::{
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use meteroid_store::utils::local_id::{IdType, LocalId};
 
 pub async fn run(
     store: Store,
@@ -93,7 +92,8 @@ pub async fn run(
                 usage_group_key: None,
                 description: None,
                 created_by: user_id,
-                family_external_id: product_family.external_id.clone(),
+                family_local_id: product_family.local_id.clone(),
+                product_id: None, // TODO
             })
             .await
             .change_context(SeederError::TempError)?;
@@ -106,12 +106,12 @@ pub async fn run(
         let created = store
             .insert_plan(store_domain::FullPlanNew {
                 plan: store_domain::PlanNew {
-                    external_id: slugify(&plan.name),
+                    local_id: slugify(&plan.name),
                     name: plan.name,
                     plan_type: plan.plan_type,
                     status: PlanStatusEnum::Active,
                     tenant_id: tenant.id,
-                    product_family_external_id: product_family.external_id.clone(),
+                    product_family_local_id: product_family.local_id.clone(),
                     description: plan.description,
                     created_by: user_id,
                 },
@@ -122,7 +122,6 @@ pub async fn run(
                     net_terms: plan.version_details.net_terms,
                     currency: Some(plan.version_details.currency),
                     billing_cycles: plan.version_details.billing_cycles,
-                    billing_periods: plan.version_details.billing_periods,
                 },
                 price_components: plan
                     .components
@@ -130,7 +129,7 @@ pub async fn run(
                     .map(|component| store_domain::PriceComponentNewInternal {
                         name: component.name.clone(),
                         fee: component.fee.clone(),
-                        product_item_id: component.product_item_id,
+                        product_id: component.product_id,
                     })
                     .collect::<Vec<_>>(),
             })
@@ -485,7 +484,6 @@ pub async fn run(
                 net_terms: 30,
                 reference: None,
                 memo: None,
-                local_id: LocalId::generate_for(IdType::Invoice),
                 due_at: Some((invoice_date + chrono::Duration::days(30)).and_time(NaiveTime::MIN)),
                 plan_name: Some(subscription_details.plan_name.clone()),
                 invoice_number: format!("{}-{:0>8}", invoice_number_prefix, i.to_string()),

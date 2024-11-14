@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::{ActionAfterTrialEnum, BillingPeriodEnum};
+use crate::enums::ActionAfterTrialEnum;
 
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -22,7 +22,6 @@ pub struct PlanVersionRow {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    pub billing_periods: Vec<Option<BillingPeriodEnum>>,
     pub trialing_plan_id: Option<Uuid>,
     pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
@@ -44,7 +43,6 @@ pub struct PlanVersionRowNew {
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_by: Uuid,
-    pub billing_periods: Vec<BillingPeriodEnum>,
     pub trialing_plan_id: Option<Uuid>,
     pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
@@ -59,9 +57,9 @@ pub struct PlanVersionRowLatest {
     #[diesel(select_expression = crate::schema::plan::name)]
     #[diesel(select_expression_type = crate::schema::plan::name)]
     pub plan_name: String,
-    #[diesel(select_expression = crate::schema::plan::external_id)]
-    #[diesel(select_expression_type = crate::schema::plan::external_id)]
-    pub external_id: String,
+    #[diesel(select_expression = crate::schema::plan::local_id)]
+    #[diesel(select_expression_type = crate::schema::plan::local_id)]
+    pub local_id: String,
     pub version: i32,
     pub created_by: Uuid,
     pub trial_duration_days: Option<i32>,
@@ -89,7 +87,6 @@ pub struct PlanVersionRowPatch {
     pub tenant_id: Uuid,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
-    pub billing_periods: Option<Vec<BillingPeriodEnum>>,
 }
 
 #[derive(Debug, AsChangeset)]

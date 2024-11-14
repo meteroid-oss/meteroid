@@ -20,6 +20,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use uuid::Uuid;
+use crate::utils::local_id::{IdType, LocalId};
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
@@ -79,10 +80,13 @@ pub struct Invoice {
     pub xml_document_id: Option<String>,
 }
 
+ 
+
 #[derive(Debug, o2o)]
 #[owned_try_into(InvoiceRowNew, StoreErrorReport)]
 #[ghosts(
     id: {uuid::Uuid::now_v7()},
+    local_id: {LocalId::generate_for(IdType::Invoice)},
 )]
 pub struct InvoiceNew {
     #[into(~.into())]
@@ -119,8 +123,7 @@ pub struct InvoiceNew {
     pub amount_due: i64,
     pub net_terms: i32,
     pub reference: Option<String>,
-    pub memo: Option<String>,
-    pub local_id: String,
+    pub memo: Option<String>, 
     pub due_at: Option<NaiveDateTime>, // TODO due_date
     pub plan_name: Option<String>,
     #[into(serde_json::to_value(& ~).map_err(| e | {

@@ -12,7 +12,7 @@ use diesel_models::plans::PlanWithVersionRow;
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
-use super::enums::{ActionAfterTrialEnum, BillingPeriodEnum, PlanStatusEnum, PlanTypeEnum};
+use super::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
 
@@ -22,8 +22,8 @@ pub struct PlanNew {
     pub description: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub product_family_external_id: String,
-    pub external_id: String,
+    pub product_family_local_id: String,
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
 }
@@ -37,7 +37,7 @@ impl PlanNew {
             created_by: self.created_by,
             tenant_id: self.tenant_id,
             product_family_id,
-            external_id: self.external_id,
+            local_id: self.local_id,
             plan_type: self.plan_type.into(),
             status: self.status.into(),
         }
@@ -57,7 +57,6 @@ pub struct PlanVersionNewInternal {
     pub net_terms: i32,
     pub currency: Option<String>,
     pub billing_cycles: Option<i32>,
-    pub billing_periods: Vec<BillingPeriodEnum>,
     pub trial: Option<PlanTrial>,
 }
 
@@ -117,12 +116,6 @@ impl PlanVersionNew {
             net_terms: self.internal.net_terms,
             currency: self.internal.currency.unwrap_or(tenant_currency),
             billing_cycles: self.internal.billing_cycles,
-            billing_periods: self
-                .internal
-                .billing_periods
-                .into_iter()
-                .map(|v| v.into())
-                .collect::<Vec<_>>(),
         }
     }
 }
@@ -137,7 +130,7 @@ pub struct Plan {
     pub created_at: NaiveDateTime,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
+    pub local_id: String,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
@@ -158,8 +151,6 @@ pub struct PlanVersion {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    #[from(~.into_iter().filter_map(| v | v.map(| v | v.into())).collect::< Vec < _ >> ())]
-    pub billing_periods: Vec<BillingPeriodEnum>,
     pub trialing_plan_id: Option<Uuid>,
     #[from(~.map(| v | v.into()))]
     pub action_after_trial: Option<ActionAfterTrialEnum>,
@@ -186,7 +177,7 @@ pub struct PlanForList {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
+    pub local_id: String,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
@@ -200,7 +191,7 @@ pub struct PlanVersionLatest {
     pub id: Uuid,
     pub plan_id: Uuid,
     pub plan_name: String,
-    pub external_id: String,
+    pub local_id: String,
     pub version: i32,
     pub created_by: Uuid,
     pub period_start_day: Option<i16>,
@@ -223,8 +214,6 @@ pub struct PlanVersionPatch {
     pub tenant_id: Uuid,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
-    #[into(~.map(| x | x.into_iter().map(| v | v.into()).collect::< Vec < _ >> ()))]
-    pub billing_periods: Option<Vec<BillingPeriodEnum>>,
 }
 
 pub struct PlanAndVersionPatch {

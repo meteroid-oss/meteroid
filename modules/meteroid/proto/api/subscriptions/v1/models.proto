@@ -42,6 +42,7 @@ message Subscription {
   uint64 mrr_cents = 23;
   SubscriptionStatus status = 24;
   // TODO accrued (total up until now ? ) , due (next billing cycle) , last X months of revenue for a graph ?
+  string local_id = 25;
 }
 
 message SubscriptionDetails {
@@ -71,6 +72,7 @@ message CreatedSubscription {
   optional string invoice_threshold = 14;
   optional string activated_at = 15;
   uint64 mrr_cents = 18;
+  string local_id = 19;
 }
 
 message CreateSubscription {
@@ -164,7 +166,7 @@ message BillableMetric {
 message SubscriptionComponent {
   string id = 1;
   optional string price_component_id = 2;
-  optional string product_item_id = 3;
+  optional string product_id = 3;
   string subscription_id = 4;
   string name = 5;
   SubscriptionFeeBillingPeriod period = 6;
@@ -175,7 +177,7 @@ message SubscriptionComponent {
 
 message SubscriptionComponentNewInternal {
   optional string price_component_id = 1;
-  optional string product_item_id = 2;
+  optional string product_id = 2;
   string name = 3;
   SubscriptionFeeBillingPeriod period = 4;
   SubscriptionFee fee = 5;

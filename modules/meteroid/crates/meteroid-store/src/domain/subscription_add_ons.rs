@@ -24,7 +24,7 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     }
 
     #[inline]
-    fn product_item_id(&self) -> Option<Uuid> {
+    fn product_id(&self) -> Option<Uuid> {
         None
     }
 

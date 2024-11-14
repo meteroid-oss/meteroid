@@ -14,7 +14,7 @@ use crate::ingest::domain::{FailedEvent, ProcessedEvent};
 use crate::ingest::sinks::Sink;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
-use meteroid_grpc::meteroid::internal::v1::ResolveCustomerExternalIdsRequest;
+use meteroid_grpc::meteroid::internal::v1::ResolveCustomerAliasesRequest;
 
 #[derive(Clone)]
 pub struct EventsService {
@@ -62,19 +62,18 @@ impl EventsServiceGrpc for EventsService {
         // - get the customer_id from external_customer_id as necessary
         let mut resolved = vec![];
         let mut unresolved = vec![];
-        let mut unresolved_ids = vec![];
+        let mut unresolved_aliases = vec![];
 
         let now = chrono::Utc::now();
 
         for event in events {
             match validate_event(&event, &now, allow_backfilling) {
                 Ok((id, ts)) => match id {
-                    CustomerId::MeteroidCustomerId(meteroid_id) => resolved.push(
-                        to_processed_event(event, meteroid_id, tenant_id.clone(), ts),
-                    ),
-                    CustomerId::ExternalCustomerId(external_id) => {
-                        let from_cache =
-                            CUSTOMER_ID_CACHE.get(&(tenant_id.clone(), external_id.clone()));
+                    CustomerId::MeteroidCustomerId(local_id) => {
+                        resolved.push(to_processed_event(event, local_id, tenant_id.clone(), ts))
+                    }
+                    CustomerId::ExternalCustomerAlias(alias) => {
+                        let from_cache = CUSTOMER_ID_CACHE.get(&(tenant_id.clone(), alias.clone()));
                         match from_cache {
                             Some(meteroid_id) => resolved.push(to_processed_event(
                                 event,
@@ -83,8 +82,8 @@ impl EventsServiceGrpc for EventsService {
                                 ts,
                             )),
                             None => {
-                                unresolved_ids.push(external_id.clone());
-                                unresolved.push((event, external_id.clone(), ts))
+                                unresolved_aliases.push(alias.clone());
+                                unresolved.push((event, alias.clone(), ts))
                             }
                         }
                     }
@@ -98,15 +97,15 @@ impl EventsServiceGrpc for EventsService {
             };
         }
 
-        if !unresolved_ids.is_empty() {
+        if !unresolved_aliases.is_empty() {
             // we call the api to resolve customers by external id & tenant
 
             let mut client = self.internal_client.clone();
 
             let res = client
-                .resolve_customer_external_ids(ResolveCustomerExternalIdsRequest {
+                .resolve_customer_aliases(ResolveCustomerAliasesRequest {
                     tenant_id: tenant_id.clone(),
-                    external_ids: unresolved_ids,
+                    aliases: unresolved_aliases,
                 })
                 .await
                 .map_err(|e| {
@@ -117,31 +116,33 @@ impl EventsServiceGrpc for EventsService {
 
             let res = res.into_inner();
 
-            res.unresolved_ids.into_iter().for_each(|external_id| {
-                failed_events.push(FailedEvent {
-                    event: unresolved
-                        .iter()
-                        .find(|(_, id, _)| id == &external_id)
-                        .unwrap()
-                        .0
-                        .clone(),
-                    reason: "Unable to resolve external id".to_string(),
-                })
-            });
+            res.unresolved_aliases
+                .into_iter()
+                .for_each(|unresolved_alias| {
+                    failed_events.push(FailedEvent {
+                        event: unresolved
+                            .iter()
+                            .find(|(_, alias, _)| alias == &unresolved_alias)
+                            .unwrap()
+                            .0
+                            .clone(),
+                        reason: "Unable to resolve unresolved alias".to_string(),
+                    })
+                });
 
             res.customers.into_iter().for_each(|customer| {
                 CUSTOMER_ID_CACHE.insert(
-                    (tenant_id.clone(), customer.external_id.clone()),
-                    customer.meteroid_id.clone(),
+                    (tenant_id.clone(), customer.alias.clone()),
+                    customer.local_id.clone(),
                 );
                 let (event, _, ts) = unresolved
                     .iter()
-                    .find(|(_, id, _)| id == &customer.external_id)
+                    .find(|(_, alias, _)| alias == &customer.alias)
                     .unwrap();
 
                 resolved.push(to_processed_event(
                     event.clone(),
-                    customer.meteroid_id,
+                    customer.local_id,
                     tenant_id.clone(),
                     *ts,
                 ))

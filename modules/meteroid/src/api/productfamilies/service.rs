@@ -3,8 +3,8 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::productfamilies::v1::{
     product_families_service_server::ProductFamiliesService, CreateProductFamilyRequest,
-    CreateProductFamilyResponse, GetProductFamilyByExternalIdRequest,
-    GetProductFamilyByExternalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
+    CreateProductFamilyResponse, GetProductFamilyByLocalIdRequest,
+    GetProductFamilyByLocalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::ProductFamilyInterface;
@@ -51,7 +51,7 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
             .insert_product_family(
                 domain::ProductFamilyNew {
                     name: req.name,
-                    external_id: req.external_id,
+                    local_id: req.local_id,
                     tenant_id,
                 },
                 Some(actor),
@@ -66,21 +66,21 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_product_family_by_external_id(
+    async fn get_product_family_by_local_id(
         &self,
-        request: Request<GetProductFamilyByExternalIdRequest>,
-    ) -> Result<Response<GetProductFamilyByExternalIdResponse>, Status> {
+        request: Request<GetProductFamilyByLocalIdRequest>,
+    ) -> Result<Response<GetProductFamilyByLocalIdResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
         let rs = self
             .store
-            .find_product_family_by_external_id(req.external_id.as_str(), tenant_id)
+            .find_product_family_by_local_id(req.local_id.as_str(), tenant_id)
             .await
             .map_err(Into::<ProductFamilyApiError>::into)
             .map(|x| ProductFamilyWrapper::from(x).0)?;
 
-        Ok(Response::new(GetProductFamilyByExternalIdResponse {
+        Ok(Response::new(GetProductFamilyByLocalIdResponse {
             product_family: Some(rs),
         }))
     }

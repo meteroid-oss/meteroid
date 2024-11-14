@@ -10,6 +10,7 @@ use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use crate::{domain, Store, StoreResult};
 
 #[async_trait::async_trait]
@@ -24,7 +25,7 @@ pub trait BillableMetricInterface {
         &self,
         tenant_id: Uuid,
         pagination: PaginationRequest,
-        product_family_external_id: String,
+        product_family_local_id: String,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
 
     async fn insert_billable_metric(
@@ -52,7 +53,7 @@ impl BillableMetricInterface for Store {
         &self,
         tenant_id: Uuid,
         pagination: PaginationRequest,
-        product_family_external_id: String,
+        product_family_local_id: String,
     ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
         let mut conn = self.get_conn().await?;
 
@@ -60,7 +61,7 @@ impl BillableMetricInterface for Store {
             &mut conn,
             tenant_id,
             pagination.into(),
-            product_family_external_id,
+            product_family_local_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -80,16 +81,19 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<BillableMetric> {
         let mut conn = self.get_conn().await?;
 
-        let family = ProductFamilyRow::find_by_external_id_and_tenant_id(
+        let family = ProductFamilyRow::find_by_local_id_and_tenant_id(
             &mut conn,
-            &billable_metric.family_external_id,
+            &billable_metric.family_local_id,
             billable_metric.tenant_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
+        // TODO create product if None ?
+
         let insertable_entity = BillableMetricRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::BillableMetric),
             name: billable_metric.name,
             description: billable_metric.description,
             code: billable_metric.code,
@@ -112,6 +116,7 @@ impl BillableMetricInterface for Store {
             created_by: billable_metric.created_by,
             tenant_id: billable_metric.tenant_id,
             product_family_id: family.id,
+            product_id: billable_metric.product_id,
         };
 
         let res: BillableMetric = self

@@ -26,9 +26,9 @@ use crate::errors::StoreError;
 pub trait PlansInterface {
     async fn insert_plan(&self, plan: FullPlanNew) -> StoreResult<FullPlan>;
 
-    async fn get_plan_by_external_id(
+    async fn get_plan_by_local_id(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanWithVersion>;
 
@@ -38,9 +38,9 @@ pub trait PlansInterface {
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanWithVersion>;
 
-    async fn find_plan_by_external_id_and_status(
+    async fn find_plan_by_local_id_and_status(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
         is_draft: Option<bool>,
     ) -> StoreResult<Option<FullPlan>>;
@@ -48,7 +48,7 @@ pub trait PlansInterface {
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
-        product_family_external_id: Option<String>,
+        product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -98,9 +98,9 @@ pub trait PlansInterface {
 
     async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanWithVersion>;
 
-    async fn get_plan_with_version_by_external_id(
+    async fn get_plan_with_version_by_local_id(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanWithVersion>;
 
@@ -120,9 +120,9 @@ impl PlansInterface for Store {
             price_components,
         } = full_plan;
 
-        let product_family = ProductFamilyRow::find_by_external_id_and_tenant_id(
+        let product_family = ProductFamilyRow::find_by_local_id_and_tenant_id(
             &mut conn,
-            plan.product_family_external_id.as_str(),
+            plan.product_family_local_id.as_str(),
             plan.tenant_id,
         )
         .await
@@ -166,7 +166,7 @@ impl PlansInterface for Store {
                                 PriceComponentNew {
                                     plan_version_id: inserted_plan_version_new.id,
                                     name: p.name,
-                                    product_item_id: p.product_item_id,
+                                    product_id: p.product_id,
                                     fee: p.fee,
                                 }
                                 .try_into()
@@ -203,15 +203,15 @@ impl PlansInterface for Store {
         Ok(res)
     }
 
-    async fn get_plan_by_external_id(
+    async fn get_plan_by_local_id(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
         let plan: Plan =
-            PlanRow::get_by_external_id_and_tenant_id(&mut conn, external_id, auth_tenant_id)
+            PlanRow::get_by_local_id_and_tenant_id(&mut conn, local_id, auth_tenant_id)
                 .await
                 .map(Into::into)
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
@@ -245,16 +245,16 @@ impl PlansInterface for Store {
         Ok(PlanWithVersion { plan, version })
     }
 
-    async fn find_plan_by_external_id_and_status(
+    async fn find_plan_by_local_id_and_status(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
         is_draft: Option<bool>,
     ) -> StoreResult<Option<FullPlan>> {
         let mut conn = self.get_conn().await?;
 
         let plan: Plan =
-            PlanRow::get_by_external_id_and_tenant_id(&mut conn, external_id, auth_tenant_id)
+            PlanRow::get_by_local_id_and_tenant_id(&mut conn, local_id, auth_tenant_id)
                 .await
                 .map(Into::into)
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
@@ -296,7 +296,7 @@ impl PlansInterface for Store {
     async fn list_plans(
         &self,
         auth_tenant_id: Uuid,
-        product_family_external_id: Option<String>,
+        product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -306,7 +306,7 @@ impl PlansInterface for Store {
         let rows = PlanRowForList::list(
             &mut conn,
             auth_tenant_id,
-            product_family_external_id,
+            product_family_local_id,
             filters.into(),
             pagination.into(),
             order_by.into(),
@@ -411,7 +411,6 @@ impl PlansInterface for Store {
                     currency: original.currency,
                     billing_cycles: original.billing_cycles,
                     created_by: auth_actor,
-                    billing_periods: original.billing_periods.into_iter().flatten().collect(),
                 }
                 .insert(conn)
                 .await
@@ -539,24 +538,20 @@ impl PlansInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        PlanRow::get_with_version_by_external_id(
-            &mut conn,
-            plan.external_id.as_str(),
-            plan.tenant_id,
-        )
-        .await
-        .map_err(Into::into)
-        .map(Into::into)
+        PlanRow::get_with_version_by_local_id(&mut conn, plan.local_id.as_str(), plan.tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 
-    async fn get_plan_with_version_by_external_id(
+    async fn get_plan_with_version_by_local_id(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
-        PlanRow::get_with_version_by_external_id(&mut conn, external_id, auth_tenant_id)
+        PlanRow::get_with_version_by_local_id(&mut conn, local_id, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)

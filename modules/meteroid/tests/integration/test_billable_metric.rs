@@ -32,7 +32,7 @@ async fn test_billable_metrics_basic() {
         .clone()
         .create_product_family(api::productfamilies::v1::CreateProductFamilyRequest {
             name: "product_family_name".into(),
-            external_id: "product_family_external_id".into(),
+            local_id: "product_family_local_id".into(),
         })
         .await
         .unwrap()
@@ -58,7 +58,7 @@ async fn test_billable_metrics_basic() {
             }),
             segmentation_matrix: None, // todo add
             usage_group_key: Some("usage".to_string()),
-            family_external_id: "product_family_external_id".to_string(),
+            family_local_id: "product_family_local_id".to_string(),
         })
         .await
         .unwrap()

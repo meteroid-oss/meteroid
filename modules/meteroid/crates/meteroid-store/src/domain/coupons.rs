@@ -5,10 +5,12 @@ use error_stack::Report;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::utils::local_id::{IdType, LocalId};
 
 #[derive(Debug, Clone)]
 pub struct Coupon {
     pub id: Uuid,
+    pub local_id: String,
     pub code: String,
     pub description: String,
     pub tenant_id: Uuid,
@@ -65,6 +67,7 @@ impl TryInto<Coupon> for CouponRow {
 
         Ok(Coupon {
             id: self.id,
+            local_id: self.local_id,
             code: self.code,
             description: self.description,
             tenant_id: self.tenant_id,
@@ -102,6 +105,7 @@ impl TryInto<CouponRowNew> for CouponNew {
 
         Ok(CouponRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Coupon),
             code: self.code,
             description: self.description,
             tenant_id: self.tenant_id,

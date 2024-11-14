@@ -9,7 +9,7 @@ use diesel::{Identifiable, Insertable, Queryable};
 pub struct ProductFamilyRow {
     pub id: Uuid,
     pub name: String,
-    pub external_id: String,
+    pub local_id: String,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
@@ -22,6 +22,6 @@ pub struct ProductFamilyRow {
 pub struct ProductFamilyRowNew {
     pub id: Uuid,
     pub name: String,
-    pub external_id: String,
+    pub local_id: String,
     pub tenant_id: Uuid,
 }

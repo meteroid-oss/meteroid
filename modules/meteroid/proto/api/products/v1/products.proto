@@ -8,7 +8,7 @@ import "api/products/v1/models.proto";
 message CreateProductRequest {
   string name = 1;
   optional string description = 2;
-  string family_external_id = 3;
+  string family_local_id = 3;
   // tax, custom fields etc
 }
 
@@ -17,7 +17,7 @@ message CreateProductResponse {
 }
 
 message ListProductsRequest {
-  string family_external_id = 1;
+  string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
 }
 
@@ -27,7 +27,7 @@ message ListProductsResponse {
 }
 
 message SearchProductsRequest {
-  string family_external_id = 1;
+  string family_local_id = 1;
   optional string query = 2;
   meteroid.common.v1.Pagination pagination = 3;
 }

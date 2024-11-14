@@ -10,7 +10,7 @@ use crate::errors::StoreError;
 
 pub trait SubscriptionFeeInterface {
     fn price_component_id(&self) -> Option<Uuid>;
-    fn product_item_id(&self) -> Option<Uuid>;
+    fn product_id(&self) -> Option<Uuid>;
     fn subscription_id(&self) -> Uuid;
     fn name_ref(&self) -> &String;
     fn period_ref(&self) -> &SubscriptionFeeBillingPeriod;
@@ -21,7 +21,7 @@ pub trait SubscriptionFeeInterface {
 pub struct SubscriptionComponent {
     pub id: Uuid,
     pub price_component_id: Option<Uuid>,
-    pub product_item_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
     pub subscription_id: Uuid,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
@@ -35,8 +35,8 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     }
 
     #[inline]
-    fn product_item_id(&self) -> Option<Uuid> {
-        self.product_item_id
+    fn product_id(&self) -> Option<Uuid> {
+        self.product_id
     }
 
     #[inline]
@@ -70,7 +70,7 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
         Ok(SubscriptionComponent {
             id: self.id,
             price_component_id: self.price_component_id,
-            product_item_id: self.product_item_id,
+            product_id: self.product_id,
             subscription_id: self.subscription_id,
             name: self.name,
             period: self.period.into(),
@@ -106,7 +106,7 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
             id: Uuid::now_v7(),
             subscription_id: self.subscription_id,
             price_component_id: self.internal.price_component_id,
-            product_item_id: self.internal.product_item_id,
+            product_id: self.internal.product_id,
             name: self.internal.name,
             period: self.internal.period.into(),
             fee,
@@ -149,7 +149,7 @@ pub struct ExtraComponent {
 #[derive(Debug, Clone)]
 pub struct SubscriptionComponentNewInternal {
     pub price_component_id: Option<Uuid>,
-    pub product_item_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     // pub mrr_value: Option<rust_decimal::Decimal>, // TODO

@@ -1,5 +1,4 @@
 pub mod plans {
-    use crate::api::domain_mapping::billing_period::to_proto;
     use meteroid_grpc::meteroid::api::plans::v1::{
         plan_billing_configuration as billing_config_grpc, ListPlanVersion, PlanOverview,
     };
@@ -63,12 +62,6 @@ pub mod plans {
 
             fn billing_config(version: &domain::PlanVersion) -> Option<PlanBillingConfiguration> {
                 Some(PlanBillingConfiguration {
-                    billing_periods: version
-                        .billing_periods
-                        .clone()
-                        .into_iter()
-                        .map(|freq| to_proto(freq) as i32)
-                        .collect(),
                     billing_cycles: Some(match version.billing_cycles {
                         Some(count) => {
                             billing_config_grpc::BillingCycles::Fixed(billing_config_grpc::Fixed {
@@ -108,7 +101,7 @@ pub mod plans {
             Self(PlanDetails {
                 plan: Some(Plan {
                     id: value.plan.id.to_string(),
-                    external_id: value.plan.external_id,
+                    local_id: value.plan.local_id,
                     name: value.plan.name,
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
@@ -125,7 +118,7 @@ pub mod plans {
             Self(PlanDetails {
                 plan: Some(Plan {
                     id: value.plan.id.to_string(),
-                    external_id: value.plan.external_id,
+                    local_id: value.plan.local_id,
                     name: value.plan.name,
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
@@ -204,7 +197,7 @@ pub mod plans {
             Self(ListPlan {
                 id: value.id.to_string(),
                 name: value.name,
-                external_id: value.external_id,
+                local_id: value.local_id,
                 description: value.description,
                 plan_type: PlanTypeWrapper::from(value.plan_type).0 as i32,
                 plan_status: PlanStatusWrapper::from(value.status).0 as i32,
@@ -255,12 +248,6 @@ pub mod plans {
                 description: value.plan.description,
                 currency: value.version.currency,
                 net_terms: value.version.net_terms as u32,
-                billing_periods: value
-                    .version
-                    .billing_periods
-                    .into_iter()
-                    .map(|freq| to_proto(freq) as i32)
-                    .collect(),
                 is_draft: value.version.is_draft_version,
                 plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
             })

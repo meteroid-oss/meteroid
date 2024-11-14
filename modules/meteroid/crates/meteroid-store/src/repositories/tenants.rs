@@ -205,7 +205,7 @@ impl StoreInternal {
                 conn,
                 domain::ProductFamilyNew {
                     name: "Default".to_string(),
-                    external_id: "default".to_string(),
+                    local_id: "default".to_string(),
                     tenant_id: inserted.id,
                 },
             )

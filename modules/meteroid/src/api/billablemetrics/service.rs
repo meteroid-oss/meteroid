@@ -1,7 +1,5 @@
-use error_stack::Report;
-use tonic::{Request, Response, Status};
-
 use common_grpc::middleware::server::auth::RequestExt;
+use error_stack::Report;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     billable_metrics_service_server::BillableMetricsService, BillableMetricMeta,
     CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
@@ -11,11 +9,14 @@ use meteroid_store::domain;
 use meteroid_store::domain::BillableMetric;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use crate::api::billablemetrics::error::BillableMetricApiError;
 use crate::api::billablemetrics::mapping::metric::{
     ServerBillableMetricMetaWrapper, ServerBillableMetricWrapper,
 };
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::{parse_uuid, PaginationExt};
 
 use super::{mapping, BillableMetricsComponents};
@@ -62,7 +63,8 @@ impl BillableMetricsService for BillableMetricsComponents {
                 usage_group_key: inner.usage_group_key,
                 created_by: actor,
                 tenant_id,
-                family_external_id: inner.family_external_id,
+                family_local_id: inner.family_local_id,
+                product_id: Uuid::from_proto_opt(inner.product_id)?,
             })
             .await
             .map_err(Into::<BillableMetricApiError>::into)?;
@@ -92,7 +94,7 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         let res = self
             .store
-            .list_billable_metrics(tenant_id, pagination_req, inner.family_external_id)
+            .list_billable_metrics(tenant_id, pagination_req, inner.family_local_id)
             .await
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 

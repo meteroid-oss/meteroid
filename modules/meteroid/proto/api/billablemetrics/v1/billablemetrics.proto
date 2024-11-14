@@ -12,7 +12,8 @@ message CreateBillableMetricRequest {
   Aggregation aggregation = 4;
   SegmentationMatrix segmentation_matrix = 5;
   optional string usage_group_key = 6;
-  string family_external_id = 7;
+  string family_local_id = 7;
+  optional string product_id = 8;
 }
 
 message CreateBillableMetricResponse {
@@ -20,7 +21,7 @@ message CreateBillableMetricResponse {
 }
 
 message ListBillableMetricsRequest {
-  string family_external_id = 1;
+  string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
 }
 
