@@ -31,7 +31,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "meteroid", description = "Meteroid API")
     )
 )]
-struct ApiDoc;
+pub struct ApiDoc;
 
 struct SecurityAddon;
 
@@ -65,12 +65,6 @@ pub async fn start_rest_server(
     let auth_layer = ExternalApiAuthLayer::new(store.clone()).filter(only_api);
 
     let open_api = ApiDoc::openapi();
-
-    std::fs::write(
-        "spec/api/v1/openapi.json",
-        open_api.clone().to_pretty_json().unwrap(),
-    )
-    .expect("Unable to write openapi.json file");
 
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
