@@ -27,11 +27,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (path = "/files", api = files::FileApi),
         (path = "/api/v1/subscriptions", api = subscriptions::SubscriptionApi)
     ),
-    tags(
-        (name = "meteroid",
-        description = "Meteroid API",
-        url = "https://www.meteroid.com/")
-    )
+    tags((name = "meteroid", description = "Meteroid API?"))
 )]
 pub struct ApiDoc;
 
