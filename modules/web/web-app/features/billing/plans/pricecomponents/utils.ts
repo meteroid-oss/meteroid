@@ -7,7 +7,7 @@ import { match } from 'ts-pattern'
 import { usePlan } from '@/features/billing/plans/hooks/usePlan'
 import { PriceComponent, PriceComponentType } from '@/features/billing/plans/types'
 import { useQuery } from '@/lib/connectrpc'
-import { getPlanOverviewByExternalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { getPlanOverviewByLocalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 interface AddedComponent {
@@ -18,13 +18,38 @@ export const addedComponentsAtom = atom<AddedComponent[]>([])
 export const editedComponentsAtom = atom<string[]>([])
 
 export const usePlanOverview = () => {
-  const { planExternalId } = useTypedParams<{ planExternalId: string }>()
+  const { planLocalId, planVersion } = useTypedParams<{
+    planLocalId: string
+    planVersion?: string
+  }>()
+
+  const version =
+    planVersion === 'draft' ? ('draft' as const) : planVersion ? parseInt(planVersion) : undefined
+
+  /**
+  
+  Rule : 
+   - if a numerical version if provided, it is used
+   - if planVersion is "draft", the draft version is used
+   - Else, the active version is used. If no active, redirected to draft
+
+   */
 
   const { data } = useQuery(
-    getPlanOverviewByExternalId,
-    planExternalId
+    getPlanOverviewByLocalId,
+    planLocalId && version !== undefined
       ? {
-          externalId: planExternalId,
+          localId: planLocalId,
+          versionSelector:
+            version === 'draft'
+              ? {
+                  case: 'draft',
+                  value: true,
+                }
+              : {
+                  case: 'version',
+                  value: version,
+                },
         }
       : disableQuery
   )
@@ -40,7 +65,7 @@ export const useIsDraftVersion = () => {
 const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
   rate: {
     name: 'Subscription Rate',
-    // productItem: {
+    // product: {
     //   name: 'Subscription rate',
     // },
     fee: {

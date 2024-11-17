@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { ListPlanVersionTab } from '@/features/billing/plans/ListPlanVersion'
 import { PlanActions } from '@/features/billing/plans/PlanActions'
 import { PlanOverview } from '@/features/billing/plans/details/PlanDetails'
 import { usePlan } from '@/features/billing/plans/hooks/usePlan'
@@ -59,7 +60,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                 <TabsTrigger value="overview">Details</TabsTrigger>
                 <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
                 <TabsTrigger value="alerts">Alerts</TabsTrigger>
-                <TabsTrigger value="versions">Versions</TabsTrigger>
+                <TabsTrigger value="versions">History</TabsTrigger>
               </TabsList>
               <TabsContent value="overview">
                 <PlanBody />
@@ -71,7 +72,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                 <>Alerts are not implemented yet</>
               </TabsContent>
               <TabsContent value="versions">
-                <>No UI yet</>
+                <ListPlanVersionTab />
               </TabsContent>
             </Tabs>
           </>
@@ -163,7 +164,7 @@ const PlanBody = () => {
               config={current?.trialConfig}
               currentPlanId={plan.id}
               currentPlanVersionId={current.id}
-              currentPlanExternalId={plan.externalId}
+              currentPlanLocalId={plan.localId}
             />
           </PageSection>
 

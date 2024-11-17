@@ -73,7 +73,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                 const res = await createCustomerMut.mutateAsync({
                   data: {
                     name: values.companyName,
-                    alias: values.externalId,
+                    alias: values.alias,
                     billingConfig: values.stripeCustomerId
                       ? {
                           billingConfigOneof: {
@@ -132,10 +132,10 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
 
                   <FormField
                     control={methods.control}
-                    name="externalId"
+                    name="alias"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>External Customer ID</FormLabel>
+                        <FormLabel>Alias (external id)</FormLabel>
                         <FormControl>
                           <Input type="text" {...field} autoComplete="off" />
                         </FormControl>

@@ -19,7 +19,7 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanType, TrialConfig, TrialConfig_ActionAfterTrial } from '@/rpc/api/plans/v1/models_pb'
 import {
-  getPlanByExternalId,
+  getPlanByLocalId,
   listPlans,
   updatePlanTrial,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
@@ -28,7 +28,7 @@ import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 interface TrialProps {
   config?: TrialConfig
   currentPlanId: string
-  currentPlanExternalId: string
+  currentPlanLocalId: string
   currentPlanVersionId: string
 }
 
@@ -62,7 +62,7 @@ export const PlanTrial = ({
   config,
   currentPlanId,
   currentPlanVersionId,
-  currentPlanExternalId,
+  currentPlanLocalId,
 }: TrialProps) => {
   const isDraft = useIsDraftVersion()
   const [isEditing, setIsEditing] = useState(false)
@@ -73,7 +73,7 @@ export const PlanTrial = ({
         config={config}
         currentPlanId={currentPlanId}
         currentPlanVersionId={currentPlanVersionId}
-        currentPlanExternalId={currentPlanExternalId}
+        currentPlanLocalId={currentPlanLocalId}
         cancel={() => setIsEditing(false)}
         afterSubmit={() => setIsEditing(false)}
       />
@@ -104,7 +104,7 @@ interface TrialConfigSentenceProps {
   config?: TrialConfig
   currentPlanId: string
   currentPlanVersionId: string
-  currentPlanExternalId: string
+  currentPlanLocalId: string
   afterSubmit: () => void
   cancel: () => void
 }
@@ -112,7 +112,7 @@ export function PlanTrialForm({
   config,
   currentPlanId,
   currentPlanVersionId,
-  currentPlanExternalId,
+  currentPlanLocalId,
   afterSubmit,
   cancel,
 }: TrialConfigSentenceProps) {
@@ -135,7 +135,7 @@ export function PlanTrialForm({
     onSuccess: () => {
       afterSubmit()
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getPlanByExternalId, { externalId: currentPlanExternalId }),
+        queryKey: createConnectQueryKey(getPlanByLocalId, { localId: currentPlanLocalId }),
       })
     },
   })
@@ -255,7 +255,7 @@ export function PlanTrialForm({
                         value={field.value}
                         options={[
                           { value: 'free', name: 'for free' },
-                          { value: 'paid', name: 'at the current plan price' },
+                          { value: 'paid', name: 'while paying for the current plan' },
                         ]}
                         emptyMessage="for free"
                       />
@@ -424,7 +424,7 @@ export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyPr
     const trialPlanName = isCurrentPlan(trialingPlanId)
       ? 'current'
       : resolvePlanName(trialingPlanId!)
-    const trialPriceDescription = trialIsFree ? 'for free' : 'at the current plan price'
+    const trialPriceDescription = trialIsFree ? 'for free' : 'while paying for the current plan'
 
     return (
       <p className="text-sm">

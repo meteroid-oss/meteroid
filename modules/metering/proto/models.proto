@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package meteroid.metering.v1;
 
-import "google/protobuf/timestamp.proto";
-
 message Event {
   string event_id = 1;
   string event_name = 2;

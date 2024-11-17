@@ -13,7 +13,7 @@ export const Catalog: FunctionComponent = () => {
 
   if (families.isLoading) return <Loading />
   if (!families.data?.productFamilies?.length) return <FamilyCreationModalPage />
-  return <Navigate to={`${families.data?.productFamilies[0].externalId}/plans`} />
+  return <Navigate to={`${families.data?.productFamilies[0].localId}/plans`} />
 }
 
 export const CatalogOutlet: FunctionComponent = () => {

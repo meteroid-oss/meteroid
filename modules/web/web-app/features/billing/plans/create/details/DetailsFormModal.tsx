@@ -10,7 +10,7 @@ import { useZodForm } from '@/hooks/useZodForm'
 import { editPlanSchema } from '@/lib/schemas/plans'
 import { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
 import {
-  getPlanByExternalId,
+  getPlanByLocalId,
   updateDraftPlanOverview,
   updatePublishedPlanOverview,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
@@ -57,7 +57,7 @@ const BasicDetailedForm = ({ plan }: Props) => {
   const updatePublishedPlan = useMutation(updatePublishedPlanOverview, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: [getPlanByExternalId.service.typeName],
+        queryKey: [getPlanByLocalId.service.typeName],
       })
     },
   })
@@ -65,7 +65,7 @@ const BasicDetailedForm = ({ plan }: Props) => {
   const updateDraftPlan = useMutation(updateDraftPlanOverview, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: [getPlanByExternalId.service.typeName],
+        queryKey: [getPlanByLocalId.service.typeName],
       })
     },
   })
@@ -80,7 +80,6 @@ const BasicDetailedForm = ({ plan }: Props) => {
         netTerms: data.netTerms,
         planId: plan.planId,
         planVersionId: plan.planVersionId,
-        billingPeriods: plan.billingPeriods,
         currency: plan.currency,
       })
     } else {
@@ -103,7 +102,7 @@ const BasicDetailedForm = ({ plan }: Props) => {
             <span className="flex w-full justify-between">
               <span>Plan details</span>
               <span className="bg-muted text-muted-foreground p-1 rounded-sm ml-4 text-xs">
-                * affects all versions of this plan
+                affects all versions of this plan
               </span>
             </span>
           </div>

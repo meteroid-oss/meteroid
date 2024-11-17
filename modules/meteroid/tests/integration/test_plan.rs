@@ -68,7 +68,6 @@ async fn test_plans_basic() {
     assert_eq!(
         created_version.billing_config,
         Some(PlanBillingConfiguration {
-            billing_periods: vec![],
             net_terms: 0,
             service_period_start: Some(ServicePeriodStart::SubscriptionAnniversary(
                 SubscriptionAnniversary {}
@@ -235,7 +234,6 @@ async fn test_plans_basic() {
             description: Some("new-plan-desc".to_string()),
             currency: "AUD".to_string(),
             net_terms: 5,
-            billing_periods: vec![api::shared::v1::BillingPeriod::Quarterly as i32],
         })
         .await
         .unwrap()
@@ -252,10 +250,6 @@ async fn test_plans_basic() {
     );
     assert_eq!(&plan_overview.currency, "AUD");
     assert_eq!(&plan_overview.net_terms, &5);
-    assert_eq!(
-        &plan_overview.billing_periods,
-        &vec![api::shared::v1::BillingPeriod::Quarterly as i32]
-    );
 
     // discard plan version
     clients

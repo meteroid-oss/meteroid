@@ -3,9 +3,10 @@ use super::enums::{
 };
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
-use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionLatest};
+use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
+use crate::utils::local_id::{IdType, LocalId};
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
@@ -20,7 +21,6 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use uuid::Uuid;
-use crate::utils::local_id::{IdType, LocalId};
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
@@ -80,8 +80,6 @@ pub struct Invoice {
     pub xml_document_id: Option<String>,
 }
 
- 
-
 #[derive(Debug, o2o)]
 #[owned_try_into(InvoiceRowNew, StoreErrorReport)]
 #[ghosts(
@@ -123,7 +121,7 @@ pub struct InvoiceNew {
     pub amount_due: i64,
     pub net_terms: i32,
     pub reference: Option<String>,
-    pub memo: Option<String>, 
+    pub memo: Option<String>,
     pub due_at: Option<NaiveDateTime>, // TODO due_date
     pub plan_name: Option<String>,
     #[into(serde_json::to_value(& ~).map_err(| e | {
@@ -219,11 +217,11 @@ impl TryFrom<InvoiceWithCustomerRow> for InvoiceWithCustomer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DetailedInvoice {
     pub invoice: Invoice,
     pub customer: Customer,
-    pub plan: Option<PlanVersionLatest>,
+    pub plan: Option<PlanVersionOverview>,
 }
 
 impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {

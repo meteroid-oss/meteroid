@@ -44,8 +44,9 @@ export const PriceComponentSection = () => {
       ({
         id: c.id,
         name: c.name,
+        localId: c.localId,
         fee: c.fee ? mapFeeType(c.fee.feeType) : undefined,
-        productItemId: c.productItemId,
+        productId: c.productId,
       }) as PriceComponent
   )
 

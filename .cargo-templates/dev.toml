@@ -26,3 +26,7 @@ opt-level = 0
 lto = "off"
 codegen-units = 256
 debug = 0
+
+# trying https://github.com/mre/endler.dev/issues/53
+[profile.dev.build-override]
+opt-level = 3

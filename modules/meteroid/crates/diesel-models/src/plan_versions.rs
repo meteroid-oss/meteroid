@@ -18,6 +18,7 @@ pub struct PlanVersionRow {
     pub tenant_id: Uuid,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
+    // TODO is this used ? or always the tenant currency ?
     pub currency: String,
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
@@ -51,7 +52,7 @@ pub struct PlanVersionRowNew {
 #[derive(Debug, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanVersionRowLatest {
+pub struct PlanVersionRowOverview {
     pub id: Uuid,
     pub plan_id: Uuid,
     #[diesel(select_expression = crate::schema::plan::name)]
@@ -101,4 +102,11 @@ pub struct PlanVersionTrialRowPatch {
     pub trial_is_free: Option<bool>,
     pub trial_duration_days: Option<Option<i32>>,
     pub downgrade_plan_id: Option<Option<Uuid>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum PlanVersionFilter {
+    Draft,
+    Active,
+    Version(i32),
 }

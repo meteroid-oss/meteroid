@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const createPlanSchema = z.object({
   planName: z.string().nonempty('Name is required').max(256),
   description: z.string().max(2048).optional(),
-  externalId: z
+  localId: z
     .string()
     .nonempty('API Name is required')
     .min(3)
@@ -214,13 +214,14 @@ export type FeeType = z.infer<typeof FeeTypeSchema>
 export const PriceComponentSchema = z.object({
   id: z.string(),
   name: z.string(),
+  localId: z.string(),
   fee: FeeTypeSchema,
-  productItemId: z.string().optional(),
+  productId: z.string().optional(),
 })
 export type PriceComponent = z.infer<typeof PriceComponentSchema>
 
 export const byPlanVersionSchema = z.object({
-  externalId: z.string(),
+  localId: z.string(),
   version: z.number().int().optional(),
 })
 
@@ -236,7 +237,7 @@ export const addPriceComponentSchema = z.object({
   planVersionId: z.string(),
   name: z.string(),
   fee: FeeTypeSchema,
-  productItemId: z.string().optional(),
+  productId: z.string().optional(),
 })
 export type AddPriceComponent = z.infer<typeof addPriceComponentSchema>
 

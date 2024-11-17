@@ -180,6 +180,6 @@ export const mapPriceComponent = (priceComponent: grpc.PriceComponent): api.Pric
     id: priceComponent.id,
     name: priceComponent.name,
     fee: mapFeeType(priceComponent.fee.feeType),
-    productItemId: priceComponent.productItemId,
+    productId: priceComponent.productId,
   }
 }

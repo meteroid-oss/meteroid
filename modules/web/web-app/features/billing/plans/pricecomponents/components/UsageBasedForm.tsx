@@ -89,15 +89,15 @@ export const UsageBasedForm = (props: FeeFormProps) => {
     defaultValues: component?.data as UsageFee,
   })
 
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
 
   const metrics = useQuery(
     listBillableMetrics,
     {
-      familyExternalId: familyExternalId!,
+      familyLocalId: familyLocalId!,
     },
     {
-      enabled: !!familyExternalId,
+      enabled: !!familyLocalId,
     }
   )
 

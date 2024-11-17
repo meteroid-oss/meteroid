@@ -5,8 +5,8 @@ import {
 } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom, useSetAtom } from 'jotai'
-import { useHydrateAtoms } from 'jotai/utils'
 import { ScopeProvider } from 'jotai-scope'
+import { useHydrateAtoms } from 'jotai/utils'
 import { ReactNode } from 'react'
 import { DeepPartial } from 'react-hook-form'
 import { match } from 'ts-pattern'
@@ -75,7 +75,7 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
 
     createPriceComponent.mutate({
       planVersionId: overview.planVersionId,
-      // productItemId: undefined, // TODO
+      // productId: undefined, // TODO
       name: data.name,
       fee: mapFee(data.fee),
     })
@@ -138,7 +138,7 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
         id: component.id,
         fee: mapFee(data.fee),
         name: data.name,
-        productItemId: undefined, // TODO
+        productId: undefined, // TODO
       },
     })
   }

@@ -143,7 +143,7 @@ pub enum OutboxStatus {
     Failed,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
 #[map_owned(diesel_enums::PlanStatusEnum)]
 pub enum PlanStatusEnum {
     #[default]

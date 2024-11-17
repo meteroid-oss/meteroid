@@ -1,20 +1,41 @@
 use chrono::NaiveDateTime;
 use diesel_models::plan_versions::PlanVersionRow;
-use diesel_models::plan_versions::PlanVersionRowLatest;
 use diesel_models::plan_versions::PlanVersionRowNew;
+use diesel_models::plan_versions::PlanVersionRowOverview;
 use diesel_models::plan_versions::PlanVersionRowPatch;
 use diesel_models::plans::PlanFilters as PlanFiltersDb;
 use diesel_models::plans::PlanRow;
-use diesel_models::plans::PlanRowForList;
 use diesel_models::plans::PlanRowNew;
+use diesel_models::plans::PlanRowOverview;
 use diesel_models::plans::PlanRowPatch;
+use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
+
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
 use super::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNewInternal};
+
+#[derive(Debug, Clone)]
+pub enum PlanVersionFilter {
+    Draft,
+    Active,
+    Version(i32),
+}
+
+impl Into<diesel_models::plan_versions::PlanVersionFilter> for PlanVersionFilter {
+    fn into(self) -> diesel_models::plan_versions::PlanVersionFilter {
+        match self {
+            PlanVersionFilter::Draft => diesel_models::plan_versions::PlanVersionFilter::Draft,
+            PlanVersionFilter::Active => diesel_models::plan_versions::PlanVersionFilter::Active,
+            PlanVersionFilter::Version(v) => {
+                diesel_models::plan_versions::PlanVersionFilter::Version(v)
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PlanNew {
@@ -120,7 +141,7 @@ impl PlanVersionNew {
     }
 }
 
-#[derive(Debug, o2o)]
+#[derive(Debug, Clone, PartialEq, o2o)]
 #[from_owned(PlanRow)]
 pub struct Plan {
     pub id: Uuid,
@@ -135,9 +156,11 @@ pub struct Plan {
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
     pub status: PlanStatusEnum,
+    pub active_version_id: Option<Uuid>,
+    pub draft_version_id: Option<Uuid>,
 }
 
-#[derive(Debug, o2o)]
+#[derive(Debug, Clone, PartialEq, o2o)]
 #[from_owned(PlanVersionRow)]
 pub struct PlanVersion {
     pub id: Uuid,
@@ -166,28 +189,29 @@ pub struct FullPlan {
 }
 
 #[derive(Debug, o2o)]
-#[from_owned(PlanRowForList)]
-pub struct PlanForList {
+#[from_owned(PlanRowOverview)]
+pub struct PlanOverview {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
-    pub updated_at: Option<NaiveDateTime>,
-    pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
-    pub product_family_id: Uuid,
     pub local_id: String,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
     pub status: PlanStatusEnum,
     pub product_family_name: String,
+    #[from(~.map(| v | v.into()))]
+    pub active_version: Option<PlanVersionInfo>,
+    // pub draft_version: Option<Uuid>,
+    #[from(draft_version, ~.is_some())]
+    pub has_draft_version: bool,
+    pub subscription_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, o2o)]
-#[from_owned(PlanVersionRowLatest)]
-pub struct PlanVersionLatest {
+#[from_owned(PlanVersionRowOverview)]
+pub struct PlanVersionOverview {
     pub id: Uuid,
     pub plan_id: Uuid,
     pub plan_name: String,
@@ -208,6 +232,14 @@ pub struct PlanVersionLatest {
 }
 
 #[derive(Debug, o2o)]
+#[from_owned(PlanVersionRowInfo)]
+pub struct PlanVersionInfo {
+    pub version: i32,
+    pub trial_duration_days: Option<i32>,
+    // add currency(-ies) ?
+}
+
+#[derive(Debug, o2o)]
 #[owned_into(PlanVersionRowPatch)]
 pub struct PlanVersionPatch {
     pub id: Uuid,
@@ -224,20 +256,22 @@ pub struct PlanAndVersionPatch {
 
 #[derive(Debug, o2o)]
 #[owned_into(PlanRowPatch)]
+#[ghosts(draft_version_id: {None})]
 pub struct PlanPatch {
     pub id: Uuid,
     pub tenant_id: Uuid,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
+    pub active_version_id: Option<Option<Uuid>>,
 }
 
-#[derive(Debug, o2o)]
+#[derive(Debug, Clone, PartialEq, o2o)]
 #[from_owned(PlanWithVersionRow)]
 pub struct PlanWithVersion {
     #[from(~.into())]
     pub plan: Plan,
-    #[from(~.into())]
-    pub version: PlanVersion,
+    #[from(~.map(| v | v.into()))]
+    pub version: Option<PlanVersion>,
 }
 
 pub struct TrialPatch {

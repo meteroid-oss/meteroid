@@ -1,17 +1,22 @@
 pub mod plans {
+    use crate::api::customers::mapping::customer::{
+        ServerAddressWrapper, ServerShippingAddressWrapper,
+    };
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use error_stack::Report;
+    use meteroid_grpc::meteroid::api::plans::v1::plan_overview::ActiveVersionInfo;
     use meteroid_grpc::meteroid::api::plans::v1::{
         plan_billing_configuration as billing_config_grpc, ListPlanVersion, PlanOverview,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
-        trial_config::ActionAfterTrial, ListPlan, ListSubscribablePlanVersion, Plan,
-        PlanBillingConfiguration, PlanDetails, PlanStatus, PlanType, PlanVersion, TrialConfig,
+        trial_config::ActionAfterTrial, ListSubscribablePlanVersion, Plan,
+        PlanBillingConfiguration, PlanStatus, PlanType, PlanVersion, PlanWithVersion, TrialConfig,
     };
-
-    use crate::api::shared::conversions::AsProtoOpt;
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
+    use meteroid_store::errors::StoreError;
 
-    pub struct PlanDetailsWrapper(pub PlanDetails);
+    pub struct PlanWithVersionWrapper(pub PlanWithVersion);
 
     pub struct PlanVersionWrapper(pub PlanVersion);
 
@@ -20,10 +25,6 @@ pub mod plans {
     pub struct ActionAfterTrialWrapper(pub ActionAfterTrial);
 
     pub struct PlanStatusWrapper(pub PlanStatus);
-
-    pub struct ListPlanWrapper(pub ListPlan);
-
-    pub struct ListSubscribablePlanVersionWrapper(pub ListSubscribablePlanVersion);
 
     pub struct ListPlanVersionWrapper(pub ListPlanVersion);
 
@@ -36,6 +37,7 @@ pub mod plans {
                 is_draft: value.is_draft_version,
                 version: value.version as u32,
                 currency: value.currency,
+                created_at: value.created_at.as_proto(),
             })
         }
     }
@@ -96,9 +98,9 @@ pub mod plans {
         }
     }
 
-    impl From<domain::FullPlan> for PlanDetailsWrapper {
+    impl From<domain::FullPlan> for PlanWithVersionWrapper {
         fn from(value: domain::FullPlan) -> Self {
-            Self(PlanDetails {
+            Self(PlanWithVersion {
                 plan: Some(Plan {
                     id: value.plan.id.to_string(),
                     local_id: value.plan.local_id,
@@ -108,14 +110,13 @@ pub mod plans {
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
                 }),
                 current_version: Some(PlanVersionWrapper::from(value.version).0),
-                metadata: vec![],
             })
         }
     }
 
-    impl From<domain::PlanWithVersion> for PlanDetailsWrapper {
+    impl From<domain::PlanWithVersion> for PlanWithVersionWrapper {
         fn from(value: domain::PlanWithVersion) -> Self {
-            Self(PlanDetails {
+            Self(PlanWithVersion {
                 plan: Some(Plan {
                     id: value.plan.id.to_string(),
                     local_id: value.plan.local_id,
@@ -124,8 +125,7 @@ pub mod plans {
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
                 }),
-                current_version: Some(PlanVersionWrapper::from(value.version).0),
-                metadata: vec![],
+                current_version: value.version.map(|v| (PlanVersionWrapper::from(v).0)),
             })
         }
     }
@@ -192,23 +192,28 @@ pub mod plans {
         }
     }
 
-    impl From<domain::PlanForList> for ListPlanWrapper {
-        fn from(value: domain::PlanForList) -> Self {
-            Self(ListPlan {
+    impl From<domain::PlanOverview> for PlanOverviewWrapper {
+        fn from(value: domain::PlanOverview) -> Self {
+            Self(PlanOverview {
                 id: value.id.to_string(),
                 name: value.name,
                 local_id: value.local_id,
                 description: value.description,
                 plan_type: PlanTypeWrapper::from(value.plan_type).0 as i32,
                 plan_status: PlanStatusWrapper::from(value.status).0 as i32,
-                product_family_id: value.product_family_id.to_string(),
                 product_family_name: value.product_family_name,
+                has_draft_version: value.has_draft_version,
+                active_version: value.active_version.map(|v| ActiveVersionInfo {
+                    version: v.version as u32,
+                    trial_duration_days: v.trial_duration_days.map(|x| x as u32),
+                }),
+                subscription_count: value.subscription_count.map(|x| x as u32).unwrap_or(0),
             })
         }
     }
 
-    impl From<domain::PlanVersionLatest> for ListSubscribablePlanVersionWrapper {
-        fn from(value: domain::PlanVersionLatest) -> Self {
+    impl From<domain::PlanVersionOverview> for ListSubscribablePlanVersionWrapper {
+        fn from(value: domain::PlanVersionOverview) -> Self {
             Self(ListSubscribablePlanVersion {
                 id: value.id.to_string(),
                 plan_id: value.plan_id.to_string(),
@@ -234,22 +239,6 @@ pub mod plans {
                 currency: value.currency,
                 product_family_id: value.product_family_id.to_string(),
                 product_family_name: value.product_family_name,
-            })
-        }
-    }
-
-    impl From<domain::PlanWithVersion> for PlanOverviewWrapper {
-        fn from(value: domain::PlanWithVersion) -> Self {
-            Self(PlanOverview {
-                plan_id: value.plan.id.to_string(),
-                plan_version_id: value.version.id.to_string(),
-                name: value.plan.name,
-                version: value.version.version as u32,
-                description: value.plan.description,
-                currency: value.version.currency,
-                net_terms: value.version.net_terms as u32,
-                is_draft: value.version.is_draft_version,
-                plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
             })
         }
     }

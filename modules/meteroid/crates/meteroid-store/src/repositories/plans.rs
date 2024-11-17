@@ -3,17 +3,16 @@ use crate::StoreResult;
 
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,
-    PlanAndVersionPatch, PlanFilters, PlanForList, PlanPatch, PlanVersion, PlanVersionLatest,
+    PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanVersion, PlanVersionFilter,
     PlanVersionNew, PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
 };
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_async::AsyncConnection;
 use diesel_models::plan_versions::{
-    PlanVersionRow, PlanVersionRowLatest, PlanVersionRowNew, PlanVersionRowPatch,
-    PlanVersionTrialRowPatch,
+    PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
 };
-use diesel_models::plans::{PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch};
+use diesel_models::plans::{PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch};
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::tenants::TenantRow;
@@ -26,24 +25,31 @@ use crate::errors::StoreError;
 pub trait PlansInterface {
     async fn insert_plan(&self, plan: FullPlanNew) -> StoreResult<FullPlan>;
 
-    async fn get_plan_by_local_id(
+    async fn get_plan(
         &self,
         local_id: &str,
         auth_tenant_id: Uuid,
+        version_filter: PlanVersionFilter,
     ) -> StoreResult<PlanWithVersion>;
 
-    async fn get_plan_by_id(
-        &self,
-        plan_id: Uuid,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<PlanWithVersion>;
-
-    async fn find_plan_by_local_id_and_status(
+    /**
+     * Details of a plan irrespective of version
+     */
+    async fn get_plan_overview(
         &self,
         local_id: &str,
         auth_tenant_id: Uuid,
-        is_draft: Option<bool>,
-    ) -> StoreResult<Option<FullPlan>>;
+    ) -> StoreResult<PlanOverview>;
+
+    /**
+     * Find a plan by local id and version, including pricing components
+     */
+    async fn get_detailed_plan(
+        &self,
+        local_id: &str,
+        auth_tenant_id: Uuid,
+        version_filter: PlanVersionFilter,
+    ) -> StoreResult<FullPlan>;
 
     async fn list_plans(
         &self,
@@ -52,23 +58,21 @@ pub trait PlansInterface {
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> StoreResult<PaginatedVec<PlanForList>>;
+    ) -> StoreResult<PaginatedVec<PlanOverview>>;
 
-    async fn list_latest_published_plan_versions(
-        &self,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<Vec<PlanVersionLatest>>;
     async fn get_plan_version_by_id(
         &self,
         id: Uuid,
         auth_tenant_id: Uuid,
     ) -> StoreResult<PlanVersion>;
+
     async fn list_plan_versions(
         &self,
         plan_id: Uuid,
         auth_tenant_id: Uuid,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<PlanVersion>>;
+
     async fn copy_plan_version_to_draft(
         &self,
         plan_version_id: Uuid,
@@ -83,12 +87,6 @@ pub trait PlansInterface {
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion>;
 
-    async fn get_last_published_plan_version(
-        &self,
-        plan_id: Uuid,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<Option<PlanVersion>>;
-
     async fn discard_draft_plan_version(
         &self,
         plan_version_id: Uuid,
@@ -96,13 +94,7 @@ pub trait PlansInterface {
         auth_actor: Uuid,
     ) -> StoreResult<()>;
 
-    async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanWithVersion>;
-
-    async fn get_plan_with_version_by_local_id(
-        &self,
-        local_id: &str,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<PlanWithVersion>;
+    async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanOverview>;
 
     async fn patch_draft_plan(&self, patch: PlanAndVersionPatch) -> StoreResult<PlanWithVersion>;
 
@@ -203,73 +195,57 @@ impl PlansInterface for Store {
         Ok(res)
     }
 
-    async fn get_plan_by_local_id(
+    async fn get_plan(
         &self,
         local_id: &str,
         auth_tenant_id: Uuid,
+        version_filter: PlanVersionFilter,
     ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
 
-        let plan: Plan =
-            PlanRow::get_by_local_id_and_tenant_id(&mut conn, local_id, auth_tenant_id)
-                .await
-                .map(Into::into)
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let version: PlanVersion =
-            PlanVersionRow::get_latest_by_plan_id_and_tenant_id(&mut conn, plan.id, auth_tenant_id)
-                .await
-                .map(Into::into)
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        Ok(PlanWithVersion { plan, version })
-    }
-    async fn get_plan_by_id(
-        &self,
-        plan_id: Uuid,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<PlanWithVersion> {
-        let mut conn = self.get_conn().await?;
-
-        let plan: Plan = PlanRow::get_by_id_and_tenant_id(&mut conn, plan_id, auth_tenant_id)
-            .await
-            .map(Into::into)
-            .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let version: PlanVersion =
-            PlanVersionRow::get_latest_by_plan_id_and_tenant_id(&mut conn, plan.id, auth_tenant_id)
-                .await
-                .map(Into::into)
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        Ok(PlanWithVersion { plan, version })
-    }
-
-    async fn find_plan_by_local_id_and_status(
-        &self,
-        local_id: &str,
-        auth_tenant_id: Uuid,
-        is_draft: Option<bool>,
-    ) -> StoreResult<Option<FullPlan>> {
-        let mut conn = self.get_conn().await?;
-
-        let plan: Plan =
-            PlanRow::get_by_local_id_and_tenant_id(&mut conn, local_id, auth_tenant_id)
-                .await
-                .map(Into::into)
-                .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let version: Option<PlanVersion> = PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
+        PlanRow::get_with_version_by_local_id(
             &mut conn,
-            plan.id,
+            local_id,
             auth_tenant_id,
-            is_draft,
+            version_filter.into(),
         )
         .await
-        .map(|opt| opt.map(Into::into))
+        .map_err(Into::into)
+        .map(Into::into)
+    }
+
+    async fn get_plan_overview(
+        &self,
+        local_id: &str,
+        auth_tenant_id: Uuid,
+    ) -> StoreResult<PlanOverview> {
+        let mut conn = self.get_conn().await?;
+
+        PlanRow::get_overview_by_local_id(&mut conn, local_id, auth_tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
+    async fn get_detailed_plan(
+        &self,
+        local_id: &str,
+        auth_tenant_id: Uuid,
+        version_filter: PlanVersionFilter,
+    ) -> StoreResult<FullPlan> {
+        let mut conn = self.get_conn().await?;
+
+        let plan_with_version: PlanWithVersion = PlanRow::get_with_version_by_local_id(
+            &mut conn,
+            local_id,
+            auth_tenant_id,
+            version_filter.into(),
+        )
+        .await
+        .map(Into::into)
         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        match version {
+        match plan_with_version.version {
             Some(version) => {
                 let price_components: Vec<PriceComponent> =
                     PriceComponentRow::list_by_plan_version_id(
@@ -283,13 +259,15 @@ impl PlansInterface for Store {
                     .map(TryInto::try_into)
                     .collect::<Result<Vec<_>, _>>()?;
 
-                Ok(Some(FullPlan {
-                    plan,
+                Ok(FullPlan {
+                    plan: plan_with_version.plan,
                     version,
                     price_components,
-                }))
+                })
             }
-            None => Ok(None),
+            None => {
+                Err(StoreError::ValueNotFound("Plan version was not resolved".to_string()).into())
+            }
         }
     }
 
@@ -300,10 +278,10 @@ impl PlansInterface for Store {
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> StoreResult<PaginatedVec<PlanForList>> {
+    ) -> StoreResult<PaginatedVec<PlanOverview>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = PlanRowForList::list(
+        let rows = PlanRowOverview::list(
             &mut conn,
             auth_tenant_id,
             product_family_local_id,
@@ -314,25 +292,13 @@ impl PlansInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res: PaginatedVec<PlanForList> = PaginatedVec {
+        let res: PaginatedVec<PlanOverview> = PaginatedVec {
             items: rows.items.into_iter().map(Into::into).collect(),
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         };
 
         Ok(res)
-    }
-
-    async fn list_latest_published_plan_versions(
-        &self,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<Vec<PlanVersionLatest>> {
-        let mut conn = self.get_conn().await?;
-
-        PlanVersionRowLatest::list(&mut conn, auth_tenant_id)
-            .await
-            .map_err(Into::into)
-            .map(|x| x.into_iter().map(Into::into).collect())
     }
 
     async fn get_plan_version_by_id(
@@ -424,6 +390,18 @@ impl PlansInterface for Store {
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
+                PlanRowPatch {
+                    id: original.plan_id,
+                    tenant_id: original.tenant_id,
+                    name: None,
+                    description: None,
+                    active_version_id: None,
+                    draft_version_id: Some(Some(new.id)),
+                }
+                .update(conn)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
                 Ok(new.into())
             }
             .scope_boxed()
@@ -450,6 +428,18 @@ impl PlansInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
+                    PlanRowPatch {
+                        id: published.plan_id,
+                        tenant_id: published.tenant_id,
+                        name: None,
+                        description: None,
+                        active_version_id: Some(Some(published.id)),
+                        draft_version_id: Some(None),
+                    }
+                    .update(conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
                     Ok(published.into())
                 }
                 .scope_boxed()
@@ -468,23 +458,6 @@ impl PlansInterface for Store {
         Ok(res)
     }
 
-    async fn get_last_published_plan_version(
-        &self,
-        plan_id: Uuid,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<Option<PlanVersion>> {
-        let mut conn = self.get_conn().await?;
-        PlanVersionRow::find_latest_by_plan_id_and_tenant_id(
-            &mut conn,
-            plan_id,
-            auth_tenant_id,
-            Some(false),
-        )
-        .await
-        .map(|opt| opt.map(Into::into))
-        .map_err(Into::into)
-    }
-
     async fn discard_draft_plan_version(
         &self,
         plan_version_id: Uuid,
@@ -499,6 +472,18 @@ impl PlansInterface for Store {
                         plan_version_id,
                         auth_tenant_id,
                     )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                    PlanRowPatch {
+                        id: original.plan_id,
+                        tenant_id: original.tenant_id,
+                        name: None,
+                        description: None,
+                        active_version_id: None,
+                        draft_version_id: Some(None),
+                    }
+                    .update(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -528,7 +513,7 @@ impl PlansInterface for Store {
         Ok(res)
     }
 
-    async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanWithVersion> {
+    async fn patch_published_plan(&self, patch: PlanPatch) -> StoreResult<PlanOverview> {
         let mut conn = self.get_conn().await?;
 
         let patch: PlanRowPatch = patch.into();
@@ -538,20 +523,7 @@ impl PlansInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        PlanRow::get_with_version_by_local_id(&mut conn, plan.local_id.as_str(), plan.tenant_id)
-            .await
-            .map_err(Into::into)
-            .map(Into::into)
-    }
-
-    async fn get_plan_with_version_by_local_id(
-        &self,
-        local_id: &str,
-        auth_tenant_id: Uuid,
-    ) -> StoreResult<PlanWithVersion> {
-        let mut conn = self.get_conn().await?;
-
-        PlanRow::get_with_version_by_local_id(&mut conn, local_id, auth_tenant_id)
+        PlanRow::get_overview_by_local_id(&mut conn, plan.local_id.as_str(), plan.tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
@@ -575,6 +547,7 @@ impl PlansInterface for Store {
                         tenant_id: patched_version.tenant_id,
                         name: patch.name,
                         description: patch.description,
+                        active_version_id: None,
                     }
                     .into();
 
