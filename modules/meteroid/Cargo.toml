@@ -125,6 +125,10 @@ mockito = { workspace = true }
 name = "meteroid-api"
 path = "src/bin/server.rs"
 
+[[bin]]
+name = "openapi-generate"
+path = "src/bin/openapi.rs"
+
 # local / staging. For production workload, prefer running each worker as a pod and use k8s scheduler
 [[bin]]
 name = "meteroid-scheduler"

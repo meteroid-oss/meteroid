@@ -72,6 +72,14 @@ you can run the following commands for faster feedback:
 - for metering: `cargo build -p metering-grpc`
 - `pnpm --prefix modules/web/web-app run generate:proto`
 
+### Updating the Open API Specification
+
+Open API specification is generated from routes annotations found in `modules/meteroid/src/api_rest`
+Generated file is found in `spec/api/v1/openapi.json`
+On every change in the routes, the openapi.json file should be regenerated via the following command:
+
+- `cargo run -p meteroid --bin openapi-generate`
+
 ### Database Migrations
 
 To add new migration following steps are needed (executed from the project root):
@@ -88,3 +96,4 @@ To add new migration following steps are needed (executed from the project root)
 On meteroid_api startup the un-applied migrations run automatically.
 
 See https://diesel.rs/guides/getting-started for more info.
+        

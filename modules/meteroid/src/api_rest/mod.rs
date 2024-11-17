@@ -8,6 +8,7 @@ use std::sync::Arc;
 mod auth;
 mod files;
 mod model;
+pub mod openapi;
 pub mod server;
 mod subscriptions;
 mod webhooks;
