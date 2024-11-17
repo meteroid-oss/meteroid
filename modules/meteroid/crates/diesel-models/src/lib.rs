@@ -29,6 +29,7 @@ pub mod extend;
 pub mod historical_rates_from_usd;
 pub mod invoicing_entities;
 pub mod outbox;
+pub mod outbox_event;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;
