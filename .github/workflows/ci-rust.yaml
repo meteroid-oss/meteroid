@@ -6,7 +6,7 @@ on:
     branches:
       - main
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [ opened, reopened, synchronize ]
     paths:
       - ".github/workflows/ci-rust.yaml"
       - "Cargo.*"
@@ -98,3 +98,20 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.6
       - name: Linting
         run: cargo clippy -- -D warnings
+
+  openapi:
+    name: Open API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate OpenAPI
+        run: |
+          cargo run -p meteroid --bin openapi-generate
+          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json)" ]]; then
+            echo "openapi.json has uncommitted changes. Please commit the changes."
+            exit 1
+          fi
