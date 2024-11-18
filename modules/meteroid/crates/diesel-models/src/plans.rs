@@ -83,12 +83,6 @@ pub struct PlanRowPatch {
     pub draft_version_id: Option<Option<Uuid>>,
 }
 
-// Patch for
-/*
-   pub active_version_id: Option<Uuid>,
-   pub draft_version_id: Option<Uuid>,
-*/
-
 pub struct PlanFilters {
     pub search: Option<String>,
     pub filter_status: Vec<PlanStatusEnum>,

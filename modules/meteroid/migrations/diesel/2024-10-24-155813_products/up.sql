@@ -46,9 +46,6 @@ ALTER TABLE "plan"
   RENAME COLUMN "external_id" TO "local_id";
 ALTER INDEX "plan_tenant_id_external_id_key" RENAME TO "plan_tenant_id_local_id_key";
 
-
--- TODO what is the unicity we want here ?
--- same id when upgrading a plan ? probably
 ALTER TABLE "price_component"
   ADD COLUMN "local_id" TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT,
   ADD UNIQUE ("plan_version_id", "local_id");
@@ -65,14 +62,5 @@ DROP INDEX if exists "product_family_api_name_tenant_id_key";
 ALTER TABLE "subscription"
   ADD COLUMN "local_id" TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT,
   ADD UNIQUE ("tenant_id", "local_id");
-
-
--- ALTER TABLE "subscription_add_on"
---   ADD COLUMN "local_id" TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT,
---   ADD UNIQUE ("tenant_id", "local_id");
---
--- ALTER TABLE "subscription_component"
---   ADD COLUMN "local_id" TEXT NOT NULL DEFAULT gen_random_uuid()::TEXT,
---   ADD UNIQUE ("tenant_id", "local_id");
 
 

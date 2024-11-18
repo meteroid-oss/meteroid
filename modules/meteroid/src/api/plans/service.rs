@@ -396,28 +396,6 @@ impl PlansService for PlanServiceComponents {
 
     //
     // #[tracing::instrument(skip_all)]
-    // async fn get_plan_by_id(
-    //     &self,
-    //     request: Request<GetPlanByIdRequest>,
-    // ) -> Result<Response<GetPlanByIdResponse>, Status> {
-    //     let tenant_id = request.tenant()?;
-    //
-    //     let req = request.into_inner();
-    //
-    //     let plan_details = self
-    //         .store
-    //         .get_plan_by_id(Uuid::from_proto(req.plan_id)?, tenant_id)
-    //         .await
-    //         .map(|x| PlanDetailsWrapper::from(x).0)
-    //         .map_err(Into::<PlanApiError>::into)?;
-    //
-    //     Ok(Response::new(GetPlanByIdResponse {
-    //         plan_details: Some(plan_details),
-    //     }))
-    // }
-
-    //
-    // #[tracing::instrument(skip_all)]
     // async fn get_plan_parameters(
     //     &self,
     //     request: Request<GetPlanParametersRequest>,
