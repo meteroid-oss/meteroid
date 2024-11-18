@@ -164,7 +164,7 @@ tower-service = { version = "0.3.3" }
 tracing = { version = "0.1.39", features = ["log"] }
 tracing-futures = "0.2.5"
 tracing-log = "0.2.0"
-tracing-opentelemetry = { version = "0.27.0" }
+tracing-opentelemetry = { version = "0.28.0" }
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
 unic-langid = "0.9"
