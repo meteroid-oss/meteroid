@@ -24,10 +24,9 @@ pub enum PlanVersionFilter {
     Active,
     Version(i32),
 }
-
-impl Into<diesel_models::plan_versions::PlanVersionFilter> for PlanVersionFilter {
-    fn into(self) -> diesel_models::plan_versions::PlanVersionFilter {
-        match self {
+impl From<PlanVersionFilter> for diesel_models::plan_versions::PlanVersionFilter {
+    fn from(val: PlanVersionFilter) -> Self {
+        match val {
             PlanVersionFilter::Draft => diesel_models::plan_versions::PlanVersionFilter::Draft,
             PlanVersionFilter::Active => diesel_models::plan_versions::PlanVersionFilter::Active,
             PlanVersionFilter::Version(v) => {

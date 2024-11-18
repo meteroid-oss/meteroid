@@ -126,7 +126,7 @@ async fn test_plans_basic() {
             local_id: created_plan.local_id.clone(),
             filter: Some(
                 api::plans::v1::get_plan_with_version_request::Filter::Version(
-                    created_version.version.clone(),
+                    created_version.version,
                 ),
             ),
         })
