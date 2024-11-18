@@ -20,7 +20,6 @@ import { UsageBasedForm } from '@/features/billing/plans/pricecomponents/compone
 import {
   addedComponentsAtom,
   editedComponentsAtom,
-  usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { mapFee } from '@/lib/mapping/feesToGrpc'
 import { FormPriceComponent, PriceComponent, formPriceCompoentSchema } from '@/lib/schemas/plans'
@@ -30,6 +29,7 @@ import {
   listPriceComponents as listPriceComponentsQuery,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 
+import { usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { componentFeeTypeAtom, componentNameAtom, editedComponentAtom } from './atoms'
 
 interface CreatePriceComponentProps {
@@ -40,19 +40,19 @@ interface CreatePriceComponentProps {
 export const CreatePriceComponent = ({ createRef, component }: CreatePriceComponentProps) => {
   const setAddedComponents = useSetAtom(addedComponentsAtom)
 
-  const overview = usePlanOverview()
+  const { plan, version } = usePlanWithVersion()
 
   const queryClient = useQueryClient()
 
   const createPriceComponent = useMutation(createPriceComponentMutation, {
     onSuccess: data => {
-      if (!overview?.planVersionId) return
+      if (!version?.id) return
       setAddedComponents(components => components.filter(comp => comp.ref !== createRef))
 
       if (data.component) {
         queryClient.setQueryData(
           createConnectQueryKey(listPriceComponentsQuery, {
-            planVersionId: overview.planVersionId,
+            planVersionId: version.id,
           }),
           createProtobufSafeUpdater(listPriceComponentsQuery, prev => ({
             components: [...(prev?.components ?? []), data.component!],
@@ -71,10 +71,10 @@ export const CreatePriceComponent = ({ createRef, component }: CreatePriceCompon
     const validated = formPriceCompoentSchema.safeParse(data)
 
     console.log('validated', validated)
-    if (!overview?.planVersionId) return
+    if (!version?.id) return
 
     createPriceComponent.mutate({
-      planVersionId: overview.planVersionId,
+      planVersionId: version.id,
       // productId: undefined, // TODO
       name: data.name,
       fee: mapFee(data.fee),
@@ -95,19 +95,19 @@ interface EditPriceComponentProps {
 export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   const setEditedComponents = useSetAtom(editedComponentsAtom)
 
-  const overview = usePlanOverview()
+  const { version } = usePlanWithVersion()
 
   const queryClient = useQueryClient()
 
   const editPriceComponent = useMutation(editPriceComponentMutation, {
     onSuccess: data => {
-      if (!overview?.planVersionId) return
+      if (!version?.id) return
       setEditedComponents(components => components.filter(compId => compId !== component.id))
 
       if (data.component) {
         queryClient.setQueryData(
           createConnectQueryKey(listPriceComponentsQuery, {
-            planVersionId: overview.planVersionId,
+            planVersionId: version.id,
           }),
           createProtobufSafeUpdater(listPriceComponentsQuery, prev => {
             const idx = prev?.components?.findIndex(comp => comp.id === component.id) ?? -1
@@ -131,9 +131,9 @@ export const EditPriceComponent = ({ component }: EditPriceComponentProps) => {
   }
 
   const onSubmit = (data: FormPriceComponent) => {
-    if (!overview?.planVersionId) return
+    if (!version?.id) return
     editPriceComponent.mutate({
-      planVersionId: overview.planVersionId,
+      planVersionId: version.id,
       component: {
         id: component.id,
         fee: mapFee(data.fee),

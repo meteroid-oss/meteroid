@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom'
 
 import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
-import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
+import { useIsDraftVersion, usePlanOverview } from '@/features/billing/plans/hooks/usePlan'
 import { Plan, PlanStatus, PlanType, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 
 const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
@@ -23,6 +23,7 @@ const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
 
 export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
   const overview = usePlanOverview()
+  const isDraft = useIsDraftVersion()
   const navigate = useNavigate()
 
   const leftProperties: ComponentProps<typeof Property>[] = [
@@ -33,22 +34,27 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
       label: 'Plan handle',
       value: <LocalId localId={plan.localId} className="max-w-28" />,
     },
-    overview && overview.isDraft
+    overview && isDraft
       ? {
           label: 'Version',
           value: (
-            <div className="flex">
-              <span className="pr-1">{version.version} (active: </span>
-              <Link
-                to={`./${overview.defaultVersionId}`}
-                className="flex items-center text-blue-1100 hover:underline"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <LinkIcon size={12} strokeWidth={2} className="mr-1" />
-                {overview.version}
-              </Link>
-              )
+            <div className="flex gap-2">
+              <span className="pr-1">{version.version}</span>
+              {overview.activeVersion && (
+                <>
+                  <span className="pr-1">(active: </span>
+                  <Link
+                    to={`./${overview.activeVersion.version}`}
+                    className="flex items-center text-blue-1100 hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <LinkIcon size={12} strokeWidth={2} className="mr-1" />
+                    {overview.activeVersion.version}
+                  </Link>
+                  )
+                </>
+              )}
             </div>
           ),
         }

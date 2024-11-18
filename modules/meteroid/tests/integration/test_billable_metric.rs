@@ -59,6 +59,7 @@ async fn test_billable_metrics_basic() {
             segmentation_matrix: None, // todo add
             usage_group_key: Some("usage".to_string()),
             family_local_id: "product_family_local_id".to_string(),
+            product_id: None,
         })
         .await
         .unwrap()

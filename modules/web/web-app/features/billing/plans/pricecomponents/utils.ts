@@ -1,14 +1,10 @@
-import { disableQuery } from '@connectrpc/connect-query'
 import { atom, useAtomValue, useSetAtom } from 'jotai'
 import { nanoid } from 'nanoid'
 import { DeepPartial } from 'react-hook-form'
 import { match } from 'ts-pattern'
 
-import { usePlan } from '@/features/billing/plans/hooks/usePlan'
+import { usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { PriceComponent, PriceComponentType } from '@/features/billing/plans/types'
-import { useQuery } from '@/lib/connectrpc'
-import { getPlanOverviewByLocalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { useTypedParams } from '@/utils/params'
 
 interface AddedComponent {
   ref: string
@@ -16,51 +12,6 @@ interface AddedComponent {
 }
 export const addedComponentsAtom = atom<AddedComponent[]>([])
 export const editedComponentsAtom = atom<string[]>([])
-
-export const usePlanOverview = () => {
-  const { planLocalId, planVersion } = useTypedParams<{
-    planLocalId: string
-    planVersion?: string
-  }>()
-
-  const version =
-    planVersion === 'draft' ? ('draft' as const) : planVersion ? parseInt(planVersion) : undefined
-
-  /**
-  
-  Rule : 
-   - if a numerical version if provided, it is used
-   - if planVersion is "draft", the draft version is used
-   - Else, the active version is used. If no active, redirected to draft
-
-   */
-
-  const { data } = useQuery(
-    getPlanOverviewByLocalId,
-    planLocalId && version !== undefined
-      ? {
-          localId: planLocalId,
-          versionSelector:
-            version === 'draft'
-              ? {
-                  case: 'draft',
-                  value: true,
-                }
-              : {
-                  case: 'version',
-                  value: version,
-                },
-        }
-      : disableQuery
-  )
-
-  return data?.planOverview
-}
-
-export const useIsDraftVersion = () => {
-  const plan = usePlanOverview()
-  return plan?.isDraft ?? false
-}
 
 const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
   rate: {
@@ -163,9 +114,9 @@ export const formatPrice = (currency: string) => (price: string) => {
 }
 
 export const useCurrency = () => {
-  const { data: plan } = usePlan()
+  const { version } = usePlanWithVersion()
 
-  return plan?.planDetails?.currentVersion?.currency ?? 'USD' // TODO
+  return version?.currency ?? 'USD' // TODO
 }
 
 export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {

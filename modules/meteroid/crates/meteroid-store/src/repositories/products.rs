@@ -1,12 +1,12 @@
 use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, Product, ProductNew};
 use crate::errors::StoreError;
 use crate::store::Store;
+use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
 use uuid::Uuid;
-use crate::utils::local_id::{IdType, LocalId};
 
 #[async_trait::async_trait]
 pub trait ProductInterface {

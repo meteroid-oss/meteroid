@@ -149,6 +149,25 @@ impl PlansInterface for Store {
                         .map(Into::into)
                         .map_err(|err| StoreError::DatabaseError(err.error))?;
 
+                    let (active_version_id, draft_version_id) =
+                        match inserted_plan_version_new.is_draft_version {
+                            true => (None, Some(Some(inserted_plan_version_new.id))),
+                            false => (Some(Some(inserted_plan_version_new.id)), None),
+                        };
+
+                    let updated: Plan = PlanRowPatch {
+                        id: inserted.id,
+                        tenant_id: inserted.tenant_id,
+                        name: None,
+                        description: None,
+                        active_version_id,
+                        draft_version_id,
+                    }
+                    .update(conn)
+                    .await
+                    .map(Into::into)
+                    .map_err(|err| StoreError::DatabaseError(err.error))?;
+
                     // insert price component as batch, etc
                     let inserted_price_components = PriceComponentRow::insert_batch(
                         conn,
@@ -174,7 +193,7 @@ impl PlansInterface for Store {
 
                     Ok::<_, StoreError>(FullPlan {
                         price_components: inserted_price_components,
-                        plan: inserted,
+                        plan: updated,
                         version: inserted_plan_version_new,
                     })
                 }
@@ -491,6 +510,7 @@ impl PlansInterface for Store {
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;
 
+                    // only deletes if no versions left
                     PlanRow::delete(conn, original.plan_id, auth_tenant_id)
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?;

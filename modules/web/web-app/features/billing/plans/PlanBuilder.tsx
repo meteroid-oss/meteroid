@@ -13,13 +13,15 @@ import { SimpleTable } from '@/components/table/SimpleTable'
 import { ListPlanVersionTab } from '@/features/billing/plans/ListPlanVersion'
 import { PlanActions } from '@/features/billing/plans/PlanActions'
 import { PlanOverview } from '@/features/billing/plans/details/PlanDetails'
-import { usePlan } from '@/features/billing/plans/hooks/usePlan'
+import {
+  useIsDraftVersion,
+  usePlanOverview,
+  usePlanWithVersion,
+} from '@/features/billing/plans/hooks/usePlan'
 import { PriceComponentSection } from '@/features/billing/plans/pricecomponents/PriceComponentSection'
 import {
   addedComponentsAtom,
   editedComponentsAtom,
-  useIsDraftVersion,
-  usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/billing/plans/trial/PlanTrial'
 import { SubscriptionsTable } from '@/features/subscriptions'
@@ -95,7 +97,7 @@ const SubscriptionsTab = () => {
     listSubscriptions,
     overview
       ? {
-          planId: overview.planId,
+          planId: overview.id,
           pagination: {
             perPage: pagination.pageSize,
             page: pagination.pageIndex,
@@ -129,9 +131,9 @@ const SubscriptionsTab = () => {
 }
 
 const PlanBody = () => {
-  const { data: planData, isLoading } = usePlan()
+  const planData = usePlanWithVersion()
 
-  if (isLoading) {
+  if (planData.isLoading) {
     return (
       <>
         <Loading />
@@ -139,12 +141,12 @@ const PlanBody = () => {
     )
   }
 
-  if (!planData?.planDetails?.plan || !planData.planDetails.currentVersion) {
+  if (!planData?.plan || !planData.version) {
     return <>Failed to load plan</>
   }
 
-  const plan = planData.planDetails.plan
-  const current = planData.planDetails.currentVersion
+  const plan = planData.plan
+  const current = planData.version
 
   return (
     <>

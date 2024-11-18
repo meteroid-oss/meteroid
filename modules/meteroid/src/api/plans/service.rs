@@ -1,13 +1,13 @@
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
+use super::PlanServiceComponents;
 use crate::api::plans::error::PlanApiError;
 use crate::api::plans::mapping::plans::{
-    ActionAfterTrialWrapper, ListPlanVersionWrapper, ListSubscribablePlanVersionWrapper,
-    PlanOverviewWrapper, PlanStatusWrapper, PlanTypeWrapper, PlanVersionWrapper,
-    PlanWithVersionWrapper,
+    ActionAfterTrialWrapper, ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper,
+    PlanTypeWrapper, PlanVersionWrapper, PlanWithVersionWrapper,
 };
-use crate::api::shared::conversions::{FromProtoOpt, ProtoConv};
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use common_grpc::middleware::server::auth::RequestExt;
@@ -25,12 +25,11 @@ use meteroid_grpc::meteroid::api::plans::v1::{
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    OrderByRequest, PaginationRequest, PlanAndVersionPatch, PlanFilters, PlanPatch,
-    PlanVersionFilter, PlanVersionPatch, TrialPatch,
+    OrderByRequest, PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter,
+    PlanVersionPatch, TrialPatch,
 };
 use meteroid_store::repositories::PlansInterface;
-
-use super::PlanServiceComponents;
+use meteroid_store::utils::local_id::{IdType, LocalId};
 
 #[tonic::async_trait]
 impl PlansService for PlanServiceComponents {
@@ -52,7 +51,7 @@ impl PlansService for PlanServiceComponents {
                 description: req.description,
                 created_by,
                 tenant_id,
-                local_id: req.local_id,
+                local_id: LocalId::generate_for(IdType::Plan),
                 product_family_local_id: req.product_family_local_id,
                 status: domain::enums::PlanStatusEnum::Draft,
                 plan_type,

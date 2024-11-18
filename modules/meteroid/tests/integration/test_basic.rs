@@ -72,7 +72,6 @@ async fn test_main() {
         .create_draft_plan(tonic::Request::new(
             api::plans::v1::CreateDraftPlanRequest {
                 name: "Test - usage".to_string(),
-                local_id: "test-usage-plan".to_string(),
                 description: None,
                 product_family_local_id: product_family.local_id,
                 plan_type: PlanType::Standard as i32,
@@ -84,7 +83,7 @@ async fn test_main() {
         .plan
         .unwrap();
 
-    let plan_version = plan.current_version.unwrap();
+    let plan_version = plan.version.unwrap();
 
     let _price_component = clients
         .price_components

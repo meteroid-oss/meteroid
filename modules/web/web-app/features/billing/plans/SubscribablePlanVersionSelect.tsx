@@ -1,16 +1,17 @@
 import { A, D, F, pipe } from '@mobily/ts-belt'
 import {
+  Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectLabel,
-  Select,
   SelectTrigger,
 } from '@ui/components'
 
 import { useQuery } from '@/lib/connectrpc'
-import { ListSubscribablePlanVersion, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-import { listSubscribablePlanVersion } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { PlanOverview, PlanStatus, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
+import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
+import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 
 interface Props {
   value?: PlanVersion['id']
@@ -18,15 +19,21 @@ interface Props {
 }
 
 export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
-  const getPlanQuery = useQuery(listSubscribablePlanVersion)
+  const plansQuery = useQuery(listPlans, {
+    sortBy: ListPlansRequest_SortBy.DATE_DESC,
+    filters: {
+      statuses: [PlanStatus.ACTIVE],
+      types: [],
+    },
+  })
 
   const plansByFamily = pipe(
-    getPlanQuery.data?.planVersions,
-    F.defaultTo([] as ListSubscribablePlanVersion[]),
+    plansQuery.data?.plans,
+    F.defaultTo([] as PlanOverview[]),
     A.groupBy(p => p.productFamilyName)
   )
 
-  const selectedPlan = getPlanQuery.data?.planVersions.find(p => p.id === value)?.planName
+  const selectedPlan = plansQuery.data?.plans.find(p => p.id === value)?.name
 
   return (
     <Select value={value} onValueChange={onChange}>
@@ -40,7 +47,7 @@ export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
               <SelectLabel className="SelectLabel">{family}</SelectLabel>
               {plans?.map(p => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.planName}
+                  {p.name}
                 </SelectItem>
               ))}
             </SelectGroup>

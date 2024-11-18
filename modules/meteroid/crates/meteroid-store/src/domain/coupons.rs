@@ -1,11 +1,11 @@
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
 use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch};
 use error_stack::Report;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::utils::local_id::{IdType, LocalId};
 
 #[derive(Debug, Clone)]
 pub struct Coupon {

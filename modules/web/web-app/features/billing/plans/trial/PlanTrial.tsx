@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Form,
@@ -14,12 +14,12 @@ import { forwardRef, useEffect, useState } from 'react'
 import { Controller } from 'react-hook-form'
 import { z } from 'zod'
 
-import { useIsDraftVersion } from '@/features/billing/plans/pricecomponents/utils'
+import { useIsDraftVersion } from '@/features/billing/plans/hooks/usePlan'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanType, TrialConfig, TrialConfig_ActionAfterTrial } from '@/rpc/api/plans/v1/models_pb'
 import {
-  getPlanByLocalId,
+  getPlanOverview,
   listPlans,
   updatePlanTrial,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
@@ -135,7 +135,7 @@ export function PlanTrialForm({
     onSuccess: () => {
       afterSubmit()
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getPlanByLocalId, { localId: currentPlanLocalId }),
+        queryKey: [getPlanOverview.service.typeName],
       })
     },
   })

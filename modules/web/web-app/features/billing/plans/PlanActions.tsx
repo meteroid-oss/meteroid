@@ -1,4 +1,4 @@
-import { disableQuery, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import { Button, Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom, useSetAtom } from 'jotai'
@@ -7,18 +7,19 @@ import { useNavigate } from 'react-router-dom'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
 import {
-  addedComponentsAtom,
-  editedComponentsAtom,
   useIsDraftVersion,
   usePlanOverview,
+  usePlanWithVersion,
+} from '@/features/billing/plans/hooks/usePlan'
+import {
+  addedComponentsAtom,
+  editedComponentsAtom,
 } from '@/features/billing/plans/pricecomponents/utils'
-import { useQuery } from '@/lib/connectrpc'
 import {
   copyVersionToDraft,
   discardDraftVersion,
-  getLastPublishedPlanVersion,
-  publishPlanVersion,
   listPlans,
+  publishPlanVersion,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 export const PlanActions = () => {
@@ -34,15 +35,7 @@ export const PlanActions = () => {
 
   const isDraft = useIsDraftVersion()
 
-  const { data: lastPublishedVersion } = useQuery(
-    getLastPublishedPlanVersion,
-    overview?.planId
-      ? {
-          planId: overview.planId,
-        }
-      : disableQuery,
-    { enabled: isDraft }
-  )
+  const planWithVersion = usePlanWithVersion()
 
   const navigate = useNavigate()
 
@@ -70,16 +63,16 @@ export const PlanActions = () => {
   }
 
   const discardDraft = async () => {
-    if (!overview) return
+    if (!overview || !planWithVersion.plan || !planWithVersion.version) return
     setIsBusy(true)
 
     await discardDraftMutation.mutateAsync({
-      planId: overview.planId,
-      planVersionId: overview.planVersionId,
+      planId: planWithVersion.plan.id,
+      planVersionId: planWithVersion.version.id,
     })
     resetAtoms()
 
-    if (!lastPublishedVersion?.version) {
+    if (!overview?.activeVersion) {
       navigate('../')
     }
 
@@ -95,11 +88,11 @@ export const PlanActions = () => {
   const publishPlan = async () => {
     setIsBusy(true)
 
-    if (!overview) return
+    if (!overview || !planWithVersion.plan || !planWithVersion.version) return
 
     await publishPlanMutation.mutateAsync({
-      planId: overview.planId,
-      planVersionId: overview.planVersionId,
+      planId: planWithVersion.plan.id,
+      planVersionId: planWithVersion.version.id,
     })
     setIsBusy(false)
   }
@@ -111,10 +104,10 @@ export const PlanActions = () => {
   })
 
   const copyToDraft = async () => {
-    if (!overview) return
+    if (!overview || !planWithVersion.plan || !planWithVersion.version) return
     await copyToDraftMutation.mutateAsync({
-      planId: overview.planId,
-      planVersionId: overview.planVersionId,
+      planId: planWithVersion.plan.id,
+      planVersionId: planWithVersion.version.id,
     })
   }
 

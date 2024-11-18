@@ -4,6 +4,11 @@ import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import {
+  useIsDraftVersion,
+  usePlanOverview,
+  usePlanWithVersion,
+} from '@/features/billing/plans/hooks/usePlan'
+import {
   CreatePriceComponent,
   EditPriceComponent,
 } from '@/features/billing/plans/pricecomponents/EditPriceComponent'
@@ -11,8 +16,6 @@ import { PriceComponentCard } from '@/features/billing/plans/pricecomponents/Pri
 import {
   useAddedComponents,
   useEditedComponents,
-  useIsDraftVersion,
-  usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
@@ -26,6 +29,7 @@ export const PriceComponentSection = () => {
   const navigate = useNavigate()
 
   const overview = usePlanOverview()
+  const planWithVersion = usePlanWithVersion()
 
   const addedComponents = useAddedComponents()
   const editedComponens = useEditedComponents()
@@ -34,9 +38,9 @@ export const PriceComponentSection = () => {
 
   const priceComponents = useQuery(
     listPriceComponents,
-    overview?.planVersionId
+    planWithVersion?.version
       ? {
-          planVersionId: overview.planVersionId,
+          planVersionId: planWithVersion.version.id,
         }
       : disableQuery
   )?.data?.components?.map(

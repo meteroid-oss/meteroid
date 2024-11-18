@@ -1,5 +1,5 @@
 import { StandardTable } from '@/components/table/StandardTable'
-import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
+import { usePlanOverview } from '@/features/billing/plans/hooks/usePlan'
 import { useQuery } from '@/lib/connectrpc'
 import { ListPlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { listPlanVersionById } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
@@ -19,7 +19,7 @@ export const ListPlanVersionTab = () => {
     listPlanVersionById,
     overview
       ? {
-          planId: overview.planId,
+          planId: overview.id,
           pagination: {
             limit: pagination.pageSize,
             offset: pagination.pageIndex * pagination.pageSize,

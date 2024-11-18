@@ -78,7 +78,7 @@ pub struct BillableMetricNew {
     pub usage_group_key: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub family_local_id: String, 
+    pub family_local_id: String,
     pub product_id: Option<Uuid>,
 }
 

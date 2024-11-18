@@ -174,11 +174,16 @@ impl PlanRow {
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
 
+        println!(
+            ">>>>>>>> local_id: {}, tenant_id: {}, version_filter: {:?}",
+            local_id, tenant_id, version_filter
+        );
+
         let mut query = p_dsl::plan
-            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .left_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
             .filter(p_dsl::local_id.eq(local_id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .into_boxed(); // Converts the query to a boxed query
+            .into_boxed();
 
         match version_filter {
             PlanVersionFilter::Draft => {

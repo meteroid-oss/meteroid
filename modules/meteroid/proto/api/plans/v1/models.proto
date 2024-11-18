@@ -75,6 +75,8 @@ message PlanVersion {
   TrialConfig trial_config = 4;
   PlanBillingConfiguration billing_config = 5;
   string currency = 6;
+  optional int32 period_start_day = 8;
+  int32 net_terms = 9;
 }
 
 message ListPlanVersion {
@@ -83,20 +85,6 @@ message ListPlanVersion {
   uint32 version = 3;
   string currency = 6;
   string created_at = 7;
-}
-
-message ListSubscribablePlanVersion {
-  string plan_id = 1;
-  string id = 2;
-  string plan_name = 3;
-  int32 version = 4;
-  string created_by = 5;
-  optional int32 period_start_day = 8;
-  int32 net_terms = 9;
-  string currency = 10;
-  string product_family_id = 11;
-  string product_family_name = 12;
-  TrialConfig trial_config = 13;
 }
 
 message Metadata {
@@ -112,8 +100,9 @@ message Plan {
   PlanType plan_type = 5;
   PlanStatus plan_status = 6;
   //  string currency = 7;
-  //  PlanVersion current_version = 8;
-  //  repeated Metadata metadata = 9;
+  //  PlanVersion version = 8;
+  optional string active_version_id = 11;
+  optional string draft_version_id = 12;
 }
 
 message PlanOverview {
@@ -136,7 +125,7 @@ message PlanOverview {
 
 message PlanWithVersion {
   Plan plan = 1;
-  PlanVersion current_version = 2;
+  PlanVersion version = 2;
 }
 
 //message PlanOverview {

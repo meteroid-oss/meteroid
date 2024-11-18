@@ -1,20 +1,15 @@
 pub mod plans {
-    use crate::api::customers::mapping::customer::{
-        ServerAddressWrapper, ServerShippingAddressWrapper,
-    };
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
-    use error_stack::Report;
     use meteroid_grpc::meteroid::api::plans::v1::plan_overview::ActiveVersionInfo;
     use meteroid_grpc::meteroid::api::plans::v1::{
         plan_billing_configuration as billing_config_grpc, ListPlanVersion, PlanOverview,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
-        trial_config::ActionAfterTrial, ListSubscribablePlanVersion, Plan,
-        PlanBillingConfiguration, PlanStatus, PlanType, PlanVersion, PlanWithVersion, TrialConfig,
+        trial_config::ActionAfterTrial, Plan, PlanBillingConfiguration, PlanStatus, PlanType,
+        PlanVersion, PlanWithVersion, TrialConfig,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};
-    use meteroid_store::errors::StoreError;
 
     pub struct PlanWithVersionWrapper(pub PlanWithVersion);
 
@@ -94,6 +89,8 @@ pub mod plans {
                 trial_config: trial_config(&value),
                 billing_config: billing_config(&value),
                 currency: value.currency,
+                net_terms: value.net_terms,
+                period_start_day: value.period_start_day.map(|x| x as i32),
             })
         }
     }
@@ -108,8 +105,10 @@ pub mod plans {
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
+                    active_version_id: value.plan.active_version_id.as_proto(),
+                    draft_version_id: value.plan.draft_version_id.as_proto(),
                 }),
-                current_version: Some(PlanVersionWrapper::from(value.version).0),
+                version: Some(PlanVersionWrapper::from(value.version).0),
             })
         }
     }
@@ -124,8 +123,10 @@ pub mod plans {
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
+                    active_version_id: value.plan.active_version_id.as_proto(),
+                    draft_version_id: value.plan.draft_version_id.as_proto(),
                 }),
-                current_version: value.version.map(|v| (PlanVersionWrapper::from(v).0)),
+                version: value.version.map(|v| (PlanVersionWrapper::from(v).0)),
             })
         }
     }
@@ -208,37 +209,6 @@ pub mod plans {
                     trial_duration_days: v.trial_duration_days.map(|x| x as u32),
                 }),
                 subscription_count: value.subscription_count.map(|x| x as u32).unwrap_or(0),
-            })
-        }
-    }
-
-    impl From<domain::PlanVersionOverview> for ListSubscribablePlanVersionWrapper {
-        fn from(value: domain::PlanVersionOverview) -> Self {
-            Self(ListSubscribablePlanVersion {
-                id: value.id.to_string(),
-                plan_id: value.plan_id.to_string(),
-                plan_name: value.plan_name,
-                version: value.version,
-                created_by: value.created_by.to_string(),
-                trial_config: match value.trial_duration_days {
-                    Some(days) if days > 0 => Some(TrialConfig {
-                        trialing_plan_id: value.trialing_plan_id.as_proto(),
-                        downgrade_plan_id: value.downgrade_plan_id.as_proto(),
-                        action_after_trial: value
-                            .action_after_trial
-                            .map(|a| ActionAfterTrialWrapper::from(a).0)
-                            .unwrap_or(ActionAfterTrial::Block)
-                            .into(),
-                        duration_days: days as u32,
-                        trial_is_free: value.trial_is_free,
-                    }),
-                    _ => None,
-                },
-                period_start_day: value.period_start_day.map(|x| x as i32),
-                net_terms: value.net_terms,
-                currency: value.currency,
-                product_family_id: value.product_family_id.to_string(),
-                product_family_name: value.product_family_name,
             })
         }
     }

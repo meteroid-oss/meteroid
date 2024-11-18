@@ -11,7 +11,6 @@ import "google/protobuf/empty.proto";
 // Request and response messages for CreateDraftPlan RPC
 message CreateDraftPlanRequest {
   string name = 1;
-  string local_id = 2;
   optional string description = 3;
   string product_family_local_id = 4;
   PlanType plan_type = 5;

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { useQuery } from '@/lib/connectrpc'
-import { ListPlan } from '@/rpc/api/plans/v1/models_pb'
+import { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { useTypedParams } from '@/utils/params'
@@ -40,7 +40,7 @@ export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ 
 
   const navigate = useNavigate()
 
-  const columns = useMemo<ColumnDef<ListPlan>[]>(
+  const columns = useMemo<ColumnDef<PlanOverview>[]>(
     () => [
       {
         header: 'Name',
