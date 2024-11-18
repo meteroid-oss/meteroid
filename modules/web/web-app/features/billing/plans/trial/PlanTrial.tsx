@@ -28,7 +28,6 @@ import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 interface TrialProps {
   config?: TrialConfig
   currentPlanId: string
-  currentPlanLocalId: string
   currentPlanVersionId: string
 }
 
@@ -58,12 +57,7 @@ const actionAfterTrialToGrpc = (action?: 'BLOCK' | 'CHARGE' | 'DOWNGRADE') => {
   }
 }
 
-export const PlanTrial = ({
-  config,
-  currentPlanId,
-  currentPlanVersionId,
-  currentPlanLocalId,
-}: TrialProps) => {
+export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: TrialProps) => {
   const isDraft = useIsDraftVersion()
   const [isEditing, setIsEditing] = useState(false)
 
@@ -73,7 +67,6 @@ export const PlanTrial = ({
         config={config}
         currentPlanId={currentPlanId}
         currentPlanVersionId={currentPlanVersionId}
-        currentPlanLocalId={currentPlanLocalId}
         cancel={() => setIsEditing(false)}
         afterSubmit={() => setIsEditing(false)}
       />
@@ -104,7 +97,6 @@ interface TrialConfigSentenceProps {
   config?: TrialConfig
   currentPlanId: string
   currentPlanVersionId: string
-  currentPlanLocalId: string
   afterSubmit: () => void
   cancel: () => void
 }
@@ -112,7 +104,6 @@ export function PlanTrialForm({
   config,
   currentPlanId,
   currentPlanVersionId,
-  currentPlanLocalId,
   afterSubmit,
   cancel,
 }: TrialConfigSentenceProps) {

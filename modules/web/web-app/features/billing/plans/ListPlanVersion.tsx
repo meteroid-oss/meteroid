@@ -1,11 +1,12 @@
+import { disableQuery } from '@connectrpc/connect-query'
+import { ColumnDef, PaginationState, Row } from '@tanstack/react-table'
+import { useMemo, useState } from 'react'
+
 import { StandardTable } from '@/components/table/StandardTable'
 import { usePlanOverview } from '@/features/billing/plans/hooks/usePlan'
 import { useQuery } from '@/lib/connectrpc'
 import { ListPlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import { listPlanVersionById } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { disableQuery } from '@connectrpc/connect-query'
-import { ColumnDef, PaginationState, Row } from '@tanstack/react-table'
-import { useMemo, useState } from 'react'
 
 export const ListPlanVersionTab = () => {
   const overview = usePlanOverview()

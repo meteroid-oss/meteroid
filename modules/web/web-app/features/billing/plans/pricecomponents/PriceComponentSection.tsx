@@ -3,11 +3,7 @@ import { Button } from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import {
-  useIsDraftVersion,
-  usePlanOverview,
-  usePlanWithVersion,
-} from '@/features/billing/plans/hooks/usePlan'
+import { useIsDraftVersion, usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import {
   CreatePriceComponent,
   EditPriceComponent,
@@ -28,7 +24,6 @@ import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponent
 export const PriceComponentSection = () => {
   const navigate = useNavigate()
 
-  const overview = usePlanOverview()
   const planWithVersion = usePlanWithVersion()
 
   const addedComponents = useAddedComponents()

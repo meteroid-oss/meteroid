@@ -2,15 +2,16 @@ import { ColumnDef, PaginationState } from '@tanstack/react-table'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
+import { displayPlanStatus, displayPlanType, printPlanStatus } from '@/features/billing/plans/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { useTypedParams } from '@/utils/params'
 
-import { LocalId } from '@/components/LocalId'
-import { displayPlanStatus, displayPlanType, printPlanStatus } from '@/features/billing/plans/utils'
+
 import type { FunctionComponent } from 'react'
 
 export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ search }) => {

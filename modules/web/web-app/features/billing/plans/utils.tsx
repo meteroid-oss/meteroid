@@ -1,6 +1,7 @@
-import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { Badge } from '@ui/components'
 import { CheckIcon, CircleDashed, XIcon } from 'lucide-react'
+
+import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 
 export function displayPlanType(planType: PlanType) {
   switch (planType) {

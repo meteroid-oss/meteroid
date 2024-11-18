@@ -78,7 +78,6 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
     const plan = await createPlan.mutateAsync({
       name: data.planName,
       description: data.description,
-      localId: data.localId,
       planType: PlanType[data.planType],
       productFamilyLocalId: familyLocalId,
     })

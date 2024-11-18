@@ -5,12 +5,13 @@ import {
 } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom, useSetAtom } from 'jotai'
-import { ScopeProvider } from 'jotai-scope'
 import { useHydrateAtoms } from 'jotai/utils'
+import { ScopeProvider } from 'jotai-scope'
 import { ReactNode } from 'react'
 import { DeepPartial } from 'react-hook-form'
 import { match } from 'ts-pattern'
 
+import { usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { CapacityForm } from '@/features/billing/plans/pricecomponents/components/CapacityForm'
 import { OneTimeForm } from '@/features/billing/plans/pricecomponents/components/OneTimeForm'
 import { RecurringForm } from '@/features/billing/plans/pricecomponents/components/RecurringForm'
@@ -29,7 +30,6 @@ import {
   listPriceComponents as listPriceComponentsQuery,
 } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 
-import { usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { componentFeeTypeAtom, componentNameAtom, editedComponentAtom } from './atoms'
 
 interface CreatePriceComponentProps {
@@ -40,7 +40,7 @@ interface CreatePriceComponentProps {
 export const CreatePriceComponent = ({ createRef, component }: CreatePriceComponentProps) => {
   const setAddedComponents = useSetAtom(addedComponentsAtom)
 
-  const { plan, version } = usePlanWithVersion()
+  const { version } = usePlanWithVersion()
 
   const queryClient = useQueryClient()
 

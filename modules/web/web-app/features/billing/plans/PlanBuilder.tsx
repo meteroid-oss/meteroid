@@ -166,7 +166,6 @@ const PlanBody = () => {
               config={current?.trialConfig}
               currentPlanId={plan.id}
               currentPlanVersionId={current.id}
-              currentPlanLocalId={plan.localId}
             />
           </PageSection>
 

@@ -1,9 +1,9 @@
 import { TableCell, TableRow } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState, Row, flexRender } from '@tanstack/react-table'
 import { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 import { CustomTable } from '@/components/table/CustomTable'
-import { Link } from 'react-router-dom'
 
 interface StandardTableProps<A> {
   columns: ColumnDef<A>[]

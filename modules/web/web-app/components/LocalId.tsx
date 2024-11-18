@@ -1,8 +1,9 @@
-import { copyToClipboard } from '@/lib/helpers'
 import { Button } from '@ui/components'
 import { cn } from '@ui/lib'
 import { CopyIcon } from 'lucide-react'
 import { toast } from 'sonner'
+
+import { copyToClipboard } from '@/lib/helpers'
 
 export const LocalId = ({
   localId,
@@ -16,8 +17,8 @@ export const LocalId = ({
   return (
     <Button
       type="button"
-      variant={'special'}
-      size={'content'}
+      variant="special"
+      size="content"
       title="Copy to clipboard"
       hasIcon
       className={cn(
