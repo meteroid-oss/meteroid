@@ -1,12 +1,12 @@
 use error_stack::Report;
 use uuid::Uuid;
 
-use diesel_models::outbox::{OutboxRow, OutboxRowNew};
-
-use crate::domain::{Outbox, OutboxEvent, OutboxNew};
+use crate::domain::{outbox_event, Outbox, OutboxEvent, OutboxNew};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::StoreResult;
+use diesel_models::outbox::{OutboxRow, OutboxRowNew};
+use diesel_models::outbox_event::OutboxEventRowNew;
 
 #[async_trait::async_trait]
 pub trait OutboxInterface {
@@ -22,6 +22,8 @@ pub trait OutboxInterface {
     async fn mark_outbox_entry_as_failed(&self, id: Uuid, error: String) -> StoreResult<()>;
 
     async fn insert_outbox_item_no_tx(&self, item: OutboxNew) -> StoreResult<Outbox>;
+
+    async fn insert_outbox_event(&self, event: outbox_event::OutboxEvent) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -78,6 +80,13 @@ impl OutboxInterface for Store {
         let mut conn = self.get_conn().await?;
         self.internal.insert_outbox_item(&mut conn, item).await
     }
+
+    async fn insert_outbox_event(&self, event: outbox_event::OutboxEvent) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        self.internal
+            .insert_outbox_events_tx(&mut conn, vec![event])
+            .await
+    }
 }
 
 impl StoreInternal {
@@ -89,5 +98,20 @@ impl StoreInternal {
         let row: OutboxRowNew = item.try_into()?;
         let outbox_created = row.insert(conn).await?;
         outbox_created.try_into()
+    }
+
+    pub async fn insert_outbox_events_tx(
+        &self,
+        conn: &mut PgConn,
+        events: Vec<outbox_event::OutboxEvent>,
+    ) -> StoreResult<()> {
+        let rows: Vec<OutboxEventRowNew> = events
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<Vec<_>, Report<StoreError>>>()?;
+
+        OutboxEventRowNew::insert_batch(conn, &rows)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
     }
 }

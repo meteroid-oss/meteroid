@@ -478,6 +478,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    outbox_event (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        aggregate_id -> Text,
+        aggregate_type -> Text,
+        event_type -> Text,
+        payload -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::PlanTypeEnum;
     use super::sql_types::PlanStatusEnum;
@@ -837,6 +849,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     organization,
     organization_member,
     outbox,
+    outbox_event,
     plan,
     plan_version,
     price_component,

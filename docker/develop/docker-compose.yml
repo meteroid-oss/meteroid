@@ -83,6 +83,36 @@ services:
     networks:
       - meteroid_net
 
+  debezium:
+    image: quay.io/debezium/connect:2.7.3.Final
+    depends_on:
+      - redpanda
+    ports:
+      - 8083:8083
+    environment:
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=connect_configs
+      - OFFSET_STORAGE_TOPIC=connect_offsets
+      - STATUS_STORAGE_TOPIC=connect_statuses
+      - BOOTSTRAP_SERVERS=redpanda:29092
+      # CONNECT_ properties are for the Connect worker
+      #  - CONNECT_TOPIC_CREATION_ENABLE=true
+      #  - CONNECT_TOPIC_CREATION_DEFAULT_REPLICATION_FACTOR=3
+      #  - CONNECT_TOPIC_CREATION_DEFAULT_PARTITIONS=3
+      - CONNECT_BOOTSTRAP_SERVERS=redpanda:29092
+      #     - CONNECT_SECURITY_PROTOCOL=${KAFKA_SECURITY_PROTOCOL}
+      #     - CONNECT_SASL_JAAS_CONFIG=${KAFKA_SASL_JAAS_CONFIG}
+      #     - CONNECT_SASL_MECHANISM=${KAFKA_SASL_MECHANISM}
+      #     - CONNECT_PRODUCER_SECURITY_PROTOCOL=${KAFKA_SECURITY_PROTOCOL}
+      #     - CONNECT_PRODUCER_SASL_JAAS_CONFIG=${KAFKA_SASL_JAAS_CONFIG}
+      #     - CONNECT_PRODUCER_SASL_MECHANISM=${KAFKA_SASL_MECHANISM}
+      #     - CONNECT_CONSUMER_SECURITY_PROTOCOL=${KAFKA_SECURITY_PROTOCOL}
+      #     - CONNECT_CONSUMER_SASL_JAAS_CONFIG=${KAFKA_SASL_JAAS_CONFIG}
+      #     - CONNECT_CONSUMER_SASL_MECHANISM=${KAFKA_SASL_MECHANISM}
+      - CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+    networks:
+      - meteroid_net
 
   ### Metering Dependencies
   clickhouse:
@@ -131,9 +161,6 @@ services:
       - meteroid_net
     ports:
       - 9092:9092
-    profiles:
-      - metering
-
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:v2.3.1

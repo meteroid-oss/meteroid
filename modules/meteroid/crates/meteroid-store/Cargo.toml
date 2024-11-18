@@ -48,6 +48,7 @@ rustls = { workspace = true, features = ["ring"] }
 tokio-postgres-rustls = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 rstest = { workspace = true }
