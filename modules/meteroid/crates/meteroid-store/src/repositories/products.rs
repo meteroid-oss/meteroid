@@ -1,6 +1,7 @@
 use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, Product, ProductNew};
 use crate::errors::StoreError;
 use crate::store::Store;
+use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
@@ -14,14 +15,14 @@ pub trait ProductInterface {
     async fn list_products(
         &self,
         auth_tenant_id: Uuid,
-        family_external_id: &str,
+        family_local_id: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
     async fn search_products(
         &self,
         auth_tenant_id: Uuid,
-        family_external_id: &str,
+        family_local_id: &str,
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -33,9 +34,9 @@ impl ProductInterface for Store {
     async fn create_product(&self, product: ProductNew) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
-        let family = ProductFamilyRow::find_by_external_id_and_tenant_id(
+        let family = ProductFamilyRow::find_by_local_id_and_tenant_id(
             &mut conn,
-            product.family_external_id.as_str(),
+            product.family_local_id.as_str(),
             product.tenant_id,
         )
         .await
@@ -43,6 +44,7 @@ impl ProductInterface for Store {
 
         let insertable = ProductRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Product),
             name: product.name,
             description: product.description,
             created_by: product.created_by,
@@ -69,7 +71,7 @@ impl ProductInterface for Store {
     async fn list_products(
         &self,
         auth_tenant_id: Uuid,
-        family_external_id: &str,
+        family_local_id: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>> {
@@ -78,7 +80,7 @@ impl ProductInterface for Store {
         let rows = ProductRow::list(
             &mut conn,
             auth_tenant_id,
-            family_external_id,
+            family_local_id,
             pagination.into(),
             order_by.into(),
         )
@@ -97,7 +99,7 @@ impl ProductInterface for Store {
     async fn search_products(
         &self,
         auth_tenant_id: Uuid,
-        family_external_id: &str,
+        family_local_id: &str,
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -107,7 +109,7 @@ impl ProductInterface for Store {
         let rows = ProductRow::search(
             &mut conn,
             auth_tenant_id,
-            family_external_id,
+            family_local_id,
             query,
             pagination.into(),
             order_by.into(),

@@ -3,6 +3,7 @@ import { Button } from '@md/ui'
 import { useNavigate } from 'react-router-dom'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { useIsDraftVersion, usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import {
   CreatePriceComponent,
   EditPriceComponent,
@@ -11,8 +12,6 @@ import { PriceComponentCard } from '@/features/billing/plans/pricecomponents/Pri
 import {
   useAddedComponents,
   useEditedComponents,
-  useIsDraftVersion,
-  usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
@@ -25,7 +24,7 @@ import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponent
 export const PriceComponentSection = () => {
   const navigate = useNavigate()
 
-  const overview = usePlanOverview()
+  const planWithVersion = usePlanWithVersion()
 
   const addedComponents = useAddedComponents()
   const editedComponens = useEditedComponents()
@@ -34,9 +33,9 @@ export const PriceComponentSection = () => {
 
   const priceComponents = useQuery(
     listPriceComponents,
-    overview?.planVersionId
+    planWithVersion?.version
       ? {
-          planVersionId: overview.planVersionId,
+          planVersionId: planWithVersion.version.id,
         }
       : disableQuery
   )?.data?.components?.map(
@@ -44,8 +43,9 @@ export const PriceComponentSection = () => {
       ({
         id: c.id,
         name: c.name,
+        localId: c.localId,
         fee: c.fee ? mapFeeType(c.fee.feeType) : undefined,
-        productItemId: c.productItemId,
+        productId: c.productId,
       }) as PriceComponent
   )
 

@@ -44,7 +44,7 @@ export type PriceRampSchema = z.infer<typeof priceRampSchema>
 
 export const createPricePointSchema = z.object({
   pricePointName: z.string().nonempty('Name is required').max(256),
-  planExternalId: z.string(),
+  planLocalId: z.string(),
   currency: z.string(),
   cycle: z.enum(['FOREVER', 'FIXED']),
   frequency: z.enum(['ANNUAL', 'MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'SEMI_MONTHLY']),
@@ -55,5 +55,5 @@ export const createPricePointSchema = z.object({
 })
 
 export const listPricePointsSchema = z.object({
-  planExternalId: z.string(),
+  planLocalId: z.string(),
 })

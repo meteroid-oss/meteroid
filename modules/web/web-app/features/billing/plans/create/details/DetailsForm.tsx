@@ -57,7 +57,7 @@ interface Props {
   onCancel: () => void
 }
 export const DetailsForm: FC<Props> = ({ onCancel }) => {
-  const { familyExternalId } = useTypedParams()
+  const { familyLocalId } = useTypedParams()
   const methods = useZodForm({
     schema: createPlanSchema,
     defaultValues: {
@@ -78,14 +78,13 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
     const plan = await createPlan.mutateAsync({
       name: data.planName,
       description: data.description,
-      externalId: data.externalId,
       planType: PlanType[data.planType],
-      productFamilyExternalId: familyExternalId,
+      productFamilyLocalId: familyLocalId,
     })
     if (data.planType === 'FREE') {
-      navigate(`${plan.plan?.plan?.externalId}`)
+      navigate(`${plan.plan?.plan?.localId}`)
     } else {
-      navigate(`${plan.plan?.plan?.externalId}/onboarding`)
+      navigate(`${plan.plan?.plan?.localId}/onboarding`)
     }
   }
 
@@ -114,12 +113,12 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
               />
               <div className="w-full border-b "></div>
               <GenericFormField
-                name="externalId"
+                name="localId"
                 label="Code"
                 layout="horizontal"
                 control={methods.control}
                 render={({ field, className }) => (
-                  <ExternalIdInput methods={methods} field={field} className={className} />
+                  <LocalIdInput methods={methods} field={field} className={className} />
                 )}
               />
               <FormDescription>
@@ -158,7 +157,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
   )
 }
 
-const ExternalIdInput = <
+const LocalIdInput = <
   TFieldValues extends FieldValues = FieldValues,
   TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
 >({
@@ -178,11 +177,11 @@ const ExternalIdInput = <
       // we generate a alphanumeric + -_ api name absed on the product family and the the plan name
       const name = methods.getValues('planName')
       const nameCleaned = generateFromName(name)
-      const externalId = `${productFamily?.externalId}_${nameCleaned}`
-      methods.setValue('externalId', externalId, { shouldValidate: true })
+      const localId = `${productFamily?.localId}_${nameCleaned}`
+      methods.setValue('localId', localId, { shouldValidate: true })
     }
 
-    if (planName && !methods.getFieldState('externalId').isDirty) generate()
+    if (planName && !methods.getFieldState('localId').isDirty) generate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planName])
   return (

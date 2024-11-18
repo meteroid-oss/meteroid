@@ -3,8 +3,6 @@ syntax = "proto3";
 package meteroid.api.webhooks.out.v1;
 
 import "api/webhooksout/v1/models.proto";
-import "google/protobuf/timestamp.proto";
-import "api/invoices/v1/models.proto";
 import "common/v1/pagination.proto";
 
 message CreateWebhookEndpointRequest {

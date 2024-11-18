@@ -9,7 +9,7 @@ import { PlanEdit } from '@/pages/tenants/billing/plans/edit'
 import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboarding'
 import { Catalog, CatalogOutlet } from '@/pages/tenants/catalog'
 import { CreateBillableMetric } from '@/pages/tenants/catalog/createBillableMetric'
-import { ProductItems } from '@/pages/tenants/catalog/productItems'
+import { Products } from '@/pages/tenants/catalog/productItems'
 import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
 
 export const productCatalogRoutes: RouteObject = {
@@ -20,7 +20,7 @@ export const productCatalogRoutes: RouteObject = {
       element: <Catalog />,
     },
     {
-      path: ':familyExternalId',
+      path: ':familyLocalId',
       element: <CatalogOutlet />,
       children: [
         {
@@ -29,7 +29,7 @@ export const productCatalogRoutes: RouteObject = {
         },
         {
           path: 'items',
-          element: <ProductItems />,
+          element: <Products />,
         },
         {
           path: 'metrics',
@@ -49,7 +49,7 @@ export const productCatalogRoutes: RouteObject = {
               index: true,
             },
             {
-              path: ':planExternalId',
+              path: ':planLocalId/:planVersion?',
               element: <PlanEdit />,
               children: [
                 {

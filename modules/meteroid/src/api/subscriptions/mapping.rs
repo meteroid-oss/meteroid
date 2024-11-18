@@ -16,6 +16,7 @@ pub mod subscriptions {
 
         Ok(proto2::Subscription {
             id: s.id.as_proto(),
+            local_id: s.local_id,
             tenant_id: s.tenant_id.as_proto(),
             customer_id: s.customer_id.as_proto(),
             plan_id: s.plan_id.as_proto(),
@@ -86,6 +87,7 @@ pub mod subscriptions {
     ) -> Result<proto2::CreatedSubscription, Status> {
         Ok(proto2::CreatedSubscription {
             id: sub.id.as_proto(),
+            local_id: sub.local_id,
             customer_id: sub.customer_id.as_proto(),
             billing_day: sub.billing_day as u32,
             tenant_id: sub.tenant_id.as_proto(),
@@ -111,6 +113,7 @@ pub mod subscriptions {
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
                 id: sub.id.as_proto(),
+                local_id: sub.local_id,
                 tenant_id: sub.tenant_id.as_proto(),
                 customer_id: sub.customer_id.as_proto(),
                 plan_id: sub.plan_id.as_proto(),
@@ -125,7 +128,7 @@ pub mod subscriptions {
                 billing_end_date: sub.billing_end_date.as_proto(),
                 billing_start_date: sub.billing_start_date.as_proto(),
                 customer_name: sub.customer_name,
-                customer_alias: sub.customer_external_id,
+                customer_alias: sub.customer_alias,
                 canceled_at: sub.canceled_at.as_proto(),
                 cancellation_reason: sub.cancellation_reason,
                 billing_day: sub.billing_day as u32,
@@ -282,8 +285,8 @@ mod price_components {
                 .price_component_id
                 .map(|id| Uuid::from_proto_ref(&id))
                 .transpose()?,
-            product_item_id: component
-                .product_item_id
+            product_id: component
+                .product_id
                 .map(|id| Uuid::from_proto_ref(&id))
                 .transpose()?,
             name: component.name.clone(),
@@ -298,7 +301,7 @@ mod price_components {
         api::SubscriptionComponent {
             id: component.id.to_string(),
             price_component_id: component.price_component_id.map(|id| id.to_string()),
-            product_item_id: component.product_item_id.map(|id| id.to_string()),
+            product_id: component.product_id.map(|id| id.to_string()),
             subscription_id: component.subscription_id.to_string(),
             name: component.name.clone(),
             period: subscription_fee_billing_period_to_grpc(component.period.clone()).into(),

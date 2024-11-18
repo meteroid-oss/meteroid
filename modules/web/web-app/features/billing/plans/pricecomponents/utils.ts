@@ -1,14 +1,10 @@
-import { disableQuery } from '@connectrpc/connect-query'
 import { atom, useAtomValue, useSetAtom } from 'jotai'
 import { nanoid } from 'nanoid'
 import { DeepPartial } from 'react-hook-form'
 import { match } from 'ts-pattern'
 
-import { usePlan } from '@/features/billing/plans/hooks/usePlan'
+import { usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { PriceComponent, PriceComponentType } from '@/features/billing/plans/types'
-import { useQuery } from '@/lib/connectrpc'
-import { getPlanOverviewByExternalId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { useTypedParams } from '@/utils/params'
 
 interface AddedComponent {
   ref: string
@@ -17,30 +13,10 @@ interface AddedComponent {
 export const addedComponentsAtom = atom<AddedComponent[]>([])
 export const editedComponentsAtom = atom<string[]>([])
 
-export const usePlanOverview = () => {
-  const { planExternalId } = useTypedParams<{ planExternalId: string }>()
-
-  const { data } = useQuery(
-    getPlanOverviewByExternalId,
-    planExternalId
-      ? {
-          externalId: planExternalId,
-        }
-      : disableQuery
-  )
-
-  return data?.planOverview
-}
-
-export const useIsDraftVersion = () => {
-  const plan = usePlanOverview()
-  return plan?.isDraft ?? false
-}
-
 const defaults: Record<PriceComponentType, DeepPartial<PriceComponent>> = {
   rate: {
     name: 'Subscription Rate',
-    // productItem: {
+    // product: {
     //   name: 'Subscription rate',
     // },
     fee: {
@@ -138,9 +114,9 @@ export const formatPrice = (currency: string) => (price: string) => {
 }
 
 export const useCurrency = () => {
-  const { data: plan } = usePlan()
+  const { version } = usePlanWithVersion()
 
-  return plan?.planDetails?.currentVersion?.currency ?? 'USD' // TODO
+  return version?.currency ?? 'USD' // TODO
 }
 
 export const mapCadence = (cadence: 'ANNUAL' | 'QUARTERLY' | 'MONTHLY' | 'COMMITTED'): string => {

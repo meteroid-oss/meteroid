@@ -1,6 +1,6 @@
 import { spaces } from '@md/foundation'
-import { ChevronUpIcon, ChevronDownIcon } from '@md/icons'
-import { Skeleton, Table, TableRow, TableCell, TableHeader, TableHead, TableBody } from '@md/ui'
+import { ChevronDownIcon, ChevronUpIcon } from '@md/icons'
+import { Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@md/ui'
 import {
   ColumnDef,
   OnChangeFn,
@@ -18,14 +18,7 @@ import { Flex } from '@ui/components/legacy'
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo, useState } from 'react'
 
-import {
-  SortableDefaultIndicator,
-  SortableIndicatorContainer,
-  // SortableTh,
-  // StyledTable,
-  // StyledTd,
-  // StyledTh,
-} from './CustomTable.styled'
+import { SortableDefaultIndicator, SortableIndicatorContainer } from './CustomTable.styled'
 import Pagination from './components/Pagination'
 
 interface CustomTableProps<A> {
@@ -61,6 +54,7 @@ export const CustomTable = <A extends object>({
   const defaultData = useMemo(() => [], [])
 
   const [sorting, setSorting] = useState<SortingState>([])
+
   const table = useReactTable({
     data: data ?? defaultData,
     columns,

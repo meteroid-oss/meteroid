@@ -1,17 +1,12 @@
-import { disableQuery } from '@connectrpc/connect-query'
 import { Badge } from '@md/ui'
-import { CopyIcon, LinkIcon, PencilIcon } from 'lucide-react'
+import { LinkIcon, PencilIcon } from 'lucide-react'
 import { ComponentProps } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
 
+import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
-import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
-import { useQuery } from '@/lib/connectrpc'
-import { copyToClipboard } from '@/lib/helpers'
-import { mapBillingPeriodFromGrpc } from '@/lib/mapping'
+import { useIsDraftVersion, usePlanOverview } from '@/features/billing/plans/hooks/usePlan'
 import { Plan, PlanStatus, PlanType, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-import { getLastPublishedPlanVersion } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
   switch (status) {
@@ -28,52 +23,38 @@ const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
 
 export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ plan, version }) => {
   const overview = usePlanOverview()
+  const isDraft = useIsDraftVersion()
   const navigate = useNavigate()
-
-  const lastPublishedVersion = useQuery(
-    getLastPublishedPlanVersion,
-    overview?.planId
-      ? {
-          planId: overview.planId,
-        }
-      : disableQuery,
-    { enabled: !!overview && version.isDraft }
-  ).data?.version
 
   const leftProperties: ComponentProps<typeof Property>[] = [
     version.isDraft
       ? { label: 'Status', value: getStatusBadge(PlanStatus.DRAFT) || 'N/A' }
       : { label: 'Status', value: getStatusBadge(plan.planStatus) || 'N/A' },
     {
-      label: 'API Handle',
-      value: (
-        <span
-          className="inline-flex items-center gap-2 cursor-pointer hover:text-brand"
-          onClick={() =>
-            copyToClipboard(plan.externalId, () => toast.success('Copied to clipboard'))
-          }
-        >
-          {plan.externalId}
-          <CopyIcon size={14} strokeWidth={2} className="ml-1" />
-        </span>
-      ),
+      label: 'Plan handle',
+      value: <LocalId localId={plan.localId} className="max-w-28" />,
     },
-    lastPublishedVersion && version.isDraft
+    overview && isDraft
       ? {
           label: 'Version',
           value: (
-            <div className="flex">
-              <span className="pr-1">{version.version} (active: </span>
-              <Link
-                to={`./${lastPublishedVersion.version}`}
-                className="flex items-center text-blue-1100 hover:underline"
-                target="_blank"
-                rel="noreferrer"
-              >
-                <LinkIcon size={12} strokeWidth={2} className="mr-1" />
-                {lastPublishedVersion.version}
-              </Link>
-              )
+            <div className="flex gap-2">
+              <span className="pr-1">{version.version}</span>
+              {overview.activeVersion && (
+                <>
+                  <span className="pr-1">(active: </span>
+                  <Link
+                    to={`./${overview.activeVersion.version}`}
+                    className="flex items-center text-blue-1100 hover:underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <LinkIcon size={12} strokeWidth={2} className="mr-1" />
+                    {overview.activeVersion.version}
+                  </Link>
+                  )
+                </>
+              )}
             </div>
           ),
         }
@@ -90,23 +71,6 @@ export const PlanOverview: React.FC<{ plan: Plan; version: PlanVersion }> = ({ p
         : 'Due on issue',
     },
   ]
-
-  if (version.billingConfig?.billingPeriods) {
-    rightProperties.push({
-      label: 'Billing terms',
-      value: (
-        <>
-          {!overview?.billingPeriods?.length
-            ? '_'
-            : overview?.billingPeriods?.map(period => (
-                <Badge key={period} variant="secondary" className="p-1 mr-1 font-medium">
-                  {mapBillingPeriodFromGrpc(period)}
-                </Badge>
-              ))}
-        </>
-      ),
-    })
-  }
 
   return (
     <div className="flex pb-6 mb-6 relative">

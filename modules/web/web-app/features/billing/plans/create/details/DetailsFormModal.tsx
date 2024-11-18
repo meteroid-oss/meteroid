@@ -5,19 +5,19 @@ import { FC } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
-import { usePlanOverview } from '@/features/billing/plans/pricecomponents/utils'
+import { useIsDraftVersion, usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { useZodForm } from '@/hooks/useZodForm'
 import { editPlanSchema } from '@/lib/schemas/plans'
-import { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
+import { Plan, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
 import {
-  getPlanByExternalId,
+  getPlanOverview,
   updateDraftPlanOverview,
   updatePublishedPlanOverview,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 export const DetailsFormModal: FC = () => {
   const navigate = useNavigate()
-  const plan = usePlanOverview()
+  const { version, plan } = usePlanWithVersion()
 
   return (
     <Modal
@@ -32,32 +32,35 @@ export const DetailsFormModal: FC = () => {
       size="xlarge"
       onCancel={() => navigate('..')}
     >
-      {!!plan && <BasicDetailedForm plan={plan} />}
+      {version && plan && <BasicDetailedForm version={version} plan={plan} />}
     </Modal>
   )
 }
 
 interface Props {
-  plan: PlanOverview
+  plan: Plan
+  version: PlanVersion
 }
 
-const BasicDetailedForm = ({ plan }: Props) => {
+const BasicDetailedForm = ({ plan, version }: Props) => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  const isDraft = useIsDraftVersion()
 
   const methods = useZodForm({
     schema: editPlanSchema,
     defaultValues: {
-      description: plan.description,
+      description: plan?.description,
       planName: plan.name,
-      netTerms: plan.netTerms,
+      netTerms: version.netTerms,
     },
   })
 
   const updatePublishedPlan = useMutation(updatePublishedPlanOverview, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: [getPlanByExternalId.service.typeName],
+        queryKey: [getPlanOverview.service.typeName],
       })
     },
   })
@@ -65,7 +68,7 @@ const BasicDetailedForm = ({ plan }: Props) => {
   const updateDraftPlan = useMutation(updateDraftPlanOverview, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: [getPlanByExternalId.service.typeName],
+        queryKey: [getPlanOverview.service.typeName],
       })
     },
   })
@@ -73,22 +76,21 @@ const BasicDetailedForm = ({ plan }: Props) => {
   const isLoading = updatePublishedPlan.isPending || updateDraftPlan.isPending
 
   const onSubmit = async (data: z.infer<typeof editPlanSchema>) => {
-    if (plan.isDraft) {
+    if (isDraft) {
       updateDraftPlan.mutateAsync({
         name: data.planName,
         description: data.description,
         netTerms: data.netTerms,
-        planId: plan.planId,
-        planVersionId: plan.planVersionId,
-        billingPeriods: plan.billingPeriods,
-        currency: plan.currency,
+        planId: plan.id,
+        planVersionId: version.id,
+        currency: version.currency,
       })
     } else {
       await updatePublishedPlan.mutateAsync({
         name: data.planName,
         description: data.description,
-        planId: plan.planId,
-        planVersionId: plan.planVersionId,
+        planId: plan.id,
+        planVersionId: version.id,
       })
     }
 
@@ -103,7 +105,7 @@ const BasicDetailedForm = ({ plan }: Props) => {
             <span className="flex w-full justify-between">
               <span>Plan details</span>
               <span className="bg-muted text-muted-foreground p-1 rounded-sm ml-4 text-xs">
-                * affects all versions of this plan
+                affects all versions of this plan
               </span>
             </span>
           </div>
@@ -127,7 +129,7 @@ const BasicDetailedForm = ({ plan }: Props) => {
             </div>
           </div>
         </div>
-        {plan.isDraft && (
+        {isDraft && (
           <>
             <div className="px-6 border-t pb-2">
               <div className="py-4 text-sm text-foreground flex flex-col">

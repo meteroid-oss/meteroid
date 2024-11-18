@@ -91,7 +91,6 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
-                    billing_periods: vec![],
                     net_terms: 0,
                 },
                 components: vec![],
@@ -108,12 +107,11 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
-                    billing_periods: vec![BillingPeriodEnum::Monthly, BillingPeriodEnum::Annual],
                     net_terms: 0,
                 },
                 components: vec![meteroid_store::domain::PriceComponentNewInternal {
                     name: "Rate".to_string(),
-                    product_item_id: None,
+                    product_id: None,
                     fee: meteroid_store::domain::FeeType::Rate {
                         rates: vec![
                             meteroid_store::domain::TermRate {
@@ -140,12 +138,11 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
-                    billing_periods: vec![BillingPeriodEnum::Annual],
                     net_terms: 90,
                 },
                 components: vec![meteroid_store::domain::PriceComponentNewInternal {
                     name: "Seats".to_string(),
-                    product_item_id: None,
+                    product_id: None,
                     fee: meteroid_store::domain::FeeType::Slot {
                         quota: None,
                         rates: vec![

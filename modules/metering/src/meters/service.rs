@@ -44,7 +44,7 @@ impl MetersServiceGrpc for MetersService {
         let meter = Meter {
             aggregation: meter_aggregation,
             namespace: req.tenant_id,
-            meter_slug: meter.meter_slug,
+            id: meter.id,
             event_name: meter.event_name,
             value_property: meter.aggregation_key,
             group_by: meter.dimensions,

@@ -195,3 +195,4 @@ metering = { path = "modules/metering" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
 meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
+

@@ -1,5 +1,6 @@
 use crate::domain::FeeType;
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use error_stack::Report;
@@ -8,6 +9,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct AddOn {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub fee: FeeType,
     pub tenant_id: Uuid,
@@ -26,6 +28,7 @@ impl TryInto<AddOn> for AddOnRow {
         Ok(AddOn {
             id: self.id,
             name: self.name,
+            local_id: self.local_id,
             fee,
             tenant_id: self.tenant_id,
             created_at: self.created_at,
@@ -51,6 +54,7 @@ impl TryInto<AddOnRowNew> for AddOnNew {
 
         Ok(AddOnRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::AddOn),
             tenant_id: self.tenant_id,
             name: self.name,
             fee: json_fee,

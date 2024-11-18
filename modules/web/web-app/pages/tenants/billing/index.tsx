@@ -1,11 +1,11 @@
-import {createConnectQueryKey, useMutation} from '@connectrpc/connect-query'
-import {Dot} from '@md/ui'
-import {useQueryClient} from '@tanstack/react-query'
-import {FunctionComponent} from 'react'
-import {Navigate, Outlet} from 'react-router-dom'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Dot } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { FunctionComponent } from 'react'
+import { Navigate, Outlet } from 'react-router-dom'
 
 import SidebarMenu from '@/components/SidebarMenu'
-import {TenantPageLayout} from '@/components/layouts'
+import { TenantPageLayout } from '@/components/layouts'
 import ProductEmptyState from '@/features/productCatalog/ProductEmptyState'
 import {
   createProductFamily,
@@ -13,7 +13,7 @@ import {
 } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
 export const Billing: FunctionComponent = () => {
-  return <Navigate to="subscriptions"/>
+  return <Navigate to="subscriptions" />
 }
 
 export const BillingOutlet: FunctionComponent = () => {
@@ -33,7 +33,7 @@ export const BillingOutlet: FunctionComponent = () => {
                 {
                   label: (
                     <span className="flex  items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-success h-2"/>
+                      <Dot className="text-success h-2" />
                       <>Trials</>
                     </span>
                   ),
@@ -42,7 +42,7 @@ export const BillingOutlet: FunctionComponent = () => {
                 {
                   label: (
                     <span className="flex items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-destructive h-2"/>
+                      <Dot className="text-destructive h-2" />
                       <>At risk</>
                     </span>
                   ),
@@ -99,7 +99,7 @@ export const BillingOutlet: FunctionComponent = () => {
         />
       }
     >
-      <Outlet/>
+      <Outlet />
     </TenantPageLayout>
   )
 }
@@ -109,12 +109,12 @@ export const FamilyCreationModalPage = () => {
 
   const createDefaultMutation = useMutation(createProductFamily, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({queryKey: createConnectQueryKey(listProductFamilies)})
+      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listProductFamilies) })
     },
   })
 
   const createDefault = () =>
-    createDefaultMutation.mutateAsync({name: 'Default', externalId: 'default'})
+    createDefaultMutation.mutateAsync({ name: 'Default', localId: 'default' })
 
   return (
     <TenantPageLayout title="Product Billing">

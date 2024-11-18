@@ -5,8 +5,8 @@ import { useParams } from 'react-router-dom'
 export const ParamsSlugs = {
   tenantSlug: ':tenantSlug',
   organizationSlug: ':organizationSlug',
-  familyExternalId: ':familyExternalId',
-  planExternalId: ':planExternalId',
+  familyLocalId: ':familyLocalId',
+  planLocalId: ':planLocalId',
   planVersion: ':planVersion',
   feeType: ':feeType',
   invoiceId: ':invoiceId',

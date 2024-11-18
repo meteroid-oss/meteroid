@@ -22,8 +22,8 @@ const FamilyPicker: FunctionComponent = () => {
   const families = familiesQuery.data?.productFamilies ?? []
 
   // TODO query params ?
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
-  const selected = families.find(fam => fam.externalId === familyExternalId) || families[0]
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
+  const selected = families.find(fam => fam.localId === familyLocalId) || families[0]
 
   return (
     <Popover>
@@ -48,7 +48,7 @@ const FamilyPicker: FunctionComponent = () => {
             {families
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(family => (
-                <Link key={family.id} to={family.externalId}>
+                <Link key={family.id} to={family.localId}>
                   <CommandItem key={family.id}>{family.name}</CommandItem>
                 </Link>
               ))}

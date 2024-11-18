@@ -45,3 +45,5 @@ use diesel_async::AsyncPgConnection;
 pub type DbResult<T> = Result<T, DatabaseErrorContainer>;
 
 pub type PgConn = Object<AsyncPgConnection>;
+
+pub mod aliases {}

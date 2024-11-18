@@ -8,6 +8,7 @@ pub mod coupons {
         fn from(value: domain::coupons::Coupon) -> Self {
             Self(server::Coupon {
                 id: value.id.to_string(),
+                local_id: value.local_id,
                 description: value.description,
                 code: value.code,
                 discount: Some(discount::to_server(&value.discount)),

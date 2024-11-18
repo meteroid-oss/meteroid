@@ -246,7 +246,7 @@ async fn send_batch_to_api(client: &mut GrpcClient, batch: &[SacctData]) -> Resu
                 event_id: data.id.clone(),
                 event_name: "slurm_job".to_string(),
                 customer_id: Some(
-                    metering_grpc::meteroid::metering::v1::event::CustomerId::ExternalCustomerId(data.account.clone())
+                    metering_grpc::meteroid::metering::v1::event::CustomerId::ExternalCustomerAlias(data.account.clone())
                 ),
                 timestamp: data.start_time.to_rfc3339(),
                 properties,

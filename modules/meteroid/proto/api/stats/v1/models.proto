@@ -3,7 +3,6 @@ syntax = "proto3";
 package meteroid.api.stats.v1;
 
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/wrappers.proto";
 import "common/v1/date.proto";
 
 message BreakdownStat {

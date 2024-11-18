@@ -12,23 +12,23 @@ message ListProductFamiliesResponse {
 
 message CreateProductFamilyRequest {
   string name = 1;
-  string external_id = 2;
+  string local_id = 2;
 }
 
 message CreateProductFamilyResponse {
   ProductFamily product_family = 1;
 }
 
-message GetProductFamilyByExternalIdRequest {
-  string external_id = 1;
+message GetProductFamilyByLocalIdRequest {
+  string local_id = 1;
 }
 
-message GetProductFamilyByExternalIdResponse {
+message GetProductFamilyByLocalIdResponse {
   ProductFamily product_family = 1;
 }
 
 service ProductFamiliesService {
   rpc ListProductFamilies(ListProductFamiliesRequest) returns (ListProductFamiliesResponse) {}
   rpc CreateProductFamily(CreateProductFamilyRequest) returns (CreateProductFamilyResponse) {}
-  rpc GetProductFamilyByExternalId(GetProductFamilyByExternalIdRequest) returns (GetProductFamilyByExternalIdResponse) {}
+  rpc GetProductFamilyByLocalId(GetProductFamilyByLocalIdRequest) returns (GetProductFamilyByLocalIdResponse) {}
 }

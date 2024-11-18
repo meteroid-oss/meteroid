@@ -116,5 +116,6 @@ message PriceComponent {
   string id = 1;
   string name = 2;
   Fee fee = 3;
-  optional string product_item_id = 4;
+  optional string product_id = 4;
+  string local_id = 5;
 }

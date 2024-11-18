@@ -32,14 +32,14 @@ export const CapacityForm = (props: FeeFormProps) => {
 
   // TODO add cadence to capacity. This is the committed cadence, amount & overage is still monthly
 
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
 
   const metrics = useQuery(
     listBillableMetrics,
     {
-      familyExternalId: familyExternalId!,
+      familyLocalId: familyLocalId!,
     },
-    { enabled: !!familyExternalId }
+    { enabled: !!familyLocalId }
   )
 
   const metricsOptions = useMemo(() => {

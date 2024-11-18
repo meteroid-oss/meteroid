@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
-use crate::plan_versions::PlanVersionRowLatest;
+use crate::plan_versions::PlanVersionRowOverview;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -124,5 +124,5 @@ pub struct DetailedInvoiceRow {
     #[diesel(embed)]
     pub customer: CustomerRow,
     #[diesel(embed)]
-    pub plan: Option<PlanVersionRowLatest>,
+    pub plan: Option<PlanVersionRowOverview>,
 }

@@ -36,7 +36,7 @@ impl ProductsService for ProductServiceComponents {
                 description: req.description,
                 created_by: actor,
                 tenant_id,
-                family_external_id: req.family_external_id,
+                family_local_id: req.family_local_id,
             })
             .await
             .map_err(Into::<ProductApiError>::into)
@@ -64,7 +64,7 @@ impl ProductsService for ProductServiceComponents {
             .store
             .list_products(
                 tenant_id,
-                req.family_external_id.as_str(),
+                req.family_local_id.as_str(),
                 pagination_req,
                 order_by,
             )
@@ -101,7 +101,7 @@ impl ProductsService for ProductServiceComponents {
             .store
             .search_products(
                 tenant_id,
-                req.family_external_id.as_str(),
+                req.family_local_id.as_str(),
                 req.query.unwrap_or("".to_string()).as_str(), // todo add some validation on the query
                 pagination_req,
                 order_by,

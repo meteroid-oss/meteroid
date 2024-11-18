@@ -18,9 +18,10 @@ pub struct CouponRow {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub redemption_count: i32,
-    pub disabled: bool,
     pub last_redemption_at: Option<NaiveDateTime>,
+    pub disabled: bool,
     pub archived_at: Option<NaiveDateTime>,
+    pub local_id: String,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -28,6 +29,7 @@ pub struct CouponRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CouponRowNew {
     pub id: Uuid,
+    pub local_id: String,
     pub code: String,
     pub description: String,
     pub tenant_id: Uuid,

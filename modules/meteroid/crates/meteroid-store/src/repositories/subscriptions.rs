@@ -31,7 +31,6 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
-use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::applied_coupons::{
@@ -641,10 +640,12 @@ impl SubscriptionInterface for Store {
 
         Ok(SubscriptionDetails {
             id: subscription.id,
+            local_id: subscription.local_id,
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             plan_version_id: subscription.plan_version_id,
-            customer_external_id: subscription.customer_alias,
+            customer_local_id: subscription.customer_local_id,
+            customer_alias: subscription.customer_alias,
             billing_start_date: subscription.billing_start_date,
             billing_end_date: subscription.billing_end_date,
             billing_day: subscription.billing_day,
@@ -1190,7 +1191,7 @@ fn process_create_subscription_components(
             )?;
             processed_components.push(SubscriptionComponentNewInternal {
                 price_component_id: Some(c.id),
-                product_item_id: c.product_item_id,
+                product_id: c.product_id,
                 name: c.name.clone(),
                 period,
                 fee,
@@ -1221,7 +1222,7 @@ fn process_create_subscription_components(
         // If the component is not in any of the lists, add it as is
         processed_components.push(SubscriptionComponentNewInternal {
             price_component_id: Some(c.id),
-            product_item_id: c.product_item_id,
+            product_id: c.product_id,
             name: c.name.clone(),
             period,
             fee,
@@ -1322,7 +1323,6 @@ pub fn subscription_to_draft(
         net_terms: subscription.net_terms,
         reference: None,
         memo: None,
-        local_id: LocalId::generate_for(IdType::Invoice),
         due_at: Some(due_date),
         plan_name: None, // TODO
         invoice_number: invoice_number.to_string(),

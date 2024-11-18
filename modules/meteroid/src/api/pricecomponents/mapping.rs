@@ -22,7 +22,7 @@ pub mod components {
         Ok(domain::PriceComponentNew {
             name: comp.name,
             fee: map_fee_to_domain(comp.fee)?,
-            product_item_id: Uuid::from_proto_opt(comp.product_item_id)?,
+            product_id: Uuid::from_proto_opt(comp.product_id)?,
             plan_version_id: Uuid::from_proto_ref(&comp.plan_version_id)?,
         })
     }
@@ -37,8 +37,9 @@ pub mod components {
         Ok(domain::PriceComponent {
             name: component.name,
             fee: map_fee_to_domain(component.fee)?,
-            product_item_id: Uuid::from_proto_opt(component.product_item_id)?,
+            product_id: Uuid::from_proto_opt(component.product_id)?,
             id: Uuid::from_proto_ref(&component.id)?,
+            local_id: component.local_id,
         })
     }
 
@@ -124,9 +125,10 @@ pub mod components {
     pub fn domain_to_api(comp: domain::PriceComponent) -> api::PriceComponent {
         api::PriceComponent {
             id: comp.id.to_string(),
+            local_id: comp.local_id,
             name: comp.name.to_string(),
             fee: Some(map_fee_domain_to_api(comp.fee)),
-            product_item_id: comp.product_item_id.as_proto(),
+            product_id: comp.product_id.as_proto(),
         }
     }
 

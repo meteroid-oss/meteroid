@@ -67,7 +67,7 @@ impl BillableMetricRow {
         conn: &mut PgConn,
         param_tenant_id: uuid::Uuid,
         pagination: PaginationRequest,
-        param_product_family_external_id: String,
+        param_product_family_local_id: String,
     ) -> DbResult<PaginatedVec<BillableMetricMetaRow>> {
         use crate::schema::billable_metric::dsl as bm_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -75,7 +75,7 @@ impl BillableMetricRow {
         let query = bm_dsl::billable_metric
             .inner_join(pf_dsl::product_family.on(bm_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(bm_dsl::tenant_id.eq(param_tenant_id))
-            .filter(pf_dsl::external_id.eq(param_product_family_external_id))
+            .filter(pf_dsl::local_id.eq(param_product_family_local_id))
             .order(bm_dsl::created_at.asc())
             .select(BillableMetricMetaRow::as_select());
 

@@ -1,6 +1,7 @@
 use crate::errors::IntoDbResult;
+use crate::plan_versions::PlanVersionFilter;
 use crate::plans::{
-    PlanFilters, PlanRow, PlanRowForList, PlanRowNew, PlanRowPatch, PlanWithVersionRow,
+    PlanFilters, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch, PlanWithVersionRow,
 };
 use std::collections::HashMap;
 
@@ -9,9 +10,11 @@ use crate::{DbResult, PgConn};
 use crate::enums::PlanStatusEnum;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+
+use diesel::NullableExpressionMethods;
 use diesel::{
-    debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods,
-    QueryDsl, SelectableHelper,
+    alias, debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl,
+    PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
 use uuid::Uuid;
@@ -34,48 +37,6 @@ impl PlanRowNew {
 }
 
 impl PlanRow {
-    pub async fn get_by_external_id_and_tenant_id(
-        conn: &mut PgConn,
-        external_id: &str,
-        tenant_id: Uuid,
-    ) -> DbResult<PlanRow> {
-        use crate::schema::plan::dsl as p_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = p_dsl::plan
-            .filter(p_dsl::external_id.eq(external_id))
-            .filter(p_dsl::tenant_id.eq(tenant_id));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .first(conn)
-            .await
-            .attach_printable("Error while getting plan")
-            .into_db_result()
-    }
-
-    pub async fn get_by_id_and_tenant_id(
-        conn: &mut PgConn,
-        id: Uuid,
-        tenant_id: Uuid,
-    ) -> DbResult<PlanRow> {
-        use crate::schema::plan::dsl as p_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = p_dsl::plan
-            .filter(p_dsl::id.eq(id))
-            .filter(p_dsl::tenant_id.eq(tenant_id));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .first(conn)
-            .await
-            .attach_printable("Error while getting plan")
-            .into_db_result()
-    }
-
     pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
@@ -146,19 +107,97 @@ impl PlanRow {
             .into_db_result()
     }
 
-    pub async fn get_with_version_by_external_id(
+    pub async fn get_overview_by_local_id(
         conn: &mut PgConn,
-        external_id: &str,
+        local_id: &str,
         tenant_id: Uuid,
+    ) -> DbResult<PlanRowOverview> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let (active_version_alias, draft_version_alias) = alias!(
+            plan_version as active_version_alias,
+            plan_version as draft_version_alias
+        );
+
+        let query = p_dsl::plan
+            .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .filter(p_dsl::local_id.eq(local_id))
+            .left_join(
+                active_version_alias.on(active_version_alias
+                    .field(plan_version::id)
+                    .nullable()
+                    .eq(p_dsl::active_version_id)),
+            )
+            .left_join(
+                draft_version_alias.on(draft_version_alias
+                    .field(plan_version::id)
+                    .nullable()
+                    .eq(p_dsl::draft_version_id)),
+            )
+            .select((
+                p_dsl::id,
+                p_dsl::name,
+                p_dsl::description,
+                p_dsl::created_at,
+                p_dsl::local_id,
+                p_dsl::plan_type,
+                p_dsl::status,
+                pf_dsl::name,
+                active_version_alias
+                    .fields((pv_dsl::version, pv_dsl::trial_duration_days))
+                    .nullable(),
+                draft_version_alias.field(pv_dsl::id).nullable(),
+                diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>("null"),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while getting plan with version")
+            .into_db_result()
+    }
+
+    pub async fn get_with_version_by_local_id(
+        conn: &mut PgConn,
+        local_id: &str,
+        tenant_id: Uuid,
+        version_filter: PlanVersionFilter,
     ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = p_dsl::plan
-            .inner_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
-            .filter(p_dsl::external_id.eq(external_id))
+        let mut query = p_dsl::plan
+            .left_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .filter(p_dsl::local_id.eq(local_id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+
+        match version_filter {
+            PlanVersionFilter::Draft => {
+                query = query
+                    .filter(p_dsl::draft_version_id.is_not_null())
+                    .filter(pv_dsl::id.nullable().eq(p_dsl::draft_version_id));
+            }
+            PlanVersionFilter::Active => {
+                query = query
+                    .filter(p_dsl::active_version_id.is_not_null())
+                    .filter(pv_dsl::id.nullable().eq(p_dsl::active_version_id));
+            }
+            PlanVersionFilter::Version(v) => {
+                query = query.filter(pv_dsl::version.eq(v));
+            }
+        }
+
+        // Finalize the query
+        let query = query
             .order(pv_dsl::version.desc())
             .select(PlanWithVersionRow::as_select());
 
@@ -167,31 +206,78 @@ impl PlanRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting plan with version by external_id")
+            .attach_printable("Error while getting plan with version by local_id")
             .into_db_result()
     }
 }
 
-impl PlanRowForList {
+impl PlanRowOverview {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: Uuid,
-        product_family_external_id: Option<String>,
+        product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
-    ) -> DbResult<PaginatedVec<PlanRowForList>> {
+    ) -> DbResult<PaginatedVec<PlanRowOverview>> {
         use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version;
+        use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+        use diesel::dsl::today;
+
+        let (active_version_alias, draft_version_alias) = alias!(
+            plan_version as active_version_alias,
+            plan_version as draft_version_alias
+        );
+
+        let active_subscriptions_count_subselect = s_dsl::subscription
+            .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
+            .filter(pv_dsl::plan_id.eq(p_dsl::id))
+            .filter(s_dsl::billing_start_date.le(today))
+            .filter(
+                s_dsl::billing_end_date
+                    .is_null()
+                    .or(s_dsl::billing_end_date.nullable().ge(today)),
+            )
+            .count()
+            .single_value(); // single_value transforms the query in subquery
 
         let mut query = p_dsl::plan
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .select(PlanRowForList::as_select())
+            .left_join(
+                active_version_alias.on(active_version_alias
+                    .field(plan_version::id)
+                    .nullable()
+                    .eq(p_dsl::active_version_id)),
+            )
+            .left_join(
+                draft_version_alias.on(draft_version_alias
+                    .field(plan_version::id)
+                    .nullable()
+                    .eq(p_dsl::draft_version_id)),
+            )
+            .select((
+                p_dsl::id,
+                p_dsl::name,
+                p_dsl::description,
+                p_dsl::created_at,
+                p_dsl::local_id,
+                p_dsl::plan_type,
+                p_dsl::status,
+                pf_dsl::name,
+                active_version_alias
+                    .fields((pv_dsl::version, pv_dsl::trial_duration_days))
+                    .nullable(),
+                draft_version_alias.field(pv_dsl::id).nullable(),
+                active_subscriptions_count_subselect,
+            ))
             .into_boxed();
 
-        if let Some(product_family_external_id) = product_family_external_id {
-            query = query.filter(pf_dsl::external_id.eq(product_family_external_id))
+        if let Some(product_family_local_id) = product_family_local_id {
+            query = query.filter(pf_dsl::local_id.eq(product_family_local_id))
         }
 
         if !filters.filter_status.is_empty() {
@@ -206,7 +292,7 @@ impl PlanRowForList {
             query = query.filter(
                 p_dsl::name
                     .ilike(format!("%{}%", search))
-                    .or(p_dsl::external_id.ilike(format!("%{}%", search))),
+                    .or(p_dsl::local_id.ilike(format!("%{}%", search))),
             );
         }
 

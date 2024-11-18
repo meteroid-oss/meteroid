@@ -4,8 +4,6 @@ import { useDebounceValue } from '@/hooks/useDebounce'
 import { SetQueryStateAction, useQueryRecordState, useQueryState } from '@/hooks/useQueryState'
 import { useTypedParams } from '@/utils/params'
 
-
-
 export const useCatalogPageProps = () => {
   const paginationState = useQueryRecordState({
     pageIndex: 0,
@@ -18,7 +16,7 @@ export const useCatalogPageProps = () => {
 
   const search = useDebounceValue<string | undefined>(_search, 300)
 
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
 
   const paginationQuery = {
     limit: pagination.pageSize,
@@ -26,9 +24,9 @@ export const useCatalogPageProps = () => {
   }
 
   return {
-    baseQuery: familyExternalId
+    baseQuery: familyLocalId
       ? {
-          productFamilyExternalId: familyExternalId,
+          productFamilyLocalId: familyLocalId,
           pagination: paginationQuery,
           search: search,
         }

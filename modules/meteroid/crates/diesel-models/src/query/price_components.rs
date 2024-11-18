@@ -223,7 +223,7 @@ impl PriceComponentRow {
                 diesel::dsl::sql::<diesel::sql_types::Uuid>(
                     format!("'{}'", dst_plan_version_id).as_str(),
                 ),
-                pc_dsl::product_item_id,
+                pc_dsl::product_id,
                 pc_dsl::billable_metric_id,
             ))
             .insert_into(pc_dsl::price_component)
@@ -232,7 +232,7 @@ impl PriceComponentRow {
                 pc_dsl::name,
                 pc_dsl::fee,
                 pc_dsl::plan_version_id,
-                pc_dsl::product_item_id,
+                pc_dsl::product_id,
                 pc_dsl::billable_metric_id,
             ));
 

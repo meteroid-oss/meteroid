@@ -27,7 +27,7 @@ async fn test_products_basic() {
         .clone()
         .create_product_family(api::productfamilies::v1::CreateProductFamilyRequest {
             name: "product_family_name".into(),
-            external_id: "product_family_external_id".into(),
+            local_id: "product_family_local_id".into(),
         })
         .await
         .unwrap()
@@ -42,7 +42,7 @@ async fn test_products_basic() {
         .create_product(api::products::v1::CreateProductRequest {
             name: "product_name".into(),
             description: Some("product_description".into()),
-            family_external_id: family.external_id.clone(),
+            family_local_id: family.local_id.clone(),
         })
         .await
         .unwrap()
@@ -53,7 +53,7 @@ async fn test_products_basic() {
     assert_eq!(created.name.as_str(), "product_name");
     assert_eq!(created.description, Some("product_description".to_string()));
 
-    // product family by external_id
+    // product family by local_id
     let by_id = clients
         .products
         .clone()
@@ -73,7 +73,7 @@ async fn test_products_basic() {
         .products
         .clone()
         .list_products(api::products::v1::ListProductsRequest {
-            family_external_id: family.external_id.clone(),
+            family_local_id: family.local_id.clone(),
             pagination: None,
         })
         .await
@@ -89,7 +89,7 @@ async fn test_products_basic() {
         .products
         .clone()
         .search_products(api::products::v1::SearchProductsRequest {
-            family_external_id: family.external_id.clone(),
+            family_local_id: family.local_id.clone(),
             query: Some("_nAm".to_string()),
             pagination: None,
         })

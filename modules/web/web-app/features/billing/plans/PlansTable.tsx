@@ -1,14 +1,16 @@
 import { ColumnDef, PaginationState } from '@tanstack/react-table'
-import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { LocalId } from '@/components/LocalId'
 import { StandardTable } from '@/components/table/StandardTable'
+import { displayPlanStatus, displayPlanType, printPlanStatus } from '@/features/billing/plans/utils'
 import { useQuery } from '@/lib/connectrpc'
-import { Plan } from '@/rpc/api/plans/v1/models_pb'
+import { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { useTypedParams } from '@/utils/params'
+
 
 import type { FunctionComponent } from 'react'
 
@@ -18,10 +20,10 @@ export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ 
     pageSize: 20,
   })
 
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
 
   const plansQuery = useQuery(listPlans, {
-    productFamilyExternalId: familyExternalId!,
+    productFamilyLocalId: familyLocalId!,
     pagination: {
       limit: pagination.pageSize,
       offset: pagination.pageIndex * pagination.pageSize,
@@ -39,38 +41,70 @@ export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ 
 
   const navigate = useNavigate()
 
-  const columns = useMemo<ColumnDef<Plan>[]>(
+  const columns = useMemo<ColumnDef<PlanOverview>[]>(
     () => [
       {
         header: 'Name',
         accessorKey: 'name',
         cell: ({ row }) => (
-          <span
-            className="flex items-center space-x-2 cursor-pointer"
-            onClick={() => navigate(row.original.externalId)}
-          >
+          <span className="flex items-center space-x-2 cursor-pointer">
             <span>{row.original.name}</span>
+          </span>
+        ),
+        enableSorting: false,
+      },
+      {
+        header: 'Version',
+        cell: ({ row }) => (
+          <span>
+            {row.original.activeVersion && <span>{row.original.activeVersion.version}</span>}
           </span>
         ),
       },
 
       {
-        header: 'Active subscriptions',
-        accessorFn: () => '-',
+        header: 'Status',
+        cell: ({ row }) => (
+          <span title={printPlanStatus(row.original.planStatus)}>
+            {displayPlanStatus(row.original.planStatus)}
+          </span>
+        ),
       },
       {
-        header: 'Api Name',
-        accessorKey: 'externalId',
+        header: 'Type',
+        id: 'planType',
+        cell: ({ row }) => <>{displayPlanType(row.original.planType)}</>,
       },
+
       {
         header: 'Description',
         accessorKey: 'description',
+        enableSorting: false,
       },
       {
-        accessorKey: 'id',
-        header: '',
-        maxSize: 0.1,
-        cell: () => <MoreVerticalIcon size={16} className="cursor-pointer" />,
+        header: 'Trial',
+        id: 'trial',
+        cell: ({ row }) => {
+          return (
+            <>
+              {row.original.activeVersion?.trialDurationDays
+                ? `${row.original.activeVersion?.trialDurationDays} days`
+                : '-'}
+            </>
+          )
+        },
+      },
+
+      {
+        header: 'Subscriptions',
+        accessorFn: c => c.subscriptionCount,
+        enableSorting: false,
+      },
+
+      {
+        header: 'API Handle',
+        id: 'localId',
+        cell: ({ row }) => <LocalId localId={row.original.localId} />,
       },
     ],
     [navigate]
@@ -85,6 +119,7 @@ export const PlansTable: FunctionComponent<{ search: string | undefined }> = ({ 
       setPagination={setPagination}
       totalCount={totalCount}
       isLoading={isLoading}
+      rowLink={row => `${row.original.localId}`}
     />
   )
 }

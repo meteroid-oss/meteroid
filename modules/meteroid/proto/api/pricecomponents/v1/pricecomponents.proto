@@ -17,7 +17,7 @@ message CreatePriceComponentRequest {
   string plan_version_id = 1;
   string name = 2;
   Fee fee = 3;
-  optional string product_item_id = 4;
+  optional string product_id = 4;
 }
 
 message CreatePriceComponentResponse {

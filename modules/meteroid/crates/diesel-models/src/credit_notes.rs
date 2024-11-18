@@ -20,4 +20,5 @@ pub struct CreditNoteRow {
     pub tenant_id: Uuid,
     pub customer_id: Uuid,
     pub status: CreditNoteStatus,
+    pub local_id: String,
 }

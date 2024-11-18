@@ -179,7 +179,8 @@ export const mapPriceComponent = (priceComponent: grpc.PriceComponent): api.Pric
   return {
     id: priceComponent.id,
     name: priceComponent.name,
+    localId: priceComponent.localId,
     fee: mapFeeType(priceComponent.fee.feeType),
-    productItemId: priceComponent.productItemId,
+    productId: priceComponent.productId,
   }
 }

@@ -142,6 +142,7 @@ pub mod customer {
         fn try_from(value: domain::Customer) -> Result<Self, Self::Error> {
             Ok(ServerCustomerWrapper(server::Customer {
                 id: value.id.as_proto(),
+                local_id: value.local_id,
                 billing_config: Some(ServerBillingConfigWrapper::try_from(value.billing_config)?.0),
                 invoicing_entity_id: value.invoicing_entity_id.as_proto(),
                 name: value.name,
@@ -175,6 +176,7 @@ pub mod customer {
         fn try_from(value: domain::Customer) -> Result<Self, Self::Error> {
             Ok(ServerCustomerBriefWrapper(server::CustomerBrief {
                 id: value.id.to_string(),
+                local_id: value.local_id,
                 name: value.name,
                 alias: value.alias,
                 country: value

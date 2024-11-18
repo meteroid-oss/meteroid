@@ -12,6 +12,7 @@ pub struct AddOnRow {
     pub tenant_id: Uuid,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
+    pub local_id: String,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -22,6 +23,7 @@ pub struct AddOnRowNew {
     pub name: String,
     pub fee: serde_json::Value,
     pub tenant_id: Uuid,
+    pub local_id: String,
 }
 
 #[derive(AsChangeset)]

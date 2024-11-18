@@ -1,11 +1,11 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import {
-  ScrollArea,
   Button,
   Form,
   FormDescription,
   InputFormField,
+  ScrollArea,
   Separator,
   Sheet,
   SheetContent,
@@ -52,7 +52,7 @@ export const ProductMetricsEditPanel = () => {
       await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listBillableMetrics) })
     },
   })
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
 
   const navigate = useNavigate()
 
@@ -144,7 +144,7 @@ export const ProductMetricsEditPanel = () => {
                   : undefined),
         },
         usageGroupKey: input.usageGroupKey ?? undefined,
-        familyExternalId,
+        familyLocalId,
       })
 
       res.billableMetric?.id && toast.success('Metric created')

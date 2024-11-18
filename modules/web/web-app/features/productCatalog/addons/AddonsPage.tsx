@@ -2,7 +2,7 @@
 // import { Flex } from '@ui/components/legacy'
 import { FunctionComponent } from 'react'
 
-// import { ProductItemsTable } from '@/features/productCatalog/items/ProductItemsTable'
+// import { ProductsTable } from '@/features/productCatalog/items/ProductsTable'
 // import { useQuery } from '@/lib/connectrpc'
 // import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 // // import { ListAddOnRequest_SortBy } from '@/rpc/api/addons/v1/addons_pb'
@@ -41,7 +41,7 @@ export const AddonsPage: FunctionComponent = () => {
   //       refetch={query.refetch}
   //       setSearch={onSearch}
   //     />
-  //     <ProductItemsTable
+  //     <ProductsTable
   //       data={query.data?.addOns ?? []}
   //       pagination={paginationState[0]}
   //       setPagination={paginationState[1]}

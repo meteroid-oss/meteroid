@@ -38,7 +38,7 @@ pub enum WindowSize {
 pub struct Meter {
     pub aggregation: MeterAggregation,
     pub namespace: String,
-    pub meter_slug: String,
+    pub id: String,
     pub event_name: String,
     pub value_property: Option<String>,
     pub group_by: Vec<String>,
@@ -46,8 +46,8 @@ pub struct Meter {
 
 #[derive(Debug, Clone)]
 pub struct Customer {
-    pub id: String,
-    pub external_id: String,
+    pub local_id: String,
+    pub alias: Option<String>,
     // pub custom_fields: HashMap<String, String>,
 }
 

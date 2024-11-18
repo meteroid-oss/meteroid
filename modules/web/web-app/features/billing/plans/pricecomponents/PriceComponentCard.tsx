@@ -11,15 +11,15 @@ import { ChevronDownIcon, ChevronRightIcon, PencilIcon, Trash2Icon } from 'lucid
 import { ReactNode, useCallback, useMemo, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
+import { LocalId } from '@/components/LocalId'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { useIsDraftVersion, usePlanWithVersion } from '@/features/billing/plans/hooks/usePlan'
 import { PriceComponentProperty } from '@/features/billing/plans/pricecomponents/components/PriceComponentProperty'
 import {
   editedComponentsAtom,
   formatPrice,
   mapCadence,
   useCurrency,
-  useIsDraftVersion,
-  usePlanOverview,
 } from '@/features/billing/plans/pricecomponents/utils'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -44,7 +44,7 @@ export const PriceComponentCard: React.FC<{
 }> = ({ component }) => {
   const [isCollapsed, setIsCollapsed] = useState(true)
 
-  const overview = usePlanOverview()
+  const planWithVersion = usePlanWithVersion()
 
   const queryClient = useQueryClient()
 
@@ -56,9 +56,9 @@ export const PriceComponentCard: React.FC<{
 
   const deleteComponentMutation = useMutation(removePriceComponent, {
     onSuccess: () => {
-      overview &&
+      planWithVersion.version &&
         queryClient.setQueryData(
-          createConnectQueryKey(listPriceComponents, { planVersionId: overview.planVersionId }),
+          createConnectQueryKey(listPriceComponents, { planVersionId: planWithVersion.version.id }),
           createProtobufSafeUpdater(listPriceComponents, prev => ({
             components: prev?.components.filter(c => c.id !== component.id) ?? [],
           }))
@@ -92,6 +92,7 @@ export const PriceComponentCard: React.FC<{
           </div>
           <div className="flex items-center gap-2">
             <h4 className="text-base text-accent-1 font-semibold">{component.name}</h4>
+            <LocalId localId={component.localId} className="max-w-24" />
           </div>
         </div>
         {isDraft && (

@@ -14,7 +14,7 @@ export const AddonCreatePanel: FunctionComponent = () => {
   return <>Not implemented</>
   // const queryClient = useQueryClient()
   // const navigate = useNavigate()
-  // const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  // const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
 
   // const createAddonMut = useMutation(createAddOn, {
   //   onSuccess: async () => {
@@ -36,7 +36,7 @@ export const AddonCreatePanel: FunctionComponent = () => {
   //       createAddonMut
   //         .mutateAsync({
   //           name: a.name,
-  //           // productFamilyExternalId: familyExternalId,
+  //           // productFamilyLocalId: familyLocalId,
   //           // fee TODO
   //         })
   //         .then(() => void 0)

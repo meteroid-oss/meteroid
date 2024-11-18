@@ -2,10 +2,8 @@ syntax = "proto3";
 
 package meteroid.metering.v1;
 
-import "common/v1/date.proto";
 import "common/v1/decimal.proto";
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/wrappers.proto";
 import "models.proto";
 
 message Filter {
@@ -18,7 +16,7 @@ message QueryMeterRequest {
   string tenant_id = 1;
   string meter_slug = 2;
   Meter.AggregationType meter_aggregation_type = 3;
-  repeated ResourceIdentifier customers = 4;
+  repeated CustomerIdentifier customers = 4;
   google.protobuf.Timestamp from = 5;
   google.protobuf.Timestamp to = 6;
   // If null, default to WindowSize.AGGREGATE_ALL

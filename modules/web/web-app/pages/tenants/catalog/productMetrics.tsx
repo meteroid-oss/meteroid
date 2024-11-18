@@ -11,7 +11,6 @@ import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
-
 export const ProductMetrics: FunctionComponent = () => {
   const navigate = useNavigate()
   const [pagination, setPagination] = useState<PaginationState>({
@@ -19,11 +18,11 @@ export const ProductMetrics: FunctionComponent = () => {
     pageSize: 20,
   })
 
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
   // TODO pagination (manual ?)
   const productMetricsQuery = useQuery(
     listBillableMetrics,
-    familyExternalId ? { familyExternalId } : disableQuery
+    familyLocalId ? { familyLocalId } : disableQuery
   )
 
   const totalCount = productMetricsQuery?.data?.billableMetrics?.length ?? 0

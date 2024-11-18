@@ -1,6 +1,7 @@
 import { TableCell, TableRow } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState, Row, flexRender } from '@tanstack/react-table'
 import { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 import { CustomTable } from '@/components/table/CustomTable'
 
@@ -13,6 +14,7 @@ interface StandardTableProps<A> {
   totalCount: number
   emptyMessage?: string | ReactNode
   isLoading?: boolean
+  rowLink?: (row: Row<A>) => string
 }
 export const StandardTable = <A extends object>({
   columns,
@@ -23,6 +25,7 @@ export const StandardTable = <A extends object>({
   totalCount,
   emptyMessage = 'No data to display',
   isLoading,
+  rowLink,
 }: StandardTableProps<A>) => {
   return (
     <CustomTable
@@ -33,22 +36,30 @@ export const StandardTable = <A extends object>({
       setPagination={setPagination}
       totalCount={totalCount}
       emptyMessage={emptyMessage}
-      rowRenderer={standardRowRenderer}
+      rowRenderer={row => standardRowRenderer(row, rowLink)}
       isLoading={isLoading}
     />
   )
 }
 
-const standardRowRenderer = <A extends object>(row: Row<A>) => {
-  return (
-    <TableRow key={row.id}>
-      {row.getVisibleCells().map(cell => {
-        return (
-          <TableCell key={cell.id}>
-            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-          </TableCell>
-        )
-      })}
-    </TableRow>
-  )
+const standardRowRenderer = <A extends object>(row: Row<A>, rowLink?: (row: Row<A>) => string) => {
+  const cells = row
+    .getVisibleCells()
+    .map(cell => (
+      <TableCell key={cell.id}>
+        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+      </TableCell>
+    ))
+
+  if (rowLink) {
+    return (
+      <TableRow key={row.id}>
+        <Link to={rowLink(row)} style={{ display: 'contents' }}>
+          {cells}
+        </Link>
+      </TableRow>
+    )
+  }
+
+  return <TableRow key={row.id}>{cells}</TableRow>
 }

@@ -17,9 +17,9 @@ pub trait ProductFamilyInterface {
         auth_tenant_id: Uuid,
     ) -> StoreResult<Vec<domain::ProductFamily>>;
 
-    async fn find_product_family_by_external_id(
+    async fn find_product_family_by_local_id(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
     ) -> StoreResult<domain::ProductFamily>;
 }
@@ -74,14 +74,14 @@ impl ProductFamilyInterface for Store {
             .map(|x| x.into_iter().map(Into::into).collect())
     }
 
-    async fn find_product_family_by_external_id(
+    async fn find_product_family_by_local_id(
         &self,
-        external_id: &str,
+        local_id: &str,
         auth_tenant_id: Uuid,
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
-        ProductFamilyRow::find_by_external_id_and_tenant_id(&mut conn, external_id, auth_tenant_id)
+        ProductFamilyRow::find_by_local_id_and_tenant_id(&mut conn, local_id, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)

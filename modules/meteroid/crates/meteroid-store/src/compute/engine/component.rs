@@ -18,6 +18,7 @@ use crate::utils::decimals::ToSubunit;
 use super::super::clients::usage::UsageClient;
 use super::super::errors::ComputeError;
 use super::fees;
+use error_stack::{Report, Result};
 
 pub struct ComponentEngine {
     usage_client: Arc<dyn UsageClient + Send + Sync>,
@@ -111,7 +112,7 @@ impl ComponentEngine {
                         invoice_date,
                         &component
                             .price_component_id()
-                            .ok_or(ComputeError::InternalError)?,
+                            .ok_or(Report::new(ComputeError::InternalError))?,
                     ) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
                     .await?
                     .max(min_slots.unwrap_or(0) as u64)
@@ -210,7 +211,7 @@ impl ComponentEngine {
                                 let price_cents = only_positive(
                                     price_total
                                         .to_subunit_opt(precision)
-                                        .ok_or(ComputeError::ConversionError)?,
+                                        .ok_or(Report::new(ComputeError::ConversionError))?,
                                 );
 
                                 if price_cents > 0 {
@@ -331,7 +332,7 @@ impl ComponentEngine {
                 sub_lines: line.sublines,
                 is_prorated: line.is_prorated,
                 price_component_id: component.price_component_id(),
-                product_id: component.product_item_id(),
+                product_id: component.product_id(),
                 metric_id: component.fee_ref().metric_id(),
                 subtotal: line.total as i64, // TODO
                 description: None,
@@ -355,8 +356,8 @@ impl ComponentEngine {
             .usage_client
             .fetch_usage(
                 &self.subscription_details.tenant_id,
-                &self.subscription_details.customer_id,
-                &self.subscription_details.customer_external_id,
+                &self.subscription_details.customer_local_id,
+                &self.subscription_details.customer_alias,
                 metric,
                 period,
             )

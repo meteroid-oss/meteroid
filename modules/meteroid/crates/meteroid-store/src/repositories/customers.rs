@@ -398,7 +398,6 @@ impl CustomersInterface for Store {
                         subtotal_recurring: totals.subtotal_recurring,
                         tax_rate: 0, // TODO
                         tax_amount: totals.tax_amount,
-                        local_id: LocalId::generate_for(IdType::Invoice),
                         customer_details: InlineCustomer {
                             billing_address: None, // TODO
                             id: req.customer_id,
