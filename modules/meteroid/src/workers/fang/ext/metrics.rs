@@ -7,12 +7,12 @@ pub static ARCHIVER_MOVED_ROWS_COUNTER: Lazy<Counter<u64>> = Lazy::new(|| {
     GLOBAL_METER
         .u64_counter("fang.archiver.moved_rows")
         .with_description("Amount of rows moved to archive")
-        .init()
+        .build()
 });
 
 pub static CLEANER_DELETED_ROWS_COUNTER: Lazy<Counter<u64>> = Lazy::new(|| {
     GLOBAL_METER
         .u64_counter("fang.cleaner.deleted_rows")
         .with_description("Amount of rows deleted from archive")
-        .init()
+        .build()
 });

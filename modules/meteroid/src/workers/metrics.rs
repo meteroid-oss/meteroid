@@ -9,14 +9,14 @@ static CALL_COUNTER: Lazy<Counter<u64>> = Lazy::new(|| {
     GLOBAL_METER
         .u64_counter("worker.call.counter")
         .with_description("Amount of calls performed by worker")
-        .init()
+        .build()
 });
 
 static CALL_LATENCY: Lazy<Histogram<u64>> = Lazy::new(|| {
     GLOBAL_METER
         .u64_histogram("worker.call.latency")
         .with_description("Worker call latency")
-        .init()
+        .build()
 });
 
 pub fn record_call<S, E>(worker: &str, status: &error_stack::Result<S, E>, duration: Duration) {
@@ -26,14 +26,8 @@ pub fn record_call<S, E>(worker: &str, status: &error_stack::Result<S, E>, durat
     };
 
     let attributes = &[
-        KeyValue {
-            key: "worker".into(),
-            value: worker.to_string().into(),
-        },
-        KeyValue {
-            key: "status".into(),
-            value: status_str.to_string().into(),
-        },
+        KeyValue::new("worker", worker.to_string()),
+        KeyValue::new("status", status_str.to_string()),
     ];
 
     CALL_COUNTER.add(1, attributes);
