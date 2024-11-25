@@ -45,8 +45,9 @@ fn init_telemetry_tracing(config: &TelemetryConfig, service_name: &str) {
     std::env::set_var("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc");
 
     std::env::set_var("OTEL_SERVICE_NAME", service_name);
-    
-    let (layer, _guard) = init_tracing_opentelemetry::tracing_subscriber_ext::build_otel_layer().unwrap();
+
+    let (layer, _guard) =
+        init_tracing_opentelemetry::tracing_subscriber_ext::build_otel_layer().unwrap();
 
     tracing_subscriber::registry()
         .with(layer)
