@@ -46,11 +46,11 @@ fn init_telemetry_tracing(config: &TelemetryConfig, service_name: &str) {
 
     std::env::set_var("OTEL_SERVICE_NAME", service_name);
 
-    let (layer, _guard) =
+    let (otel_layer, _guard) =
         init_tracing_opentelemetry::tracing_subscriber_ext::build_otel_layer().unwrap();
 
     tracing_subscriber::registry()
-        .with(layer)
+        .with(otel_layer)
         .with(init_tracing_opentelemetry::tracing_subscriber_ext::build_loglevel_filter_layer())
         .with(formatting_layer())
         .try_init()
