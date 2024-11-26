@@ -107,6 +107,7 @@ export const createBillableMetricSchema = z.object({
   metricDescription: z.string().optional(),
   aggregation: simpleAggregationSchema,
   segmentationMatrix: simpleSegmentationMatrixSchema,
+  productFamilyId: z.string(),
   usageGroupKey: z
     .string()
     .optional()

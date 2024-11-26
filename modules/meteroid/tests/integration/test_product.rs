@@ -73,7 +73,7 @@ async fn test_products_basic() {
         .products
         .clone()
         .list_products(api::products::v1::ListProductsRequest {
-            family_local_id: family.local_id.clone(),
+            family_local_id: Some(family.local_id.clone()),
             pagination: None,
         })
         .await
@@ -89,7 +89,7 @@ async fn test_products_basic() {
         .products
         .clone()
         .search_products(api::products::v1::SearchProductsRequest {
-            family_local_id: family.local_id.clone(),
+            family_local_id: Some(family.local_id.clone()),
             query: Some("_nAm".to_string()),
             pagination: None,
         })

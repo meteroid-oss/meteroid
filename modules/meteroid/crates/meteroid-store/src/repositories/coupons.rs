@@ -1,38 +1,87 @@
-use crate::domain::coupons::{Coupon, CouponNew, CouponPatch};
+use crate::domain::coupons::{Coupon, CouponFilter, CouponNew, CouponPatch, CouponStatusPatch};
+use crate::domain::{AppliedCouponForDisplay, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch};
+use diesel_models::applied_coupons::AppliedCouponForDisplayRow;
+use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use error_stack::Report;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait CouponInterface {
-    async fn list_coupons(&self, tenant_id: Uuid) -> StoreResult<Vec<Coupon>>;
+    async fn list_coupons(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        search: Option<String>,
+        filter: CouponFilter,
+    ) -> StoreResult<PaginatedVec<Coupon>>;
     async fn get_coupon_by_id(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<Coupon>;
+
+    async fn get_coupon_by_local_id(
+        &self,
+        tenant_id: Uuid,
+        local_id: String,
+    ) -> StoreResult<Coupon>;
+
     async fn create_coupon(&self, coupon: CouponNew) -> StoreResult<Coupon>;
     async fn delete_coupon(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<()>;
     async fn update_coupon(&self, coupon: CouponPatch) -> StoreResult<Coupon>;
+    async fn update_coupon_status(&self, coupon: CouponStatusPatch) -> StoreResult<Coupon>;
+
+    async fn list_applied_coupons_by_coupon_local_id(
+        &self,
+        tenant_id: Uuid,
+        coupon_local_id: String,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<AppliedCouponForDisplay>>;
 }
 
 #[async_trait::async_trait]
 impl CouponInterface for Store {
-    async fn list_coupons(&self, tenant_id: Uuid) -> StoreResult<Vec<Coupon>> {
+    async fn list_coupons(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        search: Option<String>,
+        filter: CouponFilter,
+    ) -> StoreResult<PaginatedVec<Coupon>> {
         let mut conn = self.get_conn().await?;
 
-        let coupons = CouponRow::list_by_tenant_id(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let coupons = CouponRow::list_by_tenant_id(
+            &mut conn,
+            tenant_id,
+            pagination.into(),
+            search,
+            filter.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
-        coupons
-            .into_iter()
-            .map(|s| s.try_into())
-            .collect::<Result<Vec<_>, _>>()
+        Ok(PaginatedVec {
+            items: coupons
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
+            total_pages: coupons.total_pages,
+            total_results: coupons.total_results,
+        })
     }
 
     async fn get_coupon_by_id(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<Coupon> {
         let mut conn = self.get_conn().await?;
 
         CouponRow::get_by_id(&mut conn, tenant_id, id)
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
+    }
+
+    async fn get_coupon_by_local_id(&self, tenant_id: Uuid, id: String) -> StoreResult<Coupon> {
+        let mut conn = self.get_conn().await?;
+
+        CouponRow::get_by_local_id(&mut conn, tenant_id, id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -69,5 +118,45 @@ impl CouponInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .and_then(TryInto::try_into)
+    }
+
+    async fn update_coupon_status(&self, coupon: CouponStatusPatch) -> StoreResult<Coupon> {
+        let mut conn = self.get_conn().await?;
+
+        let coupon: CouponStatusRowPatch = coupon.into();
+
+        coupon
+            .patch(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(TryInto::try_into)
+    }
+
+    async fn list_applied_coupons_by_coupon_local_id(
+        &self,
+        tenant_id: Uuid,
+        coupon_local_id: String,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<AppliedCouponForDisplay>> {
+        let mut conn = self.get_conn().await?;
+
+        let coupons = AppliedCouponForDisplayRow::list_by_coupon_local_id(
+            &mut conn,
+            &coupon_local_id,
+            &tenant_id,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(PaginatedVec {
+            items: coupons
+                .items
+                .into_iter()
+                .map(|s| s.into())
+                .collect::<Vec<_>>(),
+            total_pages: coupons.total_pages,
+            total_results: coupons.total_results,
+        })
     }
 }
