@@ -1,55 +1,41 @@
-// import { spaces } from '@md/foundation'
-// import { Flex } from '@ui/components/legacy'
-import { FunctionComponent } from 'react'
+import { PaginationState } from '@tanstack/react-table'
+import { FunctionComponent, useState } from 'react'
+import { Outlet } from 'react-router-dom'
 
-// import { ProductsTable } from '@/features/productCatalog/items/ProductsTable'
-// import { useQuery } from '@/lib/connectrpc'
-// import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
-// // import { ListAddOnRequest_SortBy } from '@/rpc/api/addons/v1/addons_pb'
-
-// import { AddonCreatePanel } from '@/features/productCatalog/addons/AddonCreatePanel'
-// import { CatalogHeader } from '@/features/productCatalog/generic/CatalogHeader'
-// import { useCatalogPageProps } from '@/features/productCatalog/generic/useCatalogPageProps'
-// import { useQueryClient } from '@tanstack/react-query'
+import { AddonsHeader } from '@/features/productCatalog/addons/AddonsHeader'
+import { AddonsTable } from '@/features/productCatalog/addons/AddonsTable'
+import { useDebounceValue } from '@/hooks/useDebounce'
+import { useQueryState } from '@/hooks/useQueryState'
+import { useQuery } from '@/lib/connectrpc'
+import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 
 export const AddonsPage: FunctionComponent = () => {
-  return <>Not implemented</>
 
-  // const { baseQuery, paginationState, onSearch } = useCatalogPageProps()
-  // const [editPanelVisible, setEditPanelVisible] = useState(false)
+  const [search] = useQueryState<string | undefined>('q', undefined)
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 20,
+  })
 
-  // const query = useQuery(
-  //   listAddOns
-  // TODO
-  // baseQuery
-  //   ? {
-  //       ...baseQuery,
-  //       // sortBy: ListAddOnRequest_SortBy.DATE_DESC,
-  //     }
-  //   : disableQuery
-  // )
+  const debouncedSearch = useDebounceValue(search, 200)
 
-  // const queryClient = useQueryClient()
+  const addonsQuery = useQuery(listAddOns, {
+    search: debouncedSearch,
+    pagination: {
+      limit: pagination.pageSize,
+      offset: pagination.pageIndex,
+    },
+  })
 
-  // return (
-  //   <Flex direction="column" gap={spaces.space9}>
-  //     <CatalogHeader
-  //       heading="Addonsz"
-  //       newButtonText="New addonz"
-  //       setEditPanelVisible={setEditPanelVisible}
-  //       isLoading={query.isLoading}
-  //       refetch={query.refetch}
-  //       setSearch={onSearch}
-  //     />
-  //     <ProductsTable
-  //       data={query.data?.addOns ?? []}
-  //       pagination={paginationState[0]}
-  //       setPagination={paginationState[1]}
-  //       totalCount={/*TODO query.data?.paginationMeta?.total ??*/ 0}
-  //       isLoading={query.isLoading}
-  //     />
-  //     {/* TODO route-based, edit etc */}
-  //     <AddonCreatePanel />
-  //   </Flex>
-  // )
+  return (
+    <>
+      <AddonsHeader />
+      <AddonsTable
+        addonsQuery={addonsQuery}
+        pagination={pagination}
+        setPagination={setPagination}
+      />
+      <Outlet />
+    </>
+  )
 }

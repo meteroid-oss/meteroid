@@ -9,9 +9,14 @@ message Coupon {
   string code = 2;
   string description = 3;
   CouponDiscount discount = 4;
-  optional google.protobuf.Timestamp expires_at = 5;
+  optional string expires_at = 5;
   optional int32 redemption_limit = 6;
   string local_id = 7;
+  string created_at = 8;
+  bool disabled = 9;
+  uint32 redemption_count = 10;
+  optional string last_redemption_at = 11;
+  optional string archived_at = 12;
 }
 
 message CouponDiscount {
@@ -32,13 +37,31 @@ message CouponDiscount {
 message AppliedCoupon {
   string id = 1;
   string coupon_id = 2;
-  string customer_id = 3;
-  string subscription_id = 4;
-  bool is_active = 5;
-  optional string applied_amount = 6;
-  optional int32 applied_count = 7;
+  string customer_id = 5;
+  string subscription_id = 6;
+  bool is_active = 7;
   google.protobuf.Timestamp last_applied_at = 8;
   google.protobuf.Timestamp created_at = 9;
+  optional string applied_amount = 10;
+  optional int32 applied_count = 11;
+}
+
+message AppliedCouponForDisplay {
+  string id = 1;
+  string coupon_id = 2;
+  string customer_name = 3;
+  string customer_local_id = 4;
+  string customer_id = 5;
+  string subscription_id = 6;
+  string plan_name = 7;
+  string plan_local_id = 8;
+  int32 plan_version = 9;
+  bool is_active = 10;
+  optional string applied_amount = 15;
+  optional int32 applied_count = 16;
+  optional string last_applied_at = 17;
+  string created_at = 18;
+
 }
 
 message AppliedCouponDetailed {

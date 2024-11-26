@@ -109,6 +109,8 @@ utoipa-redoc.workspace = true
 utoipa-rapidoc.workspace = true
 utoipa-scalar.workspace = true
 
+svix = { workspace = true, features = ["http2", "rustls-tls"] }
+
 
 [dev-dependencies]
 rstest = { workspace = true }

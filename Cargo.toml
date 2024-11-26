@@ -136,6 +136,7 @@ serde_qs = "0.13.0"
 serde_yaml = "0.9.30"
 sha2 = "0.10.8"
 shellexpand = "3.1.0"
+svix = { version = "1.41.0", default-features = false }
 syn = "2.0.52"
 strum = { version = "0.26", default-features = false }
 tap = "1.0.1"

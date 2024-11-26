@@ -72,10 +72,6 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "UnitConversionRoundingEnum"))]
     pub struct UnitConversionRoundingEnum;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "WebhookOutEventTypeEnum"))]
-    pub struct WebhookOutEventTypeEnum;
 }
 
 diesel::table! {
@@ -733,38 +729,6 @@ diesel::table! {
     }
 }
 
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::WebhookOutEventTypeEnum;
-
-    webhook_out_endpoint (id) {
-        id -> Uuid,
-        tenant_id -> Uuid,
-        url -> Text,
-        description -> Nullable<Text>,
-        secret -> Text,
-        created_at -> Timestamp,
-        events_to_listen -> Array<Nullable<WebhookOutEventTypeEnum>>,
-        enabled -> Bool,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::WebhookOutEventTypeEnum;
-
-    webhook_out_event (id) {
-        id -> Uuid,
-        endpoint_id -> Uuid,
-        created_at -> Timestamp,
-        event_type -> WebhookOutEventTypeEnum,
-        request_body -> Text,
-        response_body -> Nullable<Text>,
-        http_status_code -> Nullable<Int2>,
-        error_message -> Nullable<Text>,
-    }
-}
-
 diesel::joinable!(add_on -> tenant (tenant_id));
 diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(applied_coupon -> coupon (coupon_id));
@@ -824,8 +788,6 @@ diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log
 diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
 diesel::joinable!(webhook_in_event -> provider_config (provider_config_id));
-diesel::joinable!(webhook_out_endpoint -> tenant (tenant_id));
-diesel::joinable!(webhook_out_event -> webhook_out_endpoint (endpoint_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     add_on,
@@ -865,6 +827,4 @@ diesel::allow_tables_to_appear_in_same_query!(
     tenant,
     user,
     webhook_in_event,
-    webhook_out_endpoint,
-    webhook_out_event,
 );

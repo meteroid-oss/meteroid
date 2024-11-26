@@ -82,7 +82,7 @@ impl<T> Paginated<T> {
         // Ignore those linting errors. `get(0)` cannot be replaced with `first()`.
         #![allow(clippy::get_first)]
 
-        let per_page = self.per_page;
+        let per_page = self.per_page.max(1);
 
         let results = self.get_results::<(U, i64)>(conn);
 

@@ -17,7 +17,7 @@ message CreateProductResponse {
 }
 
 message ListProductsRequest {
-  string family_local_id = 1;
+  optional string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
 }
 
@@ -27,7 +27,7 @@ message ListProductsResponse {
 }
 
 message SearchProductsRequest {
-  string family_local_id = 1;
+  optional string family_local_id = 1;
   optional string query = 2;
   meteroid.common.v1.Pagination pagination = 3;
 }

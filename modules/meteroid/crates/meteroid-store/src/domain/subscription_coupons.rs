@@ -1,7 +1,9 @@
 use crate::domain::coupons::{Coupon, CouponDiscount};
 use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
-use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
+use diesel_models::applied_coupons::{
+    AppliedCouponDetailedRow, AppliedCouponForDisplayRow, AppliedCouponRow,
+};
 use o2o::o2o;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -25,6 +27,26 @@ pub struct AppliedCoupon {
     pub coupon_id: Uuid,
     pub customer_id: Uuid,
     pub subscription_id: Uuid,
+    pub is_active: bool,
+    pub applied_amount: Option<Decimal>,
+    pub applied_count: Option<i32>,
+    pub last_applied_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, o2o)]
+#[from_owned(AppliedCouponForDisplayRow)]
+pub struct AppliedCouponForDisplay {
+    pub id: Uuid,
+    pub coupon_id: Uuid,
+    pub customer_id: Uuid,
+    pub customer_local_id: String,
+    pub customer_name: String,
+    pub subscription_id: Uuid,
+    pub plan_id: Uuid,
+    pub plan_local_id: String,
+    pub plan_version: i32,
+    pub plan_name: String,
     pub is_active: bool,
     pub applied_amount: Option<Decimal>,
     pub applied_count: Option<i32>,

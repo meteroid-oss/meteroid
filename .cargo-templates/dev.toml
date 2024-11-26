@@ -25,3 +25,7 @@ incremental = true
 opt-level = 0
 lto = "off"
 codegen-units = 256
+
+
+[profile.dev.build-override]
+opt-level = 3

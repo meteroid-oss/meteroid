@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 export type SetQueryStateAction<T> = T | ((prevState: T) => T)
+
+export const ARRAY_SERDE = {
+  serialize: (value: string[]) => value.join(','),
+  deserialize: (value: string) => value.split(','),
+}
 
 export function useQueryState<T>(
   key: string,
@@ -21,51 +26,29 @@ export function useQueryState<T>(
   } = {}
 ): [T, (value: SetQueryStateAction<T>) => void] {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [state, setState] = useState<T>(() => {
-    const paramValue = searchParams.get(key)
-    if (paramValue === null) {
-      return defaultValue
-    }
-    try {
-      return deserialize(paramValue)
-    } catch {
-      return defaultValue
-    }
-  })
-
-  useEffect(() => {
-    const paramValue = searchParams.get(key)
-    if (paramValue !== null) {
-      try {
-        setState(deserialize(paramValue))
-      } catch {
-        // If deserialization fails, we keep the current state
-      }
-    } else {
-      setState(defaultValue)
-    }
-  }, [searchParams, key, deserialize, defaultValue])
+  const paramValue = searchParams.get(key)
+  const state = useMemo(
+    () => (paramValue === null ? defaultValue : deserialize(paramValue)),
+    [paramValue, defaultValue, deserialize]
+  )
 
   const setQueryState = useCallback(
     (value: SetQueryStateAction<T>) => {
-      setState(prevState => {
-        const newState =
-          typeof value === 'function' ? (value as (prevState: T) => T)(prevState) : value
+      const newState = typeof value === 'function' ? (value as (prevState: T) => T)(state) : value
 
-        setSearchParams(prevParams => {
-          const newParams = new URLSearchParams(prevParams)
-          if (newState === defaultValue || newState === '') {
-            newParams.delete(key)
-          } else {
-            newParams.set(key, serialize(newState))
-          }
-          return newParams
-        })
+      setSearchParams(prevParams => {
+        const newParams = new URLSearchParams(prevParams)
+        const serialized = serialize(newState)
 
-        return newState
+        if (newState === defaultValue || serialized === '') {
+          newParams.delete(key)
+        } else {
+          newParams.set(key, serialized)
+        }
+        return newParams
       })
     },
-    [key, setSearchParams, serialize, defaultValue]
+    [key, setSearchParams, serialize, defaultValue, state]
   )
 
   return [state, setQueryState]

@@ -36,6 +36,7 @@ rusty-money = { workspace = true }
 common-utils = { workspace = true, features = ["decimal"] }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
+svix = { workspace = true, features = ["http2", "rustls-tls"] }
 chacha20poly1305 = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }
@@ -48,7 +49,7 @@ rustls = { workspace = true, features = ["ring"] }
 tokio-postgres-rustls = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["macros", "rt-multi-thread"] }
 tokio-postgres = { workspace = true }
-strum = { workspace = true, features = ["derive"] }
+strum = { workspace = true, features = ["derive", "std"] }
 
 [dev-dependencies]
 rstest = { workspace = true }

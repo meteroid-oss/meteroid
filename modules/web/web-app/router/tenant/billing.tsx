@@ -7,7 +7,6 @@ import { Subscriptions } from '@/pages/tenants/subscription'
 import { SubscriptionCreate } from '@/pages/tenants/subscription/subscriptionCreate'
 
 export const billingRoutes: RouteObject = {
-  path: 'billing',
   element: <BillingOutlet />,
   children: [
     {

@@ -64,6 +64,12 @@ pub struct Config {
 
     #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
     pub gotenberg_url: String,
+
+    #[envconfig(from = "SVIX_SERVER_URL", default = "http://localhost:8071")]
+    pub svix_server_url: String,
+
+    #[envconfig(from = "SVIX_JWT_TOKEN")]
+    pub svix_jwt_token: SecretString,
 }
 
 impl Config {
