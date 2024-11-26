@@ -17,6 +17,7 @@ use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
+use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
@@ -29,20 +30,21 @@ async fn main() -> error_stack::Result<(), SeederError> {
     init_regular_logging();
     let _exit = signal::ctrl_c();
 
-    let store = Store::new(
-        env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
-        env::var("SECRETS_CRYPT_KEY")
+    let store = Store::new(StoreConfig {
+        database_url: env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
+        crypt_key: env::var("SECRETS_CRYPT_KEY")
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
-        env::var("JWT_SECRET")
+        jwt_secret: env::var("JWT_SECRET")
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
-        false,
-        create_eventbus_noop().await,
-        Arc::new(MockUsageClient {
+        multi_organization_enabled: false,
+        eventbus: create_eventbus_noop().await,
+        usage_client: Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
-    )
+        svix: None,
+    })
     .change_context(SeederError::InitializationError)?;
 
     let organization_id = env::var("SEEDER_ORGANIZATION_ID")

@@ -15,7 +15,7 @@ use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
-use meteroid_store::store::PgPool;
+use meteroid_store::store::{PgPool, StoreConfig};
 
 pub struct MeteroidSetup {
     pub token: CancellationToken,
@@ -44,14 +44,15 @@ pub async fn start_meteroid_with_port(
     let token = CancellationToken::new();
     let cloned_token = token.clone();
 
-    let store = meteroid_store::Store::new(
-        config.database_url.clone(),
-        config.secrets_crypt_key.clone(),
-        config.jwt_secret.clone(),
-        config.multi_organization_enabled,
-        create_eventbus_memory(),
+    let store = meteroid_store::Store::new(StoreConfig {
+        database_url: config.database_url.clone(),
+        crypt_key: config.secrets_crypt_key.clone(),
+        jwt_secret: config.jwt_secret.clone(),
+        multi_organization_enabled: config.multi_organization_enabled,
+        eventbus: create_eventbus_memory(),
         usage_client,
-    )
+        svix: None,
+    })
     .expect("Could not create store");
 
     populate_postgres(&store.pool, seed_level).await;
