@@ -68,10 +68,7 @@ pub struct Config {
     #[envconfig(from = "SVIX_SERVER_URL", default = "http://localhost:8071")]
     pub svix_server_url: String,
 
-    #[envconfig(
-        from = "SVIX_JWT_TOKEN",
-        default = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE3Mjk3OTYzNzgsImV4cCI6MjA0NTE1NjM3OCwibmJmIjoxNzI5Nzk2Mzc4LCJpc3MiOiJzdml4LXNlcnZlciIsInN1YiI6Im9yZ18yM3JiOFlkR3FNVDBxSXpwZ0d3ZFhmSGlyTXUifQ.ALUyWef8OTTX9ON1Ny4IywQM2rOzuwFhfbKxagxT2-8"
-    )]
+    #[envconfig(from = "SVIX_JWT_TOKEN")]
     pub svix_jwt_token: SecretString,
 }
 
