@@ -8,22 +8,10 @@ pub fn record_call(kind: GrpcKind, sm: GrpcServiceMethod, status_code: Code, lat
     let status_code_str = code_as_str(status_code);
 
     let attributes = &[
-        metrics::KeyValue {
-            key: "grpc_kind".into(),
-            value: kind.to_string().into(),
-        },
-        metrics::KeyValue {
-            key: "grpc_service".into(),
-            value: sm.service.into(),
-        },
-        metrics::KeyValue {
-            key: "grpc_method".into(),
-            value: sm.method.into(),
-        },
-        metrics::KeyValue {
-            key: "grpc_status".into(),
-            value: status_code_str.into(),
-        },
+        metrics::KeyValue::new("grpc_kind", kind.to_string()),
+        metrics::KeyValue::new("grpc_service", sm.service),
+        metrics::KeyValue::new("grpc_method", sm.method),
+        metrics::KeyValue::new("grpc_status", status_code_str),
     ];
 
     metrics::CALL_COUNTER.add(1, attributes);

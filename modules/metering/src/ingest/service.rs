@@ -150,10 +150,7 @@ impl EventsServiceGrpc for EventsService {
         }
 
         let default_attributes = &[
-            KeyValue {
-                key: "tenant_id".into(),
-                value: tenant_id.into(),
-            }, // add key ?
+            KeyValue::new("tenant_id", tenant_id.clone()), // add key ?
         ];
 
         let res = self
