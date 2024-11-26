@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::signal;
 
 use common_logging::init::init_regular_logging;
+use common_utils::rng::UPPER_ALPHANUMERIC;
 use error_stack::ResultExt;
 use meteroid::eventbus::create_eventbus_noop;
 use meteroid::seeder::domain;
@@ -69,7 +70,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
 
     let user_id = uuid::uuid!("00000000-0000-0000-0000-000000000000");
 
-    let tenant_name = format!("Seedtest / {}", now.format("%Y%m%d%H%M%S"));
+    let tenant_name = format!("seed-{}", nanoid::nanoid!(6, &UPPER_ALPHANUMERIC));
 
     log::info!("Creating tenant '{}'", tenant_name);
 

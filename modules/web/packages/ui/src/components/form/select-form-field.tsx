@@ -1,6 +1,8 @@
 import { SelectProps } from '@radix-ui/react-select'
 import { Control, FieldPath, FieldValues, UseControllerProps } from 'react-hook-form'
 
+import { cn } from '@ui/lib'
+
 import * as Select from '../ui/select'
 
 import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
@@ -30,11 +32,12 @@ export const SelectFormField = <
   empty,
   ...props
 }: SelectFormFieldProps<TFieldValues, TName> & GenericFormFieldVariantProps) => {
-  const { inputProps, ...formFieldProps } = destructuredFormProps(props)
+  const { inputProps, className, ...formFieldProps } = destructuredFormProps(props)
 
   return (
     <GenericFormField
       {...formFieldProps}
+      className={cn('flex-row', className)}
       render={({ field, className }) => {
         return (
           <Select.Select

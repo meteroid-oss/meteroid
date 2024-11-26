@@ -1,4 +1,3 @@
-import { spaces } from '@md/foundation'
 import { ChevronDownIcon, ChevronUpIcon } from '@md/icons'
 import { Skeleton, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@md/ui'
 import {
@@ -14,7 +13,6 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import { Flex } from '@ui/components/legacy'
 import { AlertCircleIcon } from 'lucide-react'
 import { ReactNode, useMemo, useState } from 'react'
 
@@ -119,8 +117,8 @@ export const CustomTable = <A extends object>({
   }, [isLoading, data, rows, rowRenderer, columns, emptyMessage])
 
   return (
-    <Flex direction="column" gap={spaces.space9}>
-      <Table>
+    <>
+      <Table containerClassName="flex-1 grow">
         <TableHeader>
           <TableRow>
             {table.getFlatHeaders().map((header, headerIndex) => {
@@ -168,6 +166,6 @@ export const CustomTable = <A extends object>({
         totalCount={totalCount}
         isLoading={isLoading || false}
       />
-    </Flex>
+    </>
   )
 }

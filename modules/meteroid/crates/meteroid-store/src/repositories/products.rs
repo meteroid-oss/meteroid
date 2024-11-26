@@ -15,14 +15,14 @@ pub trait ProductInterface {
     async fn list_products(
         &self,
         auth_tenant_id: Uuid,
-        family_local_id: &str,
+        family_local_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
     async fn search_products(
         &self,
         auth_tenant_id: Uuid,
-        family_local_id: &str,
+        family_local_id: Option<String>,
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -71,7 +71,7 @@ impl ProductInterface for Store {
     async fn list_products(
         &self,
         auth_tenant_id: Uuid,
-        family_local_id: &str,
+        family_local_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>> {
@@ -99,7 +99,7 @@ impl ProductInterface for Store {
     async fn search_products(
         &self,
         auth_tenant_id: Uuid,
-        family_local_id: &str,
+        family_local_id: Option<String>,
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,

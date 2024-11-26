@@ -8,7 +8,6 @@ import {
   StyledPageTemplate,
   Tab,
   Tabs,
-  Visual,
 } from '@/features/auth/components/AuthPageTemplate/AuthPageTemplate.styled'
 
 import type { FC } from 'react'
@@ -26,7 +25,7 @@ const PageTemplate: FC<PageTemplateProps> = () => {
           </FormContainerHeader>
           <Outlet />
         </FormContainer>
-        <Visual />
+        {/* <Visual /> */}
       </ContentWrapper>
     </StyledPageTemplate>
   )

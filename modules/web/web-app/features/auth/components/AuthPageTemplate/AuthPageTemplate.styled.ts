@@ -9,11 +9,9 @@ export const StyledPageTemplate = styled('div', {
 })
 
 export const ContentWrapper = styled('div', {
-  display: 'grid',
-  gridTemplateColumns: '500px 1fr',
   backgroundColor: colors.neutral1,
   boxShadow: '0px 4px 22px -14px rgba(0, 0, 0, 0.15), 0px 54px 72px -40px rgba(0, 0, 0, 0.15)',
-  width: 896,
+  width: 558,
   height: 576,
   margin: 'auto auto',
   borderRadius: radius.radius5,

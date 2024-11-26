@@ -21,7 +21,7 @@ message CreateBillableMetricResponse {
 }
 
 message ListBillableMetricsRequest {
-  string family_local_id = 1;
+  optional string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
 }
 

@@ -10,8 +10,8 @@
       --card-foreground: 240 10% 3.9%;
       --popover: 0 0% 100%;
       --popover-foreground: 240 10% 3.9%;
-      --brand: 142.1 76.2% 36.3%;
-      --brand-foreground: 355.7 100% 97.3%;
+      --brand: 242 89.1% 71.2%;
+      --brand-foreground: 242 88% 97%;
       --primary: 240 15% 5%;
       --primary-foreground: 0 0% 90%;
       --secondary: 240 4.8% 95.9%;
@@ -348,3 +348,30 @@ div[data-radix-portal]:not(.portal--toast) {
   border-bottom: none;
 }
 
+
+ 
+
+.scrollbar {
+  // scrollbar-width: thin;
+  // scrollbar-color: theme('colors.slate.400') transparent; 
+  scrollbar-gutter: stable;
+}
+   
+.scrollbar::-webkit-scrollbar { 
+  width: 8px; 
+  z-index: 999999;
+}
+  
+.scrollbar::-webkit-scrollbar-button {
+  display:none;
+}
+
+.scrollbar:hover::-webkit-scrollbar-thumb {
+  @apply bg-slate-300;
+  border-radius: 10px; 
+}
+
+.scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400; 
+}
+ 

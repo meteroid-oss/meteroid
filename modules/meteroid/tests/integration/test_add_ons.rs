@@ -51,7 +51,10 @@ async fn test_add_ons_basic() {
     let add_ons = clients
         .add_ons
         .clone()
-        .list_add_ons(api::addons::v1::ListAddOnRequest {})
+        .list_add_ons(api::addons::v1::ListAddOnRequest {
+            search: None,
+            pagination: None,
+        })
         .await
         .unwrap()
         .into_inner()
@@ -94,7 +97,10 @@ async fn test_add_ons_basic() {
     let add_ons = clients
         .add_ons
         .clone()
-        .list_add_ons(api::addons::v1::ListAddOnRequest {})
+        .list_add_ons(api::addons::v1::ListAddOnRequest {
+            search: None,
+            pagination: None,
+        })
         .await
         .unwrap()
         .into_inner()
