@@ -1,6 +1,10 @@
+import { PaginationState } from '@tanstack/react-table'
+import { FunctionComponent, useMemo, useState } from 'react'
+import { Outlet } from 'react-router-dom'
+
+import { MultiFilter, SingleFilter } from '@/features/TablePage'
 import { PlansHeader } from '@/features/plans/PlansHeader'
 import { PlansTable } from '@/features/plans/PlansTable'
-import { MultiFilter, SingleFilter } from '@/features/TablePage'
 import { useDebounceValue } from '@/hooks/useDebounce'
 import { ARRAY_SERDE, useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
@@ -8,9 +12,7 @@ import { PlanStatus, PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
-import { PaginationState } from '@tanstack/react-table'
-import { FunctionComponent, useMemo, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+
 
 export const Plans: FunctionComponent = () => {
   const productFamiliesQuery = useQuery(listProductFamilies)

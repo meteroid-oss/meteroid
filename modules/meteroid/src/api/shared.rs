@@ -63,7 +63,7 @@ pub mod mapping {
 
 // v2 conversions, we should now encode dates/decimals etc as string
 pub mod conversions {
-    use chrono::FixedOffset;
+
     use std::str::FromStr;
 
     pub trait ProtoConv<T> {

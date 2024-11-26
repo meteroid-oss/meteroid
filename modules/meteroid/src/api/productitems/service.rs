@@ -62,12 +62,7 @@ impl ProductsService for ProductServiceComponents {
 
         let res = self
             .store
-            .list_products(
-                tenant_id,
-                req.family_local_id,
-                pagination_req,
-                order_by,
-            )
+            .list_products(tenant_id, req.family_local_id, pagination_req, order_by)
             .await
             .map_err(Into::<ProductApiError>::into)?;
 

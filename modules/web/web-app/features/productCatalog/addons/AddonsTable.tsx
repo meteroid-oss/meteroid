@@ -1,12 +1,15 @@
-import { LocalId } from '@/components/LocalId'
-import { StandardTable } from '@/components/table/StandardTable'
-import { AddOn } from '@/rpc/api/addons/v1/models_pb'
+import { UseQueryResult } from '@tanstack/react-query'
 import { ColumnDef, PaginationState } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { LocalId } from '@/components/LocalId'
+import { StandardTable } from '@/components/table/StandardTable'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
-import { UseQueryResult } from '@tanstack/react-query'
+import { AddOn } from '@/rpc/api/addons/v1/models_pb'
+
+
+
 import type { FunctionComponent } from 'react'
 
 interface AddonsTableProps {

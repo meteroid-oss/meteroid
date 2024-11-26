@@ -1,14 +1,15 @@
-import { FunctionComponent } from 'react'
 
-import { createAddOn, listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
+
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useQueryClient } from '@tanstack/react-query'
+import { InputFormField } from '@ui/components'
+import { FunctionComponent } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { useQueryClient } from '@tanstack/react-query'
-import { InputFormField } from '@ui/components'
-import { useNavigate } from 'react-router-dom'
+import { createAddOn, listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 
 export const AddonCreatePanel: FunctionComponent = () => {
   const queryClient = useQueryClient()
@@ -28,7 +29,7 @@ export const AddonCreatePanel: FunctionComponent = () => {
     <CatalogEditPanel
       visible={true}
       closePanel={() => navigate('..')}
-      title={'Create addon'}
+      title="Create addon"
       methods={methods}
       onSubmit={a =>
         createAddonMut

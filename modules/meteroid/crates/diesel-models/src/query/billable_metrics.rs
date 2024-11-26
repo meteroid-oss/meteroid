@@ -76,13 +76,12 @@ impl BillableMetricRow {
             .inner_join(pf_dsl::product_family.on(bm_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(bm_dsl::tenant_id.eq(param_tenant_id))
             .into_boxed();
-        
+
         if let Some(id) = param_product_family_local_id {
             query = query.filter(pf_dsl::local_id.eq(id));
         }
-            
-            
-           let query = query
+
+        let query = query
             .order(bm_dsl::created_at.asc())
             .select(BillableMetricMetaRow::as_select());
 

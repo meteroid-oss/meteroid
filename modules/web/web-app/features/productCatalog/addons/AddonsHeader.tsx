@@ -1,6 +1,7 @@
-import { EntityFilters, EntityHeader } from '@/features/TablePage'
 import { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+import { EntityFilters, EntityHeader } from '@/features/TablePage'
 
 export const AddonsHeader = ({ children, count }: { children?: ReactNode; count?: number }) => {
   const navigate = useNavigate()

@@ -1,10 +1,3 @@
-import { FunctionComponent } from 'react'
-
-import { createCoupon, listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
-
-import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
-import { useZodForm } from '@/hooks/useZodForm'
-import { schemas } from '@/lib/schemas'
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -24,7 +17,13 @@ import { cn } from '@ui/lib'
 import { format } from 'date-fns'
 import { CalendarIcon } from 'lucide-react'
 import { customAlphabet } from 'nanoid'
+import { FunctionComponent } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
+import { useZodForm } from '@/hooks/useZodForm'
+import { schemas } from '@/lib/schemas'
+import { createCoupon, listCoupons } from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
 
 const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ')
 export const CouponCreatePanel: FunctionComponent = () => {
@@ -58,7 +57,7 @@ export const CouponCreatePanel: FunctionComponent = () => {
     <CatalogEditPanel
       visible={true}
       closePanel={() => navigate('..')}
-      title={'Create coupon'}
+      title="Create coupon"
       methods={methods}
       onSubmit={a =>
         createCouponMut
@@ -110,9 +109,9 @@ export const CouponCreatePanel: FunctionComponent = () => {
 
             <SelectFormField
               name="discountType"
-              label="Product line"
+              label="Discount type"
               layout="horizontal"
-              placeholder="Select a product line"
+              placeholder="Select..."
               className="max-w-[320px]  "
               control={methods.control}
             >

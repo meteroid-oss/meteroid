@@ -1,3 +1,4 @@
+import { disableQuery } from '@connectrpc/connect-query'
 import { Button, ComboboxFormField, Form, Input } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
@@ -8,6 +9,7 @@ import { useNavigate } from 'react-router-dom'
 
 import PriceInput from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPriceComponentCard'
 import { componentFeeAtom } from '@/features/plans/pricecomponents/atoms'
 import { useCurrency } from '@/features/plans/pricecomponents/utils'
@@ -16,8 +18,6 @@ import { useQuery } from '@/lib/connectrpc'
 import { CapacityFee, CapacityFeeSchema, CapacityThreshold } from '@/lib/schemas/plans'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
 
-import { usePlanOverview } from '@/features/plans/hooks/usePlan'
-import { disableQuery } from '@connectrpc/connect-query'
 import { FeeFormProps } from './shared'
 
 export const CapacityForm = (props: FeeFormProps) => {

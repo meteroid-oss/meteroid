@@ -1,4 +1,5 @@
 import { disableQuery } from '@connectrpc/connect-query'
+import { InfoIcon } from '@md/icons'
 import { Alert, Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
@@ -25,7 +26,6 @@ import { SubscriptionsTable } from '@/features/subscriptions'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
-import { InfoIcon } from '@md/icons'
 
 interface Props {
   children?: ReactNode
@@ -58,7 +58,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
           <>
             {overview?.hasDraftVersion && (
               <>
-                <Alert variant={'brand'} className="flex  gap-2 items-center">
+                <Alert variant="brand" className="flex  gap-2 items-center">
                   <div>
                     <InfoIcon size={16} className="flex text-brand  " />
                   </div>

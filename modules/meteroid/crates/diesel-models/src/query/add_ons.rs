@@ -1,7 +1,6 @@
 use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
-use crate::extend::pagination::{Paginate, Paginated, PaginatedVec, PaginationRequest};
-use crate::schema::customer::{alias, name};
+use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods, QueryDsl,
@@ -52,14 +51,14 @@ impl AddOnRow {
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
         pagination: PaginationRequest,
-        search: Option<String>, 
+        search: Option<String>,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
-        use crate::schema::product_family::dsl as pf_dsl;
+
         let mut query = ao_dsl::add_on
             .filter(ao_dsl::tenant_id.eq(tenant_id))
             .into_boxed();
- 
+
         if let Some(search) = search {
             query = query.filter(
                 ao_dsl::name

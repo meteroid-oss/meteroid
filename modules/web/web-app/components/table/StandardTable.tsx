@@ -15,6 +15,7 @@ interface StandardTableProps<A> {
   emptyMessage?: string | ReactNode
   isLoading?: boolean
   rowLink?: (row: Row<A>) => string
+  rowClassName?: (row: Row<A>) => string
 }
 export const StandardTable = <A extends object>({
   columns,
@@ -26,6 +27,7 @@ export const StandardTable = <A extends object>({
   emptyMessage = 'No data to display',
   isLoading,
   rowLink,
+  rowClassName,
 }: StandardTableProps<A>) => {
   return (
     <CustomTable
@@ -36,13 +38,17 @@ export const StandardTable = <A extends object>({
       setPagination={setPagination}
       totalCount={totalCount}
       emptyMessage={emptyMessage}
-      rowRenderer={row => standardRowRenderer(row, rowLink)}
+      rowRenderer={row => standardRowRenderer(row, rowLink, rowClassName)}
       isLoading={isLoading}
     />
   )
 }
 
-const standardRowRenderer = <A extends object>(row: Row<A>, rowLink?: (row: Row<A>) => string) => {
+const standardRowRenderer = <A extends object>(
+  row: Row<A>,
+  rowLink?: (row: Row<A>) => string,
+  rowClassName?: (row: Row<A>) => string
+) => {
   const cells = row.getVisibleCells().map(cell => (
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     <TableCell key={cell.id} className={(cell.column.columnDef as any).className}>
@@ -56,5 +62,9 @@ const standardRowRenderer = <A extends object>(row: Row<A>, rowLink?: (row: Row<
     </TableCell>
   ))
 
-  return <TableRow key={row.id}>{cells}</TableRow>
+  return (
+    <TableRow key={row.id} className={rowClassName?.(row)}>
+      {cells}
+    </TableRow>
+  )
 }

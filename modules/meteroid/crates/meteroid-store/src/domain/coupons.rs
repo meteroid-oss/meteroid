@@ -1,14 +1,14 @@
 use crate::errors::StoreError;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
-use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch, CouponFilter as CouponFilterDb};
-use diesel_models::schema::coupon::redemption_count;
+use diesel_models::coupons::{
+    CouponFilter as CouponFilterDb, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch,
+};
 use error_stack::Report;
 use o2o::o2o;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use diesel_models::schema::plan::archived_at;
 
 #[derive(Debug, Clone)]
 pub struct Coupon {
@@ -163,7 +163,6 @@ impl TryInto<CouponRowPatch> for CouponPatch {
         })
     }
 }
-
 
 #[derive(Debug, Clone, o2o)]
 #[owned_into(CouponFilterDb)]

@@ -1,14 +1,15 @@
-import { LocalId } from '@/components/LocalId'
-import { StandardTable } from '@/components/table/StandardTable'
-import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
+import { UseQueryResult } from '@tanstack/react-query'
 import { ColumnDef, PaginationState } from '@tanstack/react-table'
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { LocalId } from '@/components/LocalId'
+import { StandardTable } from '@/components/table/StandardTable'
 import { ListCouponResponse } from '@/rpc/api/coupons/v1/coupons_pb'
+import { Coupon } from '@/rpc/api/coupons/v1/models_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { useTypedParams } from '@/utils/params'
-import { UseQueryResult } from '@tanstack/react-query'
+
 import type { FunctionComponent } from 'react'
 
 interface CouponsTableProps {
@@ -83,6 +84,9 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
       totalCount={couponsQuery.data?.coupons?.length ?? 0}
       isLoading={couponsQuery.isLoading}
       rowLink={row => `${row.original.localId}`}
+      rowClassName={row =>
+        row.original.localId === couponLocalId ? 'bg-accent/50 font-semibold' : ''
+      }
     />
   )
 }

@@ -1,7 +1,6 @@
 use crate::coupons::{CouponFilter, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use crate::errors::IntoDbResult;
-use crate::extend::cursor_pagination::CursorPaginationRequest;
-use crate::extend::pagination::{Paginate, Paginated, PaginatedVec, PaginationRequest};
+use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::{DbResult, PgConn};
 use diesel::dsl::not;
@@ -92,11 +91,15 @@ impl CouponRow {
             );
         }
 
-        let is_expired = c_dsl::expires_at.lt(chrono::Utc::now().naive_utc());
+        let is_expired = c_dsl::expires_at
+            .is_not_null()
+            .and(c_dsl::expires_at.lt(chrono::Utc::now().naive_utc()));
 
-        let is_exhausted = c_dsl::redemption_limit.le(c_dsl::redemption_count.nullable());
+        let is_exhausted = c_dsl::redemption_limit
+            .is_not_null()
+            .and(c_dsl::redemption_limit.le(c_dsl::redemption_count.nullable()));
 
-        let is_archived = c_dsl::archived_at.is_null();
+        let is_archived = c_dsl::archived_at.is_not_null();
 
         let is_disabled = c_dsl::disabled.eq(true);
 
@@ -118,7 +121,7 @@ impl CouponRow {
             CouponFilter::ALL => {}
         }
 
-        let query = query.paginate(pagination);
+        let query = query.order(c_dsl::created_at.desc()).paginate(pagination);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

@@ -13,7 +13,7 @@ pub trait AddOnInterface {
         tenant_id: Uuid,
         pagination: PaginationRequest,
         search: Option<String>,
-    ) -> StoreResult<PaginatedVec<AddOn>> ;
+    ) -> StoreResult<PaginatedVec<AddOn>>;
     async fn get_add_on_by_id(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<AddOn>;
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn>;
     async fn update_add_on(&self, add_on: AddOnPatch) -> StoreResult<AddOn>;
@@ -33,7 +33,7 @@ impl AddOnInterface for Store {
         let add_ons = AddOnRow::list_by_tenant_id(&mut conn, tenant_id, pagination.into(), search)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
- 
+
         Ok(PaginatedVec {
             items: add_ons
                 .items

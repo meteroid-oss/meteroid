@@ -101,7 +101,6 @@ impl AppliedCouponForDisplayRow {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl as s_dsl;
-        use crate::schema::tenant::dsl as t_dsl;
 
         let query = ac_dsl::applied_coupon
             .inner_join(cou_dsl::coupon)

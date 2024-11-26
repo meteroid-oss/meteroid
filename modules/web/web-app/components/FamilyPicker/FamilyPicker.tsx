@@ -11,10 +11,10 @@ import {
 import { ChevronsUpDown, PlusIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-import { useQueryState } from '@/hooks/useQueryState'
 import type { FunctionComponent } from 'react'
 
 const FamilyPicker: FunctionComponent = () => {

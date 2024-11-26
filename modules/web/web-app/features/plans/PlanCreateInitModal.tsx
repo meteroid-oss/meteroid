@@ -1,7 +1,7 @@
 import { Modal } from '@md/ui'
+import { useNavigate } from 'react-router-dom'
 
 import { DetailsForm } from '@/features/plans/create/details/DetailsForm'
-import { useNavigate } from 'react-router-dom'
 
 export const PlanCreateInitModal = () => {
   const navigate = useNavigate()

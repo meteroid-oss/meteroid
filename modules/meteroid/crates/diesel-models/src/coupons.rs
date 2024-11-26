@@ -63,7 +63,6 @@ pub struct CouponStatusRowPatch {
     pub disabled: Option<bool>,
 }
 
-
 pub enum CouponFilter {
     ALL,
     ACTIVE,

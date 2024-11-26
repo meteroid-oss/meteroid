@@ -3,9 +3,7 @@ use crate::domain::{AppliedCouponForDisplay, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use diesel_models::applied_coupons::AppliedCouponForDisplayRow;
-use diesel_models::coupons::{
-    CouponFilter as CouponFilterDb, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch,
-};
+use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use error_stack::Report;
 use uuid::Uuid;
 

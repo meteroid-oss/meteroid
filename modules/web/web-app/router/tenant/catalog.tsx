@@ -1,8 +1,8 @@
 import { Navigate, RouteObject } from 'react-router-dom'
 
 import { NotImplemented } from '@/features/NotImplemented'
-import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
 import { PlanCreateInitModal } from '@/features/plans/PlanCreateInitModal'
+import { DetailsFormModal } from '@/features/plans/create/details/DetailsFormModal'
 import { Addons } from '@/pages/tenants/billing/addons'
 import { CouponDetails } from '@/pages/tenants/billing/couponDetails'
 import { Coupons } from '@/pages/tenants/billing/coupons'
@@ -89,6 +89,7 @@ export const productCatalogRoutes: RouteObject = {
           children: [
             {
               index: true,
+              element: null,
             },
             {
               path: 'add-addon',
@@ -102,6 +103,7 @@ export const productCatalogRoutes: RouteObject = {
           children: [
             {
               index: true,
+              element: null,
             },
             {
               path: 'add-coupon',

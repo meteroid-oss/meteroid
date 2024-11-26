@@ -1,4 +1,3 @@
-import { SetQueryStateAction, useQueryState } from '@/hooks/useQueryState'
 import { SearchIcon } from '@md/icons'
 import {
   Button,
@@ -12,6 +11,8 @@ import {
 import { cn } from '@ui/lib'
 import { ChevronDown, PlusIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
+
+import { SetQueryStateAction, useQueryState } from '@/hooks/useQueryState'
 
 interface Action {
   label: string
@@ -83,7 +84,8 @@ interface EntityFiltersProps {
 }
 
 export const EntityFilters = ({ children, className }: EntityFiltersProps) => {
-  const [search, setSearch] = useQueryState<string | undefined>('q', undefined)
+  const [search, setSearch] = useQueryState<string>('q', '') // Changed from undefined to empty string
+
   return (
     <div className={cn('flex flex-col lg:flex-row gap-2', className)}>
       <InputWithIcon
@@ -92,7 +94,7 @@ export const EntityFilters = ({ children, className }: EntityFiltersProps) => {
         width="fit-content"
         className="max-w-48"
         onChange={e => setSearch(e.target.value)}
-        value={search}
+        value={search ?? ''} // Ensure value is never undefined
       />
       {children && (
         <div className={cn('flex gap-2 items-center', className)}>

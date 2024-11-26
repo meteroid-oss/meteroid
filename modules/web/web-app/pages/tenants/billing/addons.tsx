@@ -1,7 +1,7 @@
 import { FunctionComponent } from 'react'
+import { Outlet } from 'react-router'
 
 import { AddonsPage } from '@/features/productCatalog/addons/AddonsPage'
-import { Outlet } from 'react-router'
 
 export const Addons: FunctionComponent = () => {
   return (

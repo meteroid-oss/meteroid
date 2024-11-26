@@ -2,6 +2,7 @@ import { useMutation } from '@connectrpc/connect-query'
 import { Button, Modal } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom, useSetAtom } from 'jotai'
+import { PencilIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -18,7 +19,6 @@ import {
   listPlans,
   publishPlanVersion,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
-import { PencilIcon } from 'lucide-react'
 
 export const PlanActions = () => {
   const [addedComponents] = useAtom(addedComponentsAtom)

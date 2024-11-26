@@ -1,3 +1,4 @@
+import { disableQuery } from '@connectrpc/connect-query'
 import {
   Button,
   ComboboxFormField,
@@ -23,6 +24,7 @@ import { match } from 'ts-pattern'
 import { AccordionPanel } from '@/components/AccordionPanel'
 import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
+import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPriceComponentCard'
 import { useCurrency } from '@/features/plans/pricecomponents/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
@@ -42,8 +44,6 @@ import {
 
 import { componentFeeAtom, componentNameAtom } from '../atoms'
 
-import { usePlanOverview } from '@/features/plans/hooks/usePlan'
-import { disableQuery } from '@connectrpc/connect-query'
 import { FeeFormProps } from './shared'
 
 // type UsagePricingModelType = "per_unit" | "tiered" | "volume" | "package"

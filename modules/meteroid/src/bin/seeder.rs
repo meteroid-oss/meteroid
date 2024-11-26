@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::signal;
 
 use common_logging::init::init_regular_logging;
+use common_utils::rng::UPPER_ALPHANUMERIC;
 use error_stack::ResultExt;
 use meteroid::eventbus::create_eventbus_noop;
 use meteroid::seeder::domain;
@@ -20,7 +21,6 @@ use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
 use tap::TapFallible;
-use common_utils::rng::UPPER_ALPHANUMERIC;
 
 #[tokio::main]
 async fn main() -> error_stack::Result<(), SeederError> {

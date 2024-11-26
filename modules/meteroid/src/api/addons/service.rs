@@ -1,6 +1,7 @@
 use crate::api::addons::error::AddOnApiError;
 use crate::api::addons::mapping::addons::AddOnWrapper;
 use crate::api::addons::AddOnsServiceComponents;
+use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_server::AddOnsService;
@@ -8,12 +9,10 @@ use meteroid_grpc::meteroid::api::addons::v1::{
     CreateAddOnRequest, CreateAddOnResponse, EditAddOnRequest, EditAddOnResponse, ListAddOnRequest,
     ListAddOnResponse, RemoveAddOnRequest, RemoveAddOnResponse,
 };
+use meteroid_store::domain;
 use meteroid_store::domain::add_ons::{AddOnNew, AddOnPatch};
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use tonic::{Request, Response, Status};
-use meteroid_grpc::meteroid::api::plans::v1::ListPlanVersionByIdResponse;
-use meteroid_store::domain;
-use crate::api::utils::PaginationExt;
 
 #[tonic::async_trait]
 impl AddOnsService for AddOnsServiceComponents {
@@ -23,7 +22,7 @@ impl AddOnsService for AddOnsServiceComponents {
         request: Request<ListAddOnRequest>,
     ) -> Result<Response<ListAddOnResponse>, Status> {
         let tenant_id = request.tenant()?;
-        
+
         let req = request.into_inner();
 
         let pagination_req = domain::PaginationRequest {
@@ -31,13 +30,11 @@ impl AddOnsService for AddOnsServiceComponents {
             per_page: req.pagination.as_ref().map(|p| p.limit),
         };
 
-
         let add_ons = self
             .store
             .list_add_ons(tenant_id, pagination_req, req.search)
             .await
             .map_err(Into::<AddOnApiError>::into)?;
-           
 
         let response = ListAddOnResponse {
             pagination_meta: req.pagination.into_response(add_ons.total_results as u32),
@@ -47,7 +44,6 @@ impl AddOnsService for AddOnsServiceComponents {
                 .map(|x| AddOnWrapper::from(x).0)
                 .collect(),
         };
-         
 
         Ok(Response::new(response))
     }

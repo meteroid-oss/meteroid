@@ -1,22 +1,3 @@
-import { FunctionComponent, useMemo } from 'react'
-
-import {
-  editCoupon,
-  getCoupon,
-  listCoupons,
-  removeCoupon,
-  updateCouponStatus,
-} from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
-import { z } from 'zod'
-
-import { LocalId } from '@/components/LocalId'
-import { Property } from '@/components/Property'
-import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
-import { schemas } from '@/lib/schemas'
-import { CouponAction } from '@/rpc/api/coupons/v1/coupons_pb'
-import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
-import { useTypedParams } from '@/utils/params'
 import { disableQuery, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -37,14 +18,29 @@ import {
   TextareaFormField,
 } from '@ui/components'
 import { ChevronDown } from 'lucide-react'
-import { customAlphabet } from 'nanoid'
-import { useNavigate } from 'react-router-dom'
+import { FunctionComponent, useMemo } from 'react'
 import { toast } from 'sonner'
+import { z } from 'zod'
 
-const nanoid = customAlphabet('23456789ABCDEFGHJKLMNPQRSTUVWXYZ')
+import { LocalId } from '@/components/LocalId'
+import { Property } from '@/components/Property'
+import { useQueryState } from '@/hooks/useQueryState'
+import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
+import { schemas } from '@/lib/schemas'
+import {
+  editCoupon,
+  getCoupon,
+  listCoupons,
+  removeCoupon,
+  updateCouponStatus,
+} from '@/rpc/api/coupons/v1/coupons-CouponsService_connectquery'
+import { CouponAction } from '@/rpc/api/coupons/v1/coupons_pb'
+import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
+import { useTypedParams } from '@/utils/params'
+
 export const CouponDetails: FunctionComponent = () => {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
 
   const { couponLocalId } = useTypedParams<{ couponLocalId: string }>()
 
@@ -75,6 +71,8 @@ export const CouponDetails: FunctionComponent = () => {
   const updateCouponStatusMut = useMutation(updateCouponStatus, {
     onSuccess: invalidate,
   })
+
+  const [, setTab] = useQueryState<string>('filter', '')
 
   const methods = useZodForm({
     schema: schemas.coupons.editComponentSchema,
@@ -184,26 +182,46 @@ export const CouponDetails: FunctionComponent = () => {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {coupon.disabled ? (
+                {coupon.archivedAt !== undefined ? (
+                  <>
+                    <DropdownMenuItem
+                      key="enable"
+                      onClick={() =>
+                        updateCouponStatusMut
+                          .mutateAsync({
+                            action: CouponAction.ENABLE,
+                            couponId: coupon.id,
+                          })
+                          .then(() => setTab('active'))
+                      }
+                    >
+                      Restore & enable
+                    </DropdownMenuItem>
+                  </>
+                ) : coupon.disabled ? (
                   <DropdownMenuItem
-                    key={'enable'}
+                    key="enable"
                     onClick={() =>
-                      updateCouponStatusMut.mutateAsync({
-                        action: CouponAction.ENABLE,
-                        couponId: coupon.id,
-                      })
+                      updateCouponStatusMut
+                        .mutateAsync({
+                          action: CouponAction.ENABLE,
+                          couponId: coupon.id,
+                        })
+                        .then(() => setTab('active'))
                     }
                   >
                     Enable
                   </DropdownMenuItem>
                 ) : (
                   <DropdownMenuItem
-                    key={'disable'}
+                    key="disable"
                     onClick={() =>
-                      updateCouponStatusMut.mutateAsync({
-                        action: CouponAction.DISABLE,
-                        couponId: coupon.id,
-                      })
+                      updateCouponStatusMut
+                        .mutateAsync({
+                          action: CouponAction.DISABLE,
+                          couponId: coupon.id,
+                        })
+                        .then(() => setTab('inactive'))
                     }
                   >
                     Disable
@@ -212,12 +230,14 @@ export const CouponDetails: FunctionComponent = () => {
 
                 {coupon.archivedAt ? null : (
                   <DropdownMenuItem
-                    key={'archive'}
+                    key="archive"
                     onClick={() =>
-                      updateCouponStatusMut.mutateAsync({
-                        action: CouponAction.ARCHIVE,
-                        couponId: coupon.id,
-                      })
+                      updateCouponStatusMut
+                        .mutateAsync({
+                          action: CouponAction.ARCHIVE,
+                          couponId: coupon.id,
+                        })
+                        .then(() => setTab('archived'))
                     }
                   >
                     Achive
@@ -226,7 +246,7 @@ export const CouponDetails: FunctionComponent = () => {
 
                 {coupon.lastRedemptionAt ? null : (
                   <DropdownMenuItem
-                    key={'delete'}
+                    key="delete"
                     onClick={() => removeCouponMut.mutateAsync({ couponId: coupon.id })}
                     className="bg-destructive text-destructive-foreground"
                   >
@@ -273,9 +293,9 @@ export const CouponDetails: FunctionComponent = () => {
 
                 <SelectFormField
                   name="discountType"
-                  label="Product line"
+                  label="Discount type"
                   layout="horizontal"
-                  placeholder="Select a product line"
+                  placeholder="Select..."
                   className="max-w-[320px]  "
                   control={methods.control}
                 >

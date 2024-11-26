@@ -1,5 +1,5 @@
 pub mod applied {
-    use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::coupons::v1 as server;
     use meteroid_store::domain;
 
@@ -26,7 +26,7 @@ pub mod applied {
     }
 }
 pub mod coupons {
-    use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::coupons::v1 as server;
     use meteroid_store::domain;
 
