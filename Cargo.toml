@@ -119,7 +119,7 @@ rdkafka = "0.37.0"
 regex = "1"
 reqwest = { version = "0.12.5", default-features = false }
 reqwest-middleware = "0.4.0"
-reqwest-retry = "0.6.1"
+reqwest-retry = "0.7.0"
 ring = "0.17.8"
 rstest = "0.23.0"
 rust_decimal = "1.32.0"
