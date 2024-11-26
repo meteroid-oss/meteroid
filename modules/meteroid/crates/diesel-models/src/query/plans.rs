@@ -148,6 +148,7 @@ impl PlanRow {
                 p_dsl::plan_type,
                 p_dsl::status,
                 pf_dsl::name,
+                pf_dsl::local_id,
                 active_version_alias
                     .fields((pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),
@@ -268,6 +269,7 @@ impl PlanRowOverview {
                 p_dsl::plan_type,
                 p_dsl::status,
                 pf_dsl::name,
+                pf_dsl::local_id,
                 active_version_alias
                     .fields((pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),

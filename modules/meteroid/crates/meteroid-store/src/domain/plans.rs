@@ -200,6 +200,7 @@ pub struct PlanOverview {
     #[from(~.into())]
     pub status: PlanStatusEnum,
     pub product_family_name: String,
+    pub product_family_local_id: String,
     #[from(~.map(| v | v.into()))]
     pub active_version: Option<PlanVersionInfo>,
     // pub draft_version: Option<Uuid>,

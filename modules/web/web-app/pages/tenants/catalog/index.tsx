@@ -1,26 +1,13 @@
 import { FunctionComponent } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 
-import { Loading } from '@/components/Loading'
 import SidebarMenu from '@/components/SidebarMenu'
 import { TenantPageLayout } from '@/components/layouts'
-import { useQuery } from '@/lib/connectrpc'
-import { FamilyCreationModalPage } from '@/pages/tenants/billing'
-import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
-
-export const Catalog: FunctionComponent = () => {
-  const families = useQuery(listProductFamilies)
-
-  if (families.isLoading) return <Loading />
-  if (!families.data?.productFamilies?.length) return <FamilyCreationModalPage />
-  return <Navigate to={`${families.data?.productFamilies[0].localId}/plans`} />
-}
 
 export const CatalogOutlet: FunctionComponent = () => {
   return (
     <TenantPageLayout
-      title="Product Catalog"
-      familyPicker
+      title="Offering"
       innerMenu={
         <SidebarMenu
           items={[
@@ -51,10 +38,10 @@ export const CatalogOutlet: FunctionComponent = () => {
               ],
             },
             {
-              label: 'Products',
+              label: 'Product catalog',
               items: [
                 {
-                  label: 'Product Items',
+                  label: 'Products',
                   to: 'items',
                 },
                 {

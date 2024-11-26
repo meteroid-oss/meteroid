@@ -50,6 +50,7 @@ pub struct PlanRowOverview {
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
     pub product_family_name: String,
+    pub product_family_local_id: String,
     pub active_version: Option<PlanVersionRowInfo>,
     pub draft_version: Option<Uuid>,
     pub subscription_count: Option<i64>,

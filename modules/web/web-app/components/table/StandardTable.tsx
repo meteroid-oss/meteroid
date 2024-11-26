@@ -43,23 +43,18 @@ export const StandardTable = <A extends object>({
 }
 
 const standardRowRenderer = <A extends object>(row: Row<A>, rowLink?: (row: Row<A>) => string) => {
-  const cells = row
-    .getVisibleCells()
-    .map(cell => (
-      <TableCell key={cell.id}>
-        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-      </TableCell>
-    ))
-
-  if (rowLink) {
-    return (
-      <TableRow key={row.id}>
-        <Link to={rowLink(row)} style={{ display: 'contents' }}>
-          {cells}
+  const cells = row.getVisibleCells().map(cell => (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    <TableCell key={cell.id} className={(cell.column.columnDef as any).className}>
+      {rowLink ? (
+        <Link to={rowLink(row)} className="block w-full h-full  align-middle min-h-[20px] min-w-1">
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </Link>
-      </TableRow>
-    )
-  }
+      ) : (
+        flexRender(cell.column.columnDef.cell, cell.getContext())
+      )}
+    </TableCell>
+  ))
 
   return <TableRow key={row.id}>{cells}</TableRow>
 }

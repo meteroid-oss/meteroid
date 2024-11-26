@@ -64,7 +64,7 @@ impl ProductsService for ProductServiceComponents {
             .store
             .list_products(
                 tenant_id,
-                req.family_local_id.as_str(),
+                req.family_local_id,
                 pagination_req,
                 order_by,
             )
@@ -101,7 +101,7 @@ impl ProductsService for ProductServiceComponents {
             .store
             .search_products(
                 tenant_id,
-                req.family_local_id.as_str(),
+                req.family_local_id,
                 req.query.unwrap_or("".to_string()).as_str(), // todo add some validation on the query
                 pagination_req,
                 order_by,

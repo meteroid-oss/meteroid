@@ -25,7 +25,7 @@ pub trait BillableMetricInterface {
         &self,
         tenant_id: Uuid,
         pagination: PaginationRequest,
-        product_family_local_id: String,
+        product_family_local_id: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
 
     async fn insert_billable_metric(
@@ -53,7 +53,7 @@ impl BillableMetricInterface for Store {
         &self,
         tenant_id: Uuid,
         pagination: PaginationRequest,
-        product_family_local_id: String,
+        product_family_local_id: Option<String>,
     ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
         let mut conn = self.get_conn().await?;
 

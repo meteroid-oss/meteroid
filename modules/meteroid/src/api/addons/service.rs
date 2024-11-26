@@ -11,6 +11,9 @@ use meteroid_grpc::meteroid::api::addons::v1::{
 use meteroid_store::domain::add_ons::{AddOnNew, AddOnPatch};
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use tonic::{Request, Response, Status};
+use meteroid_grpc::meteroid::api::plans::v1::ListPlanVersionByIdResponse;
+use meteroid_store::domain;
+use crate::api::utils::PaginationExt;
 
 #[tonic::async_trait]
 impl AddOnsService for AddOnsServiceComponents {
@@ -20,17 +23,31 @@ impl AddOnsService for AddOnsServiceComponents {
         request: Request<ListAddOnRequest>,
     ) -> Result<Response<ListAddOnResponse>, Status> {
         let tenant_id = request.tenant()?;
+        
+        let req = request.into_inner();
+
+        let pagination_req = domain::PaginationRequest {
+            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: req.pagination.as_ref().map(|p| p.limit),
+        };
+
 
         let add_ons = self
             .store
-            .list_add_ons(tenant_id)
+            .list_add_ons(tenant_id, pagination_req, req.search)
             .await
-            .map_err(Into::<AddOnApiError>::into)?
-            .into_iter()
-            .map(|x| AddOnWrapper::from(x).0)
-            .collect();
+            .map_err(Into::<AddOnApiError>::into)?;
+           
 
-        let response = ListAddOnResponse { add_ons };
+        let response = ListAddOnResponse {
+            pagination_meta: req.pagination.into_response(add_ons.total_results as u32),
+            add_ons: add_ons
+                .items
+                .into_iter()
+                .map(|x| AddOnWrapper::from(x).0)
+                .collect(),
+        };
+         
 
         Ok(Response::new(response))
     }

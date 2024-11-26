@@ -1,7 +1,12 @@
 use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
+use crate::extend::pagination::{Paginate, Paginated, PaginatedVec, PaginationRequest};
+use crate::schema::customer::{alias, name};
 use crate::{DbResult, PgConn};
-use diesel::{debug_query, ExpressionMethods, QueryDsl};
+use diesel::{
+    debug_query, BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods, QueryDsl,
+    SelectableHelper,
+};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -46,15 +51,31 @@ impl AddOnRow {
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<Vec<AddOnRow>> {
+        pagination: PaginationRequest,
+        search: Option<String>, 
+    ) -> DbResult<PaginatedVec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
+        use crate::schema::product_family::dsl as pf_dsl;
+        let mut query = ao_dsl::add_on
+            .filter(ao_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+ 
+        if let Some(search) = search {
+            query = query.filter(
+                ao_dsl::name
+                    .ilike(format!("%{}%", search))
+                    .or(ao_dsl::local_id.ilike(format!("%{}%", search))),
+            );
+        }
 
-        let query = ao_dsl::add_on.filter(ao_dsl::tenant_id.eq(tenant_id));
+        let query = query.select(AddOnRow::as_select());
+
+        let query = query.paginate(pagination);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .get_results(conn)
+            .load_and_count_pages(conn)
             .await
             .tap_err(|e| log::error!("Error while listing add-ons: {:?}", e))
             .attach_printable("Error while listing add-ons")

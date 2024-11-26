@@ -53,7 +53,7 @@ impl ProductRow {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: Uuid,
-        family_local_id: &str,
+        family_local_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<ProductRow>> {
@@ -63,9 +63,15 @@ impl ProductRow {
         let mut query = p_dsl::product
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(pf_dsl::local_id.eq(family_local_id))
-            .select(ProductRow::as_select())
             .into_boxed();
+        
+        if let Some(family_local_id) = family_local_id {
+            query = query
+                .filter(pf_dsl::local_id.eq(family_local_id))
+        }
+            
+            let mut query = query
+            .select(ProductRow::as_select()) ;
 
         match order_by {
             OrderByRequest::IdAsc => query = query.order(p_dsl::id.asc()),
@@ -93,7 +99,7 @@ impl ProductRow {
     pub async fn search(
         conn: &mut PgConn,
         tenant_id: Uuid,
-        family_local_id: &str,
+        family_local_id: Option<String>,
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -103,11 +109,19 @@ impl ProductRow {
 
         let mut query = p_dsl::product
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
-            .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(pf_dsl::local_id.eq(family_local_id))
+            .filter(p_dsl::tenant_id.eq(tenant_id)) 
             .filter(p_dsl::name.ilike(format!("%{}%", query)))
-            .select(ProductRow::as_select())
             .into_boxed();
+            
+            
+            if let Some(family_local_id) = family_local_id {
+                query = query
+.filter(pf_dsl::local_id.eq(family_local_id))
+            }
+
+               let mut  query = query
+                .select(ProductRow::as_select())
+            ;
 
         match order_by {
             OrderByRequest::IdAsc => query = query.order(p_dsl::id.asc()),

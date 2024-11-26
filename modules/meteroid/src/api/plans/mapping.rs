@@ -203,6 +203,8 @@ pub mod plans {
                 plan_type: PlanTypeWrapper::from(value.plan_type).0 as i32,
                 plan_status: PlanStatusWrapper::from(value.status).0 as i32,
                 product_family_name: value.product_family_name,
+                product_family_local_id: value.product_family_local_id,
+                created_at: value.created_at.as_proto(),
                 has_draft_version: value.has_draft_version,
                 active_version: value.active_version.map(|v| ActiveVersionInfo {
                     version: v.version as u32,

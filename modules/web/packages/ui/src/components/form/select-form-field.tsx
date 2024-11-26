@@ -3,6 +3,7 @@ import { Control, FieldPath, FieldValues, UseControllerProps } from 'react-hook-
 
 import * as Select from '../ui/select'
 
+import { cn } from '@ui/lib'
 import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
 import { destructuredFormProps } from './utils'
 
@@ -30,11 +31,12 @@ export const SelectFormField = <
   empty,
   ...props
 }: SelectFormFieldProps<TFieldValues, TName> & GenericFormFieldVariantProps) => {
-  const { inputProps, ...formFieldProps } = destructuredFormProps(props)
+  const { inputProps, className, ...formFieldProps } = destructuredFormProps(props)
 
   return (
     <GenericFormField
       {...formFieldProps}
+      className={cn('flex-row', className)}
       render={({ field, className }) => {
         return (
           <Select.Select

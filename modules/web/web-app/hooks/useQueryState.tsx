@@ -3,6 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 
 export type SetQueryStateAction<T> = T | ((prevState: T) => T)
 
+export const ARRAY_SERDE = {
+  serialize: (value: string[]) => value.join(','),
+  deserialize: (value: string) => value.split(','),
+}
+
 export function useQueryState<T>(
   key: string,
   defaultValue: T,
@@ -33,39 +38,27 @@ export function useQueryState<T>(
     }
   })
 
-  useEffect(() => {
-    const paramValue = searchParams.get(key)
-    if (paramValue !== null) {
-      try {
-        setState(deserialize(paramValue))
-      } catch {
-        // If deserialization fails, we keep the current state
-      }
-    } else {
-      setState(defaultValue)
-    }
-  }, [searchParams, key, deserialize, defaultValue])
-
   const setQueryState = useCallback(
     (value: SetQueryStateAction<T>) => {
-      setState(prevState => {
-        const newState =
-          typeof value === 'function' ? (value as (prevState: T) => T)(prevState) : value
+      const newState = typeof value === 'function' ? (value as (prevState: T) => T)(state) : value
 
-        setSearchParams(prevParams => {
-          const newParams = new URLSearchParams(prevParams)
-          if (newState === defaultValue || newState === '') {
-            newParams.delete(key)
-          } else {
-            newParams.set(key, serialize(newState))
-          }
-          return newParams
-        })
-
-        return newState
+      setState(newState)
+      setSearchParams(prevParams => {
+        const newParams = new URLSearchParams(prevParams)
+        let serialized = null
+        if (
+          newState === defaultValue ||
+          newState === '' ||
+          (serialized = serialize(newState)) == ''
+        ) {
+          newParams.delete(key)
+        } else {
+          newParams.set(key, serialized)
+        }
+        return newParams
       })
     },
-    [key, setSearchParams, serialize, defaultValue]
+    [key, setSearchParams, serialize, defaultValue, state]
   )
 
   return [state, setQueryState]

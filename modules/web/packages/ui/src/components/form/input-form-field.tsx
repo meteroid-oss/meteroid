@@ -20,6 +20,7 @@ interface InputFieldProps<TFieldValues extends FieldValues, TName extends FieldP
   labelClassName?: string
   control: Control<TFieldValues>
   transformer?: Transformer<PathValue<TFieldValues, TName>>
+  asString?: boolean
 }
 
 const parseNumber = (value?: string) => (Number.isNaN(Number(value)) ? undefined : Number(value))
@@ -41,7 +42,7 @@ export const InputFormField = <
             const newValue = props.transformer.fromInput(e.target.value)
             field.onChange({ ...e, target: { ...e.target, value: newValue } })
             // valueAsNumber is not available with controller
-          } else if (props.type == 'number') {
+          } else if (props.type == 'number' && !props.asString) {
             const newValue = parseNumber(e.target.value)
             field.onChange({ ...e, target: { ...e.target, value: newValue } })
           } else {
@@ -58,6 +59,9 @@ export const InputFormField = <
             onChange={onChange}
             value={value}
             className={className}
+            wrapperClassName={
+              inputProps.rightText && props.layout == 'horizontal' ? 'col-span-8' : undefined
+            }
           />
         )
       }}

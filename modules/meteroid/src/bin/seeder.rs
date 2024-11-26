@@ -20,6 +20,7 @@ use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
 use tap::TapFallible;
+use common_utils::rng::UPPER_ALPHANUMERIC;
 
 #[tokio::main]
 async fn main() -> error_stack::Result<(), SeederError> {
@@ -67,7 +68,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
 
     let user_id = uuid::uuid!("00000000-0000-0000-0000-000000000000");
 
-    let tenant_name = format!("Seedtest / {}", now.format("%Y%m%d%H%M%S"));
+    let tenant_name = format!("seed-{}", nanoid::nanoid!(6, &UPPER_ALPHANUMERIC));
 
     log::info!("Creating tenant '{}'", tenant_name);
 
