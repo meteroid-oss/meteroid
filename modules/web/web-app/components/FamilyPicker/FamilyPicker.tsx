@@ -11,8 +11,8 @@ import {
 import { ChevronsUpDown, PlusIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
+import { useQueryState } from '@/hooks/useQueryState'
 import { useQuery } from '@/lib/connectrpc'
-import { useTypedParams } from '@/lib/utils/params'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
 import type { FunctionComponent } from 'react'
@@ -22,12 +22,13 @@ const FamilyPicker: FunctionComponent = () => {
   const families = familiesQuery.data?.productFamilies ?? []
 
   // TODO query params ?
-  const { familyLocalId } = useTypedParams<{ familyLocalId: string }>()
+  const [familyLocalId, setFamilyLocalId] = useQueryState('line', families[0]?.localId)
+
   const selected = families.find(fam => fam.localId === familyLocalId) || families[0]
 
   return (
     <Popover>
-      <PopoverTrigger>
+      <PopoverTrigger asChild>
         <Button variant="special" className=" rounded-full ">
           <div className="flex flex-row space-x-2 items-center ">
             <span>
@@ -43,20 +44,20 @@ const FamilyPicker: FunctionComponent = () => {
       </PopoverTrigger>
       <PopoverContent className="w-[200px] p-0">
         <Command>
-          <CommandEmpty>No product family found.</CommandEmpty>
+          <CommandEmpty>No product line found.</CommandEmpty>
           <CommandList>
             {families
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(family => (
-                <Link key={family.id} to={family.localId}>
-                  <CommandItem key={family.id}>{family.name}</CommandItem>
-                </Link>
+                <CommandItem key={family.localId} onSelect={setFamilyLocalId}>
+                  {family.name}
+                </CommandItem>
               ))}
           </CommandList>
           <CommandItem>
-            <Link to="/tenants/new" className="w-full">
+            <Link to="./settings?tab=products" className="w-full">
               <Button size="content" variant="ghost" hasIcon className="text-xs">
-                <PlusIcon size="12" /> New product family
+                <PlusIcon size="12" /> Configure
               </Button>
             </Link>
           </CommandItem>

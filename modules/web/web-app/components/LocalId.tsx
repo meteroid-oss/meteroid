@@ -31,7 +31,7 @@ export const LocalId = ({
         copyToClipboard(localId, () => toast.success('Copied to clipboard : ' + localId))
       }}
     >
-      <span className={cn('mr-2 whitespace-nowrap overflow-hidden text-ellipsis', className)}>
+      <span className={cn('  whitespace-nowrap overflow-hidden text-ellipsis', className)}>
         {localId}
       </span>
 

@@ -1,12 +1,17 @@
 pub mod endpoint {
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
     use crate::api::webhooksout::error::WebhookApiError;
     use crate::api::webhooksout::mapping::event_type;
     use meteroid_grpc::meteroid::api::webhooks::out::v1::{
-        CreateWebhookEndpointRequest, WebhookEndpoint as WebhookEndpointProto,
+        CreateWebhookEndpointRequest, ListWebhookEndpointsRequest, ListWebhookEndpointsResponse,
+        WebhookEndpoint as WebhookEndpointProto,
+        WebhookEndpointListItem as WebhookEndpointListItemProto,
     };
     use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
-    use meteroid_store::domain::webhooks::{WebhookOutEndpoint, WebhookOutEndpointNew};
+    use meteroid_store::domain::webhooks::{
+        WebhookOutEndpoint, WebhookOutEndpointListItem, WebhookOutEndpointNew,
+        WebhookOutListEndpointFilter,
+    };
+    use meteroid_store::domain::WebhookPage;
     use secrecy::ExposeSecret;
     use uuid::Uuid;
 
@@ -21,8 +26,38 @@ pub mod endpoint {
                 .iter()
                 .map(|e| event_type::to_proto(e).into())
                 .collect(),
-            enabled: endpoint.enabled,
-            created_at: Some(chrono_to_timestamp(endpoint.created_at)),
+            disabled: endpoint.disabled,
+            created_at: endpoint.created_at,
+            updated_at: endpoint.updated_at,
+        }
+    }
+
+    pub fn list_item_to_proto(
+        endpoint: WebhookOutEndpointListItem,
+    ) -> WebhookEndpointListItemProto {
+        WebhookEndpointListItemProto {
+            id: endpoint.id.to_string(),
+            url: endpoint.url.to_string(),
+            description: endpoint.description.clone(),
+            events_to_listen: endpoint
+                .events_to_listen
+                .iter()
+                .map(|e| event_type::to_proto(e).into())
+                .collect(),
+            disabled: endpoint.disabled,
+            created_at: endpoint.created_at,
+            updated_at: endpoint.updated_at,
+        }
+    }
+
+    pub fn page_to_proto(
+        page: WebhookPage<WebhookOutEndpointListItem>,
+    ) -> ListWebhookEndpointsResponse {
+        ListWebhookEndpointsResponse {
+            data: page.data.into_iter().map(list_item_to_proto).collect(),
+            iterator: page.iterator,
+            prev_iterator: page.prev_iterator,
+            done: page.done,
         }
     }
 
@@ -45,6 +80,15 @@ pub mod endpoint {
             events_to_listen,
             enabled: true,
         })
+    }
+
+    pub fn list_request_to_domain_filter(
+        req: ListWebhookEndpointsRequest,
+    ) -> WebhookOutListEndpointFilter {
+        WebhookOutListEndpointFilter {
+            limit: req.limit,
+            iterator: req.iterator,
+        }
     }
 }
 
@@ -71,25 +115,6 @@ pub mod event_type {
             }
             WebhookOutEventTypeEnum::InvoiceCreated => WebhookEventTypeProto::InvoiceCreated,
             WebhookOutEventTypeEnum::InvoiceFinalized => WebhookEventTypeProto::InvoiceFinalized,
-        }
-    }
-}
-
-pub mod event {
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
-    use crate::api::webhooksout::mapping::event_type;
-    use meteroid_grpc::meteroid::api::webhooks::out::v1::WebhookEvent as WebhookEventProto;
-    use meteroid_store::domain::webhooks::WebhookOutEvent;
-
-    pub fn to_proto(event: &WebhookOutEvent) -> WebhookEventProto {
-        WebhookEventProto {
-            id: event.id.to_string(),
-            event_type: event_type::to_proto(&event.event_type).into(),
-            created_at: Some(chrono_to_timestamp(event.created_at)),
-            http_status_code: event.http_status_code.map(|x| x as i32),
-            request_body: event.request_body.clone(),
-            response_body: event.response_body.clone(),
-            error_message: event.error_message.clone(),
         }
     }
 }

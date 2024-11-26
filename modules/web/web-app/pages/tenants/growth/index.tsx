@@ -12,7 +12,6 @@ export const GrowthOutlet: FunctionComponent = () => {
   return (
     <TenantPageLayout
       title="Growth"
-      familyPicker
       innerMenu={
         <SidebarMenu
           items={[

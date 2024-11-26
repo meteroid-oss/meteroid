@@ -1,17 +1,9 @@
 import { z } from 'zod'
 
 export const createPlanSchema = z.object({
-  planName: z.string().nonempty('Name is required').max(256),
+  planName: z.string().min(1, 'Name is required').max(256),
   description: z.string().max(2048).optional(),
-  localId: z
-    .string()
-    .nonempty('API Name is required')
-    .min(3)
-    .max(128)
-    .regex(
-      /^[a-z0-9-_]+$/,
-      'Only lowercase alphanumeric characters, dashes and underscores are allowed'
-    ),
+  productFamilyLocalId: z.string().min(1, 'A product family is required'),
   planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
 })
 

@@ -1,7 +1,10 @@
-use crate::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew};
+use crate::applied_coupons::{
+    AppliedCouponDetailedRow, AppliedCouponForDisplayRow, AppliedCouponRow, AppliedCouponRowNew,
+};
 use crate::errors::IntoDbResult;
+use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use diesel::{debug_query, ExpressionMethods, QueryDsl, SelectableHelper};
+use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use rust_decimal::Decimal;
@@ -81,6 +84,46 @@ impl AppliedCouponRow {
             .get_result(conn)
             .await
             .attach_printable("Error while finalizing invoice")
+            .into_db_result()
+    }
+}
+
+impl AppliedCouponForDisplayRow {
+    pub async fn list_by_coupon_local_id(
+        conn: &mut PgConn,
+        param_coupon_id: &String,
+        tenant_id: &Uuid,
+        pagination: PaginationRequest,
+    ) -> DbResult<PaginatedVec<AppliedCouponForDisplayRow>> {
+        use crate::schema::applied_coupon::dsl as ac_dsl;
+        use crate::schema::coupon::dsl as cou_dsl;
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = ac_dsl::applied_coupon
+            .inner_join(cou_dsl::coupon)
+            .inner_join(c_dsl::customer)
+            .inner_join(s_dsl::subscription)
+            .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .filter(c_dsl::local_id.eq(param_coupon_id))
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .order(ac_dsl::created_at.desc())
+            .select(AppliedCouponForDisplayRow::as_select());
+
+        let paginated_query = query.paginate(pagination);
+
+        log::debug!(
+            "{}",
+            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
+        );
+
+        paginated_query
+            .load_and_count_pages(conn)
+            .await
+            .attach_printable("Error while listing applied coupons by coupon id")
             .into_db_result()
     }
 }

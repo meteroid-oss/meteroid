@@ -1,5 +1,32 @@
+pub mod applied {
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use meteroid_grpc::meteroid::api::coupons::v1 as server;
+    use meteroid_store::domain;
+
+    pub struct AppliedCouponForDisplayWrapper(pub server::AppliedCouponForDisplay);
+    impl From<domain::AppliedCouponForDisplay> for AppliedCouponForDisplayWrapper {
+        fn from(value: domain::AppliedCouponForDisplay) -> Self {
+            Self(server::AppliedCouponForDisplay {
+                id: value.id.as_proto(),
+                coupon_id: value.coupon_id.as_proto(),
+                customer_name: value.customer_name,
+                customer_local_id: value.customer_local_id,
+                customer_id: value.customer_id.as_proto(),
+                subscription_id: value.subscription_id.as_proto(),
+                plan_name: value.plan_name,
+                plan_local_id: value.plan_local_id,
+                plan_version: value.plan_version,
+                is_active: value.is_active,
+                applied_amount: value.applied_amount.as_proto(),
+                applied_count: value.applied_count,
+                last_applied_at: value.last_applied_at.as_proto(),
+                created_at: value.created_at.as_proto(),
+            })
+        }
+    }
+}
 pub mod coupons {
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::coupons::v1 as server;
     use meteroid_store::domain;
 
@@ -12,14 +39,33 @@ pub mod coupons {
                 description: value.description,
                 code: value.code,
                 discount: Some(discount::to_server(&value.discount)),
-                expires_at: value.expires_at.map(chrono_to_timestamp),
+                expires_at: value.expires_at.as_proto(),
                 redemption_limit: value.redemption_limit,
+                created_at: value.created_at.as_proto(),
+                disabled: value.disabled,
+                last_redemption_at: value.last_redemption_at.as_proto(),
+                redemption_count: value.redemption_count as u32,
+                archived_at: value.archived_at.as_proto(),
             })
         }
     }
 
     pub fn to_server(value: domain::coupons::Coupon) -> server::Coupon {
         CouponWrapper::from(value).0
+    }
+
+    pub mod filter {
+        use meteroid_grpc::meteroid::api::coupons::v1::list_coupon_request::CouponFilter as ServerCouponFilter;
+        use meteroid_store::domain::coupons::CouponFilter;
+
+        pub fn from_server(value: ServerCouponFilter) -> CouponFilter {
+            match value {
+                ServerCouponFilter::All => CouponFilter::ALL,
+                ServerCouponFilter::Active => CouponFilter::ACTIVE,
+                ServerCouponFilter::Inactive => CouponFilter::INACTIVE,
+                ServerCouponFilter::Archived => CouponFilter::ARCHIVED,
+            }
+        }
     }
 
     pub mod discount {

@@ -1,56 +1,66 @@
 use crate::domain::enums::WebhookOutEventTypeEnum;
+use crate::domain::WebhookPage;
 use crate::errors::StoreError;
-use crate::utils::gen::webhook_security;
-use crate::StoreResult;
 use chrono::NaiveDateTime;
-use diesel_models::webhooks::{
-    WebhookInEventRow, WebhookInEventRowNew, WebhookOutEndpointRow, WebhookOutEndpointRowNew,
-    WebhookOutEventRow, WebhookOutEventRowNew,
-};
-use error_stack::ResultExt;
-use itertools::Itertools;
+use diesel_models::webhooks::{WebhookInEventRow, WebhookInEventRowNew};
+use error_stack::Report;
 use o2o::o2o;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use url::Url;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct WebhookOutEndpoint {
-    pub id: Uuid,
-    pub tenant_id: Uuid,
-    pub url: Url,
+    pub id: String,
+    pub url: String,
     pub description: Option<String>,
     pub secret: SecretString,
-    pub created_at: NaiveDateTime,
+    pub created_at: String,
+    pub updated_at: String,
     pub events_to_listen: Vec<WebhookOutEventTypeEnum>,
-    pub enabled: bool,
+    pub disabled: bool,
 }
 
-impl WebhookOutEndpoint {
-    pub fn from_row(
-        key: &SecretString,
-        row: WebhookOutEndpointRow,
-    ) -> StoreResult<WebhookOutEndpoint> {
-        let dec_sec = crate::crypt::decrypt(key, row.secret.as_str())
-            .change_context(StoreError::CryptError("secret decryption error".into()))?;
+#[derive(Clone, Debug)]
+pub struct WebhookOutEndpointListItem {
+    pub id: String,
+    pub url: String,
+    pub description: Option<String>,
+    pub events_to_listen: Vec<WebhookOutEventTypeEnum>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub disabled: bool,
+}
 
-        let dec_url = Url::parse(row.url.as_str())
-            .change_context(StoreError::InvalidArgument("invalid url value".into()))?;
+impl TryFrom<svix::api::EndpointOut> for WebhookOutEndpointListItem {
+    type Error = Report<StoreError>;
 
-        Ok(WebhookOutEndpoint {
-            id: row.id,
-            tenant_id: row.tenant_id,
-            url: dec_url,
-            description: row.description,
-            secret: dec_sec,
-            created_at: row.created_at,
-            events_to_listen: row
-                .events_to_listen
+    fn try_from(value: svix::api::EndpointOut) -> Result<Self, Self::Error> {
+        Ok(WebhookOutEndpointListItem {
+            id: value.id,
+            url: value.url,
+            description: Some(value.description),
+            created_at: value.created_at,
+            updated_at: value.updated_at,
+            events_to_listen: WebhookOutEventTypeEnum::from_svix_channels(&value.channels)?,
+            disabled: value.disabled.unwrap_or(false),
+        })
+    }
+}
+
+impl TryFrom<svix::api::ListResponseEndpointOut> for WebhookPage<WebhookOutEndpointListItem> {
+    type Error = Report<StoreError>;
+
+    fn try_from(value: svix::api::ListResponseEndpointOut) -> Result<Self, Self::Error> {
+        Ok(WebhookPage {
+            data: value
+                .data
                 .into_iter()
-                .flatten()
-                .map_into()
-                .collect(),
-            enabled: row.enabled,
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, _>>()?,
+            done: value.done,
+            iterator: value.iterator,
+            prev_iterator: value.prev_iterator,
         })
     }
 }
@@ -64,57 +74,178 @@ pub struct WebhookOutEndpointNew {
     pub enabled: bool,
 }
 
-impl WebhookOutEndpointNew {
-    pub fn to_row(&self, key: &SecretString) -> StoreResult<WebhookOutEndpointRowNew> {
-        let enc_secret =
-            crate::crypt::encrypt(key, webhook_security::gen().expose_secret().as_str())
-                .change_context(StoreError::CryptError("secret decryption error".into()))?;
+pub enum WebhookOutMessageStatus {
+    Success,
+    Pending,
+    Fail,
+    Sending,
+}
 
-        Ok(WebhookOutEndpointRowNew {
-            id: Uuid::now_v7(),
-            tenant_id: self.tenant_id,
-            url: self.url.to_string(),
-            description: self.description.clone(),
-            secret: enc_secret,
-            events_to_listen: self
-                .events_to_listen
-                .clone()
-                .into_iter()
-                .map_into()
-                .collect(),
-            enabled: self.enabled,
-        })
+impl From<svix::api::MessageStatus> for WebhookOutMessageStatus {
+    fn from(value: svix::api::MessageStatus) -> Self {
+        match value {
+            svix::api::MessageStatus::Success => WebhookOutMessageStatus::Success,
+            svix::api::MessageStatus::Pending => WebhookOutMessageStatus::Pending,
+            svix::api::MessageStatus::Fail => WebhookOutMessageStatus::Fail,
+            svix::api::MessageStatus::Sending => WebhookOutMessageStatus::Sending,
+        }
     }
 }
 
-#[derive(Clone, Debug, o2o)]
-#[from_owned(WebhookOutEventRow)]
-#[owned_into(WebhookOutEventRow)]
-pub struct WebhookOutEvent {
-    pub id: Uuid,
-    pub endpoint_id: Uuid,
-    pub created_at: NaiveDateTime,
-    #[map(~.into())]
-    pub event_type: WebhookOutEventTypeEnum,
-    pub request_body: String,
-    pub response_body: Option<String>,
-    pub http_status_code: Option<i16>,
-    pub error_message: Option<String>,
+impl From<WebhookOutMessageStatus> for svix::api::MessageStatus {
+    fn from(value: WebhookOutMessageStatus) -> Self {
+        match value {
+            WebhookOutMessageStatus::Success => svix::api::MessageStatus::Success,
+            WebhookOutMessageStatus::Pending => svix::api::MessageStatus::Pending,
+            WebhookOutMessageStatus::Fail => svix::api::MessageStatus::Fail,
+            WebhookOutMessageStatus::Sending => svix::api::MessageStatus::Sending,
+        }
+    }
 }
 
-#[derive(Clone, Debug, o2o)]
-#[from_owned(WebhookOutEventRowNew)]
-#[owned_into(WebhookOutEventRowNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
-pub struct WebhookOutEventNew {
-    pub endpoint_id: Uuid,
-    pub created_at: NaiveDateTime,
-    #[map(~.into())]
+pub enum WebhookOutStatusCodeClass {
+    CodeNone,
+    Code1xx,
+    Code2xx,
+    Code3xx,
+    Code4xx,
+    Code5xx,
+}
+
+impl From<WebhookOutStatusCodeClass> for svix::api::StatusCodeClass {
+    fn from(value: WebhookOutStatusCodeClass) -> Self {
+        match value {
+            WebhookOutStatusCodeClass::CodeNone => svix::api::StatusCodeClass::CodeNone,
+            WebhookOutStatusCodeClass::Code1xx => svix::api::StatusCodeClass::Code1xx,
+            WebhookOutStatusCodeClass::Code2xx => svix::api::StatusCodeClass::Code2xx,
+            WebhookOutStatusCodeClass::Code3xx => svix::api::StatusCodeClass::Code3xx,
+            WebhookOutStatusCodeClass::Code4xx => svix::api::StatusCodeClass::Code4xx,
+            WebhookOutStatusCodeClass::Code5xx => svix::api::StatusCodeClass::Code5xx,
+        }
+    }
+}
+
+pub struct WebhookOutMessageNew {
+    /// used as dedupe id
+    pub event_id: Option<String>,
     pub event_type: WebhookOutEventTypeEnum,
-    pub request_body: String,
-    pub response_body: Option<String>,
-    pub http_status_code: Option<i16>,
-    pub error_message: Option<String>,
+    pub payload: serde_json::Value,
+}
+
+impl From<WebhookOutMessageNew> for svix::api::MessageIn {
+    fn from(value: WebhookOutMessageNew) -> Self {
+        svix::api::MessageIn {
+            application: None,
+            channels: None,
+            event_id: value.event_id,
+            event_type: value.event_type.to_string(),
+            payload: value.payload,
+            payload_retention_hours: None,
+            payload_retention_period: None,
+            tags: None,
+            transformations_params: None,
+        }
+    }
+}
+
+pub struct WebhookOutMessage {
+    pub event_type: String,
+    pub id: String,
+    pub payload: serde_json::Value,
+    pub timestamp: String,
+}
+
+impl From<svix::api::MessageOut> for WebhookOutMessage {
+    fn from(value: svix::api::MessageOut) -> Self {
+        WebhookOutMessage {
+            event_type: value.event_type,
+            id: value.id,
+            payload: value.payload,
+            timestamp: value.timestamp,
+        }
+    }
+}
+
+pub struct WebhookOutMessageAttempt {
+    pub endpoint_id: String,
+    pub id: String,
+    pub msg: Option<Box<WebhookOutMessage>>,
+    pub msg_id: String,
+    pub response: String,
+    // returns 0 in OSS version of svix
+    pub response_duration_ms: i64,
+    pub response_status_code: i32,
+    pub timestamp: String,
+    pub url: String,
+}
+
+impl From<svix::api::MessageAttemptOut> for WebhookOutMessageAttempt {
+    fn from(value: svix::api::MessageAttemptOut) -> Self {
+        WebhookOutMessageAttempt {
+            endpoint_id: value.endpoint_id,
+            id: value.id,
+            msg: value.msg.map(|x| Box::new((*x).into())),
+            msg_id: value.msg_id,
+            response: value.response,
+            response_duration_ms: value.response_duration_ms,
+            response_status_code: value.response_status_code,
+            timestamp: value.timestamp,
+            url: value.url,
+        }
+    }
+}
+
+pub struct WebhookOutListMessageAttemptFilter {
+    pub limit: Option<i32>,
+    pub iterator: Option<String>,
+    pub event_types: Option<Vec<String>>,
+    pub status: Option<WebhookOutMessageStatus>,
+    pub status_code_class: Option<WebhookOutStatusCodeClass>,
+}
+
+impl From<WebhookOutListMessageAttemptFilter> for svix::api::MessageAttemptListByEndpointOptions {
+    fn from(value: WebhookOutListMessageAttemptFilter) -> Self {
+        svix::api::MessageAttemptListByEndpointOptions {
+            iterator: value.iterator,
+            limit: value.limit,
+            event_types: value.event_types,
+            before: None,
+            after: None,
+            channel: None,
+            tag: None,
+            status: value.status.map(Into::into),
+            status_code_class: value.status_code_class.map(Into::into),
+            with_content: Some(true),
+            with_msg: Some(true),
+            endpoint_id: None,
+        }
+    }
+}
+
+impl From<svix::api::ListResponseMessageAttemptOut> for WebhookPage<WebhookOutMessageAttempt> {
+    fn from(value: svix::api::ListResponseMessageAttemptOut) -> Self {
+        WebhookPage {
+            data: value.data.into_iter().map(Into::into).collect(),
+            done: value.done,
+            iterator: value.iterator,
+            prev_iterator: value.prev_iterator,
+        }
+    }
+}
+
+pub struct WebhookOutListEndpointFilter {
+    pub limit: Option<i32>,
+    pub iterator: Option<String>,
+}
+
+impl From<WebhookOutListEndpointFilter> for svix::api::EndpointListOptions {
+    fn from(value: WebhookOutListEndpointFilter) -> Self {
+        svix::api::EndpointListOptions {
+            iterator: value.iterator,
+            limit: value.limit,
+            order: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, o2o)]

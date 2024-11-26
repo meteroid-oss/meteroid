@@ -186,13 +186,3 @@ pub enum UnitConversionRoundingEnum {
     NearestDecile,
     None,
 }
-
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::WebhookOutEventTypeEnum"]
-#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum WebhookOutEventTypeEnum {
-    CustomerCreated,
-    SubscriptionCreated,
-    InvoiceCreated,
-    InvoiceFinalized,
-}

@@ -168,7 +168,6 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
       if (inputValue === undefined) {
         setInputValue(format(value as string))
       } else if (value) {
-        console.log('setV', value as string)
         setInputValue(value as string)
       } else {
         setInputValue('')

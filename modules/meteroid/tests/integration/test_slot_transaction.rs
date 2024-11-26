@@ -5,6 +5,7 @@ use chrono::NaiveDateTime;
 use meteroid::eventbus::create_eventbus_memory;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
+use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
 use secrecy::SecretString;
 use std::str::FromStr;
@@ -20,14 +21,15 @@ async fn test_slot_transaction_active_slots() {
     helpers::init::logging();
     let (_, postgres_connection_string) = meteroid_it::container::start_postgres().await;
 
-    let store = Store::new(
-        postgres_connection_string.clone(),
-        SecretString::new("00000000000000000000000000000000".into()),
-        SecretString::new("secret".into()),
-        false,
-        create_eventbus_memory(),
-        Arc::new(MockUsageClient::noop()),
-    )
+    let store = Store::new(StoreConfig {
+        database_url: postgres_connection_string.clone(),
+        crypt_key: SecretString::new("00000000000000000000000000000000".into()),
+        jwt_secret: SecretString::new("secret".into()),
+        multi_organization_enabled: false,
+        eventbus: create_eventbus_memory(),
+        usage_client: Arc::new(MockUsageClient::noop()),
+        svix: None,
+    })
     .expect("Could not create store");
 
     meteroid_it::container::populate_postgres(
