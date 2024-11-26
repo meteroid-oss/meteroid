@@ -1,4 +1,5 @@
 use crate::domain::add_ons::{AddOn, AddOnNew, AddOnPatch};
+use crate::domain::{PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
@@ -7,7 +8,12 @@ use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait AddOnInterface {
-    async fn list_add_ons(&self, tenant_id: Uuid) -> StoreResult<Vec<AddOn>>;
+    async fn list_add_ons(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        search: Option<String>,
+    ) -> StoreResult<PaginatedVec<AddOn>>;
     async fn get_add_on_by_id(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<AddOn>;
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn>;
     async fn update_add_on(&self, add_on: AddOnPatch) -> StoreResult<AddOn>;
@@ -16,17 +22,27 @@ pub trait AddOnInterface {
 
 #[async_trait::async_trait]
 impl AddOnInterface for Store {
-    async fn list_add_ons(&self, tenant_id: Uuid) -> StoreResult<Vec<AddOn>> {
+    async fn list_add_ons(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        search: Option<String>,
+    ) -> StoreResult<PaginatedVec<AddOn>> {
         let mut conn = self.get_conn().await?;
 
-        let add_ons = AddOnRow::list_by_tenant_id(&mut conn, tenant_id)
+        let add_ons = AddOnRow::list_by_tenant_id(&mut conn, tenant_id, pagination.into(), search)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        add_ons
-            .into_iter()
-            .map(|s| s.try_into())
-            .collect::<Result<Vec<_>, _>>()
+        Ok(PaginatedVec {
+            items: add_ons
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
+            total_pages: add_ons.total_pages,
+            total_results: add_ons.total_results,
+        })
     }
 
     async fn get_add_on_by_id(&self, tenant_id: Uuid, id: Uuid) -> StoreResult<AddOn> {

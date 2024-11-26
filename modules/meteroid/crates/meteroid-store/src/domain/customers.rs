@@ -8,10 +8,12 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Customer {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -37,6 +39,7 @@ impl TryFrom<CustomerRow> for Customer {
     fn try_from(value: CustomerRow) -> Result<Self, Self::Error> {
         Ok(Customer {
             id: value.id,
+            local_id: value.local_id,
             name: value.name,
             created_at: value.created_at,
             created_by: value.created_by,
@@ -64,6 +67,7 @@ impl TryInto<CustomerRow> for Customer {
     fn try_into(self) -> Result<CustomerRow, Self::Error> {
         Ok(CustomerRow {
             id: self.id,
+            local_id: self.local_id,
             name: self.name,
             created_at: self.created_at,
             created_by: self.created_by,
@@ -90,6 +94,7 @@ impl TryInto<CustomerRow> for Customer {
 #[owned_into(CustomerBriefRow)]
 pub struct CustomerBrief {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
 }
@@ -126,6 +131,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
         Ok(CustomerRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Customer),
             name: self.inner.name,
             created_by: self.inner.created_by,
             tenant_id: self.tenant_id,

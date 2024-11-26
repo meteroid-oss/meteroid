@@ -7,14 +7,14 @@ export const createProductSchema = z.object({
 
 export const createProductFamily = z.object({
   name: z.string().min(3),
-  externalId: z.string().min(3),
+  localId: z.string().min(3),
   description: z.string().optional(),
 })
 
-export const getByExternalId = z.object({
-  externalId: z.string(),
+export const getByLocalId = z.object({
+  localId: z.string(),
 })
 
-export const listByPlanExternalId = z.object({
-  planExternalId: z.string(),
+export const listByPlanLocalId = z.object({
+  planLocalId: z.string(),
 })

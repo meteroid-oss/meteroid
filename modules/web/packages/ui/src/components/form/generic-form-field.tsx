@@ -62,6 +62,7 @@ export interface GenericFormFieldProps<
   TName extends FieldPath<TFieldValues>,
 > extends Omit<ControllerProps<TFieldValues, TName>, 'render'> {
   label?: string
+  required?: boolean
   key?: string
   containerClassName?: string
   labelClassName?: string
@@ -88,6 +89,7 @@ export const GenericFormField = <
 >({
   render,
   label,
+  required,
   layout = 'vertical',
   containerClassName,
   labelClassName,
@@ -103,6 +105,7 @@ export const GenericFormField = <
           {label && (
             <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
               {label}
+              {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
             </FormLabel>
           )}
           <FormControl>

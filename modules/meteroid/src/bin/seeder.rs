@@ -5,6 +5,7 @@ use std::sync::Arc;
 use tokio::signal;
 
 use common_logging::init::init_regular_logging;
+use common_utils::rng::UPPER_ALPHANUMERIC;
 use error_stack::ResultExt;
 use meteroid::eventbus::create_eventbus_noop;
 use meteroid::seeder::domain;
@@ -16,6 +17,7 @@ use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
+use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
@@ -28,20 +30,21 @@ async fn main() -> error_stack::Result<(), SeederError> {
     init_regular_logging();
     let _exit = signal::ctrl_c();
 
-    let store = Store::new(
-        env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
-        env::var("SECRETS_CRYPT_KEY")
+    let store = Store::new(StoreConfig {
+        database_url: env::var("DATABASE_URL").change_context(SeederError::InitializationError)?,
+        crypt_key: env::var("SECRETS_CRYPT_KEY")
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
-        env::var("JWT_SECRET")
+        jwt_secret: env::var("JWT_SECRET")
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
-        false,
-        create_eventbus_noop().await,
-        Arc::new(MockUsageClient {
+        multi_organization_enabled: false,
+        eventbus: create_eventbus_noop().await,
+        usage_client: Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
-    )
+        svix: None,
+    })
     .change_context(SeederError::InitializationError)?;
 
     let organization_id = env::var("SEEDER_ORGANIZATION_ID")
@@ -67,7 +70,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
 
     let user_id = uuid::uuid!("00000000-0000-0000-0000-000000000000");
 
-    let tenant_name = format!("Seedtest / {}", now.format("%Y%m%d%H%M%S"));
+    let tenant_name = format!("seed-{}", nanoid::nanoid!(6, &UPPER_ALPHANUMERIC));
 
     log::info!("Creating tenant '{}'", tenant_name);
 
@@ -91,7 +94,6 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
-                    billing_periods: vec![],
                     net_terms: 0,
                 },
                 components: vec![],
@@ -108,12 +110,11 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
-                    billing_periods: vec![BillingPeriodEnum::Monthly, BillingPeriodEnum::Annual],
                     net_terms: 0,
                 },
                 components: vec![meteroid_store::domain::PriceComponentNewInternal {
                     name: "Rate".to_string(),
-                    product_item_id: None,
+                    product_id: None,
                     fee: meteroid_store::domain::FeeType::Rate {
                         rates: vec![
                             meteroid_store::domain::TermRate {
@@ -140,12 +141,11 @@ async fn main() -> error_stack::Result<(), SeederError> {
                     period_start_day: None,
                     currency: tenant_currency.clone(),
                     billing_cycles: None,
-                    billing_periods: vec![BillingPeriodEnum::Annual],
                     net_terms: 90,
                 },
                 components: vec![meteroid_store::domain::PriceComponentNewInternal {
                     name: "Seats".to_string(),
-                    product_item_id: None,
+                    product_id: None,
                     fee: meteroid_store::domain::FeeType::Slot {
                         quota: None,
                         rates: vec![

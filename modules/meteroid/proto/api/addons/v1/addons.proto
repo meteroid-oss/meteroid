@@ -4,11 +4,16 @@ package meteroid.api.addons.v1;
 
 import "api/addons/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
+import "common/v1/pagination.proto";
 
-message ListAddOnRequest {}
+message ListAddOnRequest {
+  optional string search = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
 
 message ListAddOnResponse {
   repeated AddOn add_ons = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
 message CreateAddOnRequest {

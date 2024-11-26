@@ -1,7 +1,13 @@
-use crate::coupons::{CouponRow, CouponRowNew, CouponRowPatch};
+use crate::coupons::{CouponFilter, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch};
 use crate::errors::IntoDbResult;
+use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+
 use crate::{DbResult, PgConn};
-use diesel::{debug_query, ExpressionMethods, QueryDsl};
+use diesel::dsl::not;
+use diesel::{
+    debug_query, BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods,
+    PgTextExpressionMethods, QueryDsl,
+};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use std::collections::HashMap;
@@ -44,18 +50,83 @@ impl CouponRow {
             .into_db_result()
     }
 
-    pub async fn list_by_tenant_id(
+    pub async fn get_by_local_id(
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<Vec<CouponRow>> {
+        id: String,
+    ) -> DbResult<CouponRow> {
         use crate::schema::coupon::dsl as c_dsl;
 
-        let query = c_dsl::coupon.filter(c_dsl::tenant_id.eq(tenant_id));
+        let query = c_dsl::coupon
+            .filter(c_dsl::local_id.eq(id))
+            .filter(c_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .get_results(conn)
+            .first(conn)
+            .await
+            .attach_printable("Error while getting coupon")
+            .into_db_result()
+    }
+
+    pub async fn list_by_tenant_id(
+        conn: &mut PgConn,
+        tenant_id: uuid::Uuid,
+        pagination: PaginationRequest,
+        search: Option<String>,
+        filter: CouponFilter,
+    ) -> DbResult<PaginatedVec<CouponRow>> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let mut query = c_dsl::coupon
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .into_boxed();
+
+        if let Some(search) = search {
+            query = query.filter(
+                c_dsl::code
+                    .ilike(format!("%{}%", search))
+                    .or(c_dsl::local_id.ilike(format!("%{}%", search))),
+            );
+        }
+
+        let is_expired = c_dsl::expires_at
+            .is_not_null()
+            .and(c_dsl::expires_at.lt(chrono::Utc::now().naive_utc()));
+
+        let is_exhausted = c_dsl::redemption_limit
+            .is_not_null()
+            .and(c_dsl::redemption_limit.le(c_dsl::redemption_count.nullable()));
+
+        let is_archived = c_dsl::archived_at.is_not_null();
+
+        let is_disabled = c_dsl::disabled.eq(true);
+
+        match filter {
+            CouponFilter::ACTIVE => {
+                query = query.filter(
+                    not(is_expired)
+                        .and(not(is_exhausted))
+                        .and(not(is_archived))
+                        .and(not(is_disabled)),
+                );
+            }
+            CouponFilter::ARCHIVED => {
+                query = query.filter(is_archived);
+            }
+            CouponFilter::INACTIVE => {
+                query = query.filter(is_disabled.or(is_expired).or(is_exhausted));
+            }
+            CouponFilter::ALL => {}
+        }
+
+        let query = query.order(c_dsl::created_at.desc()).paginate(pagination);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .load_and_count_pages(conn)
             .await
             .attach_printable("Error while listing coupons")
             .into_db_result()
@@ -201,6 +272,24 @@ impl CouponRowPatch {
             .get_result(conn)
             .await
             .attach_printable("Error while updating coupon")
+            .into_db_result()
+    }
+}
+
+impl CouponStatusRowPatch {
+    pub async fn patch(&self, conn: &mut PgConn) -> DbResult<CouponRow> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = diesel::update(c_dsl::coupon)
+            .filter(c_dsl::id.eq(self.id))
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while updating coupon status")
             .into_db_result()
     }
 }

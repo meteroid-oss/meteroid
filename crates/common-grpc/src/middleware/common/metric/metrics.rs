@@ -7,12 +7,12 @@ pub static CALL_COUNTER: Lazy<Counter<u64>> = Lazy::new(|| {
     GLOBAL_METER
         .u64_counter("grpc.call.counter")
         .with_description("gRPC call")
-        .init()
+        .build()
 });
 
 pub static CALL_LATENCY: Lazy<Histogram<u64>> = Lazy::new(|| {
     GLOBAL_METER
         .u64_histogram("grpc.call.latency")
         .with_description("gRPC call latency")
-        .init()
+        .build()
 });

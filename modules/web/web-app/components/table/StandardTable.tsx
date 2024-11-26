@@ -1,6 +1,7 @@
 import { TableCell, TableRow } from '@md/ui'
 import { ColumnDef, OnChangeFn, PaginationState, Row, flexRender } from '@tanstack/react-table'
 import { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 import { CustomTable } from '@/components/table/CustomTable'
 
@@ -13,6 +14,8 @@ interface StandardTableProps<A> {
   totalCount: number
   emptyMessage?: string | ReactNode
   isLoading?: boolean
+  rowLink?: (row: Row<A>) => string
+  rowClassName?: (row: Row<A>) => string
 }
 export const StandardTable = <A extends object>({
   columns,
@@ -23,6 +26,8 @@ export const StandardTable = <A extends object>({
   totalCount,
   emptyMessage = 'No data to display',
   isLoading,
+  rowLink,
+  rowClassName,
 }: StandardTableProps<A>) => {
   return (
     <CustomTable
@@ -33,22 +38,33 @@ export const StandardTable = <A extends object>({
       setPagination={setPagination}
       totalCount={totalCount}
       emptyMessage={emptyMessage}
-      rowRenderer={standardRowRenderer}
+      rowRenderer={row => standardRowRenderer(row, rowLink, rowClassName)}
       isLoading={isLoading}
     />
   )
 }
 
-const standardRowRenderer = <A extends object>(row: Row<A>) => {
+const standardRowRenderer = <A extends object>(
+  row: Row<A>,
+  rowLink?: (row: Row<A>) => string,
+  rowClassName?: (row: Row<A>) => string
+) => {
+  const cells = row.getVisibleCells().map(cell => (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    <TableCell key={cell.id} className={(cell.column.columnDef as any).className}>
+      {rowLink ? (
+        <Link to={rowLink(row)} className="block w-full h-full  align-middle min-h-[20px] min-w-1">
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </Link>
+      ) : (
+        flexRender(cell.column.columnDef.cell, cell.getContext())
+      )}
+    </TableCell>
+  ))
+
   return (
-    <TableRow key={row.id}>
-      {row.getVisibleCells().map(cell => {
-        return (
-          <TableCell key={cell.id}>
-            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-          </TableCell>
-        )
-      })}
+    <TableRow key={row.id} className={rowClassName?.(row)}>
+      {cells}
     </TableRow>
   )
 }

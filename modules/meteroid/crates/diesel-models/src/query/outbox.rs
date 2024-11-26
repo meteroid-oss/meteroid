@@ -7,6 +7,7 @@ use crate::outbox::{OutboxRow, OutboxRowNew, OutboxRowPatch};
 use diesel::{debug_query, ExpressionMethods};
 use error_stack::ResultExt;
 
+// deprecated
 impl OutboxRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OutboxRow> {
         use crate::schema::outbox::dsl::*;
@@ -24,6 +25,7 @@ impl OutboxRowNew {
     }
 }
 
+// deprecated
 impl OutboxRow {
     pub async fn claim_outbox_entries(
         conn: &mut PgConn,
@@ -134,6 +136,7 @@ impl OutboxRow {
     }
 }
 
+// deprecated
 impl OutboxRowPatch {
     pub async fn patch_outbox(&self, conn: &mut PgConn) -> DbResult<OutboxRow> {
         use crate::schema::outbox::dsl;

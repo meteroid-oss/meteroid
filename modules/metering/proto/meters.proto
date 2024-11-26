@@ -17,7 +17,8 @@ message RegisterMeterResponse {
 }
 
 message UnregisterMeterRequest {
-  ResourceIdentifier meter = 1;
+  string id = 1;
+  string tenant_id = 2;
 }
 
 message UnregisterMeterResponse {}

@@ -157,7 +157,7 @@ impl EventHandler {
         Ok(Some(server::Event {
             event_id: sample.message_id.clone(),
             event_name: format!("openstack.{}", sample.counter_name),
-            customer_id: Some(server::event::CustomerId::ExternalCustomerId(
+            customer_id: Some(server::event::CustomerId::ExternalCustomerAlias(
                 sample.project_id.clone(),
             )),
             timestamp: sample.timestamp.clone(),
@@ -215,7 +215,7 @@ impl EventHandler {
                 Ok(Some(server::Event {
                     event_id: event.message_id.clone(),
                     event_name: format!("openstack.{}", event.event_type),
-                    customer_id: Some(server::event::CustomerId::ExternalCustomerId(
+                    customer_id: Some(server::event::CustomerId::ExternalCustomerAlias(
                         project_id.to_string(),
                     )),
                     timestamp: timestamp.clone(),

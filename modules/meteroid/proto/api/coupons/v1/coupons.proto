@@ -4,18 +4,36 @@ package meteroid.api.coupons.v1;
 
 import "api/coupons/v1/models.proto";
 import "google/protobuf/timestamp.proto";
+import "common/v1/pagination.proto";
 
-message ListCouponRequest {}
+
+
+
+message ListCouponRequest {
+  optional string search = 1;
+  CouponFilter filter = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+
+  enum CouponFilter {
+    ALL = 0;
+    ACTIVE = 1;
+    INACTIVE = 2;
+    ARCHIVED = 3;
+  }
+}
+
 
 message ListCouponResponse {
   repeated Coupon coupons = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
+
 
 message CreateCouponRequest {
   string code = 1;
   string description = 2;
   CouponDiscount discount = 3;
-  optional google.protobuf.Timestamp expires_at = 4;
+  optional string expires_at = 4;
   optional int32 redemption_limit = 5;
   optional int32 recurring_value = 6;
   bool reusable = 7;
@@ -41,9 +59,46 @@ message EditCouponResponse {
   Coupon coupon = 1;
 }
 
+
+enum CouponAction {
+  ARCHIVE = 0;
+  DISABLE = 1;
+  ENABLE = 2;
+}
+
+message UpdateCouponStatusRequest {
+  string coupon_id = 1;
+  CouponAction action = 2;
+}
+
+message UpdateCouponStatusResponse {
+  Coupon coupon = 1;
+}
+
+message ListAppliedCouponRequest {
+  string coupon_local_id = 1;
+  meteroid.common.v1.Pagination pagination = 2;
+}
+
+message ListAppliedCouponResponse {
+  repeated AppliedCouponForDisplay applied_coupons = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message GetCouponRequest {
+  string coupon_local_id = 1;
+}
+
+message GetCouponResponse {
+  Coupon coupon = 1;
+}
+
 service CouponsService {
+  rpc GetCoupon(GetCouponRequest) returns (GetCouponResponse) {}
   rpc ListCoupons(ListCouponRequest) returns (ListCouponResponse) {}
+  rpc ListAppliedCoupons(ListAppliedCouponRequest) returns (ListAppliedCouponResponse) {}
   rpc CreateCoupon(CreateCouponRequest) returns (CreateCouponResponse) {}
   rpc RemoveCoupon(RemoveCouponRequest) returns (RemoveCouponResponse) {}
   rpc EditCoupon(EditCouponRequest) returns (EditCouponResponse) {}
+  rpc UpdateCouponStatus(UpdateCouponStatusRequest) returns (UpdateCouponStatusResponse) {}
 }

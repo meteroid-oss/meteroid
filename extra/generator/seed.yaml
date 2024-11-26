@@ -5,12 +5,12 @@ events_per_second: 200
 limit: 5000
 events:
   - event_name: api_request
-    customer_ids: ["spotify", "uber", "comodo"]
+    customer_aliases: [ "spotify", "uber", "comodo" ]
     properties:
       app_id:
         type: string
       endpoint:
         type: pick
-        values: ["/api/v1/auth", "/api/v1/checkout", "/api/v3/ride"]
+        values: [ "/api/v1/auth", "/api/v1/checkout", "/api/v3/ride" ]
       success:
         type: bool

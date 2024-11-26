@@ -27,7 +27,6 @@ use meteroid_store::domain::{
     PaginationRequest,
 };
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::utils::local_id::LocalId;
 use meteroid_store::Store;
 
 use crate::metering_it;
@@ -295,7 +294,8 @@ async fn test_metering_e2e() {
                 })),
             }),
             usage_group_key: None,
-            family_external_id: "default".to_string(),
+            family_local_id: "default".to_string(),
+            product_id: None,
         }))
         .await
         .expect("Could not create meter");
@@ -344,9 +344,8 @@ async fn test_metering_e2e() {
         .create_draft_plan(Request::new(
             meteroid_grpc::meteroid::api::plans::v1::CreateDraftPlanRequest {
                 name: "Meteroid AI".to_string(),
-                external_id: "meteroid_ai".to_string(),
                 description: None,
-                product_family_external_id: "default".to_string(),
+                product_family_local_id: "default".to_string(),
                 plan_type: PlanType::Standard as i32,
             },
         ))
@@ -354,7 +353,7 @@ async fn test_metering_e2e() {
         .unwrap();
 
     let plan = plan.into_inner().plan.unwrap();
-    let plan_version = plan.current_version.unwrap();
+    let plan_version = plan.version.unwrap();
     let plan = plan.plan.unwrap();
 
     let plan_version_id = plan_version.id;
@@ -386,7 +385,7 @@ async fn test_metering_e2e() {
                     )),
                 }),
 
-                product_item_id: None,
+                product_id: None,
             },
         ))
         .await
@@ -482,7 +481,6 @@ async fn test_metering_e2e() {
             subtotal_recurring: 100,
             tax_rate: 0,
             tax_amount: 0,
-            local_id: LocalId::no_prefix(),
             customer_details: InlineCustomer {
                 billing_address: None,
                 id: Uuid::from_str(&customer_1).unwrap(),

@@ -27,11 +27,9 @@ use utoipa_swagger_ui::SwaggerUi;
         (path = "/files", api = files::FileApi),
         (path = "/api/v1/subscriptions", api = subscriptions::SubscriptionApi)
     ),
-    tags(
-        (name = "meteroid", description = "Meteroid API")
-    )
+    tags((name = "meteroid", description = "Meteroid API?"))
 )]
-struct ApiDoc;
+pub struct ApiDoc;
 
 struct SecurityAddon;
 
@@ -64,15 +62,17 @@ pub async fn start_rest_server(
 
     let auth_layer = ExternalApiAuthLayer::new(store.clone()).filter(only_api);
 
+    let open_api = ApiDoc::openapi();
+
     let app = Router::new()
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .merge(Redoc::with_url("/redoc", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
+        .merge(Redoc::with_url("/redoc", open_api.clone()))
         // There is no need to create `RapiDoc::with_openapi` because the OpenApi is served
         // via SwaggerUi instead we only make rapidoc to point to the existing doc.
         .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
         // Alternative to above
         // .merge(RapiDoc::with_openapi("/api-docs/openapi2.json", ApiDoc::openapi()).path("/rapidoc"))
-        .merge(Scalar::with_url("/scalar", ApiDoc::openapi()))
+        .merge(Scalar::with_url("/scalar", open_api.clone()))
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_routes())

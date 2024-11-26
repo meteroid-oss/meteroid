@@ -25,6 +25,8 @@ pub struct BillableMetricRow {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
+    pub product_id: Option<Uuid>,
+    pub local_id: String,
 }
 
 #[derive(Debug, Clone, Insertable)]
@@ -44,6 +46,8 @@ pub struct BillableMetricRowNew {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
+    pub product_id: Option<Uuid>,
+    pub local_id: String,
 }
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
@@ -51,6 +55,7 @@ pub struct BillableMetricRowNew {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetricMetaRow {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub code: String,
     pub aggregation_type: BillingMetricAggregateEnum,

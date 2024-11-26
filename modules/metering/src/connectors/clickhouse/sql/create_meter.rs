@@ -85,7 +85,7 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
 }
 
 pub fn create_meter_view(meter: Meter, populate: bool) -> String {
-    let view_name = get_meter_view_name(&meter.namespace, &meter.meter_slug);
+    let view_name = get_meter_view_name(&meter.namespace, &meter.id);
     let mut columns = vec![
         Column {
             name: "customer_id".to_string(),
@@ -159,7 +159,7 @@ mod tests {
     fn test_create_meter_view_count() {
         let meter = Meter {
             namespace: "test_namespace".to_string(),
-            meter_slug: "test_slug".to_string(),
+            id: "test_slug".to_string(),
             event_name: "test_event".to_string(),
             aggregation: MeterAggregation::Count,
             group_by: vec!["test_group1".to_string(), "test_group2".to_string()],

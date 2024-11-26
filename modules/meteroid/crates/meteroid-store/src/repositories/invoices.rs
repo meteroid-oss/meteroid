@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::{DbResult, PgConn};
-use error_stack::Report;
+use error_stack::{Report, ResultExt};
 
 use crate::compute::InvoiceLineInterface;
 use crate::domain::{
@@ -572,7 +572,8 @@ async fn compute_invoice_patch(
                 .await?;
             let lines = store
                 .compute_dated_invoice_lines(&invoice.invoice.invoice_date, &subscription_details)
-                .await?;
+                .await
+                .change_context(StoreError::InvoiceComputationError)?;
 
             Ok(InvoiceLinesPatch::new(
                 &invoice,

@@ -9,6 +9,7 @@ pub mod products {
         fn from(product: domain::Product) -> Self {
             ProductWrapper(Product {
                 id: product.id.to_string(),
+                local_id: product.local_id,
                 name: product.name,
                 description: product.description,
                 created_at: Some(chrono_to_timestamp(product.created_at)),
@@ -21,6 +22,7 @@ pub mod products {
         fn from(product: domain::Product) -> Self {
             ProductMetaWrapper(ProductMeta {
                 id: product.id.to_string(),
+                local_id: product.local_id,
                 name: product.name,
             })
         }

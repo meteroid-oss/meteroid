@@ -1,3 +1,4 @@
+use secrecy::ExposeSecret;
 use std::sync::Arc;
 use tokio::signal;
 
@@ -12,6 +13,8 @@ use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::S3Storage;
+use meteroid_store::repositories::webhooks::WebhooksInterface;
+use meteroid_store::store::StoreConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,18 +40,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query_service_client = UsageQueryServiceClient::new(metering_layered_channel.clone());
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
-    // this creates a new pool, as it is incompatible with the one for cornucopia.
-    let store = meteroid_store::Store::new(
-        config.database_url.clone(),
-        config.secrets_crypt_key.clone(),
-        config.jwt_secret.clone(),
-        config.multi_organization_enabled,
-        create_eventbus_memory(),
-        Arc::new(MeteringUsageClient::new(
+    let svix = Arc::new(svix::api::Svix::new(
+        config.svix_jwt_token.expose_secret().clone(),
+        Some(svix::api::SvixOptions {
+            debug: true,
+            server_url: Some(config.svix_server_url.clone()),
+            timeout: Some(std::time::Duration::from_secs(30)),
+        }),
+    ));
+
+    let store = meteroid_store::Store::new(StoreConfig {
+        database_url: config.database_url.clone(),
+        crypt_key: config.secrets_crypt_key.clone(),
+        jwt_secret: config.jwt_secret.clone(),
+        multi_organization_enabled: config.multi_organization_enabled,
+        eventbus: create_eventbus_memory(),
+        usage_client: Arc::new(MeteringUsageClient::new(
             query_service_client,
             metering_service,
         )),
-    )?;
+        svix: Some(svix.clone()),
+    })?;
+    // todo this is a hack to register the event types in svix, should be managed by an api
+    store.insert_webhook_out_event_types().await?;
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 

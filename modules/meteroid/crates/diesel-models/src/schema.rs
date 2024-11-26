@@ -72,10 +72,6 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "UnitConversionRoundingEnum"))]
     pub struct UnitConversionRoundingEnum;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "WebhookOutEventTypeEnum"))]
-    pub struct WebhookOutEventTypeEnum;
 }
 
 diesel::table! {
@@ -86,6 +82,7 @@ diesel::table! {
         tenant_id -> Uuid,
         created_at -> Timestamp,
         updated_at -> Timestamp,
+        local_id -> Text,
     }
 }
 
@@ -207,6 +204,8 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
+        product_id -> Nullable<Uuid>,
+        local_id -> Text,
     }
 }
 
@@ -224,9 +223,10 @@ diesel::table! {
         created_at -> Timestamp,
         updated_at -> Timestamp,
         redemption_count -> Int4,
-        disabled -> Bool,
         last_redemption_at -> Nullable<Timestamp>,
+        disabled -> Bool,
         archived_at -> Nullable<Timestamp>,
+        local_id -> Text,
     }
 }
 
@@ -247,6 +247,7 @@ diesel::table! {
         tenant_id -> Uuid,
         customer_id -> Uuid,
         status -> CreditNoteStatus,
+        local_id -> Text,
     }
 }
 
@@ -270,6 +271,7 @@ diesel::table! {
         billing_address -> Nullable<Jsonb>,
         shipping_address -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
+        local_id -> Text,
     }
 }
 
@@ -472,6 +474,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    outbox_event (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        aggregate_id -> Text,
+        aggregate_type -> Text,
+        event_type -> Text,
+        payload -> Nullable<Jsonb>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::PlanTypeEnum;
     use super::sql_types::PlanStatusEnum;
@@ -486,15 +500,16 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
-        external_id -> Text,
+        local_id -> Text,
         plan_type -> PlanTypeEnum,
         status -> PlanStatusEnum,
+        active_version_id -> Nullable<Uuid>,
+        draft_version_id -> Nullable<Uuid>,
     }
 }
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::BillingPeriodEnum;
     use super::sql_types::ActionAfterTrialEnum;
 
     plan_version (id) {
@@ -511,7 +526,6 @@ diesel::table! {
         billing_cycles -> Nullable<Int4>,
         created_at -> Timestamp,
         created_by -> Uuid,
-        billing_periods -> Array<Nullable<BillingPeriodEnum>>,
         trialing_plan_id -> Nullable<Uuid>,
         action_after_trial -> Nullable<ActionAfterTrialEnum>,
         trial_is_free -> Bool,
@@ -524,8 +538,9 @@ diesel::table! {
         name -> Text,
         fee -> Jsonb,
         plan_version_id -> Uuid,
-        product_item_id -> Nullable<Uuid>,
+        product_id -> Nullable<Uuid>,
         billable_metric_id -> Nullable<Uuid>,
+        local_id -> Text,
     }
 }
 
@@ -540,6 +555,7 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
+        local_id -> Text,
     }
 }
 
@@ -547,7 +563,7 @@ diesel::table! {
     product_family (id) {
         id -> Uuid,
         name -> Text,
-        external_id -> Text,
+        local_id -> Text,
         created_at -> Timestamp,
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,
@@ -619,6 +635,7 @@ diesel::table! {
         currency -> Varchar,
         mrr_cents -> Int8,
         period -> BillingPeriodEnum,
+        local_id -> Text,
     }
 }
 
@@ -646,7 +663,7 @@ diesel::table! {
         name -> Text,
         subscription_id -> Uuid,
         price_component_id -> Nullable<Uuid>,
-        product_item_id -> Nullable<Uuid>,
+        product_id -> Nullable<Uuid>,
         period -> SubscriptionFeeBillingPeriod,
         fee -> Jsonb,
     }
@@ -712,38 +729,6 @@ diesel::table! {
     }
 }
 
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::WebhookOutEventTypeEnum;
-
-    webhook_out_endpoint (id) {
-        id -> Uuid,
-        tenant_id -> Uuid,
-        url -> Text,
-        description -> Nullable<Text>,
-        secret -> Text,
-        created_at -> Timestamp,
-        events_to_listen -> Array<Nullable<WebhookOutEventTypeEnum>>,
-        enabled -> Bool,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::WebhookOutEventTypeEnum;
-
-    webhook_out_event (id) {
-        id -> Uuid,
-        endpoint_id -> Uuid,
-        created_at -> Timestamp,
-        event_type -> WebhookOutEventTypeEnum,
-        request_body -> Text,
-        response_body -> Nullable<Text>,
-        http_status_code -> Nullable<Int2>,
-        error_message -> Nullable<Text>,
-    }
-}
-
 diesel::joinable!(add_on -> tenant (tenant_id));
 diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(applied_coupon -> coupon (coupon_id));
@@ -755,6 +740,7 @@ diesel::joinable!(bi_mrr_movement_log -> invoice (invoice_id));
 diesel::joinable!(bi_mrr_movement_log -> plan_version (plan_version_id));
 diesel::joinable!(bi_mrr_movement_log -> tenant (tenant_id));
 diesel::joinable!(bi_revenue_daily -> historical_rates_from_usd (historical_rate_id));
+diesel::joinable!(billable_metric -> product (product_id));
 diesel::joinable!(billable_metric -> product_family (product_family_id));
 diesel::joinable!(billable_metric -> tenant (tenant_id));
 diesel::joinable!(coupon -> tenant (tenant_id));
@@ -783,7 +769,7 @@ diesel::joinable!(plan -> product_family (product_family_id));
 diesel::joinable!(plan -> tenant (tenant_id));
 diesel::joinable!(price_component -> billable_metric (billable_metric_id));
 diesel::joinable!(price_component -> plan_version (plan_version_id));
-diesel::joinable!(price_component -> product (product_item_id));
+diesel::joinable!(price_component -> product (product_id));
 diesel::joinable!(product -> product_family (product_family_id));
 diesel::joinable!(product -> tenant (tenant_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
@@ -796,14 +782,12 @@ diesel::joinable!(subscription -> tenant (tenant_id));
 diesel::joinable!(subscription_add_on -> add_on (add_on_id));
 diesel::joinable!(subscription_add_on -> subscription (subscription_id));
 diesel::joinable!(subscription_component -> price_component (price_component_id));
-diesel::joinable!(subscription_component -> product (product_item_id));
+diesel::joinable!(subscription_component -> product (product_id));
 diesel::joinable!(subscription_component -> subscription (subscription_id));
 diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log_id));
 diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
 diesel::joinable!(webhook_in_event -> provider_config (provider_config_id));
-diesel::joinable!(webhook_out_endpoint -> tenant (tenant_id));
-diesel::joinable!(webhook_out_event -> webhook_out_endpoint (endpoint_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     add_on,
@@ -827,6 +811,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     organization,
     organization_member,
     outbox,
+    outbox_event,
     plan,
     plan_version,
     price_component,
@@ -842,6 +827,4 @@ diesel::allow_tables_to_appear_in_same_query!(
     tenant,
     user,
     webhook_in_event,
-    webhook_out_endpoint,
-    webhook_out_event,
 );

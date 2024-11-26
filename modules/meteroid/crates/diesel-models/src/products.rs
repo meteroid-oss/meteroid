@@ -16,6 +16,7 @@ pub struct ProductRow {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
+    pub local_id: String,
 }
 
 #[derive(Debug, Insertable)]
@@ -23,6 +24,7 @@ pub struct ProductRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ProductRowNew {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,

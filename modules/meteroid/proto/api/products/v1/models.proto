@@ -9,9 +9,11 @@ message Product {
   string name = 2;
   optional string description = 3;
   google.protobuf.Timestamp created_at = 4;
+  string local_id = 5;
 }
 
 message ProductMeta {
   string id = 1;
   string name = 2;
+  string local_id = 3;
 }

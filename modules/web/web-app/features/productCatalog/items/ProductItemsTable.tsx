@@ -8,27 +8,23 @@ import { Product } from '@/rpc/api/products/v1/models_pb'
 
 import type { OnChangeFn } from '@tanstack/react-table'
 
-type ProductItem = Product & {
-  isExpandable?: boolean | undefined
-}
-
-interface ProductItemsTableProps {
-  data: ProductItem[]
+interface ProductsTableProps {
+  data: Product[]
   pagination: PaginationState
   setPagination: OnChangeFn<PaginationState>
   totalCount: number
   isLoading?: boolean
 }
-export const ProductItemsTable: FC<ProductItemsTableProps> = ({
+export const ProductsTable: FC<ProductsTableProps> = ({
   data,
   pagination,
   setPagination,
   totalCount,
   isLoading,
 }) => {
-  const columns = useMemo<ColumnDef<ProductItem>[]>(
+  const columns = useMemo<ColumnDef<Product>[]>(
     () => [
-      expandColumn as ColumnDef<ProductItem>,
+      expandColumn as ColumnDef<Product>,
       {
         header: 'Name',
         accessorKey: 'name',
@@ -98,7 +94,7 @@ export const ProductItemsTable: FC<ProductItemsTableProps> = ({
           <div className="inline-block min-w-full align-middle">
             <ExpandableTable
               columns={columns}
-              data={productsQuery.data as ProductItem[]}
+              data={productsQuery.data as Product[]}
               pagination={pagination}
               setPagination={setPagination}
               totalCount={totalCount}
@@ -111,7 +107,7 @@ export const ProductItemsTable: FC<ProductItemsTableProps> = ({
   )
 }
 
-// const SubComponent = ({ item }: { item: ProductItem }) => {
+// const SubComponent = ({ item }: { item: Product }) => {
 //   const details = trpc.catalog.products.details.useQuery({
 //     id: item.id,
 //   })

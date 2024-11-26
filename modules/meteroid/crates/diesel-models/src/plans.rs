@@ -18,9 +18,11 @@ pub struct PlanRow {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
+    pub active_version_id: Option<Uuid>,
+    pub draft_version_id: Option<Uuid>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -33,31 +35,31 @@ pub struct PlanRowNew {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
     pub product_family_id: Uuid,
-    pub external_id: String,
-
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
 }
 
-#[derive(Queryable, Debug, Identifiable, Selectable)]
-#[diesel(table_name = crate::schema::plan)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct PlanRowForList {
+#[derive(Debug, Queryable)]
+pub struct PlanRowOverview {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
-    pub updated_at: Option<NaiveDateTime>,
-    pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
-    pub product_family_id: Uuid,
-    pub external_id: String,
+    pub local_id: String,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
-    #[diesel(select_expression = crate::schema::product_family::name)]
-    #[diesel(select_expression_type = crate::schema::product_family::name)]
     pub product_family_name: String,
+    pub product_family_local_id: String,
+    pub active_version: Option<PlanVersionRowInfo>,
+    pub draft_version: Option<Uuid>,
+    pub subscription_count: Option<i64>,
+}
+
+#[derive(Debug, Queryable)]
+pub struct PlanVersionRowInfo {
+    pub version: i32,
+    pub trial_duration_days: Option<i32>,
 }
 
 #[derive(Debug, Queryable, Selectable)]
@@ -66,7 +68,7 @@ pub struct PlanWithVersionRow {
     #[diesel(embed)]
     pub plan: PlanRow,
     #[diesel(embed)]
-    pub version: PlanVersionRow,
+    pub version: Option<PlanVersionRow>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -78,6 +80,8 @@ pub struct PlanRowPatch {
     pub tenant_id: Uuid,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
+    pub active_version_id: Option<Option<Uuid>>,
+    pub draft_version_id: Option<Option<Uuid>>,
 }
 
 pub struct PlanFilters {

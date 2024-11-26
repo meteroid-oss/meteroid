@@ -170,8 +170,8 @@ fn generate_random_data(schema: &Schema) -> Event {
     Event {
         event_id: Uuid::new_v4().to_string(),
         event_name: schema.event_name.clone(),
-        customer_id: Some(CustomerId::ExternalCustomerId(
-            schema.customer_ids[fastrand::usize(0..schema.customer_ids.len())].clone(),
+        customer_id: Some(CustomerId::ExternalCustomerAlias(
+            schema.customer_aliases[fastrand::usize(0..schema.customer_aliases.len())].clone(),
         )),
         timestamp: now.to_rfc3339(),
         properties,

@@ -75,6 +75,8 @@ message BillableMetric {
   optional string usage_group_key = 7;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp archived_at = 9;
+  optional string product_id = 10;
+  string local_id = 11;
 }
 
 message BillableMetricMeta {

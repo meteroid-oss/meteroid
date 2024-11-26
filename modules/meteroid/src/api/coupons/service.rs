@@ -1,13 +1,18 @@
 use crate::api::coupons::error::CouponApiError;
+use crate::api::coupons::mapping::applied::AppliedCouponForDisplayWrapper;
 use crate::api::coupons::mapping::coupons::CouponWrapper;
 use crate::api::coupons::{mapping, CouponsServiceComponents};
-use crate::api::shared::mapping::datetime::chrono_from_timestamp;
+use crate::api::shared::conversions::FromProtoOpt;
+use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
+use chrono::NaiveDateTime;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_server::CouponsService;
 use meteroid_grpc::meteroid::api::coupons::v1::{
-    CreateCouponRequest, CreateCouponResponse, EditCouponRequest, EditCouponResponse,
+    CouponAction, CreateCouponRequest, CreateCouponResponse, EditCouponRequest, EditCouponResponse,
+    GetCouponRequest, GetCouponResponse, ListAppliedCouponRequest, ListAppliedCouponResponse,
     ListCouponRequest, ListCouponResponse, RemoveCouponRequest, RemoveCouponResponse,
+    UpdateCouponStatusRequest, UpdateCouponStatusResponse,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::coupons::CouponInterface;
@@ -15,6 +20,26 @@ use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl CouponsService for CouponsServiceComponents {
+    async fn get_coupon(
+        &self,
+        request: Request<GetCouponRequest>,
+    ) -> Result<Response<GetCouponResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let coupon = self
+            .store
+            .get_coupon_by_local_id(tenant_id, req.coupon_local_id)
+            .await
+            .map(|x| CouponWrapper::from(x).0)
+            .map_err(Into::<CouponApiError>::into)?;
+
+        Ok(Response::new(GetCouponResponse {
+            coupon: Some(coupon),
+        }))
+    }
+
     #[tracing::instrument(skip_all)]
     async fn list_coupons(
         &self,
@@ -22,16 +47,60 @@ impl CouponsService for CouponsServiceComponents {
     ) -> Result<Response<ListCouponResponse>, Status> {
         let tenant_id = request.tenant()?;
 
+        let req = request.into_inner();
+
+        let filter = mapping::coupons::filter::from_server(req.filter());
+
+        let pagination_req = domain::PaginationRequest {
+            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: req.pagination.as_ref().map(|p| p.limit),
+        };
+
         let coupons = self
             .store
-            .list_coupons(tenant_id)
+            .list_coupons(tenant_id, pagination_req, req.search, filter)
             .await
-            .map_err(Into::<CouponApiError>::into)?
-            .into_iter()
-            .map(|x| CouponWrapper::from(x).0)
-            .collect();
+            .map_err(Into::<CouponApiError>::into)?;
 
-        let response = ListCouponResponse { coupons };
+        let response = ListCouponResponse {
+            pagination_meta: req.pagination.into_response(coupons.total_results as u32),
+            coupons: coupons
+                .items
+                .into_iter()
+                .map(|x| CouponWrapper::from(x).0)
+                .collect(),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    async fn list_applied_coupons(
+        &self,
+        request: Request<ListAppliedCouponRequest>,
+    ) -> Result<Response<ListAppliedCouponResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let pagination_req = domain::PaginationRequest {
+            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
+            per_page: req.pagination.as_ref().map(|p| p.limit),
+        };
+
+        let coupons = self
+            .store
+            .list_applied_coupons_by_coupon_local_id(tenant_id, req.coupon_local_id, pagination_req)
+            .await
+            .map_err(Into::<CouponApiError>::into)?;
+
+        let response = ListAppliedCouponResponse {
+            pagination_meta: req.pagination.into_response(coupons.total_results as u32),
+            applied_coupons: coupons
+                .items
+                .into_iter()
+                .map(|x| AppliedCouponForDisplayWrapper::from(x).0)
+                .collect(),
+        };
 
         Ok(Response::new(response))
     }
@@ -51,7 +120,7 @@ impl CouponsService for CouponsServiceComponents {
             code: req.code,
             description: req.description,
             discount,
-            expires_at: req.expires_at.map(chrono_from_timestamp).transpose()?,
+            expires_at: NaiveDateTime::from_proto_opt(req.expires_at)?,
             redemption_limit: req.redemption_limit,
             tenant_id,
             recurring_value: req.recurring_value,
@@ -116,6 +185,44 @@ impl CouponsService for CouponsServiceComponents {
             .map_err(Into::<CouponApiError>::into)?;
 
         Ok(Response::new(EditCouponResponse {
+            coupon: Some(updated),
+        }))
+    }
+
+    async fn update_coupon_status(
+        &self,
+        request: Request<UpdateCouponStatusRequest>,
+    ) -> Result<Response<UpdateCouponStatusResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let id = parse_uuid!(&req.coupon_id)?;
+
+        let (archived_at, disabled) = match req.action() {
+            CouponAction::Archive => {
+                let now = chrono::Utc::now().naive_utc();
+                (Some(Some(now)), None)
+            }
+            CouponAction::Disable => (None, Some(true)),
+            CouponAction::Enable => (Some(None), Some(false)),
+        };
+
+        let patch = domain::coupons::CouponStatusPatch {
+            id,
+            tenant_id,
+            archived_at,
+            disabled,
+        };
+
+        let updated = self
+            .store
+            .update_coupon_status(patch)
+            .await
+            .map(|x| CouponWrapper::from(x).0)
+            .map_err(Into::<CouponApiError>::into)?;
+
+        Ok(Response::new(UpdateCouponStatusResponse {
             coupon: Some(updated),
         }))
     }

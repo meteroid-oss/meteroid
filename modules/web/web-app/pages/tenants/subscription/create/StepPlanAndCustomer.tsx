@@ -4,9 +4,9 @@ import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
-import { SubscribablePlanVersionSelect } from '@/features/billing/plans/SubscribablePlanVersionSelect'
-import { PriceComponentOverview } from '@/features/billing/plans/pricecomponents/PriceComponentOverview'
 import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { SubscribablePlanVersionSelect } from '@/features/plans/SubscribablePlanVersionSelect'
+import { PriceComponentOverview } from '@/features/plans/pricecomponents/PriceComponentOverview'
 import { useZodForm } from '@/hooks/useZodForm'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
 

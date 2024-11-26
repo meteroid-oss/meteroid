@@ -1,7 +1,11 @@
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
-use diesel_models::coupons::{CouponRow, CouponRowNew, CouponRowPatch};
+use diesel_models::coupons::{
+    CouponFilter as CouponFilterDb, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch,
+};
 use error_stack::Report;
+use o2o::o2o;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -9,6 +13,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct Coupon {
     pub id: Uuid,
+    pub local_id: String,
     pub code: String,
     pub description: String,
     pub tenant_id: Uuid,
@@ -17,10 +22,12 @@ pub struct Coupon {
     pub redemption_limit: Option<i32>, // max number of subscriptions it can be applied to
     pub recurring_value: Option<i32>, // max number of times can be applied on recurring invoices for a single subscription.
     pub reusable: bool, // can it be applied to multiple subscriptions of the same customer
+    pub disabled: bool,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub last_redemption_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
+    pub redemption_count: i32,
 }
 
 impl Coupon {
@@ -65,6 +72,7 @@ impl TryInto<Coupon> for CouponRow {
 
         Ok(Coupon {
             id: self.id,
+            local_id: self.local_id,
             code: self.code,
             description: self.description,
             tenant_id: self.tenant_id,
@@ -73,10 +81,12 @@ impl TryInto<Coupon> for CouponRow {
             redemption_limit: self.redemption_limit,
             recurring_value: self.recurring_value,
             reusable: self.reusable,
+            disabled: self.disabled,
             created_at: self.created_at,
             updated_at: self.updated_at,
             last_redemption_at: self.last_redemption_at,
             archived_at: self.archived_at,
+            redemption_count: self.redemption_count,
         })
     }
 }
@@ -102,6 +112,7 @@ impl TryInto<CouponRowNew> for CouponNew {
 
         Ok(CouponRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Coupon),
             code: self.code,
             description: self.description,
             tenant_id: self.tenant_id,
@@ -123,6 +134,15 @@ pub struct CouponPatch {
     pub updated_at: NaiveDateTime,
 }
 
+#[derive(Clone, Debug, o2o)]
+#[owned_into(CouponStatusRowPatch)]
+pub struct CouponStatusPatch {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub archived_at: Option<Option<NaiveDateTime>>,
+    pub disabled: Option<bool>,
+}
+
 impl TryInto<CouponRowPatch> for CouponPatch {
     type Error = StoreError;
 
@@ -142,4 +162,13 @@ impl TryInto<CouponRowPatch> for CouponPatch {
             updated_at: self.updated_at,
         })
     }
+}
+
+#[derive(Debug, Clone, o2o)]
+#[owned_into(CouponFilterDb)]
+pub enum CouponFilter {
+    ALL,
+    ACTIVE,
+    INACTIVE,
+    ARCHIVED,
 }

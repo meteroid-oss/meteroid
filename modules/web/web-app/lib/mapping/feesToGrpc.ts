@@ -182,13 +182,13 @@ export const mapFee = (feeType: api.FeeType): grpc.Fee => {
   return new grpc.Fee(fee)
 }
 
-export const mapPriceComponent = (
-  priceComponent: api.PriceComponent
-): PlainMessage<grpc.PriceComponent> => {
-  return {
-    id: priceComponent.id,
-    name: priceComponent.name,
-    fee: mapFee(priceComponent.fee),
-    productItemId: priceComponent.productItemId,
-  }
-}
+// export const mapPriceComponent = (
+//   priceComponent: api.PriceComponent
+// ): PlainMessage<grpc.PriceComponent> => {
+//   return {
+//     id: priceComponent.id,
+//     name: priceComponent.name,
+//     fee: mapFee(priceComponent.fee),
+//     productId: priceComponent.productId,
+//   }
+// }

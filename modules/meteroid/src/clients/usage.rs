@@ -10,7 +10,7 @@ use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceC
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
-    Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest, ResourceIdentifier,
+    CustomerIdentifier, Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest,
 };
 use meteroid_store::compute::clients::usage::*;
 use meteroid_store::compute::ComputeError;
@@ -74,8 +74,8 @@ impl UsageClient for MeteringUsageClient {
     async fn fetch_usage(
         &self,
         tenant_id: &Uuid,
-        customer_id: &Uuid,
-        customer_external_id: &Option<String>,
+        customer_local_id: &str,
+        customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
     ) -> Result<UsageData, ComputeError> {
@@ -143,11 +143,9 @@ impl UsageClient for MeteringUsageClient {
             meter_slug: metric.id.to_string(),
             event_name: metric.code.clone(),
             meter_aggregation_type: aggregation_type,
-            customers: vec![ResourceIdentifier {
-                meteroid_id: customer_id.to_string(),
-                external_id: customer_external_id
-                    .clone()
-                    .unwrap_or(customer_id.to_string()), // TODO make mandatory in db, or optional in metering
+            customers: vec![CustomerIdentifier {
+                local_id: customer_local_id.to_string(),
+                alias: customer_alias.clone(),
             }],
             from: Some(date_to_timestamp(period.start)),
             to: Some(date_to_timestamp(period.end)), // exclusive TODO check

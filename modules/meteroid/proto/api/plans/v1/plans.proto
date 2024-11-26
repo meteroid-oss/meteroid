@@ -6,26 +6,18 @@ import "api/plans/v1/models.proto";
 import "api/shared/v1/shared.proto";
 import "common/v1/pagination.proto";
 
+import "google/protobuf/empty.proto";
+
 // Request and response messages for CreateDraftPlan RPC
 message CreateDraftPlanRequest {
   string name = 1;
-  string external_id = 2;
   optional string description = 3;
-  string product_family_external_id = 4;
+  string product_family_local_id = 4;
   PlanType plan_type = 5;
 }
 
 message CreateDraftPlanResponse {
-  PlanDetails plan = 1;
-}
-
-// Request and response messages for GetPlanByExternalId RPC
-message GetPlanByExternalIdRequest {
-  string external_id = 1;
-}
-
-message GetPlanByExternalIdResponse {
-  PlanDetails plan_details = 1;
+  PlanWithVersion plan = 1;
 }
 
 // Request and response messages for ListPlans RPC
@@ -36,24 +28,15 @@ message ListPlansRequest {
     NAME_DESC = 2;
     NAME_ASC = 3;
   }
-  optional string product_family_external_id = 1;
+  optional string product_family_local_id = 1;
   PlanFilters filters = 2;
   SortBy sort_by = 3;
   meteroid.common.v1.Pagination pagination = 4;
 }
 
 message ListPlansResponse {
-  repeated ListPlan plans = 1;
+  repeated PlanOverview plans = 1;
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
-}
-
-// Request and response messages for GetPlanVersionById RPC
-message GetPlanVersionByIdRequest {
-  string plan_version_id = 1;
-}
-
-message GetPlanVersionByIdResponse {
-  PlanVersion plan_version = 1;
 }
 
 // Request and response messages for ListPlanVersionById RPC
@@ -67,12 +50,6 @@ message ListPlanVersionByIdResponse {
   meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
-// Request and response messages for ListSubscribablePlansVersions RPC
-message ListSubscribablePlanVersionRequest {}
-
-message ListSubscribablePlanVersionResponse {
-  repeated ListSubscribablePlanVersion plan_versions = 1;
-}
 
 // Request and response messages for CopyVersionToDraft RPC
 message CopyVersionToDraftRequest {
@@ -94,14 +71,6 @@ message PublishPlanVersionResponse {
   PlanVersion plan_version = 1;
 }
 
-// Request and response messages for GetLastPublishedPlanVersion RPC
-message GetLastPublishedPlanVersionRequest {
-  string plan_id = 1;
-}
-
-message GetLastPublishedPlanVersionResponse {
-  PlanVersion version = 1;
-}
 
 // Request and response messages for DiscardDraftVersion RPC
 message DiscardDraftVersionRequest {
@@ -119,11 +88,10 @@ message UpdateDraftPlanOverviewRequest {
   optional string description = 4;
   string currency = 5;
   uint32 net_terms = 6;
-  repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 7;
 }
 
 message UpdateDraftPlanOverviewResponse {
-  PlanOverview plan_overview = 1;
+  PlanWithVersion plan = 1;
 }
 
 // Request and response messages for UpdatePublishedPlanOverview RPC
@@ -138,14 +106,6 @@ message UpdatePublishedPlanOverviewResponse {
   PlanOverview plan_overview = 1;
 }
 
-// Request and response messages for GetPlanOverviewByExternalId RPC
-message GetPlanOverviewByExternalIdRequest {
-  string external_id = 1;
-}
-
-message GetPlanOverviewByExternalIdResponse {
-  PlanOverview plan_overview = 1;
-}
 
 message GetPlanParametersRequest {
   string plan_version_id = 1;
@@ -161,40 +121,49 @@ message UpdatePlanTrialRequest {
 }
 
 message UpdatePlanTrialResponse {
+  PlanWithVersion plan = 1;
+}
+
+message GetPlanWithVersionRequest {
+  string local_id = 1;
+
+  oneof filter {
+    uint32 version = 2;
+    google.protobuf.Empty draft = 3;
+    google.protobuf.Empty active = 4;
+  }
+}
+
+message GetPlanWithVersionResponse {
+  PlanWithVersion plan = 1;
+}
+
+message GetPlanOverviewRequest {
+  string local_id = 1;
+}
+
+message GetPlanOverviewResponse {
   PlanOverview plan_overview = 1;
-}
-
-message GetPlanByIdRequest {
-  string plan_id = 1;
-}
-
-message GetPlanByIdResponse {
-  PlanDetails plan_details = 1;
 }
 
 // Response message for all RPCs returning EmptyResponse
 message EmptyResponse {}
 
 service PlansService {
-  rpc CreateDraftPlan(CreateDraftPlanRequest) returns (CreateDraftPlanResponse) {}
-  rpc GetPlanByExternalId(GetPlanByExternalIdRequest) returns (GetPlanByExternalIdResponse) {}
-  rpc GetPlanById(GetPlanByIdRequest) returns (GetPlanByIdResponse) {}
+  rpc GetPlanOverview(GetPlanOverviewRequest) returns (GetPlanOverviewResponse) {}
+  rpc GetPlanWithVersion(GetPlanWithVersionRequest) returns (GetPlanWithVersionResponse) {}
+
   rpc ListPlans(ListPlansRequest) returns (ListPlansResponse) {}
 
-  rpc GetPlanVersionById(GetPlanVersionByIdRequest) returns (GetPlanVersionByIdResponse) {}
+  rpc CreateDraftPlan(CreateDraftPlanRequest) returns (CreateDraftPlanResponse) {}
+  rpc UpdateDraftPlanOverview(UpdateDraftPlanOverviewRequest) returns (UpdateDraftPlanOverviewResponse) {}
+  rpc UpdatePublishedPlanOverview(UpdatePublishedPlanOverviewRequest) returns (UpdatePublishedPlanOverviewResponse) {}
+  rpc UpdatePlanTrial(UpdatePlanTrialRequest) returns (UpdatePlanTrialResponse) {}
+
   rpc ListPlanVersionById(ListPlanVersionByIdRequest) returns (ListPlanVersionByIdResponse) {}
   rpc CopyVersionToDraft(CopyVersionToDraftRequest) returns (CopyVersionToDraftResponse) {}
   rpc PublishPlanVersion(PublishPlanVersionRequest) returns (PublishPlanVersionResponse) {}
-  rpc ListSubscribablePlanVersion(ListSubscribablePlanVersionRequest) returns (ListSubscribablePlanVersionResponse) {}
-
-  rpc GetLastPublishedPlanVersion(GetLastPublishedPlanVersionRequest) returns (GetLastPublishedPlanVersionResponse) {}
   rpc DiscardDraftVersion(DiscardDraftVersionRequest) returns (DiscardDraftVersionResponse) {}
-
-  rpc UpdateDraftPlanOverview(UpdateDraftPlanOverviewRequest) returns (UpdateDraftPlanOverviewResponse) {}
-  rpc UpdatePublishedPlanOverview(UpdatePublishedPlanOverviewRequest) returns (UpdatePublishedPlanOverviewResponse) {}
-  rpc GetPlanOverviewByExternalId(GetPlanOverviewByExternalIdRequest) returns (GetPlanOverviewByExternalIdResponse) {}
-
-  rpc UpdatePlanTrial(UpdatePlanTrialRequest) returns (UpdatePlanTrialResponse) {}
 
   rpc GetPlanParameters(GetPlanParametersRequest) returns (GetPlanParametersResponse) {}
 }

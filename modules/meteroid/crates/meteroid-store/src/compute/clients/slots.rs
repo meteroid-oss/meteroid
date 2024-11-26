@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::compute::errors::ComputeError;
 
 use crate::repositories::subscriptions::SubscriptionSlotsInterface;
+use error_stack::{Result, ResultExt};
 
 #[async_trait::async_trait]
 pub trait SlotClient {
@@ -35,7 +36,7 @@ impl SlotClient for crate::Store {
                 invoice_date.clone().and_hms_opt(0, 0, 0),
             )
             .await
-            .map_err(|_e| ComputeError::InternalError)?;
+            .change_context(ComputeError::InternalError)?;
 
         Ok(res)
     }

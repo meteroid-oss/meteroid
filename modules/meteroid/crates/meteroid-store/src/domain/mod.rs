@@ -38,6 +38,7 @@ pub mod invoicing_entities;
 pub mod misc;
 pub mod organizations;
 pub mod outbox;
+pub mod outbox_event;
 pub mod product_families;
 pub mod products;
 pub mod schedules;

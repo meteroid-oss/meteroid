@@ -3,6 +3,7 @@ use error_stack::Report;
 use uuid::Uuid;
 
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
     CustomerTopUpBalance, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew,
@@ -161,8 +162,6 @@ impl CustomersInterface for Store {
         customer: CustomerNew,
         tenant_id: Uuid,
     ) -> StoreResult<Customer> {
-        let mut conn = self.get_conn().await?;
-
         let invoicing_entity = self
             .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
             .await?;
@@ -174,11 +173,21 @@ impl CustomersInterface for Store {
         }
         .try_into()?;
 
-        let res: Customer = customer
-            .insert(&mut conn)
-            .await
-            .map_err(Into::into)
-            .and_then(TryInto::try_into)?;
+        let res: Customer = self
+            .transaction(|conn| {
+                async move {
+                    let new_customer: Customer = customer.insert(conn).await?.try_into()?;
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![OutboxEvent::customer_created(new_customer.clone().into())],
+                        )
+                        .await?;
+                    Ok(new_customer)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         let _ = self
             .eventbus
@@ -197,8 +206,6 @@ impl CustomersInterface for Store {
         batch: Vec<CustomerNew>,
         tenant_id: Uuid,
     ) -> StoreResult<Vec<Customer>> {
-        let mut conn = self.get_conn().await?;
-
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
         let default_invoicing_entity =
             invoicing_entities
@@ -229,10 +236,29 @@ impl CustomersInterface for Store {
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        let res: Vec<Customer> = CustomerRow::insert_customer_batch(&mut conn, insertable_batch)
-            .await
-            .map_err(Into::into)
-            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+        let res: Vec<Customer> = self
+            .transaction(|conn| {
+                async move {
+                    let res: Vec<Customer> =
+                        CustomerRow::insert_customer_batch(conn, insertable_batch)
+                            .await
+                            .map_err(Into::into)
+                            .and_then(|v| v.into_iter().map(TryInto::try_into).collect())?;
+
+                    let outbox_events: Vec<OutboxEvent> = res
+                        .iter()
+                        .map(|x| OutboxEvent::customer_created(x.clone().into()))
+                        .collect();
+
+                    self.internal
+                        .insert_outbox_events_tx(conn, outbox_events)
+                        .await?;
+
+                    Ok(res)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         let _ = futures::future::join_all(res.clone().into_iter().map(|res| {
             self.eventbus.publish(Event::customer_created(
@@ -398,7 +424,6 @@ impl CustomersInterface for Store {
                         subtotal_recurring: totals.subtotal_recurring,
                         tax_rate: 0, // TODO
                         tax_amount: totals.tax_amount,
-                        local_id: LocalId::generate_for(IdType::Invoice),
                         customer_details: InlineCustomer {
                             billing_address: None, // TODO
                             id: req.customer_id,

@@ -18,9 +18,10 @@ pub struct CouponRow {
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub redemption_count: i32,
-    pub disabled: bool,
     pub last_redemption_at: Option<NaiveDateTime>,
+    pub disabled: bool,
     pub archived_at: Option<NaiveDateTime>,
+    pub local_id: String,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -28,6 +29,7 @@ pub struct CouponRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CouponRowNew {
     pub id: Uuid,
+    pub local_id: String,
     pub code: String,
     pub description: String,
     pub tenant_id: Uuid,
@@ -48,4 +50,22 @@ pub struct CouponRowPatch {
     pub description: Option<String>,
     pub discount: Option<serde_json::Value>,
     pub updated_at: NaiveDateTime,
+}
+
+#[derive(AsChangeset)]
+#[diesel(table_name = crate::schema::coupon)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(primary_key(id, tenant_id))]
+pub struct CouponStatusRowPatch {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub archived_at: Option<Option<NaiveDateTime>>,
+    pub disabled: Option<bool>,
+}
+
+pub enum CouponFilter {
+    ALL,
+    ACTIVE,
+    INACTIVE,
+    ARCHIVED,
 }

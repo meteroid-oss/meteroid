@@ -9,4 +9,5 @@ message AddOn {
   string name = 2;
   // todo extract in a separate package?
   meteroid.api.components.v1.Fee fee = 3;
+  string local_id = 4;
 }

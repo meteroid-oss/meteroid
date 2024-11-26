@@ -1,6 +1,6 @@
 import { FunctionComponent } from 'react'
 
-import { PlanOnboardingModal } from '@/features/billing/plans/onboarding/PlanOnboardingModal'
+import { PlanOnboardingModal } from '@/features/plans/onboarding/PlanOnboardingModal'
 
 export const PlanOnboardingComponent: FunctionComponent = () => {
   // const setEditPanelVisible = () => navigate('new')

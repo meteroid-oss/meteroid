@@ -25,6 +25,7 @@ pub struct CustomerRow {
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Uuid,
+    pub local_id: String,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]
@@ -32,6 +33,7 @@ pub struct CustomerRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerBriefRow {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
 }
@@ -41,6 +43,7 @@ pub struct CustomerBriefRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerRowNew {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
@@ -75,21 +78,7 @@ pub struct CustomerRowPatch {
     pub invoicing_entity_id: Option<Uuid>,
 }
 
-#[derive(AsChangeset, Debug)]
-#[diesel(table_name = crate::schema::customer)]
-pub struct CustomerRowAsChangeset {
-    pub name: String,
-    pub billing_config: Option<serde_json::Value>,
-    pub alias: Option<String>,
-    pub email: Option<String>,
-    pub invoicing_email: Option<String>,
-    pub phone: Option<String>,
-    pub balance_value_cents: i32,
-    pub currency: String,
-    pub billing_address: Option<serde_json::Value>,
-    pub shipping_address: Option<serde_json::Value>,
-}
-
+// TODO unused
 #[derive(Debug)]
 pub enum CustomerUpdate {
     UpdateDetails {
