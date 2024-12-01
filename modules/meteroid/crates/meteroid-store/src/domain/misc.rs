@@ -117,6 +117,6 @@ pub enum OrderByRequest {
 pub struct WebhookPage<T> {
     pub data: Vec<T>,
     pub done: bool,
-    pub iterator: String,
+    pub iterator: Option<String>,
     pub prev_iterator: Option<String>,
 }
