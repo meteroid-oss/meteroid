@@ -22,7 +22,7 @@ message ListWebhookEndpointsRequest {
 message ListWebhookEndpointsResponse {
   repeated WebhookEndpointListItem data = 1;
   bool done = 2;
-  string iterator = 3;
+  optional string iterator = 3;
   optional string prev_iterator = 4;
 }
 
