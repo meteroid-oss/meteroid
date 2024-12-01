@@ -1,13 +1,15 @@
 use super::AppState;
 
-use axum::extract::Query;
+use axum::extract::{Path, Query};
 use axum::{extract::State, response::IntoResponse, Json};
 
 use axum::Extension;
 
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
-use crate::api_rest::subscriptions::mapping::domain_to_rest;
-use crate::api_rest::subscriptions::model::{Subscription, SubscriptionRequest};
+use crate::api_rest::subscriptions::mapping::{domain_to_rest, domain_to_rest_details};
+use crate::api_rest::subscriptions::model::{
+    Subscription, SubscriptionDetails, SubscriptionRequest,
+};
 use crate::errors::RestApiError;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -16,7 +18,7 @@ use utoipa::OpenApi;
 use uuid::Uuid;
 
 #[derive(OpenApi)]
-#[openapi(paths(list_subscriptions))]
+#[openapi(paths(list_subscriptions, subscription_details))]
 pub struct SubscriptionApi;
 
 #[utoipa::path(
@@ -33,7 +35,7 @@ pub struct SubscriptionApi;
     )
 )]
 #[axum::debug_handler]
-pub async fn list_subscriptions(
+pub(crate) async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     Query(request): Query<SubscriptionRequest>,
     State(app_state): State<AppState>,
@@ -87,4 +89,47 @@ async fn list_subscriptions_handler(
         total: res.total_results,
         offset: res.total_pages,
     })
+}
+
+#[utoipa::path(
+    get,
+    tag = "subscription",
+    path = "/v1/subscription/:uuid",
+    params(
+        ("uuid" = Uuid, Path, description = "subscription UUID")
+    ),
+    responses(
+        (status = 200, description = "Details of subscription", body = SubscriptionDetails),
+        (status = 500, description = "Internal error"),
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn subscription_details(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(uuid): Path<Uuid>,
+) -> Result<impl IntoResponse, RestApiError> {
+    subscription_details_handler(app_state.store, authorized_state.tenant_id, uuid)
+        .await
+        .map(Json)
+        .map_err(|e| {
+            log::error!("Error handling list_subscriptions: {}", e);
+            e
+        })
+}
+
+async fn subscription_details_handler(
+    store: Store,
+    tenant_id: Uuid,
+    subscription_id: Uuid,
+) -> Result<SubscriptionDetails, RestApiError> {
+    let res = store
+        .get_subscription_details(tenant_id, subscription_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling subscription_details: {}", e);
+            RestApiError::StoreError
+        })?;
+
+    Ok(domain_to_rest_details(res))
 }
