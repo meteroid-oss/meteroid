@@ -1,4 +1,3 @@
-use secrecy::ExposeSecret;
 use std::sync::Arc;
 use tokio::signal;
 
@@ -13,6 +12,7 @@ use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::S3Storage;
+use meteroid::svix::new_svix;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::store::StoreConfig;
 
@@ -40,16 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query_service_client = UsageQueryServiceClient::new(metering_layered_channel.clone());
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
-    let svix = config.svix_server_url.clone().map(|x| {
-        Arc::new(svix::api::Svix::new(
-            config.svix_jwt_token.expose_secret().clone(),
-            Some(svix::api::SvixOptions {
-                debug: true,
-                server_url: Some(x),
-                timeout: Some(std::time::Duration::from_secs(30)),
-            }),
-        ))
-    });
+    let svix = new_svix(config);
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),

@@ -82,6 +82,7 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
 #[from_owned(Customer)]
 pub struct CustomerCreatedEvent {
     pub id: Uuid,
+    pub local_id: String,
     pub tenant_id: Uuid,
     pub name: String,
     pub alias: Option<String>,

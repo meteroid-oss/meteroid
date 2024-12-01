@@ -25,7 +25,7 @@ pub struct KafkaSink {
 impl KafkaSink {
     pub fn new(config: &KafkaConfig) -> Result<KafkaSink, KafkaError> {
         info!(
-            "connecting to Kafka brokers at {}...",
+            "connecting to Kafka brokers at {:?}...",
             config.kafka_connection.bootstrap_servers
         );
 
@@ -195,7 +195,7 @@ mod tests {
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_connection: KafkaConnectionConfig {
-                bootstrap_servers: cluster.bootstrap_servers(),
+                bootstrap_servers: Some(cluster.bootstrap_servers()),
                 security_protocol: None,
                 sasl_mechanism: None,
                 sasl_username: None,
