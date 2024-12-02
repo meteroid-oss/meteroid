@@ -40,14 +40,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query_service_client = UsageQueryServiceClient::new(metering_layered_channel.clone());
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
-    let svix = Arc::new(svix::api::Svix::new(
-        config.svix_jwt_token.expose_secret().clone(),
-        Some(svix::api::SvixOptions {
-            debug: true,
-            server_url: Some(config.svix_server_url.clone()),
-            timeout: Some(std::time::Duration::from_secs(30)),
-        }),
-    ));
+    let svix = config.svix_server_url.clone().map(|x| {
+        Arc::new(svix::api::Svix::new(
+            config.svix_jwt_token.expose_secret().clone(),
+            Some(svix::api::SvixOptions {
+                debug: true,
+                server_url: Some(x),
+                timeout: Some(std::time::Duration::from_secs(30)),
+            }),
+        ))
+    });
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),
@@ -59,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             query_service_client,
             metering_service,
         )),
-        svix: Some(svix.clone()),
+        svix: svix.clone(),
     })?;
     // todo this is a hack to register the event types in svix, should be managed by an api
     store.insert_webhook_out_event_types().await?;
