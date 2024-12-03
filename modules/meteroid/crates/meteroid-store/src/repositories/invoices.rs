@@ -9,9 +9,10 @@ use diesel_models::{DbResult, PgConn};
 use error_stack::{Report, ResultExt};
 
 use crate::compute::InvoiceLineInterface;
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, OutboxEvent, PaginatedVec, PaginationRequest,
+    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
@@ -299,14 +300,9 @@ impl InvoiceInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
                 self.internal
-                    .insert_outbox_item(
+                    .insert_outbox_events_tx(
                         conn,
-                        domain::OutboxNew {
-                            event_type: OutboxEvent::InvoiceFinalized,
-                            resource_id: id,
-                            tenant_id,
-                            payload: None,
-                        },
+                        vec![OutboxEvent::invoice_finalized(tenant_id, id)],
                     )
                     .await?;
 

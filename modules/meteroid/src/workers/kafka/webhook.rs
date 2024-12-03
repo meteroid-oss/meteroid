@@ -113,6 +113,7 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
 
                 (event_type, payload)
             }
+            _ => return Ok(None),
         };
 
         let webhook = WebhookOutMessageNew {
