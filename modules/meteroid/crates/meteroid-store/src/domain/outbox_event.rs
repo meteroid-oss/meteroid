@@ -65,6 +65,7 @@ pub enum EventType {
     #[strum(serialize = "customer.created")]
     CustomerCreated(Box<CustomerCreatedEvent>),
     #[strum(serialize = "invoice.finalized")]
+    /// todo this needs payload as well
     InvoiceFinalized,
     #[strum(serialize = "invoice.pdf.requested")]
     InvoicePdfRequested,
