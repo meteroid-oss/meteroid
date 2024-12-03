@@ -86,7 +86,9 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
     Pool::builder(mgr)
         .build()
         .map_err(Report::from)
-        .change_context(StoreError::InitializationError)
+        .change_context(StoreError::InitializationError(
+            "Database connection pool".into(),
+        ))
         .attach_printable("Failed to create PostgreSQL connection pool")
 }
 
@@ -180,7 +182,7 @@ impl Store {
     pub(crate) fn svix(&self) -> StoreResult<Arc<Svix>> {
         self.svix
             .clone()
-            .ok_or(StoreError::InitializationError.into())
+            .ok_or(StoreError::InitializationError("svix client config".into()).into())
     }
 
     pub(crate) async fn svix_application(&self, tenant_id: Uuid) -> StoreResult<ApplicationOut> {

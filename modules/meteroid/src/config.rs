@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 use envconfig::Envconfig;
 use secrecy::SecretString;
 
+use crate::workers::fang::ext::FangExtConfig;
 use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
-
-use crate::workers::fang::ext::FangExtConfig;
+use kafka::config::KafkaConnectionConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
@@ -70,6 +70,9 @@ pub struct Config {
 
     #[envconfig(from = "SVIX_JWT_TOKEN")]
     pub svix_jwt_token: SecretString,
+
+    #[envconfig(nested)]
+    pub kafka: KafkaConnectionConfig,
 }
 
 impl Config {

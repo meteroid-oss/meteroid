@@ -5,8 +5,8 @@ use diesel_models::errors::DatabaseError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("Initialization Error")]
-    InitializationError,
+    #[error("Initialization Error: {0}")]
+    InitializationError(String),
     #[error("DatabaseError: {0:?}")]
     DatabaseError(error_stack::Report<DatabaseError>),
     #[error("ValueNotFound: {0}")]

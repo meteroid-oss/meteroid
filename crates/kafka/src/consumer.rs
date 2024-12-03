@@ -3,7 +3,7 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 
 pub fn create_kafka_consumer(
     conn_config: &KafkaConnectionConfig,
-    topic: &str,
+    topics: &[&str],
     group_id: &str,
 ) -> StreamConsumer {
     let mut client_config = conn_config.to_client_config();
@@ -19,12 +19,12 @@ pub fn create_kafka_consumer(
         .expect("Failed to create Kafka consumer");
 
     consumer
-        .subscribe(&[topic])
-        .expect("Failed to subscribe to Kafka topic");
+        .subscribe(topics)
+        .expect("Failed to subscribe to Kafka topics");
 
     log::info!(
-        "Kafka consumer created and subscribed to topic '{}' with group ID '{}'",
-        topic,
+        "Kafka consumer created and subscribed to topics '{}' with group ID '{}'",
+        topics.join(", "),
         group_id
     );
 

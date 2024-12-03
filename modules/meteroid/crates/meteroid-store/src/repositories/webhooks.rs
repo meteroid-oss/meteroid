@@ -1,8 +1,8 @@
 use crate::domain::enums::WebhookOutEventTypeEnum;
 use crate::domain::webhooks::{
-    WebhookInEvent, WebhookInEventNew, WebhookOutEndpoint, WebhookOutEndpointListItem,
-    WebhookOutEndpointNew, WebhookOutListEndpointFilter, WebhookOutListMessageAttemptFilter,
-    WebhookOutMessage, WebhookOutMessageAttempt, WebhookOutMessageNew,
+    WebhookInEvent, WebhookInEventNew, WebhookOutCreateMessageResult, WebhookOutEndpoint,
+    WebhookOutEndpointListItem, WebhookOutEndpointNew, WebhookOutListEndpointFilter,
+    WebhookOutListMessageAttemptFilter, WebhookOutMessageAttempt, WebhookOutMessageNew,
 };
 use crate::domain::WebhookPage;
 use crate::errors::StoreError;
@@ -11,6 +11,7 @@ use diesel_models::webhooks::WebhookInEventRowNew;
 use error_stack::ResultExt;
 use strum::IntoEnumIterator;
 use svix::api::{EndpointIn, EventTypeIn};
+use svix::error::Error;
 use tracing::log;
 use uuid::Uuid;
 
@@ -44,7 +45,7 @@ pub trait WebhooksInterface {
         &self,
         tenant_id: Uuid,
         msg: WebhookOutMessageNew,
-    ) -> StoreResult<WebhookOutMessage>;
+    ) -> StoreResult<WebhookOutCreateMessageResult>;
 
     // this will have its own CRUD
     async fn insert_webhook_out_event_types(&self) -> StoreResult<()>;
@@ -173,51 +174,71 @@ impl WebhooksInterface for Store {
         &self,
         tenant_id: Uuid,
         msg: WebhookOutMessageNew,
-    ) -> StoreResult<WebhookOutMessage> {
-        let svix = self.svix()?;
+    ) -> StoreResult<WebhookOutCreateMessageResult> {
+        if let Some(svix_api) = &self.svix {
+            let message_result = svix_api
+                .message()
+                .create(tenant_id.to_string(), msg.into(), None)
+                .await;
 
-        svix.message()
-            .create(tenant_id.to_string(), msg.into(), None)
-            .await
-            .map(Into::into)
-            .change_context(StoreError::WebhookServiceError(
-                "Failed to send svix message".into(),
-            ))
+            if let Err(Error::Http(ref e)) = message_result {
+                if e.status.as_u16() == 409 {
+                    return Ok(WebhookOutCreateMessageResult::Conflict);
+                }
+                if e.status.as_u16() == 404 {
+                    return Ok(WebhookOutCreateMessageResult::NotFound);
+                }
+            }
+
+            message_result
+                .map(|res| WebhookOutCreateMessageResult::Created(res.into()))
+                .change_context(StoreError::WebhookServiceError(
+                    "Failed to send svix message".into(),
+                ))
+        } else {
+            Ok(WebhookOutCreateMessageResult::SvixNotConfigured)
+        }
     }
 
     /// naive hack, will be replaced with a proper CRUD for event types
     async fn insert_webhook_out_event_types(&self) -> StoreResult<()> {
         if let Some(svix_api) = &self.svix {
-            let existing = svix_api.event_type().list(None).await.change_context(
-                StoreError::WebhookServiceError("Failed to list svix event types".into()),
-            )?;
+            for event_type in WebhookOutEventTypeEnum::iter() {
+                let created = svix_api
+                    .event_type()
+                    .create(
+                        EventTypeIn {
+                            archived: None,
+                            deprecated: None,
+                            description: event_type.to_string(),
+                            feature_flag: None,
+                            group_name: Some(event_type.group()),
+                            name: event_type.to_string(),
+                            schemas: None,
+                        },
+                        None,
+                    )
+                    .await;
 
-            if existing.data.is_empty() {
-                for event_type in WebhookOutEventTypeEnum::iter() {
-                    svix_api
-                        .event_type()
-                        .create(
-                            EventTypeIn {
-                                archived: None,
-                                deprecated: None,
-                                description: event_type.to_string(),
-                                feature_flag: None,
-                                group_name: Some(event_type.group()),
-                                name: event_type.to_string(),
-                                schemas: None,
-                            },
-                            None,
-                        )
-                        .await
-                        .change_context(StoreError::WebhookServiceError(
-                            "Failed to create svix event type".into(),
-                        ))?;
+                if let Err(Error::Http(ref e)) = created {
+                    if e.status.as_u16() == 409 {
+                        log::info!(
+                            "Webhook event type {} already exists",
+                            event_type.to_string()
+                        );
+
+                        continue;
+                    }
                 }
 
-                log::info!("Webhook event types created");
-            } else {
-                log::info!("Webhook event types already exist, skipping creation");
+                log::info!("Webhook event type {} created", event_type.to_string());
+
+                created.change_context(StoreError::WebhookServiceError(
+                    "Failed to create svix event type".into(),
+                ))?;
             }
+        } else {
+            log::warn!("Svix disabled!");
         }
         Ok(())
     }

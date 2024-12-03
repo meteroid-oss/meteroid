@@ -111,6 +111,11 @@ utoipa-scalar.workspace = true
 
 svix = { workspace = true, features = ["http2", "rustls-tls"] }
 
+rdkafka = { workspace = true }
+kafka = { workspace = true }
+env_logger = { workspace = true }
+o2o.workspace = true
+
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -118,9 +123,8 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true, features = ["postgres"] }
 tokio-util = { workspace = true }
 clickhouse-rs = { workspace = true }
-rdkafka = { workspace = true }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
-kafka = { workspace = true }
+
 mockito = { workspace = true }
 
 [[bin]]

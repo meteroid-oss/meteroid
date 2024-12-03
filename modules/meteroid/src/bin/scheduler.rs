@@ -68,6 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             invoice_finalized_outbox_worker.run().await;
         }),
+        tokio::spawn(async move {
+            meteroid::workers::kafka::processors::run_webhook_outbox_processor(
+                &config.kafka,
+                store.clone(),
+            )
+            .await;
+        }),
         // ...
     )?;
 

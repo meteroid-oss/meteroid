@@ -248,6 +248,13 @@ impl From<WebhookOutListEndpointFilter> for svix::api::EndpointListOptions {
     }
 }
 
+pub enum WebhookOutCreateMessageResult {
+    Conflict,
+    NotFound,
+    SvixNotConfigured,
+    Created(WebhookOutMessage),
+}
+
 #[derive(Clone, Debug, o2o)]
 #[owned_into(WebhookInEventRowNew)]
 pub struct WebhookInEventNew {

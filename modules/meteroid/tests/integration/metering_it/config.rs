@@ -30,7 +30,7 @@ pub fn mocked_config(
         },
         kafka: KafkaConfig {
             kafka_connection: KafkaConnectionConfig {
-                bootstrap_servers: format!("127.0.0.1:{}", kafka_port),
+                bootstrap_servers: Some(format!("127.0.0.1:{}", kafka_port)),
                 security_protocol: None,
                 sasl_mechanism: None,
                 sasl_username: None,

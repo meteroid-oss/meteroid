@@ -1,10 +1,10 @@
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 
-#[derive(Envconfig, Clone)]
+#[derive(Envconfig, Clone, Debug)]
 pub struct KafkaConnectionConfig {
-    #[envconfig(from = "KAFKA_BOOTSTRAP_SERVERS", default = "localhost:9092")]
-    pub bootstrap_servers: String,
+    #[envconfig(from = "KAFKA_BOOTSTRAP_SERVERS")]
+    pub bootstrap_servers: Option<String>,
 
     #[envconfig(from = "KAFKA_SECURITY_PROTOCOL")]
     pub security_protocol: Option<String>,
@@ -20,10 +20,29 @@ pub struct KafkaConnectionConfig {
 }
 
 impl KafkaConnectionConfig {
+    pub fn none() -> Self {
+        KafkaConnectionConfig {
+            bootstrap_servers: None,
+            security_protocol: None,
+            sasl_mechanism: None,
+            sasl_username: None,
+            sasl_password: None,
+        }
+    }
+
+    pub fn is_none(&self) -> bool {
+        self.bootstrap_servers.is_none()
+    }
+
     pub fn to_client_config(&self) -> ClientConfig {
         let mut client_config = ClientConfig::new();
 
-        client_config.set("bootstrap.servers", &self.bootstrap_servers);
+        let bootstrap_servers = self
+            .bootstrap_servers
+            .as_ref()
+            .expect("Missing KAFKA_BOOTSTRAP_SERVERS env var");
+
+        client_config.set("bootstrap.servers", bootstrap_servers);
 
         if self
             .security_protocol
