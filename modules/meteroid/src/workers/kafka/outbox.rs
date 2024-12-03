@@ -17,6 +17,8 @@ pub struct OutboxEvent {
 #[derive(Debug)]
 pub enum EventType {
     CustomerCreated(Box<CustomerCreatedEvent>),
+    InvoiceFinalized,
+    InvoicePdfRequested,
 }
 
 impl EventType {
@@ -31,6 +33,8 @@ impl EventType {
                 let payload = extract_payload::<CustomerCreatedEvent>(m).ok()??;
                 Some(Self::CustomerCreated(Box::new(payload)))
             }
+            "invoice.finalized" => Some(Self::InvoiceFinalized),
+            "invoice.pdf.requested" => Some(Self::InvoicePdfRequested),
             _ => None,
         }
     }

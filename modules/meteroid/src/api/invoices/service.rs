@@ -8,7 +8,8 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     RequestPdfGenerationRequest, RequestPdfGenerationResponse,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::{OrderByRequest, OutboxEvent};
+use meteroid_store::domain::outbox_event::OutboxEvent;
+use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::outbox::OutboxInterface;
 use meteroid_store::repositories::InvoiceInterface;
 
@@ -135,14 +136,11 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?;
 
         // check if already generated ?
-
         self.store
-            .insert_outbox_item_no_tx(domain::OutboxNew {
-                event_type: OutboxEvent::InvoicePdfRequested,
-                resource_id: invoice.invoice.id,
+            .insert_outbox_event(OutboxEvent::invoice_pdf_requested(
                 tenant_id,
-                payload: None,
-            })
+                invoice.invoice.id,
+            ))
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 

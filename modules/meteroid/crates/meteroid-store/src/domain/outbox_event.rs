@@ -23,6 +23,22 @@ impl OutboxEvent {
         }
     }
 
+    pub fn invoice_pdf_requested(tenant_id: Uuid, invoice_id: Uuid) -> OutboxEvent {
+        OutboxEvent {
+            tenant_id,
+            aggregate_id: invoice_id,
+            event_type: EventType::InvoicePdfRequested,
+        }
+    }
+
+    pub fn invoice_finalized(tenant_id: Uuid, invoice_id: Uuid) -> OutboxEvent {
+        OutboxEvent {
+            tenant_id,
+            aggregate_id: invoice_id,
+            event_type: EventType::InvoiceFinalized,
+        }
+    }
+
     pub fn payload_json(&self) -> StoreResult<Option<serde_json::Value>> {
         match &self.event_type {
             EventType::CustomerCreated(event) => Ok(Some(Self::event_json(event)?)),
@@ -49,6 +65,7 @@ pub enum EventType {
     #[strum(serialize = "customer.created")]
     CustomerCreated(Box<CustomerCreatedEvent>),
     #[strum(serialize = "invoice.finalized")]
+    /// todo this needs payload as well
     InvoiceFinalized,
     #[strum(serialize = "invoice.pdf.requested")]
     InvoicePdfRequested,
