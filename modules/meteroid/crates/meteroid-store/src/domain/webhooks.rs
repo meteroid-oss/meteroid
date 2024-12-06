@@ -132,8 +132,14 @@ pub struct WebhookOutMessageNew {
     pub id: String,
     #[serde(rename = "type")]
     pub event_type: WebhookOutEventTypeEnum,
-    pub payload: serde_json::Value,
+    pub payload: WebhookOutMessagePayload,
     pub created_at: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "object", rename_all = "snake_case")]
+pub enum WebhookOutMessagePayload {
+    Customer(serde_json::Value),
 }
 
 impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {

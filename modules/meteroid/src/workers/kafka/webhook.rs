@@ -5,7 +5,9 @@ use chrono::SecondsFormat;
 use error_stack::Report;
 use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
 use meteroid_store::domain::outbox_event::CustomerCreatedEvent;
-use meteroid_store::domain::webhooks::{WebhookOutCreateMessageResult, WebhookOutMessageNew};
+use meteroid_store::domain::webhooks::{
+    WebhookOutCreateMessageResult, WebhookOutMessageNew, WebhookOutMessagePayload,
+};
 use meteroid_store::domain::{Address, ShippingAddress};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
@@ -112,7 +114,7 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
                     ))
                 })?;
 
-                (event_type, payload)
+                (event_type, WebhookOutMessagePayload::Customer(payload))
             }
             _ => return Ok(None),
         };
