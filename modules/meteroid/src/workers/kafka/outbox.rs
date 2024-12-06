@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use meteroid_store::domain::outbox_event::CustomerCreatedEvent;
 use rdkafka::message::{BorrowedHeaders, BorrowedMessage, Headers};
 use rdkafka::Message;
@@ -7,11 +8,11 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct OutboxEvent {
-    pub id: Uuid,
+    pub id: String,
     pub tenant_id: Uuid,
-    #[allow(dead_code)]
     pub aggregate_id: String,
     pub event_type: EventType,
+    pub event_timestamp: DateTime<Utc>,
 }
 
 #[derive(Debug)]
@@ -44,7 +45,7 @@ impl EventType {
 /// todo return Result<Option<OutboxEvent>, Error>
 pub(crate) fn parse_outbox_event(m: &BorrowedMessage<'_>) -> Option<OutboxEvent> {
     let headers = m.headers()?;
-    let id = headers.get_as_uuid("id")?;
+    let id = headers.get_as_string("local_id")?;
     let tenant_id = headers.get_as_uuid("tenant_id")?;
 
     let aggregate_id: String = String::from_utf8(m.key()?.to_vec())
@@ -54,11 +55,14 @@ pub(crate) fn parse_outbox_event(m: &BorrowedMessage<'_>) -> Option<OutboxEvent>
 
     let event_type = EventType::from_kafka_message(m)?;
 
+    let event_timestamp = DateTime::from_timestamp_millis(m.timestamp().to_millis()?)?;
+
     Some(OutboxEvent {
         id,
         tenant_id,
         aggregate_id,
         event_type,
+        event_timestamp,
     })
 }
 

@@ -6,6 +6,7 @@ use diesel_models::webhooks::{WebhookInEventRow, WebhookInEventRowNew};
 use error_stack::Report;
 use o2o::o2o;
 use secrecy::SecretString;
+use serde::Serialize;
 use url::Url;
 use uuid::Uuid;
 
@@ -125,26 +126,47 @@ impl From<WebhookOutStatusCodeClass> for svix::api::StatusCodeClass {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+/// The message that is sent to the webhook
 pub struct WebhookOutMessageNew {
-    /// used as dedupe id
-    pub event_id: Option<String>,
+    pub id: String,
+    #[serde(rename = "type")]
     pub event_type: WebhookOutEventTypeEnum,
-    pub payload: serde_json::Value,
+    pub payload: WebhookOutMessagePayload,
+    pub created_at: String,
 }
 
-impl From<WebhookOutMessageNew> for svix::api::MessageIn {
-    fn from(value: WebhookOutMessageNew) -> Self {
-        svix::api::MessageIn {
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "object", rename_all = "snake_case")]
+pub enum WebhookOutMessagePayload {
+    Customer(serde_json::Value),
+}
+
+impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
+    type Error = Report<StoreError>;
+    fn try_from(value: WebhookOutMessageNew) -> Result<Self, Self::Error> {
+        let event_id = Some(value.id.clone());
+        let event_type = value.event_type.to_string();
+        let payload = serde_json::to_value(value).map_err(|e| {
+            Report::from(StoreError::SerdeError(
+                "Failed to serialize payload".to_string(),
+                e,
+            ))
+        })?;
+
+        let msg = svix::api::MessageIn {
             application: None,
             channels: None,
-            event_id: value.event_id,
-            event_type: value.event_type.to_string(),
-            payload: value.payload,
+            event_id,
+            event_type,
+            payload,
             payload_retention_hours: None,
             payload_retention_period: None,
             tags: None,
             transformations_params: None,
-        }
+        };
+
+        Ok(msg)
     }
 }
 

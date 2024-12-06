@@ -169,15 +169,19 @@ pub enum UnitConversionRoundingEnum {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Display, EnumIter, EnumString)]
+#[derive(Debug, Clone, PartialEq, Display, EnumIter, EnumString, Serialize)]
 pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "customer.created")]
+    #[serde(rename = "customer.created")]
     CustomerCreated,
     #[strum(serialize = "subscription.created")]
+    #[serde(rename = "subscription.created")]
     SubscriptionCreated,
     #[strum(serialize = "invoice.created")]
+    #[serde(rename = "invoice.created")]
     InvoiceCreated,
     #[strum(serialize = "invoice.finalized")]
+    #[serde(rename = "invoice.finalized")]
     InvoiceFinalized,
 }
 

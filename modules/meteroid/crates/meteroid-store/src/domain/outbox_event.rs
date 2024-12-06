@@ -1,5 +1,6 @@
 use crate::domain::{Address, Customer, ShippingAddress};
 use crate::errors::{StoreError, StoreErrorReport};
+use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use diesel_models::outbox_event::OutboxEventRowNew;
 use error_stack::Report;
@@ -86,6 +87,7 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
     fn try_into(self) -> Result<OutboxEventRowNew, Self::Error> {
         Ok(OutboxEventRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Event),
             tenant_id: self.tenant_id,
             aggregate_id: self.aggregate_id.to_string(),
             aggregate_type: self.event_type.aggregate_type(),

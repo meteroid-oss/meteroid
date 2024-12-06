@@ -459,6 +459,7 @@ diesel::table! {
         event_type -> Text,
         payload -> Nullable<Jsonb>,
         created_at -> Timestamp,
+        local_id -> Text,
     }
 }
 
