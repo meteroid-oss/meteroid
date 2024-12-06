@@ -1,6 +1,7 @@
 use crate::workers::kafka::outbox::{parse_outbox_event, EventType, OutboxEvent};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
+use chrono::SecondsFormat;
 use error_stack::Report;
 use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
 use meteroid_store::domain::outbox_event::CustomerCreatedEvent;
@@ -38,7 +39,7 @@ impl MessageHandler for WebhookHandler {
 
             if let Some(wh) = wh {
                 let webhook_type = wh.event_type.to_string();
-                let event_id = wh.event_id.clone().unwrap_or_default();
+                let event_id = wh.id.clone();
 
                 let result = self.store.insert_webhook_message_out(tenant_id, wh).await?;
 
@@ -116,10 +117,15 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
             _ => return Ok(None),
         };
 
+        let created_at = self
+            .event_timestamp
+            .to_rfc3339_opts(SecondsFormat::Millis, true);
+
         let webhook = WebhookOutMessageNew {
-            event_id: Some(self.id.to_string()),
+            id: self.id,
             event_type,
             payload,
+            created_at,
         };
 
         Ok(Some(webhook))

@@ -178,7 +178,7 @@ impl WebhooksInterface for Store {
         if let Some(svix_api) = &self.svix {
             let message_result = svix_api
                 .message()
-                .create(tenant_id.to_string(), msg.into(), None)
+                .create(tenant_id.to_string(), msg.try_into()?, None)
                 .await;
 
             if let Err(Error::Http(ref e)) = message_result {

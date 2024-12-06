@@ -14,6 +14,7 @@ pub enum IdType {
     Product,
     Subscription,
     Tenant,
+    Event,
 }
 
 impl IdType {
@@ -23,6 +24,7 @@ impl IdType {
             IdType::BillableMetric => "bm_",
             IdType::Coupon => "cou_",
             IdType::Customer => "cus_",
+            IdType::Event => "evt_",
             IdType::Invoice => "inv_",
             IdType::InvoicingEntity => "ive_",
             IdType::Plan => "plan_",
@@ -36,7 +38,7 @@ impl IdType {
 }
 
 /**
- * Generates a local id for a given type. Local ids are small human readable ids for the API, unique per tenant
+ * Generates a local id for a given type. Local ids are small human-readable ids for the API, unique per tenant
  */
 pub struct LocalId;
 
