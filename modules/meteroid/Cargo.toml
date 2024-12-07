@@ -117,6 +117,8 @@ kafka = { workspace = true }
 env_logger = { workspace = true }
 o2o.workspace = true
 
+schema_registry_converter = { workspace = true, features = ["avro", "futures"] }
+
 
 [dev-dependencies]
 rstest = { workspace = true }

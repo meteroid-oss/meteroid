@@ -143,8 +143,13 @@ services:
       #     - CONNECT_CONSUMER_SASL_MECHANISM=${KAFKA_SASL_MECHANISM}
       - CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
       - CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+      - VALUE_CONVERTER=io.confluent.connect.avro.AvroConverter
+      - CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL=http://redanda:8081
+      - CONNECT_PLUGIN_PATH=/kafka-connect-plugins,/kafka/connect
     networks:
       - meteroid_net
+    volumes:
+      - ./volume/kafka-connect-plugins:/kafka-connect-plugins
 
   ### Metering Dependencies
   clickhouse:
@@ -193,6 +198,7 @@ services:
       - meteroid_net
     ports:
       - 9092:9092
+      - 8081:8081
 
   redpanda-console:
     image: docker.redpanda.com/redpandadata/console:v2.3.1

@@ -178,6 +178,7 @@ utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
 utoipa-redoc = { version = "5.0.0", features = ["axum"] }
 utoipa-rapidoc = { version = "5.0.0", features = ["axum"] }
 utoipa-scalar = { version = "0.2.0", features = ["axum"] }
+schema_registry_converter = { version = "4.2.0", default-features = false }
 
 
 # TODO prefix it all
