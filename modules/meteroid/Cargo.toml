@@ -105,6 +105,7 @@ rusty-money.workspace = true
 
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
+utoipa-axum.workspace = true
 utoipa-redoc.workspace = true
 utoipa-rapidoc.workspace = true
 utoipa-scalar.workspace = true

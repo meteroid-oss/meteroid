@@ -9,7 +9,7 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/v1/subscriptions/v1/subscriptions": {
+    "/api/v1/subscriptions": {
       "get": {
         "tags": [
           "subscription"
@@ -25,7 +25,7 @@
               "type": "integer",
               "minimum": 0
             },
-            "example": 1
+            "example": 0
           },
           {
             "name": "limit",
@@ -46,6 +46,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PaginatedResponse_Subscription"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/v1/subscriptions/:uuid": {
+      "get": {
+        "tags": [
+          "subscription"
+        ],
+        "operationId": "subscription_details",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "description": "subscription UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Details of subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionDetails"
                 }
               }
             }
@@ -268,20 +303,56 @@
             "format": "uuid"
           }
         }
+      },
+      "SubscriptionDetails": {
+        "type": "object",
+        "required": [
+          "id",
+          "customer_id",
+          "customer_name",
+          "billing_day",
+          "currency"
+        ],
+        "properties": {
+          "billing_day": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "customer_alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "customer_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       }
     },
     "securitySchemes": {
-      "api_key": {
+      "api-key": {
         "type": "apiKey",
         "in": "header",
-        "name": "apikey"
+        "name": "x-api-key"
       }
     }
   },
   "tags": [
     {
       "name": "meteroid",
-      "description": "Meteroid API?"
+      "description": "Meteroid API"
     }
   ]
 }

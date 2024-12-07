@@ -1,8 +1,7 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::auth::ExternalApiAuthLayer;
-use crate::api_rest::files;
-use crate::api_rest::subscriptions;
 use crate::api_rest::AppState;
+use crate::api_rest::{api_routes, files};
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
 use axum::{
@@ -15,6 +14,7 @@ use utoipa::{
     openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
     Modify, OpenApi,
 };
+use utoipa_axum::router::OpenApiRouter;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
 use utoipa_scalar::{Scalar, Servable as ScalarServable};
@@ -25,9 +25,8 @@ use utoipa_swagger_ui::SwaggerUi;
     modifiers(&SecurityAddon),
     nest(
         (path = "/files", api = files::FileApi),
-        (path = "/api/v1/subscriptions", api = subscriptions::SubscriptionApi)
     ),
-    tags((name = "meteroid", description = "Meteroid API?"))
+    tags((name = "meteroid", description = "Meteroid API"))
 )]
 pub struct ApiDoc;
 
@@ -37,8 +36,8 @@ impl Modify for SecurityAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
         if let Some(components) = openapi.components.as_mut() {
             components.add_security_scheme(
-                "api_key",
-                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("apikey"))),
+                "api-key",
+                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("x-api-key"))),
             )
         }
     }
@@ -62,22 +61,20 @@ pub async fn start_rest_server(
 
     let auth_layer = ExternalApiAuthLayer::new(store.clone()).filter(only_api);
 
-    let open_api = ApiDoc::openapi();
+    let (api_router, open_api) = OpenApiRouter::<AppState>::with_openapi(ApiDoc::openapi())
+        .merge(api_routes())
+        .split_for_parts();
 
     let app = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
         .merge(Redoc::with_url("/redoc", open_api.clone()))
-        // There is no need to create `RapiDoc::with_openapi` because the OpenApi is served
-        // via SwaggerUi instead we only make rapidoc to point to the existing doc.
         .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
-        // Alternative to above
-        // .merge(RapiDoc::with_openapi("/api-docs/openapi2.json", ApiDoc::openapi()).path("/rapidoc"))
         .merge(Scalar::with_url("/scalar", open_api.clone()))
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_routes())
         //
-        .nest("/api", crate::api_rest::api_routes())
+        .merge(api_router)
         .fallback(handler_404)
         .with_state(app_state)
         .layer(auth_layer)
