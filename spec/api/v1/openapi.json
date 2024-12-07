@@ -9,42 +9,7 @@
     "version": "0.1.0"
   },
   "paths": {
-    "/api/v1/subscriptions/v1/subscription/:uuid": {
-      "get": {
-        "tags": [
-          "subscription"
-        ],
-        "operationId": "subscription_details",
-        "parameters": [
-          {
-            "name": "uuid",
-            "in": "path",
-            "description": "subscription UUID",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Details of subscription",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SubscriptionDetails"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal error"
-          }
-        }
-      }
-    },
-    "/api/v1/subscriptions/v1/subscriptions": {
+    "/api/v1/subscriptions": {
       "get": {
         "tags": [
           "subscription"
@@ -81,6 +46,41 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PaginatedResponse_Subscription"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
+    "/api/v1/subscriptions/:uuid": {
+      "get": {
+        "tags": [
+          "subscription"
+        ],
+        "operationId": "subscription_details",
+        "parameters": [
+          {
+            "name": "uuid",
+            "in": "path",
+            "description": "subscription UUID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Details of subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionDetails"
                 }
               }
             }
@@ -347,17 +347,17 @@
       }
     },
     "securitySchemes": {
-      "api_key": {
+      "api-key": {
         "type": "apiKey",
         "in": "header",
-        "name": "apikey"
+        "name": "x-api-key"
       }
     }
   },
   "tags": [
     {
       "name": "meteroid",
-      "description": "Meteroid API?"
+      "description": "Meteroid API"
     }
   ]
 }

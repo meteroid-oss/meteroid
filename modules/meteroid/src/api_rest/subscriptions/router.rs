@@ -24,9 +24,9 @@ pub struct SubscriptionApi;
 #[utoipa::path(
     get,
     tag = "subscription",
-    path = "/v1/subscriptions",
+    path = "",
     params(
-        ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 1, minimum = 0),
+        ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
         ("limit" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1)
     ),
     responses(
@@ -94,7 +94,7 @@ async fn list_subscriptions_handler(
 #[utoipa::path(
     get,
     tag = "subscription",
-    path = "/v1/subscription/:uuid",
+    path = "/:uuid",
     params(
         ("uuid" = Uuid, Path, description = "subscription UUID")
     ),

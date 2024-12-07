@@ -27,7 +27,7 @@ use utoipa_swagger_ui::SwaggerUi;
         (path = "/files", api = files::FileApi),
         (path = "/api/v1/subscriptions", api = subscriptions::SubscriptionApi)
     ),
-    tags((name = "meteroid", description = "Meteroid API?"))
+    tags((name = "meteroid", description = "Meteroid API"))
 )]
 pub struct ApiDoc;
 
@@ -37,8 +37,8 @@ impl Modify for SecurityAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
         if let Some(components) = openapi.components.as_mut() {
             components.add_security_scheme(
-                "api_key",
-                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("apikey"))),
+                "api-key",
+                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("x-api-key"))),
             )
         }
     }
