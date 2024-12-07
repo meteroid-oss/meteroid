@@ -311,7 +311,6 @@
           "customer_id",
           "customer_name",
           "billing_day",
-          "tenant_id",
           "currency"
         ],
         "properties": {
@@ -336,10 +335,6 @@
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "tenant_id": {
             "type": "string",
             "format": "uuid"
           }

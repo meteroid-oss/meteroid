@@ -20,7 +20,6 @@ pub fn domain_to_rest_details(s: domain::SubscriptionDetails) -> SubscriptionDet
         customer_name: s.customer_name,
         customer_alias: s.customer_alias,
         billing_day: s.billing_day,
-        tenant_id: s.tenant_id,
         currency: s.currency,
     }
 }
