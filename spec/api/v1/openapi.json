@@ -25,7 +25,7 @@
               "type": "integer",
               "minimum": 0
             },
-            "example": 1
+            "example": 0
           },
           {
             "name": "limit",

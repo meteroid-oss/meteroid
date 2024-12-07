@@ -173,6 +173,7 @@ url = "2.4.1"
 uuid = "1.4.1"
 uuid7 = "1.0.0"
 utoipa = { version = "5.2.0", features = ["axum_extras", "uuid", "debug"] }
+utoipa-axum = { version = "0.1.2" }
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
 utoipa-redoc = { version = "5.0.0", features = ["axum"] }
 utoipa-rapidoc = { version = "5.0.0", features = ["axum"] }

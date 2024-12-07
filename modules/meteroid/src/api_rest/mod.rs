@@ -1,9 +1,10 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::subscriptions::subscription_routes;
 use crate::services::storage::ObjectStoreService;
-use axum::Router;
 use meteroid_store::Store;
 use secrecy::SecretString;
 use std::sync::Arc;
+use utoipa_axum::router::OpenApiRouter;
 
 mod auth;
 mod files;
@@ -13,8 +14,8 @@ pub mod server;
 mod subscriptions;
 mod webhooks;
 
-pub fn api_routes() -> Router<AppState> {
-    Router::new().merge(subscriptions::subscription_routes())
+pub fn api_routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new().merge(subscription_routes())
 }
 
 #[derive(Clone)]

@@ -14,17 +14,12 @@ use crate::errors::RestApiError;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::{domain, Store};
-use utoipa::OpenApi;
 use uuid::Uuid;
-
-#[derive(OpenApi)]
-#[openapi(paths(list_subscriptions, subscription_details))]
-pub struct SubscriptionApi;
 
 #[utoipa::path(
     get,
     tag = "subscription",
-    path = "",
+    path = "/api/v1/subscriptions",
     params(
         ("offset" = usize, Query, description = "Specifies the starting position of the results", example = 0, minimum = 0),
         ("limit" = usize, Query, description = "The maximum number of objects to return", example = 10, minimum = 1)
@@ -94,7 +89,7 @@ async fn list_subscriptions_handler(
 #[utoipa::path(
     get,
     tag = "subscription",
-    path = "/:uuid",
+    path = "/api/v1/subscriptions/:uuid",
     params(
         ("uuid" = Uuid, Path, description = "subscription UUID")
     ),
