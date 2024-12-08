@@ -1,10 +1,10 @@
 use crate::workers::kafka::outbox::{parse_outbox_event, EventType, OutboxEvent};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
-use chrono::SecondsFormat;
+use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use error_stack::Report;
-use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
-use meteroid_store::domain::outbox_event::CustomerCreatedEvent;
+use meteroid_store::domain::enums::{BillingPeriodEnum, WebhookOutEventTypeEnum};
+use meteroid_store::domain::outbox_event::{CustomerCreatedEvent, SubscriptionCreatedEvent};
 use meteroid_store::domain::webhooks::{
     WebhookOutCreateMessageResult, WebhookOutMessageNew, WebhookOutMessagePayload,
 };
@@ -13,7 +13,7 @@ use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::Store;
 use o2o::o2o;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::sync::Arc;
 
 pub struct WebhookHandler {
@@ -98,14 +98,42 @@ pub struct CustomerCreated {
     pub shipping_address: Option<ShippingAddress>,
 }
 
+#[derive(Debug, Serialize, o2o)]
+#[from_owned(SubscriptionCreatedEvent)]
+pub struct SubscriptionCreated {
+    #[map(local_id)]
+    pub id: String,
+    #[map(customer_local_id)]
+    pub customer_id: String,
+    pub customer_alias: Option<String>,
+    pub customer_name: String,
+    pub billing_day: i16,
+    pub currency: String,
+    pub trial_start_date: Option<NaiveDate>,
+    pub billing_start_date: NaiveDate,
+    pub billing_end_date: Option<NaiveDate>,
+    pub plan_name: String,
+    pub version: u32,
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+    pub net_terms: u32,
+    pub invoice_memo: Option<String>,
+    pub invoice_threshold: Option<rust_decimal::Decimal>,
+    #[serde(serialize_with = "ser_naive_dt_opt")]
+    pub activated_at: Option<NaiveDateTime>,
+    #[serde(serialize_with = "ser_naive_dt_opt")]
+    pub canceled_at: Option<NaiveDateTime>,
+    pub cancellation_reason: Option<String>,
+    pub mrr_cents: u64,
+    pub period: BillingPeriodEnum,
+}
+
 impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<Option<WebhookOutMessageNew>, Self::Error> {
         let (event_type, payload) = match self.event_type {
             EventType::CustomerCreated(event) => {
-                let event_type = WebhookOutEventTypeEnum::CustomerCreated;
-
                 let event = CustomerCreated::from(*event);
                 let payload = serde_json::to_value(event).map_err(|e| {
                     Report::from(StoreError::SerdeError(
@@ -114,14 +142,29 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
                     ))
                 })?;
 
-                (event_type, WebhookOutMessagePayload::Customer(payload))
+                (
+                    WebhookOutEventTypeEnum::CustomerCreated,
+                    WebhookOutMessagePayload::Customer(payload),
+                )
+            }
+            EventType::SubscriptionCreated(event) => {
+                let event = SubscriptionCreated::from(*event);
+                let payload = serde_json::to_value(event).map_err(|e| {
+                    Report::from(StoreError::SerdeError(
+                        "Failed to serialize payload".to_string(),
+                        e,
+                    ))
+                })?;
+
+                (
+                    WebhookOutEventTypeEnum::SubscriptionCreated,
+                    WebhookOutMessagePayload::Subscription(payload),
+                )
             }
             _ => return Ok(None),
         };
 
-        let created_at = self
-            .event_timestamp
-            .to_rfc3339_opts(SecondsFormat::Millis, true);
+        let created_at = format_utc(&self.event_timestamp);
 
         let webhook = WebhookOutMessageNew {
             id: self.id,
@@ -132,4 +175,29 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
 
         Ok(Some(webhook))
     }
+}
+
+fn ser_naive_dt<S>(datetime: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let formatted = format_utc(&datetime.and_utc());
+    serializer.serialize_str(&formatted)
+}
+
+fn ser_naive_dt_opt<S>(datetime: &Option<NaiveDateTime>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match datetime {
+        Some(datetime) => {
+            let formatted = format_utc(&datetime.and_utc());
+            serializer.serialize_str(&formatted)
+        }
+        None => serializer.serialize_none(),
+    }
+}
+
+fn format_utc(datetime: &DateTime<Utc>) -> String {
+    datetime.to_rfc3339_opts(SecondsFormat::Millis, true)
 }

@@ -140,6 +140,7 @@ pub struct WebhookOutMessageNew {
 #[serde(tag = "object", rename_all = "snake_case")]
 pub enum WebhookOutMessagePayload {
     Customer(serde_json::Value),
+    Subscription(serde_json::Value),
 }
 
 impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
