@@ -12,6 +12,7 @@ use crate::api_rest::subscriptions::model::{
 };
 use crate::errors::RestApiError;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use meteroid_store::domain::Identity;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::{domain, Store};
 use uuid::Uuid;
@@ -54,14 +55,14 @@ async fn list_subscriptions_handler(
     store: Store,
     pagination: PaginatedRequest,
     tenant_id: Uuid,
-    customer_id: Option<Uuid>,
-    plan_id: Option<Uuid>,
+    customer_id: Option<String>,
+    plan_id: Option<String>,
 ) -> Result<PaginatedResponse<Subscription>, RestApiError> {
     let res = store
         .list_subscriptions(
             tenant_id,
-            customer_id,
-            plan_id,
+            customer_id.map(|v| Identity::LOCAL(v)),
+            plan_id.map(|v| Identity::LOCAL(v)),
             domain::PaginationRequest {
                 page: pagination.offset.unwrap_or(0),
                 per_page: pagination.limit,
@@ -89,9 +90,9 @@ async fn list_subscriptions_handler(
 #[utoipa::path(
     get,
     tag = "subscription",
-    path = "/api/v1/subscriptions/:uuid",
+    path = "/api/v1/subscriptions/:id",
     params(
-        ("uuid" = Uuid, Path, description = "subscription UUID")
+        ("id" = String, Path, description = "subscription ID")
     ),
     responses(
         (status = 200, description = "Details of subscription", body = SubscriptionDetails),
@@ -102,9 +103,9 @@ async fn list_subscriptions_handler(
 pub(crate) async fn subscription_details(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(uuid): Path<Uuid>,
+    Path(id): Path<String>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    subscription_details_handler(app_state.store, authorized_state.tenant_id, uuid)
+    subscription_details_handler(app_state.store, authorized_state.tenant_id, id)
         .await
         .map(Json)
         .map_err(|e| {
@@ -116,10 +117,10 @@ pub(crate) async fn subscription_details(
 async fn subscription_details_handler(
     store: Store,
     tenant_id: Uuid,
-    subscription_id: Uuid,
+    subscription_id: String,
 ) -> Result<SubscriptionDetails, RestApiError> {
     let res = store
-        .get_subscription_details(tenant_id, subscription_id)
+        .get_subscription_details(tenant_id, Identity::LOCAL(subscription_id))
         .await
         .map_err(|e| {
             log::error!("Error handling subscription_details: {}", e);

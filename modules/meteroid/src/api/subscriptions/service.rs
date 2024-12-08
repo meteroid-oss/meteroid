@@ -13,6 +13,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
 };
 
 use meteroid_store::domain;
+use meteroid_store::domain::Identity;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionSlotsInterface,
 };
@@ -101,7 +102,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let subscription = self
             .store
-            .get_subscription_details(tenant_id, parse_uuid!(inner.subscription_id)?)
+            .get_subscription_details(
+                tenant_id,
+                Identity::UUID(parse_uuid!(inner.subscription_id)?),
+            )
             .await
             .map_err(Into::<SubscriptionApiError>::into)
             .map_err(Into::<Status>::into)
@@ -125,8 +129,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .store
             .list_subscriptions(
                 tenant_id,
-                customer_id,
-                plan_id,
+                customer_id.map(|id| Identity::UUID(id)),
+                plan_id.map(|id| Identity::UUID(id)),
                 domain::PaginationRequest {
                     page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(0),
                     per_page: inner.pagination.as_ref().map(|p| p.per_page),
