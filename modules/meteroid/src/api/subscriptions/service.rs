@@ -129,8 +129,8 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .store
             .list_subscriptions(
                 tenant_id,
-                customer_id.map(|id| Identity::UUID(id)),
-                plan_id.map(|id| Identity::UUID(id)),
+                customer_id.map(Identity::UUID),
+                plan_id.map(Identity::UUID),
                 domain::PaginationRequest {
                     page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(0),
                     per_page: inner.pagination.as_ref().map(|p| p.per_page),

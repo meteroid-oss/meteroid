@@ -61,8 +61,8 @@ async fn list_subscriptions_handler(
     let res = store
         .list_subscriptions(
             tenant_id,
-            customer_id.map(|v| Identity::LOCAL(v)),
-            plan_id.map(|v| Identity::LOCAL(v)),
+            customer_id.map(Identity::LOCAL),
+            plan_id.map(Identity::LOCAL),
             domain::PaginationRequest {
                 page: pagination.offset.unwrap_or(0),
                 per_page: pagination.limit,
