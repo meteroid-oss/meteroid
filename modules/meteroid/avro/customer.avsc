@@ -1,0 +1,59 @@
+{
+  "type": "record",
+  "name": "Customer",
+  "namespace": "com.meteroid.avro",
+  "fields": [
+    {
+      "name": "id",
+      "type": "string",
+      "logicalType": "uuid"
+    },
+    {
+      "name": "local_id",
+      "type": "string"
+    },
+    {
+      "name": "tenant_id",
+      "type": "string",
+      "logicalType": "uuid"
+    },
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "alias",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "email",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "invoicing_email",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "phone",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "currency",
+      "type": "string"
+    },
+    {
+      "name": "billing_address",
+      "type": ["null", "com.meteroid.avro.Address"],
+      "default": null
+    },
+    {
+      "name": "shipping_address",
+      "type": ["null", "com.meteroid.avro.ShippingAddress"],
+      "default": null
+    }
+  ]
+}

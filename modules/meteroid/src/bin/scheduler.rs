@@ -14,7 +14,7 @@ use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::workers::fang as mfang;
-use meteroid::workers::kafka::processors;
+use meteroid::workers::kafka::{avro, processors};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,6 +60,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store_service,
         store.clone(),
     )?;
+
+    avro::register_schemas(&config.schema_registry).await?;
 
     tokio::try_join!(
         tokio::spawn(async move {

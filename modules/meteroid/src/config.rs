@@ -73,6 +73,9 @@ pub struct Config {
 
     #[envconfig(nested)]
     pub kafka: KafkaConnectionConfig,
+
+    #[envconfig(nested)]
+    pub schema_registry: SchemaRegistryConfig,
 }
 
 impl Config {
@@ -90,5 +93,17 @@ impl Config {
                 panic!("Config value is already set {:?}", v);
             }
         }
+    }
+}
+
+#[derive(Envconfig, Debug, Clone, Default)]
+pub struct SchemaRegistryConfig {
+    #[envconfig(from = "SCHEMA_REGISTRY_URL")]
+    pub url: Option<String>,
+}
+
+impl SchemaRegistryConfig {
+    pub fn new(url: String) -> Self {
+        SchemaRegistryConfig { url: Some(url) }
     }
 }

@@ -50,5 +50,6 @@ pub fn mocked_config(
         svix_server_url: Some("http://localhost:8071".to_owned()),
         svix_jwt_token: "fake".to_owned().into(),
         kafka: KafkaConnectionConfig::none(),
+        schema_registry: Default::default(),
     }
 }

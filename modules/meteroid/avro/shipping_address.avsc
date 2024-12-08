@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "ShippingAddress",
+  "namespace": "com.meteroid.avro",
+  "fields": [
+    {
+      "name": "address",
+      "type": ["null", "com.meteroid.avro.Address"],
+      "default": null
+    },
+    {
+      "name": "same_as_billing",
+      "type": "boolean",
+      "default": true
+    }
+  ]
+}

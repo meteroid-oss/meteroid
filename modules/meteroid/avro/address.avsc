@@ -1,0 +1,37 @@
+{
+  "type": "record",
+  "name": "Address",
+  "namespace": "com.meteroid.avro",
+  "fields": [
+    {
+      "name": "line1",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "line2",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "city",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "country",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "state",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "zip_code",
+      "type": ["null", "string"],
+      "default": null
+    }
+  ]
+}

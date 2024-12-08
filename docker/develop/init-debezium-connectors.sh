@@ -1,6 +1,7 @@
 #!/bin/bash
 
 ## Run manually after bootstrap for now
+## todo: this config is not working, couldn't make it working properly with avro schema registry
 curl -i -X DELETE http://localhost:8083/connectors/outbox-connector
 curl -i -X POST -H "Accept:application/json" -H "Content-Type:application/json" \
 localhost:8083/connectors \
@@ -17,7 +18,10 @@ localhost:8083/connectors \
     "schema.include.list": "public",
     "table.include.list": "public.outbox_event",
     "topic.prefix": "outbox.event",
-    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "io.confluent.connect.avro.AvroConverter",
+    "value.converter.schema.registry.url": "http://redpanda:8081",
+    "value.converter.auto.register.schemas": "false",
+    "value.converter.schemas.enable": "false",
     "plugin.name": "pgoutput",
     "transforms": "outbox",
     "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
