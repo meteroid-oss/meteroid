@@ -1,4 +1,5 @@
 use crate::api_rest::model::PaginatedRequest;
+use chrono::NaiveDateTime;
 use utoipa::ToSchema;
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize)]
@@ -20,11 +21,9 @@ pub struct Plan {
     pub local_id: String,
     pub name: String,
     pub description: Option<String>,
-    // pub created_at: NaiveDateTime,
-    // #[from(~.into())]
-    // pub plan_type: PlanTypeEnum,
-    // #[from(~.into())]
-    // pub status: PlanStatusEnum,
+    pub created_at: NaiveDateTime,
+    pub plan_type: String, // as PlanTypeEnum
+    pub status: String,    // as PlanStatusEnum,
     pub product_family_name: String,
     pub product_family_id: String,
     // #[from(~.map(| v | v.into()))]

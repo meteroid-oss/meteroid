@@ -304,11 +304,18 @@
               "required": [
                 "local_id",
                 "name",
+                "created_at",
+                "plan_type",
+                "status",
                 "product_family_name",
                 "product_family_id",
                 "has_draft_version"
               ],
               "properties": {
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
                 "description": {
                   "type": [
                     "string",
@@ -324,10 +331,16 @@
                 "name": {
                   "type": "string"
                 },
+                "plan_type": {
+                  "type": "string"
+                },
                 "product_family_id": {
                   "type": "string"
                 },
                 "product_family_name": {
+                  "type": "string"
+                },
+                "status": {
                   "type": "string"
                 },
                 "subscription_count": {
@@ -459,11 +472,18 @@
         "required": [
           "local_id",
           "name",
+          "created_at",
+          "plan_type",
+          "status",
           "product_family_name",
           "product_family_id",
           "has_draft_version"
         ],
         "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
           "description": {
             "type": [
               "string",
@@ -479,10 +499,16 @@
           "name": {
             "type": "string"
           },
+          "plan_type": {
+            "type": "string"
+          },
           "product_family_id": {
             "type": "string"
           },
           "product_family_name": {
+            "type": "string"
+          },
+          "status": {
             "type": "string"
           },
           "subscription_count": {

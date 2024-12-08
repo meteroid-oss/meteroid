@@ -139,7 +139,7 @@ pub enum OrganizationUserRole {
     Member,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Default, Clone, PartialEq)]
+#[derive(o2o, Serialize, Deserialize, Debug, Default, Clone, PartialEq, Display, EnumString)]
 #[map_owned(diesel_enums::PlanStatusEnum)]
 pub enum PlanStatusEnum {
     #[default]
@@ -149,7 +149,7 @@ pub enum PlanStatusEnum {
     Archived,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Default, PartialEq, Clone, Display, EnumString)]
 #[map_owned(diesel_enums::PlanTypeEnum)]
 pub enum PlanTypeEnum {
     Standard,
