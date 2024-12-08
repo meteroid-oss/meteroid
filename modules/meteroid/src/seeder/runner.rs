@@ -29,7 +29,7 @@ use chrono::Utc;
 use nanoid::nanoid;
 
 use meteroid_store::domain::{
-    Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, TenantContext,
+    Address, BillingConfig, Identity, InlineCustomer, InlineInvoicingEntity, TenantContext,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -412,7 +412,7 @@ pub async fn run(
 
         // TODO don't refetch the details, we should have everything, or at the least do it in a batch
         let details = store
-            .get_subscription_details(subscription.tenant_id, subscription.id)
+            .get_subscription_details(subscription.tenant_id, Identity::UUID(subscription.id))
             .await
             .change_context(SeederError::TempError)?;
 
