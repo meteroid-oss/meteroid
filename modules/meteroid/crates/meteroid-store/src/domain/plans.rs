@@ -187,7 +187,7 @@ pub struct FullPlan {
     pub price_components: Vec<PriceComponent>,
 }
 
-#[derive(Debug, o2o)]
+#[derive(Clone, Debug, o2o)]
 #[from_owned(PlanRowOverview)]
 pub struct PlanOverview {
     pub id: Uuid,
@@ -231,7 +231,7 @@ pub struct PlanVersionOverview {
     pub trial_duration_days: Option<i32>,
 }
 
-#[derive(Debug, o2o)]
+#[derive(Clone, Debug, o2o)]
 #[from_owned(PlanVersionRowInfo)]
 pub struct PlanVersionInfo {
     pub version: i32,
@@ -239,7 +239,7 @@ pub struct PlanVersionInfo {
     // add currency(-ies) ?
 }
 
-#[derive(Debug, o2o)]
+#[derive(Clone, Debug, o2o)]
 #[owned_into(PlanVersionRowPatch)]
 pub struct PlanVersionPatch {
     pub id: Uuid,
