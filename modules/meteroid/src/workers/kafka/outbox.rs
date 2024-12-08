@@ -1,9 +1,8 @@
 use chrono::{DateTime, Utc};
-use meteroid_store::domain::outbox_event::CustomerCreatedEvent;
+use meteroid_store::domain::outbox_event::{CustomerCreatedEvent, SubscriptionCreatedEvent};
 use rdkafka::message::{BorrowedHeaders, BorrowedMessage, Headers};
 use rdkafka::Message;
 use serde::Deserialize;
-use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug)]
@@ -20,6 +19,7 @@ pub enum EventType {
     CustomerCreated(Box<CustomerCreatedEvent>),
     InvoiceFinalized,
     InvoicePdfRequested,
+    SubscriptionCreated(Box<SubscriptionCreatedEvent>),
 }
 
 impl EventType {
@@ -36,6 +36,10 @@ impl EventType {
             }
             "invoice.finalized" => Some(Self::InvoiceFinalized),
             "invoice.pdf.requested" => Some(Self::InvoicePdfRequested),
+            "subscription.created" => {
+                let payload = extract_payload::<SubscriptionCreatedEvent>(m).ok()??;
+                Some(Self::SubscriptionCreated(Box::new(payload)))
+            }
             _ => None,
         }
     }
@@ -48,10 +52,7 @@ pub(crate) fn parse_outbox_event(m: &BorrowedMessage<'_>) -> Option<OutboxEvent>
     let id = headers.get_as_string("local_id")?;
     let tenant_id = headers.get_as_uuid("tenant_id")?;
 
-    let aggregate_id: String = String::from_utf8(m.key()?.to_vec())
-        .ok()?
-        .trim_matches('"')
-        .into();
+    let aggregate_id: String = String::from_utf8(m.key()?.to_vec()).ok()?;
 
     let event_type = EventType::from_kafka_message(m)?;
 
@@ -70,9 +71,7 @@ fn extract_payload<P: for<'a> Deserialize<'a>>(
     m: &BorrowedMessage<'_>,
 ) -> Result<Option<P>, serde_json::Error> {
     if let Some(payload) = m.payload() {
-        let parsed: Value = serde_json::from_slice(payload)?;
-        let payload = &parsed["payload"];
-        let parsed = serde_json::from_value(payload.clone())?;
+        let parsed = serde_json::from_slice(payload)?;
         Ok(Some(parsed))
     } else {
         Ok(None)
@@ -81,7 +80,7 @@ fn extract_payload<P: for<'a> Deserialize<'a>>(
 
 trait ParseableHeaders {
     fn get_as_string(&self, key: &str) -> Option<String>;
-    fn get_as_uuid(&self, key: &str) -> Option<uuid::Uuid>;
+    fn get_as_uuid(&self, key: &str) -> Option<Uuid>;
 }
 
 impl ParseableHeaders for &BorrowedHeaders {
@@ -93,8 +92,8 @@ impl ParseableHeaders for &BorrowedHeaders {
         String::from_utf8(header_value.to_vec()).ok()
     }
 
-    fn get_as_uuid(&self, key: &str) -> Option<uuid::Uuid> {
+    fn get_as_uuid(&self, key: &str) -> Option<Uuid> {
         self.get_as_string(key)
-            .and_then(|header_value| uuid::Uuid::parse_str(&header_value).ok())
+            .and_then(|header_value| Uuid::parse_str(&header_value).ok())
     }
 }
