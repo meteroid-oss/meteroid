@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use meteroid_store::domain::outbox_event::{CustomerCreatedEvent, SubscriptionCreatedEvent};
+use meteroid_store::domain::outbox_event::{CustomerEvent, InvoiceEvent, SubscriptionEvent};
 use rdkafka::message::{BorrowedHeaders, BorrowedMessage, Headers};
 use rdkafka::Message;
 use serde::Deserialize;
@@ -16,10 +16,11 @@ pub struct OutboxEvent {
 
 #[derive(Debug)]
 pub enum EventType {
-    CustomerCreated(Box<CustomerCreatedEvent>),
-    InvoiceFinalized,
+    CustomerCreated(Box<CustomerEvent>),
+    InvoiceCreated(Box<InvoiceEvent>),
+    InvoiceFinalized(Box<InvoiceEvent>),
     InvoicePdfRequested,
-    SubscriptionCreated(Box<SubscriptionCreatedEvent>),
+    SubscriptionCreated(Box<SubscriptionEvent>),
 }
 
 impl EventType {
@@ -31,13 +32,20 @@ impl EventType {
 
         match event_type.as_str() {
             "customer.created" => {
-                let payload = extract_payload::<CustomerCreatedEvent>(m).ok()??;
+                let payload = extract_payload::<CustomerEvent>(m).ok()??;
                 Some(Self::CustomerCreated(Box::new(payload)))
             }
-            "invoice.finalized" => Some(Self::InvoiceFinalized),
+            "invoice.created" => {
+                let payload = extract_payload::<InvoiceEvent>(m).ok()??;
+                Some(Self::InvoiceCreated(Box::new(payload)))
+            }
+            "invoice.finalized" => {
+                let payload = extract_payload::<InvoiceEvent>(m).ok()??;
+                Some(Self::InvoiceFinalized(Box::new(payload)))
+            }
             "invoice.pdf.requested" => Some(Self::InvoicePdfRequested),
             "subscription.created" => {
-                let payload = extract_payload::<SubscriptionCreatedEvent>(m).ok()??;
+                let payload = extract_payload::<SubscriptionEvent>(m).ok()??;
                 Some(Self::SubscriptionCreated(Box::new(payload)))
             }
             _ => None,
