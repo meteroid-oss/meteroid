@@ -1,10 +1,12 @@
 pub use api_tokens::*;
 pub use billable_metrics::*;
 pub use customers::*;
+use diesel_models::query::IdentityDb;
 pub use invoice_lines::*;
 pub use invoices::*;
 pub use invoicing_entities::*;
 pub use misc::*;
+use o2o::o2o;
 pub use organizations::*;
 pub use plans::*;
 pub use price_components::*;
@@ -16,6 +18,7 @@ pub use subscription_components::*;
 pub use subscription_coupons::*;
 pub use subscriptions::*;
 pub use tenants::*;
+use uuid::Uuid;
 
 pub mod customers;
 pub mod invoices;
@@ -47,3 +50,10 @@ pub mod subscription_coupons;
 pub mod subscriptions;
 pub mod users;
 pub mod webhooks;
+
+#[derive(Debug, Clone, PartialEq, Eq, o2o)]
+#[owned_into(IdentityDb)]
+pub enum Identity {
+    UUID(Uuid),
+    LOCAL(String),
+}

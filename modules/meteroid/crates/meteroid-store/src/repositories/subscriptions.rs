@@ -5,11 +5,12 @@ use crate::domain::enums::{
 use crate::domain::{
     BillableMetric, BillingConfig, CreateSubscription, CreateSubscriptionAddOns,
     CreateSubscriptionComponents, CreateSubscriptionCoupons, CreatedSubscription,
-    CursorPaginatedVec, CursorPaginationRequest, Customer, InlineCustomer, InlineInvoicingEntity,
-    InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent, Schedule, Subscription,
-    SubscriptionAddOnCustomization, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
-    SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionDetails, SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
+    CursorPaginatedVec, CursorPaginationRequest, Customer, Identity, InlineCustomer,
+    InlineInvoicingEntity, InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent,
+    Schedule, Subscription, SubscriptionAddOnCustomization, SubscriptionAddOnNew,
+    SubscriptionAddOnNewInternal, SubscriptionComponent, SubscriptionComponentNew,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
+    SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
@@ -40,6 +41,7 @@ use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::query::plans::get_plan_names_by_version_ids;
+use diesel_models::query::IdentityDb;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
@@ -73,7 +75,7 @@ pub trait SubscriptionInterface {
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
-        subscription_id: Uuid,
+        subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails>;
 
     async fn insert_subscription_components(
@@ -93,8 +95,8 @@ pub trait SubscriptionInterface {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Uuid>,
-        plan_id: Option<Uuid>,
+        customer_id: Option<Identity>,
+        plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
@@ -569,19 +571,19 @@ impl SubscriptionInterface for Store {
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
-        subscription_id: Uuid,
+        subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails> {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, &subscription_id)
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id.into())
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: Subscription = db_subscription.into();
 
         let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription_id)
+            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -592,7 +594,7 @@ impl SubscriptionInterface for Store {
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 &mut conn,
                 &tenant_id,
-                &subscription_id,
+                &subscription.id,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
@@ -601,7 +603,7 @@ impl SubscriptionInterface for Store {
             .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -623,7 +625,7 @@ impl SubscriptionInterface for Store {
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
         let applied_coupons =
-            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription_id)
+            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -711,7 +713,10 @@ impl SubscriptionInterface for Store {
             .transaction(|conn| {
                 async move {
                     let subscription: SubscriptionDetails = self
-                        .get_subscription_details(context.tenant_id, subscription_id)
+                        .get_subscription_details(
+                            context.tenant_id,
+                            Identity::UUID(subscription_id),
+                        )
                         .await?;
 
                     let now = chrono::Utc::now().naive_utc();
@@ -739,7 +744,7 @@ impl SubscriptionInterface for Store {
                     let res = SubscriptionRow::get_subscription_by_id(
                         conn,
                         &context.tenant_id,
-                        &subscription_id,
+                        IdentityDb::UUID(subscription_id),
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -785,8 +790,8 @@ impl SubscriptionInterface for Store {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Uuid>,
-        plan_id: Option<Uuid>,
+        customer_id: Option<Identity>,
+        plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
@@ -794,8 +799,8 @@ impl SubscriptionInterface for Store {
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            customer_id,
-            plan_id,
+            customer_id.map(Into::into),
+            plan_id.map(Into::into),
             pagination.into(),
         )
         .await
