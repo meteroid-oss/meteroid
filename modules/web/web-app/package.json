@@ -41,7 +41,7 @@
     "jotai-scope": "^0.5.1",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.323.0",
-    "nanoid": "5.0.5",
+    "nanoid": "5.0.9",
     "react": "^18.2.0",
     "react-beautiful-dnd": "^13.1.1",
     "react-day-picker": "^8.10.0",
