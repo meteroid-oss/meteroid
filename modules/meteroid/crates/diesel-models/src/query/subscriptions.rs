@@ -93,7 +93,7 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
-    pub async fn get_subscriptions_by_ids(
+    pub async fn list_subscriptions_by_ids(
         conn: &mut PgConn,
         tenant_id_param: &uuid::Uuid,
         subscription_ids: &[uuid::Uuid],
