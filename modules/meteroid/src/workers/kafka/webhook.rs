@@ -3,8 +3,10 @@ use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use error_stack::Report;
-use meteroid_store::domain::enums::{BillingPeriodEnum, WebhookOutEventTypeEnum};
-use meteroid_store::domain::outbox_event::{CustomerCreatedEvent, SubscriptionCreatedEvent};
+use meteroid_store::domain::enums::{
+    BillingPeriodEnum, InvoiceStatusEnum, WebhookOutEventTypeEnum,
+};
+use meteroid_store::domain::outbox_event::{CustomerEvent, InvoiceEvent, SubscriptionEvent};
 use meteroid_store::domain::webhooks::{
     WebhookOutCreateMessageResult, WebhookOutMessageNew, WebhookOutMessagePayload,
 };
@@ -84,8 +86,8 @@ impl MessageHandler for WebhookHandler {
 }
 
 #[derive(Debug, Serialize, o2o)]
-#[from_owned(CustomerCreatedEvent)]
-pub struct CustomerCreated {
+#[from_owned(CustomerEvent)]
+pub struct Customer {
     #[map(local_id)]
     pub id: String,
     pub name: String,
@@ -99,8 +101,8 @@ pub struct CustomerCreated {
 }
 
 #[derive(Debug, Serialize, o2o)]
-#[from_owned(SubscriptionCreatedEvent)]
-pub struct SubscriptionCreated {
+#[from_owned(SubscriptionEvent)]
+pub struct Subscription {
     #[map(local_id)]
     pub id: String,
     #[map(customer_local_id)]
@@ -128,13 +130,28 @@ pub struct SubscriptionCreated {
     pub period: BillingPeriodEnum,
 }
 
+#[derive(Debug, Serialize, o2o)]
+#[from_owned(InvoiceEvent)]
+pub struct Invoice {
+    #[map(local_id)]
+    pub id: String,
+    #[map(customer_local_id)]
+    pub customer_id: String,
+    pub status: InvoiceStatusEnum,
+    pub currency: String,
+    pub total: i64,      // todo convert to money?
+    pub tax_amount: i64, // todo convert to money?
+    #[serde(serialize_with = "ser_naive_dt")]
+    pub created_at: NaiveDateTime,
+}
+
 impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<Option<WebhookOutMessageNew>, Self::Error> {
         let (event_type, payload) = match self.event_type {
             EventType::CustomerCreated(event) => {
-                let event = CustomerCreated::from(*event);
+                let event = Customer::from(*event);
                 let payload = serde_json::to_value(event).map_err(|e| {
                     Report::from(StoreError::SerdeError(
                         "Failed to serialize payload".to_string(),
@@ -148,7 +165,7 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
                 )
             }
             EventType::SubscriptionCreated(event) => {
-                let event = SubscriptionCreated::from(*event);
+                let event = Subscription::from(*event);
                 let payload = serde_json::to_value(event).map_err(|e| {
                     Report::from(StoreError::SerdeError(
                         "Failed to serialize payload".to_string(),
@@ -159,6 +176,34 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
                 (
                     WebhookOutEventTypeEnum::SubscriptionCreated,
                     WebhookOutMessagePayload::Subscription(payload),
+                )
+            }
+            EventType::InvoiceCreated(event) => {
+                let event = Invoice::from(*event);
+                let payload = serde_json::to_value(event).map_err(|e| {
+                    Report::from(StoreError::SerdeError(
+                        "Failed to serialize payload".to_string(),
+                        e,
+                    ))
+                })?;
+
+                (
+                    WebhookOutEventTypeEnum::InvoiceCreated,
+                    WebhookOutMessagePayload::Invoice(payload),
+                )
+            }
+            EventType::InvoiceFinalized(event) => {
+                let event = Invoice::from(*event);
+                let payload = serde_json::to_value(event).map_err(|e| {
+                    Report::from(StoreError::SerdeError(
+                        "Failed to serialize payload".to_string(),
+                        e,
+                    ))
+                })?;
+
+                (
+                    WebhookOutEventTypeEnum::InvoiceFinalized,
+                    WebhookOutMessagePayload::Invoice(payload),
                 )
             }
             _ => return Ok(None),

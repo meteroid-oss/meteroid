@@ -25,7 +25,7 @@ impl MessageHandler for PdfRendererHandler {
             log::info!("Processing message: {:?}", event);
 
             match event.event_type {
-                EventType::InvoiceFinalized | EventType::InvoicePdfRequested => {
+                EventType::InvoiceFinalized(_) | EventType::InvoicePdfRequested => {
                     let invoice_id: Uuid = parse_uuid(event.aggregate_id.as_str(), "aggregate_id")?;
 
                     let result = self.pdf_service.generate_pdfs(vec![invoice_id]).await;

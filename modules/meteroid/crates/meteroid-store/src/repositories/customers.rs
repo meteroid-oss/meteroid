@@ -12,7 +12,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
-use crate::repositories::invoices::insert_invoice;
+use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::InvoiceInterface;
 use crate::store::Store;
@@ -442,7 +442,7 @@ impl CustomersInterface for Store {
                         },
                     };
 
-                    let inserted_invoice = insert_invoice(conn, invoice_new).await?;
+                    let inserted_invoice = insert_invoice_tx(self, conn, invoice_new).await?;
 
                     InvoicingEntityRow::update_invoicing_entity_number(
                         conn,
