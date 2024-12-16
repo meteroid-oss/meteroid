@@ -44,7 +44,6 @@ axum = { version = "0.7.7", features = ["json", "query", "tower-log", "http1"] }
 backon = "1.2.0"
 base62 = "2.0.2"
 base64 = "0.22.0"
-bigdecimal = "0.4.3"
 blake3 = "1.5.0"
 build-info = "0.0.39"
 build-info-build = "0.0.39"
@@ -73,13 +72,11 @@ fluent-static-codegen = "0.5.0"
 futures = "0.3.28"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.29", features = [] }
-headers = "0.4.0"
 hex = "0.4.3"
 hmac = "0.12.1"
 hmac-sha256 = "1.1.7"
 http = { version = "1.1.0" }
 http-body = "1.0.1"
-http-types = "2.12.0"
 humantime = { version = "2.1.0" }
 hyper = { version = "1.4.1", default-features = false }
 image = "0.25.2"
@@ -87,10 +84,8 @@ init-tracing-opentelemetry = { version = "0.24.1", features = ["tracing_subscrib
 itertools = "0.13.0"
 jsonwebtoken = "9.2.0"
 lapin = "2.5.0"
-lazy_static = "1"
 log = "0.4.20"
 maud = "0.26.0"
-miette = { version = "7.0.0", default-features = false }
 mockito = "1.2.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
@@ -104,8 +99,6 @@ opentelemetry-otlp = { version = "0.27.0", features = ["trace", "metrics", "logs
 opentelemetry_sdk = { version = "0.27.0", features = ["trace", "metrics", "rt-tokio", "rt-tokio-current-thread"] }
 pbjson-build = "0.7.0"
 pin-project = "1.1.3"
-postgres = "0.19.7"
-postgres-types = { version = "0.2.6", default-features = false }
 proc-macro2 = { version = "1.0.78" }
 prost = "0.13.3"
 prost-build = "0.13.3"
@@ -116,7 +109,6 @@ rand = "0.8.5"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
 rdkafka = "0.37.0"
-regex = "1"
 reqwest = { version = "0.12.5", default-features = false }
 reqwest-middleware = "0.4.0"
 reqwest-retry = "0.7.0"
@@ -149,7 +141,6 @@ tokio = { version = "1.33.0", default-features = false }
 tokio-postgres = { version = "0.7.7", default-features = false }
 tokio-postgres-rustls = "0.13.0"
 tokio-stream = "0.1.14"
-tokio-test = { version = "0.4.3" }
 tokio-util = "0.7.10"
 tonic = "0.12.3"
 tonic-build = "0.12.3"
@@ -171,14 +162,12 @@ typetag = "0.2.13"
 unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
-uuid7 = "1.0.0"
 utoipa = { version = "5.2.0", features = ["axum_extras", "uuid", "debug"] }
 utoipa-axum = { version = "0.1.2" }
 utoipa-swagger-ui = { version = "8.0.3", features = ["axum"] }
 utoipa-redoc = { version = "5.0.0", features = ["axum"] }
 utoipa-rapidoc = { version = "5.0.0", features = ["axum"] }
 utoipa-scalar = { version = "0.2.0", features = ["axum"] }
-
 
 # TODO prefix it all
 common-build-info = { path = "crates/common-build-info" }
@@ -198,4 +187,3 @@ metering = { path = "modules/metering" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
 meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
-

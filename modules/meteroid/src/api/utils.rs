@@ -4,7 +4,7 @@ use common_grpc::meteroid::common::v1::{Pagination, PaginationResponse};
 
 pub mod uuid_gen {
     pub fn v7() -> uuid::Uuid {
-        uuid::Uuid::from_bytes(*uuid7::uuid7().as_bytes())
+        uuid::Uuid::from_bytes(*uuid::Uuid::now_v7().as_bytes())
     }
 }
 

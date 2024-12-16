@@ -53,8 +53,7 @@ opentelemetry.workspace = true
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
-uuid.workspace = true
-uuid7.workspace = true
+uuid = { workspace = true, features = ["v7"] }
 base64.workspace = true
 argon2 = { workspace = true }
 base62.workspace = true
