@@ -5,11 +5,12 @@ use crate::domain::enums::{
 use crate::domain::{
     BillableMetric, BillingConfig, CreateSubscription, CreateSubscriptionAddOns,
     CreateSubscriptionComponents, CreateSubscriptionCoupons, CreatedSubscription,
-    CursorPaginatedVec, CursorPaginationRequest, Customer, InlineCustomer, InlineInvoicingEntity,
-    InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent, Schedule, Subscription,
-    SubscriptionAddOnCustomization, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
-    SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionDetails, SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
+    CursorPaginatedVec, CursorPaginationRequest, Customer, Identity, InlineCustomer,
+    InlineInvoicingEntity, InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent,
+    Schedule, Subscription, SubscriptionAddOnCustomization, SubscriptionAddOnNew,
+    SubscriptionAddOnNewInternal, SubscriptionComponent, SubscriptionComponentNew,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
+    SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
@@ -17,8 +18,7 @@ use crate::utils::decimals::ToSubunit;
 use crate::{domain, StoreResult};
 use chrono::{NaiveDate, NaiveTime};
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncConnection;
-use diesel_models::errors::{DatabaseError, DatabaseErrorContainer};
+use diesel_models::errors::DatabaseError;
 use error_stack::{report, Report};
 use itertools::Itertools;
 use std::collections::HashMap;
@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::constants::Currencies;
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::{Coupon, CouponDiscount};
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -40,6 +41,7 @@ use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::query::plans::get_plan_names_by_version_ids;
+use diesel_models::query::IdentityDb;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
@@ -73,7 +75,7 @@ pub trait SubscriptionInterface {
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
-        subscription_id: Uuid,
+        subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails>;
 
     async fn insert_subscription_components(
@@ -93,8 +95,8 @@ pub trait SubscriptionInterface {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Uuid>,
-        plan_id: Option<Uuid>,
+        customer_id: Option<Identity>,
+        plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
@@ -463,13 +465,13 @@ impl SubscriptionInterface for Store {
         let insertable_subscription_events: Vec<&SubscriptionEventRow> =
             insertable.iter().map(|c| &c.event).collect();
 
-        let inserted_subscriptions = conn
-            .transaction(|conn| {
+        let inserted_subscriptions = self
+            .transaction_with(&mut conn, |conn| {
                 async move {
                     let inserted_subscriptions: Vec<CreatedSubscription> =
                         SubscriptionRow::insert_subscription_batch(conn, insertable_subscriptions)
                             .await
-                            .map_err(Into::<DatabaseErrorContainer>::into)
+                            .map_err(Into::<Report<StoreError>>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
                     SubscriptionComponentRow::insert_subscription_component_batch(
@@ -477,11 +479,11 @@ impl SubscriptionInterface for Store {
                         insertable_subscription_components,
                     )
                     .await
-                    .map_err(Into::<DatabaseErrorContainer>::into)?;
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     SubscriptionAddOnRow::insert_batch(conn, insertable_subscription_add_ons)
                         .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     apply_coupons(
                         conn,
@@ -489,13 +491,17 @@ impl SubscriptionInterface for Store {
                         &inserted_subscriptions,
                         tenant_id,
                     )
-                    .await?;
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                    Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
+                    insert_created_outbox_events_tx(conn, self, &inserted_subscriptions, tenant_id)
+                        .await?;
+
+                    Ok::<_, Report<StoreError>>(inserted_subscriptions)
                 }
                 .scope_boxed()
             })
@@ -569,19 +575,19 @@ impl SubscriptionInterface for Store {
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
-        subscription_id: Uuid,
+        subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails> {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, &subscription_id)
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id.into())
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: Subscription = db_subscription.into();
 
         let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription_id)
+            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -592,7 +598,7 @@ impl SubscriptionInterface for Store {
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 &mut conn,
                 &tenant_id,
-                &subscription_id,
+                &subscription.id,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
@@ -601,7 +607,7 @@ impl SubscriptionInterface for Store {
             .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -623,7 +629,7 @@ impl SubscriptionInterface for Store {
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
         let applied_coupons =
-            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription_id)
+            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -711,7 +717,10 @@ impl SubscriptionInterface for Store {
             .transaction(|conn| {
                 async move {
                     let subscription: SubscriptionDetails = self
-                        .get_subscription_details(context.tenant_id, subscription_id)
+                        .get_subscription_details(
+                            context.tenant_id,
+                            Identity::UUID(subscription_id),
+                        )
                         .await?;
 
                     let now = chrono::Utc::now().naive_utc();
@@ -739,7 +748,7 @@ impl SubscriptionInterface for Store {
                     let res = SubscriptionRow::get_subscription_by_id(
                         conn,
                         &context.tenant_id,
-                        &subscription_id,
+                        IdentityDb::UUID(subscription_id),
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -785,8 +794,8 @@ impl SubscriptionInterface for Store {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Uuid>,
-        plan_id: Option<Uuid>,
+        customer_id: Option<Identity>,
+        plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
@@ -794,8 +803,8 @@ impl SubscriptionInterface for Store {
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            customer_id,
-            plan_id,
+            customer_id.map(Into::into),
+            plan_id.map(Into::into),
             pagination.into(),
         )
         .await
@@ -933,9 +942,7 @@ async fn apply_coupons(
 ) -> DbResult<()> {
     validate_coupons(tx_conn, subscription_coupons, subscriptions, tenant_id).await?;
 
-    AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec())
-        .await
-        .map_err(Into::<DatabaseErrorContainer>::into)?;
+    AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec()).await?;
 
     CouponRow::update_last_redemption_at(
         tx_conn,
@@ -946,16 +953,13 @@ async fn apply_coupons(
             .collect::<Vec<_>>(),
         chrono::Utc::now().naive_utc(),
     )
-    .await
-    .map_err(Into::<DatabaseErrorContainer>::into)?;
+    .await?;
 
     let subscriptions_by_coupon: HashMap<Uuid, usize> =
         subscription_coupons.iter().counts_by(|x| x.coupon_id);
 
     for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
-        CouponRow::inc_redemption_count(tx_conn, coupon_id, subscriptions_count as i32)
-            .await
-            .map_err(Into::<DatabaseErrorContainer>::into)?;
+        CouponRow::inc_redemption_count(tx_conn, coupon_id, subscriptions_count as i32).await?;
     }
 
     Ok(())
@@ -1345,4 +1349,35 @@ pub fn subscription_to_draft(
     };
 
     Ok(invoice)
+}
+
+async fn insert_created_outbox_events_tx(
+    conn: &mut PgConn,
+    store: &Store,
+    created: &[CreatedSubscription],
+    tenant_id: Uuid,
+) -> StoreResult<()> {
+    let ids = created.iter().map(|c| c.id).collect::<Vec<_>>();
+
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let subscriptions: Vec<Subscription> =
+        SubscriptionRow::list_subscriptions_by_ids(conn, &tenant_id, &ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
+
+    let outbox_events: Vec<OutboxEvent> = subscriptions
+        .into_iter()
+        .map(|s| OutboxEvent::subscription_created(s.into()))
+        .collect();
+
+    store
+        .internal
+        .insert_outbox_events_tx(conn, outbox_events)
+        .await
 }

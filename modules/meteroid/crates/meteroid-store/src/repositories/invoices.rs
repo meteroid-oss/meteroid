@@ -11,8 +11,9 @@ use error_stack::{Report, ResultExt};
 use crate::compute::InvoiceLineInterface;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Identity, Invoice,
+    InvoiceLinesPatch, InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec,
+    PaginationRequest,
 };
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
@@ -150,34 +151,17 @@ impl InvoiceInterface for Store {
     }
 
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
-        let mut conn = self.get_conn().await?;
-
-        insert_invoice(&mut conn, invoice).await
+        self.transaction(|conn| {
+            async move { insert_invoice_tx(self, conn, invoice).await }.scope_boxed()
+        })
+        .await
     }
 
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>> {
-        let mut conn = self.get_conn().await?;
-
-        let insertable_invoice: Vec<InvoiceRowNew> = invoice
-            .into_iter()
-            .map(|c| c.try_into())
-            .collect::<Result<_, _>>()?;
-
-        let inserted: Vec<Invoice> =
-            InvoiceRow::insert_invoice_batch(&mut conn, insertable_invoice)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(|v| {
-                    v.into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, Report<StoreError>>>()
-                })?;
-
-        for inv in &inserted {
-            process_mrr(inv, &mut conn).await?; // TODO batch
-        }
-
-        Ok(inserted)
+        self.transaction(|conn| {
+            async move { insert_invoice_batch_tx(self, conn, invoice).await }.scope_boxed()
+        })
+        .await
     }
 
     async fn update_invoice_external_status(
@@ -299,10 +283,15 @@ impl InvoiceInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+                let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(|row| row.try_into())?;
+
                 self.internal
                     .insert_outbox_events_tx(
                         conn,
-                        vec![OutboxEvent::invoice_finalized(tenant_id, id)],
+                        vec![OutboxEvent::invoice_finalized(final_invoice.into())],
                     )
                     .await?;
 
@@ -564,7 +553,7 @@ async fn compute_invoice_patch(
         .into()),
         Some(subscription_id) => {
             let subscription_details = store
-                .get_subscription_details(tenant_id, subscription_id)
+                .get_subscription_details(tenant_id, Identity::UUID(subscription_id))
                 .await?;
             let lines = store
                 .compute_dated_invoice_lines(&invoice.invoice.invoice_date, &subscription_details)
@@ -580,16 +569,49 @@ async fn compute_invoice_patch(
     }
 }
 
-pub async fn insert_invoice(conn: &mut PgConn, invoice: InvoiceNew) -> StoreResult<Invoice> {
-    let insertable_invoice: InvoiceRowNew = invoice.try_into()?;
+pub async fn insert_invoice_tx(
+    store: &Store,
+    tx: &mut PgConn,
+    invoice: InvoiceNew,
+) -> StoreResult<Invoice> {
+    insert_invoice_batch_tx(store, tx, vec![invoice])
+        .await?
+        .pop()
+        .ok_or(StoreError::InsertError.into())
+}
 
-    let inserted: Invoice = insertable_invoice
-        .insert(conn)
+async fn insert_invoice_batch_tx(
+    store: &Store,
+    tx: &mut PgConn,
+    invoice: Vec<InvoiceNew>,
+) -> StoreResult<Vec<Invoice>> {
+    let insertable_invoice: Vec<InvoiceRowNew> = invoice
+        .into_iter()
+        .map(|c| c.try_into())
+        .collect::<Result<_, _>>()?;
+
+    let inserted: Vec<Invoice> = InvoiceRow::insert_invoice_batch(tx, insertable_invoice)
         .await
         .map_err(Into::<Report<StoreError>>::into)
-        .and_then(TryInto::try_into)?;
+        .and_then(|v| {
+            v.into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<StoreError>>>()
+        })?;
 
-    process_mrr(&inserted, conn).await?;
+    // TODO batch
+    for inv in &inserted {
+        process_mrr(inv, tx).await?;
+        let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(tx, inv.tenant_id, inv.id)
+            .await
+            .map_err(Into::into)
+            .and_then(|row| row.try_into())?;
+
+        store
+            .internal
+            .insert_outbox_events_tx(tx, vec![OutboxEvent::invoice_created(final_invoice.into())])
+            .await?;
+    }
 
     Ok(inserted)
 }

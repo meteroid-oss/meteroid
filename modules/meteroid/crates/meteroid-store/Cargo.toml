@@ -19,10 +19,8 @@ diesel.workspace = true
 diesel-async.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 nanoid.workspace = true
-dotenvy.workspace = true
 tracing.workspace = true
 tracing-log = { workspace = true }
-tracing-subscriber.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 o2o.workspace = true

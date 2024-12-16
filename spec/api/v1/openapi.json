@@ -146,7 +146,7 @@
         }
       }
     },
-    "/api/v1/subscriptions/:uuid": {
+    "/api/v1/subscriptions/:id": {
       "get": {
         "tags": [
           "subscription"
@@ -154,13 +154,12 @@
         "operationId": "subscription_details",
         "parameters": [
           {
-            "name": "uuid",
+            "name": "id",
             "in": "path",
-            "description": "subscription UUID",
+            "description": "subscription ID",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "string"
             }
           }
         ],
@@ -420,7 +419,6 @@
                 "customer_id",
                 "customer_name",
                 "billing_day",
-                "tenant_id",
                 "currency"
               ],
               "properties": {
@@ -438,19 +436,13 @@
                   ]
                 },
                 "customer_id": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "string"
                 },
                 "customer_name": {
                   "type": "string"
                 },
                 "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "tenant_id": {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "string"
                 }
               }
             }
@@ -542,7 +534,6 @@
           "customer_id",
           "customer_name",
           "billing_day",
-          "tenant_id",
           "currency"
         ],
         "properties": {
@@ -560,19 +551,13 @@
             ]
           },
           "customer_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": "string"
           },
           "customer_name": {
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "tenant_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": "string"
           }
         }
       },
@@ -600,15 +585,13 @@
             ]
           },
           "customer_id": {
-            "type": "string",
-            "format": "uuid"
+            "type": "string"
           },
           "customer_name": {
             "type": "string"
           },
           "id": {
-            "type": "string",
-            "format": "uuid"
+            "type": "string"
           }
         }
       }
