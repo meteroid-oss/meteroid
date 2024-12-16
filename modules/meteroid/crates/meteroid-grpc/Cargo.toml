@@ -14,16 +14,13 @@ common-grpc = { workspace = true }
 error-stack.workspace = true
 thiserror.workspace = true
 pbjson = "0.7.0"
-pbjson-types = "0.7.0"
 
 
 [build-dependencies]
 tonic-build.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
-prost-build.workspace = true
-pbjson-build = "0.6.2"
+pbjson-build = "0.7.0"
 
 [features]
 default = ["client"]

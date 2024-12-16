@@ -21,5 +21,4 @@ sha2 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 hex = { workspace = true }
 reqwest = { workspace = true, features = ["default"] }
-anyhow = { workspace = true }
 bytes = { workspace = true }
