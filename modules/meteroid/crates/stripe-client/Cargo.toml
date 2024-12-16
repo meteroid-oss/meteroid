@@ -13,7 +13,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_qs = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
-http-types = { workspace = true }
 common-domain = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
@@ -22,5 +21,4 @@ sha2 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 hex = { workspace = true }
 reqwest = { workspace = true, features = ["default"] }
-anyhow = { workspace = true }
 bytes = { workspace = true }

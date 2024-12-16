@@ -44,7 +44,7 @@ services:
       - meteroid_net
 
   svix-server:
-    image: "docker.io/svix/svix-server:v1.42.0"
+    image: "docker.io/svix/svix-server:v1.44.0"
     environment:
       SVIX_JWT_SECRET: ${SVIX_JWT_SECRET:-changeMeSecret}
       SVIX_DB_DSN: postgresql://${DATABASE_USER:-meteroid}:${DATABASE_PASSWORD:-meteroid}@pgbouncer/svix

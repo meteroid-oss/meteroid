@@ -241,7 +241,6 @@ impl From<WebhookOutListMessageAttemptFilter> for svix::api::MessageAttemptListB
             status_code_class: value.status_code_class.map(Into::into),
             with_content: Some(true),
             with_msg: Some(true),
-            endpoint_id: None,
         }
     }
 }

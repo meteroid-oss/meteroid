@@ -8,7 +8,6 @@ license.workspace = true
 [dependencies]
 error-stack.workspace = true
 thiserror.workspace = true
-blake3.workspace = true
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock"] }
 common-build-info = { workspace = true }
@@ -31,8 +30,6 @@ nanoid.workspace = true
 prost-types.workspace = true
 prost.workspace = true
 reqwest = { workspace = true, features = ["default", "json"] }
-reqwest-middleware = { workspace = true, features = ["json"] }
-reqwest-retry = { workspace = true }
 segment.workspace = true
 serde_json.workspace = true
 serde.workspace = true
@@ -40,10 +37,8 @@ serde_with.workspace = true
 tap.workspace = true
 time.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-tokio-stream.workspace = true
 tonic-health.workspace = true
 tonic-reflection.workspace = true
-tonic-types.workspace = true
 tonic.workspace = true
 tonic-web.workspace = true
 tonic-tracing-opentelemetry.workspace = true
@@ -51,19 +46,12 @@ tower.workspace = true
 tower-http.workspace = true
 opentelemetry.workspace = true
 tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true }
-uuid.workspace = true
-uuid7.workspace = true
+uuid = { workspace = true, features = ["v7"] }
 base64.workspace = true
-argon2 = { workspace = true }
-base62.workspace = true
 http = { workspace = true }
 hmac-sha256 = { workspace = true }
 
-tracing-log = { workspace = true }
 secrecy.workspace = true
-chacha20poly1305.workspace = true
 anyhow.workspace = true
 axum = { workspace = true, features = ["default", "macros", "http2"] }
 hyper = { workspace = true, features = ["http1", "http2", "server"] }
@@ -79,19 +67,14 @@ distributed-lock = { workspace = true, features = ["postgres-support"] }
 stripe-client = { path = "crates/stripe-client" }
 object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }
 bytes.workspace = true
-ring.workspace = true
 async-trait.workspace = true
-hex.workspace = true
 url.workspace = true
-tracing-futures.workspace = true
-opentelemetry_sdk = { workspace = true }
 fang = { workspace = true, features = ["asynk", "derive-error"] }
 typetag = { workspace = true }
 jsonwebtoken.workspace = true
 once_cell.workspace = true
 tower-layer.workspace = true
 image = { workspace = true }
-fastrand = { workspace = true }
 meteroid-store.workspace = true
 meteroid-invoicing.workspace = true
 ndarray.workspace = true
@@ -100,7 +83,6 @@ rand_distr.workspace = true
 rand.workspace = true
 fake.workspace = true
 rand_chacha.workspace = true
-itertools.workspace = true
 rusty-money.workspace = true
 
 utoipa.workspace = true
@@ -125,8 +107,6 @@ testcontainers-modules = { workspace = true, features = ["postgres"] }
 tokio-util = { workspace = true }
 clickhouse-rs = { workspace = true }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
-
-mockito = { workspace = true }
 
 [[bin]]
 name = "meteroid-api"
