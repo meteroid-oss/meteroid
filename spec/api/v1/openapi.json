@@ -331,7 +331,7 @@
                   "type": "string"
                 },
                 "plan_type": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/PlanTypeEnum"
                 },
                 "product_family_id": {
                   "type": "string"
@@ -340,7 +340,7 @@
                   "type": "string"
                 },
                 "status": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/PlanStatusEnum"
                 },
                 "subscription_count": {
                   "type": [
@@ -492,7 +492,7 @@
             "type": "string"
           },
           "plan_type": {
-            "type": "string"
+            "$ref": "#/components/schemas/PlanTypeEnum"
           },
           "product_family_id": {
             "type": "string"
@@ -501,7 +501,7 @@
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "$ref": "#/components/schemas/PlanStatusEnum"
           },
           "subscription_count": {
             "type": [
@@ -511,6 +511,23 @@
             "format": "int64"
           }
         }
+      },
+      "PlanStatusEnum": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "inactive",
+          "archived"
+        ]
+      },
+      "PlanTypeEnum": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "free",
+          "custom"
+        ]
       },
       "ProductFamily": {
         "type": "object",

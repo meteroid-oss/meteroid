@@ -31,8 +31,9 @@ prost-types.workspace = true
 prost.workspace = true
 reqwest = { workspace = true, features = ["default", "json"] }
 segment.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde-enum-str.workspace = true
 serde_json.workspace = true
-serde.workspace = true
 serde_with.workspace = true
 tap.workspace = true
 time.workspace = true
