@@ -3,7 +3,7 @@ use meteroid_store::domain;
 
 pub fn domain_to_rest(d: domain::ProductFamily) -> ProductFamily {
     ProductFamily {
-        local_id: d.local_id,
+        id: d.local_id,
         name: d.name,
     }
 }
