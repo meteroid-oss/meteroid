@@ -20,7 +20,7 @@ pub struct PlanFilters {
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct Plan {
-    pub local_id: String,
+    pub id: String,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,

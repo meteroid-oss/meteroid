@@ -301,7 +301,7 @@
             "items": {
               "type": "object",
               "required": [
-                "local_id",
+                "id",
                 "name",
                 "created_at",
                 "plan_type",
@@ -324,7 +324,7 @@
                 "has_draft_version": {
                   "type": "boolean"
                 },
-                "local_id": {
+                "id": {
                   "type": "string"
                 },
                 "name": {
@@ -462,7 +462,7 @@
       "Plan": {
         "type": "object",
         "required": [
-          "local_id",
+          "id",
           "name",
           "created_at",
           "plan_type",
@@ -485,7 +485,7 @@
           "has_draft_version": {
             "type": "boolean"
           },
-          "local_id": {
+          "id": {
             "type": "string"
           },
           "name": {

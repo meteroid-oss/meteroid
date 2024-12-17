@@ -3,7 +3,7 @@ use meteroid_store::domain;
 
 pub fn domain_to_rest(d: domain::PlanOverview) -> Plan {
     Plan {
-        local_id: d.local_id,
+        id: d.local_id,
         name: d.name,
         description: d.description,
         created_at: d.created_at,
