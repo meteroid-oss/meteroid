@@ -377,11 +377,11 @@
             "items": {
               "type": "object",
               "required": [
-                "local_id",
+                "id",
                 "name"
               ],
               "properties": {
-                "local_id": {
+                "id": {
                   "type": "string"
                 },
                 "name": {
@@ -532,11 +532,11 @@
       "ProductFamily": {
         "type": "object",
         "required": [
-          "local_id",
+          "id",
           "name"
         ],
         "properties": {
-          "local_id": {
+          "id": {
             "type": "string"
           },
           "name": {
