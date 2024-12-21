@@ -1,4 +1,5 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::customers::customer_routes;
 use crate::api_rest::plans::plan_routes;
 use crate::api_rest::productfamilies::product_families_routes;
 use crate::api_rest::subscriptions::subscription_routes;
@@ -8,7 +9,10 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use utoipa_axum::router::OpenApiRouter;
 
+mod addresses;
 mod auth;
+mod currencies;
+mod customers;
 mod files;
 mod model;
 pub mod openapi;
@@ -23,6 +27,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
         .merge(subscription_routes())
         .merge(product_families_routes())
         .merge(plan_routes())
+        .merge(customer_routes())
 }
 
 #[derive(Clone)]

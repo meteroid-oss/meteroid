@@ -2,6 +2,7 @@ use crate::customers::{CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRo
 use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use crate::query::IdentityDb;
 use crate::{DbResult, PgConn};
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
@@ -31,15 +32,23 @@ impl CustomerRowNew {
 impl CustomerRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
-        customer_id: Uuid,
+        customer_id: IdentityDb,
         tenant_id_param: Uuid,
     ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
-        let query = customer
-            .filter(id.eq(customer_id))
-            .filter(tenant_id.eq(tenant_id_param));
+        let mut query = customer.filter(tenant_id.eq(tenant_id_param)).into_boxed();
+
+        match customer_id {
+            IdentityDb::UUID(id_param) => {
+                query = query.filter(id.eq(id_param));
+            }
+            IdentityDb::LOCAL(local_id_param) => {
+                query = query.filter(local_id.eq(local_id_param));
+            }
+        }
+
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query

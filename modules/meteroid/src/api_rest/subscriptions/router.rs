@@ -76,8 +76,8 @@ async fn list_subscriptions_handler(
 
     let subscriptions: Vec<Subscription> = res
         .items
-        .iter()
-        .map(|v| domain_to_rest(v.clone()))
+        .into_iter()
+        .map(domain_to_rest)
         .collect::<Vec<_>>();
 
     Ok(PaginatedResponse {
