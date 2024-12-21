@@ -6,9 +6,9 @@ use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
-    CustomerTopUpBalance, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew,
-    InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
-    PaginationRequest,
+    CustomerTopUpBalance, DetailedInvoice, Identity, InlineCustomer, InlineInvoicingEntity,
+    InvoiceNew, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest,
+    PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
@@ -22,10 +22,11 @@ use common_eventbus::Event;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
+use diesel_models::query::IdentityDb;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<Customer>;
+    async fn find_customer_by_id(&self, id: Identity, tenant_id: Uuid) -> StoreResult<Customer>;
 
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
@@ -73,12 +74,12 @@ pub trait CustomersInterface {
 impl CustomersInterface for Store {
     async fn find_customer_by_id(
         &self,
-        customer_id: Uuid,
+        customer_id: Identity,
         tenant_id: Uuid,
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_id(&mut conn, customer_id, tenant_id)
+        CustomerRow::find_by_id(&mut conn, customer_id.into(), tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -331,9 +332,10 @@ impl CustomersInterface for Store {
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        let customer = CustomerRow::find_by_id(&mut conn, req.customer_id, req.tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let customer =
+            CustomerRow::find_by_id(&mut conn, IdentityDb::UUID(req.customer_id), req.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         let invoice = self
             .transaction_with(&mut conn, |conn| {

@@ -47,10 +47,7 @@ async fn list_product_families_handler(
         RestApiError::StoreError
     })?;
 
-    let rest_models: Vec<ProductFamily> = res
-        .iter()
-        .map(|v| domain_to_rest(v.clone()))
-        .collect::<Vec<_>>();
+    let rest_models: Vec<ProductFamily> = res.into_iter().map(domain_to_rest).collect::<Vec<_>>();
 
     Ok(PaginatedResponse {
         data: rest_models.clone(),

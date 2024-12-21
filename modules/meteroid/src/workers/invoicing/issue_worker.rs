@@ -7,7 +7,7 @@ use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::future::join_all;
 use meteroid_store::domain::enums::InvoicingProviderEnum;
-use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::domain::{CursorPaginationRequest, Identity};
 use meteroid_store::repositories::configs::ConfigsInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::{domain, Store};
@@ -149,7 +149,7 @@ async fn issue_invoice(
     match invoice.invoicing_provider {
         InvoicingProviderEnum::Stripe => {
             let customer = store
-                .find_customer_by_id(invoice.customer_id, invoice.tenant_id)
+                .find_customer_by_id(Identity::UUID(invoice.customer_id), invoice.tenant_id)
                 .await
                 .change_context(errors::WorkerError::DatabaseError)?;
 

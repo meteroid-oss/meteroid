@@ -94,6 +94,7 @@ utoipa-rapidoc.workspace = true
 utoipa-scalar.workspace = true
 
 svix = { workspace = true, features = ["http2", "rustls-tls"] }
+strum = { workspace = true, features = ["derive"] }
 
 rdkafka = { workspace = true }
 kafka = { workspace = true }

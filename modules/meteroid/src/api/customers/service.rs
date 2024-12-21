@@ -13,7 +13,7 @@ use meteroid_grpc::meteroid::api::customers::v1::{
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
+    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, Identity, OrderByRequest,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
@@ -185,7 +185,7 @@ impl CustomersService for CustomerServiceComponents {
 
         let customer = self
             .store
-            .find_customer_by_id(customer_id, tenant_id)
+            .find_customer_by_id(Identity::UUID(customer_id), tenant_id)
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)
