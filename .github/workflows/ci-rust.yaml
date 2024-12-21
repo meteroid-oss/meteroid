@@ -123,6 +123,6 @@ jobs:
         run: |
           cargo run -p meteroid --bin openapi-generate
           if [[ -n "$(git status --porcelain spec/api/v1/openapi.json)" ]]; then
-            echo "openapi.json is not up to date. Please run `cargo run -p meteroid --bin openapi-generate` and commit changes."
+            echo "openapi.json is not up to date. Please run 'cargo run -p meteroid --bin openapi-generate' and commit changes."
             exit 1
           fi
