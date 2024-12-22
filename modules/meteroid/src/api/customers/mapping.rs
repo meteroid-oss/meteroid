@@ -2,6 +2,7 @@ pub mod customer {
     use error_stack::Report;
 
     use meteroid_grpc::meteroid::api::customers::v1 as server;
+    use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::stripe::CollectionMethod;
     use meteroid_store::domain;
     use meteroid_store::errors::StoreError;
 
@@ -22,7 +23,10 @@ pub mod customer {
                             server::customer_billing_config::BillingConfigOneof::Stripe(
                                 server::customer_billing_config::Stripe {
                                     customer_id: value.customer_id,
-                                    collection_method: value.collection_method,
+                                    collection_method: stripe_collection_method_to_grpc(
+                                        &value.collection_method,
+                                    )
+                                    .into(),
                                 },
                             ),
                         ),
@@ -48,14 +52,14 @@ pub mod customer {
 
         fn try_from(value: server::CustomerBillingConfig) -> Result<Self, Self::Error> {
             match value.billing_config_oneof {
-                Some(server::customer_billing_config::BillingConfigOneof::Stripe(value)) => {
-                    Ok(DomainBillingConfigWrapper(domain::BillingConfig::Stripe(
-                        domain::Stripe {
-                            customer_id: value.customer_id,
-                            collection_method: value.collection_method, //todo fix this
-                        },
-                    )))
-                }
+                Some(server::customer_billing_config::BillingConfigOneof::Stripe(value)) => Ok(
+                    DomainBillingConfigWrapper(domain::BillingConfig::Stripe(domain::Stripe {
+                        customer_id: value.customer_id.clone(),
+                        collection_method: stripe_collection_method_to_domain(
+                            &value.collection_method(),
+                        ),
+                    })),
+                ),
                 Some(server::customer_billing_config::BillingConfigOneof::Manual(_)) => {
                     Ok(DomainBillingConfigWrapper(domain::BillingConfig::Manual))
                 }
@@ -63,6 +67,28 @@ pub mod customer {
                     "billing_config".to_string(),
                 )),
             }
+        }
+    }
+
+    fn stripe_collection_method_to_grpc(
+        value: &domain::StripeCollectionMethod,
+    ) -> CollectionMethod {
+        match value {
+            domain::StripeCollectionMethod::ChargeAutomatically => {
+                CollectionMethod::ChargeAutomatically
+            }
+            domain::StripeCollectionMethod::SendInvoice => CollectionMethod::SendInvoice,
+        }
+    }
+
+    fn stripe_collection_method_to_domain(
+        value: &CollectionMethod,
+    ) -> domain::StripeCollectionMethod {
+        match value {
+            CollectionMethod::ChargeAutomatically => {
+                domain::StripeCollectionMethod::ChargeAutomatically
+            }
+            CollectionMethod::SendInvoice => domain::StripeCollectionMethod::SendInvoice,
         }
     }
 

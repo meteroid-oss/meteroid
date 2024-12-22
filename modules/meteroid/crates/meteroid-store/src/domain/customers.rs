@@ -260,7 +260,13 @@ pub enum BillingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Stripe {
     pub customer_id: String,
-    pub collection_method: i32, // todo fix: models.proto : CollectionMethod
+    pub collection_method: StripeCollectionMethod,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StripeCollectionMethod {
+    ChargeAutomatically,
+    SendInvoice,
 }
 
 impl TryFrom<serde_json::Value> for BillingConfig {
