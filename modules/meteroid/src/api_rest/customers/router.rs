@@ -3,7 +3,7 @@ use crate::api_rest::customers::model::{Customer, CustomerListRequest};
 use crate::api_rest::model::PaginatedResponse;
 use crate::api_rest::AppState;
 use crate::errors::RestApiError;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
@@ -33,7 +33,7 @@ pub(crate) async fn list_customers(
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
-        .list_customers(
+        .list_customers_for_display(
             authorized_state.tenant_id,
             domain::PaginationRequest {
                 page: request.pagination.offset.unwrap_or(0),
@@ -59,4 +59,34 @@ pub(crate) async fn list_customers(
         total: res.total_results,
         offset: res.total_pages,
     }))
+}
+
+#[utoipa::path(
+    get,
+    tag = "customer",
+    path = "/api/v1/customers/:id_or_alias",
+    params(
+        ("id_or_alias" = String, Path, description = "customer ID or alias")
+    ),
+    responses(
+        (status = 200, description = "Customer", body = Customer),
+        (status = 500, description = "Internal error"),
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn get_customer_by_id_or_alias(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Path(id_or_alias): Path<String>,
+) -> Result<impl IntoResponse, RestApiError> {
+    app_state
+        .store
+        .find_customer_by_local_id_or_alias(id_or_alias, authorized_state.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling get_customer_by_id_or_alias: {}", e);
+            RestApiError::StoreError
+        })
+        .and_then(domain_to_rest)
+        .map(Json)
 }

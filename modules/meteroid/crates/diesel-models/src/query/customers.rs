@@ -1,11 +1,13 @@
-use crate::customers::{CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch};
+use crate::customers::{
+    CustomerBriefRow, CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch,
+};
 use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::query::IdentityDb;
 use crate::{DbResult, PgConn};
 use diesel::{
-    debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
+    debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension,
     PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
@@ -236,6 +238,81 @@ impl CustomerRowPatch {
             .optional()
             .tap_err(|e| log::error!("Error while updating customer: {:?}", e))
             .attach_printable("Error while updating customer")
+            .into_db_result()
+    }
+}
+
+impl CustomerForDisplayRow {
+    pub async fn find_by_local_id_or_alias(
+        conn: &mut PgConn,
+        tenant_id: Uuid,
+        local_id_or_alias: String,
+    ) -> DbResult<CustomerForDisplayRow> {
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::invoicing_entity::dsl as ie_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(
+                c_dsl::local_id
+                    .eq(local_id_or_alias.as_str())
+                    .or(c_dsl::alias.eq(local_id_or_alias.as_str())),
+            )
+            .inner_join(ie_dsl::invoicing_entity.on(c_dsl::invoicing_entity_id.eq(ie_dsl::id)))
+            .select(CustomerForDisplayRow::as_select());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding customer by local_id or alias")
+            .into_db_result()
+    }
+
+    pub async fn list(
+        conn: &mut PgConn,
+        param_tenant_id: Uuid,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        param_query: Option<String>,
+    ) -> DbResult<PaginatedVec<CustomerForDisplayRow>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::invoicing_entity::dsl as ie_dsl;
+
+        let mut query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(param_tenant_id))
+            .inner_join(ie_dsl::invoicing_entity.on(c_dsl::invoicing_entity_id.eq(ie_dsl::id)))
+            .select(CustomerForDisplayRow::as_select())
+            .into_boxed();
+
+        if let Some(param_query) = param_query {
+            query = query.filter(
+                c_dsl::name
+                    .ilike(format!("%{}%", param_query))
+                    .or(c_dsl::alias.ilike(format!("%{}%", param_query))),
+            );
+        }
+
+        match order_by {
+            OrderByRequest::IdAsc => query = query.order(c_dsl::id.asc()),
+            OrderByRequest::IdDesc => query = query.order(c_dsl::id.desc()),
+            OrderByRequest::DateAsc => query = query.order(c_dsl::created_at.asc()),
+            OrderByRequest::DateDesc => query = query.order(c_dsl::created_at.desc()),
+            _ => query = query.order(c_dsl::id.asc()),
+        }
+
+        let paginated_query = query.paginate(pagination);
+
+        log::debug!(
+            "{}",
+            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
+        );
+
+        paginated_query
+            .load_and_count_pages(conn)
+            .await
+            .attach_printable("Error while fetching customers")
             .into_db_result()
     }
 }

@@ -67,6 +67,40 @@
         }
       }
     },
+    "/api/v1/customers/:id_or_alias": {
+      "get": {
+        "tags": [
+          "customer"
+        ],
+        "operationId": "get_customer_by_id_or_alias",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
     "/api/v1/plans": {
       "get": {
         "tags": [
@@ -387,6 +421,45 @@
           }
         }
       },
+      "BillingConfig": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StripeBillingConfig"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "object"
+                ],
+                "properties": {
+                  "object": {
+                    "type": "string",
+                    "enum": [
+                      "stripe"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "object"
+            ],
+            "properties": {
+              "object": {
+                "type": "string",
+                "enum": [
+                  "manual"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "Currency": {
         "type": "string",
         "enum": [
@@ -558,7 +631,9 @@
         "required": [
           "id",
           "name",
-          "currency"
+          "currency",
+          "invoicing_entity_id",
+          "billing_config"
         ],
         "properties": {
           "alias": {
@@ -577,6 +652,9 @@
               }
             ]
           },
+          "billing_config": {
+            "$ref": "#/components/schemas/BillingConfig"
+          },
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
@@ -594,6 +672,9 @@
               "string",
               "null"
             ]
+          },
+          "invoicing_entity_id": {
+            "type": "string"
           },
           "name": {
             "type": "string"
@@ -631,7 +712,9 @@
               "required": [
                 "id",
                 "name",
-                "currency"
+                "currency",
+                "invoicing_entity_id",
+                "billing_config"
               ],
               "properties": {
                 "alias": {
@@ -650,6 +733,9 @@
                     }
                   ]
                 },
+                "billing_config": {
+                  "$ref": "#/components/schemas/BillingConfig"
+                },
                 "currency": {
                   "$ref": "#/components/schemas/Currency"
                 },
@@ -667,6 +753,9 @@
                     "string",
                     "null"
                   ]
+                },
+                "invoicing_entity_id": {
+                  "type": "string"
                 },
                 "name": {
                   "type": "string"
@@ -978,6 +1067,28 @@
             "type": "boolean"
           }
         }
+      },
+      "StripeBillingConfig": {
+        "type": "object",
+        "required": [
+          "customer_id",
+          "collection_method"
+        ],
+        "properties": {
+          "collection_method": {
+            "$ref": "#/components/schemas/StripeCollectionMethod"
+          },
+          "customer_id": {
+            "type": "string"
+          }
+        }
+      },
+      "StripeCollectionMethod": {
+        "type": "string",
+        "enum": [
+          "charge_automatically",
+          "send_invoice"
+        ]
       },
       "Subscription": {
         "type": "object",

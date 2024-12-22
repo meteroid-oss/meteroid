@@ -5,10 +5,10 @@ use uuid::Uuid;
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
-    CustomerTopUpBalance, DetailedInvoice, Identity, InlineCustomer, InlineInvoicingEntity,
-    InvoiceNew, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest,
-    PaginatedVec, PaginationRequest,
+    Customer, CustomerBrief, CustomerBuyCredits, CustomerForDisplay, CustomerNew,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, DetailedInvoice, Identity,
+    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams,
+    InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
@@ -20,7 +20,9 @@ use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use common_eventbus::Event;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
-use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
+use diesel_models::customers::{
+    CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch,
+};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::query::IdentityDb;
 
@@ -68,6 +70,20 @@ pub trait CustomersInterface {
     async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer>;
 
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice>;
+
+    async fn find_customer_by_local_id_or_alias(
+        &self,
+        id_or_alias: String,
+        tenant_id: Uuid,
+    ) -> StoreResult<CustomerForDisplay>;
+
+    async fn list_customers_for_display(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        query: Option<String>,
+    ) -> StoreResult<PaginatedVec<CustomerForDisplay>>;
 }
 
 #[async_trait::async_trait]
@@ -477,5 +493,52 @@ impl CustomersInterface for Store {
             .await?;
 
         self.find_invoice_by_id(req.tenant_id, invoice.id).await
+    }
+
+    async fn find_customer_by_local_id_or_alias(
+        &self,
+        id_or_alias: String,
+        tenant_id: Uuid,
+    ) -> StoreResult<CustomerForDisplay> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerForDisplayRow::find_by_local_id_or_alias(&mut conn, tenant_id, id_or_alias)
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
+    }
+
+    async fn list_customers_for_display(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        query: Option<String>,
+    ) -> StoreResult<PaginatedVec<CustomerForDisplay>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = CustomerForDisplayRow::list(
+            &mut conn,
+            tenant_id,
+            pagination.into(),
+            order_by.into(),
+            query,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<CustomerForDisplay> = PaginatedVec {
+            items: rows
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Vec<Result<CustomerForDisplay, Report<StoreError>>>>()
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?,
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        };
+
+        Ok(res)
     }
 }
