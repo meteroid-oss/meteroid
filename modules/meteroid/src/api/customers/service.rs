@@ -52,7 +52,8 @@ impl CustomersService for CustomerServiceComponents {
         let customer_new = CustomerNew {
             name: inner.name,
             created_by: actor,
-            invoicing_entity_id: Uuid::from_proto_opt(inner.invoicing_entity_id)?,
+            invoicing_entity_id: Uuid::from_proto_opt(inner.invoicing_entity_id)?
+                .map(Identity::UUID),
             billing_config,
             alias: inner.alias,
             email: inner.email,

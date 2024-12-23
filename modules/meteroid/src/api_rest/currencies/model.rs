@@ -1,7 +1,7 @@
-use strum::EnumString;
+use strum::{Display, EnumString};
 use utoipa::ToSchema;
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, EnumString)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, EnumString, Display)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Currency {
     AED,

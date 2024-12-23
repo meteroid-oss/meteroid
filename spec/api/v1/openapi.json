@@ -65,6 +65,37 @@
             "description": "Internal error"
           }
         }
+      },
+      "post": {
+        "tags": [
+          "customer"
+        ],
+        "operationId": "create_customer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
       }
     },
     "/api/v1/customers/:id_or_alias": {
@@ -675,6 +706,75 @@
           },
           "invoicing_entity_id": {
             "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ShippingAddress"
+              }
+            ]
+          }
+        }
+      },
+      "CustomerCreateRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "billing_config",
+          "currency"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Address"
+              }
+            ]
+          },
+          "billing_config": {
+            "$ref": "#/components/schemas/BillingConfig"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoicing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoicing_entity_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "name": {
             "type": "string"

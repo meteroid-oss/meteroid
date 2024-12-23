@@ -1,5 +1,5 @@
-use crate::api_rest::customers::mapping::domain_to_rest;
-use crate::api_rest::customers::model::{Customer, CustomerListRequest};
+use crate::api_rest::customers::mapping::{create_req_to_domain, domain_to_rest};
+use crate::api_rest::customers::model::{Customer, CustomerCreateRequest, CustomerListRequest};
 use crate::api_rest::model::PaginatedResponse;
 use crate::api_rest::AppState;
 use crate::errors::RestApiError;
@@ -82,6 +82,46 @@ pub(crate) async fn get_customer_by_id_or_alias(
     app_state
         .store
         .find_customer_by_local_id_or_alias(id_or_alias, authorized_state.tenant_id)
+        .await
+        .map_err(|e| {
+            log::error!("Error handling get_customer_by_id_or_alias: {}", e);
+            RestApiError::StoreError
+        })
+        .and_then(domain_to_rest)
+        .map(Json)
+}
+
+#[utoipa::path(
+    post,
+    tag = "customer",
+    path = "/api/v1/customers",
+    request_body(content = CustomerCreateRequest, content_type = "application/json"),
+    responses(
+        (status = 200, description = "Customer", body = Customer),
+        (status = 500, description = "Internal error"),
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn create_customer(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Json(payload): Json<CustomerCreateRequest>,
+) -> Result<impl IntoResponse, RestApiError> {
+    let created = app_state
+        .store
+        .insert_customer(
+            create_req_to_domain(authorized_state.actor_id, payload),
+            authorized_state.tenant_id,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error handling insert_customer: {}", e);
+            RestApiError::StoreError
+        })?;
+
+    app_state
+        .store
+        .find_customer_by_local_id_or_alias(created.local_id, authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer_by_id_or_alias: {}", e);

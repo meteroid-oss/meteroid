@@ -1,3 +1,6 @@
+use crate::domain::Identity;
+use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
@@ -6,9 +9,6 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
-
-use crate::errors::StoreError;
-use crate::utils::local_id::{IdType, LocalId};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Customer {
@@ -113,7 +113,7 @@ pub struct CustomerNew {
     pub shipping_address: Option<ShippingAddress>,
     //
     pub created_by: Uuid,
-    pub invoicing_entity_id: Option<Uuid>,
+    pub invoicing_entity_id: Option<Identity>,
     // for seeding
     pub force_created_date: Option<chrono::NaiveDateTime>,
 }

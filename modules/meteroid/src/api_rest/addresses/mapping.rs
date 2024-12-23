@@ -12,6 +12,17 @@ pub mod address {
             zip_code: d.zip_code,
         }
     }
+
+    pub fn rest_to_domain(r: Address) -> domain::Address {
+        domain::Address {
+            line1: r.line1,
+            line2: r.line2,
+            city: r.city,
+            country: r.country,
+            state: r.state,
+            zip_code: r.zip_code,
+        }
+    }
 }
 
 pub mod shipping_address {
@@ -23,6 +34,13 @@ pub mod shipping_address {
         ShippingAddress {
             address: d.address.map(mapping::address::domain_to_rest),
             same_as_billing: d.same_as_billing,
+        }
+    }
+
+    pub fn rest_to_domain(r: ShippingAddress) -> domain::ShippingAddress {
+        domain::ShippingAddress {
+            address: r.address.map(mapping::address::rest_to_domain),
+            same_as_billing: r.same_as_billing,
         }
     }
 }

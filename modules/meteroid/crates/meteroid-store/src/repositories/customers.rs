@@ -180,7 +180,7 @@ impl CustomersInterface for Store {
         tenant_id: Uuid,
     ) -> StoreResult<Customer> {
         let invoicing_entity = self
-            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
+            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id.clone())
             .await?;
 
         let customer: CustomerRowNew = CustomerNewWrapper {
@@ -237,7 +237,13 @@ impl CustomersInterface for Store {
             .map(|c| {
                 let invoicing_entity = c
                     .invoicing_entity_id
-                    .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == id))
+                    .as_ref()
+                    .and_then(|id| {
+                        invoicing_entities.iter().find(|ie| match id {
+                            Identity::UUID(id) => ie.id == *id,
+                            Identity::LOCAL(id) => ie.local_id == *id,
+                        })
+                    })
                     .unwrap_or(default_invoicing_entity);
 
                 let c: CustomerRowNew = CustomerNewWrapper {
