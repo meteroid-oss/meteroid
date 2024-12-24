@@ -82,8 +82,8 @@
           "required": true
         },
         "responses": {
-          "200": {
-            "description": "Customer",
+          "201": {
+            "description": "Customer successfully created",
             "content": {
               "application/json": {
                 "schema": {
@@ -91,6 +91,15 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "404": {
+            "description": "Customer Not Found"
+          },
+          "409": {
+            "description": "Customer already exists"
           },
           "500": {
             "description": "Internal error"

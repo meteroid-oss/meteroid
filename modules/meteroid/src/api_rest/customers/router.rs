@@ -7,6 +7,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use http::StatusCode;
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::CustomersInterface;
@@ -45,7 +46,7 @@ pub(crate) async fn list_customers(
         .await
         .map_err(|e| {
             log::error!("Error handling list_customers: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })?;
 
     let items = res
@@ -85,7 +86,7 @@ pub(crate) async fn get_customer_by_id_or_alias(
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer_by_id_or_alias: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })
         .and_then(domain_to_rest)
         .map(Json)
@@ -97,7 +98,10 @@ pub(crate) async fn get_customer_by_id_or_alias(
     path = "/api/v1/customers",
     request_body(content = CustomerCreateRequest, content_type = "application/json"),
     responses(
-        (status = 200, description = "Customer", body = Customer),
+        (status = 201, description = "Customer successfully created", body = Customer),
+        (status = 400, description = "Bad request"),
+        (status = 404, description = "Customer Not Found"),
+        (status = 409, description = "Customer already exists"),
         (status = 500, description = "Internal error"),
     )
 )]
@@ -116,7 +120,7 @@ pub(crate) async fn create_customer(
         .await
         .map_err(|e| {
             log::error!("Error handling insert_customer: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })?;
 
     app_state
@@ -125,8 +129,8 @@ pub(crate) async fn create_customer(
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer_by_id_or_alias: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })
         .and_then(domain_to_rest)
-        .map(Json)
+        .map(|x| (StatusCode::CREATED, Json(x)))
 }
