@@ -23,7 +23,11 @@ use meteroid_store::repositories::CustomersInterface;
     ),
     responses(
         (status = 200, description = "List of customers", body = PaginatedResponse<Customer>),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]
@@ -71,7 +75,11 @@ pub(crate) async fn list_customers(
     ),
     responses(
         (status = 200, description = "Customer", body = Customer),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]
@@ -100,9 +108,13 @@ pub(crate) async fn get_customer_by_id_or_alias(
     responses(
         (status = 201, description = "Customer successfully created", body = Customer),
         (status = 400, description = "Bad request"),
-        (status = 404, description = "Customer Not Found"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Customer not found"),
         (status = 409, description = "Customer already exists"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]

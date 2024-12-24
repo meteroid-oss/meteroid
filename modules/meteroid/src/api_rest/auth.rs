@@ -99,9 +99,9 @@ where
         let future = async move {
             let authenticated_state = if metadata.contains_key(API_KEY_HEADER) {
                 validate_api_key(&metadata, &mut store).await.map_err(|e| {
-                    log::error!("Failed to validate api key: {:?}", e);
+                    log::debug!("Failed to validate api key: {:?}", e);
                     Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .status(StatusCode::UNAUTHORIZED)
                         .body(ResBody::default())
                 })
             } else {

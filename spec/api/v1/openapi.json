@@ -61,10 +61,18 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -95,6 +103,9 @@
           "400": {
             "description": "Bad request"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "404": {
             "description": "Customer Not Found"
           },
@@ -104,7 +115,12 @@
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
     "/api/v1/customers/:id_or_alias": {
@@ -135,10 +151,18 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
     "/api/v1/plans": {
