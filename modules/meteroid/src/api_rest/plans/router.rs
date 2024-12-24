@@ -27,7 +27,11 @@ use uuid::Uuid;
     ),
     responses(
         (status = 200, description = "List of plans", body = PaginatedResponse<Plan>),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]

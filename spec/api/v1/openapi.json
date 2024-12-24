@@ -226,10 +226,18 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
     "/api/v1/product_families": {
@@ -249,10 +257,18 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
     "/api/v1/subscriptions": {
@@ -296,10 +312,18 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
     "/api/v1/subscriptions/:id": {
@@ -330,13 +354,21 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "500": {
             "description": "Internal error"
           }
-        }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
-    "/files/v1/invoice/pdf/{uid}": {
+    "/files/v1/invoice/pdf/:uid": {
       "get": {
         "tags": [
           "file"
@@ -344,7 +376,7 @@
         "operationId": "get_invoice_pdf",
         "parameters": [
           {
-            "name": "uuid",
+            "name": "uid",
             "in": "path",
             "description": "Invoice database UID",
             "required": true,
@@ -356,14 +388,6 @@
             "name": "token",
             "in": "query",
             "description": "Security token",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "uid",
-            "in": "path",
             "required": true,
             "schema": {
               "type": "string"
@@ -398,7 +422,7 @@
         }
       }
     },
-    "/files/v1/logo/{uuid}": {
+    "/files/v1/logo/:uuid": {
       "get": {
         "tags": [
           "file"

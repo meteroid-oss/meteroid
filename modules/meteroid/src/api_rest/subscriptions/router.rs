@@ -27,7 +27,11 @@ use uuid::Uuid;
     ),
     responses(
         (status = 200, description = "List of subscriptions", body = PaginatedResponse<Subscription>),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]
@@ -96,7 +100,11 @@ async fn list_subscriptions_handler(
     ),
     responses(
         (status = 200, description = "Details of subscription", body = SubscriptionDetails),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]
