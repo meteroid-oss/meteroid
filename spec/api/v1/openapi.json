@@ -107,7 +107,7 @@
             "description": "Unauthorized"
           },
           "404": {
-            "description": "Customer Not Found"
+            "description": "Customer not found"
           },
           "409": {
             "description": "Customer already exists"
