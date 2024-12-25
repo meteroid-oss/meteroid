@@ -1,7 +1,7 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::customers::customer_routes;
 use crate::api_rest::plans::plan_routes;
-use crate::api_rest::productfamilies::product_families_routes;
+use crate::api_rest::productfamilies::product_family_routes;
 use crate::api_rest::subscriptions::subscription_routes;
 use crate::services::storage::ObjectStoreService;
 use meteroid_store::Store;
@@ -25,7 +25,7 @@ mod webhooks;
 pub fn api_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .merge(subscription_routes())
-        .merge(product_families_routes())
+        .merge(product_family_routes())
         .merge(plan_routes())
         .merge(customer_routes())
 }
