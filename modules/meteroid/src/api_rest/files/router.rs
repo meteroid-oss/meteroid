@@ -28,7 +28,7 @@ pub struct FileApi;
 #[utoipa::path(
     get,
     tag = "file",
-    path = "/v1/logo/{uuid}",
+    path = "/v1/logo/:uuid",
     params(
         ("uuid" = Uuid, Path, description = "Logo database UUID")
     ),
@@ -83,9 +83,9 @@ pub struct TokenParams {
 #[utoipa::path(
     get,
     tag = "file",
-    path = "/v1/invoice/pdf/{uid}",
+    path = "/v1/invoice/pdf/:uid",
     params(
-        ("uuid" = String, Path, description = "Invoice database UID"),
+        ("uid" = String, Path, description = "Invoice database UID"),
         ("token" = str, Query, description = "Security token"),
     ),
     responses(

@@ -5,10 +5,10 @@ use uuid::Uuid;
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
-    CustomerTopUpBalance, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew,
-    InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
-    PaginationRequest,
+    Customer, CustomerBrief, CustomerBuyCredits, CustomerForDisplay, CustomerNew,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, DetailedInvoice, Identity,
+    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams,
+    InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
@@ -20,12 +20,15 @@ use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use common_eventbus::Event;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
-use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch};
+use diesel_models::customers::{
+    CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch,
+};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
+use diesel_models::query::IdentityDb;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<Customer>;
+    async fn find_customer_by_id(&self, id: Identity, tenant_id: Uuid) -> StoreResult<Customer>;
 
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
@@ -67,18 +70,32 @@ pub trait CustomersInterface {
     async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer>;
 
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice>;
+
+    async fn find_customer_by_local_id_or_alias(
+        &self,
+        id_or_alias: String,
+        tenant_id: Uuid,
+    ) -> StoreResult<CustomerForDisplay>;
+
+    async fn list_customers_for_display(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        query: Option<String>,
+    ) -> StoreResult<PaginatedVec<CustomerForDisplay>>;
 }
 
 #[async_trait::async_trait]
 impl CustomersInterface for Store {
     async fn find_customer_by_id(
         &self,
-        customer_id: Uuid,
+        customer_id: Identity,
         tenant_id: Uuid,
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_id(&mut conn, customer_id, tenant_id)
+        CustomerRow::find_by_id(&mut conn, customer_id.into(), tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -163,7 +180,7 @@ impl CustomersInterface for Store {
         tenant_id: Uuid,
     ) -> StoreResult<Customer> {
         let invoicing_entity = self
-            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
+            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id.clone())
             .await?;
 
         let customer: CustomerRowNew = CustomerNewWrapper {
@@ -220,7 +237,13 @@ impl CustomersInterface for Store {
             .map(|c| {
                 let invoicing_entity = c
                     .invoicing_entity_id
-                    .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == id))
+                    .as_ref()
+                    .and_then(|id| {
+                        invoicing_entities.iter().find(|ie| match id {
+                            Identity::UUID(id) => ie.id == *id,
+                            Identity::LOCAL(id) => ie.local_id == *id,
+                        })
+                    })
                     .unwrap_or(default_invoicing_entity);
 
                 let c: CustomerRowNew = CustomerNewWrapper {
@@ -331,9 +354,10 @@ impl CustomersInterface for Store {
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        let customer = CustomerRow::find_by_id(&mut conn, req.customer_id, req.tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let customer =
+            CustomerRow::find_by_id(&mut conn, IdentityDb::UUID(req.customer_id), req.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         let invoice = self
             .transaction_with(&mut conn, |conn| {
@@ -475,5 +499,52 @@ impl CustomersInterface for Store {
             .await?;
 
         self.find_invoice_by_id(req.tenant_id, invoice.id).await
+    }
+
+    async fn find_customer_by_local_id_or_alias(
+        &self,
+        id_or_alias: String,
+        tenant_id: Uuid,
+    ) -> StoreResult<CustomerForDisplay> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerForDisplayRow::find_by_local_id_or_alias(&mut conn, tenant_id, id_or_alias)
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
+    }
+
+    async fn list_customers_for_display(
+        &self,
+        tenant_id: Uuid,
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        query: Option<String>,
+    ) -> StoreResult<PaginatedVec<CustomerForDisplay>> {
+        let mut conn = self.get_conn().await?;
+
+        let rows = CustomerForDisplayRow::list(
+            &mut conn,
+            tenant_id,
+            pagination.into(),
+            order_by.into(),
+            query,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<CustomerForDisplay> = PaginatedVec {
+            items: rows
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Vec<Result<CustomerForDisplay, Report<StoreError>>>>()
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?,
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        };
+
+        Ok(res)
     }
 }

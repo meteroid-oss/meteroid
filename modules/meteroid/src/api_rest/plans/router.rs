@@ -27,7 +27,11 @@ use uuid::Uuid;
     ),
     responses(
         (status = 200, description = "List of plans", body = PaginatedResponse<Plan>),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]
@@ -81,8 +85,8 @@ async fn list_plans_handler(
 
     let rest_models: Vec<Plan> = res
         .items
-        .iter()
-        .map(|v| domain_to_rest(v.clone()))
+        .into_iter()
+        .map(domain_to_rest)
         .collect::<Vec<_>>();
 
     Ok(PaginatedResponse {

@@ -6,6 +6,6 @@ mod mapping;
 mod model;
 pub mod router;
 
-pub fn product_families_routes() -> OpenApiRouter<AppState> {
+pub fn product_family_routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(router::list_product_families))
 }

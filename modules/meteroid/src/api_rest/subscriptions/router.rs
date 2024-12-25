@@ -27,7 +27,11 @@ use uuid::Uuid;
     ),
     responses(
         (status = 200, description = "List of subscriptions", body = PaginatedResponse<Subscription>),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]
@@ -76,8 +80,8 @@ async fn list_subscriptions_handler(
 
     let subscriptions: Vec<Subscription> = res
         .items
-        .iter()
-        .map(|v| domain_to_rest(v.clone()))
+        .into_iter()
+        .map(domain_to_rest)
         .collect::<Vec<_>>();
 
     Ok(PaginatedResponse {
@@ -96,7 +100,11 @@ async fn list_subscriptions_handler(
     ),
     responses(
         (status = 200, description = "Details of subscription", body = SubscriptionDetails),
+        (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
     )
 )]
 #[axum::debug_handler]

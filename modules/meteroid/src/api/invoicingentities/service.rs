@@ -12,7 +12,7 @@ use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
     UploadInvoicingEntityLogoResponse,
 };
-use meteroid_store::domain::InvoicingEntityPatch;
+use meteroid_store::domain::{Identity, InvoicingEntityPatch};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
@@ -29,7 +29,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         request: Request<GetInvoicingEntityRequest>,
     ) -> Result<Response<GetInvoicingEntityResponse>, Status> {
         let tenant = request.tenant()?;
-        let id = Uuid::from_proto_opt(request.into_inner().id)?;
+        let id = Uuid::from_proto_opt(request.into_inner().id)?.map(Identity::UUID);
 
         let invoicing_entity = self
             .store

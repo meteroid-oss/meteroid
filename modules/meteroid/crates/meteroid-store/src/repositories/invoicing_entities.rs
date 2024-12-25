@@ -6,7 +6,7 @@ use diesel_models::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPa
 use diesel_models::organizations::OrganizationRow;
 
 use crate::domain::invoicing_entities::InvoicingEntity;
-use crate::domain::{InvoicingEntityNew, InvoicingEntityPatch};
+use crate::domain::{Identity, InvoicingEntityNew, InvoicingEntityPatch};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::utils::local_id::{IdType, LocalId};
@@ -24,7 +24,7 @@ pub trait InvoicingEntityInterface {
     async fn get_invoicing_entity(
         &self,
         tenant_id: Uuid,
-        invoicing_id_or_default: Option<Uuid>,
+        invoicing_id_or_default: Option<Identity>,
     ) -> StoreResult<InvoicingEntity>;
 
     async fn create_invoicing_entity(
@@ -74,14 +74,14 @@ impl InvoicingEntityInterface for Store {
     async fn get_invoicing_entity(
         &self,
         tenant_id: Uuid,
-        invoicing_id_or_default: Option<Uuid>,
+        invoicing_id_or_default: Option<Identity>,
     ) -> StoreResult<InvoicingEntity> {
         let mut conn = self.get_conn().await?;
 
         let invoicing_entity = match invoicing_id_or_default {
             Some(invoicing_id) => InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
                 &mut conn,
-                &invoicing_id,
+                &invoicing_id.into(),
                 &tenant_id,
             )
             .await

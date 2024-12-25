@@ -5,6 +5,7 @@ use crate::StoreResult;
 use diesel_models::customer_balance_txs::CustomerBalanceTxRowNew;
 use diesel_models::customers::CustomerRow;
 use diesel_models::errors::DatabaseError;
+use diesel_models::query::IdentityDb;
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -36,9 +37,10 @@ impl CustomerBalance {
                 _ => Into::<Report<StoreError>>::into(err),
             })?;
 
-        let customer_row_updated = CustomerRow::find_by_id(conn, customer_id, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let customer_row_updated =
+            CustomerRow::find_by_id(conn, IdentityDb::UUID(customer_id), tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         let tx = CustomerBalanceTxRowNew {
             id: Uuid::now_v7(),

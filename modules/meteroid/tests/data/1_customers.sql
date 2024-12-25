@@ -24,21 +24,21 @@ $$
                 var_user_id, NULL, NULL, NULL, var_tenant_id, '{
             "Stripe": {
               "customer_id": "spotify",
-              "collection_method": 0
+              "collection_method": "ChargeAutomatically"
             }
           }', 'spotify', NULL, NULL, NULL, 0, 'EUR', NULL, NULL, var_invoicing_entity_id),
                (var_cust_uber_id, 'Uber', '2023-12-04 10:29:07.699',
                 var_user_id, NULL, NULL, NULL, var_tenant_id, '{
                  "Stripe": {
                    "customer_id": "uber",
-                   "collection_method": 0
+                   "collection_method": "ChargeAutomatically"
                  }
                }', 'uber', NULL, NULL, NULL, 0, 'EUR', NULL, NULL, var_invoicing_entity_id),
                (var_cust_comodo_id, 'Comodo', '2023-12-04 10:32:34.036',
                 var_user_id, NULL, NULL, NULL, var_tenant_id, '{
                  "Stripe": {
                    "customer_id": "comodo",
-                   "collection_method": 0
+                   "collection_method": "ChargeAutomatically"
                  }
                }', 'comodo', NULL, NULL, NULL, 0, 'EUR', NULL, NULL, var_invoicing_entity_id);
 

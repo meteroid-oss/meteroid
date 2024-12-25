@@ -1,5 +1,7 @@
 use axum::response::{IntoResponse, Response};
+use error_stack::Report;
 use hyper::StatusCode;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum AdapterWebhookError {
@@ -119,6 +121,10 @@ pub enum RestApiError {
     Forbidden,
     #[error("Invalid input")]
     InvalidInput,
+    #[error("Resource not found")]
+    NotFound,
+    #[error("Conflict")]
+    Conflict,
 }
 
 impl IntoResponse for RestApiError {
@@ -130,6 +136,8 @@ impl IntoResponse for RestApiError {
             RestApiError::Forbidden => StatusCode::FORBIDDEN,
             RestApiError::InvalidInput => StatusCode::BAD_REQUEST,
             RestApiError::StoreError => StatusCode::INTERNAL_SERVER_ERROR,
+            RestApiError::NotFound => StatusCode::NOT_FOUND,
+            RestApiError::Conflict => StatusCode::CONFLICT,
         };
 
         let error_message = match status {
@@ -139,6 +147,16 @@ impl IntoResponse for RestApiError {
             _ => format!("{}", self),
         };
         (status, error_message).into_response()
+    }
+}
+
+impl From<Report<StoreError>> for RestApiError {
+    fn from(err: Report<StoreError>) -> Self {
+        match err.current_context() {
+            StoreError::ValueNotFound(_) => RestApiError::NotFound,
+            StoreError::DuplicateValue { .. } => RestApiError::Conflict,
+            _ => RestApiError::StoreError,
+        }
     }
 }
 

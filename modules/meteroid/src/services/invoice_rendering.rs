@@ -5,7 +5,7 @@ use base64::Engine;
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{html_render, pdf};
-use meteroid_store::domain::{Invoice, InvoicingEntity};
+use meteroid_store::domain::{Identity, Invoice, InvoicingEntity};
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::InvoiceInterface;
@@ -36,7 +36,10 @@ impl HtmlRenderingService {
 
         let invoicing_entity = self
             .store
-            .get_invoicing_entity(tenant_id, Some(invoice.invoice.seller_details.id))
+            .get_invoicing_entity(
+                tenant_id,
+                Some(Identity::UUID(invoice.invoice.seller_details.id)),
+            )
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 

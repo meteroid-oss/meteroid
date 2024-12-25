@@ -165,7 +165,7 @@ pub async fn run(
 
             let alias = format!("{}-{}", slugify(&company_name), nanoid!(5));
             customers_to_create.push(store_domain::CustomerNew {
-                invoicing_entity_id: Some(invoicing_entity.id),
+                invoicing_entity_id: Some(Identity::UUID(invoicing_entity.id)),
                 billing_config: BillingConfig::Manual,
                 email: SafeEmail().fake(),
                 invoicing_email: None,
