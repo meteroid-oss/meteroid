@@ -107,7 +107,7 @@ rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
 rdkafka = "0.37.0"
 reqwest = { version = "0.12.5", default-features = false }
-rstest = "0.23.0"
+rstest = "0.24.0"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
 rustls = { version = "0.23.12", default-features = false }
