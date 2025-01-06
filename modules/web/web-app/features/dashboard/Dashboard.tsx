@@ -1,19 +1,19 @@
-import { Card, Checkbox, Separator } from '@md/ui'
-import { Heart } from 'lucide-react'
-import { useMemo } from 'react'
+import {Card, Checkbox, Separator} from '@md/ui'
+import {Heart} from 'lucide-react'
+import {useMemo} from 'react'
 
-import { Loading } from '@/components/Loading'
-import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
-import { MrrSection } from '@/features/dashboard/sections/MrrSection'
-import { TopSection } from '@/features/dashboard/sections/TopSection'
-import { useTenant } from '@/hooks/useTenant'
+import {Loading} from '@/components/Loading'
+import {DetailsSection} from '@/features/dashboard/sections/DetailsSection'
+import {MrrSection} from '@/features/dashboard/sections/MrrSection'
+import {TopSection} from '@/features/dashboard/sections/TopSection'
+import {useTenant} from '@/hooks/useTenant'
 
 export const Dashboard = () => {
-  const { isRefetching } = useTenant()
+  const {isRefetching} = useTenant()
 
   const date = useMemo(() => {
     const today = new Date()
-    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' } as const
+    const options = {weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'} as const
 
     return today.toLocaleDateString('en-US', options)
   }, [])
@@ -31,7 +31,7 @@ export const Dashboard = () => {
   }, [])
 
   if (isRefetching) {
-    return <Loading />
+    return <Loading/>
   }
 
   return (
@@ -41,36 +41,36 @@ export const Dashboard = () => {
           <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Gaspard</h1>
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
-        <Separator />
+        <Separator/>
         <Card variant="accent2">
           <div className="px-6 py-4">
             <div className="text-sm font-semibold pb-4">Complete your onboarding</div>
             <div>
               <div>
-                <Checkbox disabled className="rounded-full border-none bg-success" checked />{' '}
+                <Checkbox disabled className="rounded-full border-none bg-success" checked/>{' '}
                 <span className="text-sm">Configure your pricing</span>
               </div>
               <div>
-                <Checkbox disabled className="rounded-full" />{' '}
+                <Checkbox disabled className="rounded-full"/>{' '}
                 <span className="text-sm">Integrate with your product</span>
               </div>
 
               <div>
-                <Checkbox disabled className="rounded-full" />{' '}
+                <Checkbox disabled className="rounded-full"/>{' '}
                 <span className="text-sm">Setup your first growth opportunities</span>
               </div>
             </div>
           </div>
         </Card>
-        <TopSection />
-        <MrrSection />
-        <Separator />
-        <DetailsSection />
-        <Separator />
+        <TopSection/>
+        <MrrSection/>
+        <Separator/>
+        <DetailsSection/>
+        <Separator/>
         <div className="h-10 text-center justify-center text-xs text-muted-foreground flex gap-1 ">
-          <span>2024 © Meteroid /</span>
+          <span>2025 © Meteroid /</span>
           <span className="flex items-baseline gap-1">
-            Built with <Heart size="10" fill="red" strokeWidth={0} className="" /> in Europe /
+            Built with <Heart size="10" fill="red" strokeWidth={0} className=""/> in Europe /
           </span>
           <span>
             Open-source on{' '}
