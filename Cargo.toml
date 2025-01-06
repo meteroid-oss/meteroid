@@ -79,7 +79,7 @@ humantime = { version = "2.1.0" }
 hyper = { version = "1.4.1", default-features = false }
 image = "0.25.2"
 init-tracing-opentelemetry = { version = "0.25.0", features = ["tracing_subscriber_ext"] }
-itertools = "0.13.0"
+itertools = "0.14.0"
 jsonwebtoken = "9.2.0"
 lapin = "2.5.0"
 log = "0.4.20"
