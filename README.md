@@ -114,7 +114,7 @@ Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Met
 
 ## License
 
-Copyright 2024 Meteroid
+Copyright 2025 Meteroid
 
 Licensed under the AGPL V3 License. <br/> See [LICENSE](LICENSE) for more information.
 
