@@ -69,7 +69,7 @@ pub(crate) async fn list_customers(
 #[utoipa::path(
     get,
     tag = "customer",
-    path = "/api/v1/customers/:id_or_alias",
+    path = "/api/v1/customers/{id_or_alias}",
     params(
         ("id_or_alias" = String, Path, description = "customer ID or alias")
     ),

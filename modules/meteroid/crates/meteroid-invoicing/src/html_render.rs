@@ -2,13 +2,22 @@ use crate::errors::InvoicingError;
 use crate::model::*;
 use chrono::prelude::*;
 use chrono::NaiveDate;
+use fluent_static::{LanguageAware, MessageBundle};
 use maud::{html, Markup, DOCTYPE};
 use rust_decimal::Decimal;
 use rusty_money::{iso, FormattableCurrency};
 
 #[allow(clippy::all)]
 mod l10n {
-    fluent_static::include_source!("l10n.rs");
+    use fluent_static::message_bundle;
+    #[message_bundle(
+        resources = [
+            ("l10n/en-US/invoice.ftl", "en-US"),
+            ("l10n/fr-FR/invoice.ftl", "fr-FR"),
+        ],
+        default_language = "en-US")]
+    pub struct InvoiceL10n;
+
     include!(concat!(env!("OUT_DIR"), "/i18n_data.rs"));
 
     pub fn get_country_local_name<'a>(lang: &str, country_code: &str) -> Option<&'a str> {
@@ -38,13 +47,15 @@ pub fn render_invoice(invoice: &Invoice) -> Result<Markup, InvoicingError> {
         _ => "en-US",
     };
 
+    let invoice_l10n = &l10n::InvoiceL10N::get(lang).unwrap_or(l10n::InvoiceL10N::default());
+
     Ok(html! {
         (DOCTYPE)
         html lang="en" {
             head {
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
-                title { (l10n::invoice::invoice_title(lang) )};
+                title { (invoice_l10n.invoice_title() )};
                 link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"; // TODO include it in docker
                 style {
                     (CSS)
@@ -61,11 +72,11 @@ pub fn render_invoice(invoice: &Invoice) -> Result<Markup, InvoicingError> {
             }
             body class="" {
                 div class="container mx-auto px-2 py-4 bg-white text-sm" {
-                    (render_header(lang, &invoice.organization, &invoice.metadata)?)
-                    (render_billing_info(lang, &invoice.organization, &invoice.customer, &invoice.metadata)?)
-                    (render_invoice_lines(lang, &invoice.lines, &invoice.metadata.currency)?)
-                    (render_invoice_summary(lang, &invoice.metadata ))
-                    (render_legal_info(lang, &invoice.organization, &invoice.metadata)?)
+                    (render_header(invoice_l10n, &invoice.organization, &invoice.metadata)?)
+                    (render_billing_info(invoice_l10n, &invoice.organization, &invoice.customer, &invoice.metadata)?)
+                    (render_invoice_lines(invoice_l10n, &invoice.lines, &invoice.metadata.currency)?)
+                    (render_invoice_summary(invoice_l10n, &invoice.metadata ))
+                    (render_legal_info(invoice_l10n, &invoice.organization, &invoice.metadata)?)
                 }
             }
         }
@@ -73,24 +84,23 @@ pub fn render_invoice(invoice: &Invoice) -> Result<Markup, InvoicingError> {
 }
 
 fn render_header(
-    lang: &str,
+    invoice_l10n: &l10n::InvoiceL10N,
     organization: &Organization,
     invoice: &InvoiceMetadata,
 ) -> Result<Markup, InvoicingError> {
     Ok(html! {
         div class="px-2 flex justify-between items-center border-b pb-4" {
-            h1 class="text-xl font-semibold text-gray-800" { (l10n::invoice::invoice_number(lang, &invoice.number)
-                        .map_err(|_| InvoicingError::I18nError(format!("Failed to localise invoice number for value: {}", &invoice.number)))? )
+            h1 class="text-xl font-semibold text-gray-800" { (invoice_l10n.invoice_number(&invoice.number))
             }
              @if let Some(logo_url) = &organization.logo_url {
-                img src=(logo_url) alt=(l10n::invoice::company_logo_alt(lang));
+                img src=(logo_url) alt=(invoice_l10n.company_logo_alt());
             }
         }
     })
 }
 
 fn render_billing_info(
-    lang: &str,
+    invoice_l10n: &l10n::InvoiceL10N,
     organization: &Organization,
     customer: &Customer,
     invoice: &InvoiceMetadata,
@@ -98,25 +108,25 @@ fn render_billing_info(
     Ok(html! {
         div class="grid grid-cols-3 mb-8" {
             div class="flex flex-col p-4 border-b border-r border-gray-200" {
-                h2 class="text-md mb-2 text-gray-700" { (l10n::invoice::bill_from(lang)) }
-                (render_address( organization, lang))
+                h2 class="text-md mb-2 text-gray-700" { (invoice_l10n.bill_from()) }
+                (render_address( organization, invoice_l10n.language_id()))
             }
             div class="flex flex-col p-4 border-b border-gray-200" {
-                h2 class="text-md mb-2 text-gray-700" { (l10n::invoice::bill_to(lang)) }
-                 (render_address( customer, lang))
+                h2 class="text-md mb-2 text-gray-700" { (invoice_l10n.bill_to()) }
+                 (render_address( customer, invoice_l10n.language_id()))
             }
             div class="p-4 border-b border-l border-gray-200" {
-                h2 class="text-right text-md mb-2 text-gray-700" { (l10n::invoice::amount_due(lang)) }
+                h2 class="text-right text-md mb-2 text-gray-700" { (invoice_l10n.amount_due()) }
                 p class="text-right mb-2 text-xl font-bold text-green-600" { (format_currency_minor(invoice.total_amount, &invoice.currency)) }
 
                 div class="grid grid-cols-2 text-xs " {
                   div {
-                    p class="text-gray-600" { (l10n::invoice::issue_date(lang)) }
-                    p class="font-medium" { (format_date(lang, &invoice.issue_date)?) }
+                    p class="text-gray-600" { (invoice_l10n.issue_date()) }
+                    p class="font-medium" { (format_date(invoice_l10n.language_id(), &invoice.issue_date)?) }
                   }
                   div{
-                    p class="text-gray-600" { (l10n::invoice::due_date(lang)) }
-                    p class="font-medium" { (format_date(lang, &invoice.due_date)?) }
+                    p class="text-gray-600" { (invoice_l10n.due_date()) }
+                    p class="font-medium" { (format_date(invoice_l10n.language_id(), &invoice.due_date)?) }
                   }
                 }
             }
@@ -128,21 +138,21 @@ fn render_billing_info(
 }
 
 fn render_invoice_lines(
-    lang: &str,
+    invoice_l10n: &l10n::InvoiceL10N,
     lines: &[InvoiceLine],
     currency: &iso::Currency,
 ) -> Result<Markup, InvoicingError> {
     Ok(html! {
         div class="mb-8" {
-            h2 class="px-2 text-md font-semibold mb-4 text-gray-700 uppercase" { (l10n::invoice::invoice_lines(lang)) }
+            h2 class="px-2 text-md font-semibold mb-4 text-gray-700 uppercase" { (invoice_l10n.invoice_lines()) }
             table class="w-full border-collapse" {
                 thead {
                     tr class="text-gray-500 text-sm" {
-                        th class="p-2 text-left" { (l10n::invoice::description(lang)) }
-                        th class="p-2 text-right" { (l10n::invoice::quantity(lang)) }
-                        th class="p-2 text-right" { (l10n::invoice::unit_price(lang)) }
-                        th class="p-2 text-right" { (l10n::invoice::tax_rate(lang)) }
-                        th class="p-2 text-right" { (l10n::invoice::amount(lang)) }
+                        th class="p-2 text-left" { (invoice_l10n.description()) }
+                        th class="p-2 text-right" { (invoice_l10n.quantity()) }
+                        th class="p-2 text-right" { (invoice_l10n.unit_price()) }
+                        th class="p-2 text-right" { (invoice_l10n.tax_rate()) }
+                        th class="p-2 text-right" { (invoice_l10n.amount()) }
                     }
                 }
                 tbody {
@@ -154,7 +164,7 @@ fn render_invoice_lines(
                                     div class="text-sm text-gray-500" { (desc) }
                                 }
                                 div class="text-sm text-gray-500" {
-                                    (format!("{} → {}", format_date_short(lang, &line.start_date)?, format_date_short(lang, &line.end_date)?))
+                                    (format!("{} → {}", format_date_short(invoice_l10n.language_id(), &line.start_date)?, format_date_short(invoice_l10n.language_id(), &line.end_date)?))
                                 }
                             }
                             td class="p-2 text-right text-gray-600" {
@@ -199,22 +209,22 @@ fn render_invoice_lines(
     })
 }
 
-fn render_invoice_summary(lang: &str, invoice: &InvoiceMetadata) -> Markup {
+fn render_invoice_summary(invoice_l10n: &l10n::InvoiceL10N, invoice: &InvoiceMetadata) -> Markup {
     html! {
         div class="grid grid-cols-2 border-b border-gray-200 mb-8" {
             div {}
             div class="mb-4 rounded-lg p-4 bg-gray-50" {
                 table class="w-full" {
                     tr class="font-semibold"  {
-                        td class="p-2" { (l10n::invoice::subtotal(lang)) }
+                        td class="p-2" { (invoice_l10n.subtotal()) }
                         td class="p-2 text-right font-medium" { (format_currency_minor(invoice.subtotal, &invoice.currency)) }
                     }
                     tr {
-                        td class="p-2 text-gray-600" { (l10n::invoice::tax(lang)) " " (format_percentage_minor(invoice.tax_rate)) }
+                        td class="p-2 text-gray-600" { (invoice_l10n.tax()) " " (format_percentage_minor(invoice.tax_rate)) }
                         td class="p-2 text-right font-medium text-gray-800" { (format_currency_minor(invoice.tax_amount, &invoice.currency)) }
                     }
                     tr class="border-t border-gray-200" {
-                        td class="p-2 text-lg font-semibold text-gray-700" { (l10n::invoice::total_due(lang)) }
+                        td class="p-2 text-lg font-semibold text-gray-700" { (invoice_l10n.total_due()) }
                         td class="p-2 text-right text-lg font-bold text-green-600" { (format_currency_minor(invoice.total_amount, &invoice.currency)) }
                     }
                 }
@@ -224,13 +234,13 @@ fn render_invoice_summary(lang: &str, invoice: &InvoiceMetadata) -> Markup {
 }
 
 fn render_legal_info(
-    lang: &str,
+    invoice_l10n: &l10n::InvoiceL10N,
     organization: &Organization,
     invoice: &InvoiceMetadata,
 ) -> Result<Markup, InvoicingError> {
     let exchange_rate_text = match organization.exchange_rate {
         Some(rate) => {
-            let date = format_date(lang, &invoice.issue_date)
+            let date = format_date(invoice_l10n.language_id(), &invoice.issue_date)
                 .map_err(|_| InvoicingError::I18nError("Failed to format date".to_string()))?;
             let equality = format!(
                 "1 {} = {} {}",
@@ -243,18 +253,18 @@ fn render_legal_info(
                 &organization.accounting_currency,
             );
 
-            l10n::invoice::exchange_rate_info(lang, &equality, &amount_converted, &date).ok()
+            Some(invoice_l10n.exchange_rate_info(&date, &equality, &amount_converted))
         }
         None => None,
     };
 
     Ok(html! {
         div class="px-2 mb-8 text-gray-700" {
-            h2 class="text-md font-semibold mb-4 text-gray-700 uppercase" { (l10n::invoice::legal_info(lang)) }
+            h2 class="text-md font-semibold mb-4 text-gray-700 uppercase" { (invoice_l10n.legal_info()) }
 
             // TODO need proper tax info engine for other EU countries
             @if invoice.tax_rate == 0 {
-                p { (l10n::invoice::vat_exempt_legal(lang)) }
+                p { (invoice_l10n.vat_exempt_legal()) }
             }
             @if let Some(footer_info) = &organization.footer_info {
                 p { (footer_info) }

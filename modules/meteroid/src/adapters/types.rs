@@ -23,7 +23,7 @@ pub struct ParsedRequest {
     pub query_params: Option<String>,
 }
 
-#[axum::async_trait]
+#[async_trait::async_trait]
 pub trait WebhookAdapter: AdapterCommon + Sync {
     async fn verify_webhook(
         &self,
@@ -40,7 +40,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
     ) -> Result<bool, errors::AdapterWebhookError>;
 }
 
-#[axum::async_trait]
+#[async_trait::async_trait]
 pub trait InvoicingAdapter: AdapterCommon + Sync {
     async fn send_invoice(
         &self,
