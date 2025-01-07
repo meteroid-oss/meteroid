@@ -1,16 +1,9 @@
-use fluent_static_codegen::{generate, FunctionPerMessageCodeGenerator};
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 
 pub fn main() {
-    generate!(
-        "./l10n",
-        FunctionPerMessageCodeGenerator::new("en-US"),
-        "l10n.rs"
-    );
-
     // let's generate statics for the countries.json
     generate_country_translation()
 }
