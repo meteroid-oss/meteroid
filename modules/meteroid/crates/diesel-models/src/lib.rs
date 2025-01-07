@@ -22,12 +22,13 @@ pub mod slot_transactions;
 pub mod subscriptions;
 
 pub mod add_ons;
+pub mod applied_coupons;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod extend;
 pub mod historical_rates_from_usd;
 pub mod invoicing_entities;
-pub mod outbox;
+pub mod outbox_event;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;
@@ -44,3 +45,5 @@ use diesel_async::AsyncPgConnection;
 pub type DbResult<T> = Result<T, DatabaseErrorContainer>;
 
 pub type PgConn = Object<AsyncPgConnection>;
+
+pub mod aliases {}

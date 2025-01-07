@@ -1,35 +1,35 @@
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
+use super::PlanServiceComponents;
+use crate::api::plans::error::PlanApiError;
+use crate::api::plans::mapping::plans::{
+    ActionAfterTrialWrapper, ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper,
+    PlanTypeWrapper, PlanVersionWrapper, PlanWithVersionWrapper,
+};
+use crate::api::shared::conversions::FromProtoOpt;
+use crate::api::utils::PaginationExt;
+use crate::{api::utils::parse_uuid, parse_uuid};
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_grpc::meteroid::api::plans::v1::get_plan_with_version_request::Filter;
 use meteroid_grpc::meteroid::api::plans::v1::{
     list_plans_request::SortBy, plans_service_server::PlansService, CopyVersionToDraftRequest,
     CopyVersionToDraftResponse, CreateDraftPlanRequest, CreateDraftPlanResponse,
-    DiscardDraftVersionRequest, DiscardDraftVersionResponse, GetLastPublishedPlanVersionRequest,
-    GetLastPublishedPlanVersionResponse, GetPlanByExternalIdRequest, GetPlanByExternalIdResponse,
-    GetPlanOverviewByExternalIdRequest, GetPlanOverviewByExternalIdResponse,
-    GetPlanParametersRequest, GetPlanParametersResponse, GetPlanVersionByIdRequest,
-    GetPlanVersionByIdResponse, ListPlanVersionByIdRequest, ListPlanVersionByIdResponse,
-    ListPlansRequest, ListPlansResponse, ListSubscribablePlanVersionRequest,
-    ListSubscribablePlanVersionResponse, PublishPlanVersionRequest, PublishPlanVersionResponse,
-    UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
-    UpdatePublishedPlanOverviewRequest, UpdatePublishedPlanOverviewResponse,
+    DiscardDraftVersionRequest, DiscardDraftVersionResponse, GetPlanOverviewRequest,
+    GetPlanOverviewResponse, GetPlanParametersRequest, GetPlanParametersResponse,
+    GetPlanWithVersionRequest, GetPlanWithVersionResponse, ListPlanVersionByIdRequest,
+    ListPlanVersionByIdResponse, ListPlansRequest, ListPlansResponse, PublishPlanVersionRequest,
+    PublishPlanVersionResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
+    UpdatePlanTrialRequest, UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
+    UpdatePublishedPlanOverviewResponse,
 };
-use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
-
-use crate::api::plans::error::PlanApiError;
-
-use crate::api::domain_mapping::billing_period;
-use crate::api::plans::mapping::plans::{
-    ListPlanVersionWrapper, ListPlanWrapper, ListSubscribablePlanVersionWrapper,
-    PlanDetailsWrapper, PlanOverviewWrapper, PlanTypeWrapper, PlanVersionWrapper,
-};
-use crate::api::utils::PaginationExt;
-use crate::{api::utils::parse_uuid, parse_uuid};
 use meteroid_store::domain;
-use meteroid_store::domain::{OrderByRequest, PlanAndVersionPatch, PlanPatch, PlanVersionPatch};
+use meteroid_store::domain::{
+    OrderByRequest, PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter,
+    PlanVersionPatch, TrialPatch,
+};
 use meteroid_store::repositories::PlansInterface;
-
-use super::PlanServiceComponents;
+use meteroid_store::utils::local_id::{IdType, LocalId};
 
 #[tonic::async_trait]
 impl PlansService for PlanServiceComponents {
@@ -51,20 +51,18 @@ impl PlansService for PlanServiceComponents {
                 description: req.description,
                 created_by,
                 tenant_id,
-                external_id: req.external_id,
-                product_family_external_id: req.product_family_external_id,
+                local_id: LocalId::generate_for(IdType::Plan),
+                product_family_local_id: req.product_family_local_id,
                 status: domain::enums::PlanStatusEnum::Draft,
                 plan_type,
             },
             version: domain::PlanVersionNewInternal {
                 is_draft_version: true,
-                trial_duration_days: None,
-                trial_fallback_plan_id: None,
+                trial: None,
                 period_start_day: None,
                 net_terms: 0,
                 currency: None,
                 billing_cycles: None,
-                billing_periods: vec![],
             },
             price_components: vec![],
         };
@@ -73,32 +71,11 @@ impl PlansService for PlanServiceComponents {
             .store
             .insert_plan(plan_new)
             .await
-            .map(|x| PlanDetailsWrapper::from(x).0)
+            .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(CreateDraftPlanResponse {
             plan: Some(plan_details),
-        }))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn get_plan_by_external_id(
-        &self,
-        request: Request<GetPlanByExternalIdRequest>,
-    ) -> Result<Response<GetPlanByExternalIdResponse>, Status> {
-        let tenant_id = request.tenant()?;
-
-        let req = request.into_inner();
-
-        let plan_details = self
-            .store
-            .get_plan_by_external_id(req.external_id.as_str(), tenant_id)
-            .await
-            .map(|x| PlanDetailsWrapper::from(x).0)
-            .map_err(Into::<PlanApiError>::into)?;
-
-        Ok(Response::new(GetPlanByExternalIdResponse {
-            plan_details: Some(plan_details),
         }))
     }
 
@@ -124,12 +101,31 @@ impl PlansService for PlanServiceComponents {
             Err(_) => OrderByRequest::DateDesc,
         };
 
+        let plan_filters = match req.filters {
+            None => PlanFilters {
+                search: None,
+                filter_status: vec![],
+                filter_type: vec![],
+            },
+            Some(filter) => PlanFilters {
+                search: filter.search.clone(),
+                filter_status: filter
+                    .statuses()
+                    .map(|status| PlanStatusWrapper(status).into())
+                    .collect(),
+                filter_type: filter
+                    .types()
+                    .map(|plan_type| PlanTypeWrapper(plan_type).into())
+                    .collect(),
+            },
+        };
+
         let res = self
             .store
             .list_plans(
                 tenant_id,
-                req.search,
-                req.product_family_external_id,
+                req.product_family_local_id,
+                plan_filters,
                 pagination_req,
                 order_by,
             )
@@ -141,56 +137,8 @@ impl PlansService for PlanServiceComponents {
             plans: res
                 .items
                 .into_iter()
-                .map(|l| ListPlanWrapper::from(l).0)
+                .map(|l| PlanOverviewWrapper::from(l).0)
                 .collect::<Vec<_>>(),
-        };
-
-        Ok(Response::new(response))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn list_subscribable_plan_version(
-        &self,
-        request: Request<ListSubscribablePlanVersionRequest>,
-    ) -> Result<Response<ListSubscribablePlanVersionResponse>, Status> {
-        let tenant_id = request.tenant()?;
-
-        let plan_versions = self
-            .store
-            .list_latest_published_plan_versions(tenant_id)
-            .await
-            .map_err(Into::<PlanApiError>::into)?;
-
-        let response = ListSubscribablePlanVersionResponse {
-            plan_versions: plan_versions
-                .into_iter()
-                .map(|x| ListSubscribablePlanVersionWrapper::from(x).0)
-                .collect(),
-        };
-
-        Ok(Response::new(response))
-    }
-
-    #[tracing::instrument(skip_all)]
-    async fn get_plan_version_by_id(
-        &self,
-        request: Request<GetPlanVersionByIdRequest>,
-    ) -> Result<Response<GetPlanVersionByIdResponse>, Status> {
-        let tenant_id = request.tenant()?;
-
-        let req = request.into_inner();
-
-        let id = parse_uuid!(&req.plan_version_id)?;
-
-        let version = self
-            .store
-            .get_plan_version_by_id(id, tenant_id)
-            .await
-            .map_err(Into::<PlanApiError>::into)
-            .map(|x| PlanVersionWrapper::from(x).0)?;
-
-        let response = GetPlanVersionByIdResponse {
-            plan_version: Some(version),
         };
 
         Ok(Response::new(response))
@@ -276,27 +224,6 @@ impl PlansService for PlanServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_last_published_plan_version(
-        &self,
-        request: Request<GetLastPublishedPlanVersionRequest>,
-    ) -> Result<Response<GetLastPublishedPlanVersionResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let req = request.into_inner();
-        let plan_id = parse_uuid!(&req.plan_id)?;
-
-        let res = self
-            .store
-            .get_last_published_plan_version(plan_id, tenant_id)
-            .await
-            .map_err(Into::<PlanApiError>::into)
-            .map(|x| x.map(|x| PlanVersionWrapper::from(x).0))?;
-
-        Ok(Response::new(GetLastPublishedPlanVersionResponse {
-            version: res,
-        }))
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn discard_draft_version(
         &self,
         request: Request<DiscardDraftVersionRequest>,
@@ -325,16 +252,6 @@ impl PlansService for PlanServiceComponents {
 
         let plan_version_id = parse_uuid!(&req.plan_version_id)?;
 
-        let frequencies = req
-            .billing_periods
-            .iter()
-            .map(|f| {
-                BillingPeriod::try_from(*f)
-                    .map_err(|_| PlanApiError::InvalidArgument("billing period".to_string()))
-                    .map(billing_period::from_proto)
-            })
-            .collect::<Result<Vec<domain::enums::BillingPeriodEnum>, PlanApiError>>()?;
-
         let res = self
             .store
             .patch_draft_plan(PlanAndVersionPatch {
@@ -343,17 +260,16 @@ impl PlansService for PlanServiceComponents {
                     tenant_id,
                     currency: Some(req.currency),
                     net_terms: Some(req.net_terms as i32),
-                    billing_periods: Some(frequencies),
                 },
                 name: Some(req.name),
                 description: Some(req.description),
             })
             .await
-            .map_err(Into::<PlanApiError>::into)
-            .map(|x| PlanOverviewWrapper::from(x).0)?;
+            .map(|x| PlanWithVersionWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(UpdateDraftPlanOverviewResponse {
-            plan_overview: Some(res),
+            plan: Some(res),
         }))
     }
 
@@ -373,10 +289,11 @@ impl PlansService for PlanServiceComponents {
                 tenant_id,
                 name: Some(req.name),
                 description: Some(req.description),
+                active_version_id: None,
             })
             .await
-            .map_err(Into::<PlanApiError>::into)
-            .map(|x| PlanOverviewWrapper::from(x).0)?;
+            .map(|x| PlanOverviewWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(UpdatePublishedPlanOverviewResponse {
             plan_overview: Some(res),
@@ -384,32 +301,97 @@ impl PlansService for PlanServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn get_plan_overview_by_external_id(
-        &self,
-        request: Request<GetPlanOverviewByExternalIdRequest>,
-    ) -> Result<Response<GetPlanOverviewByExternalIdResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let req = request.into_inner();
-
-        let res = self
-            .store
-            .get_plan_with_version_by_external_id(&req.external_id, tenant_id)
-            .await
-            .map_err(Into::<PlanApiError>::into)
-            .map(|x| PlanOverviewWrapper::from(x).0)?;
-
-        let response = GetPlanOverviewByExternalIdResponse {
-            plan_overview: Some(res),
-        };
-
-        Ok(Response::new(response))
-    }
-
     async fn get_plan_parameters(
         &self,
         _request: Request<GetPlanParametersRequest>,
     ) -> Result<Response<GetPlanParametersResponse>, Status> {
         todo!()
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn update_plan_trial(
+        &self,
+        request: Request<UpdatePlanTrialRequest>,
+    ) -> Result<Response<UpdatePlanTrialResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+
+        let res = self
+            .store
+            .patch_trial(TrialPatch {
+                tenant_id,
+                plan_version_id,
+                trial: req
+                    .trial
+                    .map(|t| {
+                        Ok::<domain::PlanTrial, Status>(domain::PlanTrial {
+                            action_after_trial: Some(
+                                ActionAfterTrialWrapper(t.action_after_trial()).into(),
+                            ),
+                            duration_days: t.duration_days,
+                            trialing_plan_id: Uuid::from_proto_opt(t.trialing_plan_id)?,
+                            downgrade_plan_id: Uuid::from_proto_opt(t.downgrade_plan_id)?,
+                            require_pre_authorization: t.trial_is_free,
+                        })
+                    })
+                    .transpose()?,
+            })
+            .await
+            .map(|x| PlanWithVersionWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(UpdatePlanTrialResponse { plan: Some(res) }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_plan_overview(
+        &self,
+        request: Request<GetPlanOverviewRequest>,
+    ) -> Result<Response<GetPlanOverviewResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let res = self
+            .store
+            .get_plan_overview(&req.local_id, tenant_id)
+            .await
+            .map(|x| PlanOverviewWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(GetPlanOverviewResponse {
+            plan_overview: Some(res),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_plan_with_version(
+        &self,
+        request: Request<GetPlanWithVersionRequest>,
+    ) -> Result<Response<GetPlanWithVersionResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let filter = match req.filter {
+            None => PlanVersionFilter::Active,
+            Some(c) => match c {
+                Filter::Version(v) => PlanVersionFilter::Version(v as i32),
+                Filter::Draft(_) => PlanVersionFilter::Draft,
+                Filter::Active(_) => PlanVersionFilter::Active,
+            },
+        };
+
+        let res = self
+            .store
+            .get_plan(&req.local_id, tenant_id, filter)
+            .await
+            .map(|x| PlanWithVersionWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(GetPlanWithVersionResponse {
+            plan: Some(res),
+        }))
     }
 
     //

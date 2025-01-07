@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS outbox;
+DROP TYPE IF EXISTS "OutboxStatus";

@@ -40,16 +40,16 @@ impl ProductFamilyRow {
             .into_db_result()
     }
 
-    pub async fn find_by_external_id_and_tenant_id(
+    pub async fn find_by_local_id_and_tenant_id(
         conn: &mut PgConn,
-        external_id: &str,
+        local_id: &str,
         tenant_id: Uuid,
     ) -> DbResult<ProductFamilyRow> {
         use crate::schema::product_family::dsl as pf_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = pf_dsl::product_family
-            .filter(pf_dsl::external_id.eq(external_id))
+            .filter(pf_dsl::local_id.eq(local_id))
             .filter(pf_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -57,7 +57,7 @@ impl ProductFamilyRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding product family by external_id and tenant_id")
+            .attach_printable("Error while finding product family by local_id and tenant_id")
             .into_db_result()
     }
 }

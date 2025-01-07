@@ -1,5 +1,7 @@
 use axum::response::{IntoResponse, Response};
+use error_stack::Report;
 use hyper::StatusCode;
+use meteroid_store::errors::StoreError;
 
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum AdapterWebhookError {
@@ -102,4 +104,70 @@ pub enum InvoicingRenderError {
     StorageError,
     #[error("Failed to load data to render invoice")]
     StoreError,
+}
+
+#[allow(unused)]
+#[derive(Debug, thiserror::Error, Clone)]
+pub enum RestApiError {
+    #[error("Object store error")]
+    ObjectStoreError,
+    #[error("Failed to load image")]
+    ImageLoadingError,
+    #[error("Unauthorized")]
+    Unauthorized,
+    #[error("Internal server error")]
+    StoreError,
+    #[error("Forbidden")]
+    Forbidden,
+    #[error("Invalid input")]
+    InvalidInput,
+    #[error("Resource not found")]
+    NotFound,
+    #[error("Conflict")]
+    Conflict,
+}
+
+impl IntoResponse for RestApiError {
+    fn into_response(self) -> Response {
+        let status = match self {
+            RestApiError::ObjectStoreError => StatusCode::INTERNAL_SERVER_ERROR,
+            RestApiError::ImageLoadingError => StatusCode::INTERNAL_SERVER_ERROR,
+            RestApiError::Unauthorized => StatusCode::UNAUTHORIZED,
+            RestApiError::Forbidden => StatusCode::FORBIDDEN,
+            RestApiError::InvalidInput => StatusCode::BAD_REQUEST,
+            RestApiError::StoreError => StatusCode::INTERNAL_SERVER_ERROR,
+            RestApiError::NotFound => StatusCode::NOT_FOUND,
+            RestApiError::Conflict => StatusCode::CONFLICT,
+        };
+
+        let error_message = match status {
+            StatusCode::INTERNAL_SERVER_ERROR => {
+                "Internal server error. Please refer to logs or support.".to_string()
+            }
+            _ => format!("{}", self),
+        };
+        (status, error_message).into_response()
+    }
+}
+
+impl From<Report<StoreError>> for RestApiError {
+    fn from(err: Report<StoreError>) -> Self {
+        match err.current_context() {
+            StoreError::ValueNotFound(_) => RestApiError::NotFound,
+            StoreError::DuplicateValue { .. } => RestApiError::Conflict,
+            _ => RestApiError::StoreError,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ObjectStoreError {
+    #[error("Failed to parse url")]
+    InvalidUrl,
+    #[error("Error saving object to object store")]
+    SaveError,
+    #[error("Error loading object from object store")]
+    LoadError,
+    #[error("Unsupported object store: {0}")]
+    UnsupportedStore(String),
 }

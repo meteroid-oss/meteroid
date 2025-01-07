@@ -20,7 +20,7 @@ pub struct Connect {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Schema {
     pub event_name: String,
-    pub customer_ids: Vec<String>,
+    pub customer_aliases: Vec<String>,
     pub properties: std::collections::HashMap<String, Property>,
     pub weight: Option<f64>,
 }

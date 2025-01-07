@@ -69,7 +69,7 @@ importers:
     dependencies:
       '@mertasan/tailwindcss-variables':
         specifier: ^2.7.0
-        version: 2.7.0(autoprefixer@10.4.17(postcss@8.4.37))(postcss@8.4.37)
+        version: 2.7.0(autoprefixer@10.4.17(postcss@8.4.38))(postcss@8.4.38)
       '@radix-ui/colors':
         specifier: ^3.0.0
         version: 3.0.0
@@ -3947,6 +3947,7 @@ packages:
   are-we-there-yet@2.0.0:
     resolution: {integrity: sha512-Ci/qENmwHnsYo9xKIcUJN5LeDKdJ6R1Z1j9V/J5wyq8nh/mYPEpIKJbBZXtZjG04HiK7zV/p6Vs9952MrMeUIw==}
     engines: {node: '>=10'}
+    deprecated: This package is no longer supported.
 
   arg@4.1.3:
     resolution: {integrity: sha512-58S9QDqG0Xx27YwPSt9fJxivjYl432YCwfDMfZ+71RAqUrZef7LrKQZ3LHLOwCS4FLNBplP533Zx895SeOCHvA==}
@@ -5027,6 +5028,7 @@ packages:
   eslint@8.56.0:
     resolution: {integrity: sha512-Go19xM6T9puCOWntie1/P997aXxFsOi37JIHRWI514Hc6ZnaHGKY9xFhrU65RT6CcBEzZoGG1e6Nq+DT04ZtZQ==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
 
   espree@9.6.1:
@@ -5254,6 +5256,7 @@ packages:
   gauge@3.0.2:
     resolution: {integrity: sha512-+5J6MS/5XksCuXq++uFRsnUd7Ovu1XenbeuIuNRJxYWjgQbPuFhT14lAvsWfqfAmnwluf1OwMjz39HjfLPci0Q==}
     engines: {node: '>=10'}
+    deprecated: This package is no longer supported.
 
   gensync@1.0.0-beta.2:
     resolution: {integrity: sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg==}
@@ -6417,6 +6420,7 @@ packages:
 
   npmlog@5.0.1:
     resolution: {integrity: sha512-AqZtDUWOMKs1G/8lwylVjrdYgqA4d9nu8hc+0gzRxlDb1I10+FHBGMXs6aiQHFdCUUlqH99MUMuLfzWDNDtfxw==}
+    deprecated: This package is no longer supported.
 
   nth-check@2.1.1:
     resolution: {integrity: sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==}
@@ -9784,11 +9788,11 @@ snapshots:
       '@types/react': 18.2.55
       react: 18.2.0
 
-  '@mertasan/tailwindcss-variables@2.7.0(autoprefixer@10.4.17(postcss@8.4.37))(postcss@8.4.37)':
+  '@mertasan/tailwindcss-variables@2.7.0(autoprefixer@10.4.17(postcss@8.4.38))(postcss@8.4.38)':
     dependencies:
-      autoprefixer: 10.4.17(postcss@8.4.37)
+      autoprefixer: 10.4.17(postcss@8.4.38)
       lodash: 4.17.21
-      postcss: 8.4.37
+      postcss: 8.4.38
 
   '@microsoft/api-extractor-model@7.28.3(@types/node@20.11.16)':
     dependencies:
@@ -12446,16 +12450,6 @@ snapshots:
       has-symbols: 1.0.3
 
   asynckit@0.4.0: {}
-
-  autoprefixer@10.4.17(postcss@8.4.37):
-    dependencies:
-      browserslist: 4.22.3
-      caniuse-lite: 1.0.30001583
-      fraction.js: 4.3.7
-      normalize-range: 0.1.2
-      picocolors: 1.0.0
-      postcss: 8.4.37
-      postcss-value-parser: 4.2.0
 
   autoprefixer@10.4.17(postcss@8.4.38):
     dependencies:

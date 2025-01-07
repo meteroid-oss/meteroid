@@ -9,13 +9,12 @@ use std::time::Duration;
 
 use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
-use distributed_lock::locks::LockKey;
 use meteroid::config::Config;
 use meteroid::services::invoice_rendering::PdfRenderingService;
-use meteroid::services::outbox::invoice_finalized::InvoiceFinalizedOutboxWorker;
+use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::workers::fang as mfang;
-use meteroid::workers::invoicing::price_worker::PriceWorker;
+use meteroid::workers::kafka::processors;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             //     Box::new(PendingStatusWorker),
             //     LockKey::InvoicingPendingStatus,
             // ),
-            (Box::new(PriceWorker), LockKey::InvoicingPrice),
+            // (Box::new(PriceWorker), LockKey::InvoicingPrice),
             // (Box::new(FinalizeWorker), LockKey::InvoicingFinalize),
             // (Box::new(IssueWorker), LockKey::InvoicingIssue),
             // (Box::new(CurrencyRatesWorker), LockKey::CurrencyRates),
@@ -51,19 +50,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = Arc::new(singletons::get_store().await.clone());
 
+    let object_store_service = Arc::new(S3Storage::try_new(
+        &config.object_store_uri,
+        &config.object_store_prefix,
+    )?);
+
     let pdf_service = PdfRenderingService::try_new(
         config.gotenberg_url.clone(),
-        config.s3_uri.clone(),
-        config.s3_prefix.clone(),
+        object_store_service,
         store.clone(),
     )?;
 
-    let invoice_finalized_outbox_worker =
-        InvoiceFinalizedOutboxWorker::new(pdf_service, store.clone());
-
     tokio::try_join!(
         tokio::spawn(async move {
-            invoice_finalized_outbox_worker.run().await;
+            processors::run_pdf_renderer_outbox_processor(&config.kafka, pdf_service).await;
+        }),
+        tokio::spawn(async move {
+            processors::run_webhook_outbox_processor(&config.kafka, store.clone()).await;
         }),
         // ...
     )?;

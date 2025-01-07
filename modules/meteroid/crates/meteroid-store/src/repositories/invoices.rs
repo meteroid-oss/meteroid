@@ -5,17 +5,21 @@ use crate::{domain, StoreResult};
 use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
-use diesel_models::PgConn;
-use error_stack::Report;
+use diesel_models::{DbResult, PgConn};
+use error_stack::{Report, ResultExt};
 
 use crate::compute::InvoiceLineInterface;
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, OutboxEvent, PaginatedVec, PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Identity, Invoice,
+    InvoiceLinesPatch, InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec,
+    PaginationRequest,
 };
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
+use crate::utils::decimals::ToUnit;
 use common_eventbus::Event;
+use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -147,34 +151,17 @@ impl InvoiceInterface for Store {
     }
 
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
-        let mut conn = self.get_conn().await?;
-
-        insert_invoice(&mut conn, invoice).await
+        self.transaction(|conn| {
+            async move { insert_invoice_tx(self, conn, invoice).await }.scope_boxed()
+        })
+        .await
     }
 
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>> {
-        let mut conn = self.get_conn().await?;
-
-        let insertable_invoice: Vec<InvoiceRowNew> = invoice
-            .into_iter()
-            .map(|c| c.try_into())
-            .collect::<Result<_, _>>()?;
-
-        let inserted: Vec<Invoice> =
-            InvoiceRow::insert_invoice_batch(&mut conn, insertable_invoice)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-                .and_then(|v| {
-                    v.into_iter()
-                        .map(TryInto::try_into)
-                        .collect::<Result<Vec<_>, Report<StoreError>>>()
-                })?;
-
-        for inv in &inserted {
-            process_mrr(inv, &mut conn).await?; // TODO batch
-        }
-
-        Ok(inserted)
+        self.transaction(|conn| {
+            async move { insert_invoice_batch_tx(self, conn, invoice).await }.scope_boxed()
+        })
+        .await
     }
 
     async fn update_invoice_external_status(
@@ -243,10 +230,12 @@ impl InvoiceInterface for Store {
 
     async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
         let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let applied_coupons_amounts = patch.applied_coupons.clone();
+        let row_patch = patch.try_into()?;
+
         self.transaction(|conn| {
             async move {
-                let refreshed = refresh_invoice_data(conn, id, tenant_id, &patch).await?;
-
+                let refreshed = refresh_invoice_data(conn, id, tenant_id, &row_patch).await?;
                 if refreshed.invoice.applied_credits > 0 {
                     CustomerBalance::update(
                         conn,
@@ -272,9 +261,18 @@ impl InvoiceInterface for Store {
                     refreshed.invoice.invoice_date,
                 );
 
-                let res = InvoiceRow::finalize(conn, id, tenant_id, new_invoice_number)
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
+                let applied_coupons_ids =
+                    refresh_applied_coupons(conn, &refreshed, &applied_coupons_amounts).await?;
+
+                let res = InvoiceRow::finalize(
+                    conn,
+                    id,
+                    tenant_id,
+                    new_invoice_number,
+                    &applied_coupons_ids,
+                )
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
                 InvoicingEntityRow::update_invoicing_entity_number(
                     conn,
@@ -285,14 +283,15 @@ impl InvoiceInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
+                let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(conn, tenant_id, id)
+                    .await
+                    .map_err(Into::into)
+                    .and_then(|row| row.try_into())?;
+
                 self.internal
-                    .insert_outbox_item(
+                    .insert_outbox_events_tx(
                         conn,
-                        domain::OutboxNew {
-                            event_type: OutboxEvent::InvoiceFinalized,
-                            resource_id: id,
-                            payload: None,
-                        },
+                        vec![OutboxEvent::invoice_finalized(final_invoice.into())],
                     )
                     .await?;
 
@@ -405,7 +404,9 @@ impl InvoiceInterface for Store {
         id: Uuid,
         tenant_id: Uuid,
     ) -> StoreResult<DetailedInvoice> {
-        let patch = compute_invoice_patch(self, id, tenant_id).await?;
+        let patch = compute_invoice_patch(self, id, tenant_id)
+            .await?
+            .try_into()?;
         let mut conn = self.get_conn().await?;
         refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
     }
@@ -542,7 +543,7 @@ async fn compute_invoice_patch(
     store: &Store,
     invoice_id: Uuid,
     tenant_id: Uuid,
-) -> StoreResult<InvoiceRowLinesPatch> {
+) -> StoreResult<InvoiceLinesPatch> {
     let invoice = store.find_invoice_by_id(tenant_id, invoice_id).await?;
 
     match invoice.invoice.subscription_id {
@@ -552,27 +553,65 @@ async fn compute_invoice_patch(
         .into()),
         Some(subscription_id) => {
             let subscription_details = store
-                .get_subscription_details(tenant_id, subscription_id)
+                .get_subscription_details(tenant_id, Identity::UUID(subscription_id))
                 .await?;
             let lines = store
-                .compute_dated_invoice_lines(&invoice.invoice.invoice_date, subscription_details)
-                .await?;
+                .compute_dated_invoice_lines(&invoice.invoice.invoice_date, &subscription_details)
+                .await
+                .change_context(StoreError::InvoiceComputationError)?;
 
-            InvoiceLinesPatch::from_invoice_and_lines(&invoice, lines).try_into()
+            Ok(InvoiceLinesPatch::new(
+                &invoice,
+                lines,
+                &subscription_details.applied_coupons,
+            ))
         }
     }
 }
 
-pub async fn insert_invoice(conn: &mut PgConn, invoice: InvoiceNew) -> StoreResult<Invoice> {
-    let insertable_invoice: InvoiceRowNew = invoice.try_into()?;
+pub async fn insert_invoice_tx(
+    store: &Store,
+    tx: &mut PgConn,
+    invoice: InvoiceNew,
+) -> StoreResult<Invoice> {
+    insert_invoice_batch_tx(store, tx, vec![invoice])
+        .await?
+        .pop()
+        .ok_or(StoreError::InsertError.into())
+}
 
-    let inserted: Invoice = insertable_invoice
-        .insert(conn)
+async fn insert_invoice_batch_tx(
+    store: &Store,
+    tx: &mut PgConn,
+    invoice: Vec<InvoiceNew>,
+) -> StoreResult<Vec<Invoice>> {
+    let insertable_invoice: Vec<InvoiceRowNew> = invoice
+        .into_iter()
+        .map(|c| c.try_into())
+        .collect::<Result<_, _>>()?;
+
+    let inserted: Vec<Invoice> = InvoiceRow::insert_invoice_batch(tx, insertable_invoice)
         .await
         .map_err(Into::<Report<StoreError>>::into)
-        .and_then(TryInto::try_into)?;
+        .and_then(|v| {
+            v.into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<StoreError>>>()
+        })?;
 
-    process_mrr(&inserted, conn).await?;
+    // TODO batch
+    for inv in &inserted {
+        process_mrr(inv, tx).await?;
+        let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(tx, inv.tenant_id, inv.id)
+            .await
+            .map_err(Into::into)
+            .and_then(|row| row.try_into())?;
+
+        store
+            .internal
+            .insert_outbox_events_tx(tx, vec![OutboxEvent::invoice_created(final_invoice.into())])
+            .await?;
+    }
 
     Ok(inserted)
 }
@@ -599,4 +638,41 @@ async fn process_pending_tx(conn: &mut PgConn, invoice_id: Uuid) -> StoreResult<
     }
 
     Ok(())
+}
+
+async fn refresh_applied_coupons(
+    tx_conn: &mut PgConn,
+    invoice: &DetailedInvoice,
+    applied_coupons_amounts: &[(Uuid, i64)],
+) -> DbResult<Vec<Uuid>> {
+    let applied_coupons_ids: Vec<Uuid> = applied_coupons_amounts.iter().map(|(k, _)| *k).collect();
+
+    let applied_coupons_detailed =
+        AppliedCouponDetailedRow::list_by_ids_for_update(tx_conn, &applied_coupons_ids).await?;
+
+    for applied_coupon_detailed in applied_coupons_detailed {
+        let amount_delta = if applied_coupon_detailed
+            .coupon
+            .recurring_value
+            .is_some_and(|x| x == 1)
+        {
+            let cur = rusty_money::iso::find(&invoice.invoice.currency).unwrap();
+
+            applied_coupons_amounts
+                .iter()
+                .find(|x| x.0 == applied_coupon_detailed.applied_coupon.id)
+                .map(|x| x.1.to_unit(cur.exponent as u8))
+        } else {
+            None
+        };
+
+        AppliedCouponRow::refresh_state(
+            tx_conn,
+            applied_coupon_detailed.applied_coupon.id,
+            amount_delta,
+        )
+        .await?;
+    }
+
+    Ok(applied_coupons_ids)
 }

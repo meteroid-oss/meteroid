@@ -3,9 +3,6 @@ syntax = "proto3";
 package meteroid.api.webhooks.out.v1;
 
 import "api/webhooksout/v1/models.proto";
-import "google/protobuf/timestamp.proto";
-import "api/invoices/v1/models.proto";
-import "common/v1/pagination.proto";
 
 message CreateWebhookEndpointRequest {
   string url = 1;
@@ -17,31 +14,28 @@ message CreateWebhookEndpointResponse {
   WebhookEndpoint endpoint = 1;
 }
 
-message ListWebhookEndpointsRequest {}
+message ListWebhookEndpointsRequest {
+  optional int32 limit = 1;
+  optional string iterator = 2;
+}
 
 message ListWebhookEndpointsResponse {
-  repeated WebhookEndpoint endpoints = 1;
+  repeated WebhookEndpointListItem data = 1;
+  bool done = 2;
+  optional string iterator = 3;
+  optional string prev_iterator = 4;
 }
 
-message ListWebhookEventsRequest {
-  enum SortBy {
-    DATE_DESC = 0;
-    DATE_ASC = 1;
-    ID_DESC = 2;
-    ID_ASC = 3;
-  }
-  SortBy sort_by = 1;
-  string endpoint_id = 2;
-  meteroid.common.v1.Pagination pagination = 3;
+message GetWebhookEndpointRequest {
+  string id = 1;
 }
 
-message ListWebhookEventsResponse {
-  repeated WebhookEvent events = 1;
-  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+message GetWebhookEndpointResponse {
+  WebhookEndpoint endpoint = 1;
 }
 
 service WebhooksService {
   rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse) {};
+  rpc GetWebhookEndpoint(GetWebhookEndpointRequest) returns (GetWebhookEndpointResponse) {};
   rpc ListWebhookEndpoints(ListWebhookEndpointsRequest) returns (ListWebhookEndpointsResponse) {};
-  rpc ListWebhookEvents(ListWebhookEventsRequest) returns (ListWebhookEventsResponse) {};
 }

@@ -13,8 +13,9 @@ use crate::helpers;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
+use meteroid::services::storage::in_memory_object_store;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
-use meteroid_store::store::PgPool;
+use meteroid_store::store::{PgPool, StoreConfig};
 
 pub struct MeteroidSetup {
     pub token: CancellationToken,
@@ -31,12 +32,11 @@ pub async fn start_meteroid_with_port(
     seed_level: SeedLevel,
     usage_client: Arc<dyn UsageClient>,
 ) -> MeteroidSetup {
-    let invoicing_webhook_addr =
-        helpers::network::free_local_socket().expect("Could not get webhook addr");
+    let rest_api_addr = helpers::network::free_local_socket().expect("Could not get webhook addr");
 
     let config = super::config::mocked_config(
         postgres_connection_string,
-        invoicing_webhook_addr,
+        rest_api_addr,
         meteroid_port,
         metering_port,
     );
@@ -44,22 +44,27 @@ pub async fn start_meteroid_with_port(
     let token = CancellationToken::new();
     let cloned_token = token.clone();
 
-    let store = meteroid_store::Store::new(
-        config.database_url.clone(),
-        config.secrets_crypt_key.clone(),
-        config.jwt_secret.clone(),
-        config.multi_organization_enabled,
-        create_eventbus_memory(),
+    let store = meteroid_store::Store::new(StoreConfig {
+        database_url: config.database_url.clone(),
+        crypt_key: config.secrets_crypt_key.clone(),
+        jwt_secret: config.jwt_secret.clone(),
+        multi_organization_enabled: config.multi_organization_enabled,
+        eventbus: create_eventbus_memory(),
         usage_client,
-    )
+        svix: None,
+    })
     .expect("Could not create store");
 
     populate_postgres(&store.pool, seed_level).await;
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
-    log::info!("Starting gRPC server {}", config.listen_addr);
-    let private_server = meteroid::api::server::start_api_server(config.clone(), store.clone());
+    log::info!("Starting gRPC server {}", config.grpc_listen_addr);
+    let private_server = meteroid::api::server::start_api_server(
+        config.clone(),
+        store.clone(),
+        in_memory_object_store(),
+    );
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
@@ -72,7 +77,7 @@ pub async fn start_meteroid_with_port(
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let meteroid_endpoint = format!("http://{}", config.listen_addr);
+    let meteroid_endpoint = format!("http://{}", config.grpc_listen_addr);
 
     log::info!("Creating gRPC channel {}", meteroid_endpoint);
 
@@ -136,9 +141,7 @@ pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
 }
 
 pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
-    let conn = pool.get().await.unwrap();
-
-    migrations::run(conn).await.unwrap();
+    migrations::run(pool).await.unwrap();
 
     let mut conn = pool.get().await.unwrap();
 
@@ -153,6 +156,7 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum SeedLevel {
     MINIMAL,
     PRODUCT,
@@ -177,6 +181,7 @@ impl SeedLevel {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub enum Seed {
     MINIMAL,
     CUSTOMERS,

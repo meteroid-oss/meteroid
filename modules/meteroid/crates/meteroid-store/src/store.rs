@@ -17,7 +17,9 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::str::FromStr;
 use std::sync::Arc;
+use svix::api::{ApplicationIn, ApplicationOut, Svix};
 use tokio_postgres_rustls::MakeRustlsConnect;
+use uuid::Uuid;
 
 pub type PgPool = Pool<AsyncPgConnection>;
 pub type PgConn = Object<AsyncPgConnection>;
@@ -36,6 +38,17 @@ pub struct Store {
     pub(crate) usage_client: Arc<dyn UsageClient>,
     pub(crate) settings: Settings,
     pub(crate) internal: StoreInternal,
+    pub(crate) svix: Option<Arc<Svix>>,
+}
+
+pub struct StoreConfig {
+    pub database_url: String,
+    pub crypt_key: secrecy::SecretString,
+    pub jwt_secret: secrecy::SecretString,
+    pub multi_organization_enabled: bool,
+    pub eventbus: Arc<dyn EventBus<Event>>,
+    pub usage_client: Arc<dyn UsageClient>,
+    pub svix: Option<Arc<Svix>>,
 }
 
 /**
@@ -73,7 +86,9 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
     Pool::builder(mgr)
         .build()
         .map_err(Report::from)
-        .change_context(StoreError::InitializationError)
+        .change_context(StoreError::InitializationError(
+            "Database connection pool".into(),
+        ))
         .attach_printable("Failed to create PostgreSQL connection pool")
 }
 
@@ -94,26 +109,20 @@ fn establish_secure_connection(db_url: &str) -> BoxFuture<ConnectionResult<Async
 }
 
 impl Store {
-    pub fn new(
-        database_url: String,
-        crypt_key: secrecy::SecretString,
-        jwt_secret: secrecy::SecretString,
-        multi_organization_enabled: bool,
-        eventbus: Arc<dyn EventBus<Event>>,
-        usage_client: Arc<dyn UsageClient>,
-    ) -> StoreResult<Self> {
-        let pool: PgPool = diesel_make_pg_pool(database_url)?;
+    pub fn new(config: StoreConfig) -> StoreResult<Self> {
+        let pool: PgPool = diesel_make_pg_pool(config.database_url)?;
 
         Ok(Store {
             pool,
-            eventbus,
-            usage_client,
+            eventbus: config.eventbus,
+            usage_client: config.usage_client,
             settings: Settings {
-                crypt_key,
-                jwt_secret,
-                multi_organization_enabled,
+                crypt_key: config.crypt_key,
+                jwt_secret: config.jwt_secret,
+                multi_organization_enabled: config.multi_organization_enabled,
             },
             internal: StoreInternal {},
+            svix: config.svix,
         })
     }
 
@@ -168,6 +177,31 @@ impl Store {
             .await?;
 
         Ok(result)
+    }
+
+    pub(crate) fn svix(&self) -> StoreResult<Arc<Svix>> {
+        self.svix
+            .clone()
+            .ok_or(StoreError::InitializationError("svix client config".into()).into())
+    }
+
+    pub(crate) async fn svix_application(&self, tenant_id: Uuid) -> StoreResult<ApplicationOut> {
+        let svix = self.svix()?;
+        let app_name = format!("tenant-{}", tenant_id);
+        svix.application()
+            .get_or_create(
+                ApplicationIn {
+                    metadata: None,
+                    name: app_name,
+                    rate_limit: None,
+                    uid: Some(tenant_id.to_string()),
+                },
+                None,
+            )
+            .await
+            .change_context(StoreError::WebhookServiceError(
+                "Failed to get or create svix application".into(),
+            ))
     }
 }
 

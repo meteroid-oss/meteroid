@@ -9,25 +9,23 @@ license.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+base64 = { workspace = true }
 bytes.workspace = true
 chrono = { workspace = true, features = ["clock", "serde", "unstable-locales", "alloc"] }
-error-stack = { workspace = true }
 fluent-static.workspace = true
 fluent.workspace = true
 maud.workspace = true
-meteroid-store.workspace = true
-object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }
 once_cell = { workspace = true }
 reqwest = { workspace = true, features = ["default", "multipart", "blocking"] }
 rust_decimal = { workspace = true }
-rust_decimal_macros = { workspace = true }
 rusty-money = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
 unic-langid.workspace = true
-url.workspace = true
-uuid.workspace = true
+serde_json.workspace = true
 
 [build-dependencies]
 fluent-static-codegen.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+

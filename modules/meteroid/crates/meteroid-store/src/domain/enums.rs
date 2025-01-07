@@ -1,7 +1,20 @@
+use crate::errors::StoreError;
+use crate::StoreResult;
 use diesel_models::enums as diesel_enums;
+use error_stack::ResultExt;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::str::FromStr;
+use strum::{Display, EnumIter, EnumString};
+
+#[derive(o2o, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[map_owned(diesel_enums::ActionAfterTrialEnum)]
+pub enum ActionAfterTrialEnum {
+    Block,
+    Charge,
+    Downgrade,
+}
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]
 #[map_owned(diesel_enums::BillingMetricAggregateEnum)]
@@ -126,16 +139,7 @@ pub enum OrganizationUserRole {
     Member,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-#[map_owned(diesel_enums::OutboxStatus)]
-pub enum OutboxStatus {
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-}
-
-#[derive(o2o, Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Default, Clone, PartialEq, Display, EnumString)]
 #[map_owned(diesel_enums::PlanStatusEnum)]
 pub enum PlanStatusEnum {
     #[default]
@@ -145,7 +149,7 @@ pub enum PlanStatusEnum {
     Archived,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Default, PartialEq, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Default, PartialEq, Clone, Display, EnumString)]
 #[map_owned(diesel_enums::PlanTypeEnum)]
 pub enum PlanTypeEnum {
     Standard,
@@ -165,13 +169,45 @@ pub enum UnitConversionRoundingEnum {
     None,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq)]
-#[map_owned(diesel_enums::WebhookOutEventTypeEnum)]
+#[derive(Debug, Clone, PartialEq, Display, EnumIter, EnumString, Serialize)]
 pub enum WebhookOutEventTypeEnum {
+    #[strum(serialize = "customer.created")]
+    #[serde(rename = "customer.created")]
     CustomerCreated,
+    #[strum(serialize = "subscription.created")]
+    #[serde(rename = "subscription.created")]
     SubscriptionCreated,
+    #[strum(serialize = "invoice.created")]
+    #[serde(rename = "invoice.created")]
     InvoiceCreated,
+    #[strum(serialize = "invoice.finalized")]
+    #[serde(rename = "invoice.finalized")]
     InvoiceFinalized,
+}
+
+impl WebhookOutEventTypeEnum {
+    pub fn from_svix_channels(
+        channels: &Option<Vec<String>>,
+    ) -> StoreResult<Vec<WebhookOutEventTypeEnum>> {
+        channels
+            .as_ref()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|x| WebhookOutEventTypeEnum::from_str(x.as_str()))
+            .collect::<Result<Vec<_>, _>>()
+            .change_context(StoreError::WebhookServiceError(
+                "invalid webhook event type".into(),
+            ))
+    }
+
+    pub fn group(&self) -> String {
+        match self {
+            WebhookOutEventTypeEnum::CustomerCreated => "customer".to_string(),
+            WebhookOutEventTypeEnum::SubscriptionCreated => "subscription".to_string(),
+            WebhookOutEventTypeEnum::InvoiceCreated => "invoice".to_string(),
+            WebhookOutEventTypeEnum::InvoiceFinalized => "invoice".to_string(),
+        }
+    }
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]

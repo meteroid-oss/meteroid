@@ -7,6 +7,14 @@ on:
       - main
   pull_request:
     types: [ opened, reopened, synchronize ]
+    paths:
+      - ".github/workflows/ci-rust.yaml"
+      - "Cargo.*"
+      - "crates/**"
+      - "extra/**"
+      - "modules/meteroid/**"
+      - "modules/metering/**"
+      - "modules/adapters/**"
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
@@ -46,7 +54,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.5
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Install nextest
         uses: taiki-e/cache-cargo-install-action@v2
         with:
@@ -87,6 +95,35 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.5
+        uses: mozilla-actions/sccache-action@v0.0.7
       - name: Linting
         run: cargo clippy -- -D warnings
+
+  openapi:
+    name: Open API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang unzip libsasl2-dev
+          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.8/protoc-21.8-linux-x86_64.zip
+          unzip protoc*.zip
+          sudo mv bin/protoc /usr/local/bin
+          sudo mv include/google /usr/local/include
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.7
+      - name: Validate OpenAPI
+        run: |
+          cargo run -p meteroid --bin openapi-generate
+          if [[ -n "$(git status --porcelain spec/api/v1/openapi.json)" ]]; then
+            echo "openapi.json is not up to date. Please run 'cargo run -p meteroid --bin openapi-generate' and commit changes."
+            git --no-pager diff spec/api/v1/openapi.json
+            exit 1
+          fi

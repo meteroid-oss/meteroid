@@ -63,9 +63,8 @@ pub mod mapping {
 
 // v2 conversions, we should now encode dates/decimals etc as string
 pub mod conversions {
-    use std::str::FromStr;
 
-    //  custom error instead of status ?
+    use std::str::FromStr;
 
     pub trait ProtoConv<T> {
         fn as_proto(&self) -> T;

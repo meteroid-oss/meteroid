@@ -4,7 +4,7 @@ import "api/shared/v1/shared.proto";
 
 import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
-
+import "api/coupons/v1/models.proto";
 
 package meteroid.api.subscriptions.v1;
 
@@ -42,6 +42,7 @@ message Subscription {
   uint64 mrr_cents = 23;
   SubscriptionStatus status = 24;
   // TODO accrued (total up until now ? ) , due (next billing cycle) , last X months of revenue for a graph ?
+  string local_id = 25;
 }
 
 message SubscriptionDetails {
@@ -50,6 +51,7 @@ message SubscriptionDetails {
   repeated SubscriptionComponent price_components = 3;
   repeated BillableMetric metrics = 4;
   repeated SubscriptionAddOn add_ons = 5;
+  repeated meteroid.api.coupons.v1.AppliedCouponDetailed applied_coupons = 6;
 }
 
 // TODO replace by subscription or even subscription details
@@ -70,6 +72,7 @@ message CreatedSubscription {
   optional string invoice_threshold = 14;
   optional string activated_at = 15;
   uint64 mrr_cents = 18;
+  string local_id = 19;
 }
 
 message CreateSubscription {
@@ -85,6 +88,7 @@ message CreateSubscription {
   optional string invoice_threshold = 12;
   CreateSubscriptionComponents components = 14;
   CreateSubscriptionAddOns add_ons = 15;
+  CreateSubscriptionCoupons coupons = 16;
 }
 
 message CreateSubscriptionAddOn {
@@ -121,6 +125,14 @@ message SubscriptionAddOn {
   SubscriptionFee fee = 6;
 }
 
+message CreateSubscriptionCoupon {
+  string coupon_id = 1;
+}
+
+message CreateSubscriptionCoupons {
+  repeated CreateSubscriptionCoupon coupons = 1;
+}
+
 message CreateSubscriptionComponents {
   repeated ComponentParameterization parameterized_components = 18;
   repeated ComponentOverride overridden_components = 19;
@@ -154,7 +166,7 @@ message BillableMetric {
 message SubscriptionComponent {
   string id = 1;
   optional string price_component_id = 2;
-  optional string product_item_id = 3;
+  optional string product_id = 3;
   string subscription_id = 4;
   string name = 5;
   SubscriptionFeeBillingPeriod period = 6;
@@ -165,7 +177,7 @@ message SubscriptionComponent {
 
 message SubscriptionComponentNewInternal {
   optional string price_component_id = 1;
-  optional string product_item_id = 2;
+  optional string product_id = 2;
   string name = 3;
   SubscriptionFeeBillingPeriod period = 4;
   SubscriptionFee fee = 5;

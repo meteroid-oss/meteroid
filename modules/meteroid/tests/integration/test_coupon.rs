@@ -48,6 +48,8 @@ async fn test_coupons_basic() {
             discount: Some(fixed_discount.clone()),
             expires_at: None,
             redemption_limit: Some(10),
+            recurring_value: None,
+            reusable: false,
         })
         .await
         .unwrap()
@@ -65,7 +67,11 @@ async fn test_coupons_basic() {
     let coupons = clients
         .coupons
         .clone()
-        .list_coupons(api::coupons::v1::ListCouponRequest {})
+        .list_coupons(api::coupons::v1::ListCouponRequest {
+            search: None,
+            pagination: None,
+            filter: api::coupons::v1::list_coupon_request::CouponFilter::All as i32,
+        })
         .await
         .unwrap()
         .into_inner()
@@ -109,7 +115,11 @@ async fn test_coupons_basic() {
     let coupons = clients
         .coupons
         .clone()
-        .list_coupons(api::coupons::v1::ListCouponRequest {})
+        .list_coupons(api::coupons::v1::ListCouponRequest {
+            search: None,
+            pagination: None,
+            filter: api::coupons::v1::list_coupon_request::CouponFilter::All as i32,
+        })
         .await
         .unwrap()
         .into_inner()

@@ -18,6 +18,7 @@ use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use crate::query::IdentityDb;
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -58,16 +59,30 @@ impl SubscriptionRow {
     pub async fn get_subscription_by_id(
         conn: &mut PgConn,
         tenant_id_param: &uuid::Uuid,
-        subscription_id: &uuid::Uuid,
+        subscription_id_param: IdentityDb,
     ) -> DbResult<SubscriptionForDisplayRow> {
         use crate::schema::subscription::dsl::*;
 
-        let query = subscription
-            .filter(id.eq(subscription_id))
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+
+        let mut query = subscription
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
-            .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
-            .select(SubscriptionForDisplayRow::as_select());
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
+            .select(SubscriptionForDisplayRow::as_select())
+            .into_boxed();
+
+        match subscription_id_param {
+            IdentityDb::UUID(id_param) => {
+                query = query.filter(id.eq(id_param));
+            }
+            IdentityDb::LOCAL(local_id_param) => {
+                query = query.filter(local_id.eq(local_id_param));
+            }
+        }
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -78,18 +93,22 @@ impl SubscriptionRow {
             .into_db_result()
     }
 
-    pub async fn get_subscriptions_by_ids(
+    pub async fn list_subscriptions_by_ids(
         conn: &mut PgConn,
         tenant_id_param: &uuid::Uuid,
         subscription_ids: &[uuid::Uuid],
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl::*;
 
         let query = subscription
             .filter(id.eq_any(subscription_ids))
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
-            .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -179,24 +198,42 @@ impl SubscriptionRow {
     pub async fn list_subscriptions(
         conn: &mut PgConn,
         tenant_id_param: uuid::Uuid,
-        customer_id_opt: Option<uuid::Uuid>,
-        plan_id_param_opt: Option<uuid::Uuid>,
+        customer_id_opt: Option<IdentityDb>,
+        plan_id_param_opt: Option<IdentityDb>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl::*;
 
         let mut query = subscription
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
-            .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .into_boxed();
 
         if let Some(customer_id_param) = customer_id_opt {
-            query = query.filter(customer_id.eq(customer_id_param));
+            match customer_id_param {
+                IdentityDb::UUID(customer_id_param) => {
+                    query = query.filter(customer_id.eq(customer_id_param));
+                }
+                IdentityDb::LOCAL(customer_local_id) => {
+                    query = query.filter(crate::schema::customer::local_id.eq(customer_local_id));
+                }
+            }
         }
 
         if let Some(plan_id_param) = plan_id_param_opt {
-            query = query.filter(crate::schema::plan::id.eq(plan_id_param));
+            match plan_id_param {
+                IdentityDb::UUID(plan_id) => {
+                    query = query.filter(p_dsl::id.eq(plan_id));
+                }
+                IdentityDb::LOCAL(plan_local_id) => {
+                    query = query.filter(p_dsl::local_id.eq(plan_local_id));
+                }
+            }
         }
 
         //
@@ -253,7 +290,9 @@ impl SubscriptionRow {
                     .and(i_dsl::invoice_date.gt(input_date_param))),
             )
             .filter(i_dsl::id.is_null())
-            .inner_join(pv_dsl::plan_version.inner_join(p_dsl::plan))
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
             .left_join(sc_dsl::subscription_component)
             .select(SubscriptionInvoiceCandidateRow::as_select())
             .cursor_paginate(pagination, "id");

@@ -73,6 +73,8 @@ const SACCT_FIELDS: [&str; 9] = [
 ];
 
 impl SacctExecutor for SacctExecutorImpl {
+    // todo remove clippy ignore and call child.wait() to avoid zombie processes
+    #[allow(clippy::zombie_processes)]
     fn sacct(&self, since: DateTime<Utc>) -> Result<BoxStream<Result<SacctData>>> {
         let since_str = since.format(SACCT_DATETIME_FORMAT).to_string();
 
@@ -246,7 +248,7 @@ async fn send_batch_to_api(client: &mut GrpcClient, batch: &[SacctData]) -> Resu
                 event_id: data.id.clone(),
                 event_name: "slurm_job".to_string(),
                 customer_id: Some(
-                    metering_grpc::meteroid::metering::v1::event::CustomerId::ExternalCustomerId(data.account.clone())
+                    metering_grpc::meteroid::metering::v1::event::CustomerId::ExternalCustomerAlias(data.account.clone())
                 ),
                 timestamp: data.start_time.to_rfc3339(),
                 properties,

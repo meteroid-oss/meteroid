@@ -2,31 +2,43 @@ use nanoid::nanoid;
 
 #[derive(Debug)]
 pub enum IdType {
-    Organization,
-    Tenant,
-    InvoicingEntity,
+    AddOn,
+    BillableMetric,
+    Coupon,
     Customer,
     Invoice,
-    Subscription,
+    InvoicingEntity,
     Other,
+    Plan,
+    PriceComponent,
+    Product,
+    Subscription,
+    Tenant,
+    Event,
 }
 
 impl IdType {
     fn prefix(&self) -> &'static str {
         match self {
-            IdType::Organization => "org_",
-            IdType::Tenant => "",
-            IdType::InvoicingEntity => "ive_",
+            IdType::AddOn => "add_",
+            IdType::BillableMetric => "bm_",
+            IdType::Coupon => "cou_",
             IdType::Customer => "cus_",
+            IdType::Event => "evt_",
             IdType::Invoice => "inv_",
+            IdType::InvoicingEntity => "ive_",
+            IdType::Plan => "plan_",
+            IdType::PriceComponent => "price_",
+            IdType::Product => "prd_",
             IdType::Subscription => "sub_",
+            IdType::Tenant => "",
             _ => "",
         }
     }
 }
 
 /**
- * Generates a local id for a given type. Local ids are small human readable ids for the API, unique per tenant
+ * Generates a local id for a given type. Local ids are small human-readable ids for the API, unique per tenant
  */
 pub struct LocalId;
 

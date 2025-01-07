@@ -1,5 +1,6 @@
 pub mod add_ons;
 pub mod api_tokens;
+pub mod applied_coupons;
 pub mod bi;
 pub mod billable_metrics;
 pub mod configs;
@@ -11,7 +12,7 @@ pub mod invoices;
 pub mod invoicing_entities;
 pub mod organization_members;
 pub mod organizations;
-pub mod outbox;
+pub mod outbox_event;
 pub mod plan_versions;
 pub mod plans;
 pub mod price_components;
@@ -27,3 +28,8 @@ pub mod subscriptions;
 pub mod tenants;
 pub mod users;
 pub mod webhooks;
+
+pub enum IdentityDb {
+    UUID(uuid::Uuid),
+    LOCAL(String),
+}

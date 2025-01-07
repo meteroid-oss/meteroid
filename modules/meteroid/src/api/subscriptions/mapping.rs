@@ -11,13 +11,12 @@ pub mod subscriptions {
 
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
 
-    pub(crate) fn domain_to_proto(
-        s: meteroid_store::domain::Subscription,
-    ) -> Result<proto2::Subscription, Status> {
+    pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
         let status = s.status_proto()? as i32;
 
         Ok(proto2::Subscription {
             id: s.id.as_proto(),
+            local_id: s.local_id,
             tenant_id: s.tenant_id.as_proto(),
             customer_id: s.customer_id.as_proto(),
             plan_id: s.plan_id.as_proto(),
@@ -63,7 +62,7 @@ pub mod subscriptions {
             activated_at: None, //NaiveDateTime::from_proto_opt(param.activated_at)?,
         };
 
-        let res = meteroid_store::domain::CreateSubscription {
+        let res = domain::CreateSubscription {
             subscription: subscription_new,
             price_components: param
                 .components
@@ -72,6 +71,11 @@ pub mod subscriptions {
             add_ons: param
                 .add_ons
                 .map(super::add_ons::create_subscription_add_ons_from_grpc)
+                .transpose()?,
+            coupons: param
+                .coupons
+                .as_ref()
+                .map(super::coupons::create_subscription_coupons_from_grpc)
                 .transpose()?,
         };
 
@@ -83,6 +87,7 @@ pub mod subscriptions {
     ) -> Result<proto2::CreatedSubscription, Status> {
         Ok(proto2::CreatedSubscription {
             id: sub.id.as_proto(),
+            local_id: sub.local_id,
             customer_id: sub.customer_id.as_proto(),
             billing_day: sub.billing_day as u32,
             tenant_id: sub.tenant_id.as_proto(),
@@ -108,6 +113,7 @@ pub mod subscriptions {
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
                 id: sub.id.as_proto(),
+                local_id: sub.local_id,
                 tenant_id: sub.tenant_id.as_proto(),
                 customer_id: sub.customer_id.as_proto(),
                 plan_id: sub.plan_id.as_proto(),
@@ -122,7 +128,7 @@ pub mod subscriptions {
                 billing_end_date: sub.billing_end_date.as_proto(),
                 billing_start_date: sub.billing_start_date.as_proto(),
                 customer_name: sub.customer_name,
-                customer_alias: sub.customer_external_id,
+                customer_alias: sub.customer_alias,
                 canceled_at: sub.canceled_at.as_proto(),
                 cancellation_reason: sub.cancellation_reason,
                 billing_day: sub.billing_day as u32,
@@ -151,6 +157,11 @@ pub mod subscriptions {
                     name: m.name,
                     alias: m.code,
                 })
+                .collect(),
+            applied_coupons: sub
+                .applied_coupons
+                .into_iter()
+                .map(super::coupons::applied_coupon_detailed_to_grpc)
                 .collect(),
         })
     }
@@ -274,8 +285,8 @@ mod price_components {
                 .price_component_id
                 .map(|id| Uuid::from_proto_ref(&id))
                 .transpose()?,
-            product_item_id: component
-                .product_item_id
+            product_id: component
+                .product_id
                 .map(|id| Uuid::from_proto_ref(&id))
                 .transpose()?,
             name: component.name.clone(),
@@ -290,7 +301,7 @@ mod price_components {
         api::SubscriptionComponent {
             id: component.id.to_string(),
             price_component_id: component.price_component_id.map(|id| id.to_string()),
-            product_item_id: component.product_item_id.map(|id| id.to_string()),
+            product_id: component.product_id.map(|id| id.to_string()),
             subscription_id: component.subscription_id.to_string(),
             name: component.name.clone(),
             period: subscription_fee_billing_period_to_grpc(component.period.clone()).into(),
@@ -729,4 +740,63 @@ pub mod ext {
         billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_from_grpc,
         usage_pricing_model_to_grpc,
     };
+}
+
+pub mod coupons {
+    use crate::api::coupons::mapping::coupons as coupon_mapping;
+    use crate::api::shared::conversions::ProtoConv;
+    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use meteroid_grpc::meteroid::api::coupons::v1 as coupon_api;
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
+    use meteroid_store::domain;
+    use uuid::Uuid;
+
+    pub fn create_subscription_coupons_from_grpc(
+        data: &api::CreateSubscriptionCoupons,
+    ) -> tonic::Result<domain::CreateSubscriptionCoupons> {
+        let coupons = data
+            .coupons
+            .as_slice()
+            .iter()
+            .map(create_subscription_coupon_from_grpc)
+            .collect::<tonic::Result<Vec<_>, _>>()?;
+
+        Ok(domain::CreateSubscriptionCoupons { coupons })
+    }
+
+    pub fn create_subscription_coupon_from_grpc(
+        data: &api::CreateSubscriptionCoupon,
+    ) -> tonic::Result<domain::CreateSubscriptionCoupon> {
+        Ok(domain::CreateSubscriptionCoupon {
+            coupon_id: Uuid::from_proto_ref(&data.coupon_id)?,
+        })
+    }
+
+    pub fn applied_coupon_detailed_to_grpc(
+        applied_coupon: domain::AppliedCouponDetailed,
+    ) -> coupon_api::AppliedCouponDetailed {
+        coupon_api::AppliedCouponDetailed {
+            coupon: Some(coupon_mapping::to_server(applied_coupon.coupon)),
+            applied_coupon: Some(applied_coupon_to_grpc(&applied_coupon.applied_coupon)),
+        }
+    }
+
+    pub fn applied_coupon_to_grpc(
+        applied_coupon: &domain::AppliedCoupon,
+    ) -> coupon_api::AppliedCoupon {
+        coupon_api::AppliedCoupon {
+            id: applied_coupon.id.to_string(),
+            coupon_id: applied_coupon.coupon_id.to_string(),
+            customer_id: applied_coupon.customer_id.to_string(),
+            subscription_id: applied_coupon.subscription_id.to_string(),
+            is_active: applied_coupon.is_active,
+            applied_amount: applied_coupon
+                .applied_amount
+                .as_ref()
+                .map(|a| a.to_string()),
+            applied_count: applied_coupon.applied_count,
+            last_applied_at: applied_coupon.last_applied_at.map(chrono_to_timestamp),
+            created_at: Some(chrono_to_timestamp(applied_coupon.created_at)),
+        }
+    }
 }

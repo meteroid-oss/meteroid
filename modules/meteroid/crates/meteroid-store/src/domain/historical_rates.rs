@@ -7,10 +7,19 @@ use error_stack::Report;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+#[derive(Debug, Clone)]
 pub struct HistoricalRatesFromUsd {
     pub id: Uuid,
     pub date: NaiveDate,
     pub rates: BTreeMap<String, f32>,
+}
+
+pub struct HistoricalRate {
+    pub id: Uuid,
+    pub date: NaiveDate,
+    pub from_currency: String,
+    pub to_currency: String,
+    pub rate: f32,
 }
 
 impl TryFrom<HistoricalRatesFromUsdRow> for HistoricalRatesFromUsd {

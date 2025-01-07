@@ -8,7 +8,6 @@ license.workspace = true
 [dependencies]
 rand.workspace = true
 async-trait.workspace = true
-backon.workspace = true
 cached = { workspace = true, features = ["async", "tokio", "redis_store", "redis_tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
 chrono-tz.workspace = true
@@ -23,11 +22,9 @@ log.workspace = true
 metering-grpc = { workspace = true, features = ["server"] }
 meteroid-grpc = { workspace = true, features = ["client"] }
 common-grpc = { workspace = true, features = ["server", "client"] }
-reqwest = { workspace = true }
 rust_decimal = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
-tap.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tonic.workspace = true
@@ -35,17 +32,12 @@ tonic-health.workspace = true
 tonic-reflection.workspace = true
 tower = { workspace = true }
 tower-layer = { workspace = true }
-tower-service = { workspace = true }
-tower-http = { workspace = true }
 hyper = { workspace = true }
 tracing = { workspace = true }
-tracing-log = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 tonic-tracing-opentelemetry.workspace = true
 once_cell = { workspace = true }
 opentelemetry = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-common-utils = { workspace = true, features = ["error-stack-conv"] }
 prost-types.workspace = true
 quick_cache.workspace = true
 

@@ -3,18 +3,18 @@ syntax = "proto3";
 package meteroid.internal.v1;
 
 message ResolvedId {
-  string external_id = 1;
-  string meteroid_id = 2;
+  string alias = 1;
+  string local_id = 2;
 }
 
-message ResolveCustomerExternalIdsRequest {
+message ResolveCustomerAliasesRequest {
   string tenant_id = 1;
-  repeated string external_ids = 2;
+  repeated string aliases = 2;
 }
 
-message ResolveCustomerExternalIdsResponse {
+message ResolveCustomerAliasesResponse {
   repeated ResolvedId customers = 1;
-  repeated string unresolved_ids = 2;
+  repeated string unresolved_aliases = 2;
 }
 
 message ResolveApiKeyRequest {
@@ -28,6 +28,6 @@ message ResolveApiKeyResponse {
 }
 
 service InternalService {
-  rpc ResolveCustomerExternalIds(ResolveCustomerExternalIdsRequest) returns (ResolveCustomerExternalIdsResponse) {}
+  rpc ResolveCustomerAliases(ResolveCustomerAliasesRequest) returns (ResolveCustomerAliasesResponse) {}
   rpc ResolveApiKey(ResolveApiKeyRequest) returns (ResolveApiKeyResponse) {}
 }

@@ -1,18 +1,16 @@
 import { z } from 'zod'
 
 export const createPlanSchema = z.object({
+  planName: z.string().min(1, 'Name is required').max(256),
+  description: z.string().max(2048).optional(),
+  productFamilyLocalId: z.string().min(1, 'A product family is required'),
+  planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
+})
+
+export const editPlanSchema = z.object({
   planName: z.string().nonempty('Name is required').max(256),
   description: z.string().max(2048).optional(),
-  externalId: z
-    .string()
-    .nonempty('API Name is required')
-    .min(3)
-    .max(128)
-    .regex(
-      /^[a-z0-9-_]+$/,
-      'Only lowercase alphanumeric characters, dashes and underscores are allowed'
-    ),
-  planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
+  netTerms: z.number().int(),
 })
 
 const isValidNumber = (str: string) => {
@@ -58,12 +56,12 @@ const TermRateSchema = z.object({
 export type TermRate = z.infer<typeof TermRateSchema>
 
 export const RateFeeSchema = z.object({
-  rates: z.array(TermRateSchema),
+  rates: z.array(TermRateSchema).min(1, 'At least one rate is required'),
 })
 export type RateFee = z.infer<typeof RateFeeSchema>
 
 export const SlotFeeSchema = z.object({
-  rates: z.array(TermRateSchema),
+  rates: z.array(TermRateSchema).min(1, 'At least one rate is required'),
   slotUnitName: z.string(),
   upgradePolicy: z.enum(['PRORATED']),
   downgradePolicy: z.enum(['REMOVE_AT_END_OF_PERIOD']),
@@ -195,7 +193,7 @@ export const OneTimeFeeSchema = z.object({
 })
 export type OneTimeFee = z.infer<typeof OneTimeFeeSchema>
 
-const FeeTypeSchema = z.discriminatedUnion('fee', [
+export const FeeTypeSchema = z.discriminatedUnion('fee', [
   z.object({ fee: z.literal('rate'), data: RateFeeSchema }),
   z.object({ fee: z.literal('slot'), data: SlotFeeSchema }),
   z.object({ fee: z.literal('capacity'), data: CapacityFeeSchema }),
@@ -208,13 +206,14 @@ export type FeeType = z.infer<typeof FeeTypeSchema>
 export const PriceComponentSchema = z.object({
   id: z.string(),
   name: z.string(),
+  localId: z.string(),
   fee: FeeTypeSchema,
-  productItemId: z.string().optional(),
+  productId: z.string().optional(),
 })
 export type PriceComponent = z.infer<typeof PriceComponentSchema>
 
 export const byPlanVersionSchema = z.object({
-  externalId: z.string(),
+  localId: z.string(),
   version: z.number().int().optional(),
 })
 
@@ -230,7 +229,7 @@ export const addPriceComponentSchema = z.object({
   planVersionId: z.string(),
   name: z.string(),
   fee: FeeTypeSchema,
-  productItemId: z.string().optional(),
+  productId: z.string().optional(),
 })
 export type AddPriceComponent = z.infer<typeof addPriceComponentSchema>
 
@@ -263,3 +262,12 @@ export const publishedPlanOverviewSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
 })
+
+export const trialConfigSchema = z.object({
+  durationDays: z.number().int(),
+  downgradePlanId: z.string().uuid().optional(),
+  trialingPlanId: z.string().uuid().optional(),
+  requiresPreAuthorization: z.boolean().optional(),
+  actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
+})
+export type TrialConfigSchema = z.infer<typeof trialConfigSchema>

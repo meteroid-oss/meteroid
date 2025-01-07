@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.plans.v1;
 
-import "api/shared/v1/shared.proto";
-
 enum PlanStatus {
   DRAFT = 0;
   ACTIVE = 1;
@@ -18,8 +16,13 @@ enum PlanType {
   // template 3 ?
 }
 
+message PlanFilters {
+  optional string search = 1;
+  repeated PlanType types = 2;
+  repeated PlanStatus statuses = 3;
+}
+
 message PlanBillingConfiguration {
-  repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 1;
   uint32 net_terms = 2;
 
   oneof service_period_start {
@@ -44,11 +47,25 @@ message PlanBillingConfiguration {
   message Forever {}
 }
 
-// TODO allow more complexity, ex: via full Adjustment view (included units, credits, maximums/limits, discounts for some lines ,etc)
-// TODO in addition to fallback plan, maybe we want a "trial plan" or "use_trial_from_plan_id", aka a unique "entreprise_trial" no matter the selected plan, that then fallbacks on the current plan
 message TrialConfig {
-  uint32 duration_in_days = 1;
-  string fallback_plan_id = 2; // TODO only if no credit card added
+  uint32 duration_days = 1;
+  ActionAfterTrial action_after_trial = 2;
+  // if true, nothing will be charged. If false, the normal plan price is charged from the start, no matter the plan that this trial gives access to.
+  bool trial_is_free = 3;
+  // what plan is applied after the trial completes and before any payment
+  optional string downgrade_plan_id = 4;
+  // what plan is applied during the trial (ex: Enterprise for X days after paying Pro plan). None for current plan
+  optional string trialing_plan_id = 5;
+
+  // advanced options :
+  //  optional bool requires_pre_authorization = 6;
+  // usage_credits, custom trial limits, etc
+
+  enum ActionAfterTrial {
+    BLOCK = 0;
+    CHARGE = 1;
+    DOWNGRADE = 2;
+  }
 }
 
 message PlanVersion {
@@ -58,6 +75,8 @@ message PlanVersion {
   TrialConfig trial_config = 4;
   PlanBillingConfiguration billing_config = 5;
   string currency = 6;
+  optional int32 period_start_day = 8;
+  int32 net_terms = 9;
 }
 
 message ListPlanVersion {
@@ -65,21 +84,7 @@ message ListPlanVersion {
   bool is_draft = 2;
   uint32 version = 3;
   string currency = 6;
-}
-
-message ListSubscribablePlanVersion {
-  string plan_id = 1;
-  string id = 2;
-  string plan_name = 3;
-  int32 version = 4;
-  string created_by = 5;
-  optional int32 trial_duration_days = 6;
-  optional string trial_fallback_plan_id = 7;
-  optional int32 period_start_day = 8;
-  int32 net_terms = 9;
-  string currency = 10;
-  string product_family_id = 11;
-  string product_family_name = 12;
+  string created_at = 7;
 }
 
 message Metadata {
@@ -90,44 +95,57 @@ message Metadata {
 message Plan {
   string id = 1;
   string name = 2;
-  string external_id = 3;
+  string local_id = 3;
   optional string description = 4;
   PlanType plan_type = 5;
   PlanStatus plan_status = 6;
   //  string currency = 7;
-  //  PlanVersion current_version = 8;
-  //  repeated Metadata metadata = 9;
-}
-
-message ListPlan {
-  string id = 1;
-  string name = 2;
-  string external_id = 3;
-  optional string description = 4;
-  PlanType plan_type = 5;
-  PlanStatus plan_status = 6;
-  string product_family_id = 7;
-  string product_family_name = 8;
-}
-
-message PlanDetails {
-  Plan plan = 1;
-  PlanVersion current_version = 2;
-  repeated Metadata metadata = 9;
+  //  PlanVersion version = 8;
+  optional string active_version_id = 11;
+  optional string draft_version_id = 12;
 }
 
 message PlanOverview {
-  string plan_id = 1;
-  string plan_version_id = 2;
-  string name = 3;
-  uint32 version = 4;
-  optional string description = 5;
-  string currency = 6;
-  uint32 net_terms = 7;
-  repeated meteroid.api.shared.v1.BillingPeriod billing_periods = 8;
-  bool is_draft = 9;
-  PlanType plan_type = 10;
+  string id = 1;
+  string name = 2;
+  string local_id = 3;
+  optional string description = 4;
+  PlanType plan_type = 5;
+  PlanStatus plan_status = 6;
+  string created_at = 7;
+  ActiveVersionInfo active_version = 8; // TODO rename to "default" ?
+  bool has_draft_version = 9;
+  uint32 subscription_count = 10;
+
+  string product_family_local_id = 11;
+  string product_family_name = 12;
+
+
+  message ActiveVersionInfo {
+    uint32 version = 1;
+    optional uint32 trial_duration_days = 2;
+  }
 }
+
+message PlanWithVersion {
+  Plan plan = 1;
+  PlanVersion version = 2;
+}
+
+//message PlanOverview {
+//  string plan_id = 1;
+//  string plan_version_id = 2;
+//  string name = 3;
+//  uint32 version = 4;
+//  optional string description = 5;
+//  string currency = 6;
+//  uint32 net_terms = 7;
+//  string local_id = 8;
+//  PlanType plan_type = 9;
+//  bool is_draft = 10;
+//  bool has_draft = 11;
+//  optional string default_version_id = 12; // TODO we should get the version number here
+//}
 
 message PlanParameter {
   oneof param {
@@ -145,3 +163,5 @@ message PlanParameter {
     string component_id = 1;
   }
 }
+
+

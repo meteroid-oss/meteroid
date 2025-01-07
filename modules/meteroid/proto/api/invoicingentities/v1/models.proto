@@ -43,3 +43,7 @@ message InvoicingEntityData {
   optional string vat_number = 19;
   optional string country = 20;
 }
+
+message FileData {
+  bytes data = 1;
+}

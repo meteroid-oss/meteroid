@@ -7,6 +7,7 @@ use diesel_models::price_components::PriceComponentRow;
 use uuid::Uuid;
 
 use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 
 #[async_trait::async_trait]
 pub trait PriceComponentInterface {
@@ -119,9 +120,10 @@ impl PriceComponentInterface for Store {
         let mut conn = self.get_conn().await?;
         let price_component: PriceComponentRow = PriceComponentRow {
             id: price_component.id,
+            local_id: LocalId::generate_for(IdType::PriceComponent),
             plan_version_id,
             name: price_component.name,
-            product_item_id: price_component.product_item_id,
+            product_id: price_component.product_id,
             fee: json_fee,
             billable_metric_id: price_component.fee.metric_id(),
         };

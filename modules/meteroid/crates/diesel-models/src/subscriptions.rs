@@ -32,12 +32,14 @@ pub struct SubscriptionRow {
     pub currency: String,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
+    pub local_id: String,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::subscription)]
 pub struct SubscriptionRowNew {
     pub id: Uuid,
+    pub local_id: String,
     pub customer_id: Uuid,
     pub billing_day: i16,
     pub tenant_id: Uuid,
@@ -68,9 +70,12 @@ pub struct CancelSubscriptionParams {
 pub struct SubscriptionForDisplayRow {
     #[diesel(embed)]
     pub subscription: SubscriptionRow,
+    #[diesel(select_expression = customer::local_id)]
+    #[diesel(select_expression_type = customer::local_id)]
+    pub customer_local_id: String,
     #[diesel(select_expression = customer::alias)]
     #[diesel(select_expression_type = customer::alias)]
-    pub customer_external_id: Option<String>,
+    pub customer_alias: Option<String>,
     #[diesel(select_expression = customer::name)]
     #[diesel(select_expression_type = customer::name)]
     pub customer_name: String,
@@ -116,6 +121,7 @@ mod subscription_invoice_candidate {
     #[diesel(check_for_backend(diesel::pg::Pg))]
     pub struct SubscriptionEmbedRow {
         pub id: Uuid,
+        pub local_id: String,
         pub tenant_id: Uuid,
         pub customer_id: Uuid,
         pub plan_version_id: Uuid,
@@ -138,5 +144,8 @@ mod subscription_invoice_candidate {
         #[diesel(select_expression = crate::schema::plan::name)]
         #[diesel(select_expression_type = crate::schema::plan::name)]
         pub plan_name: String,
+        #[diesel(select_expression = crate::schema::plan::local_id)]
+        #[diesel(select_expression_type = crate::schema::plan::local_id)]
+        pub plan_local_id: String,
     }
 }

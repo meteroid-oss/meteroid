@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
-use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
-use uuid::Uuid;
+use meteroid_store::domain::enums::PlanTypeEnum;
+use meteroid_store::domain::PlanTrial;
 
 // pub enum PlanType {
 //     Free,
@@ -20,13 +20,11 @@ pub struct Tenant {
 
 #[derive(Clone)]
 pub struct PlanVersion {
-    pub trial_duration_days: Option<i32>,
-    pub trial_fallback_plan_id: Option<Uuid>,
     pub period_start_day: Option<i16>,
     pub currency: String,
     pub billing_cycles: Option<i32>,
-    pub billing_periods: Vec<BillingPeriodEnum>,
     pub net_terms: i32,
+    pub trial: Option<PlanTrial>,
 }
 
 // #[derive(Clone)]

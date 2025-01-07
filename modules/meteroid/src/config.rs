@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 use envconfig::Envconfig;
 use secrecy::SecretString;
 
+use crate::workers::fang::ext::FangExtConfig;
 use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
-
-use crate::workers::fang::ext::FangExtConfig;
+use kafka::config::KafkaConnectionConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
@@ -18,7 +18,7 @@ pub struct Config {
     pub database_url: String,
 
     #[envconfig(from = "METEROID_API_LISTEN_ADDRESS")]
-    pub listen_addr: SocketAddr,
+    pub grpc_listen_addr: SocketAddr,
 
     #[envconfig(from = "METERING_API_EXTERNAL_URL")]
     pub metering_endpoint: String,
@@ -26,22 +26,25 @@ pub struct Config {
     #[envconfig(from = "OBJECT_STORE_URI")]
     pub object_store_uri: String,
 
-    #[envconfig(from = "INVOICING_WEBHOOK_LISTEN_ADDRESS")]
-    pub invoicing_webhook_addr: SocketAddr,
+    #[envconfig(from = "OBJECT_STORE_PREFIX")]
+    pub object_store_prefix: Option<String>,
+
+    #[envconfig(from = "METEROID_REST_API_LISTEN_ADDRESS", default = "127.0.0.1:8080")]
+    pub rest_api_addr: SocketAddr,
 
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub common: CommonConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub internal_auth: InternalAuthConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub idempotency: IdempotencyConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub analytics: AnalyticsConfig,
 
     #[envconfig(from = "JWT_SECRET")]
@@ -56,17 +59,20 @@ pub struct Config {
     )]
     pub secrets_crypt_key: SecretString,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub fang_ext: FangExtConfig,
 
     #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
     pub gotenberg_url: String,
 
-    #[envconfig(from = "S3_URI", default = "file:///tmp/meteroid")]
-    pub s3_uri: String,
+    #[envconfig(from = "SVIX_SERVER_URL")]
+    pub svix_server_url: Option<String>,
 
-    #[envconfig(from = "S3_PREFIX")]
-    pub s3_prefix: Option<String>,
+    #[envconfig(from = "SVIX_JWT_TOKEN")]
+    pub svix_jwt_token: SecretString,
+
+    #[envconfig(nested)]
+    pub kafka: KafkaConnectionConfig,
 }
 
 impl Config {

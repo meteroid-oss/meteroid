@@ -182,6 +182,7 @@ export const InvoiceTab = () => {
                 name="netTerms"
                 control={methods.control}
                 label="Net terms (days)"
+                type="number"
                 placeholder="30"
                 containerClassName="col-span-3"
               />

@@ -9,8 +9,8 @@ export const byIdSchema = z.object({
 export const bySlugSchema = z.object({
   slug: z.string(),
 })
-export const ByExternalIdSchema = z.object({
-  externalId: z.string(),
+export const ByLocalIdSchema = z.object({
+  localId: z.string(),
 })
 
 export const paginatedCursorSchema = z.object({

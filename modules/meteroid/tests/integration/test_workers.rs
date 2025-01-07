@@ -5,16 +5,16 @@ use std::sync::Arc;
 use meteroid::eventbus::create_eventbus_noop;
 use uuid::Uuid;
 
+use crate::helpers;
+use crate::meteroid_it;
+use crate::meteroid_it::db::seed::*;
 use meteroid::workers::invoicing::draft_worker::draft_worker;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{InvoiceWithCustomer, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
-
-use crate::helpers;
-use crate::meteroid_it;
-use crate::meteroid_it::db::seed::*;
 
 #[tokio::test]
 async fn test_draft_worker() {
@@ -24,14 +24,15 @@ async fn test_draft_worker() {
 
     let worker_run_date = date("2023-11-06");
 
-    let store = Store::new(
-        postgres_connection_string,
-        secrecy::SecretString::new("test-key".into()),
-        secrecy::SecretString::new("test-jwt-key".into()),
-        false,
-        create_eventbus_noop().await,
-        Arc::new(MockUsageClient::noop()),
-    )
+    let store = Store::new(StoreConfig {
+        database_url: postgres_connection_string,
+        crypt_key: secrecy::SecretString::new("test-key".into()),
+        jwt_secret: secrecy::SecretString::new("test-jwt-key".into()),
+        multi_organization_enabled: false,
+        eventbus: create_eventbus_noop().await,
+        usage_client: Arc::new(MockUsageClient::noop()),
+        svix: None,
+    })
     .unwrap();
 
     meteroid_it::container::populate_postgres(
@@ -65,10 +66,9 @@ async fn test_draft_worker() {
 
         let subscription_id = invoice.subscription_id.unwrap();
 
-        if subscription_id == SUBSCRIPTION_SPORTIFY_ID1 {
-            assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
-            assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if subscription_id == SUBSCRIPTION_SPORTIFY_ID2 {
+        if subscription_id == SUBSCRIPTION_SPORTIFY_ID1
+            || subscription_id == SUBSCRIPTION_SPORTIFY_ID2
+        {
             assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
         } else if subscription_id == SUBSCRIPTION_UBER_ID1 {

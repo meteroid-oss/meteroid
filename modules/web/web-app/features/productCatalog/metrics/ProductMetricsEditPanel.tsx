@@ -1,11 +1,13 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import {
-  ScrollArea,
   Button,
   Form,
   FormDescription,
   InputFormField,
+  ScrollArea,
+  SelectFormField,
+  SelectItem,
   Separator,
   Sheet,
   SheetContent,
@@ -27,6 +29,7 @@ import { AggregationSection } from '@/features/productCatalog/metrics/Aggregatio
 import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'
 import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
 import { CreateBillableMetricFormData } from '@/lib/schemas/billableMetrics'
 import {
@@ -37,13 +40,9 @@ import {
   Aggregation_AggregationType,
   Aggregation_UnitConversion_UnitConversionRounding,
 } from '@/rpc/api/billablemetrics/v1/models_pb'
-import { useTypedParams } from '@/utils/params'
+import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
-// TODO https://doc.getlago.com/docs/guide/billable-metrics/dimensions
-// Add Dimension matrix ()
-// One is fixed => allow custom pricing
-// The other is dynamic (group key) => only for invoice
 export const ProductMetricsEditPanel = () => {
   const queryClient = useQueryClient()
 
@@ -52,7 +51,11 @@ export const ProductMetricsEditPanel = () => {
       await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listBillableMetrics) })
     },
   })
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
+
+  const familiesQuery = useQuery(listProductFamilies)
+  const families = (familiesQuery.data?.productFamilies ?? []).sort((a, b) =>
+    a.id > b.id ? 1 : -1
+  )
 
   const navigate = useNavigate()
 
@@ -144,7 +147,7 @@ export const ProductMetricsEditPanel = () => {
                   : undefined),
         },
         usageGroupKey: input.usageGroupKey ?? undefined,
-        familyExternalId,
+        familyLocalId: input.productFamilyId,
       })
 
       res.billableMetric?.id && toast.success('Metric created')
@@ -178,6 +181,22 @@ export const ProductMetricsEditPanel = () => {
                         placeholder="Compute (GB-hr)"
                         className="max-w-xs"
                       />
+
+                      <SelectFormField
+                        name="productFamilyId"
+                        label="Product line"
+                        layout="horizontal"
+                        placeholder="Select a product line"
+                        className="max-w-[320px]  "
+                        empty={families.length === 0}
+                        control={methods.control}
+                      >
+                        {families.map(f => (
+                          <SelectItem value={f.localId} key={f.localId}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectFormField>
 
                       <div className="space-y-2">
                         <InputFormField

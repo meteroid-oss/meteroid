@@ -21,6 +21,7 @@ pub mod pricecomponents;
 pub mod productfamilies;
 pub mod productitems;
 pub mod schedules;
+pub mod sharable;
 pub mod stats;
 pub mod subscriptions;
 pub mod tenants;

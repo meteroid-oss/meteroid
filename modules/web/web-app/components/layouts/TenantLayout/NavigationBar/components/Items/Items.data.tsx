@@ -1,4 +1,4 @@
-import { Catalog2Icon, CustomersIcon, HomeIcon, ReportsIcon, BillingIcon } from '@md/icons'
+import { BillingIcon, Catalog2Icon, CustomersIcon, HomeIcon, ReportsIcon } from '@md/icons'
 import { LightbulbIcon } from 'lucide-react'
 
 import { NavigationItemType } from './components/Item/Item.types'
@@ -14,12 +14,12 @@ export const NAVIGATION_ITEMS: NavigationItemType[] = [
 
   {
     label: 'Product catalog', // metrics
-    to: 'catalog',
+    to: 'plans',
     icon: <Catalog2Icon size={18} />,
   },
   {
     label: 'Billing',
-    to: 'billing',
+    to: 'subscriptions',
     icon: <BillingIcon size={22} className="ml-[-2px]" />,
   },
   {

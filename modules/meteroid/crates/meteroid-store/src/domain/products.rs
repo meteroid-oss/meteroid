@@ -8,6 +8,7 @@ use uuid::Uuid;
 #[owned_into(ProductRow)]
 pub struct Product {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
@@ -24,5 +25,5 @@ pub struct ProductNew {
     pub description: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub family_external_id: String,
+    pub family_local_id: String,
 }

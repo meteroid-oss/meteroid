@@ -4,8 +4,8 @@ use tonic::{Request, Response, Status};
 
 use meteroid_grpc::meteroid::internal::v1::internal_service_server::InternalService;
 use meteroid_grpc::meteroid::internal::v1::{
-    ResolveApiKeyRequest, ResolveApiKeyResponse, ResolveCustomerExternalIdsRequest,
-    ResolveCustomerExternalIdsResponse, ResolvedId,
+    ResolveApiKeyRequest, ResolveApiKeyResponse, ResolveCustomerAliasesRequest,
+    ResolveCustomerAliasesResponse, ResolvedId,
 };
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 
@@ -17,17 +17,17 @@ use meteroid_store::repositories::customers::CustomersInterface;
 #[tonic::async_trait]
 impl InternalService for InternalServiceComponents {
     #[tracing::instrument(skip_all)]
-    async fn resolve_customer_external_ids(
+    async fn resolve_customer_aliases(
         &self,
-        request: Request<ResolveCustomerExternalIdsRequest>,
-    ) -> Result<Response<ResolveCustomerExternalIdsResponse>, Status> {
+        request: Request<ResolveCustomerAliasesRequest>,
+    ) -> Result<Response<ResolveCustomerAliasesResponse>, Status> {
         let inner = request.into_inner();
 
         let tenant_id = parse_uuid!(inner.tenant_id)?;
 
         let res = self
             .store
-            .find_customer_ids_by_aliases(tenant_id, inner.external_ids.clone())
+            .find_customer_ids_by_aliases(tenant_id, inner.aliases.clone())
             .await
             .map_err(Into::<InternalApiError>::into)?;
 
@@ -35,22 +35,22 @@ impl InternalService for InternalServiceComponents {
 
         for record in &res {
             customers.push(ResolvedId {
-                external_id: record.alias.clone().unwrap(),
-                meteroid_id: record.id.to_string(),
+                alias: record.alias.clone().unwrap(),
+                local_id: record.local_id.to_string(),
             });
         }
 
         let resolved_aliases: HashSet<String> = res.into_iter().map(|x| x.alias.unwrap()).collect();
 
-        let unresolved_ids: Vec<String> = inner
-            .external_ids
+        let unresolved_aliases: Vec<String> = inner
+            .aliases
             .into_iter()
             .filter(|id| !resolved_aliases.contains(id))
             .collect();
 
-        Ok(Response::new(ResolveCustomerExternalIdsResponse {
+        Ok(Response::new(ResolveCustomerAliasesResponse {
             customers,
-            unresolved_ids,
+            unresolved_aliases,
         }))
     }
 

@@ -1,17 +1,19 @@
+use crate::domain::Identity;
+use crate::errors::StoreError;
+use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
-use diesel_models::customers::CustomerRow;
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
+use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::errors::StoreError;
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Customer {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -37,6 +39,7 @@ impl TryFrom<CustomerRow> for Customer {
     fn try_from(value: CustomerRow) -> Result<Self, Self::Error> {
         Ok(Customer {
             id: value.id,
+            local_id: value.local_id,
             name: value.name,
             created_at: value.created_at,
             created_by: value.created_by,
@@ -64,6 +67,7 @@ impl TryInto<CustomerRow> for Customer {
     fn try_into(self) -> Result<CustomerRow, Self::Error> {
         Ok(CustomerRow {
             id: self.id,
+            local_id: self.local_id,
             name: self.name,
             created_at: self.created_at,
             created_by: self.created_by,
@@ -90,6 +94,7 @@ impl TryInto<CustomerRow> for Customer {
 #[owned_into(CustomerBriefRow)]
 pub struct CustomerBrief {
     pub id: Uuid,
+    pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
 }
@@ -108,7 +113,7 @@ pub struct CustomerNew {
     pub shipping_address: Option<ShippingAddress>,
     //
     pub created_by: Uuid,
-    pub invoicing_entity_id: Option<Uuid>,
+    pub invoicing_entity_id: Option<Identity>,
     // for seeding
     pub force_created_date: Option<chrono::NaiveDateTime>,
 }
@@ -126,6 +131,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
         Ok(CustomerRowNew {
             id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Customer),
             name: self.inner.name,
             created_by: self.inner.created_by,
             tenant_id: self.tenant_id,
@@ -170,11 +176,17 @@ pub struct CustomerPatch {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Address {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line1: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub country: Option<String>, // TODO mandatory ?
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub zip_code: Option<String>,
 }
 
@@ -204,6 +216,7 @@ impl TryInto<serde_json::Value> for Address {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShippingAddress {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<Address>,
     pub same_as_billing: bool,
 }
@@ -247,7 +260,13 @@ pub enum BillingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Stripe {
     pub customer_id: String,
-    pub collection_method: i32, // todo fix: models.proto : CollectionMethod
+    pub collection_method: StripeCollectionMethod,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StripeCollectionMethod {
+    ChargeAutomatically,
+    SendInvoice,
 }
 
 impl TryFrom<serde_json::Value> for BillingConfig {
@@ -293,4 +312,57 @@ pub struct CustomerBuyCredits {
     pub customer_id: Uuid,
     pub cents: i32,
     pub notes: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CustomerForDisplay {
+    pub id: Uuid,
+    pub local_id: String,
+    pub name: String,
+    pub created_at: NaiveDateTime,
+    pub created_by: Uuid,
+    pub updated_at: Option<NaiveDateTime>,
+    pub updated_by: Option<Uuid>,
+    pub archived_at: Option<NaiveDateTime>,
+    pub tenant_id: Uuid,
+    pub invoicing_entity_id: Uuid,
+    pub invoicing_entity_local_id: String,
+    pub billing_config: BillingConfig,
+    pub alias: Option<String>,
+    pub email: Option<String>,
+    pub invoicing_email: Option<String>,
+    pub phone: Option<String>,
+    pub balance_value_cents: i32,
+    pub currency: String,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<ShippingAddress>,
+}
+
+impl TryFrom<CustomerForDisplayRow> for CustomerForDisplay {
+    type Error = Report<StoreError>;
+
+    fn try_from(value: CustomerForDisplayRow) -> Result<Self, Self::Error> {
+        Ok(CustomerForDisplay {
+            id: value.id,
+            local_id: value.local_id,
+            name: value.name,
+            created_at: value.created_at,
+            created_by: value.created_by,
+            updated_at: value.updated_at,
+            updated_by: value.updated_by,
+            archived_at: value.archived_at,
+            tenant_id: value.tenant_id,
+            billing_config: value.billing_config.try_into()?,
+            alias: value.alias,
+            email: value.email,
+            invoicing_email: value.invoicing_email,
+            phone: value.phone,
+            balance_value_cents: value.balance_value_cents,
+            currency: value.currency,
+            billing_address: value.billing_address.map(|v| v.try_into()).transpose()?,
+            shipping_address: value.shipping_address.map(|v| v.try_into()).transpose()?,
+            invoicing_entity_id: value.invoicing_entity_id,
+            invoicing_entity_local_id: value.invoicing_entity_local_id,
+        })
+    }
 }

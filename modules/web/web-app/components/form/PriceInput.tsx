@@ -1,5 +1,5 @@
-import { InputProps, useFormField, cn } from '@md/ui'
-import { useEffect, useMemo, useState, forwardRef } from 'react'
+import { InputProps, cn, useFormField } from '@md/ui'
+import { forwardRef, useEffect, useMemo, useState } from 'react'
 import { Control, FieldValues, UseControllerProps, useController } from 'react-hook-form'
 
 type BaseProps = {
@@ -36,7 +36,7 @@ const PriceInput = <T extends FieldValues>({
   precision = 2,
   ...props
 }: Props<T>) => {
-  const { field, fieldState } = useController({ ...props })
+  const { field, fieldState } = useController(props)
 
   const [inputValue, setInputValue] = useState('')
 
@@ -144,13 +144,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
   ) => {
     const { error } = useFormField()
 
-    const [inputValue, setInputValue] = useState('')
-
-    useEffect(() => {
-      if (value) {
-        setInputValue(value as string)
-      }
-    }, [value])
+    const [inputValue, setInputValue] = useState<string | undefined>(undefined)
 
     const formatCurrencyAmountWithoutRounding = (amount: number) => {
       const negativeSign = Number(amount) < 0 ? '-' : ''
@@ -163,21 +157,37 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
         .replaceAll(' ', '')}` // TODO currencyjs or something
     }
 
+    const format = (value: string | undefined) =>
+      value && POSITIVE_NUM_REGEX.test(value)
+        ? formatCurrencyAmountWithoutRounding(parseFloat(value))
+        : value
+          ? value
+          : '0.00'
+
+    useEffect(() => {
+      if (inputValue === undefined) {
+        setInputValue(format(value as string))
+      } else if (value) {
+        setInputValue(value as string)
+      } else {
+        setInputValue('')
+      }
+    }, [value])
+
     const handleBlur = () => {
-      const formattedValue =
-        inputValue && POSITIVE_NUM_REGEX.test(inputValue)
-          ? formatCurrencyAmountWithoutRounding(parseFloat(inputValue))
-          : inputValue
+      const formattedValue = format(inputValue)
       setInputValue(formattedValue)
       onChange?.({ target: { value: formattedValue } } as React.ChangeEvent<HTMLInputElement>)
     }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const { value } = e.target
-      if (value && value.length && POSITIVE_NUM_REGEX.test(value)) {
+      if (value && POSITIVE_NUM_REGEX.test(value)) {
         setInputValue(value)
+        onChange?.({ target: { value: value } } as React.ChangeEvent<HTMLInputElement>)
       } else if (!value.length) {
-        setInputValue('0.00')
+        setInputValue('')
+        onChange?.({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>)
       }
     }
 

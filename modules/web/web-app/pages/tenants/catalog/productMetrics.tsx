@@ -1,4 +1,3 @@
-import { disableQuery } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
 import { PaginationState } from '@tanstack/react-table'
 import { Flex } from '@ui/components/legacy'
@@ -9,8 +8,6 @@ import { ProductMetricsPageHeader } from '@/features/productCatalog/metrics/Prod
 import { BillableMetricTable } from '@/features/productCatalog/metrics/ProductMetricsTable'
 import { useQuery } from '@/lib/connectrpc'
 import { listBillableMetrics } from '@/rpc/api/billablemetrics/v1/billablemetrics-BillableMetricsService_connectquery'
-import { useTypedParams } from '@/utils/params'
-
 
 export const ProductMetrics: FunctionComponent = () => {
   const navigate = useNavigate()
@@ -19,12 +16,8 @@ export const ProductMetrics: FunctionComponent = () => {
     pageSize: 20,
   })
 
-  const { familyExternalId } = useTypedParams<{ familyExternalId: string }>()
   // TODO pagination (manual ?)
-  const productMetricsQuery = useQuery(
-    listBillableMetrics,
-    familyExternalId ? { familyExternalId } : disableQuery
-  )
+  const productMetricsQuery = useQuery(listBillableMetrics, {})
 
   const totalCount = productMetricsQuery?.data?.billableMetrics?.length ?? 0
   const isLoading = productMetricsQuery.isLoading

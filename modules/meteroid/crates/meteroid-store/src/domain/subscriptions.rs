@@ -6,8 +6,10 @@ use uuid::Uuid;
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
-    BillableMetric, CreateSubscriptionComponents, Schedule, SubscriptionComponent,
+    AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
+    Schedule, SubscriptionComponent,
 };
+use crate::utils::local_id::{IdType, LocalId};
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
@@ -17,6 +19,7 @@ use diesel_models::subscriptions::{
 #[from_owned(SubscriptionRow)]
 pub struct CreatedSubscription {
     pub id: Uuid,
+    pub local_id: String,
     pub customer_id: Uuid,
     pub billing_day: i16,
     pub tenant_id: Uuid,
@@ -41,9 +44,11 @@ pub struct CreatedSubscription {
 #[derive(Debug, Clone)]
 pub struct Subscription {
     pub id: Uuid,
+    pub local_id: String,
     pub customer_id: Uuid,
-    pub customer_name: String,
+    pub customer_local_id: String,
     pub customer_alias: Option<String>,
+    pub customer_name: String,
     pub billing_day: i16,
     pub tenant_id: Uuid,
     pub currency: String,
@@ -71,9 +76,11 @@ impl From<SubscriptionForDisplayRow> for Subscription {
     fn from(val: SubscriptionForDisplayRow) -> Self {
         Subscription {
             id: val.subscription.id,
+            local_id: val.subscription.local_id,
             customer_id: val.subscription.customer_id,
+            customer_local_id: val.customer_local_id,
             customer_name: val.customer_name,
-            customer_alias: val.customer_external_id,
+            customer_alias: val.customer_alias,
             billing_day: val.subscription.billing_day,
             tenant_id: val.subscription.tenant_id,
             currency: val.subscription.currency,
@@ -122,7 +129,8 @@ impl SubscriptionNew {
         tenant_id: Uuid,
     ) -> SubscriptionRowNew {
         SubscriptionRowNew {
-            id: uuid::Uuid::now_v7(),
+            id: Uuid::now_v7(),
+            local_id: LocalId::generate_for(IdType::Subscription),
             customer_id: self.customer_id,
             billing_day: self.billing_day,
             tenant_id,
@@ -151,15 +159,18 @@ pub struct CreateSubscription {
     pub subscription: SubscriptionNew,
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<CreateSubscriptionAddOns>,
+    pub coupons: Option<CreateSubscriptionCoupons>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionDetails {
     pub id: uuid::Uuid,
+    pub local_id: String,
     pub tenant_id: uuid::Uuid,
     pub customer_id: uuid::Uuid,
+    pub customer_local_id: String,
+    pub customer_alias: Option<String>,
     pub plan_version_id: uuid::Uuid,
-    pub customer_external_id: Option<String>,
     pub billing_start_date: chrono::NaiveDate,
     pub billing_end_date: Option<chrono::NaiveDate>,
     pub billing_day: i16,
@@ -169,6 +180,7 @@ pub struct SubscriptionDetails {
     pub schedules: Vec<Schedule>,
     pub price_components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
+    pub applied_coupons: Vec<AppliedCouponDetailed>,
     pub metrics: Vec<BillableMetric>,
     pub mrr_cents: u64,
 

@@ -46,14 +46,14 @@ export const MrrSection = () => {
     productFamily
       ? {
           sortBy: ListPlansRequest_SortBy.NAME_ASC,
-          productFamilyExternalId: productFamily,
+          productFamilyLocalId: productFamily,
         }
       : disableQuery
   )
 
   React.useEffect(() => {
-    if (productFamilies.data?.productFamilies[0]?.externalId && productFamily !== ALL) {
-      setProductFamily(productFamilies.data.productFamilies[0].externalId)
+    if (productFamilies.data?.productFamilies[0]?.localId && productFamily !== ALL) {
+      setProductFamily(productFamilies.data.productFamilies[0].localId)
     }
   }, [productFamilies.data?.productFamilies, productFamily])
 
@@ -71,7 +71,7 @@ export const MrrSection = () => {
               </SelectTrigger>
               <SelectContent>
                 {productFamilies.data?.productFamilies.map(pf => (
-                  <SelectItem key={pf.externalId} value={pf.externalId}>
+                  <SelectItem key={pf.localId} value={pf.localId}>
                     {pf.name}
                   </SelectItem>
                 ))}
@@ -84,7 +84,7 @@ export const MrrSection = () => {
               </SelectTrigger>
               <SelectContent>
                 {plans.data?.plans.map(p => (
-                  <SelectItem key={p.externalId} value={p.externalId}>
+                  <SelectItem key={p.localId} value={p.localId}>
                     {p.name}
                   </SelectItem>
                 ))}

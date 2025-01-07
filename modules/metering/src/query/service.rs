@@ -63,8 +63,8 @@ impl UsageQueryServiceGrpc for UsageQueryService {
                 .customers
                 .iter()
                 .map(|c| Customer {
-                    id: c.meteroid_id.clone(),
-                    external_id: c.external_id.clone(),
+                    alias: c.alias.clone(),
+                    local_id: c.local_id.clone(),
                 })
                 .collect(),
             group_by: req.group_by_properties,

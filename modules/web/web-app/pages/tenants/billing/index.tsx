@@ -1,4 +1,4 @@
-import { useMutation, createConnectQueryKey } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Dot } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
@@ -37,7 +37,7 @@ export const BillingOutlet: FunctionComponent = () => {
                       <>Trials</>
                     </span>
                   ),
-                  to: 'subscriptions/trials',
+                  to: 'subscriptions?status=trialing',
                 },
                 {
                   label: (
@@ -46,52 +46,26 @@ export const BillingOutlet: FunctionComponent = () => {
                       <>At risk</>
                     </span>
                   ),
-                  to: 'subscriptions/past-due',
+                  to: 'subscriptions?status=past-due',
                 },
                 {
                   label: 'Expired',
-                  to: 'subscriptions/expired',
+                  to: 'subscriptions?status=expired',
                 },
                 {
                   label: 'Cancelled',
-                  to: 'subscriptions/cancelled',
+                  to: 'subscriptions?status=cancelled',
                 },
               ],
             },
             {
-              label: 'Invoicing',
+              label: 'Documents',
               items: [
                 {
                   label: 'Invoices',
                   to: 'invoices',
                 },
-                {
-                  label: (
-                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-muted-foreground h-2" />
-                      <>Drafts</>
-                    </span>
-                  ),
-                  to: 'subscriptions/trials',
-                },
-                {
-                  label: (
-                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-brand h-2" />
-                      <>Pending</>
-                    </span>
-                  ),
-                  to: 'subscriptions/trials',
-                },
-                {
-                  label: (
-                    <span className="flex items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-warning h-2" />
-                      <>Past due</>
-                    </span>
-                  ),
-                  to: 'subscriptions/past-due',
-                },
+
                 {
                   label: 'Credit notes',
                   to: 'credit-notes',
@@ -117,7 +91,7 @@ export const BillingOutlet: FunctionComponent = () => {
               items: [
                 {
                   label: 'Invoice configuration',
-                  to: 'invoice-config',
+                  to: '../settings?tab=invoices',
                 },
               ],
             },
@@ -140,7 +114,7 @@ export const FamilyCreationModalPage = () => {
   })
 
   const createDefault = () =>
-    createDefaultMutation.mutateAsync({ name: 'Default', externalId: 'default' })
+    createDefaultMutation.mutateAsync({ name: 'Default', localId: 'default' })
 
   return (
     <TenantPageLayout title="Product Billing">

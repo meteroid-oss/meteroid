@@ -22,11 +22,10 @@ pub enum DatabaseError {
     UniqueViolation,
     #[error("A check constraint violation occurred: {0}")]
     CheckViolation(String),
-    #[error("No fields were provided to be updated")]
-    NoFieldsToUpdate,
     #[error("An error occurred when generating typed SQL query")]
     QueryGenerationFailed,
-    // InsertFailed,
+    #[error("A validation error occurred: {0}")]
+    ValidationError(String),
     #[error("An unknown error occurred: {0}")]
     Others(String),
 }

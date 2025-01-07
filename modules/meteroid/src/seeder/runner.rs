@@ -29,12 +29,11 @@ use chrono::Utc;
 use nanoid::nanoid;
 
 use meteroid_store::domain::{
-    Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, TenantContext,
+    Address, BillingConfig, Identity, InlineCustomer, InlineInvoicingEntity, TenantContext,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use meteroid_store::utils::local_id::{IdType, LocalId};
 
 pub async fn run(
     store: Store,
@@ -93,7 +92,8 @@ pub async fn run(
                 usage_group_key: None,
                 description: None,
                 created_by: user_id,
-                family_external_id: product_family.external_id.clone(),
+                family_local_id: product_family.local_id.clone(),
+                product_id: None, // TODO
             })
             .await
             .change_context(SeederError::TempError)?;
@@ -106,24 +106,22 @@ pub async fn run(
         let created = store
             .insert_plan(store_domain::FullPlanNew {
                 plan: store_domain::PlanNew {
-                    external_id: slugify(&plan.name),
+                    local_id: slugify(&plan.name),
                     name: plan.name,
                     plan_type: plan.plan_type,
                     status: PlanStatusEnum::Active,
                     tenant_id: tenant.id,
-                    product_family_external_id: product_family.external_id.clone(),
+                    product_family_local_id: product_family.local_id.clone(),
                     description: plan.description,
                     created_by: user_id,
                 },
                 version: store_domain::PlanVersionNewInternal {
                     is_draft_version: false,
-                    trial_duration_days: plan.version_details.trial_duration_days,
-                    trial_fallback_plan_id: plan.version_details.trial_fallback_plan_id,
+                    trial: plan.version_details.trial.clone(),
                     period_start_day: plan.version_details.period_start_day,
                     net_terms: plan.version_details.net_terms,
                     currency: Some(plan.version_details.currency),
                     billing_cycles: plan.version_details.billing_cycles,
-                    billing_periods: plan.version_details.billing_periods,
                 },
                 price_components: plan
                     .components
@@ -131,7 +129,7 @@ pub async fn run(
                     .map(|component| store_domain::PriceComponentNewInternal {
                         name: component.name.clone(),
                         fee: component.fee.clone(),
-                        product_item_id: component.product_item_id,
+                        product_id: component.product_id,
                     })
                     .collect::<Vec<_>>(),
             })
@@ -167,7 +165,7 @@ pub async fn run(
 
             let alias = format!("{}-{}", slugify(&company_name), nanoid!(5));
             customers_to_create.push(store_domain::CustomerNew {
-                invoicing_entity_id: Some(invoicing_entity.id),
+                invoicing_entity_id: Some(Identity::UUID(invoicing_entity.id)),
                 billing_config: BillingConfig::Manual,
                 email: SafeEmail().fake(),
                 invoicing_email: None,
@@ -321,6 +319,7 @@ pub async fn run(
             subscription,
             price_components: create_subscription_components,
             add_ons: None, // todo generate add-ons
+            coupons: None, // todo generate coupons
         };
 
         subscriptions_to_create.push(params);
@@ -413,7 +412,7 @@ pub async fn run(
 
         // TODO don't refetch the details, we should have everything, or at the least do it in a batch
         let details = store
-            .get_subscription_details(subscription.tenant_id, subscription.id)
+            .get_subscription_details(subscription.tenant_id, Identity::UUID(subscription.id))
             .await
             .change_context(SeederError::TempError)?;
 
@@ -432,7 +431,7 @@ pub async fn run(
             i += 1;
             // we get all components that need to be invoiced for this date
             let invoice_lines = store
-                .compute_dated_invoice_lines(&invoice_date, subscription_details.clone())
+                .compute_dated_invoice_lines(&invoice_date, &subscription_details)
                 .await
                 .change_context(SeederError::TempError)?;
 
@@ -485,7 +484,6 @@ pub async fn run(
                 net_terms: 30,
                 reference: None,
                 memo: None,
-                local_id: LocalId::generate_for(IdType::Invoice),
                 due_at: Some((invoice_date + chrono::Duration::days(30)).and_time(NaiveTime::MIN)),
                 plan_name: Some(subscription_details.plan_name.clone()),
                 invoice_number: format!("{}-{:0>8}", invoice_number_prefix, i.to_string()),

@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod api;
+pub mod api_rest;
 pub mod clients;
 pub mod config;
 pub mod constants;
@@ -12,6 +13,6 @@ pub mod migrations;
 pub mod seeder;
 pub mod services;
 pub mod singletons;
+pub mod svix;
 pub mod webhook;
-pub mod webhook_in_api;
 pub mod workers;

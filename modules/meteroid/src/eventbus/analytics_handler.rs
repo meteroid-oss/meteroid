@@ -14,7 +14,7 @@ use common_eventbus::{
 };
 use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
-use meteroid_store::domain::DetailedInvoice;
+use meteroid_store::domain::{DetailedInvoice, Identity};
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
@@ -142,7 +142,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let customer = self
             .store
-            .find_customer_by_id(event_data_details.entity_id, event_data_details.tenant_id)
+            .find_customer_by_id(
+                Identity::UUID(event_data_details.entity_id),
+                event_data_details.tenant_id,
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -166,7 +169,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let customer = self
             .store
-            .find_customer_by_id(event_data_details.entity_id, event_data_details.tenant_id)
+            .find_customer_by_id(
+                Identity::UUID(event_data_details.entity_id),
+                event_data_details.tenant_id,
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -428,7 +434,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let subscription = self
             .store
-            .get_subscription_details(event_data_details.tenant_id, event_data_details.entity_id)
+            .get_subscription_details(
+                event_data_details.tenant_id,
+                Identity::UUID(event_data_details.entity_id),
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -456,7 +465,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let subscription = self
             .store
-            .get_subscription_details(event_data_details.tenant_id, event_data_details.entity_id)
+            .get_subscription_details(
+                event_data_details.tenant_id,
+                Identity::UUID(event_data_details.entity_id),
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 

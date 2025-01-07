@@ -26,6 +26,10 @@ pub struct Organization {
     pub address: Address,
     pub email: Option<String>,
     pub tax_id: Option<String>,
+    pub footer_info: Option<String>,
+    pub footer_legal: Option<String>,
+    pub accounting_currency: iso::Currency,
+    pub exchange_rate: Option<Decimal>,
 }
 
 pub struct Customer {
@@ -42,9 +46,11 @@ pub struct InvoiceMetadata {
     pub payment_term: u32,
     pub subtotal: i64,
     pub tax_amount: i64,
+    pub tax_rate: i32,
     pub total_amount: i64,
     pub currency: iso::Currency,
     pub due_date: chrono::NaiveDate,
+    pub memo: Option<String>,
 }
 
 pub struct InvoiceLine {

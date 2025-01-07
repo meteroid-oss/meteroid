@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
-use crate::plan_versions::PlanVersionRowLatest;
+use crate::plan_versions::PlanVersionRowOverview;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -50,8 +50,9 @@ pub struct InvoiceRow {
     pub subtotal: i64,
     pub applied_credits: i64,
     pub seller_details: serde_json::Value,
-    pub pdf_document_id: Option<String>,
     pub xml_document_id: Option<String>,
+    pub pdf_document_id: Option<String>,
+    pub applied_coupon_ids: Vec<Option<Uuid>>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -123,5 +124,5 @@ pub struct DetailedInvoiceRow {
     #[diesel(embed)]
     pub customer: CustomerRow,
     #[diesel(embed)]
-    pub plan: Option<PlanVersionRowLatest>,
+    pub plan: Option<PlanVersionRowOverview>,
 }

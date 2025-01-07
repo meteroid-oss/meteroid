@@ -95,13 +95,13 @@ pub mod metric {
     use meteroid_grpc::meteroid::api::billablemetrics::v1 as server;
     use std::collections::HashMap;
 
+    use crate::api::shared::conversions::AsProtoOpt;
+    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
     use metering_grpc::meteroid::metering::v1 as metering;
     use meteroid_grpc::meteroid::api::billablemetrics::v1::segmentation_matrix::Matrix;
     use meteroid_store::domain;
     use meteroid_store::domain::billable_metrics::{Dimension, SegmentationMatrix};
     use meteroid_store::errors::StoreError;
-
-    use crate::api::shared::mapping::datetime::chrono_to_timestamp;
 
     pub struct ServerBillableMetricWrapper(pub server::BillableMetric);
 
@@ -111,6 +111,7 @@ pub mod metric {
         fn try_from(value: domain::BillableMetric) -> Result<Self, Self::Error> {
             Ok(ServerBillableMetricWrapper(server::BillableMetric {
                 id: value.id.to_string(),
+                local_id: value.local_id,
                 name: value.name,
                 code: value.code,
                 description: value.description,
@@ -133,6 +134,7 @@ pub mod metric {
                 archived_at: value.archived_at.map(chrono_to_timestamp),
                 created_at: Some(chrono_to_timestamp(value.created_at)),
                 usage_group_key: value.usage_group_key,
+                product_id: value.product_id.as_proto(),
             }))
         }
     }
@@ -267,7 +269,7 @@ pub mod metric {
             .unwrap_or_default();
 
         metering::Meter {
-            meter_slug: metric.id.to_string(), // TODO slug would make it easier for external metering
+            id: metric.local_id, // we could allow optional external_id if the metric is defined externally
             event_name: metric.code.to_string(),
             aggregation_key: metric.aggregation_key,
             aggregation: super::aggregation_type::domain_to_metering(metric.aggregation_type)

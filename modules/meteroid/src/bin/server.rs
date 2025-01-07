@@ -10,7 +10,11 @@ use meteroid::adapters::stripe::Stripe;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use meteroid::{migrations, webhook_in_api};
+use meteroid::migrations;
+use meteroid::services::storage::S3Storage;
+use meteroid::svix::new_svix;
+use meteroid_store::repositories::webhooks::WebhooksInterface;
+use meteroid_store::store::StoreConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,43 +40,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let query_service_client = UsageQueryServiceClient::new(metering_layered_channel.clone());
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
-    // this creates a new pool, as it is incompatible with the one for cornucopia.
-    let store = meteroid_store::Store::new(
-        config.database_url.clone(),
-        config.secrets_crypt_key.clone(),
-        config.jwt_secret.clone(),
-        config.multi_organization_enabled,
-        create_eventbus_memory(),
-        Arc::new(MeteringUsageClient::new(
+    let svix = new_svix(config);
+
+    let store = meteroid_store::Store::new(StoreConfig {
+        database_url: config.database_url.clone(),
+        crypt_key: config.secrets_crypt_key.clone(),
+        jwt_secret: config.jwt_secret.clone(),
+        multi_organization_enabled: config.multi_organization_enabled,
+        eventbus: create_eventbus_memory(),
+        usage_client: Arc::new(MeteringUsageClient::new(
             query_service_client,
             metering_service,
         )),
-    )?;
+        svix: svix.clone(),
+    })?;
+    // todo this is a hack to register the event types in svix, should be managed by an api
+    store.insert_webhook_out_event_types().await?;
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
-    let private_server = meteroid::api::server::start_api_server(config.clone(), store.clone());
+    let object_store_service = Arc::new(S3Storage::try_new(
+        &config.object_store_uri,
+        &config.object_store_prefix,
+    )?);
+
+    let grpc_server = meteroid::api::server::start_api_server(
+        config.clone(),
+        store.clone(),
+        object_store_service.clone(),
+    );
 
     let exit = signal::ctrl_c();
 
-    let conn = store.pool.get().await?;
-    migrations::run(conn).await?;
-
-    let object_store_client =
-        Arc::new(object_store::parse_url(&url::Url::parse(&config.object_store_uri)?)?.0);
+    migrations::run(&store.pool).await?;
 
     let stripe_adapter = Arc::new(Stripe {
         client: stripe_client::client::StripeClient::new(),
     });
 
+    let rest_server = meteroid::api_rest::server::start_rest_server(
+        config,
+        object_store_service.clone(),
+        stripe_adapter.clone(),
+        store.clone(),
+    );
+
     tokio::select! {
-        _ = private_server => {},
-        _ = webhook_in_api::serve(
-            config.invoicing_webhook_addr,
-            object_store_client,
-            stripe_adapter.clone(),
-            store,
-        ) => {},
+        grpc_result = grpc_server => {
+            if let Err(e) = grpc_result {
+                log::error!("Error starting gRPC API server: {}", e);
+            }
+        },
+        rest_result = rest_server => {
+            if let Err(e) = rest_result {
+                log::error!("Error starting REST API server: {}", e);
+            }
+
+        },
         _ = exit => {
               log::info!("Interrupted");
         }

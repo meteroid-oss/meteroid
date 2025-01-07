@@ -10,12 +10,14 @@ use crate::Store;
 use chrono::NaiveDate;
 use itertools::Itertools;
 
+use error_stack::{Report, Result, ResultExt};
+
 #[async_trait::async_trait]
 pub trait InvoiceLineInterface {
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
-        subscription_details: SubscriptionDetails,
+        subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError>;
 }
 
@@ -27,16 +29,16 @@ impl InvoiceLineInterface for Store {
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
-        subscription_details: SubscriptionDetails,
+        subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError> {
         if *invoice_date < subscription_details.billing_start_date {
-            return Err(ComputeError::InvalidInvoiceDate);
+            return Err(Report::new(ComputeError::InvalidInvoiceDate));
         }
 
         let currency = self
             .get_reporting_currency_by_tenant_id(subscription_details.tenant_id)
             .await
-            .map_err(|_| ComputeError::InternalError)?;
+            .change_context(ComputeError::InternalError)?;
 
         let billing_start_date = subscription_details.billing_start_date;
         let billing_day = subscription_details.billing_day;

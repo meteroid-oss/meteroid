@@ -1,6 +1,7 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::{
-    PlanVersionRow, PlanVersionRowLatest, PlanVersionRowNew, PlanVersionRowPatch,
+    PlanVersionRow, PlanVersionRowNew, PlanVersionRowOverview, PlanVersionRowPatch,
+    PlanVersionTrialRowPatch,
 };
 
 use crate::{DbResult, PgConn};
@@ -203,11 +204,11 @@ impl PlanVersionRow {
     }
 }
 
-impl PlanVersionRowLatest {
+impl PlanVersionRowOverview {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: uuid::Uuid,
-    ) -> DbResult<Vec<PlanVersionRowLatest>> {
+    ) -> DbResult<Vec<PlanVersionRowOverview>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -224,7 +225,7 @@ impl PlanVersionRowLatest {
                 pv_dsl::created_at.desc(),
             ))
             .distinct_on(pv_dsl::plan_id)
-            .select(PlanVersionRowLatest::as_select());
+            .select(PlanVersionRowOverview::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -253,6 +254,26 @@ impl PlanVersionRowPatch {
             .get_result(conn)
             .await
             .attach_printable("Error while updating plan version")
+            .into_db_result()
+    }
+}
+
+impl PlanVersionTrialRowPatch {
+    pub async fn update_trial(&self, conn: &mut PgConn) -> DbResult<PlanVersionRow> {
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(pv_dsl::plan_version)
+            .filter(pv_dsl::id.eq(self.id))
+            .filter(pv_dsl::tenant_id.eq(self.tenant_id))
+            .set(self);
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while updating plan version trial")
             .into_db_result()
     }
 }

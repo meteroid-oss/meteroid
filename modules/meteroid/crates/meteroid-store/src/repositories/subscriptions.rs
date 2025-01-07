@@ -4,12 +4,13 @@ use crate::domain::enums::{
 };
 use crate::domain::{
     BillableMetric, BillingConfig, CreateSubscription, CreateSubscriptionAddOns,
-    CreateSubscriptionComponents, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest,
-    Customer, InlineCustomer, InlineInvoicingEntity, InvoicingEntity, PaginatedVec,
-    PaginationRequest, PriceComponent, Schedule, Subscription, SubscriptionAddOnCustomization,
-    SubscriptionAddOnNew, SubscriptionAddOnNewInternal, SubscriptionComponent,
-    SubscriptionComponentNew, SubscriptionComponentNewInternal, SubscriptionDetails,
-    SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
+    CreateSubscriptionComponents, CreateSubscriptionCoupons, CreatedSubscription,
+    CursorPaginatedVec, CursorPaginationRequest, Customer, Identity, InlineCustomer,
+    InlineInvoicingEntity, InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent,
+    Schedule, Subscription, SubscriptionAddOnCustomization, SubscriptionAddOnNew,
+    SubscriptionAddOnNewInternal, SubscriptionComponent, SubscriptionComponentNew,
+    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
+    SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
@@ -17,26 +18,30 @@ use crate::utils::decimals::ToSubunit;
 use crate::{domain, StoreResult};
 use chrono::{NaiveDate, NaiveTime};
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncConnection;
-use diesel_models::errors::DatabaseErrorContainer;
-use error_stack::Report;
+use diesel_models::errors::DatabaseError;
+use error_stack::{report, Report};
 use itertools::Itertools;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use rust_decimal::prelude::*;
-
 use crate::constants::Currencies;
 use crate::domain::add_ons::AddOn;
+use crate::domain::coupons::{Coupon, CouponDiscount};
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
+use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
-use crate::utils::local_id::{IdType, LocalId};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
+use diesel_models::applied_coupons::{
+    AppliedCouponDetailedRow, AppliedCouponRow, AppliedCouponRowNew,
+};
 use diesel_models::billable_metrics::BillableMetricRow;
+use diesel_models::coupons::CouponRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::query::plans::get_plan_names_by_version_ids;
+use diesel_models::query::IdentityDb;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
@@ -45,6 +50,8 @@ use diesel_models::subscription_components::{
 };
 use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
+use diesel_models::DbResult;
+use rust_decimal::prelude::*;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
@@ -68,7 +75,7 @@ pub trait SubscriptionInterface {
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
-        subscription_id: Uuid,
+        subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails>;
 
     async fn insert_subscription_components(
@@ -88,8 +95,8 @@ pub trait SubscriptionInterface {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Uuid>,
-        plan_id: Option<Uuid>,
+        customer_id: Option<Identity>,
+        plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
@@ -249,6 +256,7 @@ impl SubscriptionInterface for Store {
             subscription: SubscriptionRowNew,
             price_components: Vec<SubscriptionComponentRowNew>,
             add_ons: Vec<SubscriptionAddOnRowNew>,
+            coupons: Vec<AppliedCouponRowNew>,
             event: SubscriptionEventRow,
         }
 
@@ -286,9 +294,25 @@ impl SubscriptionInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)
         .and_then(|x| x.into_iter().map(TryInto::try_into).collect())?;
 
+        let all_coupons: Vec<Coupon> = CouponRow::list_by_ids(
+            &mut conn,
+            &batch
+                .iter()
+                .filter_map(|x| x.coupons.as_ref())
+                .flat_map(|x| &x.coupons)
+                .map(|x| x.coupon_id)
+                .unique()
+                .collect::<Vec<_>>(),
+            &tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .and_then(|x| x.into_iter().map(TryInto::try_into).collect())?;
+
         let customer_ids = batch
             .iter()
             .map(|c| c.subscription.customer_id)
+            .unique()
             .collect::<Vec<_>>();
 
         let customers = self
@@ -309,98 +333,117 @@ impl SubscriptionInterface for Store {
                 })
                 .collect::<Result<HashMap<_, _>, _>>()?;
 
-        let insertable = batch
-            .into_iter()
-            .map(|params| {
-                let CreateSubscription {
-                    subscription,
-                    price_components,
-                    add_ons,
-                } = params;
+        let mut insertable: Vec<DieselModelWrapper> = Vec::with_capacity(batch.len());
 
-                // first we need to process the CreateSubscriptionComponents into Vec<SubscriptionComponentNew>
-                // we will need the plan version components
+        for params in batch {
+            let CreateSubscription {
+                subscription,
+                price_components,
+                add_ons,
+                coupons,
+            } = params;
 
-                let customer = customers
-                    .iter()
-                    .find(|c| c.id == subscription.customer_id)
-                    .ok_or(StoreError::InsertError)?;
+            // first we need to process the CreateSubscriptionComponents into Vec<SubscriptionComponentNew>
+            // we will need the plan version components
 
-                let precision = Currencies::resolve_currency_precision(&subscription.currency)
-                    .ok_or(StoreError::InsertError)?;
+            let customer = customers
+                .iter()
+                .find(|c| c.id == subscription.customer_id)
+                .ok_or(StoreError::InsertError)?;
 
-                let insertable_subscription_components = process_create_subscription_components(
-                    &price_components,
-                    &price_components_by_plan_version,
-                    &subscription,
-                )?;
+            let subscription_currency = &subscription.currency.clone();
 
-                let insertable_subscription_add_ons =
-                    process_create_subscription_add_ons(&add_ons, &all_add_ons)?;
+            let precision = Currencies::resolve_currency_precision(subscription_currency)
+                .ok_or(StoreError::InsertError)?;
 
-                // at this point we can know the period
-                let period = extract_billing_period(
-                    &insertable_subscription_components,
-                    &insertable_subscription_add_ons,
-                );
+            let insertable_subscription_components = process_create_subscription_components(
+                &price_components,
+                &price_components_by_plan_version,
+                &subscription,
+            )?;
 
-                let should_activate = customer.billing_config != BillingConfig::Manual;
-                let insertable_subscription: SubscriptionRowNew =
-                    subscription.map_to_row(period, should_activate, tenant_id);
+            let insertable_subscription_add_ons =
+                process_create_subscription_add_ons(&add_ons, &all_add_ons)?;
 
-                let cmrr = insertable_subscription_components
-                    .iter()
-                    .map(|c| calculate_mrr(&c.fee, &c.period, precision))
-                    .sum::<i64>();
+            // at this point we can know the period
+            let period = extract_billing_period(
+                &insertable_subscription_components,
+                &insertable_subscription_add_ons,
+            );
 
-                let ao_mrr = insertable_subscription_add_ons
-                    .iter()
-                    .map(|c| calculate_mrr(&c.fee, &c.period, precision))
-                    .sum::<i64>();
+            let should_activate = customer.billing_config != BillingConfig::Manual;
+            let insertable_subscription: SubscriptionRowNew =
+                subscription.map_to_row(period, should_activate, tenant_id);
 
-                let mrr_delta = cmrr + ao_mrr;
+            let insertable_subscription_coupons = process_create_subscription_coupons(
+                &insertable_subscription,
+                &coupons,
+                &all_coupons,
+            )?;
 
-                let insertable_subscription_components = insertable_subscription_components
-                    .into_iter()
-                    .map(|c| SubscriptionComponentNew {
-                        subscription_id: insertable_subscription.id,
-                        internal: c,
-                    })
-                    .collect::<Vec<_>>();
+            let cmrr = insertable_subscription_components
+                .iter()
+                .map(|c| calculate_mrr(&c.fee, &c.period, precision))
+                .sum::<i64>();
 
-                let insertable_subscription_add_ons = insertable_subscription_add_ons
-                    .into_iter()
-                    .map(|internal| SubscriptionAddOnNew {
-                        subscription_id: insertable_subscription.id,
-                        internal,
-                    })
-                    .collect::<Vec<_>>();
+            let ao_mrr = insertable_subscription_add_ons
+                .iter()
+                .map(|c| calculate_mrr(&c.fee, &c.period, precision))
+                .sum::<i64>();
 
-                let insertable_event = SubscriptionEventRow {
-                    id: Uuid::now_v7(),
+            let mrr_delta = cmrr + ao_mrr;
+
+            let mrr_delta = calculate_coupons_discount(
+                self,
+                &all_coupons,
+                subscription_currency,
+                Decimal::from_i64(mrr_delta).unwrap_or(Decimal::ZERO),
+            )
+            .await?
+            .to_i64()
+            .unwrap_or(0);
+
+            let insertable_subscription_components = insertable_subscription_components
+                .into_iter()
+                .map(|c| SubscriptionComponentNew {
                     subscription_id: insertable_subscription.id,
-                    event_type: SubscriptionEventType::Created.into(),
-                    details: None,
-                    created_at: chrono::Utc::now().naive_utc(),
-                    mrr_delta: Some(mrr_delta),
-                    bi_mrr_movement_log_id: None,
-                    applies_to: insertable_subscription.billing_start_date,
-                };
-
-                Ok::<_, StoreError>(DieselModelWrapper {
-                    subscription: insertable_subscription,
-                    price_components: insertable_subscription_components
-                        .into_iter()
-                        .map(|c| c.try_into())
-                        .collect::<Result<Vec<_>, _>>()?,
-                    add_ons: insertable_subscription_add_ons
-                        .into_iter()
-                        .map(|c| c.try_into())
-                        .collect::<Result<Vec<_>, _>>()?,
-                    event: insertable_event,
+                    internal: c,
                 })
+                .collect::<Vec<_>>();
+
+            let insertable_subscription_add_ons = insertable_subscription_add_ons
+                .into_iter()
+                .map(|internal| SubscriptionAddOnNew {
+                    subscription_id: insertable_subscription.id,
+                    internal,
+                })
+                .collect::<Vec<_>>();
+
+            let insertable_event = SubscriptionEventRow {
+                id: Uuid::now_v7(),
+                subscription_id: insertable_subscription.id,
+                event_type: SubscriptionEventType::Created.into(),
+                details: None,
+                created_at: chrono::Utc::now().naive_utc(),
+                mrr_delta: Some(mrr_delta),
+                bi_mrr_movement_log_id: None,
+                applies_to: insertable_subscription.billing_start_date,
+            };
+
+            insertable.push(DieselModelWrapper {
+                subscription: insertable_subscription,
+                price_components: insertable_subscription_components
+                    .into_iter()
+                    .map(|c| c.try_into())
+                    .collect::<Result<Vec<_>, _>>()?,
+                add_ons: insertable_subscription_add_ons
+                    .into_iter()
+                    .map(|c| c.try_into())
+                    .collect::<Result<Vec<_>, _>>()?,
+                coupons: insertable_subscription_coupons,
+                event: insertable_event,
             })
-            .collect::<Result<Vec<_>, _>>()?;
+        }
 
         let insertable_subscription_components = insertable
             .iter()
@@ -412,18 +455,23 @@ impl SubscriptionInterface for Store {
             .flat_map(|c| c.add_ons.iter())
             .collect::<Vec<_>>();
 
+        let insertable_subscription_coupons = insertable
+            .iter()
+            .flat_map(|c| c.coupons.iter())
+            .collect::<Vec<_>>();
+
         let insertable_subscriptions = insertable.iter().map(|c| &c.subscription).collect();
 
         let insertable_subscription_events: Vec<&SubscriptionEventRow> =
             insertable.iter().map(|c| &c.event).collect();
 
-        let inserted_subscriptions = conn
-            .transaction(|conn| {
+        let inserted_subscriptions = self
+            .transaction_with(&mut conn, |conn| {
                 async move {
                     let inserted_subscriptions: Vec<CreatedSubscription> =
                         SubscriptionRow::insert_subscription_batch(conn, insertable_subscriptions)
                             .await
-                            .map_err(Into::<DatabaseErrorContainer>::into)
+                            .map_err(Into::<Report<StoreError>>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
                     SubscriptionComponentRow::insert_subscription_component_batch(
@@ -431,17 +479,29 @@ impl SubscriptionInterface for Store {
                         insertable_subscription_components,
                     )
                     .await
-                    .map_err(Into::<DatabaseErrorContainer>::into)?;
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     SubscriptionAddOnRow::insert_batch(conn, insertable_subscription_add_ons)
                         .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    apply_coupons(
+                        conn,
+                        &insertable_subscription_coupons,
+                        &inserted_subscriptions,
+                        tenant_id,
+                    )
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     SubscriptionEventRow::insert_batch(conn, insertable_subscription_events)
                         .await
-                        .map_err(Into::<DatabaseErrorContainer>::into)?;
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
-                    Ok::<_, DatabaseErrorContainer>(inserted_subscriptions)
+                    insert_created_outbox_events_tx(conn, self, &inserted_subscriptions, tenant_id)
+                        .await?;
+
+                    Ok::<_, Report<StoreError>>(inserted_subscriptions)
                 }
                 .scope_boxed()
             })
@@ -511,22 +571,23 @@ impl SubscriptionInterface for Store {
         Ok(inserted_subscriptions)
     }
 
+    /// todo parallelize db calls
     async fn get_subscription_details(
         &self,
         tenant_id: Uuid,
-        subscription_id: Uuid,
+        subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails> {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, &subscription_id)
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id.into())
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: Subscription = db_subscription.into();
 
         let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription_id)
+            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -537,7 +598,7 @@ impl SubscriptionInterface for Store {
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 &mut conn,
                 &tenant_id,
-                &subscription_id,
+                &subscription.id,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
@@ -546,7 +607,7 @@ impl SubscriptionInterface for Store {
             .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription_id)
+            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -567,6 +628,14 @@ impl SubscriptionInterface for Store {
 
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
+        let applied_coupons =
+            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
         let billable_metrics: Vec<BillableMetric> =
             BillableMetricRow::get_by_ids(&mut conn, &metric_ids, &subscription.tenant_id)
                 .await
@@ -577,10 +646,12 @@ impl SubscriptionInterface for Store {
 
         Ok(SubscriptionDetails {
             id: subscription.id,
+            local_id: subscription.local_id,
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             plan_version_id: subscription.plan_version_id,
-            customer_external_id: subscription.customer_alias,
+            customer_local_id: subscription.customer_local_id,
+            customer_alias: subscription.customer_alias,
             billing_start_date: subscription.billing_start_date,
             billing_end_date: subscription.billing_end_date,
             billing_day: subscription.billing_day,
@@ -588,6 +659,7 @@ impl SubscriptionInterface for Store {
             net_terms: subscription.net_terms,
             price_components: subscription_components,
             add_ons: subscription_add_ons,
+            applied_coupons,
             metrics: billable_metrics,
             mrr_cents: subscription.mrr_cents,
             version: subscription.version,
@@ -645,7 +717,10 @@ impl SubscriptionInterface for Store {
             .transaction(|conn| {
                 async move {
                     let subscription: SubscriptionDetails = self
-                        .get_subscription_details(context.tenant_id, subscription_id)
+                        .get_subscription_details(
+                            context.tenant_id,
+                            Identity::UUID(subscription_id),
+                        )
                         .await?;
 
                     let now = chrono::Utc::now().naive_utc();
@@ -673,7 +748,7 @@ impl SubscriptionInterface for Store {
                     let res = SubscriptionRow::get_subscription_by_id(
                         conn,
                         &context.tenant_id,
-                        &subscription_id,
+                        IdentityDb::UUID(subscription_id),
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -719,8 +794,8 @@ impl SubscriptionInterface for Store {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Uuid>,
-        plan_id: Option<Uuid>,
+        customer_id: Option<Identity>,
+        plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
@@ -728,8 +803,8 @@ impl SubscriptionInterface for Store {
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            customer_id,
-            plan_id,
+            customer_id.map(Into::into),
+            plan_id.map(Into::into),
             pagination.into(),
         )
         .await
@@ -826,6 +901,244 @@ fn process_create_subscription_add_ons(
     Ok(processed_add_ons)
 }
 
+fn process_create_subscription_coupons(
+    subscription: &SubscriptionRowNew,
+    create: &Option<CreateSubscriptionCoupons>,
+    coupons: &[Coupon],
+) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
+    let mut processed_coupons = Vec::new();
+    if let Some(create) = create {
+        for cs_coupon in &create.coupons {
+            let coupon = coupons.iter().find(|x| x.id == cs_coupon.coupon_id).ok_or(
+                StoreError::ValueNotFound(format!("coupon {} not found", cs_coupon.coupon_id)),
+            )?;
+
+            processed_coupons.push(AppliedCouponRowNew {
+                id: Uuid::now_v7(),
+                subscription_id: subscription.id,
+                coupon_id: coupon.id,
+                customer_id: subscription.customer_id,
+                is_active: true,
+                applied_amount: None,
+                applied_count: None,
+                last_applied_at: None,
+            });
+        }
+    }
+
+    processed_coupons = processed_coupons
+        .into_iter()
+        .unique_by(|x| x.coupon_id)
+        .collect();
+
+    Ok(processed_coupons)
+}
+
+async fn apply_coupons(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&AppliedCouponRowNew],
+    subscriptions: &[CreatedSubscription],
+    tenant_id: Uuid,
+) -> DbResult<()> {
+    validate_coupons(tx_conn, subscription_coupons, subscriptions, tenant_id).await?;
+
+    AppliedCouponRow::insert_batch(tx_conn, subscription_coupons.to_vec()).await?;
+
+    CouponRow::update_last_redemption_at(
+        tx_conn,
+        &subscription_coupons
+            .iter()
+            .map(|c| c.coupon_id)
+            .unique()
+            .collect::<Vec<_>>(),
+        chrono::Utc::now().naive_utc(),
+    )
+    .await?;
+
+    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+        subscription_coupons.iter().counts_by(|x| x.coupon_id);
+
+    for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
+        CouponRow::inc_redemption_count(tx_conn, coupon_id, subscriptions_count as i32).await?;
+    }
+
+    Ok(())
+}
+
+/// validate coupons can be applied to subscriptions
+/// must be inside tx to handle concurrent inserts
+async fn validate_coupons(
+    tx_conn: &mut PgConn,
+    subscription_coupons: &[&AppliedCouponRowNew],
+    subscriptions: &[CreatedSubscription],
+    tenant_id: Uuid,
+) -> DbResult<()> {
+    if subscription_coupons.is_empty() {
+        return Ok(());
+    }
+
+    let coupons_ids = subscription_coupons
+        .iter()
+        .map(|x| x.coupon_id)
+        .unique()
+        .collect::<Vec<_>>();
+
+    let coupons = CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
+
+    let now = chrono::Utc::now().naive_utc();
+
+    for coupon in coupons.iter() {
+        let applied_coupon = subscription_coupons
+            .iter()
+            .find(|x| x.coupon_id == coupon.id)
+            .ok_or(report!(DatabaseError::ValidationError(format!(
+                "Applied coupon {} not found",
+                coupon.code
+            ))))?;
+
+        let subscription = subscriptions
+            .iter()
+            .find(|x| x.id == applied_coupon.subscription_id)
+            .ok_or(report!(DatabaseError::ValidationError(format!(
+                "Subscription {} not found",
+                applied_coupon.subscription_id
+            ))))?;
+
+        // check expired coupons
+        if coupon.expires_at.is_some_and(|x| x <= now) {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} is expired",
+                coupon.code
+            )))
+            .into());
+        }
+        // check archived coupons
+        if coupon.archived_at.is_some() {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} is archived",
+                coupon.code
+            )))
+            .into());
+        }
+
+        // TEMPORARY CHECK: currency is the same as in subscription
+        let discount: CouponDiscount =
+            serde_json::from_value(coupon.discount.clone()).map_err(|_| {
+                report!(DatabaseError::ValidationError(format!(
+                    "Discount serde error for coupon {}",
+                    &coupon.code
+                )))
+            })?;
+
+        if discount
+            .currency()
+            .is_some_and(|x| x != subscription.currency)
+        {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} currency does not match subscription currency",
+                coupon.code
+            )))
+            .into());
+        }
+    }
+
+    // check if the coupon has reached its redemption limit
+    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+        subscription_coupons.iter().counts_by(|x| x.coupon_id);
+    for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
+        let coupon = coupons.iter().find(|x| x.id == coupon_id).ok_or(report!(
+            DatabaseError::ValidationError(format!("coupon {} not found", coupon_id))
+        ))?;
+
+        if let Some(redemption_limit) = coupon.redemption_limit {
+            if redemption_limit < subscriptions_count as i32 + coupon.redemption_count {
+                return Err(report!(DatabaseError::ValidationError(format!(
+                    "coupon {} has reached its maximum redemptions",
+                    coupon.code
+                )))
+                .into());
+            }
+        }
+    }
+
+    // check non-reusable coupons
+    let non_reusable_coupons = coupons.iter().filter(|x| !x.reusable).collect::<Vec<_>>();
+    if !non_reusable_coupons.is_empty() {
+        let non_reusable_coupons_ids = non_reusable_coupons
+            .iter()
+            .map(|x| x.id)
+            .collect::<Vec<_>>();
+
+        let db_customers_by_coupon =
+            CouponRow::customers_count(tx_conn, &non_reusable_coupons_ids).await?;
+
+        for coupon in non_reusable_coupons {
+            if db_customers_by_coupon.contains_key(&coupon.id) {
+                return Err(report!(DatabaseError::ValidationError(format!(
+                    "coupon {} is not reusable",
+                    coupon.code
+                )))
+                .into());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn calculate_coupons_discount(
+    store: &Store,
+    coupons: &[Coupon],
+    subscription_currency: &String,
+    amount: Decimal,
+) -> StoreResult<Decimal> {
+    if (amount == Decimal::ZERO) || coupons.is_empty() {
+        return Ok(amount);
+    }
+
+    let mut total = amount;
+
+    for coupon in coupons {
+        if !coupon.is_infinite() {
+            continue;
+        }
+
+        match &coupon.discount {
+            CouponDiscount::Percentage(percentage) => {
+                total = total * percentage / Decimal::new(100, 0)
+            }
+            CouponDiscount::Fixed {
+                currency,
+                amount: fixed_amount,
+            } => {
+                let discount_amount = if currency != subscription_currency {
+                    let rate = store
+                        .get_historical_rate(
+                            currency,
+                            subscription_currency,
+                            chrono::Utc::now().date_naive(),
+                        )
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .ok_or(StoreError::ValueNotFound(format!(
+                            "historical rate from {} to {}",
+                            currency, subscription_currency
+                        )))?
+                        .rate;
+
+                    fixed_amount * Decimal::from_f32(rate).unwrap_or(Decimal::ZERO)
+                } else {
+                    *fixed_amount
+                };
+
+                total = (total - discount_amount).max(Decimal::ZERO)
+            }
+        }
+    }
+
+    Ok(total)
+}
+
 fn extract_billing_period(
     components: &[SubscriptionComponentNewInternal],
     add_ons: &[SubscriptionAddOnNewInternal],
@@ -882,7 +1195,7 @@ fn process_create_subscription_components(
             )?;
             processed_components.push(SubscriptionComponentNewInternal {
                 price_component_id: Some(c.id),
-                product_item_id: c.product_item_id,
+                product_id: c.product_id,
                 name: c.name.clone(),
                 period,
                 fee,
@@ -913,7 +1226,7 @@ fn process_create_subscription_components(
         // If the component is not in any of the lists, add it as is
         processed_components.push(SubscriptionComponentNewInternal {
             price_component_id: Some(c.id),
-            product_item_id: c.product_item_id,
+            product_id: c.product_id,
             name: c.name.clone(),
             period,
             fee,
@@ -1014,7 +1327,6 @@ pub fn subscription_to_draft(
         net_terms: subscription.net_terms,
         reference: None,
         memo: None,
-        local_id: LocalId::generate_for(IdType::Invoice),
         due_at: Some(due_date),
         plan_name: None, // TODO
         invoice_number: invoice_number.to_string(),
@@ -1037,4 +1349,35 @@ pub fn subscription_to_draft(
     };
 
     Ok(invoice)
+}
+
+async fn insert_created_outbox_events_tx(
+    conn: &mut PgConn,
+    store: &Store,
+    created: &[CreatedSubscription],
+    tenant_id: Uuid,
+) -> StoreResult<()> {
+    let ids = created.iter().map(|c| c.id).collect::<Vec<_>>();
+
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let subscriptions: Vec<Subscription> =
+        SubscriptionRow::list_subscriptions_by_ids(conn, &tenant_id, &ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.into())
+            .collect();
+
+    let outbox_events: Vec<OutboxEvent> = subscriptions
+        .into_iter()
+        .map(|s| OutboxEvent::subscription_created(s.into()))
+        .collect();
+
+    store
+        .internal
+        .insert_outbox_events_tx(conn, outbox_events)
+        .await
 }

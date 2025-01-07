@@ -30,6 +30,7 @@ message CustomerBrief {
   optional string alias = 4;
   optional string country = 5;
   string created_at = 6;
+  string local_id = 7;
 }
 
 message Address {
@@ -61,6 +62,7 @@ message Customer {
   optional Address billing_address = 12;
   optional ShippingAddress shipping_address = 13;
   string invoicing_entity_id = 14;
+  string local_id = 15;
 }
 
 message CustomerNew {

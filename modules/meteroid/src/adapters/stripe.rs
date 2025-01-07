@@ -17,9 +17,10 @@ use crate::errors::InvoicingAdapterError;
 use axum::response::IntoResponse;
 use common_domain::StripeSecret;
 use error_stack::ResultExt;
-use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config;
 use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
-use meteroid_store::domain::{BillingConfig, Customer, LineItem, Stripe as BillingConfigStripe};
+use meteroid_store::domain::{
+    BillingConfig, Customer, LineItem, Stripe as BillingConfigStripe, StripeCollectionMethod,
+};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
@@ -238,17 +239,11 @@ impl Stripe {
     fn extract_stripe_collection_method(
         customer: &Customer,
     ) -> Result<CollectionMethod, InvoicingAdapterError> {
-        let cm: customer_billing_config::stripe::CollectionMethod =
-            Self::extract_stripe_billing_config(customer)?
-                .collection_method
-                .try_into()
-                .map_err(|_| Report::new(InvoicingAdapterError::InvalidData))?;
+        let cm = &Self::extract_stripe_billing_config(customer)?.collection_method;
 
         match cm {
-            customer_billing_config::stripe::CollectionMethod::SendInvoice => {
-                Ok(CollectionMethod::SendInvoice)
-            }
-            customer_billing_config::stripe::CollectionMethod::ChargeAutomatically => {
+            StripeCollectionMethod::SendInvoice => Ok(CollectionMethod::SendInvoice),
+            StripeCollectionMethod::ChargeAutomatically => {
                 Ok(CollectionMethod::ChargeAutomatically)
             }
         }

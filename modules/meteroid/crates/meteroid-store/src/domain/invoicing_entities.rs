@@ -72,7 +72,7 @@ pub struct InvoicingEntityNew {
     pub vat_number: Option<String>,
 }
 
-#[derive(Clone, Debug, o2o)]
+#[derive(Clone, Debug, o2o, Default)]
 #[owned_into(InvoicingEntityRowPatch)]
 #[ghosts(accounting_currency: {None})]
 pub struct InvoicingEntityPatch {

@@ -18,6 +18,7 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - Node >= 20
 - pnpm >= 8
 - protoc >= 3.17
+- Docker >= 27
 
 ### Install the dependencies & build
 
@@ -29,8 +30,10 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 
 - Copy the `.env.example` file to `.env`.
 
-- Start the database with docker compose. If you intend to run the Metering app as well, you will need the "metering"
-  profile as follows:
+- Start the database with :
+  `docker compose -f docker/develop/docker-compose.yml --env-file .env up`.
+  If you intend to run the Metering app as well, you will need to use the "metering"
+  profile instead :
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
@@ -69,6 +72,14 @@ you can run the following commands for faster feedback:
 - for metering: `cargo build -p metering-grpc`
 - `pnpm --prefix modules/web/web-app run generate:proto`
 
+### Updating the Open API Specification
+
+Open API specification is generated from routes annotations found in `modules/meteroid/src/api_rest`
+Generated file is found in `spec/api/v1/openapi.json`
+On every change in the routes, the openapi.json file should be regenerated via the following command:
+
+- `cargo run -p meteroid --bin openapi-generate`
+
 ### Database Migrations
 
 To add new migration following steps are needed (executed from the project root):
@@ -79,7 +90,10 @@ To add new migration following steps are needed (executed from the project root)
   `modules/meteroid/migrations/diesel`
 - add sql code to the generated migration files
 - apply the migration : `diesel migration run`. Applies the migration(s) and regenerates the schema.rs file.
+- revert the migration : `diesel migration revert`. Un-applies the last applied migration(s) and regenerates the
+  schema.rs file.
 
 On meteroid_api startup the un-applied migrations run automatically.
 
 See https://diesel.rs/guides/getting-started for more info.
+        

@@ -1,33 +1,21 @@
 [package]
-name = "generator"
+name = "meteroid-generator"
 version = "0.1.0"
 rust-version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-thiserror.workspace = true
 dotenvy.workspace = true
 chrono = { workspace = true, features = ["clock"] }
 common-grpc = { workspace = true, features = ["client"] }
-futures.workspace = true
 log.workspace = true
 serde.workspace = true
 shellexpand.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
-tokio-stream.workspace = true
 tonic.workspace = true
-tonic-web.workspace = true
-tonic-tracing-opentelemetry.workspace = true
-tracing = { workspace = true }
-tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true }
 uuid.workspace = true
-tracing-log = { workspace = true }
-anyhow.workspace = true
 metering-grpc = { workspace = true, features = ["client"] }
-prost-types.workspace = true
 common-logging.workspace = true
 fastrand.workspace = true
 serde_yaml.workspace = true
-argon2.workspace = true

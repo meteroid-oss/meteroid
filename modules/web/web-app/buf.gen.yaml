@@ -1,9 +1,11 @@
 version: v1
 types:
   include:
+    - meteroid.api.addons.v1.AddOnsService
     - meteroid.api.apitokens.v1.ApiTokensService
     - meteroid.api.billablemetrics.v1.BillableMetricsService
     - meteroid.api.customers.v1.CustomersService
+    - meteroid.api.coupons.v1.CouponsService
     - meteroid.api.instance.v1.InstanceService
     - meteroid.api.invoices.v1.InvoicesService
     - meteroid.api.plans.v1.PlansService

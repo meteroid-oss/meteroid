@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use tonic::transport::Server;
 use tonic_tracing_opentelemetry::middleware as otel_middleware;
 use tonic_web::GrpcWebLayer;
@@ -8,23 +9,25 @@ use meteroid_store::Store;
 
 use crate::api;
 use crate::api::cors::cors;
+use crate::services::storage::ObjectStoreService;
 
 use super::super::config::Config;
 
 pub async fn start_api_server(
     config: Config,
     store: Store,
+    object_store: Arc<dyn ObjectStoreService>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
         "Starting Billing API grpc server on port {}",
-        config.listen_addr.port()
+        config.grpc_listen_addr.port()
     );
 
     let (_, health_service) = tonic_health::server::health_reporter();
 
     let reflection_service = tonic_reflection::server::Builder::configure()
         .register_encoded_file_descriptor_set(meteroid_grpc::_reflection::FILE_DESCRIPTOR_SET)
-        .build()
+        .build_v1()
         .unwrap();
 
     // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel
@@ -54,9 +57,15 @@ pub async fn start_api_server(
         .add_service(api::addons::service(store.clone()))
         .add_service(api::billablemetrics::service(store.clone()))
         .add_service(api::organizations::service(store.clone()))
-        .add_service(api::invoicingentities::service(store.clone()))
+        .add_service(api::invoicingentities::service(
+            store.clone(),
+            object_store.clone(),
+        ))
         .add_service(api::coupons::service(store.clone()))
-        .add_service(api::customers::service(store.clone()))
+        .add_service(api::customers::service(
+            store.clone(),
+            config.jwt_secret.clone(),
+        ))
         .add_service(api::tenants::service(store.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(store.clone()))
@@ -65,13 +74,16 @@ pub async fn start_api_server(
         .add_service(api::productitems::service(store.clone()))
         .add_service(api::productfamilies::service(store.clone()))
         .add_service(api::instance::service(store.clone()))
-        .add_service(api::invoices::service(store.clone()))
+        .add_service(api::invoices::service(
+            store.clone(),
+            config.jwt_secret.clone(),
+        ))
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
         .add_service(api::subscriptions::service(store.clone()))
         .add_service(api::webhooksout::service(store.clone()))
         .add_service(api::internal::service(store.clone()))
-        .serve(config.listen_addr)
+        .serve(config.grpc_listen_addr)
         .await?;
 
     Ok(())

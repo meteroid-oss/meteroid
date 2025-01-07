@@ -5,8 +5,8 @@ use diesel_models::errors::DatabaseError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("Initialization Error")]
-    InitializationError,
+    #[error("Initialization Error: {0}")]
+    InitializationError(String),
     #[error("DatabaseError: {0:?}")]
     DatabaseError(error_stack::Report<DatabaseError>),
     #[error("ValueNotFound: {0}")]
@@ -28,8 +28,8 @@ pub enum StoreError {
     InsertError,
     #[error("Transaction error: {0:?}")]
     TransactionStoreError(error_stack::Report<StoreError>),
-    #[error("Failed to compute invoice lines: {0:?}")]
-    InvoiceComputationError(#[source] ComputeError),
+    #[error("Failed to compute invoice lines")]
+    InvoiceComputationError,
     #[error("Failed to process price components: {0}")]
     InvalidPriceComponents(String),
     #[error("Failed to serialize/deserialize data: {0}")]
@@ -44,22 +44,12 @@ pub enum StoreError {
     NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
     #[error("Metering Service error: {0}")]
     MeteringServiceError(String, #[source] ComputeError),
+    #[error("Webhook Service error: {0}")]
+    WebhookServiceError(String),
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862
 pub(crate) type StoreErrorReport = error_stack::Report<StoreError>;
-
-impl From<ComputeError> for StoreError {
-    fn from(err: ComputeError) -> Self {
-        StoreError::InvoiceComputationError(err)
-    }
-}
-
-impl From<ComputeError> for error_stack::Report<StoreError> {
-    fn from(err: ComputeError) -> Self {
-        error_stack::Report::from(StoreError::InvoiceComputationError(err))
-    }
-}
 
 impl From<DatabaseError> for StoreError {
     fn from(err: DatabaseError) -> Self {

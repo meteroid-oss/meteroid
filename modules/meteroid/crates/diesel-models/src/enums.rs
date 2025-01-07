@@ -1,4 +1,13 @@
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::ActionAfterTrialEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ActionAfterTrialEnum {
+    Block,
+    Charge,
+    Downgrade,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BillingMetricAggregateEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BillingMetricAggregateEnum {
@@ -94,16 +103,6 @@ pub enum MrrMovementType {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::OutboxStatus"]
-#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum OutboxStatus {
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-}
-
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::OrganizationUserRole"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum OrganizationUserRole {
@@ -176,14 +175,4 @@ pub enum UnitConversionRoundingEnum {
     NearestHalf,
     NearestDecile,
     None,
-}
-
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::WebhookOutEventTypeEnum"]
-#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum WebhookOutEventTypeEnum {
-    CustomerCreated,
-    SubscriptionCreated,
-    InvoiceCreated,
-    InvoiceFinalized,
 }

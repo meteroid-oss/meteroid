@@ -2,14 +2,12 @@ syntax = "proto3";
 
 package meteroid.metering.v1;
 
-import "google/protobuf/timestamp.proto";
-
 message Event {
   string event_id = 1;
   string event_name = 2;
   oneof customer_id {
     string meteroid_customer_id = 3;
-    string external_customer_id = 4;
+    string external_customer_alias = 4;
     // TODO we can allow external_subscription_id as well if a resource is linked to a specific subscription (and if we don't have the customer_id)
   }
   // rfc3339 string
@@ -25,7 +23,7 @@ message Metadata {
 }
 
 message Meter {
-  string meter_slug = 1;
+  string id = 1; // id by default is local_id. We could at some point support metric alias for external implementations of metering, & use this field
   string event_name = 3;
 
   // TODO used ? (can we store metadata in clickhouse ? if yes do we want some metadata field instead)
@@ -56,8 +54,7 @@ message Meter {
   // segmentation matrix (or that's just the group_by_dimensions ?)
 }
 
-message ResourceIdentifier {
-  string meteroid_id = 1;
-  //  the identifier of the resource within the customer's system (associated with the Meteroid's resource)
-  string external_id = 2;
+message CustomerIdentifier {
+  string local_id = 1;
+  optional string alias = 2;
 }

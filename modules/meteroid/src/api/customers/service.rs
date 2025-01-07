@@ -13,7 +13,7 @@ use meteroid_grpc::meteroid::api::customers::v1::{
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
+    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, Identity, OrderByRequest,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
@@ -52,7 +52,8 @@ impl CustomersService for CustomerServiceComponents {
         let customer_new = CustomerNew {
             name: inner.name,
             created_by: actor,
-            invoicing_entity_id: Uuid::from_proto_opt(inner.invoicing_entity_id)?,
+            invoicing_entity_id: Uuid::from_proto_opt(inner.invoicing_entity_id)?
+                .map(Identity::UUID),
             billing_config,
             alias: inner.alias,
             email: inner.email,
@@ -185,7 +186,7 @@ impl CustomersService for CustomerServiceComponents {
 
         let customer = self
             .store
-            .find_customer_by_id(customer_id, tenant_id)
+            .find_customer_by_id(Identity::UUID(customer_id), tenant_id)
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)
@@ -267,9 +268,12 @@ impl CustomersService for CustomerServiceComponents {
                 notes: req.notes,
             })
             .await
-            .and_then(
-                crate::api::invoices::mapping::invoices::domain_invoice_with_plan_details_to_server,
-            )
+            .and_then(|inv| {
+                crate::api::invoices::mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(BuyCustomerCreditsResponse {

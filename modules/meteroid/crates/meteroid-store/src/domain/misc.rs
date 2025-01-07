@@ -113,3 +113,10 @@ pub enum OrderByRequest {
     NameAsc,
     NameDesc,
 }
+
+pub struct WebhookPage<T> {
+    pub data: Vec<T>,
+    pub done: bool,
+    pub iterator: Option<String>,
+    pub prev_iterator: Option<String>,
+}

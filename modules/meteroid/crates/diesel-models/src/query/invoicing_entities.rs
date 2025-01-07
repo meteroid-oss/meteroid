@@ -1,5 +1,6 @@
 use crate::errors::IntoDbResult;
 use crate::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPatch};
+use crate::query::IdentityDb;
 
 use crate::{DbResult, PgConn};
 
@@ -129,16 +130,25 @@ impl InvoicingEntityRow {
 
     pub async fn get_invoicing_entity_by_id_and_tenant(
         conn: &mut PgConn,
-        id: &uuid::Uuid,
+        id: &IdentityDb,
         tenant_id: &uuid::Uuid,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = dsl::invoicing_entity
-            .filter(dsl::id.eq(id))
+        let mut query = dsl::invoicing_entity
             .filter(dsl::tenant_id.eq(tenant_id))
-            .select(InvoicingEntityRow::as_select());
+            .select(InvoicingEntityRow::as_select())
+            .into_boxed();
+
+        match id {
+            IdentityDb::UUID(id_param) => {
+                query = query.filter(dsl::id.eq(id_param));
+            }
+            IdentityDb::LOCAL(local_id_param) => {
+                query = query.filter(dsl::local_id.eq(local_id_param));
+            }
+        }
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

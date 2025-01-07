@@ -17,17 +17,17 @@ pub struct Config {
     pub meteroid_endpoint: String,
 
     #[cfg(feature = "kafka")]
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub kafka: KafkaConfig,
 
     #[cfg(feature = "clickhouse")]
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub clickhouse: ClickhouseConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub common: CommonConfig,
 
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub internal_auth: InternalAuthConfig,
 }
 
@@ -35,7 +35,7 @@ pub struct Config {
 #[derive(Envconfig, Clone)]
 pub struct KafkaConfig {
     // TODO if using clickhouse kafka table engine with auth or schema, we need to pass the auth data through clickhouse server xml config as well
-    #[envconfig(nested = true)]
+    #[envconfig(nested)]
     pub kafka_connection: KafkaConnectionConfig,
 
     // used by clickhouse kafka table engine
