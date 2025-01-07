@@ -2,6 +2,7 @@ use chrono::{Duration, NaiveDate};
 use ndarray::Array;
 use ndarray::Array1;
 use ndarray_interp::interp1d;
+use ndarray_interp::interp1d::cubic_spline::CubicSpline;
 use rand::distributions::Distribution;
 use rand::Rng;
 use rand_distr::Normal;
@@ -24,7 +25,7 @@ pub fn generate_smooth_growth(
     let growth_curve = Array1::from_vec(growth_curve);
     let curve_points = Array::linspace(0.0, (total_days - 1) as f64, growth_curve.len());
     let interpolator = interp1d::Interp1DBuilder::new(growth_curve)
-        .strategy(interp1d::CubicSpline)
+        .strategy(CubicSpline::new())
         .x(curve_points)
         .build()
         .unwrap();
