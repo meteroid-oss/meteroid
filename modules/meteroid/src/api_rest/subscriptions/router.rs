@@ -94,7 +94,7 @@ async fn list_subscriptions_handler(
 #[utoipa::path(
     get,
     tag = "subscription",
-    path = "/api/v1/subscriptions/:id",
+    path = "/api/v1/subscriptions/{id}",
     params(
         ("id" = String, Path, description = "subscription ID")
     ),

@@ -123,7 +123,7 @@
         ]
       }
     },
-    "/api/v1/customers/:id_or_alias": {
+    "/api/v1/customers/{id_or_alias}": {
       "get": {
         "tags": [
           "customer"
@@ -326,7 +326,7 @@
         ]
       }
     },
-    "/api/v1/subscriptions/:id": {
+    "/api/v1/subscriptions/{id}": {
       "get": {
         "tags": [
           "subscription"
@@ -368,7 +368,7 @@
         ]
       }
     },
-    "/files/v1/invoice/pdf/:uid": {
+    "/files/v1/invoice/pdf/{uid}": {
       "get": {
         "tags": [
           "file"
@@ -422,7 +422,7 @@
         }
       }
     },
-    "/files/v1/logo/:uuid": {
+    "/files/v1/logo/{uuid}": {
       "get": {
         "tags": [
           "file"
