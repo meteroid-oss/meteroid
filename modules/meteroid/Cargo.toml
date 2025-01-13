@@ -100,6 +100,7 @@ rdkafka = { workspace = true }
 kafka = { workspace = true }
 env_logger = { workspace = true }
 o2o.workspace = true
+itertools = { workspace = true }
 
 
 [dev-dependencies]
