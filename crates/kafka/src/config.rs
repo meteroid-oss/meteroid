@@ -47,7 +47,7 @@ impl KafkaConnectionConfig {
         if self
             .security_protocol
             .as_ref()
-            .map_or(false, |s| !s.is_empty())
+            .is_some_and(|s| !s.is_empty())
         {
             client_config.set(
                 "security.protocol",
@@ -55,19 +55,15 @@ impl KafkaConnectionConfig {
             );
         }
 
-        if self
-            .sasl_mechanism
-            .as_ref()
-            .map_or(false, |s| !s.is_empty())
-        {
+        if self.sasl_mechanism.as_ref().is_some_and(|s| !s.is_empty()) {
             client_config.set("sasl.mechanism", self.sasl_mechanism.as_ref().unwrap());
         }
 
-        if self.sasl_username.as_ref().map_or(false, |s| !s.is_empty()) {
+        if self.sasl_username.as_ref().is_some_and(|s| !s.is_empty()) {
             client_config.set("sasl.username", self.sasl_username.as_ref().unwrap());
         }
 
-        if self.sasl_password.as_ref().map_or(false, |s| !s.is_empty()) {
+        if self.sasl_password.as_ref().is_some_and(|s| !s.is_empty()) {
             client_config.set("sasl.password", self.sasl_password.as_ref().unwrap());
         }
 

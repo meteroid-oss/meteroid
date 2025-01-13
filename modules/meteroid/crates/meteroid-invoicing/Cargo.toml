@@ -29,3 +29,6 @@ fluent-static-codegen.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trybuild)'] }
+
