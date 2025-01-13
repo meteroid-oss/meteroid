@@ -10,6 +10,7 @@ use rusty_money::{iso, FormattableCurrency};
 #[allow(clippy::all)]
 mod l10n {
     use fluent_static::message_bundle;
+
     #[message_bundle(
         resources = [
             ("l10n/en-US/invoice.ftl", "en-US"),
