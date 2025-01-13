@@ -33,7 +33,7 @@ members = [
 [workspace.package]
 license = "AGPL-3.0-only"
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.84"
 repository = "https://github.com/meteroid-oss/meteroid"
 
 [workspace.dependencies]
