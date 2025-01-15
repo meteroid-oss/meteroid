@@ -171,12 +171,14 @@ mod price_components {
     // In meteroid/src/subscription/mod.rs
 
     use crate::api::shared::conversions::*;
+    use itertools::Itertools;
     use meteroid_grpc::meteroid::api::components::v1 as api_components;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
 
     use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
+    use meteroid_grpc::meteroid::api::components::v1::usage_fee::TieredAndVolume;
     use tonic::{Code, Result, Status};
     use uuid::Uuid;
 
@@ -523,6 +525,8 @@ mod price_components {
                 Ok(domain::UsagePricingModel::PerUnit { rate: per_unit })
             }
             Some(api_components::usage_fee::Model::Tiered(tiered)) => {
+                validate_tiered_and_volume(tiered)?;
+
                 let tiers = tiered
                     .rows
                     .iter()
@@ -534,6 +538,8 @@ mod price_components {
                 })
             }
             Some(api_components::usage_fee::Model::Volume(volume)) => {
+                validate_tiered_and_volume(volume)?;
+
                 let tiers = volume
                     .rows
                     .iter()
@@ -650,6 +656,23 @@ mod price_components {
             api_shared::BillingPeriod::Quarterly => domain::enums::BillingPeriodEnum::Quarterly,
             api_shared::BillingPeriod::Annual => domain::enums::BillingPeriodEnum::Annual,
         }
+    }
+
+    /// rows must non-empty, sorted by first_unit asc and unique by first_unit
+    fn validate_tiered_and_volume(tiered_and_volume: &TieredAndVolume) -> Result<(), Status> {
+        let is_sorted_and_unique = tiered_and_volume
+            .rows
+            .iter()
+            .map(|r| r.first_unit)
+            .tuple_windows()
+            .all(|(a, b)| a < b);
+
+        if tiered_and_volume.rows.is_empty() || !is_sorted_and_unique {
+            return Err(Status::invalid_argument(
+                "TieredAndVolume rows must be non-empty, sorted in ascending order and unique",
+            ));
+        }
+        Ok(())
     }
 }
 
