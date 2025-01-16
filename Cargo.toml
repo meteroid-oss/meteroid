@@ -82,6 +82,7 @@ init-tracing-opentelemetry = { version = "0.25.0", features = ["tracing_subscrib
 itertools = "0.14.0"
 jsonwebtoken = "9.2.0"
 lapin = "2.5.0"
+lettre = { version = "0.11.11", default-features = false }
 log = "0.4.20"
 maud = "0.26.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }

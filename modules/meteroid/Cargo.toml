@@ -85,6 +85,7 @@ rand.workspace = true
 fake.workspace = true
 rand_chacha.workspace = true
 rusty-money.workspace = true
+lettre = { workspace = true, default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true

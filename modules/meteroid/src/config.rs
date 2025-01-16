@@ -73,6 +73,9 @@ pub struct Config {
 
     #[envconfig(nested)]
     pub kafka: KafkaConnectionConfig,
+
+    #[envconfig(nested)]
+    pub mailer: MailerConfig,
 }
 
 impl Config {
@@ -89,6 +92,29 @@ impl Config {
             Some(v) => {
                 panic!("Config value is already set {:?}", v);
             }
+        }
+    }
+}
+
+#[derive(Envconfig, Debug, Clone)]
+pub struct MailerConfig {
+    #[envconfig(from = "MAILER_SMTP_HOST")]
+    pub smtp_host: Option<String>,
+    #[envconfig(from = "MAILER_SMTP_USERNAME")]
+    pub smtp_username: Option<SecretString>,
+    #[envconfig(from = "MAILER_SMTP_PASSWORD")]
+    pub smtp_password: Option<SecretString>,
+    #[envconfig(from = "MAILER_SMTP_TLS", default = "true")]
+    pub smtp_tls: bool,
+}
+
+impl MailerConfig {
+    pub fn dummy() -> Self {
+        MailerConfig {
+            smtp_host: None,
+            smtp_username: None,
+            smtp_password: None,
+            smtp_tls: true,
         }
     }
 }
