@@ -2,6 +2,7 @@ use axum::response::{IntoResponse, Response};
 use error_stack::Report;
 use hyper::StatusCode;
 use meteroid_store::errors::StoreError;
+use std::error::Error;
 
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum AdapterWebhookError {
@@ -170,4 +171,16 @@ pub enum ObjectStoreError {
     LoadError,
     #[error("Unsupported object store: {0}")]
     UnsupportedStore(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum MailerServiceError {
+    #[error("Failed to initialize mailer service")]
+    Initialization,
+
+    #[error("Failed to convert email")]
+    EmailContent(#[source] Box<dyn Error + Send + Sync>),
+
+    #[error("Failed to send email")]
+    Transport(#[source] Box<dyn Error + Send + Sync>),
 }
