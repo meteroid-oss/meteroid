@@ -8,7 +8,7 @@ use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
 use kafka::config::KafkaConnectionConfig;
-use meteroid::config::Config;
+use meteroid::config::{Config, MailerConfig};
 use meteroid::workers::fang::ext::FangExtConfig;
 
 pub fn mocked_config(
@@ -50,5 +50,6 @@ pub fn mocked_config(
         svix_server_url: Some("http://localhost:8071".to_owned()),
         svix_jwt_token: "fake".to_owned().into(),
         kafka: KafkaConnectionConfig::none(),
+        mailer: MailerConfig::dummy(),
     }
 }
