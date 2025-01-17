@@ -73,7 +73,7 @@ pub fn mailer_service(cfg: &MailerConfig) -> Arc<dyn MailerService> {
         );
 
         let transport = if cfg.smtp_tls {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(host)
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
                 .unwrap()
                 .credentials(creds)
                 .build()
