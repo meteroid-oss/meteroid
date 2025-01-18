@@ -3,6 +3,7 @@ use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 use chrono::NaiveDateTime;
 use meteroid::eventbus::create_eventbus_memory;
+use meteroid_mailer::config::MailerConfig;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::store::StoreConfig;
@@ -26,9 +27,11 @@ async fn test_slot_transaction_active_slots() {
         crypt_key: SecretString::new("00000000000000000000000000000000".into()),
         jwt_secret: SecretString::new("secret".into()),
         multi_organization_enabled: false,
+        public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_memory(),
         usage_client: Arc::new(MockUsageClient::noop()),
         svix: None,
+        mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     })
     .expect("Could not create store");
 

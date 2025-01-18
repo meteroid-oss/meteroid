@@ -9,6 +9,7 @@ use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use kafka::config::KafkaConnectionConfig;
+use meteroid_mailer::config::MailerConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
@@ -16,6 +17,9 @@ static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 pub struct Config {
     #[envconfig(from = "DATABASE_URL")]
     pub database_url: String,
+
+    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://meteroid.com")]
+    pub public_url: String,
 
     #[envconfig(from = "METEROID_API_LISTEN_ADDRESS")]
     pub grpc_listen_addr: SocketAddr,
@@ -92,29 +96,6 @@ impl Config {
             Some(v) => {
                 panic!("Config value is already set {:?}", v);
             }
-        }
-    }
-}
-
-#[derive(Envconfig, Debug, Clone)]
-pub struct MailerConfig {
-    #[envconfig(from = "MAILER_SMTP_HOST")]
-    pub smtp_host: Option<String>,
-    #[envconfig(from = "MAILER_SMTP_USERNAME")]
-    pub smtp_username: Option<SecretString>,
-    #[envconfig(from = "MAILER_SMTP_PASSWORD")]
-    pub smtp_password: Option<SecretString>,
-    #[envconfig(from = "MAILER_SMTP_TLS", default = "true")]
-    pub smtp_tls: bool,
-}
-
-impl MailerConfig {
-    pub fn dummy() -> Self {
-        MailerConfig {
-            smtp_host: None,
-            smtp_username: None,
-            smtp_password: None,
-            smtp_tls: true,
         }
     }
 }

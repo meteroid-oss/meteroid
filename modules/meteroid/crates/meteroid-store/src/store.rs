@@ -11,6 +11,7 @@ use diesel_async::{AsyncConnection, AsyncPgConnection};
 use error_stack::{Report, ResultExt};
 use futures::future::BoxFuture;
 use futures::FutureExt;
+use meteroid_mailer::service::MailerService;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -29,6 +30,7 @@ pub struct Settings {
     pub crypt_key: secrecy::SecretString,
     pub jwt_secret: secrecy::SecretString,
     pub multi_organization_enabled: bool,
+    pub public_url: String,
 }
 
 #[derive(Clone)]
@@ -39,6 +41,7 @@ pub struct Store {
     pub(crate) settings: Settings,
     pub(crate) internal: StoreInternal,
     pub(crate) svix: Option<Arc<Svix>>,
+    pub(crate) mailer: Arc<dyn MailerService>,
 }
 
 pub struct StoreConfig {
@@ -46,9 +49,11 @@ pub struct StoreConfig {
     pub crypt_key: secrecy::SecretString,
     pub jwt_secret: secrecy::SecretString,
     pub multi_organization_enabled: bool,
+    pub public_url: String,
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub usage_client: Arc<dyn UsageClient>,
     pub svix: Option<Arc<Svix>>,
+    pub mailer: Arc<dyn MailerService>,
 }
 
 /**
@@ -120,9 +125,11 @@ impl Store {
                 crypt_key: config.crypt_key,
                 jwt_secret: config.jwt_secret,
                 multi_organization_enabled: config.multi_organization_enabled,
+                public_url: config.public_url,
             },
             internal: StoreInternal {},
             svix: config.svix,
+            mailer: config.mailer,
         })
     }
 

@@ -4,9 +4,10 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
 use meteroid_grpc::meteroid::api::users::v1::{
-    users_service_server::UsersService, GetUserByIdRequest, GetUserByIdResponse, ListUsersRequest,
-    ListUsersResponse, LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest,
-    OnboardMeResponse, RegisterRequest, RegisterResponse,
+    users_service_server::UsersService, GetUserByIdRequest, GetUserByIdResponse,
+    InitResetPasswordRequest, InitResetPasswordResponse, ListUsersRequest, ListUsersResponse,
+    LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest, OnboardMeResponse,
+    RegisterRequest, RegisterResponse, ResetPasswordRequest, ResetPasswordResponse,
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
 use meteroid_store::repositories::users::UserInterface;
@@ -150,5 +151,32 @@ impl UsersService for UsersServiceComponents {
             }))
         })
         .await
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn init_reset_password(
+        &self,
+        request: Request<InitResetPasswordRequest>,
+    ) -> Result<Response<InitResetPasswordResponse>, Status> {
+        self.store
+            .init_reset_password(request.into_inner().email)
+            .await
+            .map_err(Into::<UserApiError>::into)?;
+
+        Ok(Response::new(InitResetPasswordResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn reset_password(
+        &self,
+        request: Request<ResetPasswordRequest>,
+    ) -> Result<Response<ResetPasswordResponse>, Status> {
+        let inner = request.into_inner();
+        self.store
+            .reset_password(inner.token, inner.new_password)
+            .await
+            .map_err(Into::<UserApiError>::into)?;
+
+        Ok(Response::new(ResetPasswordResponse {}))
     }
 }

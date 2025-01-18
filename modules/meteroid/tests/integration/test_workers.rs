@@ -9,6 +9,7 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::db::seed::*;
 use meteroid::workers::invoicing::draft_worker::draft_worker;
+use meteroid_mailer::config::MailerConfig;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{InvoiceWithCustomer, OrderByRequest, PaginationRequest};
@@ -29,9 +30,11 @@ async fn test_draft_worker() {
         crypt_key: secrecy::SecretString::new("test-key".into()),
         jwt_secret: secrecy::SecretString::new("test-jwt-key".into()),
         multi_organization_enabled: false,
+        public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_noop().await,
         usage_client: Arc::new(MockUsageClient::noop()),
         svix: None,
+        mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     })
     .unwrap();
 

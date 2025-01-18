@@ -46,6 +46,8 @@ pub enum StoreError {
     MeteringServiceError(String, #[source] ComputeError),
     #[error("Webhook Service error: {0}")]
     WebhookServiceError(String),
+    #[error("Failed to send email")]
+    MailServiceError,
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862

@@ -1,0 +1,20 @@
+[package]
+name = "meteroid-mailer"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+error-stack = { workspace = true }
+envconfig = { workspace = true }
+lettre = { workspace = true, default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "pool"] }
+secrecy = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+itertools = { workspace = true }
+chrono = { workspace = true }
+sailfish = { workspace = true }
+
+[dev-dependencies]

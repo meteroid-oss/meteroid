@@ -8,6 +8,7 @@ members = [
   "modules/meteroid/crates/diesel-models",
   "modules/meteroid/crates/meteroid-store",
   "modules/meteroid/crates/meteroid-invoicing",
+  "modules/meteroid/crates/meteroid-mailer",
   # metering
   "modules/metering",
   "modules/metering/crates/metering-grpc",
@@ -113,6 +114,7 @@ rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
 rustls = { version = "0.23.12", default-features = false }
 rusty-money = "0.4.1"
+sailfish = "0.9.0"
 secrecy = "0.8.0" # https://github.com/iqlusioninc/crates/issues/1234
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }
@@ -177,3 +179,4 @@ metering = { path = "modules/metering" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
 meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
+meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }

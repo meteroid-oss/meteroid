@@ -173,6 +173,28 @@ impl UserRow {
             .attach_printable("Error while checking if any user exists")
             .into_db_result()
     }
+
+    pub async fn update_password_hash(
+        conn: &mut PgConn,
+        user_id: Uuid,
+        new_password_hash: &str,
+    ) -> DbResult<()> {
+        use crate::schema::user::dsl as u_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(u_dsl::user)
+            .filter(u_dsl::id.eq(user_id))
+            .set(u_dsl::password_hash.eq(new_password_hash));
+
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach_printable("Error while updating user password")
+            .into_db_result()
+    }
 }
 
 impl UserRowPatch {

@@ -12,6 +12,7 @@ use meteroid::seeder::domain;
 use meteroid::seeder::errors::SeederError;
 use meteroid::seeder::runner;
 use meteroid::seeder::utils::slugify;
+use meteroid_mailer::config::MailerConfig;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
@@ -39,11 +40,13 @@ async fn main() -> error_stack::Result<(), SeederError> {
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
         multi_organization_enabled: false,
+        public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_noop().await,
         usage_client: Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
         svix: None,
+        mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     })
     .change_context(SeederError::InitializationError)?;
 

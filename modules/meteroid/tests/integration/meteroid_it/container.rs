@@ -14,6 +14,7 @@ use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
+use meteroid_mailer::config::MailerConfig;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
 
@@ -49,9 +50,11 @@ pub async fn start_meteroid_with_port(
         crypt_key: config.secrets_crypt_key.clone(),
         jwt_secret: config.jwt_secret.clone(),
         multi_organization_enabled: config.multi_organization_enabled,
+        public_url: config.public_url.clone(),
         eventbus: create_eventbus_memory(),
         usage_client,
         svix: None,
+        mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     })
     .expect("Could not create store");
 

@@ -10,14 +10,17 @@ use crate::{Store, StoreResult};
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use chrono::{DateTime, Utc};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
-use error_stack::Report;
+use error_stack::{Report, ResultExt};
+use jsonwebtoken::{DecodingKey, Validation};
+use meteroid_mailer::model::{EmailRecipient, ResetPasswordLink};
 use secrecy::{ExposeSecret, SecretString};
-use serde_json::json;
+use tracing::log;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -48,6 +51,10 @@ pub trait UserInterface {
 
     /** Internal use only. For API/external, use me() or find_user_by_id_and_organization() */
     async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User>;
+
+    async fn init_reset_password(&self, email: String) -> StoreResult<()>;
+
+    async fn reset_password(&self, token: String, new_password: String) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -138,7 +145,7 @@ impl UserInterface for Store {
             .map(Into::into)?;
 
         Ok(RegisterUserResponse {
-            token: generate_jwt_token(&user_id.to_string(), &self.settings.jwt_secret)?,
+            token: generate_auth_jwt_token(&user_id.to_string(), &self.settings.jwt_secret)?,
             user,
         })
     }
@@ -167,7 +174,7 @@ impl UserInterface for Store {
             .map_err(|_| StoreError::LoginError("invalid email or password".to_string()))?;
 
         Ok(LoginUserResponse {
-            token: generate_jwt_token(&user.id.to_string(), &self.settings.jwt_secret)?,
+            token: generate_auth_jwt_token(&user.id.to_string(), &self.settings.jwt_secret)?,
             user: user.into(),
         })
     }
@@ -297,14 +304,84 @@ impl UserInterface for Store {
             .map_err(Into::into)
             .map(Into::into)
     }
+
+    async fn init_reset_password(&self, email: String) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let user = UserRow::find_by_email(&mut conn, email.clone())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        if let Some(user) = user {
+            // todo add expire_in to config
+            let url_expires_in = chrono::Duration::minutes(10);
+
+            let token = generate_jwt_token(
+                &user.id.to_string(),
+                &self.settings.jwt_secret,
+                Utc::now() + url_expires_in,
+            )?;
+
+            let url = SecretString::new(format!(
+                "{}/reset-password?token={}",
+                self.settings.public_url.as_str(),
+                token.expose_secret()
+            ));
+
+            let recipient = EmailRecipient {
+                email,
+                first_name: user.first_name,
+                last_name: user.last_name,
+            };
+
+            self.mailer
+                .send_reset_password_link(ResetPasswordLink {
+                    url,
+                    recipient,
+                    url_expires_in,
+                })
+                .await
+                .change_context(StoreError::MailServiceError)?;
+
+            log::info!("Reset password email sent for user: {}", user.id);
+        } else {
+            log::warn!("User with email {} not found", email);
+        }
+
+        Ok(())
+    }
+
+    async fn reset_password(&self, token: String, new_password: String) -> StoreResult<()> {
+        let token_data = jsonwebtoken::decode::<JwtClaims>(
+            token.as_str(),
+            &DecodingKey::from_secret(self.settings.jwt_secret.expose_secret().as_bytes()),
+            &Validation::default(),
+        )
+        .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
+
+        let user_id = Uuid::parse_str(token_data.claims.sub.as_str())
+            .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
+
+        let new_password_hash = hash_password(new_password.as_str())?;
+
+        let mut conn = self.get_conn().await?;
+
+        UserRow::update_password_hash(&mut conn, user_id, new_password_hash.as_str())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+    }
 }
 
-fn generate_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<SecretString> {
-    // todo create Claims struct and reuse in common-grpc as well
-    let claims = json!({
-      "sub": user_id.to_owned(),
-      "exp": chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7, // 1 week validity
-    });
+fn generate_jwt_token(
+    user_id: &str,
+    secret: &SecretString,
+    expires_at: DateTime<Utc>,
+) -> StoreResult<SecretString> {
+    let claims = serde_json::to_value(JwtClaims {
+        sub: user_id.to_owned(),
+        exp: expires_at.timestamp() as usize,
+    })
+    .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
 
     let token = jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
@@ -316,6 +393,10 @@ fn generate_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<Secre
     Ok(SecretString::new(token))
 }
 
+fn generate_auth_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<SecretString> {
+    generate_jwt_token(user_id, secret, Utc::now() + chrono::Duration::weeks(1))
+}
+
 fn hash_password(password: &str) -> StoreResult<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
@@ -323,4 +404,11 @@ fn hash_password(password: &str) -> StoreResult<String> {
         .hash_password(password.as_bytes(), &salt)
         .map_err(|_| StoreError::InvalidArgument("unable to hash password".to_string()))?;
     Ok(hash.to_string())
+}
+
+// todo reuse in common-grpc as well
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct JwtClaims {
+    sub: String,
+    exp: usize,
 }
