@@ -14,15 +14,18 @@ pub async fn get_store() -> &'static Store {
             let config = Config::get();
 
             let svix = new_svix(config);
+            let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
 
             let store = Store::new(StoreConfig {
                 database_url: config.database_url.clone(),
                 crypt_key: config.secrets_crypt_key.clone(),
                 jwt_secret: config.jwt_secret.clone(),
                 multi_organization_enabled: config.multi_organization_enabled,
+                public_url: config.public_url.clone(),
                 eventbus: create_eventbus_memory(),
                 usage_client: Arc::new(MeteringUsageClient::get().clone()),
                 svix,
+                mailer,
             })
             .expect("Failed to initialize store");
 

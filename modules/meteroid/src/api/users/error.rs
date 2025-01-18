@@ -39,6 +39,7 @@ impl From<Report<StoreError>> for UserApiError {
 
         match err {
             StoreError::LoginError(str) => Self::AuthenticationError(str.clone()),
+            StoreError::InvalidArgument(str) => Self::InvalidArgument(str.clone()),
             StoreError::DuplicateValue { entity: _, key: _ } => Self::UserAlreadyExistsError,
             StoreError::UserRegistrationClosed(value) => Self::RegistrationClosed(value.clone()),
             _e => Self::StoreError(

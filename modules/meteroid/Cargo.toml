@@ -78,6 +78,7 @@ tower-layer.workspace = true
 image = { workspace = true }
 meteroid-store.workspace = true
 meteroid-invoicing.workspace = true
+meteroid-mailer.workspace = true
 ndarray.workspace = true
 ndarray-interp.workspace = true
 rand_distr.workspace = true
@@ -85,7 +86,6 @@ rand.workspace = true
 fake.workspace = true
 rand_chacha.workspace = true
 rusty-money.workspace = true
-lettre = { workspace = true, default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "pool"] }
 
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true

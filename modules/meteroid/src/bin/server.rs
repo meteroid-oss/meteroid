@@ -41,18 +41,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metering_service = MetersServiceClient::new(metering_layered_channel);
 
     let svix = new_svix(config);
+    let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),
         crypt_key: config.secrets_crypt_key.clone(),
         jwt_secret: config.jwt_secret.clone(),
         multi_organization_enabled: config.multi_organization_enabled,
+        public_url: config.public_url.clone(),
         eventbus: create_eventbus_memory(),
         usage_client: Arc::new(MeteringUsageClient::new(
             query_service_client,
             metering_service,
         )),
         svix: svix.clone(),
+        mailer: mailer.clone(),
     })?;
     // todo this is a hack to register the event types in svix, should be managed by an api
     store.insert_webhook_out_event_types().await?;

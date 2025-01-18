@@ -59,6 +59,19 @@ message OnboardMeResponse {
   User user = 1;
 }
 
+message InitResetPasswordRequest {
+  string email = 1;
+}
+
+message InitResetPasswordResponse {}
+
+message ResetPasswordRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+message ResetPasswordResponse {}
+
 service UsersService {
   rpc Me(MeRequest) returns (MeResponse) {}
   rpc OnboardMe(OnboardMeRequest) returns (OnboardMeResponse) {}
@@ -67,4 +80,7 @@ service UsersService {
 
   rpc Login(LoginRequest) returns (LoginResponse) {}
   rpc Register(RegisterRequest) returns (RegisterResponse) {}
+
+  rpc InitResetPassword(InitResetPasswordRequest) returns (InitResetPasswordResponse) {}
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {}
 }
