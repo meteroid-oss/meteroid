@@ -32,6 +32,7 @@ pub struct TenantRowNew {
     pub organization_id: Uuid,
     pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
+    pub available_currencies: Vec<Option<String>>,
 }
 
 #[derive(Debug, AsChangeset)]

@@ -253,6 +253,7 @@ impl StoreInternal {
             name: tenant.name,
             slug,
             organization_id,
+            available_currencies: vec![Some(currency)],
         };
 
         let inserted: Tenant = insertable_tenant
