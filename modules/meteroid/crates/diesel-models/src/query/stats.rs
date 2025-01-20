@@ -20,7 +20,7 @@ impl RevenueTrendRow {
     WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
                        CURRENT_DATE - INTERVAL '1 day' * ($2::integer * 2) AS start_previous_period),
     conversion_rates AS (SELECT id,
-                                 (rates ->> (SELECT currency FROM tenant WHERE id = $3))::NUMERIC AS conversion_rate
+                                 (rates ->> (SELECT reporting_currency FROM tenant WHERE id = $3))::NUMERIC AS conversion_rate
                           FROM historical_rates_from_usd),
     revenue_ytd AS (SELECT COALESCE(SUM(net_revenue_cents * cr.conversion_rate), 0)::bigint AS total_ytd
                      FROM bi_revenue_daily
@@ -92,7 +92,7 @@ impl PendingInvoicesTotalRow {
     pub async fn get(conn: &mut PgConn, tenant_id: Uuid) -> DbResult<PendingInvoicesTotalRow> {
         let raw_sql = r#"
         WITH tenant_currency AS (
-            SELECT currency FROM tenant WHERE id = $1
+            SELECT reporting_currency AS currency FROM tenant WHERE id = $1
         ),
         latest_rate AS (
             SELECT
@@ -314,7 +314,7 @@ impl TotalMrrRow {
     pub async fn get(conn: &mut PgConn, tenant_id: Uuid, date: NaiveDate) -> DbResult<TotalMrrRow> {
         let raw_sql = r#"
         SELECT
-           COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
+           COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT reporting_currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
         FROM
            bi_delta_mrr_daily bd
                JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
@@ -344,7 +344,7 @@ impl TotalMrrChartRow {
         WITH conversion_rates AS (
             SELECT
                 id,
-                (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                (rates->>(SELECT reporting_currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
             FROM
                 historical_rates_from_usd
         ),
@@ -418,7 +418,7 @@ impl TotalMrrByPlanRow {
         WITH conversion_rates AS (
             SELECT
                 id,
-                (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
+                (rates->>(SELECT reporting_currency FROM tenant WHERE id = $1))::NUMERIC AS conversion_rate
             FROM
                 historical_rates_from_usd
         ),
@@ -497,7 +497,7 @@ impl MrrBreakdownRow {
         WITH conversion_rates AS (
             SELECT
                 id,
-                (rates->>(SELECT currency FROM tenant WHERE id = $1))::NUMERIC AS rate
+                (rates->>(SELECT reporting_currency FROM tenant WHERE id = $1))::NUMERIC AS rate
             FROM
                 historical_rates_from_usd
         )
