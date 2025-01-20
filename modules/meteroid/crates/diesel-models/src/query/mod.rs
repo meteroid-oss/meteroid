@@ -1,6 +1,7 @@
 pub mod add_ons;
 pub mod api_tokens;
 pub mod applied_coupons;
+pub mod bank_accounts;
 pub mod bi;
 pub mod billable_metrics;
 pub mod configs;

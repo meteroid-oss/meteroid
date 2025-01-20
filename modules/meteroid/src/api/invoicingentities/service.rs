@@ -7,12 +7,14 @@ use uuid::Uuid;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     invoicing_entities_service_server::InvoicingEntitiesService, CreateInvoicingEntityRequest,
-    CreateInvoicingEntityResponse, GetInvoicingEntityRequest, GetInvoicingEntityResponse,
-    ListInvoicingEntitiesRequest, ListInvoicingEntitiesResponse, UpdateInvoicingEntityRequest,
-    UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
+    CreateInvoicingEntityResponse, GetInvoicingEntityProvidersRequest,
+    GetInvoicingEntityProvidersResponse, GetInvoicingEntityRequest, GetInvoicingEntityResponse,
+    ListInvoicingEntitiesRequest, ListInvoicingEntitiesResponse,
+    UpdateInvoicingEntityProvidersRequest, UpdateInvoicingEntityProvidersResponse,
+    UpdateInvoicingEntityRequest, UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
     UploadInvoicingEntityLogoResponse,
 };
-use meteroid_store::domain::{Identity, InvoicingEntityPatch};
+use meteroid_store::domain::{Identity, InvoicingEntityPatch, InvoicingEntityProvidersPatch};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
@@ -165,6 +167,57 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
 
         Ok(Response::new(UploadInvoicingEntityLogoResponse {
             logo_uid: logo_attachment_id,
+        }))
+    }
+
+    async fn get_invoicing_entity_providers(
+        &self,
+        request: Request<GetInvoicingEntityProvidersRequest>,
+    ) -> Result<Response<GetInvoicingEntityProvidersResponse>, Status> {
+        let tenant = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let res = self
+            .store
+            .resolve_providers_by_id(tenant, Uuid::from_proto(req.id)?)
+            .await
+            .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+
+        Ok(Response::new(GetInvoicingEntityProvidersResponse {
+            cc_provider: "TODO".to_string(),
+            bank_account: res
+                .bank_account
+                .map(super::super::bankaccounts::mapping::bank_accounts::domain_to_proto),
+        }))
+    }
+
+    async fn update_invoicing_entity_providers(
+        &self,
+        request: Request<UpdateInvoicingEntityProvidersRequest>,
+    ) -> Result<Response<UpdateInvoicingEntityProvidersResponse>, Status> {
+        let tenant = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let res = self
+            .store
+            .patch_invoicing_entity_providers(
+                InvoicingEntityProvidersPatch {
+                    bank_account_id: Uuid::from_proto_opt(req.bank_account_id)?,
+                    cc_provider_id: Uuid::from_proto_opt(req.cc_provider_id)?,
+                    id: Uuid::from_proto(req.id)?,
+                },
+                tenant,
+            )
+            .await
+            .map_err(Into::<InvoicingEntitiesApiError>::into)?;
+
+        Ok(Response::new(UpdateInvoicingEntityProvidersResponse {
+            cc_provider: "TODO".to_string(),
+            bank_account: res
+                .bank_account
+                .map(super::super::bankaccounts::mapping::bank_accounts::domain_to_proto),
         }))
     }
 }

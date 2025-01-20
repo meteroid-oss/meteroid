@@ -13,6 +13,7 @@ pub mod tenants;
 
 pub mod add_ons;
 pub mod api_tokens;
+pub mod bank_accounts;
 pub mod billable_metrics;
 pub mod configs;
 mod constants;
@@ -28,5 +29,6 @@ pub mod products;
 pub mod schedules;
 pub mod stats;
 pub mod subscriptions;
+
 pub mod users;
 pub mod webhooks;

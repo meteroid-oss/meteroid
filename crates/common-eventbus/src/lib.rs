@@ -49,6 +49,26 @@ impl Event {
         )
     }
 
+    pub fn bank_account_created(actor: Uuid, bank_account_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::BankAccountCreated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: bank_account_id,
+            }),
+            Some(actor),
+        )
+    }
+
+    pub fn bank_account_edited(actor: Uuid, bank_account_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::BankAccountEdited(TenantEventDataDetails {
+                tenant_id,
+                entity_id: bank_account_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn billable_metric_created(actor: Uuid, billable_metric_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::BillableMetricCreated(TenantEventDataDetails {
@@ -236,6 +256,8 @@ impl Event {
 #[derive(Debug, Clone)]
 pub enum EventData {
     ApiTokenCreated(EventDataDetails),
+    BankAccountCreated(TenantEventDataDetails),
+    BankAccountEdited(TenantEventDataDetails),
     BillableMetricCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
     CustomerPatched(TenantEventDataDetails),

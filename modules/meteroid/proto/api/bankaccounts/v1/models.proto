@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package meteroid.api.bankaccounts.v1;
+
+message BankAccount {
+  string id = 1;
+  string local_id = 2;
+  // a bank account can only associated with a customer with the same currency
+  BankAccountData data = 3;
+}
+
+message BankAccountData {
+  string currency = 3;
+  string country = 4;
+  string bank_name = 5;
+
+  oneof format {
+    IbanBicSwift iban_bic_swift = 8;
+    AccountNumberBicSwift account_number_bic_swift = 9;
+    AccountNumberRoutingNumber account_number_routing_number = 10;
+    SortCodeAccountNumber sort_code_account_number = 11;
+  }
+}
+
+message IbanBicSwift {
+  string iban = 1;
+  optional string bic_swift = 2;
+}
+
+message AccountNumberBicSwift {
+  string account_number = 1;
+  string bic_swift = 2;
+}
+
+message SortCodeAccountNumber {
+  string sort_code = 1;
+  string account_number = 2;
+}
+
+message AccountNumberRoutingNumber {
+  string account_number = 1;
+  string routing_number = 2;
+}
+
+

@@ -2,9 +2,9 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::InvoicingProviderEnum;
-use diesel::{Identifiable, Insertable, Queryable};
+use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
-#[derive(Queryable, Debug, Identifiable)]
+#[derive(Queryable, Selectable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::provider_config)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ProviderConfigRow {

@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct ActionAfterTrialEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "BankAccountFormat"))]
+    pub struct BankAccountFormat;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "BillingMetricAggregateEnum"))]
     pub struct BillingMetricAggregateEnum;
 
@@ -104,6 +108,24 @@ diesel::table! {
         applied_amount -> Nullable<Numeric>,
         applied_count -> Nullable<Int4>,
         last_applied_at -> Nullable<Timestamp>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::BankAccountFormat;
+
+    bank_account (id) {
+        id -> Uuid,
+        local_id -> Text,
+        tenant_id -> Uuid,
+        currency -> Text,
+        country -> Text,
+        bank_name -> Text,
+        format -> BankAccountFormat,
+        account_numbers -> Text,
+        created_by -> Uuid,
         created_at -> Timestamp,
     }
 }
@@ -351,8 +373,8 @@ diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::InvoiceStatusEnum;
     use super::sql_types::InvoiceExternalStatusEnum;
-    use super::sql_types::InvoicingProviderEnum;
     use super::sql_types::InvoiceType;
+    use super::sql_types::InvoicingProviderEnum;
 
     invoice (id) {
         id -> Uuid,
@@ -424,6 +446,8 @@ diesel::table! {
         #[max_length = 50]
         accounting_currency -> Varchar,
         tenant_id -> Uuid,
+        cc_provider_id -> Nullable<Uuid>,
+        bank_account_id -> Nullable<Uuid>,
     }
 }
 
@@ -712,6 +736,7 @@ diesel::joinable!(api_token -> tenant (tenant_id));
 diesel::joinable!(applied_coupon -> coupon (coupon_id));
 diesel::joinable!(applied_coupon -> customer (customer_id));
 diesel::joinable!(applied_coupon -> subscription (subscription_id));
+diesel::joinable!(bank_account -> tenant (tenant_id));
 diesel::joinable!(bi_delta_mrr_daily -> historical_rates_from_usd (historical_rate_id));
 diesel::joinable!(bi_mrr_movement_log -> credit_note (credit_note_id));
 diesel::joinable!(bi_mrr_movement_log -> invoice (invoice_id));
@@ -740,6 +765,8 @@ diesel::joinable!(customer_balance_tx -> user (created_by));
 diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
+diesel::joinable!(invoicing_entity -> bank_account (bank_account_id));
+diesel::joinable!(invoicing_entity -> provider_config (cc_provider_id));
 diesel::joinable!(invoicing_entity -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
@@ -771,6 +798,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     add_on,
     api_token,
     applied_coupon,
+    bank_account,
     bi_customer_ytd_summary,
     bi_delta_mrr_daily,
     bi_mrr_movement_log,
