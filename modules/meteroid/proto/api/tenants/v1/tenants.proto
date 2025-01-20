@@ -16,7 +16,6 @@ message GetTenantByIdRequest {
 
 message GetTenantByIdResponse {
   Tenant tenant = 1;
-  TenantBillingConfiguration billing_config = 2;
 }
 
 message CreateTenantRequest {
@@ -28,19 +27,11 @@ message CreateTenantResponse {
   Tenant tenant = 1;
 }
 
-message ConfigureTenantBillingRequest {
-  TenantBillingConfiguration billing_config = 1;
-}
-
-message ConfigureTenantBillingResponse {
-  TenantBillingConfiguration billing_config = 1;
-}
 
 message ActiveTenantRequest {}
 
 message ActiveTenantResponse {
   Tenant tenant = 1;
-  TenantBillingConfiguration billing_config = 2;
   string trade_name = 3;
 }
 
@@ -52,11 +43,38 @@ message UpdateTenantResponse {
   Tenant tenant = 1;
 }
 
+message ListTenantsCurrenciesRequest {
+}
+
+message ListTenantsCurrenciesResponse {
+  repeated string currencies = 1;
+
+  message ListCurrency {
+    string currency = 1;
+    uint32 customer_count = 2;
+  }
+}
+
+message AddTenantCurrencyRequest {
+  string currency = 1;
+}
+
+message AddTenantCurrencyResponse {}
+
+message RemoveTenantCurrencyRequest {
+  string currency = 1;
+}
+
+message RemoveTenantCurrencyResponse {}
+
 service TenantsService {
   rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse) {}
   rpc ActiveTenant(ActiveTenantRequest) returns (ActiveTenantResponse) {}
   rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse) {}
   rpc GetTenantById(GetTenantByIdRequest) returns (GetTenantByIdResponse) {}
   rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse) {}
-  rpc ConfigureTenantBilling(ConfigureTenantBillingRequest) returns (ConfigureTenantBillingResponse) {}
+
+  rpc ListTenantCurrencies(ListTenantsCurrenciesRequest) returns (ListTenantsCurrenciesResponse) {}
+  rpc AddTenantCurrency(AddTenantCurrencyRequest) returns (AddTenantCurrencyResponse) {}
+  rpc RemoveTenantCurrency(RemoveTenantCurrencyRequest) returns (RemoveTenantCurrencyResponse) {}
 }

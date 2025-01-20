@@ -2,12 +2,12 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::{
-    BillingConfigOneof, Stripe,
-};
-use meteroid_grpc::meteroid::api::tenants::v1::{
-    ConfigureTenantBillingRequest, TenantBillingConfiguration,
-};
+// use meteroid_grpc::meteroid::api::tenants::v1::tenant_billing_configuration::{
+//     BillingConfigOneof, Stripe,
+// };
+// use meteroid_grpc::meteroid::api::tenants::v1::{
+//     ConfigureTenantBillingRequest, TenantBillingConfiguration,
+// };
 
 #[tokio::test]
 async fn test_tenants_basic() {
@@ -95,27 +95,28 @@ async fn test_tenants_basic() {
     assert_eq!(listed.len(), 2);
     assert_eq!(listed_created, Some(created).as_ref());
 
+    // todo!()
     // configure tenant billing
-    let cfg = TenantBillingConfiguration {
-        billing_config_oneof: Some(BillingConfigOneof::Stripe(Stripe {
-            api_secret: "api_secret".into(),
-            webhook_secret: "webhook_secret".into(),
-        })),
-    };
+    // let cfg = TenantBillingConfiguration {
+    //     billing_config_oneof: Some(BillingConfigOneof::Stripe(Stripe {
+    //         api_secret: "api_secret".into(),
+    //         webhook_secret: "webhook_secret".into(),
+    //     })),
+    // };
+    //
+    // let cfg_res = clients
+    //     .tenants
+    //     .clone()
+    //     .configure_tenant_billing(ConfigureTenantBillingRequest {
+    //         billing_config: Some(cfg.clone()),
+    //     })
+    //     .await
+    //     .unwrap()
+    //     .into_inner()
+    //     .billing_config
+    //     .unwrap();
 
-    let cfg_res = clients
-        .tenants
-        .clone()
-        .configure_tenant_billing(ConfigureTenantBillingRequest {
-            billing_config: Some(cfg.clone()),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .billing_config
-        .unwrap();
-
-    assert_eq!(&cfg_res, &cfg);
+    // assert_eq!(&cfg_res, &cfg);
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

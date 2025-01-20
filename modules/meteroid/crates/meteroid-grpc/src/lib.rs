@@ -122,7 +122,7 @@ pub mod meteroid {
 
         pub mod tenants {
             pub mod v1 {
-                include_proto_serde!("meteroid.api.tenants.v1");
+                tonic::include_proto!("meteroid.api.tenants.v1");
             }
         }
 

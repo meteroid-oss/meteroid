@@ -3,12 +3,13 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::tenants::v1::{
     tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
-    ConfigureTenantBillingRequest, ConfigureTenantBillingResponse, CreateTenantRequest,
-    CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsRequest,
-    ListTenantsResponse, UpdateTenantRequest, UpdateTenantResponse,
+    AddTenantCurrencyRequest, AddTenantCurrencyResponse, CreateTenantRequest, CreateTenantResponse,
+    GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsCurrenciesRequest,
+    ListTenantsCurrenciesResponse, ListTenantsRequest, ListTenantsResponse,
+    RemoveTenantCurrencyRequest, RemoveTenantCurrencyResponse, UpdateTenantRequest,
+    UpdateTenantResponse,
 };
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
-use meteroid_store::repositories::configs::ConfigsInterface;
 use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 
@@ -79,7 +80,6 @@ impl TenantsService for TenantServiceComponents {
         Ok(Response::new(ActiveTenantResponse {
             tenant: Some(tenant),
             trade_name: organization.trade_name,
-            billing_config: None, // todo load it from provider_config if needed
         }))
     }
 
@@ -123,7 +123,6 @@ impl TenantsService for TenantServiceComponents {
 
         Ok(Response::new(GetTenantByIdResponse {
             tenant: Some(tenant),
-            billing_config: None, // todo load it from provider_config if needed
         }))
     }
 
@@ -147,25 +146,46 @@ impl TenantsService for TenantServiceComponents {
         }))
     }
 
-    #[tracing::instrument(skip_all)]
-    async fn configure_tenant_billing(
+    async fn list_tenant_currencies(
         &self,
-        request: Request<ConfigureTenantBillingRequest>,
-    ) -> Result<Response<ConfigureTenantBillingResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let req = request.into_inner();
-
-        let cfg = mapping::provider_configs::create_req_server_to_domain(req, tenant_id)?;
+        request: Request<ListTenantsCurrenciesRequest>,
+    ) -> Result<Response<ListTenantsCurrenciesResponse>, Status> {
+        let tenant = request.tenant()?;
 
         let res = self
             .store
-            .insert_provider_config(cfg)
+            .list_tenant_currencies(tenant)
             .await
-            .map(mapping::provider_configs::domain_to_server)
             .map_err(Into::<TenantApiError>::into)?;
 
-        Ok(Response::new(ConfigureTenantBillingResponse {
-            billing_config: Some(res),
+        Ok(Response::new(ListTenantsCurrenciesResponse {
+            currencies: res,
         }))
+    }
+
+    async fn add_tenant_currency(
+        &self,
+        request: Request<AddTenantCurrencyRequest>,
+    ) -> Result<Response<AddTenantCurrencyResponse>, Status> {
+        let tenant = request.tenant()?;
+        self.store
+            .add_tenant_currency(tenant, request.into_inner().currency)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        Ok(Response::new(AddTenantCurrencyResponse {}))
+    }
+
+    async fn remove_tenant_currency(
+        &self,
+        request: Request<RemoveTenantCurrencyRequest>,
+    ) -> Result<Response<RemoveTenantCurrencyResponse>, Status> {
+        let tenant = request.tenant()?;
+        self.store
+            .remove_tenant_currency(tenant, request.into_inner().currency)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        Ok(Response::new(RemoveTenantCurrencyResponse {}))
     }
 }

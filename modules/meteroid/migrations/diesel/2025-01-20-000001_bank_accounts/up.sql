@@ -1,6 +1,5 @@
- 
 create type "BankAccountFormat" as enum ('IBAN_BIC_SWIFT', 'ACCOUNT_ROUTING', 'SORT_CODE_ACCOUNT', 'ACCOUNT_BIC_SWIFT');
- 
+
 CREATE TABLE "bank_account"
 (
   "id"              UUID                                NOT NULL PRIMARY KEY,
@@ -21,4 +20,11 @@ ALTER TABLE "bank_account"
 ALTER TABLE "invoicing_entity"
   ADD COLUMN "cc_provider_id"  UUID REFERENCES "provider_config" ON DELETE SET NULL,
   ADD COLUMN "bank_account_id" UUID REFERENCES "bank_account" ON DELETE SET NULL;
- 
+
+
+-- currencies
+
+ALTER TABLE "tenant"
+  RENAME COLUMN "currency" to "reporting_currency";
+ALTER TABLE "tenant"
+  ADD COLUMN "available_currencies" TEXT[] NOT NULL DEFAULT '{}';

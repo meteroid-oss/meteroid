@@ -38,6 +38,41 @@ pub trait TenantInterface {
     ) -> StoreResult<Vec<Tenant>>;
 
     async fn get_reporting_currency_by_tenant_id(&self, tenant_id: Uuid) -> StoreResult<Currency>;
+
+    //
+    /*
+       async fn list_tenant_currencies(
+        &self,
+        request: Request<ListTenantsCurrenciesRequest>,
+    ) -> Result<Response<ListTenantsCurrenciesResponse>, Status> {
+        todo!()
+    }
+
+    async fn add_tenant_currency(
+        &self,
+        request: Request<AddTenantCurrencyRequest>,
+    ) -> Result<Response<AddTenantCurrencyResponse>, Status> {
+        todo!()
+    }
+
+    async fn remove_tenant_currency(
+        &self,
+        request: Request<RemoveTenantCurrencyRequest>,
+    ) -> Result<Response<RemoveTenantCurrencyResponse>, Status> {
+        todo!()
+    }
+     */
+
+    async fn list_tenant_currencies_with_customer_count(
+        &self,
+        tenant_id: Uuid,
+    ) -> StoreResult<Vec<(String, u64)>>;
+
+    async fn list_tenant_currencies(&self, tenant_id: Uuid) -> StoreResult<Vec<String>>;
+
+    async fn add_tenant_currency(&self, tenant_id: Uuid, currency: String) -> StoreResult<()>;
+
+    async fn remove_tenant_currency(&self, tenant_id: Uuid, currency: String) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -147,10 +182,41 @@ impl TenantInterface for Store {
             .get_reporting_currency_by_tenant_id(&mut conn, tenant_id)
             .await
     }
+
+    async fn list_tenant_currencies_with_customer_count(
+        &self,
+        tenant_id: Uuid,
+    ) -> StoreResult<Vec<(String, u64)>> {
+        let mut conn = self.get_conn().await?;
+
+        TenantRow::list_tenant_currencies_with_customer_count(&mut conn, tenant_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn list_tenant_currencies(&self, tenant_id: Uuid) -> StoreResult<Vec<String>> {
+        let mut conn = self.get_conn().await?;
+        TenantRow::list_tenant_currencies(&mut conn, tenant_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn add_tenant_currency(&self, tenant_id: Uuid, currency: String) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        TenantRow::add_available_currency(&mut conn, tenant_id, currency)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn remove_tenant_currency(&self, tenant_id: Uuid, currency: String) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+        TenantRow::remove_available_currency(&mut conn, tenant_id, currency)
+            .await
+            .map_err(Into::into)
+    }
 }
 
 impl StoreInternal {
-    // todo fix me
     #[allow(clippy::too_many_arguments)]
     pub async fn insert_tenant_with_default_entities(
         &self,
@@ -183,7 +249,7 @@ impl StoreInternal {
         let insertable_tenant: TenantRowNew = TenantRowNew {
             id: Uuid::now_v7(),
             environment: tenant.environment.into(),
-            currency,
+            reporting_currency: currency,
             name: tenant.name,
             slug,
             organization_id,
