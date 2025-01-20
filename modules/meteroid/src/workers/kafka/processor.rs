@@ -94,7 +94,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_message_processor() {
-        let _ = env_logger::builder().is_test(true).try_init().unwrap();
+        env_logger::builder().is_test(true).try_init().unwrap();
 
         const TOPIC: &str = "test_topic";
         let mock_cluster = MockCluster::new(3).unwrap();
@@ -137,7 +137,7 @@ mod tests {
         let handler_clone = handler.clone();
 
         let task = task::spawn(async move {
-            run_message_processor(&conn_config, &vec![TOPIC], group_id, handler).await;
+            run_message_processor(&conn_config, &[TOPIC], group_id, handler).await;
         });
 
         tokio::time::sleep(Duration::from_secs(5)).await;

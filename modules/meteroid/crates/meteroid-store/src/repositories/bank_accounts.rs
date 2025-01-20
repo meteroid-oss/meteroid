@@ -30,7 +30,7 @@ impl BankAccountsInterface for Store {
     async fn list_bank_accounts(&self, tenant_id: &Uuid) -> StoreResult<Vec<BankAccount>> {
         let mut conn = self.get_conn().await?;
 
-        let bank_accounts = BankAccountRow::list_by_tenant_id(&mut conn, tenant_id.clone())
+        let bank_accounts = BankAccountRow::list_by_tenant_id(&mut conn, *tenant_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -44,7 +44,7 @@ impl BankAccountsInterface for Store {
     ) -> StoreResult<BankAccount> {
         let mut conn = self.get_conn().await?;
 
-        let bank_account = BankAccountRow::get_by_id(&mut conn, id.clone(), tenant_id.clone())
+        let bank_account = BankAccountRow::get_by_id(&mut conn, *id, *tenant_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -54,7 +54,7 @@ impl BankAccountsInterface for Store {
     async fn delete_bank_account(&self, id: &Uuid, tenant_id: &Uuid) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        BankAccountRow::delete(&mut conn, tenant_id.clone(), id.clone())
+        BankAccountRow::delete(&mut conn, *tenant_id, *id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
