@@ -22,7 +22,7 @@ impl IdType {
     fn prefix(&self) -> &'static str {
         match self {
             IdType::AddOn => "add_",
-            IdType::BankAccount => "bm_",
+            IdType::BankAccount => "ba_",
             IdType::BillableMetric => "bm_",
             IdType::Coupon => "cou_",
             IdType::Customer => "cus_",
