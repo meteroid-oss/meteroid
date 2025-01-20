@@ -39,30 +39,6 @@ pub trait TenantInterface {
 
     async fn get_reporting_currency_by_tenant_id(&self, tenant_id: Uuid) -> StoreResult<Currency>;
 
-    //
-    /*
-       async fn list_tenant_currencies(
-        &self,
-        request: Request<ListTenantsCurrenciesRequest>,
-    ) -> Result<Response<ListTenantsCurrenciesResponse>, Status> {
-        todo!()
-    }
-
-    async fn add_tenant_currency(
-        &self,
-        request: Request<AddTenantCurrencyRequest>,
-    ) -> Result<Response<AddTenantCurrencyResponse>, Status> {
-        todo!()
-    }
-
-    async fn remove_tenant_currency(
-        &self,
-        request: Request<RemoveTenantCurrencyRequest>,
-    ) -> Result<Response<RemoveTenantCurrencyResponse>, Status> {
-        todo!()
-    }
-     */
-
     async fn list_tenant_currencies_with_customer_count(
         &self,
         tenant_id: Uuid,
