@@ -225,7 +225,7 @@ impl StoreInternal {
         let insertable_tenant: TenantRowNew = TenantRowNew {
             id: Uuid::now_v7(),
             environment: tenant.environment.into(),
-            reporting_currency: currency,
+            reporting_currency: currency.clone(),
             name: tenant.name,
             slug,
             organization_id,

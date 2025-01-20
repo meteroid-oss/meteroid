@@ -2,10 +2,12 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::tenants::v1::{
+    list_tenants_currencies_with_customer_count_response::ListCurrency,
     tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
     AddTenantCurrencyRequest, AddTenantCurrencyResponse, CreateTenantRequest, CreateTenantResponse,
     GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsCurrenciesRequest,
-    ListTenantsCurrenciesResponse, ListTenantsRequest, ListTenantsResponse,
+    ListTenantsCurrenciesResponse, ListTenantsCurrenciesWithCustomerCountRequest,
+    ListTenantsCurrenciesWithCustomerCountResponse, ListTenantsRequest, ListTenantsResponse,
     RemoveTenantCurrencyRequest, RemoveTenantCurrencyResponse, UpdateTenantRequest,
     UpdateTenantResponse,
 };
@@ -161,6 +163,31 @@ impl TenantsService for TenantServiceComponents {
         Ok(Response::new(ListTenantsCurrenciesResponse {
             currencies: res,
         }))
+    }
+
+    async fn list_tenant_currencies_with_customer_count(
+        &self,
+        request: Request<ListTenantsCurrenciesWithCustomerCountRequest>,
+    ) -> Result<Response<ListTenantsCurrenciesWithCustomerCountResponse>, Status> {
+        let tenant = request.tenant()?;
+
+        let res = self
+            .store
+            .list_tenant_currencies_with_customer_count(tenant)
+            .await
+            .map_err(Into::<TenantApiError>::into)?;
+
+        Ok(Response::new(
+            ListTenantsCurrenciesWithCustomerCountResponse {
+                currencies: res
+                    .into_iter()
+                    .map(|(c, cc)| ListCurrency {
+                        currency: c,
+                        customer_count: cc,
+                    })
+                    .collect(),
+            },
+        ))
     }
 
     async fn add_tenant_currency(
