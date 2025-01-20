@@ -4,6 +4,7 @@ use crate::StoreResult;
 use chrono::NaiveDateTime;
 use diesel_models::configs::{ProviderConfigRow, ProviderConfigRowNew};
 use error_stack::ResultExt;
+use o2o::o2o;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -68,6 +69,16 @@ impl ProviderConfig {
             api_security: api_sec,
         })
     }
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(ProviderConfigRow)]
+pub struct ProviderConfigMeta {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    #[map(~.into())]
+    pub invoicing_provider: InvoicingProviderEnum,
+    pub enabled: bool,
 }
 
 #[derive(Clone, Debug)]

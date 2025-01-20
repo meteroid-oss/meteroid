@@ -1,5 +1,7 @@
 use uuid::Uuid;
 
+use crate::bank_accounts::BankAccountRow;
+use crate::configs::ProviderConfigRow;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
@@ -28,6 +30,8 @@ pub struct InvoicingEntityRow {
     pub country: String,
     pub accounting_currency: String,
     pub tenant_id: Uuid,
+    pub cc_provider_id: Option<Uuid>,
+    pub bank_account_id: Option<Uuid>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -51,4 +55,22 @@ pub struct InvoicingEntityRowPatch {
     pub vat_number: Option<String>,
     pub country: Option<String>,
     pub accounting_currency: Option<String>,
+}
+
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::invoicing_entity)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct InvoicingEntityRowProvidersPatch {
+    pub id: Uuid,
+    pub cc_provider_id: Option<Uuid>,
+    pub bank_account_id: Option<Uuid>,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct InvoicingEntityProvidersRow {
+    #[diesel(embed)]
+    pub cc_provider: Option<ProviderConfigRow>,
+    #[diesel(embed)]
+    pub bank_account: Option<BankAccountRow>,
 }

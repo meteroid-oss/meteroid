@@ -2,10 +2,14 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::domain::Address;
-use diesel_models::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPatch};
+use crate::domain::configs::ProviderConfigMeta;
+use crate::domain::{Address, BankAccount};
+use diesel_models::invoicing_entities::{
+    InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
+    InvoicingEntityRowProvidersPatch,
+};
 
-#[derive(Serialize, Deserialize, o2o)]
+#[derive(Clone, Debug, Serialize, Deserialize, o2o)]
 #[map_owned(InvoicingEntityRow)]
 pub struct InvoicingEntity {
     pub id: Uuid,
@@ -36,6 +40,9 @@ pub struct InvoicingEntity {
     // immutable
     pub accounting_currency: String,
     pub tenant_id: Uuid,
+
+    pub cc_provider_id: Option<Uuid>,
+    pub bank_account_id: Option<Uuid>,
 }
 
 impl InvoicingEntity {
@@ -92,4 +99,26 @@ pub struct InvoicingEntityPatch {
     pub city: Option<String>,
     pub vat_number: Option<String>,
     pub country: Option<String>,
+}
+
+#[derive(Clone, Debug, o2o, Default)]
+#[owned_into(InvoicingEntityRowProvidersPatch)]
+pub struct InvoicingEntityProvidersPatch {
+    pub id: Uuid,
+    pub cc_provider_id: Option<Uuid>,
+    pub bank_account_id: Option<Uuid>,
+}
+
+pub struct InvoicingEntityProviders {
+    pub bank_account: Option<BankAccount>,
+    pub cc_provider: Option<ProviderConfigMeta>,
+}
+
+impl From<InvoicingEntityProvidersRow> for InvoicingEntityProviders {
+    fn from(row: InvoicingEntityProvidersRow) -> Self {
+        Self {
+            bank_account: row.bank_account.map(BankAccount::from),
+            cc_provider: row.cc_provider.map(ProviderConfigMeta::from),
+        }
+    }
 }

@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.invoicingentities.v1;
 
 import "api/invoicingentities/v1/models.proto";
+import "api/bankaccounts/v1/models.proto";
 
 message ListInvoicingEntitiesRequest {}
 
@@ -45,10 +46,33 @@ message GetInvoicingEntityResponse {
   InvoicingEntity entity = 1;
 }
 
+message UpdateInvoicingEntityProvidersRequest {
+  string id = 1;
+  optional string cc_provider_id = 2;
+  optional string bank_account_id = 3;
+}
+
+message UpdateInvoicingEntityProvidersResponse {
+  string cc_provider = 1; // TODO switch to provider (other PR)
+  meteroid.api.bankaccounts.v1.BankAccount bank_account = 5;
+}
+
+message GetInvoicingEntityProvidersRequest {
+  string id = 1;
+}
+
+message GetInvoicingEntityProvidersResponse {
+  string cc_provider = 1; // TODO switch to provider
+  meteroid.api.bankaccounts.v1.BankAccount bank_account = 5;
+}
+
 service InvoicingEntitiesService {
   rpc GetInvoicingEntity(GetInvoicingEntityRequest) returns (GetInvoicingEntityResponse) {}
   rpc ListInvoicingEntities(ListInvoicingEntitiesRequest) returns (ListInvoicingEntitiesResponse) {}
   rpc CreateInvoicingEntity(CreateInvoicingEntityRequest) returns (CreateInvoicingEntityResponse) {}
   rpc UpdateInvoicingEntity(UpdateInvoicingEntityRequest) returns (UpdateInvoicingEntityResponse) {}
   rpc UploadInvoicingEntityLogo(UploadInvoicingEntityLogoRequest) returns (UploadInvoicingEntityLogoResponse) {}
+
+  rpc GetInvoicingEntityProviders(GetInvoicingEntityProvidersRequest) returns (GetInvoicingEntityProvidersResponse) {}
+  rpc UpdateInvoicingEntityProviders(UpdateInvoicingEntityProvidersRequest) returns (UpdateInvoicingEntityProvidersResponse) {}
 }

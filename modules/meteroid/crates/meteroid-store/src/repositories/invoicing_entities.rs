@@ -2,11 +2,17 @@ use chrono::{Datelike, NaiveDate};
 use error_stack::Report;
 use uuid::Uuid;
 
-use diesel_models::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPatch};
+use diesel_models::invoicing_entities::{
+    InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
+    InvoicingEntityRowProvidersPatch,
+};
 use diesel_models::organizations::OrganizationRow;
 
 use crate::domain::invoicing_entities::InvoicingEntity;
-use crate::domain::{Identity, InvoicingEntityNew, InvoicingEntityPatch};
+use crate::domain::{
+    Identity, InvoicingEntityNew, InvoicingEntityPatch, InvoicingEntityProviders,
+    InvoicingEntityProvidersPatch,
+};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::utils::local_id::{IdType, LocalId};
@@ -38,6 +44,18 @@ pub trait InvoicingEntityInterface {
         invoicing_entity: InvoicingEntityPatch,
         tenant_id: Uuid,
     ) -> StoreResult<InvoicingEntity>;
+
+    async fn patch_invoicing_entity_providers(
+        &self,
+        invoicing_entity: InvoicingEntityProvidersPatch,
+        tenant_id: Uuid,
+    ) -> StoreResult<InvoicingEntityProviders>;
+
+    async fn resolve_providers_by_id(
+        &self,
+        tenant_id: Uuid,
+        id: Uuid,
+    ) -> StoreResult<InvoicingEntityProviders>;
 }
 
 #[async_trait::async_trait]
@@ -152,6 +170,45 @@ impl InvoicingEntityInterface for Store {
 
         Ok(res.into())
     }
+
+    async fn patch_invoicing_entity_providers(
+        &self,
+        invoicing_entity: InvoicingEntityProvidersPatch,
+        tenant_id: Uuid,
+    ) -> StoreResult<InvoicingEntityProviders> {
+        let mut conn = self.get_conn().await?;
+
+        let row: InvoicingEntityRowProvidersPatch = invoicing_entity.into();
+
+        let patched = row
+            .patch_invoicing_entity_providers(&mut conn, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(
+            &mut conn,
+            &patched.id,
+            &tenant_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(res.into())
+    }
+
+    async fn resolve_providers_by_id(
+        &self,
+        tenant_id: Uuid,
+        id: Uuid,
+    ) -> StoreResult<InvoicingEntityProviders> {
+        let mut conn = self.get_conn().await?;
+
+        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, &id, &tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(res.into())
+    }
 }
 
 impl StoreInternal {
@@ -199,6 +256,8 @@ impl StoreInternal {
             country,
             accounting_currency: currency,
             tenant_id,
+            cc_provider_id: None,
+            bank_account_id: None,
         };
 
         let row: InvoicingEntityRow = entity.into();

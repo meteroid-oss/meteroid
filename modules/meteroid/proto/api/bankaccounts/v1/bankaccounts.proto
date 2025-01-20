@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package meteroid.api.bankaccounts.v1;
+
+import "api/bankaccounts/v1/models.proto";
+
+message ListBankAccountsRequest {}
+
+message ListBankAccountsResponse {
+  repeated BankAccount accounts = 1;
+}
+
+message CreateBankAccountRequest {
+  BankAccountData data = 1;
+}
+
+message CreateBankAccountResponse {
+  BankAccount account = 1;
+}
+
+message DeleteBankAccountRequest {
+  string id = 1;
+}
+
+message DeleteBankAccountResponse {}
+
+message UpdateBankAccountRequest {
+  string id = 1;
+  BankAccountData data = 2;
+}
+
+message UpdateBankAccountResponse {
+  BankAccount account = 1;
+}
+
+service BankAccountsService {
+  rpc ListBankAccounts(ListBankAccountsRequest) returns (ListBankAccountsResponse) {}
+  rpc CreateBankAccount(CreateBankAccountRequest) returns (CreateBankAccountResponse) {}
+  rpc UpdateBankAccount(UpdateBankAccountRequest) returns (UpdateBankAccountResponse) {}
+  rpc DeleteBankAccount(DeleteBankAccountRequest) returns (DeleteBankAccountResponse) {}
+}

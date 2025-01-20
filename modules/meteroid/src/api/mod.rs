@@ -6,6 +6,7 @@ pub mod utils;
 
 pub mod addons;
 pub mod apitokens;
+pub mod bankaccounts;
 pub mod billablemetrics;
 pub mod coupons;
 pub mod customers;

@@ -1,10 +1,16 @@
 use crate::errors::IntoDbResult;
-use crate::invoicing_entities::{InvoicingEntityRow, InvoicingEntityRowPatch};
+use crate::invoicing_entities::{
+    InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
+    InvoicingEntityRowProvidersPatch,
+};
 use crate::query::IdentityDb;
 
 use crate::{DbResult, PgConn};
 
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{
+    debug_query, ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl,
+    SelectableHelper,
+};
 use error_stack::ResultExt;
 
 impl InvoicingEntityRow {
@@ -206,8 +212,61 @@ impl InvoicingEntityRow {
     }
 }
 
+impl InvoicingEntityProvidersRow {
+    pub async fn resolve_providers_by_id(
+        conn: &mut PgConn,
+        id: &uuid::Uuid,
+        tenant_id: &uuid::Uuid,
+    ) -> DbResult<InvoicingEntityProvidersRow> {
+        use crate::schema::bank_account::dsl as b_dsl;
+        use crate::schema::invoicing_entity::dsl as i_dsl;
+        use crate::schema::provider_config::dsl as p_dsl;
+
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoicing_entity
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::id.eq(id))
+            .left_join(b_dsl::bank_account.on(i_dsl::bank_account_id.eq(b_dsl::id.nullable())))
+            .left_join(p_dsl::provider_config.on(i_dsl::cc_provider_id.eq(p_dsl::id.nullable())))
+            .select(InvoicingEntityProvidersRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while fetching default invoicing entity by tenant")
+            .into_db_result()
+    }
+}
+
 impl InvoicingEntityRowPatch {
     pub async fn patch_invoicing_entity(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: &uuid::Uuid,
+    ) -> DbResult<InvoicingEntityRow> {
+        use crate::schema::invoicing_entity::dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(dsl::invoicing_entity)
+            .filter(dsl::id.eq(self.id))
+            .filter(dsl::tenant_id.eq(tenant_id))
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while patching invoicing entity")
+            .into_db_result()
+    }
+}
+
+impl InvoicingEntityRowProvidersPatch {
+    pub async fn patch_invoicing_entity_providers(
         &self,
         conn: &mut PgConn,
         tenant_id: &uuid::Uuid,

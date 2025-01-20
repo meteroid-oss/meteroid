@@ -1,4 +1,5 @@
 pub use api_tokens::*;
+pub use bank_accounts::*;
 pub use billable_metrics::*;
 pub use customers::*;
 use diesel_models::query::IdentityDb;
@@ -30,6 +31,7 @@ pub mod tenants;
 pub mod add_ons;
 pub mod adjustments;
 pub mod api_tokens;
+pub mod bank_accounts;
 pub mod billable_metrics;
 pub mod configs;
 pub mod coupons;

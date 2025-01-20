@@ -23,6 +23,7 @@ pub mod subscriptions;
 
 pub mod add_ons;
 pub mod applied_coupons;
+pub mod bank_accounts;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod extend;

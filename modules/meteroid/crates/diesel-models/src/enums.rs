@@ -8,6 +8,16 @@ pub enum ActionAfterTrialEnum {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::BankAccountFormat"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum BankAccountFormat {
+    IbanBicSwift,
+    AccountRouting,
+    SortCodeAccount,
+    AccountBicSwift,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::BillingMetricAggregateEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum BillingMetricAggregateEnum {

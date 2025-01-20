@@ -17,6 +17,15 @@ pub enum ActionAfterTrialEnum {
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[map_owned(diesel_enums::BankAccountFormat)]
+pub enum BankAccountFormat {
+    IbanBicSwift,
+    AccountRouting,
+    SortCodeAccount,
+    AccountBicSwift,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
 #[map_owned(diesel_enums::BillingMetricAggregateEnum)]
 pub enum BillingMetricAggregateEnum {
     Count,
