@@ -2,16 +2,6 @@ syntax = "proto3";
 
 package meteroid.api.tenants.v1;
 
-message TenantBillingConfiguration {
-  message Stripe {
-    string api_secret = 1;
-    string webhook_secret = 2;
-  }
-  oneof billing_config_oneof {
-    Stripe stripe = 1;
-  }
-}
-
 message Tenant {
   string id = 1;
   string name = 2;

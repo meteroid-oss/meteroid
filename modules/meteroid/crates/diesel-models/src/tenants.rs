@@ -17,8 +17,9 @@ pub struct TenantRow {
     pub archived_at: Option<NaiveDateTime>,
     pub organization_id: Uuid,
     // the reporting currency, used in dashboards
-    pub currency: String,
+    pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
+    pub available_currencies: Vec<Option<String>>,
 }
 
 #[derive(Debug, Insertable)]
@@ -29,8 +30,9 @@ pub struct TenantRowNew {
     pub name: String,
     pub slug: String,
     pub organization_id: Uuid,
-    pub currency: String,
+    pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
+    pub available_currencies: Vec<Option<String>>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -39,6 +41,6 @@ pub struct TenantRowNew {
 pub struct TenantRowPatch {
     pub name: Option<String>,
     pub slug: Option<String>,
-    pub currency: Option<String>,
+    pub reporting_currency: Option<String>,
     pub environment: Option<TenantEnvironmentEnum>,
 }

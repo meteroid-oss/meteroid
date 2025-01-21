@@ -235,7 +235,7 @@ impl StatsInterface for Store {
                 TenantRow::find_by_id(&mut conn, request.tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?
-                    .currency
+                    .reporting_currency
             }
         };
 

@@ -181,41 +181,6 @@ async fn test_main() {
         .subscription
         .unwrap();
 
-    let tenant_billing = clients
-        .tenants
-        .clone()
-        .configure_tenant_billing(tonic::Request::new(
-            api::tenants::v1::ConfigureTenantBillingRequest {
-                billing_config: Some(api::tenants::v1::TenantBillingConfiguration {
-                    billing_config_oneof: Some(
-                        api::tenants::v1::tenant_billing_configuration::BillingConfigOneof::Stripe(
-                            api::tenants::v1::tenant_billing_configuration::Stripe {
-                                api_secret: "sk_test_123".to_string(),
-                                webhook_secret: "whsec_123".to_string(),
-                            },
-                        ),
-                    ),
-                }),
-            },
-        ))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(
-        tenant_billing
-            .billing_config
-            .unwrap()
-            .billing_config_oneof
-            .unwrap(),
-        api::tenants::v1::tenant_billing_configuration::BillingConfigOneof::Stripe(
-            api::tenants::v1::tenant_billing_configuration::Stripe {
-                api_secret: "sk_test_123".to_string(),
-                webhook_secret: "whsec_123".to_string(),
-            }
-        )
-    );
-
     // check DB state
     assert_eq!(subscription.customer_id.clone(), customer.id.clone());
     assert_eq!(subscription.billing_day, 1);

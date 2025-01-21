@@ -141,7 +141,7 @@ impl PlansInterface for Store {
                         version: 1,
                         created_by: inserted.created_by,
                     }
-                    .into_raw(tenant.currency);
+                    .into_raw(tenant.reporting_currency);
 
                     let inserted_plan_version_new: PlanVersion = plan_version_to_insert
                         .insert(conn)

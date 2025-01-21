@@ -11,6 +11,13 @@ impl From<Report<DatabaseError>> for DatabaseErrorContainer {
         Self { error }
     }
 }
+impl From<DatabaseError> for DatabaseErrorContainer {
+    fn from(error: DatabaseError) -> Self {
+        Self {
+            error: Report::new(error),
+        }
+    }
+}
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum DatabaseError {

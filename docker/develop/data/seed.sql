@@ -69,7 +69,7 @@ $$
 -- -- Data for Name: tenant; Type: TABLE DATA; Schema: public; Owner: meteroidbilling
 -- --
     INSERT INTO public.tenant
-    (id, name, slug, created_at, updated_at, archived_at, organization_id, currency, environment)
+    (id, name, slug, created_at, updated_at, archived_at, organization_id, reporting_currency, environment)
     VALUES (var_tenant_id, 'Sandbox', 'testslug', '2023-12-02 21:49:42.255', NULL,
             NULL,
             var_org_id, 'EUR', 'DEVELOPMENT'::"TenantEnvironmentEnum");

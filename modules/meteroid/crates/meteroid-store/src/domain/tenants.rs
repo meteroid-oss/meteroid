@@ -1,9 +1,8 @@
+use crate::domain::enums::TenantEnvironmentEnum;
 use chrono::NaiveDateTime;
+use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 use o2o::o2o;
 use uuid::Uuid;
-
-use crate::domain::enums::TenantEnvironmentEnum;
-use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(TenantRow)]
@@ -16,21 +15,32 @@ pub struct Tenant {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub organization_id: Uuid,
-    pub currency: String,
+    pub reporting_currency: String,
     #[map(~.into())]
     pub environment: TenantEnvironmentEnum,
+    pub available_currencies: Vec<Option<String>>,
 }
 
-#[derive(Clone, Debug, o2o)]
-#[owned_into(TenantRowNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
+#[derive(Clone, Debug)]
 pub struct FullTenantNew {
     pub name: String,
     pub slug: String,
     pub organization_id: Uuid,
-    pub currency: String,
-    #[map(~.into())]
+    pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
+}
+impl From<FullTenantNew> for TenantRowNew {
+    fn from(val: FullTenantNew) -> Self {
+        TenantRowNew {
+            name: val.name,
+            slug: val.slug,
+            organization_id: val.organization_id,
+            reporting_currency: val.reporting_currency.clone(),
+            id: Uuid::now_v7(),
+            available_currencies: vec![Some(val.reporting_currency)],
+            environment: val.environment.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -48,5 +58,5 @@ pub struct TenantUpdate {
     pub slug: Option<String>,
     #[map(~.map(| x | x.into()))]
     pub environment: Option<TenantEnvironmentEnum>,
-    pub currency: Option<String>,
+    pub reporting_currency: Option<String>,
 }
