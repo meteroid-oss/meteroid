@@ -139,9 +139,9 @@ async fn issue_worker(store: &Store, stripe_adapter: &Stripe) -> Result<(), erro
 
 #[tracing::instrument(skip_all)]
 async fn issue_invoice(
-    invoice: &domain::Invoice,
-    stripe_adapter: &Stripe,
-    store: &Store,
+    _invoice: &domain::Invoice,
+    _stripe_adapter: &Stripe,
+    _store: &Store,
 ) -> Result<(), errors::WorkerError> {
     todo!()
 }

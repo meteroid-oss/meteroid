@@ -1,5 +1,5 @@
 pub mod connectors {
-    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use crate::api::shared::conversions::ProtoConv;
     use meteroid_grpc::meteroid::api::connectors::v1 as server;
     use meteroid_store::domain::connectors as domain;
     use meteroid_store::domain::enums as domain_enum;

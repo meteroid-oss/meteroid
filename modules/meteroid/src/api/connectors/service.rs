@@ -21,7 +21,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         let filter = match req.connector_type {
             Some(connector_type) => {
-                let connector_type = ConnectorTypeEnum::try_from(connector_type).map_err(|e| {
+                let connector_type = ConnectorTypeEnum::try_from(connector_type).map_err(|_| {
                     ConnectorApiError::InvalidArgument("invalid connector type enum".to_string())
                 })?;
 
