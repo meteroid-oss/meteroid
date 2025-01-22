@@ -11,6 +11,7 @@ use kafka::config::KafkaConnectionConfig;
 use meteroid::config::Config;
 use meteroid::workers::fang::ext::FangExtConfig;
 use meteroid_mailer::config::MailerConfig;
+use meteroid_oauth::config::OauthConfig;
 
 pub fn mocked_config(
     postgres_connection_string: String,
@@ -53,5 +54,6 @@ pub fn mocked_config(
         kafka: KafkaConnectionConfig::none(),
         mailer: MailerConfig::dummy(),
         public_url: "http://localhost:8080".to_owned(),
+        oauth: OauthConfig::dummy(),
     }
 }

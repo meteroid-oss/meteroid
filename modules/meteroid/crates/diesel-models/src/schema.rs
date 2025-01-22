@@ -471,6 +471,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    oauth_verifier (id) {
+        id -> Uuid,
+        csrf_token -> Text,
+        pkce_verifier -> Text,
+        is_signup -> Bool,
+        invite_key -> Nullable<Text>,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     organization (id) {
         id -> Uuid,
         trade_name -> Text,
@@ -820,6 +831,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     historical_rates_from_usd,
     invoice,
     invoicing_entity,
+    oauth_verifier,
     organization,
     organization_member,
     outbox_event,

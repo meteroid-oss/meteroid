@@ -15,6 +15,7 @@ mod currencies;
 mod customers;
 mod files;
 mod model;
+mod oauth;
 pub mod openapi;
 mod plans;
 mod productfamilies;

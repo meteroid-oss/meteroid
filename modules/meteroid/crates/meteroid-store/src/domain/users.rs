@@ -68,6 +68,15 @@ pub struct RegisterUserRequest {
     pub invite_key: Option<SecretString>,
 }
 
+#[derive(Clone, Debug, o2o)]
+#[from_owned(RegisterUserRequest)]
+pub(crate) struct RegisterUserRequestInternal {
+    pub email: String,
+    #[map(Some(~))]
+    pub password: Option<SecretString>,
+    pub invite_key: Option<SecretString>,
+}
+
 #[derive(Clone, Debug)]
 pub struct RegisterUserResponse {
     pub token: SecretString,

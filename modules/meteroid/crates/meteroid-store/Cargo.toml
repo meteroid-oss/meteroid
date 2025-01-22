@@ -49,6 +49,7 @@ tokio = { workspace = true, default-features = false, features = ["macros", "rt-
 tokio-postgres = { workspace = true }
 strum = { workspace = true, features = ["derive", "std"] }
 meteroid-mailer = { workspace = true }
+meteroid-oauth = { workspace = true }
 stripe-client = { workspace = true }
 common-domain = { workspace = true }
 

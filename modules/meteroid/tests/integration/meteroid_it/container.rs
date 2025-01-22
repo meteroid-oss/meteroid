@@ -15,6 +15,7 @@ use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;
+use meteroid_oauth::config::OauthConfig;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
 use stripe_client::client::StripeClient;
@@ -58,6 +59,7 @@ pub async fn start_meteroid_with_port(
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         stripe,
+        oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .expect("Could not create store");
 

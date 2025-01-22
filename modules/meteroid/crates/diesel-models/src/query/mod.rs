@@ -11,6 +11,7 @@ pub mod customers;
 pub mod historical_rates_from_usd;
 pub mod invoices;
 pub mod invoicing_entities;
+pub mod oauth_verifiers;
 pub mod organization_members;
 pub mod organizations;
 pub mod outbox_event;

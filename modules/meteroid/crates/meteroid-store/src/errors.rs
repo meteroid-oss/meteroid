@@ -50,6 +50,8 @@ pub enum StoreError {
     MailServiceError,
     #[error("Error received from Stripe")]
     StripeError,
+    #[error("Failed to signup with OAuth: {0}")]
+    OauthError(String),
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862

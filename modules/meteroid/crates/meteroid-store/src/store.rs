@@ -12,6 +12,7 @@ use error_stack::{Report, ResultExt};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use meteroid_mailer::service::MailerService;
+use meteroid_oauth::service::OauthServices;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -44,6 +45,7 @@ pub struct Store {
     pub(crate) svix: Option<Arc<Svix>>,
     pub(crate) mailer: Arc<dyn MailerService>,
     pub(crate) stripe: Arc<StripeClient>,
+    pub(crate) oauth: OauthServices,
 }
 
 pub struct StoreConfig {
@@ -57,6 +59,7 @@ pub struct StoreConfig {
     pub svix: Option<Arc<Svix>>,
     pub mailer: Arc<dyn MailerService>,
     pub stripe: Arc<StripeClient>,
+    pub oauth: OauthServices,
 }
 
 /**
@@ -134,6 +137,7 @@ impl Store {
             svix: config.svix,
             mailer: config.mailer,
             stripe: config.stripe,
+            oauth: config.oauth,
         })
     }
 
