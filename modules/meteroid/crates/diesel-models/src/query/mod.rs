@@ -4,7 +4,7 @@ pub mod applied_coupons;
 pub mod bank_accounts;
 pub mod bi;
 pub mod billable_metrics;
-pub mod configs;
+pub mod connectors;
 pub mod coupons;
 pub mod customer_balance_txs;
 pub mod customers;

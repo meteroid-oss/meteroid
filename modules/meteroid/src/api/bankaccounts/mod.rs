@@ -1,3 +1,4 @@
+use crate::services::storage::ObjectStoreService;
 use meteroid_grpc::meteroid::api::bankaccounts::v1::bank_accounts_service_server::BankAccountsServiceServer;
 use meteroid_store::Store;
 

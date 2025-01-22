@@ -1,6 +1,6 @@
 use crate::domain::enums::{
-    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
-    SubscriptionEventType, SubscriptionFeeBillingPeriod,
+    BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, SubscriptionEventType,
+    SubscriptionFeeBillingPeriod,
 };
 use crate::domain::{
     BillableMetric, BillingConfig, CreateSubscription, CreateSubscriptionAddOns,
@@ -1277,7 +1277,6 @@ pub fn subscription_to_draft(
     customer: &Customer,
     invoicing_entity: &InvoicingEntity,
 ) -> StoreResult<domain::invoices::InvoiceNew> {
-    let cust_bill_cfg = &customer.billing_config;
     let billing_start_date = subscription.billing_start_date;
     let billing_day = subscription.billing_day as u32;
 
@@ -1287,11 +1286,6 @@ pub fn subscription_to_draft(
         0, // TODO ???
         &subscription.period,
     );
-
-    let invoicing_provider = match cust_bill_cfg {
-        BillingConfig::Stripe(_) => InvoicingProviderEnum::Stripe,
-        BillingConfig::Manual => InvoicingProviderEnum::Manual,
-    };
 
     let due_date = (period.end + chrono::Duration::days(subscription.net_terms as i64))
         .and_time(NaiveTime::MIN);
@@ -1307,7 +1301,6 @@ pub fn subscription_to_draft(
         invoice_type: InvoiceType::Recurring,
         currency: subscription.currency.clone(),
         external_invoice_id: None,
-        invoicing_provider,
         line_items: vec![], // TODO
         issued: false,
         issue_attempts: 0,

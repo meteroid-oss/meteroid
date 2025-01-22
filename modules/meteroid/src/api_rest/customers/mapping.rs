@@ -35,17 +35,19 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
         invoicing_entity_id: req.invoicing_entity_id.map(Identity::LOCAL),
         billing_config: match req.billing_config {
             BillingConfig::Manual => domain::BillingConfig::Manual,
-            BillingConfig::Stripe(stripe) => domain::BillingConfig::Stripe(domain::Stripe {
-                customer_id: stripe.customer_id,
-                collection_method: match stripe.collection_method {
-                    StripeCollectionMethod::ChargeAutomatically => {
-                        domain::StripeCollectionMethod::ChargeAutomatically
-                    }
-                    StripeCollectionMethod::SendInvoice => {
-                        domain::StripeCollectionMethod::SendInvoice
-                    }
-                },
-            }),
+            BillingConfig::Stripe(stripe) => {
+                domain::BillingConfig::Stripe(domain::StripeCustomerConfig {
+                    customer_id: stripe.customer_id,
+                    collection_method: match stripe.collection_method {
+                        StripeCollectionMethod::ChargeAutomatically => {
+                            domain::StripeCollectionMethod::ChargeAutomatically
+                        }
+                        StripeCollectionMethod::SendInvoice => {
+                            domain::StripeCollectionMethod::SendInvoice
+                        }
+                    },
+                })
+            }
         },
         alias: req.alias,
         email: req.email,

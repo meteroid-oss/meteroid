@@ -42,6 +42,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod connectors {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.connectors.v1");
+            }
+        }
+
         pub mod customers {
             pub mod v1 {
                 include_proto_serde!("meteroid.api.customers.v1");

@@ -2,8 +2,8 @@ use chrono::{Datelike, Days, NaiveDate, NaiveTime};
 use error_stack::ResultExt;
 use fake::Fake;
 use meteroid_store::domain::enums::{
-    BillingMetricAggregateEnum, BillingPeriodEnum, InvoiceStatusEnum, InvoiceType,
-    InvoicingProviderEnum, PlanStatusEnum, PlanTypeEnum, TenantEnvironmentEnum,
+    BillingMetricAggregateEnum, BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, PlanStatusEnum,
+    PlanTypeEnum, TenantEnvironmentEnum,
 };
 
 use meteroid_store::domain as store_domain;
@@ -456,7 +456,6 @@ pub async fn run(
                 invoice_type: InvoiceType::Recurring,
                 currency: "EUR".to_string(),
                 external_invoice_id: None,
-                invoicing_provider: InvoicingProviderEnum::Stripe,
                 line_items: invoice_lines,
                 issued: false,
                 issue_attempts: 0,

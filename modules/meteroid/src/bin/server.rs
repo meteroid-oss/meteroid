@@ -15,6 +15,7 @@ use meteroid::services::storage::S3Storage;
 use meteroid::svix::new_svix;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::store::StoreConfig;
+use stripe_client::client::StripeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let svix = new_svix(config);
     let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
+    let stripe = Arc::new(StripeClient::new());
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),
@@ -56,6 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )),
         svix: svix.clone(),
         mailer: mailer.clone(),
+        stripe: stripe.clone(),
     })?;
     // todo this is a hack to register the event types in svix, should be managed by an api
     store.insert_webhook_out_event_types().await?;
@@ -77,9 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     migrations::run(&store.pool).await?;
 
-    let stripe_adapter = Arc::new(Stripe {
-        client: stripe_client::client::StripeClient::new(),
-    });
+    let stripe_adapter = Arc::new(Stripe { client: stripe });
 
     let rest_server = meteroid::api_rest::server::start_rest_server(
         config,

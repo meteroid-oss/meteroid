@@ -1,17 +1,13 @@
 use crate::adapters::stripe::Stripe;
-use crate::adapters::types::InvoicingAdapter;
 use crate::workers::metrics::record_call;
 use crate::{errors, singletons};
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use futures::future::join_all;
-use meteroid_store::domain::enums::InvoicingProviderEnum;
-use meteroid_store::domain::{CursorPaginationRequest, Identity};
-use meteroid_store::repositories::configs::ConfigsInterface;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
+use meteroid_store::domain::CursorPaginationRequest;
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
-use secrecy::SecretString;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -54,7 +50,8 @@ impl AsyncRunnable for IssueWorker {
 
 #[tracing::instrument(skip_all)]
 async fn issue_worker(store: &Store, stripe_adapter: &Stripe) -> Result<(), errors::WorkerError> {
-    // fetch all invoices with issue=false and send to stripe
+    // fetch all invoices with issued=false, should_issue & ready_to_issue, attempts < max and send by mail
+    // TODO
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
 
@@ -146,30 +143,5 @@ async fn issue_invoice(
     stripe_adapter: &Stripe,
     store: &Store,
 ) -> Result<(), errors::WorkerError> {
-    match invoice.invoicing_provider {
-        InvoicingProviderEnum::Stripe => {
-            let customer = store
-                .find_customer_by_id(Identity::UUID(invoice.customer_id), invoice.tenant_id)
-                .await
-                .change_context(errors::WorkerError::DatabaseError)?;
-
-            let api_key = store
-                .find_provider_config(InvoicingProviderEnum::Stripe, invoice.tenant_id)
-                .await
-                .change_context(errors::WorkerError::DatabaseError)?
-                .api_security
-                .api_key;
-
-            stripe_adapter
-                .send_invoice(invoice, &customer, SecretString::new(api_key))
-                .await
-                .change_context(errors::WorkerError::ProviderError)?;
-
-            Ok(())
-        }
-        InvoicingProviderEnum::Manual => {
-            log::warn!("Invoice has Manual provider so shouldn't be picked-up by issue_worker");
-            Ok(())
-        }
-    }
+    todo!()
 }

@@ -52,14 +52,16 @@ pub mod customer {
 
         fn try_from(value: server::CustomerBillingConfig) -> Result<Self, Self::Error> {
             match value.billing_config_oneof {
-                Some(server::customer_billing_config::BillingConfigOneof::Stripe(value)) => Ok(
-                    DomainBillingConfigWrapper(domain::BillingConfig::Stripe(domain::Stripe {
-                        customer_id: value.customer_id.clone(),
-                        collection_method: stripe_collection_method_to_domain(
-                            &value.collection_method(),
-                        ),
-                    })),
-                ),
+                Some(server::customer_billing_config::BillingConfigOneof::Stripe(value)) => {
+                    Ok(DomainBillingConfigWrapper(domain::BillingConfig::Stripe(
+                        domain::StripeCustomerConfig {
+                            customer_id: value.customer_id.clone(),
+                            collection_method: stripe_collection_method_to_domain(
+                                &value.collection_method(),
+                            ),
+                        },
+                    )))
+                }
                 Some(server::customer_billing_config::BillingConfigOneof::Manual(_)) => {
                     Ok(DomainBillingConfigWrapper(domain::BillingConfig::Manual))
                 }

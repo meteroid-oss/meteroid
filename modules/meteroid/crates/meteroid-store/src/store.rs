@@ -18,6 +18,7 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::str::FromStr;
 use std::sync::Arc;
+use stripe_client::client::StripeClient;
 use svix::api::{ApplicationIn, ApplicationOut, Svix};
 use tokio_postgres_rustls::MakeRustlsConnect;
 use uuid::Uuid;
@@ -42,6 +43,7 @@ pub struct Store {
     pub(crate) internal: StoreInternal,
     pub(crate) svix: Option<Arc<Svix>>,
     pub(crate) mailer: Arc<dyn MailerService>,
+    pub(crate) stripe: Arc<StripeClient>,
 }
 
 pub struct StoreConfig {
@@ -54,6 +56,7 @@ pub struct StoreConfig {
     pub usage_client: Arc<dyn UsageClient>,
     pub svix: Option<Arc<Svix>>,
     pub mailer: Arc<dyn MailerService>,
+    pub stripe: Arc<StripeClient>,
 }
 
 /**
@@ -130,6 +133,7 @@ impl Store {
             internal: StoreInternal {},
             svix: config.svix,
             mailer: config.mailer,
+            stripe: config.stripe,
         })
     }
 
@@ -173,17 +177,7 @@ impl Store {
             + 'a,
         R: Send + 'a,
     {
-        let result = conn
-            .transaction(|conn| {
-                async move {
-                    let res = callback(conn);
-                    res.await.map_err(StoreError::TransactionStoreError)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        Ok(result)
+        self.internal.transaction_with(conn, callback).await
     }
 
     pub(crate) fn svix(&self) -> StoreResult<Arc<Svix>> {
@@ -209,6 +203,35 @@ impl Store {
             .change_context(StoreError::WebhookServiceError(
                 "Failed to get or create svix application".into(),
             ))
+    }
+}
+
+impl StoreInternal {
+    pub(crate) async fn transaction_with<'a, R, F>(
+        &self,
+        conn: &mut PgConn,
+        callback: F,
+    ) -> StoreResult<R>
+    where
+        F: for<'r> FnOnce(
+                &'r mut PgConn,
+            )
+                -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
+            + Send
+            + 'a,
+        R: Send + 'a,
+    {
+        let result = conn
+            .transaction(|conn| {
+                async move {
+                    let res = callback(conn);
+                    res.await.map_err(StoreError::TransactionStoreError)
+                }
+                .scope_boxed()
+            })
+            .await?;
+
+        Ok(result)
     }
 }
 

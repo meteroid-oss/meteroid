@@ -3,7 +3,6 @@ syntax = "proto3";
 package meteroid.api.plans.v1;
 
 import "api/plans/v1/models.proto";
-import "api/shared/v1/shared.proto";
 import "common/v1/pagination.proto";
 
 import "google/protobuf/empty.proto";

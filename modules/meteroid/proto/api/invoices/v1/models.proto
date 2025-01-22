@@ -12,11 +12,6 @@ enum InvoiceStatus {
   VOID = 3;
 }
 
-enum InvoicingProvider {
-  STRIPE = 0;
-  MANUAL = 1;
-}
-
 message Invoice {
   string id = 1;
   string invoice_number = 2;
@@ -28,7 +23,6 @@ message Invoice {
   string currency = 8;
   optional string due_at = 9;
   int64 total = 10;
-  InvoicingProvider invoicing_provider = 11;
 }
 
 //message Account {
@@ -57,7 +51,6 @@ message DetailedInvoice {
   string currency = 9;
   optional string external_invoice_id = 10;
   string invoice_number = 11;
-  InvoicingProvider invoicing_provider = 12;
   repeated LineItem line_items = 13;
   bool issued = 14;
   int32 issue_attempts = 15;

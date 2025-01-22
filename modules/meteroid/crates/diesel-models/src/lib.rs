@@ -1,7 +1,7 @@
 pub mod api_tokens;
 pub mod bi;
 pub mod billable_metrics;
-pub mod configs;
+pub mod connectors;
 pub mod credit_notes;
 pub mod customers;
 pub mod enums;

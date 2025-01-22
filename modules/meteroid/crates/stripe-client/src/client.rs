@@ -94,6 +94,10 @@ impl StripeClient {
         }
     }
 
+    pub fn get_account_id(&self, secret_key: &'_ StripeSecret) -> Response<crate::misc::Account> {
+        self.get("/account", secret_key, RetryStrategy::default())
+    }
+
     pub fn create_invoice(
         &self,
         params: CreateInvoice<'_>,
@@ -134,6 +138,19 @@ impl StripeClient {
             idempotency_key,
             RetryStrategy::default(),
         )
+    }
+
+    pub fn get<T: DeserializeOwned + Send + 'static>(
+        &self,
+        path: &str,
+        secret_key: &StripeSecret,
+        retry_strategy: RetryStrategy,
+    ) -> Response<T> {
+        let url = self.url(path);
+
+        let request_builder = self.create_init_request(Method::GET, url, &secret_key.0, None);
+
+        self.execute(request_builder, retry_strategy)
     }
 
     fn post<T: DeserializeOwned + Send + 'static>(

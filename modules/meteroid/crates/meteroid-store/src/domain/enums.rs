@@ -125,10 +125,15 @@ pub enum InvoiceType {
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[map_owned(diesel_enums::InvoicingProviderEnum)]
-pub enum InvoicingProviderEnum {
+#[map_owned(diesel_enums::ConnectorTypeEnum)]
+pub enum ConnectorTypeEnum {
+    PaymentProvider,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::ConnectorProviderEnum)]
+pub enum ConnectorProviderEnum {
     Stripe,
-    Manual,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]

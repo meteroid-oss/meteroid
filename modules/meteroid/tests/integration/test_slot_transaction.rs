@@ -11,6 +11,7 @@ use meteroid_store::Store;
 use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
+use stripe_client::client::StripeClient;
 use uuid::{uuid, Uuid};
 
 const SLOT_SUBSCRIPTION_ID: Uuid = SUBSCRIPTION_UBER_ID1;
@@ -32,6 +33,7 @@ async fn test_slot_transaction_active_slots() {
         usage_client: Arc::new(MockUsageClient::noop()),
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
+        stripe: Arc::new(StripeClient::new()),
     })
     .expect("Could not create store");
 

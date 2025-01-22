@@ -94,11 +94,18 @@ pub enum InvoiceType {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::InvoicingProviderEnum"]
+#[ExistingTypePath = "crate::schema::sql_types::ConnectorProviderEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum InvoicingProviderEnum {
+pub enum ConnectorProviderEnum {
     Stripe,
-    Manual,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::ConnectorTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ConnectorTypeEnum {
+    PaymentProvider,
+    // CRM etc
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

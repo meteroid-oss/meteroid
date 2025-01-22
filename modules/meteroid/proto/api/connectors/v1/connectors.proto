@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package meteroid.api.connectors.v1;
+
+import "api/connectors/v1/models.proto";
+
+message ConnectStripeRequest {
+  StripeConnector data = 1;
+}
+
+message ConnectStripeResponse {
+  Connector connector = 1;
+}
+
+message ListConnectorsRequest {
+  optional ConnectorTypeEnum connector_type = 1;
+}
+
+message ListConnectorsResponse {
+  repeated Connector connectors = 1;
+}
+
+message DisconnectConnectorRequest {
+  string id = 1;
+}
+
+message DisconnectConnectorResponse {}
+
+service ConnectorsService {
+  rpc ListConnectors(ListConnectorsRequest) returns (ListConnectorsResponse) {}
+  rpc DisconnectConnector(DisconnectConnectorRequest) returns (DisconnectConnectorResponse) {}
+
+  rpc ConnectStripe(ConnectStripeRequest) returns (ConnectStripeResponse) {}
+
+}

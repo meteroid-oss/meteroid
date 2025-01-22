@@ -61,34 +61,6 @@ impl TryFrom<CustomerRow> for Customer {
     }
 }
 
-impl TryInto<CustomerRow> for Customer {
-    type Error = Report<StoreError>;
-
-    fn try_into(self) -> Result<CustomerRow, Self::Error> {
-        Ok(CustomerRow {
-            id: self.id,
-            local_id: self.local_id,
-            name: self.name,
-            created_at: self.created_at,
-            created_by: self.created_by,
-            updated_at: self.updated_at,
-            updated_by: self.updated_by,
-            archived_at: self.archived_at,
-            tenant_id: self.tenant_id,
-            billing_config: self.billing_config.try_into()?,
-            alias: self.alias,
-            email: self.email,
-            invoicing_email: self.invoicing_email,
-            phone: self.phone,
-            balance_value_cents: self.balance_value_cents,
-            currency: self.currency,
-            billing_address: self.billing_address.map(|v| v.try_into()).transpose()?,
-            shipping_address: self.shipping_address.map(|v| v.try_into()).transpose()?,
-            invoicing_entity_id: self.invoicing_entity_id,
-        })
-    }
-}
-
 #[derive(Clone, Debug, o2o)]
 #[from_owned(CustomerBriefRow)]
 #[owned_into(CustomerBriefRow)]
@@ -253,12 +225,12 @@ impl TryInto<serde_json::Value> for ShippingAddress {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BillingConfig {
-    Stripe(Stripe),
+    Stripe(StripeCustomerConfig),
     Manual,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Stripe {
+pub struct StripeCustomerConfig {
     pub customer_id: String,
     pub collection_method: StripeCollectionMethod,
 }

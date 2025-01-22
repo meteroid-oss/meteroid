@@ -3,10 +3,7 @@ syntax = "proto3";
 package meteroid.api.coupons.v1;
 
 import "api/coupons/v1/models.proto";
-import "google/protobuf/timestamp.proto";
 import "common/v1/pagination.proto";
-
-
 
 
 message ListCouponRequest {

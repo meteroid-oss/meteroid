@@ -4,6 +4,7 @@ use error_stack::Result;
 use hyper::StatusCode;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
+use std::sync::Arc;
 use stripe_client::invoice::{CollectionMethod, CreateInvoice, MeteroidMetadata};
 use stripe_client::invoice::{CreateInvoiceItem, Invoice, Period};
 use stripe_client::webhook::Event;
@@ -19,7 +20,8 @@ use common_domain::StripeSecret;
 use error_stack::ResultExt;
 use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
 use meteroid_store::domain::{
-    BillingConfig, Customer, LineItem, Stripe as BillingConfigStripe, StripeCollectionMethod,
+    BillingConfig, Customer, LineItem, StripeCollectionMethod,
+    StripeCustomerConfig as BillingConfigStripe,
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
@@ -31,7 +33,7 @@ static STRIPE: std::sync::OnceLock<Stripe> = std::sync::OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct Stripe {
-    pub client: stripe_client::client::StripeClient,
+    pub client: Arc<stripe_client::client::StripeClient>,
 }
 
 impl AdapterCommon for Stripe {
@@ -136,7 +138,7 @@ impl InvoicingAdapter for Stripe {
 impl Stripe {
     pub fn get() -> &'static Self {
         STRIPE.get_or_init(|| Stripe {
-            client: stripe_client::client::StripeClient::new(),
+            client: Arc::new(stripe_client::client::StripeClient::new()),
         })
     }
 

@@ -54,7 +54,7 @@ chrono-tz = { version = "0.8.5" }
 clap = "4.5.16"
 clickhouse-rs = "1.1.0-alpha.1"
 deadpool-postgres = "0.14.0"
-diesel = { version = "2.1.0", features = ["chrono", "uuid", "serde_json", "numeric"] }
+diesel = { version = "2.2.6", features = ["chrono", "uuid", "serde_json", "numeric"] }
 diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
@@ -180,3 +180,4 @@ diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
 meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
 meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }
+stripe-client = { path = "modules/meteroid/crates/stripe-client" }

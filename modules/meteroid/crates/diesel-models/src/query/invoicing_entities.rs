@@ -219,8 +219,8 @@ impl InvoicingEntityProvidersRow {
         tenant_id: &uuid::Uuid,
     ) -> DbResult<InvoicingEntityProvidersRow> {
         use crate::schema::bank_account::dsl as b_dsl;
+        use crate::schema::connector::dsl as c_dsl;
         use crate::schema::invoicing_entity::dsl as i_dsl;
-        use crate::schema::provider_config::dsl as p_dsl;
 
         use diesel_async::RunQueryDsl;
 
@@ -228,7 +228,7 @@ impl InvoicingEntityProvidersRow {
             .filter(i_dsl::tenant_id.eq(tenant_id))
             .filter(i_dsl::id.eq(id))
             .left_join(b_dsl::bank_account.on(i_dsl::bank_account_id.eq(b_dsl::id.nullable())))
-            .left_join(p_dsl::provider_config.on(i_dsl::cc_provider_id.eq(p_dsl::id.nullable())))
+            .left_join(c_dsl::connector.on(i_dsl::cc_provider_id.eq(c_dsl::id.nullable())))
             .select(InvoicingEntityProvidersRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

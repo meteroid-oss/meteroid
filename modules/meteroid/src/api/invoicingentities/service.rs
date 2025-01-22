@@ -185,7 +185,9 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(GetInvoicingEntityProvidersResponse {
-            cc_provider: "TODO".to_string(),
+            cc_provider: res
+                .cc_provider
+                .map(super::super::connectors::mapping::connectors::connector_meta_to_server),
             bank_account: res
                 .bank_account
                 .map(super::super::bankaccounts::mapping::bank_accounts::domain_to_proto),
@@ -214,7 +216,9 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(UpdateInvoicingEntityProvidersResponse {
-            cc_provider: "TODO".to_string(),
+            cc_provider: res
+                .cc_provider
+                .map(super::super::connectors::mapping::connectors::connector_meta_to_server),
             bank_account: res
                 .bank_account
                 .map(super::super::bankaccounts::mapping::bank_accounts::domain_to_proto),

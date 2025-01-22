@@ -17,6 +17,7 @@ use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
+use stripe_client::client::StripeClient;
 
 pub struct MeteroidSetup {
     pub token: CancellationToken,
@@ -44,6 +45,7 @@ pub async fn start_meteroid_with_port(
 
     let token = CancellationToken::new();
     let cloned_token = token.clone();
+    let stripe = Arc::new(StripeClient::new());
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),
@@ -55,6 +57,7 @@ pub async fn start_meteroid_with_port(
         usage_client,
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
+        stripe,
     })
     .expect("Could not create store");
 
