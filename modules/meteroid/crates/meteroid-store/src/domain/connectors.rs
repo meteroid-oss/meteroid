@@ -18,6 +18,7 @@ pub struct Connector {
     pub connector_type: ConnectorTypeEnum,
     pub provider: ConnectorProviderEnum,
     pub data: Option<ProviderData>,
+    // this gets turned into json string then encrypted before storing
     pub sensitive: Option<ProviderSensitiveData>,
 }
 
@@ -54,7 +55,6 @@ impl Connector {
             None
         };
 
-        // row.provider is Option<Json>
         let data = row
             .data
             .map(|d| {

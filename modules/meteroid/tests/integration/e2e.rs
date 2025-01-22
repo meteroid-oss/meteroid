@@ -461,7 +461,6 @@ async fn test_metering_e2e() {
             plan_name: None,
             external_invoice_id: None,
             invoice_number: "2021-0001".to_string(),
-            // payment_provider: PaymentProviderEnum::Stripe,
             line_items: Vec::new(),
             issued: false,
             issue_attempts: 0,
