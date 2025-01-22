@@ -8,11 +8,14 @@ use tower_http::set_header::{SetRequestHeader, SetRequestHeaderLayer};
 use common_grpc::middleware::common::auth::INTERNAL_API_CONTEXT_HEADER;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_client::AddOnsServiceClient;
 use meteroid_grpc::meteroid::api::apitokens::v1::api_tokens_service_client::ApiTokensServiceClient;
+use meteroid_grpc::meteroid::api::bankaccounts::v1::bank_accounts_service_client::BankAccountsServiceClient;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::billable_metrics_service_client::BillableMetricsServiceClient;
 use meteroid_grpc::meteroid::api::components::v1::price_components_service_client::PriceComponentsServiceClient;
+use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_client::ConnectorsServiceClient;
 use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_client::CouponsServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_client::InstanceServiceClient;
+use meteroid_grpc::meteroid::api::invoicingentities::v1::invoicing_entities_service_client::InvoicingEntitiesServiceClient;
 use meteroid_grpc::meteroid::api::organizations::v1::organizations_service_client::OrganizationsServiceClient;
 use meteroid_grpc::meteroid::api::plans::v1::plans_service_client::PlansServiceClient;
 use meteroid_grpc::meteroid::api::productfamilies::v1::product_families_service_client::ProductFamiliesServiceClient;
@@ -29,10 +32,13 @@ pub type TestLayeredClientService = AddAuthorization<SetRequestHeader<Channel, H
 pub struct AllClients {
     pub add_ons: AddOnsServiceClient<TestLayeredClientService>,
     pub api_tokens: ApiTokensServiceClient<TestLayeredClientService>,
+    pub bank_accounts: BankAccountsServiceClient<TestLayeredClientService>,
+    pub connectors: ConnectorsServiceClient<TestLayeredClientService>,
     pub coupons: CouponsServiceClient<TestLayeredClientService>,
     pub customers: CustomersServiceClient<TestLayeredClientService>,
     pub metrics: BillableMetricsServiceClient<TestLayeredClientService>,
     pub instance: InstanceServiceClient<TestLayeredClientService>,
+    pub invoicing_entities: InvoicingEntitiesServiceClient<TestLayeredClientService>,
     pub plans: PlansServiceClient<TestLayeredClientService>,
     pub price_components: PriceComponentsServiceClient<TestLayeredClientService>,
     pub product_families: ProductFamiliesServiceClient<TestLayeredClientService>,
@@ -59,10 +65,13 @@ impl AllClients {
         Self {
             add_ons: AddOnsServiceClient::new(service.clone()),
             api_tokens: ApiTokensServiceClient::new(service.clone()),
+            bank_accounts: BankAccountsServiceClient::new(service.clone()),
+            connectors: ConnectorsServiceClient::new(service.clone()),
             coupons: CouponsServiceClient::new(service.clone()),
             customers: CustomersServiceClient::new(service.clone()),
             metrics: BillableMetricsServiceClient::new(service.clone()),
             instance: InstanceServiceClient::new(service.clone()),
+            invoicing_entities: InvoicingEntitiesServiceClient::new(service.clone()),
             plans: PlansServiceClient::new(service.clone()),
             price_components: PriceComponentsServiceClient::new(service.clone()),
             product_families: ProductFamiliesServiceClient::new(service.clone()),

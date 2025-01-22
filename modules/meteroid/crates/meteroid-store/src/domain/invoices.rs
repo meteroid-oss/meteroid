@@ -1,6 +1,4 @@
-use super::enums::{
-    InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
-};
+use super::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType};
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
@@ -38,8 +36,6 @@ pub struct Invoice {
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub invoice_number: String,
-    #[from(~.into())]
-    pub invoicing_provider: InvoicingProviderEnum,
     #[from(serde_json::from_value(~).map_err(| e | {
     StoreError::SerdeError("Failed to deserialize line_items".to_string(), e)
     }) ?)]
@@ -97,8 +93,6 @@ pub struct InvoiceNew {
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub invoice_number: String,
-    #[into(~.into())]
-    pub invoicing_provider: InvoicingProviderEnum,
     #[into(serde_json::to_value(& ~).map_err(| e | {
     StoreError::SerdeError("Failed to serialize line_items".to_string(), e)
     }) ?)]

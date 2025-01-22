@@ -18,6 +18,14 @@ pub mod sql_types {
     pub struct BillingPeriodEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ConnectorProviderEnum"))]
+    pub struct ConnectorProviderEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "ConnectorTypeEnum"))]
+    pub struct ConnectorTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "CreditNoteStatus"))]
     pub struct CreditNoteStatus;
 
@@ -36,10 +44,6 @@ pub mod sql_types {
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "InvoiceType"))]
     pub struct InvoiceType;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "InvoicingProviderEnum"))]
-    pub struct InvoicingProviderEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "MRRMovementType"))]
@@ -228,6 +232,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ConnectorTypeEnum;
+    use super::sql_types::ConnectorProviderEnum;
+
+    connector (id) {
+        id -> Uuid,
+        created_at -> Timestamp,
+        tenant_id -> Uuid,
+        alias -> Text,
+        connector_type -> ConnectorTypeEnum,
+        provider -> ConnectorProviderEnum,
+        data -> Nullable<Jsonb>,
+        sensitive -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     coupon (id) {
         id -> Uuid,
         code -> Text,
@@ -374,7 +395,6 @@ diesel::table! {
     use super::sql_types::InvoiceStatusEnum;
     use super::sql_types::InvoiceExternalStatusEnum;
     use super::sql_types::InvoiceType;
-    use super::sql_types::InvoicingProviderEnum;
 
     invoice (id) {
         id -> Uuid,
@@ -387,7 +407,6 @@ diesel::table! {
         subscription_id -> Nullable<Uuid>,
         currency -> Text,
         external_invoice_id -> Nullable<Text>,
-        invoicing_provider -> InvoicingProviderEnum,
         line_items -> Jsonb,
         issued -> Bool,
         issue_attempts -> Int4,
@@ -575,21 +594,6 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::InvoicingProviderEnum;
-
-    provider_config (id) {
-        id -> Uuid,
-        created_at -> Timestamp,
-        tenant_id -> Uuid,
-        invoicing_provider -> InvoicingProviderEnum,
-        enabled -> Bool,
-        webhook_security -> Jsonb,
-        api_security -> Jsonb,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
     schedule (id) {
@@ -767,7 +771,7 @@ diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(invoicing_entity -> bank_account (bank_account_id));
-diesel::joinable!(invoicing_entity -> provider_config (cc_provider_id));
+diesel::joinable!(invoicing_entity -> connector (cc_provider_id));
 diesel::joinable!(invoicing_entity -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
@@ -793,7 +797,7 @@ diesel::joinable!(subscription_component -> subscription (subscription_id));
 diesel::joinable!(subscription_event -> bi_mrr_movement_log (bi_mrr_movement_log_id));
 diesel::joinable!(subscription_event -> subscription (subscription_id));
 diesel::joinable!(tenant -> organization (organization_id));
-diesel::joinable!(webhook_in_event -> provider_config (provider_config_id));
+diesel::joinable!(webhook_in_event -> connector (provider_config_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     add_on,
@@ -805,6 +809,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bi_mrr_movement_log,
     bi_revenue_daily,
     billable_metric,
+    connector,
     coupon,
     credit_note,
     customer,
@@ -823,7 +828,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     price_component,
     product,
     product_family,
-    provider_config,
     schedule,
     slot_transaction,
     subscription,

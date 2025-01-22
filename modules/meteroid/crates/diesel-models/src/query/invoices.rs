@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoicingProviderEnum};
+use crate::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum};
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
@@ -319,8 +319,8 @@ impl InvoiceRow {
         use crate::schema::invoice::dsl as i_dsl;
 
         let query = i_dsl::invoice
+            // TODO update with issueworker
             .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
-            .filter(i_dsl::invoicing_provider.ne(InvoicingProviderEnum::Manual))
             .filter(i_dsl::issued.eq(false))
             .filter(i_dsl::issue_attempts.lt(max_attempts))
             .select(InvoiceRow::as_select())

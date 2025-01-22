@@ -21,7 +21,7 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     Aggregation, CreateBillableMetricRequest, SegmentationMatrix,
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
-use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
+use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use meteroid_store::domain::{
     Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, LineItem, OrderByRequest,
     PaginationRequest,
@@ -461,7 +461,6 @@ async fn test_metering_e2e() {
             plan_name: None,
             external_invoice_id: None,
             invoice_number: "2021-0001".to_string(),
-            invoicing_provider: InvoicingProviderEnum::Stripe,
             line_items: Vec::new(),
             issued: false,
             issue_attempts: 0,

@@ -2,7 +2,7 @@ use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 use uuid::Uuid;
 
-use crate::domain::enums::{InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum};
+use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     Customer, CustomerBrief, CustomerBuyCredits, CustomerForDisplay, CustomerNew,
@@ -428,7 +428,6 @@ impl CustomersInterface for Store {
                             invoicing_entity.invoice_number_pattern,
                             now.date(),
                         ),
-                        invoicing_provider: InvoicingProviderEnum::Stripe, // todo get from the customer billing config
                         line_items,
                         issued: false,
                         issue_attempts: 0,

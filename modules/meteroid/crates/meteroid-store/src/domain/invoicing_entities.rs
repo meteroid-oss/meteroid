@@ -2,7 +2,7 @@ use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::domain::configs::ProviderConfigMeta;
+use crate::domain::connectors::ConnectorMeta;
 use crate::domain::{Address, BankAccount};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
@@ -111,14 +111,14 @@ pub struct InvoicingEntityProvidersPatch {
 
 pub struct InvoicingEntityProviders {
     pub bank_account: Option<BankAccount>,
-    pub cc_provider: Option<ProviderConfigMeta>,
+    pub cc_provider: Option<ConnectorMeta>,
 }
 
 impl From<InvoicingEntityProvidersRow> for InvoicingEntityProviders {
     fn from(row: InvoicingEntityProvidersRow) -> Self {
         Self {
             bank_account: row.bank_account.map(BankAccount::from),
-            cc_provider: row.cc_provider.map(ProviderConfigMeta::from),
+            cc_provider: row.cc_provider.map(ConnectorMeta::from),
         }
     }
 }

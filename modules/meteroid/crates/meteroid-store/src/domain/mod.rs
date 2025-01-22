@@ -33,7 +33,7 @@ pub mod adjustments;
 pub mod api_tokens;
 pub mod bank_accounts;
 pub mod billable_metrics;
-pub mod configs;
+pub mod connectors;
 pub mod coupons;
 pub mod enums;
 pub mod historical_rates;

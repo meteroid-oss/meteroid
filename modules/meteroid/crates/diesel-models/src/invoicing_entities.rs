@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use crate::bank_accounts::BankAccountRow;
-use crate::configs::ProviderConfigRow;
+use crate::connectors::ConnectorRow;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
@@ -70,7 +70,7 @@ pub struct InvoicingEntityRowProvidersPatch {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoicingEntityProvidersRow {
     #[diesel(embed)]
-    pub cc_provider: Option<ProviderConfigRow>,
+    pub cc_provider: Option<ConnectorRow>,
     #[diesel(embed)]
     pub bank_account: Option<BankAccountRow>,
 }

@@ -22,6 +22,7 @@ use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
+use stripe_client::client::StripeClient;
 use tap::TapFallible;
 
 #[tokio::main]
@@ -47,6 +48,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
         }),
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
+        stripe: Arc::new(StripeClient::new()),
     })
     .change_context(SeederError::InitializationError)?;
 

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package meteroid.api.connectors.v1;
+
+
+enum ConnectorProviderEnum {
+  STRIPE = 0;
+}
+
+enum ConnectorTypeEnum {
+  PAYMENT_PROVIDER = 0;
+}
+
+message Connector {
+  string id = 1;
+  string alias = 2;
+  ConnectorProviderEnum connector_type = 3;
+  ConnectorTypeEnum provider = 4;
+}
+
+// we could add some Stripe Connect to simplify cloud onboarding later
+message StripeConnector {
+  string alias = 1;
+  string api_secret_key = 4;
+  string webhook_secret = 5;
+}
+

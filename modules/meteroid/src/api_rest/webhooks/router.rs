@@ -9,10 +9,11 @@ use axum::{
 
 use crate::api_rest::AppState;
 use crate::services::storage::Prefix;
-use error_stack::{bail, Result, ResultExt};
-use meteroid_store::domain::enums::InvoicingProviderEnum;
+use error_stack::{Result, ResultExt};
+use meteroid_store::domain::connectors::ProviderSensitiveData;
+use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
-use meteroid_store::repositories::configs::ConfigsInterface;
+use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use secrecy::SecretString;
 
@@ -45,12 +46,6 @@ async fn handler(
         endpoint_uid
     );
 
-    let provider = match provider_str.as_str() {
-        "stripe" => InvoicingProviderEnum::Stripe,
-        // add other providers here
-        _ => bail!(errors::AdapterWebhookError::UnknownProvider(provider_str)),
-    };
-
     let tenant_id_str = encoding::base64_decode(&endpoint_uid)
         .change_context(errors::AdapterWebhookError::InvalidEndpointId)?;
 
@@ -58,9 +53,9 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::InvalidEndpointId)?;
 
     // - get webhook from storage (db, optional redis cache)
-    let provider_config = app_state
+    let connector = app_state
         .store
-        .find_provider_config(provider.clone(), tenant_id)
+        .get_connector_with_data_by_alias(provider_str.clone(), tenant_id)
         .await
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
@@ -93,7 +88,7 @@ async fn handler(
             key,
             processed: false,
             error: None,
-            provider_config_id: provider_config.id,
+            provider_config_id: connector.id,
         })
         .await
         .change_context(errors::AdapterWebhookError::DatabaseError)?;
@@ -101,11 +96,8 @@ async fn handler(
     // metrics TODO
 
     // - get adapter
-    let adapter = match provider {
-        InvoicingProviderEnum::Stripe => app_state.stripe_adapter,
-        InvoicingProviderEnum::Manual => bail!(errors::AdapterWebhookError::ProviderNotSupported(
-            "Manual".into()
-        )),
+    let adapter = match connector.provider {
+        ConnectorProviderEnum::Stripe => app_state.stripe_adapter,
     };
 
     // - decode body
@@ -127,12 +119,18 @@ async fn handler(
     };
 
     // verify webhook source (signature, origin ip address, bearer ..)
-    adapter
-        .verify_webhook(
-            &parsed_request,
-            &SecretString::new(provider_config.webhook_security.secret),
-        )
-        .await?;
+    match connector.sensitive {
+        Some(ProviderSensitiveData::Stripe(sensitive_data)) => {
+            adapter
+                .verify_webhook(
+                    &parsed_request,
+                    &SecretString::new(sensitive_data.webhook_secret),
+                )
+                .await?;
+        }
+        None => (),
+    };
+
     // TODO save errors in webhook_events db
 
     let response = adapter.get_optimistic_webhook_response();

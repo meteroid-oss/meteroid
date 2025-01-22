@@ -4,6 +4,7 @@ package meteroid.api.invoicingentities.v1;
 
 import "api/invoicingentities/v1/models.proto";
 import "api/bankaccounts/v1/models.proto";
+import "api/connectors/v1/models.proto";
 
 message ListInvoicingEntitiesRequest {}
 
@@ -53,7 +54,7 @@ message UpdateInvoicingEntityProvidersRequest {
 }
 
 message UpdateInvoicingEntityProvidersResponse {
-  string cc_provider = 1; // TODO switch to provider (other PR)
+  meteroid.api.connectors.v1.Connector cc_provider = 1;
   meteroid.api.bankaccounts.v1.BankAccount bank_account = 5;
 }
 
@@ -62,7 +63,7 @@ message GetInvoicingEntityProvidersRequest {
 }
 
 message GetInvoicingEntityProvidersResponse {
-  string cc_provider = 1; // TODO switch to provider
+  meteroid.api.connectors.v1.Connector cc_provider = 1;
   meteroid.api.bankaccounts.v1.BankAccount bank_account = 5;
 }
 

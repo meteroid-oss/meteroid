@@ -16,6 +16,7 @@ use meteroid_store::domain::{InvoiceWithCustomer, OrderByRequest, PaginationRequ
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
+use stripe_client::client::StripeClient;
 
 #[tokio::test]
 async fn test_draft_worker() {
@@ -35,6 +36,7 @@ async fn test_draft_worker() {
         usage_client: Arc::new(MockUsageClient::noop()),
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
+        stripe: Arc::new(StripeClient::new()),
     })
     .unwrap();
 

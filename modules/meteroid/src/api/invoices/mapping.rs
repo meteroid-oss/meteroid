@@ -4,8 +4,7 @@ pub mod invoices {
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use error_stack::ResultExt;
     use meteroid_grpc::meteroid::api::invoices::v1::{
-        DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType, InvoicingProvider,
-        LineItem,
+        DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType, LineItem,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
@@ -34,15 +33,6 @@ pub mod invoices {
                     InvoiceStatus::Void => domain::enums::InvoiceStatusEnum::Void,
                 })
         })
-    }
-
-    fn invoicing_provider_domain_to_server(
-        value: domain::enums::InvoicingProviderEnum,
-    ) -> InvoicingProvider {
-        match value {
-            domain::enums::InvoicingProviderEnum::Stripe => InvoicingProvider::Stripe,
-            domain::enums::InvoicingProviderEnum::Manual => InvoicingProvider::Manual,
-        }
     }
 
     fn invoicing_type_domain_to_server(value: domain::enums::InvoiceType) -> InvoiceType {
@@ -169,8 +159,6 @@ pub mod invoices {
             currency: invoice.currency,
             external_invoice_id: invoice.external_invoice_id,
             invoice_number: invoice.invoice_number,
-            invoicing_provider: invoicing_provider_domain_to_server(invoice.invoicing_provider)
-                .into(),
             issued: invoice.issued,
             issue_attempts: invoice.issue_attempts,
             last_issue_attempt_at: invoice.last_issue_attempt_at.as_proto(),
@@ -216,10 +204,6 @@ pub mod invoices {
             id: value.invoice.id.to_string(),
             invoice_number: value.invoice.invoice_number,
             status: status_domain_to_server(value.invoice.status).into(),
-            invoicing_provider: invoicing_provider_domain_to_server(
-                value.invoice.invoicing_provider,
-            )
-            .into(),
             invoice_date: value.invoice.invoice_date.to_string(),
             customer_id: value.invoice.customer_id.to_string(),
             customer_name: value.customer.name.to_string(),

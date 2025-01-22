@@ -1,6 +1,4 @@
-use crate::enums::{
-    InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType, InvoicingProviderEnum,
-};
+use crate::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType};
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
@@ -23,7 +21,6 @@ pub struct InvoiceRow {
     pub subscription_id: Option<Uuid>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
-    pub invoicing_provider: InvoicingProviderEnum,
     pub line_items: serde_json::Value,
     pub issued: bool,
     pub issue_attempts: i32,
@@ -80,7 +77,6 @@ pub struct InvoiceRowNew {
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub invoice_number: String,
-    pub invoicing_provider: InvoicingProviderEnum,
     pub line_items: serde_json::Value,
     pub issued: bool,
     pub issue_attempts: i32,

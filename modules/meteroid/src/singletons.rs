@@ -5,6 +5,7 @@ use crate::svix::new_svix;
 use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
 use std::sync::Arc;
+use stripe_client::client::StripeClient;
 
 static STORE: tokio::sync::OnceCell<Store> = tokio::sync::OnceCell::const_new();
 
@@ -15,6 +16,7 @@ pub async fn get_store() -> &'static Store {
 
             let svix = new_svix(config);
             let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
+            let stripe = Arc::new(StripeClient::new());
 
             let store = Store::new(StoreConfig {
                 database_url: config.database_url.clone(),
@@ -26,6 +28,7 @@ pub async fn get_store() -> &'static Store {
                 usage_client: Arc::new(MeteringUsageClient::get().clone()),
                 svix,
                 mailer,
+                stripe,
             })
             .expect("Failed to initialize store");
 
