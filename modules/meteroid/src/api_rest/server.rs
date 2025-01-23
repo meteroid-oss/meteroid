@@ -1,7 +1,7 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::api_routes;
 use crate::api_rest::auth::ExternalApiAuthLayer;
 use crate::api_rest::AppState;
-use crate::api_rest::{api_routes, files};
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
 use axum::{
@@ -24,7 +24,7 @@ use utoipa_swagger_ui::SwaggerUi;
 #[openapi(
     modifiers(&SecurityAddon),
     nest(
-        (path = "/files", api = files::FileApi),
+        (path = "/files", api = crate::api_rest::files::FileApi),
     ),
     tags((name = "meteroid", description = "Meteroid API"))
 )]
@@ -73,7 +73,7 @@ pub async fn start_rest_server(
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
         .nest("/webhooks", crate::api_rest::webhooks::webhook_routes())
-        //
+        .merge(crate::api_rest::oauth::oauth_routes())
         .merge(api_router)
         .fallback(handler_404)
         .with_state(app_state)

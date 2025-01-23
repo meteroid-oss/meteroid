@@ -17,6 +17,7 @@ pub async fn get_store() -> &'static Store {
             let svix = new_svix(config);
             let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
             let stripe = Arc::new(StripeClient::new());
+            let oauth = meteroid_oauth::service::OauthServices::new(config.oauth.clone());
 
             let store = Store::new(StoreConfig {
                 database_url: config.database_url.clone(),
@@ -29,6 +30,7 @@ pub async fn get_store() -> &'static Store {
                 svix,
                 mailer,
                 stripe,
+                oauth,
             })
             .expect("Failed to initialize store");
 

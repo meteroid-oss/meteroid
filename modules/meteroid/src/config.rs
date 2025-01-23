@@ -10,6 +10,7 @@ use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use kafka::config::KafkaConnectionConfig;
 use meteroid_mailer::config::MailerConfig;
+use meteroid_oauth::config::OauthConfig;
 
 static CONFIG: std::sync::OnceLock<Config> = std::sync::OnceLock::new();
 
@@ -80,6 +81,9 @@ pub struct Config {
 
     #[envconfig(nested)]
     pub mailer: MailerConfig,
+
+    #[envconfig(nested)]
+    pub oauth: OauthConfig,
 }
 
 impl Config {

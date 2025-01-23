@@ -61,6 +61,7 @@ rust_decimal = { workspace = true, features = ["serde_json"] }
 rust_decimal_macros = { workspace = true }
 
 metering-grpc = { workspace = true, features = ["client"] }
+meteroid-oauth = { workspace = true }
 common-domain = { workspace = true }
 common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }

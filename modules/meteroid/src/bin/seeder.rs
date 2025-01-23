@@ -13,6 +13,7 @@ use meteroid::seeder::errors::SeederError;
 use meteroid::seeder::runner;
 use meteroid::seeder::utils::slugify;
 use meteroid_mailer::config::MailerConfig;
+use meteroid_oauth::config::OauthConfig;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
@@ -49,6 +50,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         stripe: Arc::new(StripeClient::new()),
+        oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .change_context(SeederError::InitializationError)?;
 

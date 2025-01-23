@@ -173,7 +173,10 @@ impl UsersService for UsersServiceComponents {
     ) -> Result<Response<ResetPasswordResponse>, Status> {
         let inner = request.into_inner();
         self.store
-            .reset_password(inner.token, inner.new_password)
+            .reset_password(
+                SecretString::new(inner.token),
+                SecretString::new(inner.new_password),
+            )
             .await
             .map_err(Into::<UserApiError>::into)?;
 

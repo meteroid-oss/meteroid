@@ -44,6 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let svix = new_svix(config);
     let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
     let stripe = Arc::new(StripeClient::new());
+    let oauth = meteroid_oauth::service::OauthServices::new(config.oauth.clone());
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),
@@ -59,6 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         svix: svix.clone(),
         mailer: mailer.clone(),
         stripe: stripe.clone(),
+        oauth,
     })?;
     // todo this is a hack to register the event types in svix, should be managed by an api
     store.insert_webhook_out_event_types().await?;
