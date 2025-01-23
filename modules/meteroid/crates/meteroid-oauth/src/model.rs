@@ -1,7 +1,9 @@
 use secrecy::SecretString;
 use serde::Deserialize;
 
+#[derive(Debug, Deserialize)]
 pub enum OauthProvider {
+    #[serde(rename = "google")]
     Google,
 }
 
