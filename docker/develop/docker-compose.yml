@@ -3,6 +3,7 @@ x-default-logging: &logging
   options:
     max-size: "5m"
     max-file: "2"
+    tag: "{{.Name}}"
 
 volumes:
   pg_data:
@@ -234,12 +235,12 @@ services:
   # ********************
 
   # Jaeger
-  #   https://www.jaegertracing.io/docs/1.50/getting-started/#all-in-one
+  #   https://www.jaegertracing.io/docs/1.65/getting-started/#all-in-one
   jaeger:
-    image: jaegertracing/all-in-one:1.50
+    image: jaegertracing/all-in-one:1.65.0
     container_name: jaeger
     command:
-      - "--memory.max-traces=8000"
+      - "--memory.max-traces=25000"
       - "--query.base-path=/jaeger/ui"
       - "--prometheus.server-url=http://prometheus:9090"
       - "--prometheus.query.normalize-calls=true"
@@ -249,11 +250,11 @@ services:
     ports:
       # - '5778:5778'                   # serve configs (sampling, etc.)
       # closing ports because of using otelcol
-      # - '4317:4317'                     # OTLP over gRPC
       # - '4318:4318'                     # OTLP over HTTP
+      - '4317'                          # OTLP over gRPC
       - '16686:16686'                   # jaeger frontend
     environment:
-      - METRICS_STORAGE_TYPE=prometheus # https://www.jaegertracing.io/docs/1.50/deployment/#metrics-storage-backends
+      - METRICS_STORAGE_TYPE=prometheus # https://www.jaegertracing.io/docs/1.65/deployment/#metrics-storage-backends
     deploy:
       resources:
         limits:
@@ -265,13 +266,14 @@ services:
 
   # Grafana
   grafana:
-    image: grafana/grafana:10.2.2
+    image: grafana/grafana:11.4.0
     container_name: grafana
     networks:
       - meteroid_net
     ports:
       - "3000:3000"
     environment:
+      - GF_SERVER_ROOT_URL=http://grafana:3000
       - "GF_INSTALL_PLUGINS=grafana-opensearch-datasource"
     volumes:
       - ./volume/grafana/grafana.ini:/etc/grafana/grafana.ini
@@ -279,17 +281,20 @@ services:
     deploy:
       resources:
         limits:
-          memory: 100M
+          memory: 120M
     profiles:
       - telemetry
     logging: *logging
 
   # OpenTelemetry Collector
-  otel-col:
-    image: otel/opentelemetry-collector-contrib:0.88.0
-    container_name: otel-col
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    container_name: otel-collector
     command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
+    user: 0:0
     volumes:
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./volume/otelcollector/otelcol-config.yml:/etc/otelcol-config.yml
       - ./volume/otelcollector/otelcol-config-extras.yml:/etc/otelcol-config-extras.yml
     networks:
@@ -299,8 +304,10 @@ services:
       - "4317:4317"                        # OTLP over gRPC receiver
       - "4318:4318"                        # OTLP over HTTP receiver
     depends_on:
-      - jaeger
-      - dataprepper
+      jaeger:
+        condition: service_started
+      opensearch:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -312,7 +319,7 @@ services:
 
   # Prometheus
   prometheus:
-    image: quay.io/prometheus/prometheus:v2.47.2
+    image: quay.io/prometheus/prometheus:v3.1.0
     container_name: prometheus
     command:
       - --web.console.templates=/etc/prometheus/consoles
@@ -322,8 +329,8 @@ services:
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
       - --web.route-prefix=/
+      - --web.enable-otlp-receiver
       - --enable-feature=exemplar-storage
-      - --enable-feature=otlp-write-receiver
     volumes:
       - ./volume/prometheus/prometheus-config.yaml:/etc/prometheus/prometheus-config.yaml
     networks:
@@ -339,15 +346,18 @@ services:
     logging: *logging
 
   opensearch:
-    image: opensearchproject/opensearch:latest
+    image: opensearchproject/opensearch:2.18.0
     container_name: opensearch
     environment:
       - cluster.name=demo-cluster
       - node.name=demo-node
       - bootstrap.memory_lock=true
       - discovery.type=single-node
-      - plugins.security.disabled=true
-      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - OPENSEARCH_JAVA_OPTS=-Xms300m -Xmx300m
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+      # Workaround on OSX for https://bugs.openjdk.org/browse/JDK-8345296
+      - _JAVA_OPTIONS
     ulimits:
       memlock:
         soft: -1
@@ -359,39 +369,12 @@ services:
       - meteroid_net
     ports:
       - "9200:9200"
-    profiles:
-      - telemetry
-    logging: *logging
-
-  opensearch-dashboards:
-    build: opensearch-dashboards # see https://opensearch.org/docs/latest/security/configuration/disable/
-    container_name: opensearch-dashboards
-    networks:
-      - meteroid_net
-    ports:
-      - 5601:5601
-    environment:
-      OPENSEARCH_HOSTS: '["http://opensearch:9200"]'
-    depends_on:
-      - opensearch
-    profiles:
-      - telemetry
-    logging: *logging
-
-
-  dataprepper:
-    image: opensearchproject/data-prepper:latest
-    container_name: dataprepper
-    volumes:
-      - ./volume/opensearch/pipelines.yaml:/usr/share/data-prepper/pipelines/pipelines.yaml
-      - ./volume/opensearch/data-prepper-config.yaml:/usr/share/data-prepper/config/data-prepper-config.yaml
-    networks:
-      - meteroid_net
-    ports:
-      - "4900:4900"
-      - "21890:21890"
-      - "21891:21891"
-      - "21892:21892"
+    healthcheck:
+      test: curl -s http://localhost:9200/_cluster/health | grep -E '"status":"(green|yellow)"'
+      start_period: 10s
+      interval: 5s
+      timeout: 10s
+      retries: 10
     profiles:
       - telemetry
     logging: *logging
