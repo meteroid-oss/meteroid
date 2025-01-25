@@ -1,89 +1,136 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: 0.0.0.0:4317
-#      http:
-#        endpoint: 0.0.0.0:4318
-#        cors:
-#          allowed_origins:
-#            - "http://*"
-#            - "https://*"
+        endpoint: otel-collector:4317
+      http:
+        endpoint: otel-collector:4318
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+  #  httpcheck/frontend-proxy:
+  #    targets:
+  #      - endpoint: http://frontend-proxy:${env:ENVOY_PORT}
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+  #  redis:
+  #    endpoint: "valkey-cart:6379"
+  #    username: "valkey"
+  #    collection_interval: 10s
+  # Host metrics
+  hostmetrics:
+    root_path: /hostfs
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      disk:
+      load:
+      filesystem:
+        exclude_mount_points:
+          mount_points:
+            - /dev/*
+            - /proc/*
+            - /sys/*
+            - /run/k3s/containerd/*
+            - /var/lib/docker/*
+            - /var/lib/kubelet/*
+            - /snap/*
+          match_type: regexp
+        exclude_fs_types:
+          fs_types:
+            - autofs
+            - binfmt_misc
+            - bpf
+            - cgroup2
+            - configfs
+            - debugfs
+            - devpts
+            - devtmpfs
+            - fusectl
+            - hugetlbfs
+            - iso9660
+            - mqueue
+            - nsfs
+            - overlay
+            - proc
+            - procfs
+            - pstore
+            - rpc_pipefs
+            - securityfs
+            - selinuxfs
+            - squashfs
+            - sysfs
+            - tracefs
+          match_type: strict
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+      network:
+      paging:
+      processes:
+      process:
+        mute_process_exe_error: true
+        mute_process_io_error: true
+        mute_process_user_error: true
+  # Collector metrics
   prometheus:
     config:
       scrape_configs:
-      - job_name: otel-collector-metrics
-        scrape_interval: 10s
-        static_configs:
-          - targets: ['0.0.0.0:8888']
-            
+        - job_name: 'otel-collector'
+          scrape_interval: 10s
+          static_configs:
+            - targets: [ '0.0.0.0:8888' ]
+
 exporters:
   debug:
-     verbosity: detailed
   otlp:
     endpoint: "jaeger:4317"
     tls:
       insecure: true
-      insecure_skip_verify: true
-#  otlp/dataprepper-traces:
-#    endpoint: "dataprepper:21890"
-#    tls:
-#      insecure: true
-#      insecure_skip_verify: true
-#  otlp/dataprepper-metrics:
-#    endpoint: "dataprepper:21891"
-#    tls:
-#      insecure: true
-#      insecure_skip_verify: true
-  otlp/dataprepper-logs:
-    endpoint: "dataprepper:21892"
-    tls:
-      insecure: true
-      insecure_skip_verify: true
   otlphttp/prometheus:
     endpoint: "http://prometheus:9090/api/v1/otlp"
     tls:
       insecure: true
+  opensearch:
+    logs_index: otel
+    http:
+      endpoint: "http://opensearch:9200"
+      tls:
+        insecure: true
 
 processors:
   batch:
-  filter/ottl:
-    error_mode: ignore
-    metrics:
-      metric:
-        # FIXME: remove when a Metrics View is implemented in the checkout and productcatalog components
-        # or when this issue is resolved: https://github.com/open-telemetry/opentelemetry-go-contrib/issues/3071
-        - 'name == "rpc.server.duration"'
   transform:
-    metric_statements:
-      - context: metric
+    error_mode: ignore
+    trace_statements:
+      - context: span
         statements:
-          # FIXME: remove when this issue is resolved: https://github.com/open-telemetry/opentelemetry-java/issues/4834
-          - set(description, "") where name == "queueSize"
-          # FIXME: remove when this issue is resolved: https://github.com/open-telemetry/opentelemetry-python-contrib/issues/1958
-          - set(description, "") where name == "http.client.duration"
+          # could be removed when https://github.com/vercel/next.js/pull/64852 is fixed upstream
+          - replace_pattern(name, "\\?.*", "")
+          - replace_match(name, "GET /api/products/*", "GET /api/products/{productId}")
 
 connectors:
   spanmetrics:
 
 service:
-  telemetry:
-    logs:
-      level: "warn"
-    metrics:
-      address: 127.0.0.1:8888
-      level: detailed
-      
   pipelines:
     traces:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp, debug, spanmetrics]
+      receivers: [ otlp ]
+      processors: [ transform, batch ]
+      exporters: [ otlp, debug, spanmetrics ]
     metrics:
-      receivers: [otlp, spanmetrics, prometheus]
-      processors: [filter/ottl, transform, batch]
-      exporters: [otlphttp/prometheus, debug]
+      # receivers: [hostmetrics, docker_stats, httpcheck/frontend-proxy, otlp, prometheus, redis, spanmetrics]
+      receivers: [ hostmetrics, docker_stats, otlp, prometheus, spanmetrics ]
+      processors: [ batch ]
+      exporters: [ otlphttp/prometheus, debug ]
     logs:
-      receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp/dataprepper-logs, debug]
+      receivers: [ otlp ]
+      processors: [ batch ]
+      exporters: [ opensearch, debug ]

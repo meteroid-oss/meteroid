@@ -24,8 +24,8 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
+  "id": 2,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -58,6 +58,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -108,6 +109,7 @@
         "y": 1
       },
       "id": 2,
+      "interval": "2m",
       "options": {
         "legend": {
           "calcs": [],
@@ -120,6 +122,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -128,7 +131,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "histogram_quantile(0.50, sum(rate(duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
           "legendFormat": "quantile50",
           "range": true,
           "refId": "A"
@@ -140,7 +143,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.95, sum(rate(duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
           "hide": false,
           "legendFormat": "quantile95",
           "range": true,
@@ -153,7 +156,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.99, sum(rate(duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
           "hide": false,
           "legendFormat": "quantile99",
           "range": true,
@@ -166,7 +169,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.999, sum(rate(duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
+          "expr": "histogram_quantile(0.999, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=\"${service}\"}[$__rate_interval])) by (le))",
           "hide": false,
           "legendFormat": "quantile999",
           "range": true,
@@ -194,6 +197,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -243,6 +247,7 @@
         "y": 1
       },
       "id": 10,
+      "interval": "2m",
       "options": {
         "legend": {
           "calcs": [],
@@ -255,6 +260,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -262,7 +268,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": " sum by (span_name) (rate(calls_total{status_code=\"STATUS_CODE_ERROR\", service_name=\"${service}\"}[$__rate_interval]))",
+          "expr": " sum by (span_name) (rate(traces_span_metrics_calls_total{status_code=\"STATUS_CODE_ERROR\", service_name=\"${service}\"}[$__rate_interval]))",
           "interval": "",
           "legendFormat": "{{ span_name }}",
           "range": true,
@@ -289,6 +295,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
             "gradientMode": "none",
@@ -339,10 +346,11 @@
         "y": 9
       },
       "id": 12,
+      "interval": "2m",
       "options": {
         "legend": {
           "calcs": [],
-          "displayMode": "list",
+          "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
         },
@@ -351,6 +359,7 @@
           "sort": "none"
         }
       },
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -358,7 +367,7 @@
             "uid": "webstore-metrics"
           },
           "editorMode": "code",
-          "expr": "sum by (span_name) (rate(duration_milliseconds_count{service_name=\"${service}\"}[$__rate_interval]))",
+          "expr": "sum by (span_name) (rate(traces_span_metrics_duration_milliseconds_count{service_name=\"${service}\"}[$__rate_interval]))",
           "legendFormat": "{{ span_name }}",
           "range": true,
           "refId": "A"
@@ -392,7 +401,7 @@
             "mode": "thresholds"
           },
           "custom": {
-            "align": "auto",
+            "align": "left",
             "cellOptions": {
               "type": "auto"
             },
@@ -413,7 +422,20 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "count()"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -434,7 +456,7 @@
         },
         "showHeader": true
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "alias": "",
@@ -459,7 +481,7 @@
               "type": "count"
             }
           ],
-          "query": "search source=otel\n| where serviceName=\"${service}\"\n| stats count() by severityText",
+          "query": "search source=otel\n| where resource.service.name=\"${service}\"\n| stats count() by severity.text",
           "queryType": "PPL",
           "refId": "A",
           "timeField": "time"
@@ -500,7 +522,20 @@
             ]
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "observedTimestamp"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 222
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -519,9 +554,15 @@
           ],
           "show": false
         },
-        "showHeader": true
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "observedTimestamp"
+          }
+        ]
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "alias": "",
@@ -547,53 +588,47 @@
               "type": "count"
             }
           ],
-          "query": "search source=otel\n| where serviceName=\"${service}\"",
+          "query": "search source=otel\n| where resource.service.name=\"${service}\"| sort - observedTimestamp | head 100",
           "queryType": "PPL",
           "refId": "A",
-          "timeField": "time"
+          "timeField": "observedTimestamp"
         }
       ],
-      "title": "${service} Logs",
+      "title": "${service} Logs (100 recent entries)",
       "type": "table"
     }
   ],
   "refresh": "",
-  "revision": 1,
-  "schemaVersion": 38,
+  "schemaVersion": 40,
   "tags": [],
   "templating": {
     "list": [
       {
-        "allValue": "",
         "current": {
-          "selected": true,
-          "text": "billing",
-          "value": "billing"
+          "text": "frontend",
+          "value": "frontend"
         },
         "datasource": {
           "type": "prometheus",
           "uid": "webstore-metrics"
         },
-        "definition": "duration_milliseconds_bucket",
-        "hide": 0,
+        "definition": "traces_span_metrics_duration_milliseconds_bucket",
         "includeAll": false,
-        "multi": false,
         "name": "service",
         "options": [],
         "query": {
-          "query": "duration_milliseconds_bucket",
+          "query": "traces_span_metrics_duration_milliseconds_bucket",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
         "regex": "/.*service_name=\\\"([^\\\"]+)\\\".*/",
-        "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       }
     ]
   },
   "time": {
-    "from": "now-3h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},

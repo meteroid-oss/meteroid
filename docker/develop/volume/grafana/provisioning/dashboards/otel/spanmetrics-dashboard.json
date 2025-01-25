@@ -25,8 +25,8 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
+  "id": 5,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -101,9 +101,10 @@
           "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -112,7 +113,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7,histogram_quantile(0.50, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name)))",
+          "expr": "topk(7,histogram_quantile(0.50, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name)))",
           "format": "time_series",
           "hide": true,
           "instant": false,
@@ -128,11 +129,11 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7,histogram_quantile(0.95, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (le,service_name)))",
+          "expr": "topk(7,histogram_quantile(0.95, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (le,service_name)))",
           "hide": false,
           "instant": true,
           "interval": "",
-          "legendFormat": "{{le}} - {{service_name}}",
+          "legendFormat": "{{service_name}}",
           "range": false,
           "refId": "B"
         },
@@ -143,7 +144,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.99, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
+          "expr": "histogram_quantile(0.99, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
           "hide": true,
           "interval": "",
           "legendFormat": "quantile99",
@@ -157,7 +158,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.999, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
+          "expr": "histogram_quantile(0.999, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
           "hide": true,
           "interval": "",
           "legendFormat": "quantile999",
@@ -215,6 +216,13 @@
       "interval": "5m",
       "options": {
         "displayMode": "lcd",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
         "minVizHeight": 10,
         "minVizWidth": 0,
         "namePlacement": "auto",
@@ -227,10 +235,11 @@
           "values": false
         },
         "showUnfilled": true,
+        "sizing": "auto",
         "text": {},
         "valueMode": "color"
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -239,7 +248,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7,sum by (service_name) (rate(calls_total{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])))",
+          "expr": "topk(7,sum by (service_name) (rate(traces_span_metrics_calls_total{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])))",
           "format": "time_series",
           "instant": true,
           "interval": "",
@@ -249,7 +258,6 @@
         }
       ],
       "title": "Top 7 Services Mean Rate over Range",
-      "transformations": [],
       "type": "bargauge"
     },
     {
@@ -295,6 +303,13 @@
       "interval": "5m",
       "options": {
         "displayMode": "lcd",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
         "minVizHeight": 10,
         "minVizWidth": 0,
         "namePlacement": "auto",
@@ -307,10 +322,11 @@
           "values": false
         },
         "showUnfilled": true,
+        "sizing": "auto",
         "text": {},
         "valueMode": "color"
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -319,7 +335,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7,sum(rate(calls_total{status_code=\"STATUS_CODE_ERROR\",service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (service_name))",
+          "expr": "topk(7,sum(rate(traces_span_metrics_calls_total{status_code=\"STATUS_CODE_ERROR\",service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (service_name))",
           "instant": true,
           "interval": "",
           "legendFormat": "{{service_name}}",
@@ -328,15 +344,10 @@
         }
       ],
       "title": "Top 7 Services Mean ERROR Rate over Range",
-      "transformations": [],
       "type": "bargauge"
     },
     {
       "collapsed": false,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "webstore-metrics"
-      },
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -345,15 +356,6 @@
       },
       "id": 14,
       "panels": [],
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "webstore-metrics"
-          },
-          "refId": "A"
-        }
-      ],
       "title": "span_names Level - Throughput",
       "type": "row"
     },
@@ -493,7 +495,7 @@
         "showHeader": true,
         "sortBy": []
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -501,7 +503,7 @@
             "uid": "webstore-metrics"
           },
           "exemplar": false,
-          "expr": "topk(7, sum(rate(calls_total{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (span_name,service_name)) ",
+          "expr": "topk(7, sum(rate(traces_span_metrics_calls_total{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (span_name,service_name)) ",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -514,7 +516,7 @@
             "uid": "webstore-metrics"
           },
           "exemplar": false,
-          "expr": "topk(7, sum(rate(calls_total{status_code=\"STATUS_CODE_ERROR\",service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (span_name,service_name))",
+          "expr": "topk(7, sum(rate(traces_span_metrics_calls_total{status_code=\"STATUS_CODE_ERROR\",service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (span_name,service_name))",
           "format": "table",
           "hide": false,
           "instant": true,
@@ -615,10 +617,6 @@
     },
     {
       "collapsed": false,
-      "datasource": {
-        "type": "prometheus",
-        "uid": "webstore-metrics"
-      },
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -627,15 +625,6 @@
       },
       "id": 20,
       "panels": [],
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "webstore-metrics"
-          },
-          "refId": "A"
-        }
-      ],
       "title": "span_name Level - Latencies",
       "type": "row"
     },
@@ -699,9 +688,10 @@
           "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -710,7 +700,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7,histogram_quantile(0.50, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name)))",
+          "expr": "topk(7,histogram_quantile(0.50, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name)))",
           "format": "time_series",
           "hide": true,
           "instant": false,
@@ -726,7 +716,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7,histogram_quantile(0.95, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (le,span_name)))",
+          "expr": "topk(7,histogram_quantile(0.95, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__range])) by (le,span_name)))",
           "hide": false,
           "instant": true,
           "interval": "",
@@ -741,7 +731,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.99, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
+          "expr": "histogram_quantile(0.99, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
           "hide": true,
           "interval": "",
           "legendFormat": "quantile99",
@@ -755,7 +745,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "histogram_quantile(0.999, sum(rate(duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
+          "expr": "histogram_quantile(0.999, sum(rate(traces_span_metrics_duration_milliseconds_bucket{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])) by (le,service_name))",
           "hide": true,
           "interval": "",
           "legendFormat": "quantile999",
@@ -805,6 +795,13 @@
       "interval": "5m",
       "options": {
         "displayMode": "lcd",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
         "minVizHeight": 10,
         "minVizWidth": 0,
         "namePlacement": "auto",
@@ -817,9 +814,10 @@
           "values": false
         },
         "showUnfilled": true,
+        "sizing": "auto",
         "valueMode": "color"
       },
-      "pluginVersion": "10.2.0",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -828,16 +826,15 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "topk(7, sum by (span_name,service_name)(increase(duration_milliseconds_sum{service_name=~\"${service}\", span_name=~\"$span_name\"}[5m]) / increase(duration_milliseconds_count{service_name=~\"${service}\",span_name=~\"$span_name\"}[5m\n])))",
+          "expr": "topk(7, sum by (span_name,service_name)(increase(duration_milliseconds_sum{service_name=~\"${service}\", span_name=~\"$span_name\"}[5m]) / increase(traces_span_metrics_duration_milliseconds_count{service_name=~\"${service}\",span_name=~\"$span_name\"}[5m\n])))",
           "instant": true,
           "interval": "",
-          "legendFormat": "[{{service_name}}] {{span_name}}",
+          "legendFormat": "{{span_name}} [{{service_name}}]",
           "range": false,
           "refId": "A"
         }
       ],
       "title": "Top 7 Highest Endpoint Latencies  Mean Over Range ",
-      "transformations": [],
       "type": "bargauge"
     },
     {
@@ -857,6 +854,7 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "none",
@@ -925,7 +923,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "8.4.7",
+      "pluginVersion": "11.3.0",
       "targets": [
         {
           "datasource": {
@@ -934,7 +932,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "topk(7,sum by (span_name,service_name)(increase(duration_milliseconds_sum{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval]) / increase(duration_milliseconds_count{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])))",
+          "expr": "topk(7,sum by (span_name,service_name)(increase(traces_span_metrics_duration_milliseconds_sum{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval]) / increase(traces_span_metrics_duration_milliseconds_count{service_name=~\"$service\", span_name=~\"$span_name\"}[$__rate_interval])))",
           "instant": false,
           "interval": "",
           "legendFormat": "[{{service_name}}]  {{span_name}}",
@@ -946,15 +944,15 @@
       "type": "timeseries"
     }
   ],
+  "preload": false,
   "refresh": "5m",
-  "schemaVersion": 38,
+  "schemaVersion": 40,
   "tags": [],
   "templating": {
     "list": [
       {
         "allValue": ".*",
         "current": {
-          "selected": false,
           "text": "All",
           "value": "$__all"
         },
@@ -962,26 +960,23 @@
           "type": "prometheus",
           "uid": "webstore-metrics"
         },
-        "definition": "query_result(count by (service_name)(count_over_time(calls_total[$__range])))",
-        "hide": 0,
+        "definition": "query_result(count by (service_name)(count_over_time(traces_span_metrics_calls_total[$__range])))",
         "includeAll": true,
         "multi": true,
         "name": "service",
         "options": [],
         "query": {
-          "query": "query_result(count by (service_name)(count_over_time(calls_total[$__range])))",
+          "query": "query_result(count by (service_name)(count_over_time(traces_span_metrics_calls_total[$__range])))",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
         "regex": "/.*service_name=\"(.*)\".*/",
-        "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       },
       {
         "allValue": ".*",
         "current": {
-          "selected": false,
           "text": "All",
           "value": "$__all"
         },
@@ -989,20 +984,17 @@
           "type": "prometheus",
           "uid": "webstore-metrics"
         },
-        "definition": "query_result(sum ({__name__=~\".*calls_total\",service_name=~\"$service\"})  by (span_name))",
-        "hide": 0,
+        "definition": "query_result(sum ({__name__=~\".*traces_span_metrics_calls_total\",service_name=~\"$service\"})  by (span_name))",
         "includeAll": true,
         "multi": true,
         "name": "span_name",
         "options": [],
         "query": {
-          "query": "query_result(sum ({__name__=~\".*calls_total\",service_name=~\"$service\"})  by (span_name))",
+          "query": "query_result(sum ({__name__=~\".*traces_span_metrics_calls_total\",service_name=~\"$service\"})  by (span_name))",
           "refId": "StandardVariableQuery"
         },
         "refresh": 2,
         "regex": "/.*span_name=\"(.*)\".*/",
-        "skipUrlSync": false,
-        "sort": 0,
         "type": "query"
       }
     ]
