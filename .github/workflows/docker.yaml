@@ -47,7 +47,7 @@ jobs:
             proto_arch: aarch_64
             grpc_health_probe_arch: arm64
             prefix: arm64
-            runs_on: ubuntu-latest
+            runs_on: ubuntu-24.04-arm
     runs-on: ${{ matrix.runs_on }}
     steps:
       - uses: actions/checkout@v4
