@@ -88,10 +88,6 @@ impl UserInterface for Store {
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse> {
         let mut conn = self.get_conn().await?;
 
-        log::info!("log Login request for email: {}", req.email);
-        tracing::info!("tracing Login request for email: {}", req.email);
-        tracing_log::log::info!("tracing_log Login request for email: {}", req.email);
-
         let user =
             UserRow::find_by_email(&mut conn, req.email)
                 .await?
