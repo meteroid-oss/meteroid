@@ -15,5 +15,6 @@ opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 init-tracing-opentelemetry = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
 once_cell = { workspace = true }
 log = { workspace = true }

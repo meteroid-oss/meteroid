@@ -308,11 +308,31 @@ services:
         condition: service_started
       opensearch:
         condition: service_healthy
+      loki:
+        condition: service_started
     deploy:
       resources:
         limits:
           memory: 125M
     restart: unless-stopped
+    profiles:
+      - telemetry
+    logging: *logging
+
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./volume/loki/local-config.yaml:/etc/loki/local-config.yaml
+    networks:
+      - meteroid_net
+    ports:
+      - "3100:3100"
+    deploy:
+      resources:
+        limits:
+          memory: 100M
     profiles:
       - telemetry
     logging: *logging

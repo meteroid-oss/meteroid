@@ -8,15 +8,12 @@ receivers:
         endpoint: otel-collector:4317
       http:
         endpoint: otel-collector:4318
-        cors:
-          allowed_origins:
-            - "http://*"
-            - "https://*"
-  #  httpcheck/frontend-proxy:
-  #    targets:
-  #      - endpoint: http://frontend-proxy:${env:ENVOY_PORT}
-  docker_stats:
-    endpoint: unix:///var/run/docker.sock
+  #        cors:
+  #          allowed_origins:
+  #            - "http://*"
+  #            - "https://*"
+  #  docker_stats:
+  #    endpoint: unix:///var/run/docker.sock
   #  redis:
   #    endpoint: "valkey-cart:6379"
   #    username: "valkey"
@@ -104,6 +101,10 @@ exporters:
       endpoint: "http://opensearch:9200"
       tls:
         insecure: true
+  otlphttp/logs:
+    endpoint: "http://loki:3100/otlp"
+    tls:
+      insecure: true
 
 processors:
   batch:
@@ -127,10 +128,10 @@ service:
       exporters: [ otlp, debug, spanmetrics ]
     metrics:
       # receivers: [hostmetrics, docker_stats, httpcheck/frontend-proxy, otlp, prometheus, redis, spanmetrics]
-      receivers: [ hostmetrics, docker_stats, otlp, prometheus, spanmetrics ]
+      receivers: [ hostmetrics, otlp, prometheus, spanmetrics ]
       processors: [ batch ]
       exporters: [ otlphttp/prometheus, debug ]
     logs:
       receivers: [ otlp ]
-      processors: [ batch ]
-      exporters: [ opensearch, debug ]
+      processors: [ transform, batch ]
+      exporters: [ debug, otlphttp/logs ]
