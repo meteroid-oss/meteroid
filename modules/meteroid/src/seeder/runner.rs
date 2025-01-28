@@ -48,7 +48,7 @@ pub async fn run(
 
     let mut rng = match scenario.randomness.seed {
         Some(seed) => ChaCha8Rng::seed_from_u64(seed),
-        None => ChaCha8Rng::from_entropy(),
+        None => ChaCha8Rng::from_os_rng(),
     };
 
     let tenant = store
@@ -242,7 +242,7 @@ pub async fn run(
                 store_domain::FeeType::Rate { rates } => {
                     if rates.len() > 1 {
                         // Multiple rates, requires parameterization
-                        let billing_period = rates[rng.gen_range(0..rates.len())].term.clone();
+                        let billing_period = rates[rng.random_range(0..rates.len())].term.clone();
                         parameterized_components.push(store_domain::ComponentParameterization {
                             component_id: component.id,
                             parameters: store_domain::ComponentParameters {
@@ -259,8 +259,8 @@ pub async fn run(
                     ..
                 } => {
                     // Slot-based pricing, requires parameterization
-                    let billing_period = rates[rng.gen_range(0..rates.len())].term.clone();
-                    let initial_slots = rng.gen_range((*minimum_count).unwrap_or(1)..=100); // Generate a random number of initial slots (adjust the range as needed)
+                    let billing_period = rates[rng.random_range(0..rates.len())].term.clone();
+                    let initial_slots = rng.random_range((*minimum_count).unwrap_or(1)..=100); // Generate a random number of initial slots (adjust the range as needed)
                     parameterized_components.push(store_domain::ComponentParameterization {
                         component_id: component.id,
                         parameters: store_domain::ComponentParameters {
@@ -274,7 +274,7 @@ pub async fn run(
                     if thresholds.len() > 1 {
                         // Multiple capacity thresholds, requires parameterization
                         let committed_capacity =
-                            thresholds[rng.gen_range(0..thresholds.len())].included_amount;
+                            thresholds[rng.random_range(0..thresholds.len())].included_amount;
                         parameterized_components.push(store_domain::ComponentParameterization {
                             component_id: component.id,
                             parameters: store_domain::ComponentParameters {
@@ -374,8 +374,8 @@ pub async fn run(
 
                 let churn_probability = 1.0 - (1.0 - churn_rate).powi(months_since_start);
 
-                if rng.gen::<f64>() < churn_probability {
-                    let end_month = rng.gen_range(0..=months_since_start);
+                if rng.random::<f64>() < churn_probability {
+                    let end_month = rng.random_range(0..=months_since_start);
                     let end_date = subscription.billing_start_date
                         + chrono::Duration::days(end_month as i64 * 30);
 

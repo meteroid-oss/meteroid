@@ -3,7 +3,6 @@ use ndarray::Array;
 use ndarray::Array1;
 use ndarray_interp::interp1d;
 use ndarray_interp::interp1d::cubic_spline::CubicSpline;
-use rand::distributions::Distribution;
 use rand::Rng;
 use rand_distr::Normal;
 
@@ -43,10 +42,10 @@ pub fn generate_smooth_growth(
         .map(|x| (x / curve_sum) * end_total as f64)
         .collect();
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let normal = Normal::new(1.0, randomness_factor).unwrap();
     for customer in &mut daily_count {
-        *customer *= normal.sample(&mut rng);
+        *customer *= rng.sample(&normal);
         *customer = customer.max(0.0).round();
     }
 
@@ -55,7 +54,7 @@ pub fn generate_smooth_growth(
     // this makes sure that the sum of daily customer match what we provide as argument, by adding or removing customers from random days
     let mut discrepancy = end_total as i64 - daily_count_random.iter().sum::<u64>() as i64;
     while discrepancy != 0 {
-        let index = rng.gen_range(0..total_days);
+        let index = rng.random_range(0..total_days);
         if discrepancy > 0 {
             daily_count_random[index] += 1;
             discrepancy -= 1;
