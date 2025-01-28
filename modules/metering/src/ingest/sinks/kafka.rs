@@ -184,7 +184,7 @@ mod tests {
     use crate::ingest::sinks::kafka::KafkaSink;
     use crate::ingest::sinks::Sink;
     use kafka::config::KafkaConnectionConfig;
-    use rand::distributions::Alphanumeric;
+    use rand::distr::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::DefaultProducerContext;
@@ -247,7 +247,7 @@ mod tests {
         .expect("failed to send initial event batch");
 
         // Producer should reject a 2MB message, twice the default `message.max.bytes`
-        let big_data = rand::thread_rng()
+        let big_data = rand::rng()
             .sample_iter(Alphanumeric)
             .take(2_000_000)
             .map(char::from)
