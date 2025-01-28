@@ -45,7 +45,7 @@ pub fn generate_smooth_growth(
     let mut rng = rand::rng();
     let normal = Normal::new(1.0, randomness_factor).unwrap();
     for customer in &mut daily_count {
-        *customer *= rng.sample(&normal);
+        *customer *= rng.sample(normal);
         *customer = customer.max(0.0).round();
     }
 
