@@ -20,9 +20,8 @@ use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::str::FromStr;
 use std::sync::Arc;
 use stripe_client::client::StripeClient;
-use svix::api::{ApplicationIn, ApplicationOut, Svix};
+use svix::api::Svix;
 use tokio_postgres_rustls::MakeRustlsConnect;
-use uuid::Uuid;
 
 pub type PgPool = Pool<AsyncPgConnection>;
 pub type PgConn = Object<AsyncPgConnection>;
@@ -188,25 +187,6 @@ impl Store {
         self.svix
             .clone()
             .ok_or(StoreError::InitializationError("svix client config".into()).into())
-    }
-
-    pub(crate) async fn svix_application(&self, tenant_id: Uuid) -> StoreResult<ApplicationOut> {
-        let svix = self.svix()?;
-        let app_name = format!("tenant-{}", tenant_id);
-        svix.application()
-            .get_or_create(
-                ApplicationIn {
-                    metadata: None,
-                    name: app_name,
-                    rate_limit: None,
-                    uid: Some(tenant_id.to_string()),
-                },
-                None,
-            )
-            .await
-            .change_context(StoreError::WebhookServiceError(
-                "Failed to get or create svix application".into(),
-            ))
     }
 }
 

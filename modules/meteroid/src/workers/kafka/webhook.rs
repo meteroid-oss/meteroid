@@ -209,13 +209,10 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
             _ => return Ok(None),
         };
 
-        let created_at = format_utc(&self.event_timestamp);
-
         let webhook = WebhookOutMessageNew {
             id: self.id,
             event_type,
             payload,
-            created_at,
         };
 
         Ok(Some(webhook))

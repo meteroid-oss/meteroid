@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::str::FromStr;
 use strum::{Display, EnumIter, EnumString};
+use svix::api::EndpointOut;
 
 #[derive(o2o, Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 #[map_owned(diesel_enums::ActionAfterTrialEnum)]
@@ -183,7 +184,7 @@ pub enum UnitConversionRoundingEnum {
     None,
 }
 
-#[derive(Debug, Clone, PartialEq, Display, EnumIter, EnumString, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Display, EnumIter, EnumString, Serialize)]
 pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "customer.created")]
     #[serde(rename = "customer.created")]
@@ -200,10 +201,8 @@ pub enum WebhookOutEventTypeEnum {
 }
 
 impl WebhookOutEventTypeEnum {
-    pub fn from_svix_channels(
-        channels: &Option<Vec<String>>,
-    ) -> StoreResult<Vec<WebhookOutEventTypeEnum>> {
-        channels
+    pub fn from_svix_endpoint(ep: &EndpointOut) -> StoreResult<Vec<WebhookOutEventTypeEnum>> {
+        ep.filter_types
             .as_ref()
             .unwrap_or(&vec![])
             .iter()

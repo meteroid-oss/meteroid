@@ -13,6 +13,7 @@ common-eventbus.workspace = true
 
 argon2 = { workspace = true }
 base62.workspace = true
+backon = { workspace = true }
 cached = { workspace = true, features = ["async", "tokio"] }
 chrono = { workspace = true, features = ["clock", "serde"] }
 diesel.workspace = true
@@ -35,6 +36,8 @@ common-utils = { workspace = true, features = ["decimal"] }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 svix = { workspace = true, features = ["http2", "rustls-tls"] }
+governor = { workspace = true }
+nonzero_ext = { workspace = true }
 chacha20poly1305 = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }

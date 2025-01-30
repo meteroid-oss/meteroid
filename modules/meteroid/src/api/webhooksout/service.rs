@@ -5,6 +5,7 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::webhooks_service_server::We
 use meteroid_grpc::meteroid::api::webhooks::out::v1::{
     CreateWebhookEndpointRequest, CreateWebhookEndpointResponse, GetWebhookEndpointRequest,
     GetWebhookEndpointResponse, ListWebhookEndpointsRequest, ListWebhookEndpointsResponse,
+    WebhookPortalAccessRequest, WebhookPortalAccessResponse,
 };
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 
@@ -78,5 +79,24 @@ impl WebhooksService for WebhooksServiceComponents {
             .map_err(Into::<WebhookApiError>::into)?;
 
         Ok(Response::new(page))
+    }
+
+    async fn get_webhook_portal_access(
+        &self,
+        request: Request<WebhookPortalAccessRequest>,
+    ) -> Result<Response<WebhookPortalAccessResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let resp = self
+            .store
+            .get_webhook_portal_access(tenant_id)
+            .await
+            .map(|x| WebhookPortalAccessResponse {
+                url: x.url,
+                token: x.token,
+            })
+            .map_err(Into::<WebhookApiError>::into)?;
+
+        Ok(Response::new(resp))
     }
 }
