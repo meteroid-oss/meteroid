@@ -17,6 +17,8 @@ RUN yarn global add pnpm@8 turbo
 
 COPY --from=builder /app/.gitignore .gitignore
 COPY --from=builder /app/modules/web/web-app/nginx.conf nginx.conf
+COPY --from=builder /app/modules/web/web-app/nginx-gzip.conf gzip.conf
+COPY --from=builder /app/modules/web/web-app/init-docker-env.sh init-docker-env.sh
 COPY --from=builder /app/modules/web/out/json/ modules/web/
 COPY --from=builder /app/modules/web/out/pnpm-lock.yaml modules/web/pnpm-lock.yaml
 
@@ -43,7 +45,10 @@ FROM nginx:stable-alpine as production
 # Copy from build stage
 COPY --from=installer /app/modules/web/web-app/dist /usr/share/nginx/html
 COPY --from=installer /app/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=installer /app/gzip.conf /etc/nginx/conf.d/gzip.conf
+COPY --from=installer /app/init-docker-env.sh /init-docker-env.sh
 
 EXPOSE 80
 
-CMD ["nginx", "-g", "daemon off;"]
+RUN chmod +x /init-docker-env.sh
+ENTRYPOINT ["/bin/sh", "-c", "/init-docker-env.sh && nginx -g 'daemon off;'"]
