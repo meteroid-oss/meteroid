@@ -37,13 +37,15 @@ impl TryFrom<svix::api::EndpointOut> for WebhookOutEndpointListItem {
     type Error = Report<StoreError>;
 
     fn try_from(value: svix::api::EndpointOut) -> Result<Self, Self::Error> {
+        let events_to_listen = WebhookOutEventTypeEnum::from_svix_endpoint(&value)?;
+
         Ok(WebhookOutEndpointListItem {
             id: value.id,
             url: value.url,
             description: Some(value.description),
             created_at: value.created_at,
             updated_at: value.updated_at,
-            events_to_listen: WebhookOutEventTypeEnum::from_svix_channels(&value.channels)?,
+            events_to_listen,
             disabled: value.disabled.unwrap_or(false),
         })
     }
@@ -133,7 +135,6 @@ pub struct WebhookOutMessageNew {
     #[serde(rename = "type")]
     pub event_type: WebhookOutEventTypeEnum,
     pub payload: WebhookOutMessagePayload,
-    pub created_at: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -172,6 +173,7 @@ impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct WebhookOutMessage {
     pub event_type: String,
     pub id: String,
@@ -271,6 +273,7 @@ impl From<WebhookOutListEndpointFilter> for svix::api::EndpointListOptions {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum WebhookOutCreateMessageResult {
     Conflict,
     NotFound,
@@ -302,4 +305,11 @@ pub struct WebhookInEvent {
     pub attempts: i32,
     pub error: Option<String>,
     pub provider_config_id: Uuid,
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(svix::api::AppPortalAccessOut)]
+pub struct WebhookPortalAccess {
+    pub token: String,
+    pub url: String,
 }

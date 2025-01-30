@@ -34,8 +34,15 @@ message GetWebhookEndpointResponse {
   WebhookEndpoint endpoint = 1;
 }
 
+message WebhookPortalAccessRequest {}
+message WebhookPortalAccessResponse {
+  string url = 1;
+  string token = 2;
+}
+
 service WebhooksService {
   rpc CreateWebhookEndpoint(CreateWebhookEndpointRequest) returns (CreateWebhookEndpointResponse) {};
   rpc GetWebhookEndpoint(GetWebhookEndpointRequest) returns (GetWebhookEndpointResponse) {};
   rpc ListWebhookEndpoints(ListWebhookEndpointsRequest) returns (ListWebhookEndpointsResponse) {};
+  rpc GetWebhookPortalAccess(WebhookPortalAccessRequest) returns (WebhookPortalAccessResponse) {};
 }

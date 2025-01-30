@@ -114,6 +114,7 @@ pub enum OrderByRequest {
     NameDesc,
 }
 
+#[derive(Debug, Clone)]
 pub struct WebhookPage<T> {
     pub data: Vec<T>,
     pub done: bool,
