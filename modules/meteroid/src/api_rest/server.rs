@@ -67,7 +67,7 @@ pub async fn start_rest_server(
         .split_for_parts();
 
     let app = Router::new()
-        .route("/health", get(|| (StatusCode::OK, "OK")))
+        .route("/health", get(|| async { "OK" }))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
         .merge(Redoc::with_url("/redoc", open_api.clone()))
         .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))
