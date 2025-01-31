@@ -4,6 +4,7 @@ use crate::api_rest::auth::ExternalApiAuthLayer;
 use crate::api_rest::AppState;
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
+use axum::routing::get;
 use axum::{
     extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse, Router,
 };
@@ -66,6 +67,7 @@ pub async fn start_rest_server(
         .split_for_parts();
 
     let app = Router::new()
+        .route("/health", get(|| (StatusCode::OK, "OK")))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", open_api.clone()))
         .merge(Redoc::with_url("/redoc", open_api.clone()))
         .merge(RapiDoc::new("/api-docs/openapi.json").path("/rapidoc"))

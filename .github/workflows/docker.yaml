@@ -140,7 +140,7 @@ jobs:
             type=sha
       - name: Create and push Docker manifest
         run: |
-          TAG=${{ steps.meteroid-docker.outputs.version }}
+          TAG=${{ github.sha }}
           IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
           docker manifest create   ${IMAGE}:${TAG} ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
           docker manifest annotate ${IMAGE}:${TAG} ${IMAGE}:arm64-${TAG} --arch arm64
@@ -158,7 +158,7 @@ jobs:
       - name: Push latest to latest tag.
         if: github.event_name == 'release'
         run: |
-          TAG=${{ steps.meteroid-docker.outputs.version }}
+          TAG=${{ github.event.release.tag_name }}
           IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
           docker manifest create   ${IMAGE}:latest ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
           docker manifest annotate ${IMAGE}:latest ${IMAGE}:arm64-${TAG} --arch arm64
