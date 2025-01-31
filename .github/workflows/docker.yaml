@@ -54,6 +54,10 @@ jobs:
       - name: Set up Cargo CI config
         run: |
           mkdir -p .cargo && ln -s ../.cargo-templates/ci.toml $_/config.toml
+      - name: Prepare env
+        run: |
+          platform=${{ matrix.platform }}
+          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to Docker Hub
@@ -67,26 +71,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Docker meta
-        id: meteroid-docker # you'll use this in the next step
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ghcr.io/meteroid-oss/${{ matrix.image_type.name }}
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha
-          flavor: |
-            latest=false
-            prefix=${{ matrix.prefix }}-
 
       - name: Build and push
         uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           file: ${{ matrix.image_type.dockerfile }}
@@ -98,15 +86,26 @@ jobs:
             PROFILE=release
             CI=${{ env.CI }}
           push: true
-          tags: |
-            ${{ steps.meteroid-docker.outputs.tags }}
-            ghcr.io/meteroid-oss/${{ matrix.image_type.name }}:${{ github.sha }}
-          labels: ${{ steps.meteroid-docker.outputs.labels }}
           # layer caching
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
           # https://github.com/docker/build-push-action/issues/900
           provenance: false
+          outputs: type=image,name=ghcr.io/meteroid-oss/${{ matrix.image_type.name }},push-by-digest=true,name-canonical=true,push=true,store=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests/${{ matrix.image_type.name }}
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${{ matrix.image_type.name }}/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.image_type.name }}-${{ env.PLATFORM_PAIR }}
+          path: /tmp/digests/${{ matrix.image_type.name }}/*
+          retention-days: 1
+
   manifest:
     needs: build
     strategy:
@@ -118,12 +117,17 @@ jobs:
           - meteroid-web
     runs-on: ubuntu-latest
     steps:
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/digests
+          pattern: digests-${{ matrix.image_type }}-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Docker meta
         id: meteroid-docker # you'll use this in the next step
         uses: docker/metadata-action@v5
@@ -138,29 +142,24 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
-      - name: Create and push Docker manifest
+            
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest list
+        working-directory: /tmp/digests
         run: |
-          TAG=${{ github.sha }}
-          IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
-          docker manifest create   ${IMAGE}:${TAG} ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
-          docker manifest annotate ${IMAGE}:${TAG} ${IMAGE}:arm64-${TAG} --arch arm64
-          docker manifest annotate ${IMAGE}:${TAG} ${IMAGE}:amd64-${TAG} --arch amd64
-          docker manifest push     ${IMAGE}:${TAG}
-      - name: Push latest to tip tag.
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf 'ghcr.io/meteroid-oss/${{ matrix.image_type }}@sha256:%s ' *)
+
+      - name: Push tip tag
         if: github.ref == 'refs/heads/main'
+        working-directory: /tmp/digests
         run: |
-          TAG=${{ steps.meteroid-docker.outputs.version }}
-          IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
-          docker manifest create   ${IMAGE}:tip ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
-          docker manifest annotate ${IMAGE}:tip ${IMAGE}:arm64-${TAG} --arch arm64
-          docker manifest annotate ${IMAGE}:tip ${IMAGE}:amd64-${TAG} --arch amd64
-          docker manifest push     ${IMAGE}:tip
-      - name: Push latest to latest tag.
-        if: github.event_name == 'release'
-        run: |
-          TAG=${{ github.event.release.tag_name }}
-          IMAGE=ghcr.io/meteroid-oss/${{ matrix.image_type }}
-          docker manifest create   ${IMAGE}:latest ${IMAGE}:arm64-${TAG} ${IMAGE}:amd64-${TAG}
-          docker manifest annotate ${IMAGE}:latest ${IMAGE}:arm64-${TAG} --arch arm64
-          docker manifest annotate ${IMAGE}:latest ${IMAGE}:amd64-${TAG} --arch amd64
-          docker manifest push     ${IMAGE}:latest
+          docker buildx imagetools create \
+            --tag ghcr.io/meteroid-oss/${{ matrix.image_type }}:tip \
+            $(printf 'ghcr.io/meteroid-oss/${{ matrix.image_type }}@sha256:%s ' *)
