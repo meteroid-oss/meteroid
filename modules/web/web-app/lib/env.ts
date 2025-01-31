@@ -1,6 +1,7 @@
 import { parseEnv } from '@md/common'
 import { z } from 'zod'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const window = globalThis as any
 
 if (!window._env) {
