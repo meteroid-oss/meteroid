@@ -137,7 +137,17 @@ pub async fn terminate_meteroid(token: CancellationToken, join_handle: JoinHandl
 }
 
 pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
-    let container = Postgres::default().with_tag("15.2").start().await.unwrap();
+    let postgres = Postgres::default().with_tag("15.2");
+
+    // Retry once if the first attempt fails (e.g. due to slow daemon cleanup)
+    let container = match postgres.start().await {
+        Ok(container) => container,
+        Err(e) => {
+            log::warn!("Failed to start container on first attempt: {}", e);
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            Postgres::default().with_tag("15.2").start().await.unwrap()
+        }
+    };
 
     let port = container.get_host_port_ipv4(5432).await.unwrap();
 
