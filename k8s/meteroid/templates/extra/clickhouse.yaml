@@ -1,0 +1,90 @@
+# For local/testing convenience - bitnami was causing trouble. In production, use a managed service or equivalent.
+{{- if .Values.clickhouse.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: {{ .Release.Name }}-clickhouse
+    {{- include "meteroid.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+  name: {{ .Release.Name }}-clickhouse
+  namespace: {{ .Release.Namespace }}
+spec:
+  serviceName: {{.Release.Name }}-clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-clickhouse
+      {{- include "meteroid.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-clickhouse
+        {{- include "meteroid.labels" . | nindent 8 }}
+        app.kubernetes.io/component: clickhouse
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+      - name: clickhouse
+        image: clickhouse/clickhouse-server
+        ports:
+        - containerPort: 9000
+        - containerPort: 8123
+        env:
+        - name: CLICKHOUSE_DB
+          value: {{ .Values.clickhouse.database | quote }}
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "meteroid.secretsName" . }}
+              key: clickhouse-password
+        - name: CLICKHOUSE_USER
+          value: {{ .Values.clickhouse.auth.username | quote }}
+        - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+          value: "1"  
+        resources:
+          {{- toYaml .Values.clickhouse.resources | nindent 12 }}
+        volumeMounts:
+        - name: {{ .Release.Name }}-clickhouse-storage
+          mountPath: /var/lib/clickhouse
+  volumeClaimTemplates:
+  - metadata:
+      name: {{ .Release.Name }}-clickhouse-storage
+    spec:
+      accessModes: [ "{{ .Values.clickhouse.persistence.accessMode }}" ]
+      resources:
+        requests:
+          storage: {{ .Values.clickhouse.persistence.size }}
+      {{- with .Values.clickhouse.persistence.storageClassName }}
+      storageClassName: {{ . }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: {{ .Release.Name }}-clickhouse
+    {{- include "meteroid.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+  name: {{ .Release.Name }}-clickhouse
+spec:
+  ports:
+  - port: 9000
+    targetPort: 9000
+    name: clickhouse
+    {{- if eq .Values.clickhouse.service.type "NodePort"}}
+    nodePort: 30900
+    {{- end }}
+  - port: 8123
+    targetPort: 8123
+    {{- if eq .Values.clickhouse.service.type "NodePort"}}
+    nodePort: 30923
+    {{- end }}
+    name: http
+  type: {{ .Values.clickhouse.service.type }}
+  selector:
+    app: {{ .Release.Name }}-clickhouse
+    {{- include "meteroid.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clickhouse
+{{- end }}

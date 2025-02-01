@@ -1,7 +1,7 @@
 <br/>
 
 <div align="center">
-  Like this project ? Leave us a star ⭐ or join us in the discussions 💬
+  Want to support us ? Leave us a star ⭐ and join us on discord !
 </div>
 
 <br/>
@@ -49,6 +49,9 @@ It eliminates the gap between customer usage and billing, ensuring accuracy and 
 
 </span>
 </div>
+
+**Disclaimer:** This project is still in development and should not be used in production.
+
 
 ---
 
@@ -105,9 +108,9 @@ SaaS industries.
 
 > [!WARNING]
 >
-> Meteroid is in **ALPHA**, and is to be considered unstable.
+> Meteroid is in **ALPHA**, and is not ready for production use.
 >
-> We are working fulltime on a stable release.
+> We are working on a stable release.
 
 
 Please refer to the [contributing guide](CONTRIBUTING.md) for how to install Meteroid from sources.
@@ -128,7 +131,7 @@ For enterprise or custom licensing options, please contact us.
   </p>
 </a>
 
-## Star History
+Join us on <a href="https://go.meteroid.com/discord?utm_source=github">Discord</a> !
 
 Thanks for the crazy support 💖
 

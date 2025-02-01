@@ -1,0 +1,33 @@
+{{- if .Values.scheduler.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "meteroid.schedulerFullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "meteroid.schedulerLabels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "meteroid.schedulerFullname" . }}
+  minReplicas: {{ .Values.scheduler.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.scheduler.autoscaling.maxReplicas }}
+  metrics:
+  {{- with .Values.scheduler.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+  {{- end }}
+  {{- with .Values.scheduler.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+  {{- end }}
+{{- end }}

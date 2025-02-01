@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "meteroid.meteringFullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "meteroid.meteringLabels" . | nindent 4 }}
+  {{- with .Values.metering.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.metering.service.type }}
+  ports:
+    - port:  {{ .Values.metering.service.ports.http }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (eq .Values.metering.service.type "NodePort") .Values.metering.service.ports.httpNodePort }}
+      nodePort: {{ .Values.metering.service.ports.httpNodePort }}
+      {{- end }}
+    - port: {{ .Values.metering.service.ports.grpc }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+      {{- if and (eq .Values.metering.service.type "NodePort") .Values.metering.service.ports.grpcNodePort }}
+      nodePort: {{ .Values.metering.service.ports.grpcNodePort }}
+      {{- end }}
+  selector:
+    {{- include "meteroid.meteringSelectorLabels" . | nindent 4 }}

@@ -1,0 +1,231 @@
+version: tip
+
+
+commonSettings: &commonSettings
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  image:
+    pullPolicy: Always
+  podAnnotations: { }
+  podLabels: { }
+  tolerations: [ ]
+  nodeSelector: { }
+  affinity: { }
+  extraEnv: { }
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  terminationGracePeriodSeconds: 30
+
+meteroid:
+  revisionHistoryLimit: 10
+  podAnnotations: { }
+  podLabels: { }
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+serviceAccount:
+  create: true
+  name: null
+  imagePullSecrets: [ ]
+  annotations: { }
+  automountServiceAccountToken: true
+
+global:
+  publicAppUrl: "http://meteroid.local"
+  publicApiUrl: "http://api.meteroid.local"
+  meteringUrl: "http://metering.meteroid.local"
+
+  telemetry:
+    tracingEnabled: false
+    metricsEnabled: false
+    otelEndpoint: ""
+
+  secrets:
+    # if using an external secret use this
+    existingSecretName: ""
+
+    # # else provide below
+    # databaseUrl: ""  # only if postgresql.enabled is false
+    # jwtPrivateKey: ""
+    # internalApiSecret: ""
+    # secretsCryptkey: ""
+    # svixJwtToken: ""
+    # oauthGoogle:
+    #   clientId: ""
+    #   clientSecret: ""
+
+  # External services configuration (used when dependencies are disabled)
+  kafka:
+    bootstrapServers: ""
+    # securityProtocol: ""
+    # saslMechanism: ""
+    # saslUsername: ""
+
+  clickhouse:
+    address: ""
+    database: "meteroid"
+    username: "default"
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: meteroid.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: web
+          port: 80
+    - host: api.meteroid.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: api
+          port: 50061
+        - path: /api
+          pathType: Prefix
+          service: api
+          port: 8080
+
+api:
+  <<: *commonSettings
+  image:
+    repository: ghcr.io/meteroid-oss/meteroid-api
+    tag: tip
+  service:
+    type: ClusterIP
+    ports:
+      http: 8080
+      grpc: 50061
+  config:
+    objectStoreUri: ""
+    enableMultiOrganization: false
+    svixServerUrl: ""
+    kafka: { }
+  httpLivenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  httpReadinessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    path: /health
+
+# Web Configuration
+web:
+  <<: *commonSettings
+  image:
+    repository: ghcr.io/meteroid-oss/meteroid-web
+    tag: tip
+  service:
+    type: ClusterIP
+    ports:
+      - port: 80
+        targetPort: http
+        protocol: TCP
+        name: http
+
+# Metering Configuration
+metering:
+  <<: *commonSettings
+  enabled: true
+  image:
+    repository: ghcr.io/meteroid-oss/metering-api
+    tag: tip
+  service:
+    type: ClusterIP
+    ports:
+      http: 8081
+      grpc: 50062
+  config:
+    kafka:
+      topic: "meteroid-events-raw"
+      producerLingerMs: 100
+      producerQueueMib: 100
+      messageTimeoutMs: 30000
+      compressionCodec: "gzip"
+
+# Scheduler Configuration
+scheduler:
+  <<: *commonSettings
+  image:
+    repository: ghcr.io/meteroid-oss/meteroid-scheduler
+    tag: tip
+  config:
+    objectStoreUri: ""
+    enableMultiOrganization: false
+    svixServerUrl: ""
+    kafka: { }
+
+
+# Dependencies
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: 1Gi
+  auth:
+    username: postgres
+    password: "postgres"
+    database: meteroid
+
+kafka:
+  enabled: true
+  listeners:
+    client:
+      protocol: "PLAINTEXT"
+    interbroker:
+      protocol: "PLAINTEXT"
+    controller:
+      protocol: "PLAINTEXT"
+  controller:
+    replicaCount: 1
+    resourcesPresets: "none"
+  broker:
+    replicaCount: 1
+    resourcesPresets: "none"
+  zookeeper:
+    replicaCount: 1
+  provisionning:
+    replicationFactor: 1
+  resources:
+    limits:
+      cpu: 400m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  extraConfig: |
+    offsets.topic.replication.factor=1
+    transaction.state.log.replication.factor=1
+    auto.create.topics.enable=true
+
+clickhouse:
+  enabled: true
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: 24.2.2
+    pullPolicy: IfNotPresent
+  auth:
+    username: "default"
+  database: meteroid
+  service:
+    type: ClusterIP
+  persistence:
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+
