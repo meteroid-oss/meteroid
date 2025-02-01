@@ -1,11 +1,12 @@
 use crate::api_rest::customers::mapping::{create_req_to_domain, domain_to_rest};
 use crate::api_rest::customers::model::{Customer, CustomerCreateRequest, CustomerListRequest};
-use crate::api_rest::model::PaginatedResponse;
+use crate::api_rest::model::{IdOrAlias, PaginatedResponse};
 use crate::api_rest::AppState;
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
+use axum_valid::Valid;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain;
@@ -33,7 +34,7 @@ use meteroid_store::repositories::CustomersInterface;
 #[axum::debug_handler]
 pub(crate) async fn list_customers(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Query(request): Query<CustomerListRequest>,
+    Valid(Query(request)): Valid<Query<CustomerListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
@@ -86,11 +87,11 @@ pub(crate) async fn list_customers(
 pub(crate) async fn get_customer_by_id_or_alias(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(id_or_alias): Path<String>,
+    Valid(Path(id_or_alias)): Valid<Path<IdOrAlias>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .find_customer_by_local_id_or_alias(id_or_alias, authorized_state.tenant_id)
+        .find_customer_by_local_id_or_alias(id_or_alias.into(), authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer_by_id_or_alias: {}", e);

@@ -3,10 +3,12 @@ use chrono::NaiveDateTime;
 use meteroid_store::domain;
 use serde_enum_str::{Deserialize_enum_str, Serialize_enum_str};
 use utoipa::ToSchema;
+use validator::Validate;
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct PlanListRequest {
     #[serde(flatten)]
+    #[validate(nested)]
     pub pagination: PaginatedRequest,
     pub product_family_id: Option<String>,
     #[serde(flatten)]

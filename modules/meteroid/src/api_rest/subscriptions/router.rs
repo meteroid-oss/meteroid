@@ -3,14 +3,14 @@ use super::AppState;
 use axum::extract::{Path, Query};
 use axum::{extract::State, response::IntoResponse, Json};
 
-use axum::Extension;
-
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::subscriptions::mapping::{domain_to_rest, domain_to_rest_details};
 use crate::api_rest::subscriptions::model::{
     Subscription, SubscriptionDetails, SubscriptionRequest,
 };
 use crate::errors::RestApiError;
+use axum::Extension;
+use axum_valid::Valid;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::Identity;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -37,7 +37,7 @@ use uuid::Uuid;
 #[axum::debug_handler]
 pub(crate) async fn list_subscriptions(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Query(request): Query<SubscriptionRequest>,
+    Valid(Query(request)): Valid<Query<SubscriptionRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     list_subscriptions_handler(

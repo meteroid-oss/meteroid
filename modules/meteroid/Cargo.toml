@@ -103,6 +103,8 @@ kafka = { workspace = true }
 env_logger = { workspace = true }
 o2o.workspace = true
 itertools = { workspace = true }
+validator = { workspace = true, features = ["derive"] }
+axum-valid = { workspace = true }
 
 
 [dev-dependencies]

@@ -3,12 +3,12 @@ use super::AppState;
 use axum::extract::Query;
 use axum::{extract::State, response::IntoResponse, Json};
 
-use axum::Extension;
-
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::plans::mapping::domain_to_rest;
 use crate::api_rest::plans::model::{Plan, PlanFilters, PlanListRequest};
 use crate::errors::RestApiError;
+use axum::Extension;
+use axum_valid::Valid;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::PlansInterface;
@@ -37,7 +37,7 @@ use uuid::Uuid;
 #[axum::debug_handler]
 pub(crate) async fn list_plans(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
-    Query(request): Query<PlanListRequest>,
+    Valid(Query(request)): Valid<Query<PlanListRequest>>,
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, RestApiError> {
     list_plans_handler(
