@@ -65,6 +65,10 @@ yarn-error.log*
 .DS_Store
 *.pem
 
+k8s/*/charts/
+k8s/*/Chart.lock
+k8s/*/values.*.yaml
 
 ## Temporary
 sdk
+

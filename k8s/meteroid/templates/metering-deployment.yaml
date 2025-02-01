@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "meteroid.meteringFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "meteroid.meteringLabels" . | nindent 4 }}
+  {{- with .Values.meteroid.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+{{- if not .Values.metering.autoscaling.enabled }}
+  replicas: {{ .Values.metering.replicas }}
+{{- end }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "meteroid.meteringSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.meteroid.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.metering.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "meteroid.meteringSelectorLabels" . | nindent 8 }}
+        {{- with .Values.meteroid.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.metering.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "meteroid.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.meteroid.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.metering.terminationGracePeriodSeconds | default 30 }}
+      containers:
+        - name: {{ .Chart.Name }}-metering
+          image: "{{ .Values.metering.image.repository }}:{{ .Values.metering.image.tag }}"
+          imagePullPolicy: {{ .Values.metering.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.metering.service.ports.http }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.metering.service.ports.grpc }}
+              protocol: TCP
+          securityContext:
+            {{- toYaml .Values.meteroid.containerSecurityContext | nindent 12 }}
+          env:
+            {{- with .Values.metering.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - name: INTERNAL_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: internal-api-secret
+            - name: METEROID_API_EXTERNAL_URL
+              value: http://{{ include "meteroid.api.internalGrpcUrl" . }}
+
+            - name: METERING_API_LISTEN_ADDRESS
+              value: 0.0.0.0:{{ .Values.metering.service.ports.grpc }}
+
+            - name: TELEMETRY_TRACING_ENABLED
+              value: {{ .Values.global.telemetryTracingEnabled | default "false" | quote }}
+
+            - name: TELEMETRY_METRICS_ENABLED
+              value: {{ .Values.global.telemetryMetricsEnabled | default "false" | quote }}
+
+            - name: TELEMETRY_OTEL_ENDPOINT
+              value: {{ .Values.global.telemetryOtelEndpoint | default "" | quote }}
+
+            - name: CLICKHOUSE_DATABASE
+              value: {{ .Values.global.clickhouse.database }}
+            - name: CLICKHOUSE_ADDRESS
+              value: {{ include "meteroid.clickhouse.address" . }}
+            - name: CLICKHOUSE_USERNAME
+              value: {{ .Values.clickhouse.auth.username | quote }}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: clickhouse-password
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "meteroid.kafka.bootstrapServers" . }}
+            - name: KAFKA_TOPIC
+              value: {{ .Values.metering.config.kafka.topic }}
+            - name: KAFKA_PRODUCER_LINGER_MS
+              value: {{ .Values.metering.config.kafka.producerLingerMs | quote }}
+            - name: KAFKA_PRODUCER_QUEUE_MIB
+              value: {{ .Values.metering.config.kafka.producerQueueMib | quote }}
+            - name: KAFKA_MESSAGE_TIMEOUT_MS
+              value: {{ .Values.metering.config.kafka.messageTimeoutMs | quote }}
+            - name: KAFKA_COMPRESSION_CODEC
+              value: {{ .Values.metering.config.kafka.compressionCodec }}
+            - name: KAFKA_SASL_USERNAME
+              value: {{ .Values.global.kafka.saslUsername }}
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: kafka-password
+            - name: KAFKA_SASL_MECHANISM
+              value: {{ .Values.global.kafka.saslMechanism }}
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: {{ .Values.global.kafka.securityProtocol }}
+            - name: KAFKA_INTERNAL_ADDR
+              value: {{ include "meteroid.kafka.internalUrl" . }}
+  
+          # livenessProbe:
+          # readinessProbe:
+
+          resources:
+            {{- toYaml .Values.metering.resources | nindent 12 }}
+      {{- with .Values.metering.affinity }}
+      affinity:
+        {{- tpl . $ | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metering.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.metering.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Always
