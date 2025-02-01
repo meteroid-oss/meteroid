@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "meteroid.apiFullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "meteroid.apiLabels" . | nindent 4 }}
+  {{- with .Values.api.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.api.service.type }}
+  ports:
+    - port:  {{ .Values.api.service.ports.http }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (eq .Values.api.service.type "NodePort") .Values.api.service.ports.httpNodePort }}
+      nodePort: {{ .Values.api.service.ports.httpNodePort }}
+      {{- end }}
+    - port: {{ .Values.api.service.ports.grpc }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+      {{- if and (eq .Values.api.service.type "NodePort") .Values.api.service.ports.grpcNodePort }}
+      nodePort: {{ .Values.api.service.ports.grpcNodePort }}
+      {{- end }}
+  selector:
+    {{- include "meteroid.apiSelectorLabels" . | nindent 4 }}

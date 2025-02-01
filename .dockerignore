@@ -14,3 +14,5 @@ target
 .cargo
 .github
 .history
+k8s/*/values.*.yaml
+.env

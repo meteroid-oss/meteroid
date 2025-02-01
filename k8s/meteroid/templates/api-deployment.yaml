@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "meteroid.apiFullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "meteroid.apiLabels" . | nindent 4 }}
+  {{- with .Values.meteroid.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+{{- if not .Values.api.autoscaling.enabled }}
+  replicas: {{ .Values.api.replicaCount }}
+{{- end }}
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  revisionHistoryLimit: {{ .Values.meteroid.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "meteroid.apiSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.meteroid.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.api.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "meteroid.apiSelectorLabels" . | nindent 8 }}
+        {{- with .Values.meteroid.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.api.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "meteroid.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.meteroid.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.api.terminationGracePeriodSeconds | default 30 }}
+      containers:
+        - name: {{ .Chart.Name }}-api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.service.ports.http }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.api.service.ports.grpc }}
+              protocol: TCP
+          securityContext:
+            {{- toYaml .Values.meteroid.containerSecurityContext | nindent 12 }}
+          env:
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: database-url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: jwt-private-key
+            - name: INTERNAL_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: internal-api-secret
+            - name: SECRETS_CRYPT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: secrets-crypt-key
+            - name: METERING_API_EXTERNAL_URL
+              value: http://{{ include "meteroid.metering.internalGrpcUrl" . }}
+            - name: METEROID_PUBLIC_URL
+              value: {{ .Values.global.publicAppUrl }}
+            - name: OBJECT_STORE_URI
+              value: {{ .Values.api.config.objectStoreUri }}
+            - name: METEROID_API_LISTEN_ADDRESS
+              value: 0.0.0.0:{{ .Values.api.service.ports.grpc }}
+            - name: METEROID_REST_API_LISTEN_ADDRESS
+              value: 0.0.0.0:{{ .Values.api.service.ports.http }}
+            - name: ENABLE_MULTI_ORGANIZATION
+              value: {{ .Values.api.config.enableMultiOrganization | quote }}
+            - name: SVIX_SERVER_URL
+              value: {{ .Values.api.config.svixServerUrl }}
+            - name: SVIX_JWT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: svix-jwt-token
+            - name: OAUTH_GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: oauth-google-client-id
+            - name: OAUTH_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: oauth-google-client-secret
+            - name: KAFKA_SASL_MECHANISM
+              value: {{ .Values.global.kafka.saslMechanism }}
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: {{ .Values.global.kafka.securityProtocol }}
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "meteroid.kafka.bootstrapServers" . }}
+            - name: KAFKA_SASL_USERNAME
+              value: {{ .Values.global.kafka.saslUsername }}
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meteroid.secretsName" . }}
+                  key: kafka-password
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.api.httpLivenessProbe.initialDelaySeconds | default 15 }}
+            periodSeconds: {{ .Values.api.httpLivenessProbe.periodSeconds | default 20 }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.api.httpReadinessProbe.path | default "/health" }}
+              port: http
+            initialDelaySeconds: {{ .Values.api.httpReadinessProbe.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.api.httpReadinessProbe.periodSeconds | default 10 }}
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- tpl . $ | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Always
