@@ -1,9 +1,11 @@
 use crate::api_rest::model::PaginatedRequest;
 use utoipa::ToSchema;
+use validator::Validate;
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct SubscriptionRequest {
     #[serde(flatten)]
+    #[validate(nested)]
     pub pagination: PaginatedRequest,
     pub customer_id: Option<String>,
     pub plan_id: Option<String>,

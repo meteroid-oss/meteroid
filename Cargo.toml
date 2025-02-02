@@ -43,6 +43,7 @@ anyhow = "1.0.75"
 argon2 = "0.5.2"
 async-trait = "0.1.74"
 axum = { version = "0.8.1", features = ["json", "query", "tower-log", "http1"] }
+axum-valid = "0.22.0"
 base62 = "2.0.2"
 base64 = "0.22.0"
 backon = "1.3.0"
@@ -166,6 +167,7 @@ utoipa-swagger-ui = { version = "9.0.0", features = ["axum"] }
 utoipa-redoc = { version = "6.0.0", features = ["axum"] }
 utoipa-rapidoc = { version = "6.0.0", features = ["axum"] }
 utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+validator = { version = "0.20.0" }
 
 # TODO prefix it all
 common-build-info = { path = "crates/common-build-info" }

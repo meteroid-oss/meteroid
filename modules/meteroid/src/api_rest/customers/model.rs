@@ -3,17 +3,20 @@ use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::PaginatedRequest;
 use meteroid_store::domain;
 use utoipa::ToSchema;
+use validator::Validate;
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct CustomerFilters {
     pub search: Option<String>,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct CustomerListRequest {
     #[serde(flatten)]
+    #[validate(nested)]
     pub pagination: PaginatedRequest,
     #[serde(flatten)]
+    #[validate(nested)]
     pub plan_filters: CustomerFilters,
 }
 
