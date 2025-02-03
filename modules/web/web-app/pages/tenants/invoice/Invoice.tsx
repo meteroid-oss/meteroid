@@ -166,7 +166,12 @@ const LeftOverview: React.FC<{
                 Request
               </Button>
             ) : (
-              <a href={pdf_url} download={`invoice_${invoice.invoiceNumber}.pdf`} target="_blank" rel="noreferrer">
+              <a
+                href={pdf_url}
+                download={`invoice_${invoice.invoiceNumber}.pdf`}
+                target="_blank"
+                rel="noreferrer"
+              >
                 <Button size="md" hasIcon disabled={!invoice.pdfDocumentId} variant="ghost">
                   Download <DownloadIcon size="12" />
                 </Button>

@@ -27,7 +27,6 @@ async fn test_products_basic() {
         .clone()
         .create_product_family(api::productfamilies::v1::CreateProductFamilyRequest {
             name: "product_family_name".into(),
-            local_id: "product_family_local_id".into(),
         })
         .await
         .unwrap()

@@ -17,7 +17,7 @@ pub struct CustomerListRequest {
     pub pagination: PaginatedRequest,
     #[serde(flatten)]
     #[validate(nested)]
-    pub plan_filters: CustomerFilters,
+    pub customer_filters: CustomerFilters,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
@@ -74,7 +74,7 @@ impl From<domain::BillingConfig> for BillingConfig {
     }
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
 pub struct CustomerCreateRequest {
     pub name: String,
     pub billing_config: BillingConfig,

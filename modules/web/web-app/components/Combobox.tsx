@@ -15,7 +15,6 @@ import {
 import { CaretSortIcon, CheckIcon } from '@radix-ui/react-icons'
 import { useState } from 'react'
 
-
 interface Props {
   options: { label: React.ReactNode; value: string; keywords?: string[] }[]
   description?: string

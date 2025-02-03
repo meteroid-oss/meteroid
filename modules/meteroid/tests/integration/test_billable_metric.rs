@@ -27,12 +27,11 @@ async fn test_billable_metrics_basic() {
     let metric_code = "vvv".to_owned();
 
     // create family
-    let _family = clients
+    let family = clients
         .product_families
         .clone()
         .create_product_family(api::productfamilies::v1::CreateProductFamilyRequest {
             name: "product_family_name".into(),
-            local_id: "product_family_local_id".into(),
         })
         .await
         .unwrap()
@@ -58,7 +57,7 @@ async fn test_billable_metrics_basic() {
             }),
             segmentation_matrix: None, // todo add
             usage_group_key: Some("usage".to_string()),
-            family_local_id: "product_family_local_id".to_string(),
+            family_local_id: family.local_id.clone(),
             product_id: None,
         })
         .await

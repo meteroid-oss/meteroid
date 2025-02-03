@@ -57,7 +57,6 @@ async fn test_main() {
         .create_product_family(tonic::Request::new(
             api::productfamilies::v1::CreateProductFamilyRequest {
                 name: "Test - usage".to_string(),
-                local_id: "test-usage".to_string(),
             },
         ))
         .await

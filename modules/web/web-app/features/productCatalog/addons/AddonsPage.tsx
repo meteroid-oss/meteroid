@@ -10,7 +10,6 @@ import { useQuery } from '@/lib/connectrpc'
 import { listAddOns } from '@/rpc/api/addons/v1/addons-AddOnsService_connectquery'
 
 export const AddonsPage: FunctionComponent = () => {
-
   const [search] = useQueryState<string | undefined>('q', undefined)
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,

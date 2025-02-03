@@ -1,7 +1,10 @@
+use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest};
+use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{domain, StoreResult};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
+use error_stack::Report;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -15,7 +18,10 @@ pub trait ProductFamilyInterface {
     async fn list_product_families(
         &self,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<Vec<domain::ProductFamily>>;
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        query: Option<String>,
+    ) -> StoreResult<PaginatedVec<domain::ProductFamily>>;
 
     async fn find_product_family_by_local_id(
         &self,
@@ -65,13 +71,29 @@ impl ProductFamilyInterface for Store {
     async fn list_product_families(
         &self,
         auth_tenant_id: Uuid,
-    ) -> StoreResult<Vec<domain::ProductFamily>> {
+        pagination: PaginationRequest,
+        order_by: OrderByRequest,
+        query: Option<String>,
+    ) -> StoreResult<PaginatedVec<domain::ProductFamily>> {
         let mut conn = self.get_conn().await?;
 
-        ProductFamilyRow::list(&mut conn, auth_tenant_id)
-            .await
-            .map_err(Into::into)
-            .map(|x| x.into_iter().map(Into::into).collect())
+        let rows = ProductFamilyRow::list(
+            &mut conn,
+            auth_tenant_id,
+            pagination.into(),
+            order_by.into(),
+            query,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<domain::ProductFamily> = PaginatedVec {
+            items: rows.items.into_iter().map(Into::into).collect(),
+            total_pages: rows.total_pages,
+            total_results: rows.total_results,
+        };
+
+        Ok(res)
     }
 
     async fn find_product_family_by_local_id(

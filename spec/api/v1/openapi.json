@@ -246,6 +246,40 @@
           "product_family"
         ],
         "operationId": "list_product_families",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "description": "Specifies the starting position of the results",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "example": 0
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of objects to return",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "example": 10
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "description": "Filtering criteria",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "abc"
+          }
+        ],
         "responses": {
           "200": {
             "description": "List of product families",
@@ -256,6 +290,96 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "product_family"
+        ],
+        "operationId": "create_product_family",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductFamilyCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Customer successfully created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductFamily"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
+      }
+    },
+    "/api/v1/product_families/{id_or_alias}": {
+      "get": {
+        "tags": [
+          "product_family"
+        ],
+        "operationId": "get_product_family_by_id_or_alias",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "product_family ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ProductFamily",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductFamily"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
           },
           "401": {
             "description": "Unauthorized"
@@ -1197,6 +1321,17 @@
           "id": {
             "type": "string"
           },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProductFamilyCreateRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
           "name": {
             "type": "string"
           }

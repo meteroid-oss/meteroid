@@ -2,6 +2,8 @@ use chrono::NaiveDateTime;
 use o2o::o2o;
 use uuid::Uuid;
 
+use crate::utils::local_id::IdType;
+use crate::utils::local_id::LocalId;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::product_families::ProductFamilyRowNew;
 
@@ -20,9 +22,8 @@ pub struct ProductFamily {
 
 #[derive(Clone, Debug, o2o)]
 #[owned_into(ProductFamilyRowNew)]
-#[ghosts(id: {uuid::Uuid::now_v7()})]
+#[ghosts(id: {uuid::Uuid::now_v7()}, local_id: {LocalId::generate_for(IdType::ProductFamily) })]
 pub struct ProductFamilyNew {
     pub name: String,
-    pub local_id: String,
     pub tenant_id: Uuid,
 }

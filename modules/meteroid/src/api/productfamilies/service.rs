@@ -7,6 +7,7 @@ use meteroid_grpc::meteroid::api::productfamilies::v1::{
     GetProductFamilyByLocalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
 };
 use meteroid_store::domain;
+use meteroid_store::domain::{OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::ProductFamilyInterface;
 
 use crate::api::productfamilies::error::ProductFamilyApiError;
@@ -25,9 +26,18 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
 
         let families = self
             .store
-            .list_product_families(*tenant_id)
+            .list_product_families(
+                *tenant_id,
+                PaginationRequest {
+                    per_page: Some(u32::MAX),
+                    page: 0,
+                },
+                OrderByRequest::IdAsc,
+                None,
+            )
             .await
             .map_err(Into::<ProductFamilyApiError>::into)?
+            .items
             .into_iter()
             .map(|x| ProductFamilyWrapper::from(x).0)
             .collect();
@@ -51,7 +61,6 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
             .insert_product_family(
                 domain::ProductFamilyNew {
                     name: req.name,
-                    local_id: req.local_id,
                     tenant_id,
                 },
                 Some(actor),

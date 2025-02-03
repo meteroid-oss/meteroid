@@ -9,7 +9,6 @@ import { displayPlanStatus, displayPlanType, printPlanStatus } from '@/features/
 import { PlanOverview } from '@/rpc/api/plans/v1/models_pb'
 import { ListPlansResponse } from '@/rpc/api/plans/v1/plans_pb'
 
-
 import type { FunctionComponent } from 'react'
 
 interface PlansTableProps {

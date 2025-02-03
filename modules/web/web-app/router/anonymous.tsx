@@ -5,7 +5,6 @@ import AuthPageTemplate from '@/features/auth/components/AuthPageTemplate'
 import { AnonymousRoutes } from '@/features/auth/sessionRoutes'
 import { Recovery, Verification } from '@/pages'
 
-
 export const anonymousRoutes: RouteObject = {
   element: <AnonymousRoutes />,
   children: [

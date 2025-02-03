@@ -12,7 +12,6 @@ message ListProductFamiliesResponse {
 
 message CreateProductFamilyRequest {
   string name = 1;
-  string local_id = 2;
 }
 
 message CreateProductFamilyResponse {

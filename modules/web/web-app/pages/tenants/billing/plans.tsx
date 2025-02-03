@@ -13,7 +13,6 @@ import { listPlans } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { ListPlansRequest_SortBy } from '@/rpc/api/plans/v1/plans_pb'
 import { listProductFamilies } from '@/rpc/api/productfamilies/v1/productfamilies-ProductFamiliesService_connectquery'
 
-
 export const Plans: FunctionComponent = () => {
   const productFamiliesQuery = useQuery(listProductFamilies)
 

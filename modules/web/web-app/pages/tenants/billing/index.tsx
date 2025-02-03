@@ -113,8 +113,7 @@ export const FamilyCreationModalPage = () => {
     },
   })
 
-  const createDefault = () =>
-    createDefaultMutation.mutateAsync({ name: 'Default', localId: 'default' })
+  const createDefault = () => createDefaultMutation.mutateAsync({ name: 'Default' })
 
   return (
     <TenantPageLayout title="Product Billing">

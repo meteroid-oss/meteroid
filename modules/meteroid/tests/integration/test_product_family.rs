@@ -28,7 +28,6 @@ async fn test_product_families_basic() {
         .clone()
         .create_product_family(api::productfamilies::v1::CreateProductFamilyRequest {
             name: "product_family_name".into(),
-            local_id: "product_family_local_id".into(),
         })
         .await
         .unwrap()
@@ -37,7 +36,6 @@ async fn test_product_families_basic() {
         .unwrap();
 
     assert_eq!(created.name.as_str(), "product_family_name");
-    assert_eq!(created.local_id.as_str(), "product_family_local_id");
 
     // product family by local_id
     let by_local_id = clients
@@ -45,7 +43,7 @@ async fn test_product_families_basic() {
         .clone()
         .get_product_family_by_local_id(
             api::productfamilies::v1::GetProductFamilyByLocalIdRequest {
-                local_id: "product_family_local_id".into(),
+                local_id: created.local_id.clone(),
             },
         )
         .await
