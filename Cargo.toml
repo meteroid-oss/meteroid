@@ -89,7 +89,7 @@ jsonwebtoken = "9.2.0"
 lapin = "2.5.0"
 lettre = { version = "0.11.11", default-features = false }
 log = "0.4.20"
-maud = "0.26.0"
+maud = "0.27.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
 ndarray = "0.16.1"
