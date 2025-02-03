@@ -13,5 +13,5 @@ export type DeepReadonlyObject<T> = {
 export type DeepReadonly<T> = T extends primitive
   ? T
   : T extends Array<infer U>
-  ? DeepReadonlyArray<U>
-  : DeepReadonlyObject<T>
+    ? DeepReadonlyArray<U>
+    : DeepReadonlyObject<T>

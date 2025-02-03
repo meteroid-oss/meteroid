@@ -41,8 +41,8 @@ export type RestrictSchemas<T extends Schemas> = {
   [K in keyof T]: T[K] extends SimpleSchema
     ? SimpleSchema
     : T[K] extends DetailedSpec
-    ? DetailedSpec<T[K]['schema']> & Omit<Record<keyof T[K], never>, DetailedSpecKeys>
-    : never
+      ? DetailedSpec<T[K]['schema']> & Omit<Record<keyof T[K], never>, DetailedSpecKeys>
+      : never
 }
 
 export type ParsedSchema<T extends Schemas> = T extends any
@@ -50,10 +50,10 @@ export type ParsedSchema<T extends Schemas> = T extends any
       [K in keyof T]: T[K] extends SimpleSchema<infer TOut>
         ? TOut
         : T[K] extends DetailedSpec
-        ? T[K]['schema'] extends SimpleSchema<infer TOut>
-          ? TOut
+          ? T[K]['schema'] extends SimpleSchema<infer TOut>
+            ? TOut
+            : never
           : never
-        : never
     }
   : never
 

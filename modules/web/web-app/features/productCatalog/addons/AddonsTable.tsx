@@ -8,8 +8,6 @@ import { StandardTable } from '@/components/table/StandardTable'
 import { ListAddOnResponse } from '@/rpc/api/addons/v1/addons_pb'
 import { AddOn } from '@/rpc/api/addons/v1/models_pb'
 
-
-
 import type { FunctionComponent } from 'react'
 
 interface AddonsTableProps {

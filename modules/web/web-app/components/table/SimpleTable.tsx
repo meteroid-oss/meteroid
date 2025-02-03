@@ -1,5 +1,5 @@
 import { spaces } from '@md/foundation'
-import { Skeleton, Table, TableRow, TableCell, TableHeader, TableBody, TableHead , cn } from '@md/ui'
+import { Skeleton, Table, TableRow, TableCell, TableHeader, TableBody, TableHead, cn } from '@md/ui'
 import { ColumnDef, Row, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { Flex } from '@ui/components/legacy'
 import { AlertCircleIcon } from 'lucide-react'
