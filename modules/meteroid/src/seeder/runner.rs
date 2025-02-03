@@ -29,7 +29,8 @@ use chrono::Utc;
 use nanoid::nanoid;
 
 use meteroid_store::domain::{
-    Address, BillingConfig, Identity, InlineCustomer, InlineInvoicingEntity, TenantContext,
+    Address, BillingConfig, Identity, InlineCustomer, InlineInvoicingEntity, OrderByRequest,
+    PaginationRequest, TenantContext,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -70,11 +71,22 @@ pub async fn run(
         .change_context(SeederError::TempError)?;
 
     let product_families = store
-        .list_product_families(tenant.id)
+        .list_product_families(
+            tenant.id,
+            PaginationRequest {
+                per_page: Some(1),
+                page: 0,
+            },
+            OrderByRequest::IdAsc,
+            None,
+        )
         .await
         .change_context(SeederError::TempError)?;
 
-    let product_family = product_families.first().ok_or(SeederError::TempError)?;
+    let product_family = product_families
+        .items
+        .first()
+        .ok_or(SeederError::TempError)?;
 
     log::info!("Created product family '{}'", &product_family.name);
 

@@ -46,7 +46,7 @@ pub(crate) async fn list_customers(
                 per_page: request.pagination.limit,
             },
             OrderByRequest::IdAsc,
-            request.plan_filters.search,
+            request.customer_filters.search,
         )
         .await
         .map_err(|e| {
@@ -122,7 +122,7 @@ pub(crate) async fn get_customer_by_id_or_alias(
 pub(crate) async fn create_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Json(payload): Json<CustomerCreateRequest>,
+    Valid(Json(payload)): Valid<Json<CustomerCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     let created = app_state
         .store
