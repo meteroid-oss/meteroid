@@ -13,17 +13,17 @@ pub fn init_telemetry_metrics(config: &TelemetryConfig) {
         .build()
         .unwrap();
 
-    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(
-        exporter,
-        opentelemetry_sdk::runtime::Tokio,
-    )
-    .with_interval(Duration::from_secs(5))
-    .with_timeout(Duration::from_secs(10))
-    .build();
+    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
+        .with_interval(Duration::from_secs(5))
+        .build();
+
+    let resource = Resource::builder()
+        .with_attributes(vec![KeyValue::new("host", "localhost")])
+        .build();
 
     let provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(reader)
-        .with_resource(Resource::new(vec![KeyValue::new("host", "localhost")]))
+        .with_resource(resource)
         .build();
 
     global::set_meter_provider(provider);
