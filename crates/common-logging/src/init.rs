@@ -2,8 +2,7 @@ use crate::init_metrics::init_telemetry_metrics;
 use common_config::telemetry::TelemetryConfig;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::LogExporter;
-use opentelemetry_sdk::logs::LoggerProvider;
-use opentelemetry_sdk::runtime;
+use opentelemetry_sdk::logs::SdkLoggerProvider;
 use tracing::{log, Subscriber};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -55,8 +54,8 @@ fn init_telemetry_tracing(config: &TelemetryConfig, service_name: &str) {
 
     let log_exporter = LogExporter::builder().with_tonic().build().unwrap();
 
-    let logger_provider = LoggerProvider::builder()
-        .with_batch_exporter(log_exporter, runtime::Tokio)
+    let logger_provider = SdkLoggerProvider::builder()
+        .with_batch_exporter(log_exporter)
         .build();
 
     let log_otel_layer = OpenTelemetryTracingBridge::new(&logger_provider);

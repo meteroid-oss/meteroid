@@ -27,6 +27,7 @@ updates:
           - "opentelemetry"
           - "opentelemetry_sdk"
           - "opentelemetry-otlp"
+          - "opentelemetry-appender-tracing"
       build-info:
         patterns:
           - "build-info"
