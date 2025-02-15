@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::domain::adjustments::discount::{Amount, StandardDiscount};
 use crate::domain::enums::BillingPeriodEnum;
 use crate::errors::StoreError;
+use crate::json_value_serde;
 use diesel_models::schedules::SchedulePatchRow;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::schedules::ScheduleRowNew;
@@ -35,6 +36,8 @@ pub struct PlanRamps {
     pub ramps: Vec<PlanRamp>,
 }
 
+json_value_serde!(PlanRamps);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanRamp {
     pub index: u32,
@@ -46,26 +49,6 @@ pub struct PlanRamp {
 pub struct PlanRampAdjustment {
     pub minimum: Amount,
     pub discount: StandardDiscount,
-}
-
-impl TryFrom<serde_json::Value> for PlanRamps {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
-        serde_json::from_value::<PlanRamps>(value).map_err(|e| {
-            StoreError::SerdeError("Failed to deserialize plan ramps".to_string(), e).into()
-        })
-    }
-}
-
-impl TryInto<serde_json::Value> for PlanRamps {
-    type Error = Report<StoreError>;
-
-    fn try_into(self) -> Result<serde_json::Value, Self::Error> {
-        serde_json::to_value(self).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize plan ramps".to_string(), e).into()
-        })
-    }
 }
 
 impl TryFrom<ScheduleRow> for Schedule {

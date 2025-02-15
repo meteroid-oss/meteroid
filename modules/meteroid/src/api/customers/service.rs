@@ -102,6 +102,17 @@ impl CustomersService for CustomerServiceComponents {
                 "customer payload missing".to_string(),
             ))?;
 
+        let billing_address = customer
+            .billing_address
+            .map(DomainAddressWrapper::try_from)
+            .transpose()?
+            .map(|v| v.0);
+        let shipping_address = customer
+            .shipping_address
+            .map(DomainShippingAddressWrapper::try_from)
+            .transpose()?
+            .map(|v| v.0);
+
         let _ = self
             .store
             .patch_customer(
@@ -117,12 +128,8 @@ impl CustomersService for CustomerServiceComponents {
                     balance_value_cents: customer.balance_value_cents,
                     invoicing_entity_id: Uuid::from_proto_opt(customer.invoicing_entity_id)?,
                     currency: customer.currency.clone(),
-                    billing_address: customer
-                        .billing_address
-                        .map(|s| serde_json::to_value(s).unwrap()),
-                    shipping_address: customer
-                        .shipping_address
-                        .map(|s| serde_json::to_value(s).unwrap()),
+                    billing_address,
+                    shipping_address,
                 },
             )
             .await

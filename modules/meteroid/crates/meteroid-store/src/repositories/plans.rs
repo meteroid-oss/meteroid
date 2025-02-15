@@ -8,7 +8,6 @@ use crate::domain::{
 };
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncConnection;
 use diesel_models::plan_versions::{
     PlanVersionRow, PlanVersionRowNew, PlanVersionRowPatch, PlanVersionTrialRowPatch,
 };
@@ -124,15 +123,15 @@ impl PlansInterface for Store {
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let res = conn
-            .transaction(|conn| {
+        let res = self
+            .transaction_with(&mut conn, |conn| {
                 async move {
                     let plan_to_insert: PlanRowNew = plan.into_raw(product_family.id);
                     let inserted: Plan = plan_to_insert
                         .insert(conn)
                         .await
                         .map(Into::into)
-                        .map_err(|err| StoreError::DatabaseError(err.error))?;
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     let plan_version_to_insert: PlanVersionRowNew = PlanVersionNew {
                         tenant_id: inserted.tenant_id,
@@ -147,7 +146,7 @@ impl PlansInterface for Store {
                         .insert(conn)
                         .await
                         .map(Into::into)
-                        .map_err(|err| StoreError::DatabaseError(err.error))?;
+                        .map_err(Into::<Report<StoreError>>::into)?;
 
                     let (active_version_id, draft_version_id) =
                         match inserted_plan_version_new.is_draft_version {
@@ -166,7 +165,7 @@ impl PlansInterface for Store {
                     .update(conn)
                     .await
                     .map(Into::into)
-                    .map_err(|err| StoreError::DatabaseError(err.error))?;
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
                     // insert price component as batch, etc
                     let inserted_price_components = PriceComponentRow::insert_batch(
@@ -182,16 +181,15 @@ impl PlansInterface for Store {
                                 }
                                 .try_into()
                             })
-                            .collect::<Result<Vec<_>, _>>()?,
+                            .collect::<error_stack::Result<Vec<_>, _>>()?,
                     )
                     .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?
+                    .map_err(Into::<Report<StoreError>>::into)?
                     .into_iter()
                     .map(TryInto::try_into)
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(StoreError::TransactionStoreError)?;
+                    .collect::<error_stack::Result<Vec<_>, _>>()?;
 
-                    Ok::<_, StoreError>(FullPlan {
+                    Ok(FullPlan {
                         price_components: inserted_price_components,
                         plan: updated,
                         version: inserted_plan_version_new,
@@ -199,8 +197,7 @@ impl PlansInterface for Store {
                 }
                 .scope_boxed()
             })
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            .await?;
 
         let _ = self
             .eventbus

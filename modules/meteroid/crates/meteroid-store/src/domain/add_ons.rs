@@ -1,5 +1,5 @@
 use crate::domain::FeeType;
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
@@ -21,9 +21,7 @@ impl TryInto<AddOn> for AddOnRow {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<AddOn, Self::Error> {
-        let fee: FeeType = serde_json::from_value(self.fee).map_err(|e| {
-            StoreError::SerdeError("Failed to deserialize price component fee".to_string(), e)
-        })?;
+        let fee: FeeType = self.fee.try_into()?;
 
         Ok(AddOn {
             id: self.id,
@@ -45,12 +43,10 @@ pub struct AddOnNew {
 }
 
 impl TryInto<AddOnRowNew> for AddOnNew {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
-    fn try_into(self) -> Result<AddOnRowNew, StoreError> {
-        let json_fee = serde_json::to_value(&self.fee).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize price component fee".to_string(), e)
-        })?;
+    fn try_into(self) -> Result<AddOnRowNew, Self::Error> {
+        let json_fee = (&self.fee).try_into()?;
 
         Ok(AddOnRowNew {
             id: Uuid::now_v7(),
@@ -71,17 +67,10 @@ pub struct AddOnPatch {
 }
 
 impl TryInto<AddOnRowPatch> for AddOnPatch {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
-    fn try_into(self) -> Result<AddOnRowPatch, StoreError> {
-        let json_fee = self
-            .fee
-            .map(|x| {
-                serde_json::to_value(&x).map_err(|e| {
-                    StoreError::SerdeError("Failed to serialize price component fee".to_string(), e)
-                })
-            })
-            .transpose()?;
+    fn try_into(self) -> Result<AddOnRowPatch, Self::Error> {
+        let json_fee = self.fee.map(|x| x.try_into()).transpose()?;
 
         Ok(AddOnRowPatch {
             id: self.id,

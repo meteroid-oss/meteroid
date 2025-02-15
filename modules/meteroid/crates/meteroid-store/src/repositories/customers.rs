@@ -305,19 +305,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Option<Customer>> {
         let mut conn = self.get_conn().await?;
 
-        let patch_model: CustomerRowPatch = CustomerRowPatch {
-            id: customer.id,
-            name: customer.name,
-            alias: customer.alias,
-            email: customer.email,
-            invoicing_email: customer.invoicing_email,
-            phone: customer.phone,
-            balance_value_cents: customer.balance_value_cents,
-            currency: customer.currency,
-            billing_address: customer.billing_address,
-            shipping_address: customer.shipping_address,
-            invoicing_entity_id: customer.invoicing_entity_id,
-        };
+        let patch_model: CustomerRowPatch = customer.try_into()?;
 
         let updated = patch_model
             .update(&mut conn, tenant_id)

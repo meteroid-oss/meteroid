@@ -1,6 +1,6 @@
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::{SubscriptionFee, SubscriptionFeeInterface};
-use crate::errors::StoreError;
+use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use serde::{Deserialize, Serialize};
@@ -50,11 +50,10 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
 }
 
 impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOn, Self::Error> {
-        let decoded_fee: SubscriptionFee = serde_json::from_value(self.fee)
-            .map_err(|e| StoreError::SerdeError("Failed to deserialize fee".to_string(), e))?;
+        let decoded_fee: SubscriptionFee = self.fee.try_into()?;
 
         Ok(SubscriptionAddOn {
             id: self.id,
@@ -83,11 +82,10 @@ pub struct SubscriptionAddOnNew {
 }
 
 impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionAddOnRowNew, Self::Error> {
-        let fee = serde_json::to_value(self.internal.fee)
-            .map_err(|e| StoreError::SerdeError("Failed to serialize fee".to_string(), e))?;
+        let fee = self.internal.fee.try_into()?;
 
         Ok(SubscriptionAddOnRowNew {
             id: Uuid::now_v7(),

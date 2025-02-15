@@ -1,8 +1,9 @@
 use super::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
-use crate::errors::{StoreError, StoreErrorReport};
+use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
+use crate::json_value_serde;
 use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -22,18 +23,7 @@ pub struct BillableMetric {
     pub unit_conversion_factor: Option<i32>,
     #[map(~.map(| x | x.into()))]
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
-    #[into(
-        ~.map(| x | serde_json::to_value(& x).map_err(| e | {
-        StoreError::SerdeError("Failed to serialize segmentation_matrix".to_string(), e)
-        }))
-        .transpose() ?
-    )]
-    #[from(
-        ~.map(| x | serde_json::from_value(x).map_err(| e | {
-        StoreError::SerdeError("Failed to deserialize segmentation_matrix".to_string(), e)
-        }))
-        .transpose() ?
-    )]
+    #[map(~.map(| x | x.try_into()).transpose()?)]
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub usage_group_key: Option<String>,
     pub created_at: NaiveDateTime,
@@ -64,6 +54,8 @@ pub enum SegmentationMatrix {
         values: HashMap<String, Vec<String>>,
     },
 }
+
+json_value_serde!(SegmentationMatrix);
 
 #[derive(Clone, Debug)]
 pub struct BillableMetricNew {

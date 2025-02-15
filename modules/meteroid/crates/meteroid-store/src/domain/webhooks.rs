@@ -1,6 +1,7 @@
 use crate::domain::enums::WebhookOutEventTypeEnum;
 use crate::domain::WebhookPage;
 use crate::errors::StoreError;
+use crate::json_value_ser;
 use chrono::NaiveDateTime;
 use diesel_models::webhooks::{WebhookInEventRow, WebhookInEventRowNew};
 use error_stack::Report;
@@ -137,6 +138,8 @@ pub struct WebhookOutMessageNew {
     pub payload: WebhookOutMessagePayload,
 }
 
+json_value_ser!(WebhookOutMessageNew);
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "object", rename_all = "snake_case")]
 pub enum WebhookOutMessagePayload {
@@ -150,12 +153,7 @@ impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
     fn try_from(value: WebhookOutMessageNew) -> Result<Self, Self::Error> {
         let event_id = Some(value.id.clone());
         let event_type = value.event_type.to_string();
-        let payload = serde_json::to_value(value).map_err(|e| {
-            Report::from(StoreError::SerdeError(
-                "Failed to serialize payload".to_string(),
-                e,
-            ))
-        })?;
+        let payload = value.try_into()?;
 
         let msg = svix::api::MessageIn {
             application: None,
