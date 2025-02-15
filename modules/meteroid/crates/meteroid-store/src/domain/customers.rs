@@ -1,5 +1,7 @@
 use crate::domain::Identity;
 use crate::errors::StoreError;
+use crate::errors::StoreErrorReport;
+use crate::json_value_serde;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
@@ -7,10 +9,10 @@ use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, o2o)]
+#[try_from_owned(CustomerRow, StoreErrorReport)]
 pub struct Customer {
     pub id: Uuid,
     pub local_id: String,
@@ -22,6 +24,7 @@ pub struct Customer {
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: Uuid,
     pub invoicing_entity_id: Uuid,
+    #[map(~.try_into()?)]
     pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -29,36 +32,10 @@ pub struct Customer {
     pub phone: Option<String>,
     pub balance_value_cents: i32,
     pub currency: String,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
     pub billing_address: Option<Address>,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
-}
-
-impl TryFrom<CustomerRow> for Customer {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: CustomerRow) -> Result<Self, Self::Error> {
-        Ok(Customer {
-            id: value.id,
-            local_id: value.local_id,
-            name: value.name,
-            created_at: value.created_at,
-            created_by: value.created_by,
-            updated_at: value.updated_at,
-            updated_by: value.updated_by,
-            archived_at: value.archived_at,
-            tenant_id: value.tenant_id,
-            billing_config: value.billing_config.try_into()?,
-            alias: value.alias,
-            email: value.email,
-            invoicing_email: value.invoicing_email,
-            phone: value.phone,
-            balance_value_cents: value.balance_value_cents,
-            currency: value.currency,
-            billing_address: value.billing_address.map(|v| v.try_into()).transpose()?,
-            shipping_address: value.shipping_address.map(|v| v.try_into()).transpose()?,
-            invoicing_entity_id: value.invoicing_entity_id,
-        })
-    }
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -83,11 +60,10 @@ pub struct CustomerNew {
     pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    //
     pub created_by: Uuid,
     pub invoicing_entity_id: Option<Identity>,
     // for seeding
-    pub force_created_date: Option<chrono::NaiveDateTime>,
+    pub force_created_date: Option<NaiveDateTime>,
 }
 
 #[derive(Clone, Debug)]
@@ -131,7 +107,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
 }
 
 #[derive(Clone, Debug, o2o)]
-#[owned_into(CustomerRowPatch)]
+#[owned_try_into(CustomerRowPatch, StoreErrorReport)]
 pub struct CustomerPatch {
     pub id: Uuid,
     pub name: Option<String>,
@@ -141,8 +117,10 @@ pub struct CustomerPatch {
     pub phone: Option<String>,
     pub balance_value_cents: Option<i32>,
     pub currency: Option<String>,
-    pub billing_address: Option<serde_json::Value>, // TODO avoid json in domain
-    pub shipping_address: Option<serde_json::Value>,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
+    pub billing_address: Option<Address>,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
+    pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: Option<Uuid>,
 }
 
@@ -162,29 +140,7 @@ pub struct Address {
     pub zip_code: Option<String>,
 }
 
-impl TryFrom<serde_json::Value> for Address {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let address = serde_json::from_value::<Address>(value).map_err(|e| {
-            StoreError::SerdeError("Failed to deserialize customer address".to_string(), e)
-        })?;
-
-        Ok(address)
-    }
-}
-
-impl TryInto<serde_json::Value> for Address {
-    type Error = Report<StoreError>;
-
-    fn try_into(self) -> Result<Value, Self::Error> {
-        let address_json = serde_json::to_value(self).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize customer address".to_string(), e)
-        })?;
-
-        Ok(address_json)
-    }
-}
+json_value_serde!(Address);
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShippingAddress {
@@ -193,41 +149,15 @@ pub struct ShippingAddress {
     pub same_as_billing: bool,
 }
 
-impl TryFrom<serde_json::Value> for ShippingAddress {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let shipping_address = serde_json::from_value::<ShippingAddress>(value).map_err(|e| {
-            StoreError::SerdeError(
-                "Failed to deserialize customer shipping address".to_string(),
-                e,
-            )
-        })?;
-
-        Ok(shipping_address)
-    }
-}
-
-impl TryInto<serde_json::Value> for ShippingAddress {
-    type Error = Report<StoreError>;
-
-    fn try_into(self) -> Result<Value, Self::Error> {
-        let shipping_address_json = serde_json::to_value(self).map_err(|e| {
-            StoreError::SerdeError(
-                "Failed to serialize customer shipping address".to_string(),
-                e,
-            )
-        })?;
-
-        Ok(shipping_address_json)
-    }
-}
+json_value_serde!(ShippingAddress);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BillingConfig {
     Stripe(StripeCustomerConfig),
     Manual,
 }
+
+json_value_serde!(BillingConfig);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StripeCustomerConfig {
@@ -239,33 +169,6 @@ pub struct StripeCustomerConfig {
 pub enum StripeCollectionMethod {
     ChargeAutomatically,
     SendInvoice,
-}
-
-impl TryFrom<serde_json::Value> for BillingConfig {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: Value) -> Result<Self, Self::Error> {
-        let billing_config = serde_json::from_value::<BillingConfig>(value).map_err(|e| {
-            StoreError::SerdeError(
-                "Failed to deserialize customer billing config".to_string(),
-                e,
-            )
-        })?;
-
-        Ok(billing_config)
-    }
-}
-
-impl TryInto<serde_json::Value> for BillingConfig {
-    type Error = Report<StoreError>;
-
-    fn try_into(self) -> Result<Value, Self::Error> {
-        let billing_config_json = serde_json::to_value(self).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize customer billing config".to_string(), e)
-        })?;
-
-        Ok(billing_config_json)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -286,7 +189,8 @@ pub struct CustomerBuyCredits {
     pub notes: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, o2o)]
+#[try_from_owned(CustomerForDisplayRow, StoreErrorReport)]
 pub struct CustomerForDisplay {
     pub id: Uuid,
     pub local_id: String,
@@ -299,6 +203,7 @@ pub struct CustomerForDisplay {
     pub tenant_id: Uuid,
     pub invoicing_entity_id: Uuid,
     pub invoicing_entity_local_id: String,
+    #[map(~.try_into()?)]
     pub billing_config: BillingConfig,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -306,35 +211,8 @@ pub struct CustomerForDisplay {
     pub phone: Option<String>,
     pub balance_value_cents: i32,
     pub currency: String,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
     pub billing_address: Option<Address>,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
-}
-
-impl TryFrom<CustomerForDisplayRow> for CustomerForDisplay {
-    type Error = Report<StoreError>;
-
-    fn try_from(value: CustomerForDisplayRow) -> Result<Self, Self::Error> {
-        Ok(CustomerForDisplay {
-            id: value.id,
-            local_id: value.local_id,
-            name: value.name,
-            created_at: value.created_at,
-            created_by: value.created_by,
-            updated_at: value.updated_at,
-            updated_by: value.updated_by,
-            archived_at: value.archived_at,
-            tenant_id: value.tenant_id,
-            billing_config: value.billing_config.try_into()?,
-            alias: value.alias,
-            email: value.email,
-            invoicing_email: value.invoicing_email,
-            phone: value.phone,
-            balance_value_cents: value.balance_value_cents,
-            currency: value.currency,
-            billing_address: value.billing_address.map(|v| v.try_into()).transpose()?,
-            shipping_address: value.shipping_address.map(|v| v.try_into()).transpose()?,
-            invoicing_entity_id: value.invoicing_entity_id,
-            invoicing_entity_local_id: value.invoicing_entity_local_id,
-        })
-    }
 }

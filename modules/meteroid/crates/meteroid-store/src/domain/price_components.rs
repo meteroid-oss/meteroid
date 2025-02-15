@@ -5,7 +5,8 @@ use uuid::Uuid;
 use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
 
 use crate::domain::SubscriptionFee;
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
+use crate::json_value_serde;
 use crate::utils::local_id::{IdType, LocalId};
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use serde::{Deserialize, Serialize};
@@ -23,9 +24,7 @@ impl TryInto<PriceComponent> for PriceComponentRow {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<PriceComponent, Self::Error> {
-        let fee: FeeType = serde_json::from_value(self.fee).map_err(|e| {
-            StoreError::SerdeError("Failed to deserialize price component fee".to_string(), e)
-        })?;
+        let fee: FeeType = self.fee.try_into()?;
 
         // TODO we also have plan version id and metric id in the type
         Ok(PriceComponent {
@@ -54,12 +53,10 @@ pub struct PriceComponentNewInternal {
 }
 
 impl TryInto<PriceComponentRowNew> for PriceComponentNew {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
-    fn try_into(self) -> Result<PriceComponentRowNew, StoreError> {
-        let json_fee = serde_json::to_value(&self.fee).map_err(|e| {
-            StoreError::SerdeError("Failed to serialize price component fee".to_string(), e)
-        })?;
+    fn try_into(self) -> Result<PriceComponentRowNew, Self::Error> {
+        let json_fee = (&self.fee).try_into()?;
 
         Ok(PriceComponentRowNew {
             id: Uuid::now_v7(),
@@ -150,6 +147,8 @@ pub enum FeeType {
         quantity: u32,
     },
 }
+
+json_value_serde!(FeeType);
 
 impl FeeType {
     pub fn metric_id(&self) -> Option<Uuid> {

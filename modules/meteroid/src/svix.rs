@@ -11,6 +11,7 @@ pub fn new_svix(config: &Config) -> Option<Arc<Svix>> {
                 debug: true,
                 server_url: Some(x),
                 timeout: Some(std::time::Duration::from_secs(30)),
+                num_retries: Some(3),
             }),
         ))
     })

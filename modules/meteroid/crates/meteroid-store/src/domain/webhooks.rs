@@ -1,6 +1,7 @@
 use crate::domain::enums::WebhookOutEventTypeEnum;
 use crate::domain::WebhookPage;
 use crate::errors::StoreError;
+use crate::json_value_ser;
 use chrono::NaiveDateTime;
 use diesel_models::webhooks::{WebhookInEventRow, WebhookInEventRowNew};
 use error_stack::Report;
@@ -62,7 +63,7 @@ impl TryFrom<svix::api::ListResponseEndpointOut> for WebhookPage<WebhookOutEndpo
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             done: value.done,
-            iterator: value.iterator,
+            iterator: Some(value.iterator), // fixme after https://github.com/svix/svix-webhooks/issues/1721
             prev_iterator: value.prev_iterator,
         })
     }
@@ -137,6 +138,8 @@ pub struct WebhookOutMessageNew {
     pub payload: WebhookOutMessagePayload,
 }
 
+json_value_ser!(WebhookOutMessageNew);
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "object", rename_all = "snake_case")]
 pub enum WebhookOutMessagePayload {
@@ -150,12 +153,7 @@ impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
     fn try_from(value: WebhookOutMessageNew) -> Result<Self, Self::Error> {
         let event_id = Some(value.id.clone());
         let event_type = value.event_type.to_string();
-        let payload = serde_json::to_value(value).map_err(|e| {
-            Report::from(StoreError::SerdeError(
-                "Failed to serialize payload".to_string(),
-                e,
-            ))
-        })?;
+        let payload = value.try_into()?;
 
         let msg = svix::api::MessageIn {
             application: None,
@@ -195,12 +193,12 @@ impl From<svix::api::MessageOut> for WebhookOutMessage {
 pub struct WebhookOutMessageAttempt {
     pub endpoint_id: String,
     pub id: String,
-    pub msg: Option<Box<WebhookOutMessage>>,
+    pub msg: Option<WebhookOutMessage>,
     pub msg_id: String,
     pub response: String,
     // returns 0 in OSS version of svix
-    pub response_duration_ms: i64,
-    pub response_status_code: i32,
+    pub response_duration_ms: i32,
+    pub response_status_code: i16,
     pub timestamp: String,
     pub url: String,
 }
@@ -210,7 +208,7 @@ impl From<svix::api::MessageAttemptOut> for WebhookOutMessageAttempt {
         WebhookOutMessageAttempt {
             endpoint_id: value.endpoint_id,
             id: value.id,
-            msg: value.msg.map(|x| Box::new((*x).into())),
+            msg: value.msg.map(Into::into),
             msg_id: value.msg_id,
             response: value.response,
             response_duration_ms: value.response_duration_ms,
@@ -252,7 +250,7 @@ impl From<svix::api::ListResponseMessageAttemptOut> for WebhookPage<WebhookOutMe
         WebhookPage {
             data: value.data.into_iter().map(Into::into).collect(),
             done: value.done,
-            iterator: value.iterator,
+            iterator: Some(value.iterator), // fixme after https://github.com/svix/svix-webhooks/issues/1721
             prev_iterator: value.prev_iterator,
         }
     }

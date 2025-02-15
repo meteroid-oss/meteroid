@@ -1,4 +1,5 @@
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
+use crate::json_value_serde;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
 use diesel_models::coupons::{
@@ -54,6 +55,8 @@ pub enum CouponDiscount {
     Fixed { currency: String, amount: Decimal },
 }
 
+json_value_serde!(CouponDiscount);
+
 impl CouponDiscount {
     pub fn currency(&self) -> Option<&str> {
         match self {
@@ -67,8 +70,7 @@ impl TryInto<Coupon> for CouponRow {
     type Error = Report<StoreError>;
 
     fn try_into(self) -> Result<Coupon, Self::Error> {
-        let discount: CouponDiscount = serde_json::from_value(self.discount)
-            .map_err(|e| StoreError::SerdeError("coupon discount".to_string(), e))?;
+        let discount: CouponDiscount = self.discount.try_into()?;
 
         Ok(Coupon {
             id: self.id,
@@ -104,11 +106,10 @@ pub struct CouponNew {
 }
 
 impl TryInto<CouponRowNew> for CouponNew {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
-    fn try_into(self) -> Result<CouponRowNew, StoreError> {
-        let json_discount = serde_json::to_value(&self.discount)
-            .map_err(|e| StoreError::SerdeError("coupon discount".to_string(), e))?;
+    fn try_into(self) -> Result<CouponRowNew, Self::Error> {
+        let json_discount: serde_json::Value = (&self.discount).try_into()?;
 
         Ok(CouponRowNew {
             id: Uuid::now_v7(),
@@ -144,16 +145,11 @@ pub struct CouponStatusPatch {
 }
 
 impl TryInto<CouponRowPatch> for CouponPatch {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
-    fn try_into(self) -> Result<CouponRowPatch, StoreError> {
-        let json_discount = self
-            .discount
-            .map(|x| {
-                serde_json::to_value(&x)
-                    .map_err(|e| StoreError::SerdeError("coupon discount".to_string(), e))
-            })
-            .transpose()?;
+    fn try_into(self) -> Result<CouponRowPatch, Self::Error> {
+        let json_discount = self.discount.map(|x| x.try_into()).transpose()?;
+
         Ok(CouponRowPatch {
             id: self.id,
             tenant_id: self.tenant_id,

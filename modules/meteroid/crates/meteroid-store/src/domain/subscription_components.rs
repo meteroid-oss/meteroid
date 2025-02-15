@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::domain::UsagePricingModel;
-use crate::errors::StoreError;
+use crate::errors::StoreErrorReport;
+use crate::json_value_serde;
 
 pub trait SubscriptionFeeInterface {
     fn price_component_id(&self) -> Option<Uuid>;
@@ -61,11 +62,10 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
 }
 
 impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionComponent, Self::Error> {
-        let decoded_fee: SubscriptionFee = serde_json::from_value(self.fee)
-            .map_err(|e| StoreError::SerdeError("Failed to deserialize fee".to_string(), e))?;
+        let decoded_fee: SubscriptionFee = self.fee.try_into()?;
 
         Ok(SubscriptionComponent {
             id: self.id,
@@ -96,11 +96,10 @@ pub struct SubscriptionComponentNew {
 }
 
 impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
-    type Error = StoreError;
+    type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<SubscriptionComponentRowNew, Self::Error> {
-        let fee = serde_json::to_value(self.internal.fee)
-            .map_err(|e| StoreError::SerdeError("Failed to serialize fee".to_string(), e))?;
+        let fee = self.internal.fee.try_into()?;
 
         Ok(SubscriptionComponentRowNew {
             id: Uuid::now_v7(),
@@ -191,6 +190,8 @@ pub enum SubscriptionFee {
         model: UsagePricingModel,
     },
 }
+
+json_value_serde!(SubscriptionFee);
 
 impl SubscriptionFee {
     pub fn metric_id(&self) -> Option<Uuid> {

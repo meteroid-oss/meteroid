@@ -73,7 +73,7 @@ impl From<DatabaseError> for StoreError {
     }
 }
 
-impl From<diesel::result::Error> for StoreError {
+impl From<Error> for StoreError {
     fn from(value: Error) -> Self {
         DatabaseError::from(&value).into()
     }

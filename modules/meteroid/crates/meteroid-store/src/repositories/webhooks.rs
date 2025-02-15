@@ -83,6 +83,7 @@ impl ApiRateLimiter {
 }
 
 #[async_trait::async_trait]
+#[allow(deprecated)]
 impl WebhooksInterface for Store {
     async fn insert_webhook_out_endpoint(
         &self,
@@ -306,7 +307,7 @@ impl WebhooksInterface for Store {
         let app_in = svix_application_in(self, tenant_id).await?;
 
         let access_in = AppPortalAccessIn {
-            application: Some(Box::new(app_in)),
+            application: Some(app_in),
             expiry: None, // 7 days by default
             feature_flags: None,
             read_only: None,
