@@ -63,7 +63,7 @@ impl TryFrom<svix::api::ListResponseEndpointOut> for WebhookPage<WebhookOutEndpo
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             done: value.done,
-            iterator: value.iterator,
+            iterator: Some(value.iterator), // fixme after https://github.com/svix/svix-webhooks/issues/1721
             prev_iterator: value.prev_iterator,
         })
     }
@@ -193,12 +193,12 @@ impl From<svix::api::MessageOut> for WebhookOutMessage {
 pub struct WebhookOutMessageAttempt {
     pub endpoint_id: String,
     pub id: String,
-    pub msg: Option<Box<WebhookOutMessage>>,
+    pub msg: Option<WebhookOutMessage>,
     pub msg_id: String,
     pub response: String,
     // returns 0 in OSS version of svix
-    pub response_duration_ms: i64,
-    pub response_status_code: i32,
+    pub response_duration_ms: i32,
+    pub response_status_code: i16,
     pub timestamp: String,
     pub url: String,
 }
@@ -208,7 +208,7 @@ impl From<svix::api::MessageAttemptOut> for WebhookOutMessageAttempt {
         WebhookOutMessageAttempt {
             endpoint_id: value.endpoint_id,
             id: value.id,
-            msg: value.msg.map(|x| Box::new((*x).into())),
+            msg: value.msg.map(Into::into),
             msg_id: value.msg_id,
             response: value.response,
             response_duration_ms: value.response_duration_ms,
@@ -250,7 +250,7 @@ impl From<svix::api::ListResponseMessageAttemptOut> for WebhookPage<WebhookOutMe
         WebhookPage {
             data: value.data.into_iter().map(Into::into).collect(),
             done: value.done,
-            iterator: value.iterator,
+            iterator: Some(value.iterator), // fixme after https://github.com/svix/svix-webhooks/issues/1721
             prev_iterator: value.prev_iterator,
         }
     }
