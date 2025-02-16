@@ -1,5 +1,6 @@
 use crate::customers::{
     CustomerBriefRow, CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch,
+    CustomerRowUpdate,
 };
 use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
@@ -220,7 +221,7 @@ impl CustomerRowPatch {
     pub async fn update(
         &self,
         conn: &mut PgConn,
-        param_tenant_id: uuid::Uuid,
+        param_tenant_id: Uuid,
     ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -236,8 +237,8 @@ impl CustomerRowPatch {
             .get_result(conn)
             .await
             .optional()
-            .tap_err(|e| log::error!("Error while updating customer: {:?}", e))
-            .attach_printable("Error while updating customer")
+            .tap_err(|e| log::error!("Error while patching customer: {:?}", e))
+            .attach_printable("Error while patching customer")
             .into_db_result()
     }
 }
@@ -313,6 +314,32 @@ impl CustomerForDisplayRow {
             .load_and_count_pages(conn)
             .await
             .attach_printable("Error while fetching customers")
+            .into_db_result()
+    }
+}
+
+impl CustomerRowUpdate {
+    pub async fn update(
+        &self,
+        conn: &mut PgConn,
+        param_tenant_id: Uuid,
+    ) -> DbResult<Option<CustomerRow>> {
+        use crate::schema::customer::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(customer)
+            .filter(id.eq(self.id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set(self);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .optional()
+            .tap_err(|e| log::error!("Error while updating customer: {:?}", e))
+            .attach_printable("Error while updating customer")
             .into_db_result()
     }
 }

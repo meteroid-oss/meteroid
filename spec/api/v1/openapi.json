@@ -163,6 +163,62 @@
             "api-key": []
           }
         ]
+      },
+      "put": {
+        "tags": [
+          "customer"
+        ],
+        "operationId": "update_customer",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Customer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Customer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Customer not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
       }
     },
     "/api/v1/plans": {
@@ -954,6 +1010,73 @@
               "string",
               "null"
             ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shipping_address": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ShippingAddress"
+              }
+            ]
+          }
+        }
+      },
+      "CustomerUpdateRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "billing_config",
+          "currency",
+          "invoicing_entity_id"
+        ],
+        "properties": {
+          "alias": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing_address": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Address"
+              }
+            ]
+          },
+          "billing_config": {
+            "$ref": "#/components/schemas/BillingConfig"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoicing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoicing_entity_id": {
+            "type": "string"
           },
           "name": {
             "type": "string"

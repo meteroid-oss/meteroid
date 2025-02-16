@@ -98,6 +98,16 @@ impl Event {
         )
     }
 
+    pub fn customer_updated(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
+        Self::new(
+            EventData::CustomerUpdated(TenantEventDataDetails {
+                tenant_id,
+                entity_id: customer_id,
+            }),
+            Some(actor),
+        )
+    }
+
     pub fn organization_created(actor: Uuid, organization_id: Uuid) -> Self {
         Self::new(
             EventData::OrganizationCreated(EventDataDetails {
@@ -261,6 +271,7 @@ pub enum EventData {
     BillableMetricCreated(TenantEventDataDetails),
     CustomerCreated(TenantEventDataDetails),
     CustomerPatched(TenantEventDataDetails),
+    CustomerUpdated(TenantEventDataDetails),
     OrganizationCreated(EventDataDetails),
     InvoiceCreated(TenantEventDataDetails),
     InvoiceFinalized(TenantEventDataDetails),

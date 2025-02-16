@@ -106,21 +106,21 @@ pub struct CustomerRowPatch {
     pub invoicing_entity_id: Option<Uuid>,
 }
 
-// TODO unused
-#[derive(Debug)]
-pub enum CustomerUpdate {
-    UpdateDetails {
-        name: Option<String>,
-        alias: Option<String>,
-        email: Option<Option<String>>,
-        invoicing_email: Option<Option<String>>,
-    },
-    UpdateAddress {
-        billing_address: Option<serde_json::Value>,
-        shipping_address: Option<serde_json::Value>,
-    },
-    UpdateBalance {
-        balance_value_cents: i32,
-        currency: String,
-    },
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::customer)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+#[diesel(treat_none_as_null = true)]
+pub struct CustomerRowUpdate {
+    pub id: Uuid,
+    pub name: String,
+    pub billing_config: serde_json::Value,
+    pub alias: Option<String>,
+    pub email: Option<String>,
+    pub invoicing_email: Option<String>,
+    pub phone: Option<String>,
+    pub currency: String,
+    pub updated_by: Uuid,
+    pub billing_address: Option<serde_json::Value>,
+    pub shipping_address: Option<serde_json::Value>,
+    pub invoicing_entity_id: Uuid,
 }
