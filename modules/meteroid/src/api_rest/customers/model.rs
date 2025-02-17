@@ -87,3 +87,17 @@ pub struct CustomerCreateRequest {
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: Option<String>,
 }
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+pub struct CustomerUpdateRequest {
+    pub name: String,
+    pub billing_config: BillingConfig,
+    pub alias: Option<String>,
+    pub email: Option<String>,
+    pub invoicing_email: Option<String>,
+    pub phone: Option<String>,
+    pub currency: Currency,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<ShippingAddress>,
+    pub invoicing_entity_id: String,
+}

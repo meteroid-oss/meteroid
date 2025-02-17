@@ -190,6 +190,34 @@ impl AnalyticsHandler {
     }
 
     #[tracing::instrument(skip_all)]
+    async fn customer_updated(
+        &self,
+        event: &Event,
+        event_data_details: &TenantEventDataDetails,
+    ) -> Result<(), EventBusError> {
+        let customer = self
+            .store
+            .find_customer_by_id(
+                Identity::UUID(event_data_details.entity_id),
+                event_data_details.tenant_id,
+            )
+            .await
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+
+        self.send_track(
+            "customer-updated".to_string(),
+            event.actor,
+            serde_json::json!({
+                "customer_id": customer.id,
+                "tenant_id": event_data_details.tenant_id,
+            }),
+        )
+        .await;
+
+        Ok(())
+    }
+
+    #[tracing::instrument(skip_all)]
     async fn instance_inited(
         &self,
         event: &Event,
@@ -565,6 +593,7 @@ impl EventHandler<Event> for AnalyticsHandler {
             }
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::CustomerPatched(details) => self.customer_patched(&event, details).await?,
+            EventData::CustomerUpdated(details) => self.customer_updated(&event, details).await?,
             EventData::OrganizationCreated(details) => {
                 self.instance_inited(&event, details).await?
             }

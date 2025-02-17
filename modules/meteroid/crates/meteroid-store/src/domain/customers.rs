@@ -216,3 +216,18 @@ pub struct CustomerForDisplay {
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
 }
+
+#[derive(Clone, Debug)]
+pub struct CustomerUpdate {
+    pub local_id_or_alias: String,
+    pub name: String,
+    pub billing_config: BillingConfig,
+    pub alias: Option<String>,
+    pub email: Option<String>,
+    pub invoicing_email: Option<String>,
+    pub phone: Option<String>,
+    pub currency: String,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<ShippingAddress>,
+    pub invoicing_entity_id: Identity,
+}

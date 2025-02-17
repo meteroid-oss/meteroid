@@ -6,9 +6,10 @@ use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     Customer, CustomerBrief, CustomerBuyCredits, CustomerForDisplay, CustomerNew,
-    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, DetailedInvoice, Identity,
-    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams,
-    InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
+    Identity, InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals,
+    InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
+    PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
@@ -21,7 +22,7 @@ use crate::StoreResult;
 use common_eventbus::Event;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{
-    CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch,
+    CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
 };
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::query::IdentityDb;
@@ -84,6 +85,13 @@ pub trait CustomersInterface {
         order_by: OrderByRequest,
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<CustomerForDisplay>>;
+
+    async fn update_customer(
+        &self,
+        actor: Uuid,
+        tenant_id: Uuid,
+        customer: CustomerUpdate,
+    ) -> StoreResult<CustomerForDisplay>;
 }
 
 #[async_trait::async_trait]
@@ -533,5 +541,67 @@ impl CustomersInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn update_customer(
+        &self,
+        actor: Uuid,
+        tenant_id: Uuid,
+        customer: CustomerUpdate,
+    ) -> StoreResult<CustomerForDisplay> {
+        let mut conn = self.get_conn().await?;
+
+        let by_id_or_alias = CustomerForDisplayRow::find_by_local_id_or_alias(
+            &mut conn,
+            tenant_id,
+            customer.local_id_or_alias.clone(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let invoicing_entity = self
+            .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
+            .await?;
+
+        let update_model = CustomerRowUpdate {
+            id: by_id_or_alias.id,
+            name: customer.name,
+            alias: customer.alias,
+            email: customer.email,
+            invoicing_email: customer.invoicing_email,
+            phone: customer.phone,
+            currency: customer.currency,
+            billing_address: customer
+                .billing_address
+                .map(TryInto::try_into)
+                .transpose()?,
+            shipping_address: customer
+                .shipping_address
+                .map(TryInto::try_into)
+                .transpose()?,
+            updated_by: actor,
+            billing_config: customer.billing_config.try_into()?,
+            invoicing_entity_id: invoicing_entity.id,
+        };
+
+        let updated = update_model
+            .update(&mut conn, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .ok_or(StoreError::ValueNotFound("Customer not found".to_string()))?;
+
+        let _ = self
+            .eventbus
+            .publish(Event::customer_updated(actor, updated.id, tenant_id))
+            .await;
+
+        CustomerForDisplayRow::find_by_local_id_or_alias(
+            &mut conn,
+            tenant_id,
+            customer.local_id_or_alias.clone(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .and_then(TryInto::try_into)
     }
 }

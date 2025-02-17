@@ -1,5 +1,9 @@
-use crate::api_rest::customers::mapping::{create_req_to_domain, domain_to_rest};
-use crate::api_rest::customers::model::{Customer, CustomerCreateRequest, CustomerListRequest};
+use crate::api_rest::customers::mapping::{
+    create_req_to_domain, domain_to_rest, update_req_to_domain,
+};
+use crate::api_rest::customers::model::{
+    Customer, CustomerCreateRequest, CustomerListRequest, CustomerUpdateRequest,
+};
 use crate::api_rest::model::{IdOrAlias, PaginatedResponse};
 use crate::api_rest::AppState;
 use crate::errors::RestApiError;
@@ -146,4 +150,46 @@ pub(crate) async fn create_customer(
         })
         .and_then(domain_to_rest)
         .map(|x| (StatusCode::CREATED, Json(x)))
+}
+
+#[utoipa::path(
+    put,
+    tag = "customer",
+    path = "/api/v1/customers/{id_or_alias}",
+    params(
+        ("id_or_alias" = String, Path, description = "customer ID or alias")
+    ),
+    request_body(content = CustomerUpdateRequest, content_type = "application/json"),
+    responses(
+        (status = 200, description = "Customer", body = Customer),
+        (status = 400, description = "Bad request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Customer not found"),
+        (status = 500, description = "Internal error"),
+    ),
+    security(
+        ("api-key" = [])
+    )
+)]
+#[axum::debug_handler]
+pub(crate) async fn update_customer(
+    Extension(authorized_state): Extension<AuthorizedAsTenant>,
+    State(app_state): State<AppState>,
+    Valid(Path(id_or_alias)): Valid<Path<IdOrAlias>>,
+    Valid(Json(payload)): Valid<Json<CustomerUpdateRequest>>,
+) -> Result<impl IntoResponse, RestApiError> {
+    app_state
+        .store
+        .update_customer(
+            authorized_state.actor_id,
+            authorized_state.tenant_id,
+            update_req_to_domain(id_or_alias, payload),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Error handling update_customer: {}", e);
+            RestApiError::from(e)
+        })
+        .and_then(domain_to_rest)
+        .map(Json)
 }
