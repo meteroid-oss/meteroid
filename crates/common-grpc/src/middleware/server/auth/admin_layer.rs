@@ -74,7 +74,7 @@ where
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
-        if !self.filter.map_or(true, |f| f(request.uri().path())) {
+        if self.filter.is_none_or(|f| f(request.uri().path())) {
             return future::Either::Left(self.inner.call(request));
         }
 
