@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 pub fn domain_to_rest(d: domain::CustomerForDisplay) -> Result<Customer, RestApiError> {
     Ok(Customer {
-        id: d.local_id,
+        id: d.id.into(),
         name: d.name,
         alias: d.alias,
         email: d.email,

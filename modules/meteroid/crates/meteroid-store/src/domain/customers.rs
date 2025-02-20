@@ -4,6 +4,7 @@ use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
+use common_domain::ids::{BaseId, CustomerId};
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
@@ -43,7 +44,7 @@ pub struct Customer {
 #[from_owned(CustomerBriefRow)]
 #[owned_into(CustomerBriefRow)]
 pub struct CustomerBrief {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
@@ -79,7 +80,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
 
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
         Ok(CustomerRowNew {
-            id: Uuid::now_v7(),
+            id: CustomerId::new(),
             local_id: LocalId::generate_for(IdType::Customer),
             name: self.inner.name,
             created_by: self.inner.created_by,

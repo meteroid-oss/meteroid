@@ -16,7 +16,6 @@ use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::{InvoicingAdapter, ParsedRequest};
 use crate::errors::InvoicingAdapterError;
 use axum::response::IntoResponse;
-use common_domain::StripeSecret;
 use error_stack::ResultExt;
 use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
 use meteroid_store::domain::{
@@ -105,7 +104,7 @@ impl InvoicingAdapter for Stripe {
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), InvoicingAdapterError> {
-        let api_key = &StripeSecret(api_key);
+        let api_key = &api_key;
 
         let stripe_customer = Self::extract_stripe_customer_id(customer)?;
         let collection_method = Self::extract_stripe_collection_method(customer)?;

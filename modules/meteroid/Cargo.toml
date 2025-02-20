@@ -62,7 +62,7 @@ rust_decimal_macros = { workspace = true }
 
 metering-grpc = { workspace = true, features = ["client"] }
 meteroid-oauth = { workspace = true }
-common-domain = { workspace = true }
+common-domain = { workspace = true, features = ["utoipa"] }
 common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
 distributed-lock = { workspace = true, features = ["postgres-support"] }

@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use common_domain::ids::CustomerId;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
@@ -61,7 +62,7 @@ pub struct CustomerForDisplayRow {
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerBriefRow {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
@@ -71,7 +72,7 @@ pub struct CustomerBriefRow {
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerRowNew {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub local_id: String,
     pub name: String,
     pub created_by: Uuid,

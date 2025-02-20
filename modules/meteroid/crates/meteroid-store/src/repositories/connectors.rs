@@ -4,7 +4,6 @@ use crate::domain::connectors::{
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use common_domain::StripeSecret;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::Report;
 use secrecy::SecretString;
@@ -74,7 +73,7 @@ impl ConnectorsInterface for Store {
         stripe_data: StripeSensitiveData,
     ) -> StoreResult<ConnectorMeta> {
         // we test with the account api, and fail if we cannot reach it
-        let secret = &StripeSecret(SecretString::new(stripe_data.api_secret_key.clone()));
+        let secret = &SecretString::new(stripe_data.api_secret_key.clone());
         self.stripe
             .get_account_id(secret)
             .await
