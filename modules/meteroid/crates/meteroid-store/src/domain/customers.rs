@@ -22,6 +22,7 @@ pub struct Customer {
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
+    pub archived_by: Option<Uuid>,
     pub tenant_id: Uuid,
     pub invoicing_entity_id: Uuid,
     #[map(~.try_into()?)]

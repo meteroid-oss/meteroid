@@ -26,6 +26,7 @@ pub struct CustomerRow {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Uuid,
     pub local_id: String,
+    pub archived_by: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]

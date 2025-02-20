@@ -63,7 +63,7 @@ impl TryFrom<svix::api::ListResponseEndpointOut> for WebhookPage<WebhookOutEndpo
                 .map(TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             done: value.done,
-            iterator: Some(value.iterator), // fixme after https://github.com/svix/svix-webhooks/issues/1721
+            iterator: value.iterator,
             prev_iterator: value.prev_iterator,
         })
     }
@@ -250,7 +250,7 @@ impl From<svix::api::ListResponseMessageAttemptOut> for WebhookPage<WebhookOutMe
         WebhookPage {
             data: value.data.into_iter().map(Into::into).collect(),
             done: value.done,
-            iterator: Some(value.iterator), // fixme after https://github.com/svix/svix-webhooks/issues/1721
+            iterator: value.iterator,
             prev_iterator: value.prev_iterator,
         }
     }

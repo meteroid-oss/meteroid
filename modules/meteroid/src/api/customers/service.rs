@@ -5,11 +5,12 @@ use uuid::Uuid;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
-    customers_service_server::CustomersService, BuyCustomerCreditsRequest,
-    BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
-    GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
-    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
+    customers_service_server::CustomersService, ArchiveCustomerRequest, ArchiveCustomerResponse,
+    BuyCustomerCreditsRequest, BuyCustomerCreditsResponse, CreateCustomerRequest,
+    CreateCustomerResponse, CustomerBrief, GetCustomerByAliasRequest, GetCustomerByAliasResponse,
+    GetCustomerByIdRequest, GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse,
+    PatchCustomerRequest, PatchCustomerResponse, TopUpCustomerBalanceRequest,
+    TopUpCustomerBalanceResponse,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
@@ -286,5 +287,23 @@ impl CustomersService for CustomerServiceComponents {
         Ok(Response::new(BuyCustomerCreditsResponse {
             invoice: Some(invoice),
         }))
+    }
+
+    async fn archive_customer(
+        &self,
+        request: Request<ArchiveCustomerRequest>,
+    ) -> Result<Response<ArchiveCustomerResponse>, Status> {
+        let actor = request.actor()?;
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+        let customer_id = parse_uuid(&req.id, "id")?;
+
+        self.store
+            .archive_customer(actor, tenant_id, customer_id.to_string())
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(ArchiveCustomerResponse {}))
     }
 }
