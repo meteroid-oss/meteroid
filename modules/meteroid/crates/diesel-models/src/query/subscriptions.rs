@@ -266,6 +266,7 @@ impl SubscriptionRow {
     ) -> DbResult<CursorPaginatedVec<SubscriptionInvoiceCandidateRow>> {
         use crate::schema::invoice::dsl as i_dsl;
 
+        use crate::schema::customer::dsl as c_dsl;
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::subscription::dsl as s_dsl;
@@ -294,6 +295,9 @@ impl SubscriptionRow {
                 pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
             )
             .left_join(sc_dsl::subscription_component)
+            .inner_join(c_dsl::customer.on(c_dsl::id.eq(s_dsl::customer_id)))
+            // only if customer is not archived
+            .filter(c_dsl::archived_at.is_null())
             .select(SubscriptionInvoiceCandidateRow::as_select())
             .cursor_paginate(pagination, "id");
 

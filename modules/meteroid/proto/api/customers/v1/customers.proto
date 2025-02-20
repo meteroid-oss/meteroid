@@ -71,6 +71,12 @@ message BuyCustomerCreditsResponse {
   api.invoices.v1.DetailedInvoice invoice = 1;
 }
 
+message ArchiveCustomerRequest {
+  string id = 1;
+}
+
+message ArchiveCustomerResponse {}
+
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc PatchCustomer(PatchCustomerRequest) returns (PatchCustomerResponse) {}
@@ -79,4 +85,5 @@ service CustomersService {
   rpc GetCustomerByAlias(GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}
   rpc TopUpCustomerBalance(TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
   rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
+  rpc ArchiveCustomer(ArchiveCustomerRequest) returns (ArchiveCustomerResponse) {}
 }

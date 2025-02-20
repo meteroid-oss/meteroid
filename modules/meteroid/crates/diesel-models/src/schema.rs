@@ -311,6 +311,7 @@ diesel::table! {
         shipping_address -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
         local_id -> Text,
+        archived_by -> Nullable<Uuid>,
     }
 }
 

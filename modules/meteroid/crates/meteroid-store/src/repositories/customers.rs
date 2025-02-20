@@ -26,6 +26,7 @@ use diesel_models::customers::{
 };
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::query::IdentityDb;
+use diesel_models::subscriptions::SubscriptionRow;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
@@ -92,6 +93,13 @@ pub trait CustomersInterface {
         tenant_id: Uuid,
         customer: CustomerUpdate,
     ) -> StoreResult<CustomerForDisplay>;
+
+    async fn archive_customer(
+        &self,
+        actor: Uuid,
+        tenant_id: Uuid,
+        id_or_alias: String,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -603,5 +611,45 @@ impl CustomersInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)
         .and_then(TryInto::try_into)
+    }
+
+    async fn archive_customer(
+        &self,
+        actor: Uuid,
+        tenant_id: Uuid,
+        id_or_alias: String,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let customer = CustomerRow::find_by_alias(&mut conn, id_or_alias)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        let subscriptions = SubscriptionRow::list_subscriptions(
+            &mut conn,
+            tenant_id,
+            Some(IdentityDb::UUID(customer.id)),
+            None,
+            PaginationRequest {
+                per_page: Some(1),
+                page: 0,
+            }
+            .into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        // this is a temp solution that will be replaced with a more complex logic
+        if subscriptions.total_results > 0 {
+            return Err(StoreError::InvalidArgument(
+                "Cannot archive customer with active subscriptions".to_string(),
+            )
+            .into());
+        }
+
+        CustomerRow::archive(&mut conn, customer.id, tenant_id, actor)
+            .await
+            .map(|_| ())
+            .map_err(Into::<Report<StoreError>>::into)
     }
 }

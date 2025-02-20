@@ -128,7 +128,7 @@
         "tags": [
           "customer"
         ],
-        "operationId": "get_customer_by_id_or_alias",
+        "operationId": "get_customer",
         "parameters": [
           {
             "name": "id_or_alias",
@@ -203,6 +203,42 @@
           },
           "400": {
             "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Customer not found"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "security": [
+          {
+            "api-key": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "customer"
+        ],
+        "operationId": "delete_customer",
+        "parameters": [
+          {
+            "name": "id_or_alias",
+            "in": "path",
+            "description": "customer ID or alias",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Customer"
           },
           "401": {
             "description": "Unauthorized"
