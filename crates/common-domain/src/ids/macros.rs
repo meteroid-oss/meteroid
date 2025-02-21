@@ -2,12 +2,9 @@
 macro_rules! id_type {
     ($id_name:ident, $id_prefix:literal) => {
         #[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize, serde::Deserialize)]
-        #[cfg(feature = "diesel")]
-        #[derive(diesel_derive_newtype::DieselNewType)]
-        #[cfg(feature = "utoipa")]
-        #[derive(utoipa::ToSchema)]
-        #[cfg(feature = "utoipa")]
-        #[schema(value_type = String)]
+        #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]
+        #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+        #[cfg_attr(feature = "utoipa", schema(value_type = String))]
         pub struct $id_name(uuid::Uuid);
 
         impl std::ops::Deref for $id_name {
@@ -21,7 +18,7 @@ macro_rules! id_type {
         impl Default for $id_name {
             #[inline]
             fn default() -> Self {
-                uuid::Uuid::default().into()
+                uuid::Uuid::max().into()
             }
         }
 
@@ -77,7 +74,7 @@ mod tests {
     id_type!(FakeId, "fake_");
 
     #[test]
-    fn test_to_from() {
+    fn test_to_from_string() {
         let id = FakeId::new();
         let id_str = id.to_string();
         let parsed_id = FakeId::from_str(&id_str).unwrap();
@@ -89,6 +86,7 @@ mod tests {
         let id = FakeId::default();
         let id2 = FakeId::default();
 
-        assert_eq!(id, id2)
+        assert_eq!(id, id2);
+        assert_eq!(id.to_string().as_str(), "fake_7n42DGM5Tflk9n8mt7Fhc7")
     }
 }
