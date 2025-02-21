@@ -68,6 +68,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
