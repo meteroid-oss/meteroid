@@ -1,6 +1,7 @@
 use crate::api_rest::addresses::model::{Address, ShippingAddress};
 use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::PaginatedRequest;
+use common_domain::ids::string_serde;
 use common_domain::ids::CustomerId;
 use meteroid_store::domain;
 use utoipa::ToSchema;
@@ -23,6 +24,7 @@ pub struct CustomerListRequest {
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct Customer {
+    #[serde(with = "string_serde")]
     pub id: CustomerId,
     pub name: String,
     pub alias: Option<String>,

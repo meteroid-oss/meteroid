@@ -13,12 +13,13 @@ uuid = { workspace = true, features = ["serde", "v7"] }
 base62 = { workspace = true }
 diesel = { workspace = true, features = ["uuid", "postgres_backend"], optional = true }
 diesel-derive-newtype = { workspace = true, optional = true }
-
 utoipa = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [features]
 diesel = ["dep:diesel", "dep:diesel-derive-newtype"]
 utoipa = ["dep:utoipa"]
-api = []
 default = []
 
