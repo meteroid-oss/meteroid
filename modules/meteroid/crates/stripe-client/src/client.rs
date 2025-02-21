@@ -147,7 +147,7 @@ impl StripeClient {
     ) -> Response<T> {
         let url = self.url(path);
 
-        let request_builder = self.create_init_request(Method::GET, url, &secret_key, None);
+        let request_builder = self.create_init_request(Method::GET, url, secret_key, None);
 
         self.execute(request_builder, retry_strategy)
     }
@@ -188,7 +188,7 @@ impl StripeClient {
             .to_string();
 
         let request_builder = self
-            .create_init_request(Method::POST, url, &secret_key, Some(idempotency_key))
+            .create_init_request(Method::POST, url, secret_key, Some(idempotency_key))
             .body(body);
 
         self.execute(request_builder, retry_strategy)
