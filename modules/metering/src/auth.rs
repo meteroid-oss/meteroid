@@ -86,7 +86,7 @@ where
     }
 
     fn call(&mut self, mut request: Request<ReqBody>) -> Self::Future {
-        if self.filter.is_none_or(|f| f(request.uri().path())) {
+        if !self.filter.is_none_or(|f| f(request.uri().path())) {
             return Box::pin(self.inner.call(request));
         }
 
