@@ -315,10 +315,7 @@ impl SubscriptionInterface for Store {
             .unique()
             .collect::<Vec<_>>();
 
-        let customers = self
-            .list_customers_by_ids(customer_ids)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let customers = self.list_customers_by_ids(customer_ids).await?;
 
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
 
@@ -701,7 +698,7 @@ impl SubscriptionInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)
         .map(|v| {
             v.into_iter()
-                .map(|e| e.try_into().map_err(Report::from))
+                .map(|e| e.try_into())
                 .collect::<Result<Vec<_>, _>>()
         })?
     }
@@ -1118,8 +1115,7 @@ async fn calculate_coupons_discount(
                             subscription_currency,
                             chrono::Utc::now().date_naive(),
                         )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
+                        .await?
                         .ok_or(StoreError::ValueNotFound(format!(
                             "historical rate from {} to {}",
                             currency, subscription_currency

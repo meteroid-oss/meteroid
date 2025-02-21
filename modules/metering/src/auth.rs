@@ -86,7 +86,7 @@ where
     }
 
     fn call(&mut self, mut request: Request<ReqBody>) -> Self::Future {
-        if !self.filter.map_or(true, |f| f(request.uri().path())) {
+        if !self.filter.is_none_or(|f| f(request.uri().path())) {
             return Box::pin(self.inner.call(request));
         }
 
@@ -127,7 +127,7 @@ where
 
             request.extensions_mut().insert(authorized_state);
 
-            inner.call(request).await.map_err(Into::into)
+            inner.call(request).await
         };
 
         // if the future is an error , we recover by providing an empty REsponse

@@ -230,12 +230,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 )
             })?;
 
-        mapping::subscriptions::domain_to_proto(subscription)
-            .map(|s| {
-                Response::new(CancelSubscriptionResponse {
-                    subscription: Some(s),
-                })
+        mapping::subscriptions::domain_to_proto(subscription).map(|s| {
+            Response::new(CancelSubscriptionResponse {
+                subscription: Some(s),
             })
-            .map_err(Into::<Status>::into)
+        })
     }
 }
