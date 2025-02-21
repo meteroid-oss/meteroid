@@ -160,7 +160,7 @@ impl StripeClient {
     ) -> Response<T> {
         let url = self.url(path);
 
-        let request_builder = self.create_init_request(Method::POST, url, &secret_key, None);
+        let request_builder = self.create_init_request(Method::POST, url, secret_key, None);
 
         self.execute(request_builder, retry_strategy)
     }
