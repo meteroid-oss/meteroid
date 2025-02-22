@@ -110,7 +110,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_id(&mut conn, customer_id.into(), tenant_id)
+        CustomerRow::find_by_id(&mut conn, customer_id, tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)

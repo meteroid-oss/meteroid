@@ -1380,7 +1380,7 @@
                   ]
                 },
                 "customer_id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/CustomerId"
                 },
                 "customer_name": {
                   "type": "string"
@@ -1566,7 +1566,7 @@
             ]
           },
           "customer_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/CustomerId"
           },
           "customer_name": {
             "type": "string"
@@ -1600,7 +1600,7 @@
             ]
           },
           "customer_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/CustomerId"
           },
           "customer_name": {
             "type": "string"
