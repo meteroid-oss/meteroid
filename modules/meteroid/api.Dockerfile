@@ -1,5 +1,5 @@
 
-FROM lukemathwalker/cargo-chef:latest-rust-1-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.85.0-bookworm AS chef
 ARG CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 WORKDIR /opt/src
