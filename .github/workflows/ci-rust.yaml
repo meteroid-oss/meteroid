@@ -49,9 +49,7 @@ jobs:
           sudo mv bin/protoc /usr/local/bin
           sudo mv include/google /usr/local/include
       - name: Install toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.7
@@ -69,9 +67,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
         with:
-          toolchain: stable
+          components: rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
@@ -89,10 +87,9 @@ jobs:
           unzip protoc*.zip
           sudo mv bin/protoc /usr/local/bin
           sudo mv include/google /usr/local/include
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
         with:
           components: clippy
-          toolchain: stable
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.7
@@ -113,9 +110,7 @@ jobs:
           sudo mv bin/protoc /usr/local/bin
           sudo mv include/google /usr/local/include
       - name: Install toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
+        uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.7
