@@ -1,11 +1,36 @@
 #[macro_export]
 macro_rules! id_type {
     ($id_name:ident, $id_prefix:literal) => {
-        #[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize)]
+        #[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize, Copy)]
         #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]
         #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
         #[cfg_attr(feature = "utoipa", schema(value_type = String))]
         pub struct $id_name(uuid::Uuid);
+
+        impl $id_name {
+            #[cfg(feature = "tonic")]
+            pub fn as_proto(&self) -> String {
+                self.to_string()
+            }
+
+            #[cfg(feature = "tonic")]
+            pub fn from_proto(value: &String) -> Result<$id_name, tonic::Status> {
+                $id_name::from_str(value.as_ref()).map_err(|_| {
+                    tonic::Status::invalid_argument(format!(
+                        "Invalid {}: {}",
+                        stringify!($id_name),
+                        value
+                    ))
+                })
+            }
+
+            #[cfg(feature = "tonic")]
+            pub fn from_proto_opt(
+                value: Option<&String>,
+            ) -> Result<Option<$id_name>, tonic::Status> {
+                value.map($id_name::from_proto).transpose()
+            }
+        }
 
         impl<'de> serde::Deserialize<'de> for $id_name {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -37,6 +62,7 @@ macro_rules! id_type {
             }
         }
 
+        #[sealed::sealed]
         impl $crate::ids::BaseId for $id_name {
             const PREFIX: &'static str = $id_prefix;
             type IdType = $id_name;

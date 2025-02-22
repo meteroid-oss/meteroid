@@ -4,6 +4,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::ids::{BaseId, CustomerId};
 use diesel_models::outbox_event::OutboxEventRowNew;
 use error_stack::Report;
 use o2o::o2o;
@@ -21,7 +22,7 @@ impl OutboxEvent {
     pub fn customer_created(event: CustomerEvent) -> OutboxEvent {
         OutboxEvent {
             tenant_id: event.tenant_id,
-            aggregate_id: event.id,
+            aggregate_id: event.id.as_uuid(),
             event_type: EventType::CustomerCreated(Box::new(event)),
         }
     }
@@ -125,8 +126,7 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
 #[derive(Debug, Serialize, Deserialize, o2o)]
 #[from_owned(Customer)]
 pub struct CustomerEvent {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CustomerId,
     pub tenant_id: Uuid,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -150,8 +150,7 @@ pub struct SubscriptionEvent {
     pub id: Uuid,
     pub local_id: String,
     pub tenant_id: Uuid,
-    pub customer_id: Uuid,
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_alias: Option<String>,
     pub customer_name: String,
@@ -195,9 +194,7 @@ pub struct InvoiceEvent {
     #[map(@.invoice.tenant_id)]
     pub tenant_id: Uuid,
     #[map(@.invoice.customer_id)]
-    pub customer_id: Uuid,
-    #[map(@.customer.local_id)]
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[map(@.invoice.subscription_id)]
     pub subscription_id: Option<Uuid>,

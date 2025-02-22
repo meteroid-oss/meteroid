@@ -1,8 +1,5 @@
 use chrono::{NaiveDate, NaiveDateTime};
 
-use o2o::o2o;
-use uuid::Uuid;
-
 use crate::domain::enums::BillingPeriodEnum;
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
@@ -10,17 +7,20 @@ use crate::domain::{
     Schedule, SubscriptionComponent,
 };
 use crate::utils::local_id::{IdType, LocalId};
+use common_domain::ids::CustomerId;
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
 };
+use o2o::o2o;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o)]
 #[from_owned(SubscriptionRow)]
 pub struct CreatedSubscription {
     pub id: Uuid,
     pub local_id: String,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub billing_day: i16,
     pub tenant_id: Uuid,
     pub currency: String,
@@ -45,8 +45,7 @@ pub struct CreatedSubscription {
 pub struct Subscription {
     pub id: Uuid,
     pub local_id: String,
-    pub customer_id: Uuid,
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub customer_name: String,
     pub billing_day: i16,
@@ -78,7 +77,6 @@ impl From<SubscriptionForDisplayRow> for Subscription {
             id: val.subscription.id,
             local_id: val.subscription.local_id,
             customer_id: val.subscription.customer_id,
-            customer_local_id: val.customer_local_id,
             customer_name: val.customer_name,
             customer_alias: val.customer_alias,
             billing_day: val.subscription.billing_day,
@@ -107,7 +105,7 @@ impl From<SubscriptionForDisplayRow> for Subscription {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionNew {
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub billing_day: i16,
     pub currency: String,
     pub trial_start_date: Option<NaiveDate>,
@@ -167,8 +165,7 @@ pub struct SubscriptionDetails {
     pub id: uuid::Uuid,
     pub local_id: String,
     pub tenant_id: uuid::Uuid,
-    pub customer_id: uuid::Uuid,
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub plan_version_id: uuid::Uuid,
     pub billing_start_date: chrono::NaiveDate,
@@ -205,7 +202,7 @@ pub struct SubscriptionDetails {
 pub struct SubscriptionInvoiceCandidate {
     pub id: Uuid,
     pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub plan_version_id: Uuid,
     pub plan_name: String,
     pub billing_start_date: NaiveDate,

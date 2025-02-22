@@ -108,8 +108,8 @@ impl AppliedCouponForDisplayRow {
             .inner_join(s_dsl::subscription)
             .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
-            .filter(c_dsl::local_id.eq(param_coupon_id))
-            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(cou_dsl::local_id.eq(param_coupon_id))
+            .filter(cou_dsl::tenant_id.eq(tenant_id))
             .order(ac_dsl::created_at.desc())
             .select(AppliedCouponForDisplayRow::as_select());
 

@@ -36,7 +36,7 @@ impl InternalService for InternalServiceComponents {
         for record in &res {
             customers.push(ResolvedId {
                 alias: record.alias.clone().unwrap(),
-                local_id: record.local_id.to_string(),
+                local_id: record.id.to_string(),
             });
         }
 

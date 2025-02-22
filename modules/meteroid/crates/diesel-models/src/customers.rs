@@ -8,7 +8,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerRow {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -26,7 +26,6 @@ pub struct CustomerRow {
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Uuid,
-    pub local_id: String,
     pub archived_by: Option<Uuid>,
 }
 
@@ -34,7 +33,7 @@ pub struct CustomerRow {
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerForDisplayRow {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -52,7 +51,6 @@ pub struct CustomerForDisplayRow {
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Uuid,
-    pub local_id: String,
     #[diesel(select_expression = crate::schema::invoicing_entity::local_id)]
     #[diesel(select_expression_type = crate::schema::invoicing_entity::local_id)]
     pub invoicing_entity_local_id: String,
@@ -63,7 +61,6 @@ pub struct CustomerForDisplayRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerBriefRow {
     pub id: CustomerId,
-    pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
 }
@@ -73,7 +70,6 @@ pub struct CustomerBriefRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerRowNew {
     pub id: CustomerId,
-    pub local_id: String,
     pub name: String,
     pub created_by: Uuid,
     pub tenant_id: Uuid,
@@ -95,7 +91,7 @@ pub struct CustomerRowNew {
 #[diesel(table_name = crate::schema::customer)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerRowPatch {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: Option<String>,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -113,7 +109,7 @@ pub struct CustomerRowPatch {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(treat_none_as_null = true)]
 pub struct CustomerRowUpdate {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: String,
     pub billing_config: serde_json::Value,
     pub alias: Option<String>,

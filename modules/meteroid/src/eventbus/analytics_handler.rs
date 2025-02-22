@@ -143,7 +143,7 @@ impl AnalyticsHandler {
         let customer = self
             .store
             .find_customer_by_id(
-                Identity::UUID(event_data_details.entity_id),
+                event_data_details.entity_id.into(),
                 event_data_details.tenant_id,
             )
             .await
@@ -170,7 +170,7 @@ impl AnalyticsHandler {
         let customer = self
             .store
             .find_customer_by_id(
-                Identity::UUID(event_data_details.entity_id),
+                event_data_details.entity_id.into(),
                 event_data_details.tenant_id,
             )
             .await
@@ -198,7 +198,7 @@ impl AnalyticsHandler {
         let customer = self
             .store
             .find_customer_by_id(
-                Identity::UUID(event_data_details.entity_id),
+                event_data_details.entity_id.into(),
                 event_data_details.tenant_id,
             )
             .await

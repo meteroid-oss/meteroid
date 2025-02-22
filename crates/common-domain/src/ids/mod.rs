@@ -1,11 +1,15 @@
 use crate::id_type;
+use sealed::sealed;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::ops::Deref;
 use std::str::FromStr;
 use uuid::Uuid;
 
+mod alias_or;
 mod macros;
+
+pub use alias_or::AliasOr;
 
 id_type!(CustomerId, "cus_");
 
@@ -19,11 +23,15 @@ impl Display for IdError {
 
 impl Error for IdError {}
 
-pub trait BaseId: Deref<Target = Uuid> + FromStr + Display {
+#[sealed]
+pub trait BaseId: Deref<Target = Uuid> {
     const PREFIX: &'static str;
     type IdType;
 
     fn new() -> Self::IdType;
+    fn as_uuid(&self) -> Uuid {
+        **self
+    }
     fn parse_uuid(s: &str) -> Result<Self::IdType, IdError>;
 }
 
@@ -47,6 +55,30 @@ pub mod string_serde {
     {
         let s = String::deserialize(deserializer)?;
         T::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+pub mod string_serde_opt {
+    use crate::ids::BaseId;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S, T>(id: &Option<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: BaseId + Serialize,
+    {
+        match id {
+            Some(id) => serializer.serialize_some(&id),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: BaseId + Deserialize<'de>,
+    {
+        Option::deserialize(deserializer)
     }
 }
 

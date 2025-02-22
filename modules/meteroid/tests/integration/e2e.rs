@@ -3,12 +3,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::{Datelike, Days, Months};
-use opentelemetry::propagation::Injector;
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use tonic::Request;
-use uuid::{uuid, Uuid};
-
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
@@ -28,6 +22,11 @@ use meteroid_store::domain::{
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
+use opentelemetry::propagation::Injector;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use tonic::Request;
+use uuid::{uuid, Uuid};
 
 use crate::metering_it;
 use crate::{helpers, meteroid_it};
@@ -452,7 +451,7 @@ async fn test_metering_e2e() {
             status: InvoiceStatusEnum::Draft,
             external_status: None,
             tenant_id: tenant_uuid,
-            customer_id: Uuid::from_str(&customer_1).unwrap(),
+            customer_id: Uuid::from_str(&customer_1).unwrap().into(),
             subscription_id: Some(Uuid::from_str(&subscription.id).unwrap()),
             currency: subscription.currency.clone(),
             due_at: Some(
@@ -482,7 +481,7 @@ async fn test_metering_e2e() {
             tax_amount: 0,
             customer_details: InlineCustomer {
                 billing_address: None,
-                id: Uuid::from_str(&customer_1).unwrap(),
+                id: Uuid::from_str(&customer_1).unwrap().into(),
                 name: "Customer 1".to_string(),
                 email: None,
                 vat_number: None,

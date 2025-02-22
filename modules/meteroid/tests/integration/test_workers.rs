@@ -76,19 +76,19 @@ async fn test_draft_worker() {
         if subscription_id == SUBSCRIPTION_SPORTIFY_ID1
             || subscription_id == SUBSCRIPTION_SPORTIFY_ID2
         {
-            assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID);
+            assert_eq!(invoice.customer_id, CUSTOMER_SPORTIFY_ID.into());
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
         } else if subscription_id == SUBSCRIPTION_UBER_ID1 {
-            assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
+            assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID.into());
             assert_eq!(invoice.invoice_date, date("2024-11-01"));
         } else if subscription_id == SUBSCRIPTION_UBER_ID2 {
-            assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID);
+            assert_eq!(invoice.customer_id, CUSTOMER_UBER_ID.into());
             assert_eq!(invoice.invoice_date, date("2023-11-15"));
         } else if subscription_id == SUBSCRIPTION_COMODO_ID1 {
-            assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
+            assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID.into());
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
         } else if subscription_id == SUBSCRIPTION_COMODO_ID2 {
-            assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID);
+            assert_eq!(invoice.customer_id, CUSTOMER_COMODO_ID.into());
             assert_eq!(invoice.invoice_date, date("2023-11-30"));
         } else {
             panic!("Unexpected invoice: {:?}", invoice);

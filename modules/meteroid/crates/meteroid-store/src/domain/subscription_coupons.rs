@@ -1,6 +1,7 @@
 use crate::domain::coupons::{Coupon, CouponDiscount};
 use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
+use common_domain::ids::CustomerId;
 use diesel_models::applied_coupons::{
     AppliedCouponDetailedRow, AppliedCouponForDisplayRow, AppliedCouponRow,
 };
@@ -25,7 +26,7 @@ pub struct CreateSubscriptionCoupons {
 pub struct AppliedCoupon {
     pub id: Uuid,
     pub coupon_id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub subscription_id: Uuid,
     pub is_active: bool,
     pub applied_amount: Option<Decimal>,
@@ -39,8 +40,7 @@ pub struct AppliedCoupon {
 pub struct AppliedCouponForDisplay {
     pub id: Uuid,
     pub coupon_id: Uuid,
-    pub customer_id: Uuid,
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     pub customer_name: String,
     pub subscription_id: Uuid,
     pub plan_id: Uuid,

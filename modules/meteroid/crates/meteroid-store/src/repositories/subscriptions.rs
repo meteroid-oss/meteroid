@@ -32,6 +32,7 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
+use common_domain::ids::CustomerId;
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::applied_coupons::{
@@ -95,7 +96,7 @@ pub trait SubscriptionInterface {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Identity>,
+        customer_id: Option<CustomerId>,
         plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
@@ -647,7 +648,6 @@ impl SubscriptionInterface for Store {
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             plan_version_id: subscription.plan_version_id,
-            customer_local_id: subscription.customer_local_id,
             customer_alias: subscription.customer_alias,
             billing_start_date: subscription.billing_start_date,
             billing_end_date: subscription.billing_end_date,
@@ -791,7 +791,7 @@ impl SubscriptionInterface for Store {
     async fn list_subscriptions(
         &self,
         tenant_id: Uuid,
-        customer_id: Option<Identity>,
+        customer_id: Option<CustomerId>,
         plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
@@ -800,7 +800,7 @@ impl SubscriptionInterface for Store {
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            customer_id.map(Into::into),
+            customer_id,
             plan_id.map(Into::into),
             pagination.into(),
         )

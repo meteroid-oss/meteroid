@@ -11,6 +11,7 @@ use crate::api_rest::subscriptions::model::{
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum_valid::Valid;
+use common_domain::ids::CustomerId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::Identity;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -59,13 +60,13 @@ async fn list_subscriptions_handler(
     store: Store,
     pagination: PaginatedRequest,
     tenant_id: Uuid,
-    customer_id: Option<String>,
+    customer_id: Option<CustomerId>,
     plan_id: Option<String>,
 ) -> Result<PaginatedResponse<Subscription>, RestApiError> {
     let res = store
         .list_subscriptions(
             tenant_id,
-            customer_id.map(Identity::LOCAL),
+            customer_id,
             plan_id.map(Identity::LOCAL),
             domain::PaginationRequest {
                 page: pagination.offset.unwrap_or(0),

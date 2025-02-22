@@ -2,9 +2,8 @@ use crate::domain::Identity;
 use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
-use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
-use common_domain::ids::{BaseId, CustomerId};
+use common_domain::ids::{AliasOr, BaseId, CustomerId};
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
@@ -15,8 +14,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerRow, StoreErrorReport)]
 pub struct Customer {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -45,7 +43,6 @@ pub struct Customer {
 #[owned_into(CustomerBriefRow)]
 pub struct CustomerBrief {
     pub id: CustomerId,
-    pub local_id: String,
     pub name: String,
     pub alias: Option<String>,
 }
@@ -81,7 +78,6 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
         Ok(CustomerRowNew {
             id: CustomerId::new(),
-            local_id: LocalId::generate_for(IdType::Customer),
             name: self.inner.name,
             created_by: self.inner.created_by,
             tenant_id: self.tenant_id,
@@ -111,7 +107,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
 #[derive(Clone, Debug, o2o)]
 #[owned_try_into(CustomerRowPatch, StoreErrorReport)]
 pub struct CustomerPatch {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: Option<String>,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -177,7 +173,7 @@ pub enum StripeCollectionMethod {
 pub struct CustomerTopUpBalance {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub cents: i32,
     pub notes: Option<String>,
 }
@@ -186,7 +182,7 @@ pub struct CustomerTopUpBalance {
 pub struct CustomerBuyCredits {
     pub created_by: Uuid,
     pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub cents: i32,
     pub notes: Option<String>,
 }
@@ -194,8 +190,7 @@ pub struct CustomerBuyCredits {
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerForDisplayRow, StoreErrorReport)]
 pub struct CustomerForDisplay {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -221,7 +216,7 @@ pub struct CustomerForDisplay {
 
 #[derive(Clone, Debug)]
 pub struct CustomerUpdate {
-    pub local_id_or_alias: String,
+    pub id_or_alias: AliasOr<CustomerId>,
     pub name: String,
     pub billing_config: BillingConfig,
     pub alias: Option<String>,

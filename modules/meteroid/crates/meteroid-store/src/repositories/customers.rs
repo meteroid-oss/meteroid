@@ -1,7 +1,3 @@
-use diesel_async::scoped_futures::ScopedFutureExt;
-use error_stack::Report;
-use uuid::Uuid;
-
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
@@ -19,18 +15,21 @@ use crate::repositories::InvoiceInterface;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
+use common_domain::ids::{AliasOr, BaseId, CustomerId};
 use common_eventbus::Event;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{
     CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
 };
 use diesel_models::invoicing_entities::InvoicingEntityRow;
-use diesel_models::query::IdentityDb;
 use diesel_models::subscriptions::SubscriptionRow;
+use error_stack::Report;
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: Identity, tenant_id: Uuid) -> StoreResult<Customer>;
+    async fn find_customer_by_id(&self, id: CustomerId, tenant_id: Uuid) -> StoreResult<Customer>;
 
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
@@ -48,7 +47,7 @@ pub trait CustomersInterface {
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<Customer>>;
 
-    async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>>;
+    async fn list_customers_by_ids(&self, ids: Vec<CustomerId>) -> StoreResult<Vec<Customer>>;
 
     async fn insert_customer(
         &self,
@@ -73,9 +72,9 @@ pub trait CustomersInterface {
 
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice>;
 
-    async fn find_customer_by_local_id_or_alias(
+    async fn find_customer_by_id_or_alias(
         &self,
-        id_or_alias: String,
+        id_or_alias: AliasOr<CustomerId>,
         tenant_id: Uuid,
     ) -> StoreResult<CustomerForDisplay>;
 
@@ -98,7 +97,7 @@ pub trait CustomersInterface {
         &self,
         actor: Uuid,
         tenant_id: Uuid,
-        id_or_alias: String,
+        id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()>;
 }
 
@@ -106,7 +105,7 @@ pub trait CustomersInterface {
 impl CustomersInterface for Store {
     async fn find_customer_by_id(
         &self,
-        customer_id: Identity,
+        customer_id: CustomerId,
         tenant_id: Uuid,
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
@@ -177,7 +176,7 @@ impl CustomersInterface for Store {
         Ok(res)
     }
 
-    async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>> {
+    async fn list_customers_by_ids(&self, ids: Vec<CustomerId>) -> StoreResult<Vec<Customer>> {
         let mut conn = self.get_conn().await?;
 
         CustomerRow::list_by_ids(&mut conn, ids)
@@ -226,7 +225,7 @@ impl CustomersInterface for Store {
             .eventbus
             .publish(Event::customer_created(
                 res.created_by,
-                res.id,
+                res.id.as_uuid(),
                 res.tenant_id,
             ))
             .await;
@@ -302,7 +301,7 @@ impl CustomersInterface for Store {
         let _ = futures::future::join_all(res.clone().into_iter().map(|res| {
             self.eventbus.publish(Event::customer_created(
                 res.created_by,
-                res.id,
+                res.id.as_uuid(),
                 res.tenant_id,
             ))
         }))
@@ -335,7 +334,11 @@ impl CustomersInterface for Store {
 
                 let _ = self
                     .eventbus
-                    .publish(Event::customer_patched(actor, updated.id, tenant_id))
+                    .publish(Event::customer_patched(
+                        actor,
+                        updated.id.as_uuid(),
+                        tenant_id,
+                    ))
                     .await;
 
                 Ok(Some(updated))
@@ -358,10 +361,9 @@ impl CustomersInterface for Store {
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        let customer =
-            CustomerRow::find_by_id(&mut conn, IdentityDb::UUID(req.customer_id), req.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let customer = CustomerRow::find_by_id(&mut conn, req.customer_id, req.tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let invoice = self
             .transaction_with(&mut conn, |conn| {
@@ -504,14 +506,14 @@ impl CustomersInterface for Store {
         self.find_invoice_by_id(req.tenant_id, invoice.id).await
     }
 
-    async fn find_customer_by_local_id_or_alias(
+    async fn find_customer_by_id_or_alias(
         &self,
-        id_or_alias: String,
+        id_or_alias: AliasOr<CustomerId>,
         tenant_id: Uuid,
     ) -> StoreResult<CustomerForDisplay> {
         let mut conn = self.get_conn().await?;
 
-        CustomerForDisplayRow::find_by_local_id_or_alias(&mut conn, tenant_id, id_or_alias)
+        CustomerForDisplayRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -559,10 +561,10 @@ impl CustomersInterface for Store {
     ) -> StoreResult<CustomerForDisplay> {
         let mut conn = self.get_conn().await?;
 
-        let by_id_or_alias = CustomerForDisplayRow::find_by_local_id_or_alias(
+        let by_id_or_alias = CustomerForDisplayRow::find_by_id_or_alias(
             &mut conn,
             tenant_id,
-            customer.local_id_or_alias.clone(),
+            customer.id_or_alias.clone(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -600,13 +602,17 @@ impl CustomersInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::customer_updated(actor, updated.id, tenant_id))
+            .publish(Event::customer_updated(
+                actor,
+                updated.id.as_uuid(),
+                tenant_id,
+            ))
             .await;
 
-        CustomerForDisplayRow::find_by_local_id_or_alias(
+        CustomerForDisplayRow::find_by_id_or_alias(
             &mut conn,
             tenant_id,
-            customer.local_id_or_alias.clone(),
+            customer.id_or_alias.clone(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)
@@ -617,18 +623,18 @@ impl CustomersInterface for Store {
         &self,
         actor: Uuid,
         tenant_id: Uuid,
-        id_or_alias: String,
+        id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        let customer = CustomerRow::find_by_alias(&mut conn, id_or_alias)
+        let customer = CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            Some(IdentityDb::UUID(customer.id)),
+            Some(customer.id),
             None,
             PaginationRequest {
                 per_page: Some(1),

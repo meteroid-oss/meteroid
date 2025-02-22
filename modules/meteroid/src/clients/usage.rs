@@ -1,9 +1,6 @@
-use chrono::{NaiveDate, Timelike};
-use rust_decimal::Decimal;
-use tonic::Request;
-use uuid::Uuid;
-
 use crate::api::billablemetrics::mapping;
+use chrono::{NaiveDate, Timelike};
+use common_domain::ids::CustomerId;
 use common_grpc::middleware::client::LayeredClientService;
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
@@ -16,6 +13,9 @@ use meteroid_store::compute::clients::usage::*;
 use meteroid_store::compute::ComputeError;
 use meteroid_store::domain;
 use meteroid_store::domain::{BillableMetric, Period};
+use rust_decimal::Decimal;
+use tonic::Request;
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct MeteringUsageClient {
@@ -74,7 +74,7 @@ impl UsageClient for MeteringUsageClient {
     async fn fetch_usage(
         &self,
         tenant_id: &Uuid,
-        customer_local_id: &str,
+        customer_id: CustomerId,
         customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
@@ -144,7 +144,7 @@ impl UsageClient for MeteringUsageClient {
             event_name: metric.code.clone(),
             meter_aggregation_type: aggregation_type,
             customers: vec![CustomerIdentifier {
-                local_id: customer_local_id.to_string(),
+                local_id: customer_id.to_string(),
                 alias: customer_alias.clone(),
             }],
             from: Some(date_to_timestamp(period.start)),

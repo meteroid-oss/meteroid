@@ -3,15 +3,15 @@ use crate::api_rest::currencies;
 use crate::api_rest::customers::model::{
     BillingConfig, Customer, CustomerCreateRequest, CustomerUpdateRequest, StripeCollectionMethod,
 };
-use crate::api_rest::model::IdOrAlias;
 use crate::errors::RestApiError;
+use common_domain::ids::{AliasOr, CustomerId};
 use meteroid_store::domain;
 use meteroid_store::domain::{CustomerNew, Identity};
 use uuid::Uuid;
 
 pub fn domain_to_rest(d: domain::CustomerForDisplay) -> Result<Customer, RestApiError> {
     Ok(Customer {
-        id: d.id.into(),
+        id: d.id,
         name: d.name,
         alias: d.alias,
         email: d.email,
@@ -71,11 +71,11 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
 }
 
 pub fn update_req_to_domain(
-    id_or_alias: IdOrAlias,
+    id_or_alias: AliasOr<CustomerId>,
     req: CustomerUpdateRequest,
 ) -> domain::CustomerUpdate {
     domain::CustomerUpdate {
-        local_id_or_alias: id_or_alias.0,
+        id_or_alias,
         name: req.name,
         invoicing_entity_id: Identity::LOCAL(req.invoicing_entity_id),
         billing_config: billing_config_to_domain(req.billing_config),

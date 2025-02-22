@@ -19,6 +19,7 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::query::IdentityDb;
+use common_domain::ids::CustomerId;
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -197,8 +198,8 @@ impl SubscriptionRow {
 
     pub async fn list_subscriptions(
         conn: &mut PgConn,
-        tenant_id_param: uuid::Uuid,
-        customer_id_opt: Option<IdentityDb>,
+        tenant_id_param: Uuid,
+        customer_id_opt: Option<CustomerId>,
         plan_id_param_opt: Option<IdentityDb>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
@@ -215,14 +216,7 @@ impl SubscriptionRow {
             .into_boxed();
 
         if let Some(customer_id_param) = customer_id_opt {
-            match customer_id_param {
-                IdentityDb::UUID(customer_id_param) => {
-                    query = query.filter(customer_id.eq(customer_id_param));
-                }
-                IdentityDb::LOCAL(customer_local_id) => {
-                    query = query.filter(crate::schema::customer::local_id.eq(customer_local_id));
-                }
-            }
+            query = query.filter(customer_id.eq(customer_id_param));
         }
 
         if let Some(plan_id_param) = plan_id_param_opt {

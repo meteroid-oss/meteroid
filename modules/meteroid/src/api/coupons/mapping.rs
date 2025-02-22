@@ -10,7 +10,7 @@ pub mod applied {
                 id: value.id.as_proto(),
                 coupon_id: value.coupon_id.as_proto(),
                 customer_name: value.customer_name,
-                customer_local_id: value.customer_local_id,
+                customer_local_id: value.id.as_proto(), // todo remove me
                 customer_id: value.customer_id.as_proto(),
                 subscription_id: value.subscription_id.as_proto(),
                 plan_name: value.plan_name,
