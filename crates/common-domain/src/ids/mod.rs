@@ -49,3 +49,90 @@ pub mod string_serde {
         T::from_str(&s).map_err(serde::de::Error::custom)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ids::BaseId;
+    use crate::ids::{string_serde, CustomerId};
+    use serde::Deserialize;
+    use serde::Serialize;
+    use serde_json::json;
+    use std::str::FromStr;
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct CustomerStrSerde {
+        #[serde(with = "string_serde")]
+        id: CustomerId,
+    }
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct CustomerDefaultSerde {
+        id: CustomerId,
+    }
+
+    #[test]
+    fn test_to_from_string() {
+        let id = CustomerId::new();
+        let id_str = id.to_string();
+        let parsed_id = CustomerId::from_str(&id_str).unwrap();
+        assert_eq!(id, parsed_id)
+    }
+
+    #[test]
+    fn test_default() {
+        let id = CustomerId::default();
+        let id2 = CustomerId::default();
+
+        assert_eq!(id, id2);
+        assert_eq!(id.to_string().as_str(), "cus_7n42DGM5Tflk9n8mt7Fhc7")
+    }
+
+    #[test]
+    fn test_parse_uuid() {
+        let id = CustomerId::new();
+        let id_str = id.0.to_string();
+        let parsed_id = CustomerId::parse_uuid(&id_str).unwrap();
+        assert_eq!(id, parsed_id)
+    }
+
+    #[test]
+    fn test_default_uuid_serde() {
+        let cus = CustomerDefaultSerde {
+            id: CustomerId::default(),
+        };
+        let actual_ser = serde_json::to_value(&cus).unwrap();
+        let expected_ser = json!({"id": "ffffffff-ffff-ffff-ffff-ffffffffffff"});
+
+        assert_eq!(actual_ser, expected_ser);
+
+        let deserialized: CustomerDefaultSerde = serde_json::from_value(expected_ser).unwrap();
+        assert_eq!(deserialized, cus);
+    }
+
+    #[test]
+    fn test_string_serde() {
+        let cus = CustomerStrSerde {
+            id: CustomerId::default(),
+        };
+        let actual_ser = serde_json::to_value(&cus).unwrap();
+        let expected_ser = json!({"id": "cus_7n42DGM5Tflk9n8mt7Fhc7"});
+
+        assert_eq!(actual_ser, expected_ser);
+
+        let deserialized: CustomerStrSerde = serde_json::from_value(expected_ser).unwrap();
+
+        assert_eq!(deserialized, cus);
+    }
+
+    #[test]
+    fn test_default_deserialize() {
+        let str_ser = json!({"id": "cus_7n42DGM5Tflk9n8mt7Fhc7"});
+        let default_ser = json!({"id": "ffffffff-ffff-ffff-ffff-ffffffffffff"});
+
+        let str_deser: CustomerDefaultSerde = serde_json::from_value(str_ser).unwrap();
+        let default_deser: CustomerDefaultSerde = serde_json::from_value(default_ser).unwrap();
+
+        assert_eq!(str_deser, default_deser);
+        assert_eq!(str_deser.id, CustomerId::default());
+    }
+}
