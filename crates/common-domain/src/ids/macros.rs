@@ -14,19 +14,19 @@ macro_rules! id_type {
             }
 
             #[cfg(feature = "tonic")]
-            pub fn from_proto(value: &String) -> Result<$id_name, tonic::Status> {
+            pub fn from_proto<T: AsRef<str>>(value: T) -> Result<$id_name, tonic::Status> {
                 $id_name::from_str(value.as_ref()).map_err(|_| {
                     tonic::Status::invalid_argument(format!(
                         "Invalid {}: {}",
                         stringify!($id_name),
-                        value
+                        value.as_ref()
                     ))
                 })
             }
 
             #[cfg(feature = "tonic")]
-            pub fn from_proto_opt(
-                value: Option<&String>,
+            pub fn from_proto_opt<T: AsRef<str>>(
+                value: Option<T>,
             ) -> Result<Option<$id_name>, tonic::Status> {
                 value.map($id_name::from_proto).transpose()
             }
