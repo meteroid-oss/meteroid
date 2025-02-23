@@ -4,6 +4,7 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
 use crate::json_value_serde;
+use common_domain::ids::TenantId;
 use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ pub struct BillableMetric {
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
     pub product_id: Option<Uuid>,
 }
@@ -69,7 +70,7 @@ pub struct BillableMetricNew {
     pub segmentation_matrix: Option<SegmentationMatrix>,
     pub usage_group_key: Option<String>,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub family_local_id: String,
     pub product_id: Option<Uuid>,
 }

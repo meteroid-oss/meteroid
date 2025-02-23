@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::plan_versions::PlanVersionRow;
+use common_domain::ids::TenantId;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -16,7 +17,7 @@ pub struct PlanRow {
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
     pub local_id: String,
     pub plan_type: PlanTypeEnum,
@@ -33,7 +34,7 @@ pub struct PlanRowNew {
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
     pub local_id: String,
     pub plan_type: PlanTypeEnum,
@@ -77,7 +78,7 @@ pub struct PlanWithVersionRow {
 #[diesel(primary_key(id, tenant_id))]
 pub struct PlanRowPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub active_version_id: Option<Option<Uuid>>,

@@ -2,6 +2,7 @@ use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{domain, StoreResult};
+use common_domain::ids::{BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
 use error_stack::Report;
@@ -17,7 +18,7 @@ pub trait ProductFamilyInterface {
 
     async fn list_product_families(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -26,7 +27,7 @@ pub trait ProductFamilyInterface {
     async fn find_product_family_by_local_id(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<domain::ProductFamily>;
 }
 
@@ -62,7 +63,11 @@ impl ProductFamilyInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::product_family_created(actor, res.id, res.tenant_id))
+            .publish(Event::product_family_created(
+                actor,
+                res.id,
+                res.tenant_id.as_uuid(),
+            ))
             .await;
 
         Ok(res)
@@ -70,7 +75,7 @@ impl ProductFamilyInterface for Store {
 
     async fn list_product_families(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -99,7 +104,7 @@ impl ProductFamilyInterface for Store {
     async fn find_product_family_by_local_id(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 

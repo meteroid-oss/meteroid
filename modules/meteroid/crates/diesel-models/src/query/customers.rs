@@ -6,7 +6,7 @@ use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AliasOr, CustomerId};
+use common_domain::ids::{AliasOr, CustomerId, TenantId};
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension,
     PgTextExpressionMethods, QueryDsl, SelectableHelper,
@@ -35,7 +35,7 @@ impl CustomerRowNew {
 impl CustomerRow {
     pub async fn find_by_id_or_alias(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
     ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl as c_dsl;
@@ -68,7 +68,7 @@ impl CustomerRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
         customer_id: CustomerId,
-        tenant_id_param: Uuid,
+        tenant_id_param: TenantId,
     ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
@@ -106,7 +106,7 @@ impl CustomerRow {
 
     pub async fn find_by_aliases(
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
         param_customer_aliases: Vec<String>,
     ) -> DbResult<Vec<CustomerBriefRow>> {
         use crate::schema::customer::dsl::*;
@@ -129,7 +129,7 @@ impl CustomerRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        param_tenant_id: uuid::Uuid,
+        param_tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
@@ -212,7 +212,7 @@ impl CustomerRow {
     pub async fn select_for_update(
         conn: &mut PgConn,
         id: CustomerId,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
@@ -258,7 +258,7 @@ impl CustomerRow {
     pub async fn archive(
         conn: &mut PgConn,
         id: CustomerId,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         archived_by: Uuid,
     ) -> DbResult<usize> {
         use crate::schema::customer::dsl as c_dsl;
@@ -286,7 +286,7 @@ impl CustomerRowPatch {
     pub async fn update(
         &self,
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
     ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -311,7 +311,7 @@ impl CustomerRowPatch {
 impl CustomerForDisplayRow {
     pub async fn find_by_id_or_alias(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
     ) -> DbResult<CustomerForDisplayRow> {
         use crate::schema::customer::dsl as c_dsl;
@@ -345,7 +345,7 @@ impl CustomerForDisplayRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
@@ -395,7 +395,7 @@ impl CustomerRowUpdate {
     pub async fn update(
         &self,
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
     ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;

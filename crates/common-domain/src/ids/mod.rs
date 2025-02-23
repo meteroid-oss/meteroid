@@ -11,6 +11,8 @@ mod macros;
 
 pub use alias_or::AliasOr;
 
+id_type!(OrganizationId, "org_");
+id_type!(TenantId, "ten_");
 id_type!(CustomerId, "cus_");
 
 #[derive(Debug)]

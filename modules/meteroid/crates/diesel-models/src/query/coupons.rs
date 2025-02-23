@@ -3,6 +3,7 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::{DbResult, PgConn};
+use common_domain::ids::TenantId;
 use diesel::dsl::not;
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods,
@@ -32,7 +33,7 @@ impl CouponRowNew {
 impl CouponRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         id: uuid::Uuid,
     ) -> DbResult<CouponRow> {
         use crate::schema::coupon::dsl as c_dsl;
@@ -52,7 +53,7 @@ impl CouponRow {
 
     pub async fn get_by_local_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         id: String,
     ) -> DbResult<CouponRow> {
         use crate::schema::coupon::dsl as c_dsl;
@@ -72,7 +73,7 @@ impl CouponRow {
 
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         search: Option<String>,
         filter: CouponFilter,
@@ -132,11 +133,7 @@ impl CouponRow {
             .into_db_result()
     }
 
-    pub async fn delete(
-        conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
-        id: uuid::Uuid,
-    ) -> DbResult<usize> {
+    pub async fn delete(conn: &mut PgConn, tenant_id: TenantId, id: uuid::Uuid) -> DbResult<usize> {
         use crate::schema::coupon::dsl as c_dsl;
 
         let query = diesel::delete(c_dsl::coupon)
@@ -155,7 +152,7 @@ impl CouponRow {
     pub async fn list_by_ids(
         conn: &mut PgConn,
         ids: &[uuid::Uuid],
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
 
@@ -176,7 +173,7 @@ impl CouponRow {
     pub async fn list_by_ids_for_update(
         conn: &mut PgConn,
         ids: &[uuid::Uuid],
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
 

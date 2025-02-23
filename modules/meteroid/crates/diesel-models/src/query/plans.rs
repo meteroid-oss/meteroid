@@ -11,6 +11,7 @@ use crate::enums::PlanStatusEnum;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
+use common_domain::ids::TenantId;
 use diesel::NullableExpressionMethods;
 use diesel::{
     alias, debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl,
@@ -37,7 +38,7 @@ impl PlanRowNew {
 }
 
 impl PlanRow {
-    pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<PlanRow> {
+    pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: TenantId) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -59,7 +60,7 @@ impl PlanRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, id: Uuid, tenant_id: Uuid) -> DbResult<usize> {
+    pub async fn delete(conn: &mut PgConn, id: Uuid, tenant_id: TenantId) -> DbResult<usize> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
@@ -86,7 +87,7 @@ impl PlanRow {
     pub async fn get_with_version(
         conn: &mut PgConn,
         version_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -110,7 +111,7 @@ impl PlanRow {
     pub async fn get_overview_by_local_id(
         conn: &mut PgConn,
         local_id: &str,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<PlanRowOverview> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version;
@@ -168,7 +169,7 @@ impl PlanRow {
     pub async fn get_with_version_by_local_id(
         conn: &mut PgConn,
         local_id: &str,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         version_filter: PlanVersionFilter,
     ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
@@ -215,7 +216,7 @@ impl PlanRow {
 impl PlanRowOverview {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,

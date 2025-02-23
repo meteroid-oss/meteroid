@@ -5,9 +5,9 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use common_domain::ids::TenantId;
 use diesel::{debug_query, ExpressionMethods, PgTextExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl ProductFamilyRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductFamilyRow> {
@@ -29,7 +29,7 @@ impl ProductFamilyRowNew {
 impl ProductFamilyRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
@@ -69,7 +69,7 @@ impl ProductFamilyRow {
     pub async fn find_by_local_id_and_tenant_id(
         conn: &mut PgConn,
         local_id: &str,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<ProductFamilyRow> {
         use crate::schema::product_family::dsl as pf_dsl;
         use diesel_async::RunQueryDsl;

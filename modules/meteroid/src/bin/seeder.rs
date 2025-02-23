@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio::signal;
 
+use common_domain::ids::{BaseId, OrganizationId};
 use common_logging::init::init_regular_logging;
 use common_utils::rng::UPPER_ALPHANUMERIC;
 use error_stack::ResultExt;
@@ -54,8 +55,8 @@ async fn main() -> error_stack::Result<(), SeederError> {
     })
     .change_context(SeederError::InitializationError)?;
 
-    let organization_id = env::var("SEEDER_ORGANIZATION_ID")
-        .map(|s| uuid::Uuid::parse_str(&s))
+    let organization_id: OrganizationId = env::var("SEEDER_ORGANIZATION_ID")
+        .map(|s| OrganizationId::parse_uuid(&s))
         .change_context(SeederError::InitializationError)?
         .change_context(SeederError::InitializationError)?;
 

@@ -2,6 +2,7 @@ use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::engine::general_purpose::STANDARD as Base64Engine;
 use base64::Engine;
+use common_domain::ids::TenantId;
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{html_render, pdf};
@@ -26,7 +27,7 @@ impl HtmlRenderingService {
     pub async fn preview_invoice_html(
         &self,
         invoice_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> error_stack::Result<String, InvoicingRenderError> {
         let invoice = self
             .store

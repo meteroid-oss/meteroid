@@ -15,7 +15,7 @@ use crate::repositories::InvoiceInterface;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
-use common_domain::ids::{AliasOr, BaseId, CustomerId};
+use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
@@ -29,19 +29,23 @@ use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: CustomerId, tenant_id: Uuid) -> StoreResult<Customer>;
+    async fn find_customer_by_id(
+        &self,
+        id: CustomerId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Customer>;
 
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
     async fn find_customer_ids_by_aliases(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         aliases: Vec<String>,
     ) -> StoreResult<Vec<CustomerBrief>>;
 
     async fn list_customers(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -52,19 +56,19 @@ pub trait CustomersInterface {
     async fn insert_customer(
         &self,
         customer: CustomerNew,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Customer>;
 
     async fn insert_customer_batch(
         &self,
         batch: Vec<CustomerNew>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>>;
 
     async fn patch_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>>;
 
@@ -75,12 +79,12 @@ pub trait CustomersInterface {
     async fn find_customer_by_id_or_alias(
         &self,
         id_or_alias: AliasOr<CustomerId>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<CustomerForDisplay>;
 
     async fn list_customers_for_display(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -89,14 +93,14 @@ pub trait CustomersInterface {
     async fn update_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerUpdate,
     ) -> StoreResult<CustomerForDisplay>;
 
     async fn archive_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()>;
 }
@@ -106,7 +110,7 @@ impl CustomersInterface for Store {
     async fn find_customer_by_id(
         &self,
         customer_id: CustomerId,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
@@ -127,7 +131,7 @@ impl CustomersInterface for Store {
 
     async fn find_customer_ids_by_aliases(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         aliases: Vec<String>,
     ) -> StoreResult<Vec<CustomerBrief>> {
         let mut conn = self.get_conn().await?;
@@ -144,7 +148,7 @@ impl CustomersInterface for Store {
 
     async fn list_customers(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -192,7 +196,7 @@ impl CustomersInterface for Store {
     async fn insert_customer(
         &self,
         customer: CustomerNew,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Customer> {
         let invoicing_entity = self
             .get_invoicing_entity(tenant_id, customer.invoicing_entity_id.clone())
@@ -226,7 +230,7 @@ impl CustomersInterface for Store {
             .publish(Event::customer_created(
                 res.created_by,
                 res.id.as_uuid(),
-                res.tenant_id,
+                res.tenant_id.as_uuid(),
             ))
             .await;
 
@@ -236,7 +240,7 @@ impl CustomersInterface for Store {
     async fn insert_customer_batch(
         &self,
         batch: Vec<CustomerNew>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>> {
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
         let default_invoicing_entity =
@@ -302,7 +306,7 @@ impl CustomersInterface for Store {
             self.eventbus.publish(Event::customer_created(
                 res.created_by,
                 res.id.as_uuid(),
-                res.tenant_id,
+                res.tenant_id.as_uuid(),
             ))
         }))
         .await
@@ -315,7 +319,7 @@ impl CustomersInterface for Store {
     async fn patch_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>> {
         let mut conn = self.get_conn().await?;
@@ -337,7 +341,7 @@ impl CustomersInterface for Store {
                     .publish(Event::customer_patched(
                         actor,
                         updated.id.as_uuid(),
-                        tenant_id,
+                        tenant_id.as_uuid(),
                     ))
                     .await;
 
@@ -401,7 +405,7 @@ impl CustomersInterface for Store {
                         InvoicingEntityRow::select_for_update_by_id_and_tenant(
                             conn,
                             &customer.invoicing_entity_id,
-                            &req.tenant_id,
+                            req.tenant_id,
                         )
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?
@@ -476,7 +480,7 @@ impl CustomersInterface for Store {
                     InvoicingEntityRow::update_invoicing_entity_number(
                         conn,
                         &invoicing_entity.id,
-                        &req.tenant_id,
+                        req.tenant_id,
                         invoicing_entity.next_invoice_number,
                     )
                     .await
@@ -509,7 +513,7 @@ impl CustomersInterface for Store {
     async fn find_customer_by_id_or_alias(
         &self,
         id_or_alias: AliasOr<CustomerId>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<CustomerForDisplay> {
         let mut conn = self.get_conn().await?;
 
@@ -521,7 +525,7 @@ impl CustomersInterface for Store {
 
     async fn list_customers_for_display(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -556,7 +560,7 @@ impl CustomersInterface for Store {
     async fn update_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerUpdate,
     ) -> StoreResult<CustomerForDisplay> {
         let mut conn = self.get_conn().await?;
@@ -605,7 +609,7 @@ impl CustomersInterface for Store {
             .publish(Event::customer_updated(
                 actor,
                 updated.id.as_uuid(),
-                tenant_id,
+                tenant_id.as_uuid(),
             ))
             .await;
 
@@ -622,7 +626,7 @@ impl CustomersInterface for Store {
     async fn archive_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;

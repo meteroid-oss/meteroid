@@ -3,6 +3,7 @@ use crate::domain::WebhookPage;
 use crate::errors::StoreError;
 use crate::json_value_ser;
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel_models::webhooks::{WebhookInEventRow, WebhookInEventRowNew};
 use error_stack::Report;
 use o2o::o2o;
@@ -71,7 +72,7 @@ impl TryFrom<svix::api::ListResponseEndpointOut> for WebhookPage<WebhookOutEndpo
 
 #[derive(Clone, Debug)]
 pub struct WebhookOutEndpointNew {
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub url: Url,
     pub description: Option<String>,
     pub events_to_listen: Vec<WebhookOutEventTypeEnum>,

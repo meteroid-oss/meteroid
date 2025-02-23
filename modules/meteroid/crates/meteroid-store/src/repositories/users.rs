@@ -12,6 +12,7 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
+use common_domain::ids::{OrganizationId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::oauth_verifiers::OauthVerifierRow;
@@ -31,27 +32,34 @@ use uuid::Uuid;
 pub trait UserInterface {
     async fn register_user(&self, req: RegisterUserRequest) -> StoreResult<RegisterUserResponse>;
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse>;
-    async fn me(&self, auth_user_id: Uuid, organization_id: Option<Uuid>) -> StoreResult<Me>;
+    async fn me(
+        &self,
+        auth_user_id: Uuid,
+        organization_id: Option<OrganizationId>,
+    ) -> StoreResult<Me>;
     async fn update_user_details(&self, auth_user_id: Uuid, data: UpdateUser) -> StoreResult<User>;
     // async fn update_user_role(&self, auth_user_id: Uuid, organization_id: Uuid, data: UpdateUserRole) -> StoreResult<User>;
 
     async fn find_user_by_id_and_organization(
         &self,
         id: Uuid,
-        org_id: Uuid,
+        org_id: OrganizationId,
     ) -> StoreResult<UserWithRole>;
     async fn find_user_by_id_and_tenant(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<UserWithRole>;
 
     async fn find_user_by_email_and_organization(
         &self,
         email: String,
-        org_id: Uuid,
+        org_id: OrganizationId,
     ) -> StoreResult<UserWithRole>;
-    async fn list_users_for_organization(&self, org_id: Uuid) -> StoreResult<Vec<UserWithRole>>;
+    async fn list_users_for_organization(
+        &self,
+        org_id: OrganizationId,
+    ) -> StoreResult<Vec<UserWithRole>>;
 
     /** Internal use only. For API/external, use me() or find_user_by_id_and_organization() */
     async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User>;
@@ -114,7 +122,11 @@ impl UserInterface for Store {
         })
     }
 
-    async fn me(&self, auth_user_id: Uuid, organization_id: Option<Uuid>) -> StoreResult<Me> {
+    async fn me(
+        &self,
+        auth_user_id: Uuid,
+        organization_id: Option<OrganizationId>,
+    ) -> StoreResult<Me> {
         let mut conn = self.get_conn().await?;
 
         let organizations: Vec<Organization> =
@@ -186,7 +198,7 @@ impl UserInterface for Store {
     async fn find_user_by_id_and_organization(
         &self,
         id: Uuid,
-        org_id: Uuid,
+        org_id: OrganizationId,
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
@@ -199,7 +211,7 @@ impl UserInterface for Store {
     async fn find_user_by_id_and_tenant(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
@@ -212,7 +224,7 @@ impl UserInterface for Store {
     async fn find_user_by_email_and_organization(
         &self,
         email: String,
-        org_id: Uuid,
+        org_id: OrganizationId,
     ) -> StoreResult<UserWithRole> {
         let mut conn = self.get_conn().await?;
 
@@ -222,7 +234,10 @@ impl UserInterface for Store {
             .map(Into::into)
     }
 
-    async fn list_users_for_organization(&self, org_id: Uuid) -> StoreResult<Vec<UserWithRole>> {
+    async fn list_users_for_organization(
+        &self,
+        org_id: OrganizationId,
+    ) -> StoreResult<Vec<UserWithRole>> {
         let mut conn = self.get_conn().await?;
 
         UserRow::list_by_org_id(&mut conn, org_id)

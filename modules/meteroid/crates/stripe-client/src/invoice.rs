@@ -1,10 +1,14 @@
+use common_domain::ids::string_serde;
+use common_domain::ids::{CustomerId, TenantId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct MeteroidMetadata {
     pub meteroid_invoice_id: String,
-    pub meteroid_tenant_id: String,
-    pub meteroid_customer_id: String,
+    #[serde(with = "string_serde")]
+    pub meteroid_tenant_id: TenantId, // todo: remove this field?
+    #[serde(with = "string_serde")]
+    pub meteroid_customer_id: CustomerId,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

@@ -1,7 +1,7 @@
 use crate::api_rest::productfamilies::model::{ProductFamily, ProductFamilyCreateRequest};
+use common_domain::ids::TenantId;
 use meteroid_store::domain;
 use meteroid_store::domain::ProductFamilyNew;
-use uuid::Uuid;
 
 pub(crate) fn domain_to_rest(d: domain::ProductFamily) -> ProductFamily {
     ProductFamily {
@@ -12,7 +12,7 @@ pub(crate) fn domain_to_rest(d: domain::ProductFamily) -> ProductFamily {
 
 pub(crate) fn create_req_to_domain(
     req: ProductFamilyCreateRequest,
-    tenant_id: Uuid,
+    tenant_id: TenantId,
 ) -> ProductFamilyNew {
     ProductFamilyNew {
         name: req.name,

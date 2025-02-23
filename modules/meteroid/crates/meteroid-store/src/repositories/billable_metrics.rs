@@ -1,10 +1,10 @@
-use diesel_async::scoped_futures::ScopedFutureExt;
-use error_stack::Report;
-use uuid::Uuid;
-
+use common_domain::ids::{BaseId, TenantId};
 use common_eventbus::Event;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
 use diesel_models::product_families::ProductFamilyRow;
+use error_stack::Report;
+use uuid::Uuid;
 
 use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
@@ -18,12 +18,12 @@ pub trait BillableMetricInterface {
     async fn find_billable_metric_by_id(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<domain::BillableMetric>;
 
     async fn list_billable_metrics(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         product_family_local_id: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
@@ -39,7 +39,7 @@ impl BillableMetricInterface for Store {
     async fn find_billable_metric_by_id(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<domain::BillableMetric> {
         let mut conn = self.get_conn().await?;
 
@@ -51,7 +51,7 @@ impl BillableMetricInterface for Store {
 
     async fn list_billable_metrics(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         product_family_local_id: Option<String>,
     ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
@@ -150,7 +150,7 @@ impl BillableMetricInterface for Store {
             .publish(Event::billable_metric_created(
                 res.created_by,
                 res.id,
-                res.tenant_id,
+                res.tenant_id.as_uuid(),
             ))
             .await;
 

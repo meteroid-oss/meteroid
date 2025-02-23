@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::metering_it;
+use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
+use common_domain::ids::TenantId;
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
@@ -27,9 +30,6 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tonic::Request;
 use uuid::{uuid, Uuid};
-
-use crate::metering_it;
-use crate::{helpers, meteroid_it};
 
 /*
 Plan with Capacity
@@ -450,7 +450,7 @@ async fn test_metering_e2e() {
         .insert_invoice(InvoiceNew {
             status: InvoiceStatusEnum::Draft,
             external_status: None,
-            tenant_id: tenant_uuid,
+            tenant_id: tenant_uuid.into(),
             customer_id: Uuid::from_str(&customer_1).unwrap().into(),
             subscription_id: Some(Uuid::from_str(&subscription.id).unwrap()),
             currency: subscription.currency.clone(),
@@ -506,7 +506,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
 
     assert_eq!(db_invoices.len(), 2);
     assert_eq!(
@@ -522,7 +522,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = &fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = &fetch_invoices(&store, tenant_uuid.into()).await;
 
     assert_eq!(db_invoices.len(), 3);
     assert_eq!(
@@ -582,7 +582,7 @@ async fn test_metering_e2e() {
     .await
     .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
     assert_eq!(
         db_invoices
             .into_iter()
@@ -600,7 +600,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
     assert_eq!(
         db_invoices
             .into_iter()
@@ -622,7 +622,7 @@ async fn test_metering_e2e() {
         .await;
 }
 
-async fn fetch_invoices(store: &Store, tenant_id: Uuid) -> Vec<Invoice> {
+async fn fetch_invoices(store: &Store, tenant_id: TenantId) -> Vec<Invoice> {
     store
         .list_invoices(
             tenant_id,

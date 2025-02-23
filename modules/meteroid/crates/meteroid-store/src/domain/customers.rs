@@ -3,7 +3,7 @@ use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
-use common_domain::ids::{AliasOr, BaseId, CustomerId};
+use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
@@ -22,7 +22,7 @@ pub struct Customer {
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
     pub archived_by: Option<Uuid>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub invoicing_entity_id: Uuid,
     #[map(~.try_into()?)]
     pub billing_config: BillingConfig,
@@ -68,7 +68,7 @@ pub struct CustomerNew {
 #[derive(Clone, Debug)]
 pub struct CustomerNewWrapper {
     pub inner: CustomerNew,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub invoicing_entity_id: Uuid,
 }
 
@@ -172,7 +172,7 @@ pub enum StripeCollectionMethod {
 #[derive(Clone, Debug)]
 pub struct CustomerTopUpBalance {
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub cents: i32,
     pub notes: Option<String>,
@@ -181,7 +181,7 @@ pub struct CustomerTopUpBalance {
 #[derive(Clone, Debug)]
 pub struct CustomerBuyCredits {
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub cents: i32,
     pub notes: Option<String>,
@@ -197,7 +197,7 @@ pub struct CustomerForDisplay {
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub invoicing_entity_id: Uuid,
     pub invoicing_entity_local_id: String,
     #[map(~.try_into()?)]

@@ -3,23 +3,23 @@ use crate::StoreResult;
 use error_stack::Report;
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNew};
-use diesel_models::price_components::PriceComponentRow;
-use uuid::Uuid;
-
 use crate::errors::StoreError;
 use crate::utils::local_id::{IdType, LocalId};
+use common_domain::ids::TenantId;
+use diesel_models::price_components::PriceComponentRow;
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait PriceComponentInterface {
     async fn list_price_components(
         &self,
         plan_version_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>>;
 
     async fn get_price_component_by_id(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id: Uuid,
     ) -> StoreResult<PriceComponent>;
 
@@ -36,11 +36,15 @@ pub trait PriceComponentInterface {
     async fn update_price_component(
         &self,
         price_component: PriceComponent,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         plan_version_id: Uuid,
     ) -> StoreResult<Option<PriceComponent>>;
 
-    async fn delete_price_component(&self, component_id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
+    async fn delete_price_component(
+        &self,
+        component_id: Uuid,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -48,7 +52,7 @@ impl PriceComponentInterface for Store {
     async fn list_price_components(
         &self,
         plan_version_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>> {
         let mut conn = self.get_conn().await?;
 
@@ -65,7 +69,7 @@ impl PriceComponentInterface for Store {
 
     async fn get_price_component_by_id(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         price_component_id: Uuid,
     ) -> StoreResult<PriceComponent> {
         let mut conn = self.get_conn().await?;
@@ -110,7 +114,7 @@ impl PriceComponentInterface for Store {
     async fn update_price_component(
         &self,
         price_component: PriceComponent,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         plan_version_id: Uuid,
     ) -> StoreResult<Option<PriceComponent>> {
         let json_fee = serde_json::to_value(&price_component.fee).map_err(|e| {
@@ -141,7 +145,11 @@ impl PriceComponentInterface for Store {
         }
     }
 
-    async fn delete_price_component(&self, component_id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+    async fn delete_price_component(
+        &self,
+        component_id: Uuid,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
         PriceComponentRow::delete_by_id_and_tenant(&mut conn, component_id, tenant_id)
             .await

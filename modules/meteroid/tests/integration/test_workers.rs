@@ -117,7 +117,7 @@ fn date(date_str: &str) -> NaiveDate {
 async fn list_invoices(store: &Store) -> Vec<InvoiceWithCustomer> {
     store
         .list_invoices(
-            TENANT_ID,
+            TENANT_ID.into(),
             None,
             None,
             None,

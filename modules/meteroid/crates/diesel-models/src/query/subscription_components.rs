@@ -7,6 +7,7 @@ use crate::{DbResult, PgConn};
 use diesel::debug_query;
 use error_stack::ResultExt;
 
+use common_domain::ids::TenantId;
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper};
 use itertools::Itertools;
 
@@ -48,7 +49,7 @@ impl SubscriptionComponentRow {
 
     pub async fn list_subscription_components_by_subscription(
         conn: &mut PgConn,
-        tenant_id_params: &uuid::Uuid,
+        tenant_id_params: TenantId,
         subscription_id: &uuid::Uuid,
     ) -> DbResult<Vec<SubscriptionComponentRow>> {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;
@@ -71,7 +72,7 @@ impl SubscriptionComponentRow {
 
     pub async fn list_subscription_components_by_subscriptions(
         conn: &mut PgConn,
-        tenant_id_params: &uuid::Uuid,
+        tenant_id_params: TenantId,
         subscription_ids: &[uuid::Uuid],
     ) -> DbResult<HashMap<uuid::Uuid, Vec<SubscriptionComponentRow>>> {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;

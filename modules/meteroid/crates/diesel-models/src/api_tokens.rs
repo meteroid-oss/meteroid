@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use common_domain::ids::{OrganizationId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Queryable, Identifiable)]
@@ -11,7 +12,7 @@ pub struct ApiTokenRow {
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub hash: String,
     pub hint: String,
 }
@@ -24,7 +25,7 @@ pub struct ApiTokenRowNew {
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub hash: String,
     pub hint: String,
 }
@@ -35,9 +36,9 @@ pub struct ApiTokenRowNew {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ApiTokenValidationRow {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub hash: String,
     #[diesel(select_expression = crate::schema::tenant::organization_id)]
     #[diesel(select_expression_type = crate::schema::tenant::organization_id)]
-    pub organization_id: Uuid,
+    pub organization_id: OrganizationId,
 }

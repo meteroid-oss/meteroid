@@ -1,6 +1,7 @@
 pub mod endpoint {
     use crate::api::webhooksout::error::WebhookApiError;
     use crate::api::webhooksout::mapping::event_type;
+    use common_domain::ids::TenantId;
     use meteroid_grpc::meteroid::api::webhooks::out::v1::{
         CreateWebhookEndpointRequest, ListWebhookEndpointsRequest, ListWebhookEndpointsResponse,
         WebhookEndpoint as WebhookEndpointProto,
@@ -13,7 +14,6 @@ pub mod endpoint {
     };
     use meteroid_store::domain::WebhookPage;
     use secrecy::ExposeSecret;
-    use uuid::Uuid;
 
     pub fn to_proto(endpoint: WebhookOutEndpoint) -> WebhookEndpointProto {
         WebhookEndpointProto {
@@ -62,7 +62,7 @@ pub mod endpoint {
     }
 
     pub fn new_req_to_domain(
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         req: CreateWebhookEndpointRequest,
     ) -> Result<WebhookOutEndpointNew, WebhookApiError> {
         let url = url::Url::parse(req.url.as_str())

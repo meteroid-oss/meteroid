@@ -26,8 +26,7 @@ use meteroid_store::compute::{calculate_period_range, InvoiceLineInterface};
 
 use chrono::Utc;
 
-use nanoid::nanoid;
-
+use common_domain::ids::OrganizationId;
 use meteroid_store::domain::{
     Address, BillingConfig, Identity, InlineCustomer, InlineInvoicingEntity, OrderByRequest,
     PaginationRequest, TenantContext,
@@ -35,11 +34,12 @@ use meteroid_store::domain::{
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+use nanoid::nanoid;
 
 pub async fn run(
     store: Store,
     scenario: super::domain::Scenario,
-    organization_id: Uuid,
+    organization_id: OrganizationId,
     user_id: Uuid,
 ) -> error_stack::Result<(), SeederError> {
     // create an org, tenant, user (if standalone mode)

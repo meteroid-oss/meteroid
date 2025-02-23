@@ -4,6 +4,7 @@ use crate::domain::connectors::{
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
+use common_domain::ids::TenantId;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::Report;
 use secrecy::SecretString;
@@ -14,23 +15,27 @@ pub trait ConnectorsInterface {
     async fn list_connectors(
         &self,
         connector_type_filter: Option<ConnectorTypeEnum>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<ConnectorMeta>>;
 
-    async fn delete_connector(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
+    async fn delete_connector(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn connect_stripe(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         alias: String,
         stripe_data: StripeSensitiveData,
     ) -> StoreResult<ConnectorMeta>;
 
-    async fn get_connector_with_data(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<Connector>;
+    async fn get_connector_with_data(
+        &self,
+        id: Uuid,
+        tenant_id: TenantId,
+    ) -> StoreResult<Connector>;
     async fn get_connector_with_data_by_alias(
         &self,
         alias: String,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Connector>;
 }
 
@@ -39,7 +44,7 @@ impl ConnectorsInterface for Store {
     async fn list_connectors(
         &self,
         connector_type_filter: Option<ConnectorTypeEnum>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<ConnectorMeta>> {
         let mut conn = self.get_conn().await?;
 
@@ -56,7 +61,7 @@ impl ConnectorsInterface for Store {
         Ok(connectors)
     }
 
-    async fn delete_connector(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+    async fn delete_connector(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         ConnectorRow::delete_by_id(&mut conn, id, tenant_id)
@@ -68,7 +73,7 @@ impl ConnectorsInterface for Store {
 
     async fn connect_stripe(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         alias: String,
         stripe_data: StripeSensitiveData,
     ) -> StoreResult<ConnectorMeta> {
@@ -100,7 +105,11 @@ impl ConnectorsInterface for Store {
         Ok(res.into())
     }
 
-    async fn get_connector_with_data(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<Connector> {
+    async fn get_connector_with_data(
+        &self,
+        id: Uuid,
+        tenant_id: TenantId,
+    ) -> StoreResult<Connector> {
         let mut conn = self.get_conn().await?;
 
         let row = ConnectorRow::get_connector_by_id(&mut conn, id, tenant_id)
@@ -113,7 +122,7 @@ impl ConnectorsInterface for Store {
     async fn get_connector_with_data_by_alias(
         &self,
         alias: String,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Connector> {
         let mut conn = self.get_conn().await?;
 

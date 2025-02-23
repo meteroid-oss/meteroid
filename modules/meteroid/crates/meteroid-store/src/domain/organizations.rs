@@ -1,16 +1,15 @@
+use crate::domain::{InvoicingEntityNew, Tenant};
 use chrono::NaiveDateTime;
+use common_domain::ids::OrganizationId;
 use common_utils::rng::UPPER_ALPHANUMERIC;
+use diesel_models::organizations::OrganizationRow;
 use nanoid::nanoid;
 use o2o::o2o;
-use uuid::Uuid;
-
-use crate::domain::{InvoicingEntityNew, Tenant};
-use diesel_models::organizations::OrganizationRow;
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(OrganizationRow)]
 pub struct Organization {
-    pub id: Uuid,
+    pub id: OrganizationId,
     pub slug: String,
     // when a trade name gets changed, or an accounting entity gets set as default and has a different country, we update the defaults
     // This is just to simplify creating more tenants

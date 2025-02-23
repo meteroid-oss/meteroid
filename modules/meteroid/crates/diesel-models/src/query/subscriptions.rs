@@ -19,7 +19,7 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::query::IdentityDb;
-use common_domain::ids::CustomerId;
+use common_domain::ids::{CustomerId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -59,7 +59,7 @@ impl SubscriptionRow {
 
     pub async fn get_subscription_by_id(
         conn: &mut PgConn,
-        tenant_id_param: &uuid::Uuid,
+        tenant_id_param: TenantId,
         subscription_id_param: IdentityDb,
     ) -> DbResult<SubscriptionForDisplayRow> {
         use crate::schema::subscription::dsl::*;
@@ -96,7 +96,7 @@ impl SubscriptionRow {
 
     pub async fn list_subscriptions_by_ids(
         conn: &mut PgConn,
-        tenant_id_param: &uuid::Uuid,
+        tenant_id_param: TenantId,
         subscription_ids: &[uuid::Uuid],
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
@@ -151,7 +151,7 @@ impl SubscriptionRow {
     pub async fn activate_subscription(
         conn: &mut PgConn,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl as s_dsl;
 
@@ -174,7 +174,7 @@ impl SubscriptionRow {
 
     pub async fn get_subscription_id_by_invoice_id(
         conn: &mut PgConn,
-        tenant_id_param: &uuid::Uuid,
+        tenant_id_param: TenantId,
         invoice_id: &uuid::Uuid,
     ) -> DbResult<Option<uuid::Uuid>> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -198,7 +198,7 @@ impl SubscriptionRow {
 
     pub async fn list_subscriptions(
         conn: &mut PgConn,
-        tenant_id_param: Uuid,
+        tenant_id_param: TenantId,
         customer_id_opt: Option<CustomerId>,
         plan_id_param_opt: Option<IdentityDb>,
         pagination: PaginationRequest,

@@ -4,10 +4,10 @@ use chrono::NaiveDate;
 
 use common_utils::timed::*;
 
+use common_domain::ids::BaseId;
+use common_eventbus::Event;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-
-use common_eventbus::Event;
 
 use meteroid_store::domain::CursorPaginationRequest;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -129,7 +129,7 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
         for inv in &inserted {
             let _ = store
                 .eventbus
-                .publish(Event::invoice_created(inv.id, inv.tenant_id))
+                .publish(Event::invoice_created(inv.id, inv.tenant_id.as_uuid()))
                 .await;
         }
 

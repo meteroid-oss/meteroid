@@ -7,7 +7,7 @@ use crate::domain::{
     Schedule, SubscriptionComponent,
 };
 use crate::utils::local_id::{IdType, LocalId};
-use common_domain::ids::CustomerId;
+use common_domain::ids::{CustomerId, TenantId};
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
@@ -22,7 +22,7 @@ pub struct CreatedSubscription {
     pub local_id: String,
     pub customer_id: CustomerId,
     pub billing_day: i16,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub currency: String,
     pub trial_start_date: Option<NaiveDate>,
     pub billing_start_date: NaiveDate,
@@ -49,7 +49,7 @@ pub struct Subscription {
     pub customer_alias: Option<String>,
     pub customer_name: String,
     pub billing_day: i16,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub currency: String,
     pub trial_start_date: Option<NaiveDate>,
     pub billing_start_date: NaiveDate,
@@ -124,7 +124,7 @@ impl SubscriptionNew {
         self,
         period: BillingPeriodEnum,
         should_activate: bool,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> SubscriptionRowNew {
         SubscriptionRowNew {
             id: Uuid::now_v7(),
@@ -164,7 +164,7 @@ pub struct CreateSubscription {
 pub struct SubscriptionDetails {
     pub id: uuid::Uuid,
     pub local_id: String,
-    pub tenant_id: uuid::Uuid,
+    pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub plan_version_id: uuid::Uuid,
@@ -201,7 +201,7 @@ pub struct SubscriptionDetails {
 #[derive(Debug, Clone)]
 pub struct SubscriptionInvoiceCandidate {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: Uuid,
     pub plan_name: String,

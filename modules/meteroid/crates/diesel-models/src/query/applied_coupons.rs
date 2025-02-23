@@ -4,6 +4,7 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
+use common_domain::ids::TenantId;
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -92,7 +93,7 @@ impl AppliedCouponForDisplayRow {
     pub async fn list_by_coupon_local_id(
         conn: &mut PgConn,
         param_coupon_id: &String,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<AppliedCouponForDisplayRow>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;

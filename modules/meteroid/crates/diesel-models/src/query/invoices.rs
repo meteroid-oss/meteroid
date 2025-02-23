@@ -12,6 +12,7 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use common_domain::ids::{CustomerId, TenantId};
 use diesel::dsl::IntervalDsl;
 use diesel::{
     debug_query, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
@@ -40,7 +41,7 @@ impl InvoiceRowNew {
 impl InvoiceRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
-        param_tenant_id: uuid::Uuid,
+        param_tenant_id: TenantId,
         param_invoice_id: uuid::Uuid,
     ) -> DbResult<DetailedInvoiceRow> {
         use crate::schema::customer::dsl as c_dsl;
@@ -73,8 +74,8 @@ impl InvoiceRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        param_tenant_id: uuid::Uuid,
-        param_customer_id: Option<uuid::Uuid>,
+        param_tenant_id: TenantId,
+        param_customer_id: Option<CustomerId>,
         param_status: Option<InvoiceStatusEnum>,
         param_query: Option<String>,
         order_by: OrderByRequest,
@@ -164,7 +165,7 @@ impl InvoiceRow {
     pub async fn update_external_status(
         conn: &mut PgConn,
         id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         external_status: InvoiceExternalStatusEnum,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -220,7 +221,7 @@ impl InvoiceRow {
     pub async fn finalize(
         conn: &mut PgConn,
         id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         new_invoice_number: String,
         applied_coupon_ids: &[uuid::Uuid],
     ) -> DbResult<usize> {
@@ -260,7 +261,7 @@ impl InvoiceRow {
     pub async fn save_invoice_documents(
         conn: &mut PgConn,
         id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         pdf_document_id: String,
         xml_document_id: Option<String>,
     ) -> DbResult<usize> {
@@ -338,7 +339,7 @@ impl InvoiceRow {
     pub async fn issue_success(
         conn: &mut PgConn,
         id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -369,7 +370,7 @@ impl InvoiceRow {
     pub async fn issue_error(
         conn: &mut PgConn,
         id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         last_issue_error: &str,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -437,7 +438,7 @@ impl InvoiceRowLinesPatch {
     pub async fn update_lines(
         &self,
         id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         conn: &mut PgConn,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;

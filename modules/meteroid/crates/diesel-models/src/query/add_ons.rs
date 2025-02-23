@@ -2,6 +2,7 @@ use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
+use common_domain::ids::TenantId;
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods, QueryDsl,
     SelectableHelper,
@@ -29,7 +30,7 @@ impl AddOnRowNew {
 impl AddOnRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         id: uuid::Uuid,
     ) -> DbResult<AddOnRow> {
         use crate::schema::add_on::dsl as ao_dsl;
@@ -49,7 +50,7 @@ impl AddOnRow {
 
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         search: Option<String>,
     ) -> DbResult<PaginatedVec<AddOnRow>> {
@@ -81,7 +82,7 @@ impl AddOnRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, id: uuid::Uuid, tenant_id: uuid::Uuid) -> DbResult<()> {
+    pub async fn delete(conn: &mut PgConn, id: uuid::Uuid, tenant_id: TenantId) -> DbResult<()> {
         use crate::schema::add_on::dsl as ao_dsl;
 
         let query = diesel::delete(ao_dsl::add_on)
@@ -103,7 +104,7 @@ impl AddOnRow {
     pub async fn list_by_ids(
         conn: &mut PgConn,
         ids: &[uuid::Uuid],
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
 

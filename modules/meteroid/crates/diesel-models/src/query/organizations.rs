@@ -3,6 +3,7 @@ use crate::organizations::{OrganizationRow, OrganizationRowNew};
 
 use crate::{DbResult, PgConn};
 
+use common_domain::ids::OrganizationId;
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -58,7 +59,7 @@ impl OrganizationRow {
             .into_db_result()
     }
 
-    pub async fn get_by_id(conn: &mut PgConn, id: uuid::Uuid) -> DbResult<OrganizationRow> {
+    pub async fn get_by_id(conn: &mut PgConn, id: OrganizationId) -> DbResult<OrganizationRow> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -90,7 +91,7 @@ impl OrganizationRow {
 
     pub async fn update_invite_link(
         conn: &mut PgConn,
-        param_id: uuid::Uuid,
+        param_id: OrganizationId,
         new_invite_hash_link: &String,
     ) -> DbResult<usize> {
         use crate::schema::organization::dsl as o_dsl;
@@ -112,7 +113,7 @@ impl OrganizationRow {
 
     pub async fn update_trade_name(
         conn: &mut PgConn,
-        param_id: uuid::Uuid,
+        param_id: OrganizationId,
         new_trade_name: &String,
     ) -> DbResult<usize> {
         use crate::schema::organization::dsl as o_dsl;

@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use common_domain::ids::CustomerId;
+use common_domain::ids::{CustomerId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
@@ -15,7 +15,7 @@ pub struct CustomerRow {
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub billing_config: serde_json::Value,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -40,7 +40,7 @@ pub struct CustomerForDisplayRow {
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub billing_config: serde_json::Value,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -72,7 +72,7 @@ pub struct CustomerRowNew {
     pub id: CustomerId,
     pub name: String,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub billing_config: serde_json::Value,
     pub alias: Option<String>,
     pub email: Option<String>,

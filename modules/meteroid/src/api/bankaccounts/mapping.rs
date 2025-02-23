@@ -6,6 +6,7 @@ pub mod bank_accounts {
     use meteroid_store::domain::bank_accounts as domain;
     use meteroid_store::utils::local_id::{IdType, LocalId};
 
+    use common_domain::ids::TenantId;
     use uuid::Uuid;
 
     mod format {
@@ -143,7 +144,7 @@ pub mod bank_accounts {
 
     pub fn proto_to_domain(
         proto: server::BankAccountData,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         actor: Uuid,
     ) -> Result<domain::BankAccountNew, BankAccountsApiError> {
         // clean the account numbers from any additional characters
@@ -185,7 +186,7 @@ pub mod bank_accounts {
 
     pub(crate) fn proto_to_patch_domain(
         proto: server::UpdateBankAccountRequest,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> Result<domain::BankAccountPatch, BankAccountsApiError> {
         let data = proto.data.ok_or_else(|| {
             BankAccountsApiError::MissingArgument("Missing patch data".to_string())

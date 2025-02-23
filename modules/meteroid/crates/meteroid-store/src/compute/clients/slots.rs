@@ -5,13 +5,14 @@ use uuid::Uuid;
 use crate::compute::errors::ComputeError;
 
 use crate::repositories::subscriptions::SubscriptionSlotsInterface;
+use common_domain::ids::TenantId;
 use error_stack::{Result, ResultExt};
 
 #[async_trait::async_trait]
 pub trait SlotClient {
     async fn fetch_slots(
         &self,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
         subscription_id: &Uuid,
         component_id: &Uuid,
         // slot_unit: &String,
@@ -23,14 +24,14 @@ pub trait SlotClient {
 impl SlotClient for crate::Store {
     async fn fetch_slots(
         &self,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
         subscription_id: &Uuid,
         component_id: &Uuid,
         invoice_date: &NaiveDate,
     ) -> Result<u32, ComputeError> {
         let res = self
             .get_current_slots_value(
-                *tenant_id,
+                tenant_id,
                 *subscription_id,
                 *component_id,
                 invoice_date.clone().and_hms_opt(0, 0, 0),
@@ -50,7 +51,7 @@ pub struct MockSlotClient {
 impl SlotClient for MockSlotClient {
     async fn fetch_slots(
         &self,
-        _tenant_id: &Uuid,
+        _tenant_id: TenantId,
         _subscription_id: &Uuid,
         component_id: &Uuid,
         invoice_date: &NaiveDate,

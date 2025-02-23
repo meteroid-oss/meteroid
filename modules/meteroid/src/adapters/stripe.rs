@@ -173,8 +173,7 @@ impl Stripe {
         let invoice_id = Uuid::parse_str(invoice.metadata.meteroid_invoice_id.as_str())
             .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-        let tenant_id = Uuid::parse_str(invoice.metadata.meteroid_tenant_id.as_str())
-            .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
+        let tenant_id = invoice.metadata.meteroid_tenant_id;
 
         store
             .update_invoice_external_status(invoice_id, tenant_id, external_status)
@@ -206,8 +205,8 @@ impl Stripe {
             customer: Some(stripe_customer.as_ref()),
             metadata: MeteroidMetadata {
                 meteroid_invoice_id: invoice.id.to_string(),
-                meteroid_customer_id: invoice.customer_id.to_string(),
-                meteroid_tenant_id: invoice.tenant_id.to_string(),
+                meteroid_customer_id: invoice.customer_id,
+                meteroid_tenant_id: invoice.tenant_id,
             },
         }
     }

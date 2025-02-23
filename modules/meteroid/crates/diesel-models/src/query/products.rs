@@ -5,6 +5,7 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use common_domain::ids::TenantId;
 use diesel::{
     debug_query, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
@@ -32,7 +33,7 @@ impl ProductRow {
     pub async fn find_by_id_and_tenant_id(
         conn: &mut PgConn,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<ProductRow> {
         use crate::schema::product::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
@@ -52,7 +53,7 @@ impl ProductRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         family_local_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -96,7 +97,7 @@ impl ProductRow {
 
     pub async fn search(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         family_local_id: Option<String>,
         query: &str,
         pagination: PaginationRequest,

@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -9,7 +10,7 @@ pub struct CouponRow {
     pub id: Uuid,
     pub code: String,
     pub description: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub discount: serde_json::Value,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
@@ -32,7 +33,7 @@ pub struct CouponRowNew {
     pub local_id: String,
     pub code: String,
     pub description: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub discount: serde_json::Value,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
@@ -46,7 +47,7 @@ pub struct CouponRowNew {
 #[diesel(primary_key(id, tenant_id))]
 pub struct CouponRowPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub description: Option<String>,
     pub discount: Option<serde_json::Value>,
     pub updated_at: NaiveDateTime,
@@ -58,7 +59,7 @@ pub struct CouponRowPatch {
 #[diesel(primary_key(id, tenant_id))]
 pub struct CouponStatusRowPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub archived_at: Option<Option<NaiveDateTime>>,
     pub disabled: Option<bool>,
 }

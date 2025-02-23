@@ -10,6 +10,7 @@ use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use backon::{ConstantBuilder, Retryable};
 use cached::proc_macro::cached;
+use common_domain::ids::TenantId;
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::TenantRow;
 use diesel_models::webhooks::WebhookInEventRowNew;
@@ -24,7 +25,6 @@ use strum::IntoEnumIterator;
 use svix::api::{AppPortalAccessIn, ApplicationIn, EndpointIn, EventTypeIn, MessageIn};
 use svix::error::Error;
 use tracing::log;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait WebhooksInterface {
@@ -35,26 +35,26 @@ pub trait WebhooksInterface {
 
     async fn get_webhook_out_endpoint(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         endpoint_id: String,
     ) -> StoreResult<WebhookOutEndpoint>;
 
     async fn list_webhook_out_endpoints(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         filter: Option<WebhookOutListEndpointFilter>,
     ) -> StoreResult<WebhookPage<WebhookOutEndpointListItem>>;
 
     async fn list_message_attempts_out(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         endpoint_id: String,
         filter: Option<WebhookOutListMessageAttemptFilter>,
     ) -> StoreResult<WebhookPage<WebhookOutMessageAttempt>>;
 
     async fn insert_webhook_message_out(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         msg: WebhookOutMessageNew,
     ) -> StoreResult<WebhookOutCreateMessageResult>;
 
@@ -66,7 +66,10 @@ pub trait WebhooksInterface {
         event: WebhookInEventNew,
     ) -> StoreResult<WebhookInEvent>;
 
-    async fn get_webhook_portal_access(&self, tenant_id: Uuid) -> StoreResult<WebhookPortalAccess>;
+    async fn get_webhook_portal_access(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<WebhookPortalAccess>;
 }
 
 static API_RATE_LIMITER: std::sync::OnceLock<
@@ -126,7 +129,7 @@ impl WebhooksInterface for Store {
 
     async fn get_webhook_out_endpoint(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         endpoint_id: String,
     ) -> StoreResult<WebhookOutEndpoint> {
         let svix = self.svix()?;
@@ -163,7 +166,7 @@ impl WebhooksInterface for Store {
 
     async fn list_webhook_out_endpoints(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         filter: Option<WebhookOutListEndpointFilter>,
     ) -> StoreResult<WebhookPage<WebhookOutEndpointListItem>> {
         let svix = self.svix()?;
@@ -193,7 +196,7 @@ impl WebhooksInterface for Store {
 
     async fn list_message_attempts_out(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         endpoint_id: String,
         filter: Option<WebhookOutListMessageAttemptFilter>,
     ) -> StoreResult<WebhookPage<WebhookOutMessageAttempt>> {
@@ -211,7 +214,7 @@ impl WebhooksInterface for Store {
 
     async fn insert_webhook_message_out(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         msg: WebhookOutMessageNew,
     ) -> StoreResult<WebhookOutCreateMessageResult> {
         if let Some(svix_api) = &self.svix {
@@ -301,7 +304,10 @@ impl WebhooksInterface for Store {
         Ok(())
     }
 
-    async fn get_webhook_portal_access(&self, tenant_id: Uuid) -> StoreResult<WebhookPortalAccess> {
+    async fn get_webhook_portal_access(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<WebhookPortalAccess> {
         let svix = self.svix()?;
 
         let app_in = svix_application_in(self, tenant_id).await?;
@@ -342,12 +348,12 @@ impl WebhooksInterface for Store {
     result = true,
     size = 100,
     time = 60, // 1m
-    key = "Uuid",
+    key = "TenantId",
     convert = r#"{ tenant_id }"#
 )]
 async fn get_endpoint_events_to_listen_cached(
     store: &Store,
-    tenant_id: Uuid,
+    tenant_id: TenantId,
 ) -> StoreResult<Vec<WebhookOutEventTypeEnum>> {
     let endpoints = store
         .list_webhook_out_endpoints(
@@ -369,7 +375,7 @@ async fn get_endpoint_events_to_listen_cached(
 }
 
 /// todo optimize
-async fn svix_application_in(store: &Store, tenant_id: Uuid) -> StoreResult<ApplicationIn> {
+async fn svix_application_in(store: &Store, tenant_id: TenantId) -> StoreResult<ApplicationIn> {
     let mut conn = store.get_conn().await?;
 
     let tenant = TenantRow::find_by_id(&mut conn, tenant_id)

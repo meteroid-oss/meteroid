@@ -18,6 +18,7 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
+use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{
     AuthenticatedState, AuthorizedAsTenant, AuthorizedState,
 };
@@ -156,7 +157,7 @@ async fn validate_api_token_by_id_cached(
     internal_client: &mut InternalServiceClient<LayeredClientService>,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<(Uuid, Uuid), Status> {
+) -> Result<(OrganizationId, TenantId), Status> {
     let res = internal_client
         .clone()
         .resolve_api_key(ResolveApiKeyRequest {
@@ -176,11 +177,9 @@ async fn validate_api_token_by_id_cached(
         .validate_hash(&inner.hash)
         .map_err(|_e| Status::permission_denied("Unauthorized. Invalid hash"))?;
 
-    let tenant_uuid = Uuid::parse_str(&inner.tenant_id)
-        .map_err(|_| Status::internal("failed to parse tenant id"))?;
+    let tenant_uuid = TenantId::from_proto(inner.tenant_id)?;
 
-    let organization_uuid = Uuid::parse_str(&inner.tenant_id)
-        .map_err(|_| Status::internal("failed to parse tenant id"))?;
+    let organization_uuid = OrganizationId::from_proto(inner.organization_id)?;
 
     Ok((organization_uuid, tenant_uuid))
 }

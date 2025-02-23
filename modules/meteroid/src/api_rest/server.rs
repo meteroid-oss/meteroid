@@ -74,7 +74,7 @@ pub async fn start_rest_server(
         .merge(Scalar::with_url("/scalar", open_api.clone()))
         //todo add "/api" to path and merge with api_routes
         .nest("/files", crate::api_rest::files::file_routes())
-        .nest("/webhooks", crate::api_rest::webhooks::webhook_routes())
+        .nest("/webhooks", crate::api_rest::webhooks::webhook_in_routes())
         .merge(crate::api_rest::oauth::oauth_routes())
         .merge(api_router)
         .fallback(handler_404)

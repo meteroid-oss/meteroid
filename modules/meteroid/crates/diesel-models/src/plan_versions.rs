@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use crate::enums::ActionAfterTrialEnum;
 
+use common_domain::ids::TenantId;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -15,7 +16,7 @@ pub struct PlanVersionRow {
     pub version: i32,
     pub trial_duration_days: Option<i32>,
     pub downgrade_plan_id: Option<Uuid>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     // TODO is this used ? or always the tenant currency ?
@@ -38,7 +39,7 @@ pub struct PlanVersionRowNew {
     pub version: i32,
     pub trial_duration_days: Option<i32>,
     pub downgrade_plan_id: Option<Uuid>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
@@ -85,7 +86,7 @@ pub struct PlanVersionRowOverview {
 #[diesel(primary_key(id, tenant_id))]
 pub struct PlanVersionRowPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
 }
@@ -96,7 +97,7 @@ pub struct PlanVersionRowPatch {
 #[diesel(primary_key(id, tenant_id))]
 pub struct PlanVersionTrialRowPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub trialing_plan_id: Option<Option<Uuid>>,
     pub action_after_trial: Option<Option<ActionAfterTrialEnum>>,
     pub trial_is_free: Option<bool>,

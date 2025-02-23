@@ -7,6 +7,7 @@ use crate::query::IdentityDb;
 
 use crate::{DbResult, PgConn};
 
+use common_domain::ids::TenantId;
 use diesel::{
     debug_query, ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl,
     SelectableHelper,
@@ -50,7 +51,7 @@ impl InvoicingEntityRow {
     }
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<InvoicingEntityRow>> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
@@ -68,10 +69,7 @@ impl InvoicingEntityRow {
             .into_db_result()
     }
 
-    pub async fn exists_any_for_tenant(
-        conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
-    ) -> DbResult<bool> {
+    pub async fn exists_any_for_tenant(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<bool> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
 
@@ -91,7 +89,7 @@ impl InvoicingEntityRow {
     pub async fn is_in_use(
         conn: &mut PgConn,
         invoicing_entity_id: &uuid::Uuid,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<bool> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
@@ -115,7 +113,7 @@ impl InvoicingEntityRow {
 
     pub async fn get_default_invoicing_entity_for_tenant(
         conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
@@ -137,7 +135,7 @@ impl InvoicingEntityRow {
     pub async fn get_invoicing_entity_by_id_and_tenant(
         conn: &mut PgConn,
         id: &IdentityDb,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
@@ -168,7 +166,7 @@ impl InvoicingEntityRow {
     pub async fn select_for_update_by_id_and_tenant(
         conn: &mut PgConn,
         id: &uuid::Uuid,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
@@ -191,7 +189,7 @@ impl InvoicingEntityRow {
     pub async fn update_invoicing_entity_number(
         conn: &mut PgConn,
         id: &uuid::Uuid,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
         new_invoice_number: i64,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
@@ -216,7 +214,7 @@ impl InvoicingEntityProvidersRow {
     pub async fn resolve_providers_by_id(
         conn: &mut PgConn,
         id: &uuid::Uuid,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<InvoicingEntityProvidersRow> {
         use crate::schema::bank_account::dsl as b_dsl;
         use crate::schema::connector::dsl as c_dsl;
@@ -245,7 +243,7 @@ impl InvoicingEntityRowPatch {
     pub async fn patch_invoicing_entity(
         &self,
         conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;
@@ -269,7 +267,7 @@ impl InvoicingEntityRowProvidersPatch {
     pub async fn patch_invoicing_entity_providers(
         &self,
         conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<InvoicingEntityRow> {
         use crate::schema::invoicing_entity::dsl;
         use diesel_async::RunQueryDsl;

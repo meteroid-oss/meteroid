@@ -2,7 +2,7 @@ use crate::domain::Customer;
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::StoreResult;
-use common_domain::ids::CustomerId;
+use common_domain::ids::{CustomerId, TenantId};
 use diesel_models::customer_balance_txs::CustomerBalanceTxRowNew;
 use diesel_models::customers::CustomerRow;
 use diesel_models::errors::DatabaseError;
@@ -20,7 +20,7 @@ impl CustomerBalance {
     pub async fn update(
         conn: &mut PgConn,
         customer_id: CustomerId,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         cents: i32,
         invoice_id: Option<Uuid>,
     ) -> StoreResult<CustomerBalanceUpdate> {
