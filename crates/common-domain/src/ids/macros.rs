@@ -10,7 +10,7 @@ macro_rules! id_type {
         impl $id_name {
             #[cfg(feature = "tonic")]
             pub fn as_proto(&self) -> String {
-                self.to_string()
+                self.as_base62()
             }
 
             #[cfg(feature = "tonic")]
@@ -40,7 +40,7 @@ macro_rules! id_type {
                 let s = String::deserialize(deserializer)?;
 
                 if s.starts_with($id_prefix) {
-                    $id_name::from_str(&s).map_err(serde::de::Error::custom)
+                    $id_name::parse_base62(&s).map_err(serde::de::Error::custom)
                 } else {
                     $id_name::parse_uuid(&s).map_err(serde::de::Error::custom)
                 }
@@ -76,6 +76,17 @@ macro_rules! id_type {
                     .map_err(|e| $crate::ids::IdError(e.to_string()))
                     .map(|x| $id_name(x))
             }
+
+            fn parse_base62(s: &str) -> Result<$id_name, $crate::ids::IdError> {
+                s.strip_prefix($id_prefix)
+                    .ok_or_else(|| $crate::ids::IdError("Invalid prefix".to_string()))
+                    .and_then(|s| {
+                        base62::decode(s)
+                            .map_err(|e| $crate::ids::IdError(e.to_string()))
+                            .map(uuid::Uuid::from_u128)
+                            .map($id_name)
+                    })
+            }
         }
 
         impl From<uuid::Uuid> for $id_name {
@@ -86,7 +97,7 @@ macro_rules! id_type {
 
         impl std::fmt::Display for $id_name {
             fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(f, "{}{}", $id_prefix, base62::encode(self.0.as_u128()))
+                write!(f, "{}", self.as_base62())
             }
         }
 
@@ -94,14 +105,11 @@ macro_rules! id_type {
             type Err = $crate::ids::IdError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                s.strip_prefix($id_prefix)
-                    .ok_or_else(|| $crate::ids::IdError("Invalid prefix".to_string()))
-                    .and_then(|s| {
-                        base62::decode(s)
-                            .map_err(|e| $crate::ids::IdError(e.to_string()))
-                            .map(uuid::Uuid::from_u128)
-                            .map($id_name)
-                    })
+                if s.starts_with($id_prefix) {
+                    $id_name::parse_base62(s)
+                } else {
+                    $id_name::parse_uuid(s)
+                }
             }
         }
     };

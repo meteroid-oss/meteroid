@@ -35,6 +35,16 @@ pub trait BaseId: Deref<Target = Uuid> {
         **self
     }
     fn parse_uuid(s: &str) -> Result<Self::IdType, IdError>;
+
+    fn as_base62(&self) -> String {
+        format!(
+            "{}{}",
+            Self::PREFIX,
+            base62::encode(self.as_uuid().as_u128())
+        )
+    }
+
+    fn parse_base62(s: &str) -> Result<Self::IdType, IdError>;
 }
 
 pub mod string_serde {
