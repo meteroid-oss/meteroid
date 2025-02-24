@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::BillingPeriodEnum;
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 #[diesel(table_name = crate::schema::subscription)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionRow {
-    pub id: Uuid,
+    pub id: SubscriptionId,
     pub customer_id: CustomerId,
     pub billing_day: i16,
     pub tenant_id: TenantId,
@@ -33,14 +33,12 @@ pub struct SubscriptionRow {
     pub currency: String,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
-    pub local_id: String,
 }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::subscription)]
 pub struct SubscriptionRowNew {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: SubscriptionId,
     pub customer_id: CustomerId,
     pub billing_day: i16,
     pub tenant_id: TenantId,
@@ -59,7 +57,7 @@ pub struct SubscriptionRowNew {
 }
 
 pub struct CancelSubscriptionParams {
-    pub subscription_id: uuid::Uuid,
+    pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
     pub canceled_at: chrono::NaiveDateTime,
     pub billing_end_date: chrono::NaiveDate,
@@ -114,7 +112,7 @@ mod subscription_invoice_candidate {
 
     use chrono::{NaiveDate, NaiveDateTime};
 
-    use common_domain::ids::{CustomerId, TenantId};
+    use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
     use diesel::{Queryable, Selectable};
     use uuid::Uuid;
 
@@ -122,8 +120,7 @@ mod subscription_invoice_candidate {
     #[diesel(table_name = crate::schema::subscription)]
     #[diesel(check_for_backend(diesel::pg::Pg))]
     pub struct SubscriptionEmbedRow {
-        pub id: Uuid,
-        pub local_id: String,
+        pub id: SubscriptionId,
         pub tenant_id: TenantId,
         pub customer_id: CustomerId,
         pub plan_version_id: Uuid,

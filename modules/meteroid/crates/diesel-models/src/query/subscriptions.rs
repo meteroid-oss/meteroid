@@ -19,7 +19,7 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::query::IdentityDb;
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -60,30 +60,21 @@ impl SubscriptionRow {
     pub async fn get_subscription_by_id(
         conn: &mut PgConn,
         tenant_id_param: TenantId,
-        subscription_id_param: IdentityDb,
+        subscription_id_param: SubscriptionId,
     ) -> DbResult<SubscriptionForDisplayRow> {
         use crate::schema::subscription::dsl::*;
 
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
 
-        let mut query = subscription
+        let query = subscription
+            .filter(id.eq(subscription_id_param))
             .filter(tenant_id.eq(tenant_id_param))
             .inner_join(crate::schema::customer::table)
             .inner_join(
                 pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
             )
-            .select(SubscriptionForDisplayRow::as_select())
-            .into_boxed();
-
-        match subscription_id_param {
-            IdentityDb::UUID(id_param) => {
-                query = query.filter(id.eq(id_param));
-            }
-            IdentityDb::LOCAL(local_id_param) => {
-                query = query.filter(local_id.eq(local_id_param));
-            }
-        }
+            .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -97,7 +88,7 @@ impl SubscriptionRow {
     pub async fn list_subscriptions_by_ids(
         conn: &mut PgConn,
         tenant_id_param: TenantId,
-        subscription_ids: &[uuid::Uuid],
+        subscription_ids: &[SubscriptionId],
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -150,7 +141,7 @@ impl SubscriptionRow {
 
     pub async fn activate_subscription(
         conn: &mut PgConn,
-        id: Uuid,
+        id: SubscriptionId,
         tenant_id: TenantId,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl as s_dsl;
@@ -176,7 +167,7 @@ impl SubscriptionRow {
         conn: &mut PgConn,
         tenant_id_param: TenantId,
         invoice_id: &uuid::Uuid,
-    ) -> DbResult<Option<uuid::Uuid>> {
+    ) -> DbResult<Option<SubscriptionId>> {
         use crate::schema::invoice::dsl as i_dsl;
         use crate::schema::subscription::dsl as s_dsl;
 
@@ -189,7 +180,7 @@ impl SubscriptionRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .get_result::<uuid::Uuid>(conn)
+            .get_result::<SubscriptionId>(conn)
             .await
             .optional()
             .attach_printable("Error while fetching subscription by invoice ID")
@@ -298,7 +289,7 @@ impl SubscriptionRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .load_and_get_next_cursor(conn, |a| a.subscription.id)
+            .load_and_get_next_cursor(conn, |a| a.subscription.id.as_uuid())
             .await
             .attach_printable("Error while fetching subscriptions to invoice")
             .into_db_result()
@@ -306,7 +297,7 @@ impl SubscriptionRow {
 
     pub async fn update_subscription_mrr_delta(
         conn: &mut PgConn,
-        subscription_id: uuid::Uuid,
+        subscription_id: SubscriptionId,
         mrr_cents_delta: i64,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl::*;
@@ -328,7 +319,7 @@ impl SubscriptionRow {
 
     pub async fn lock_subscription_for_update(
         conn: &mut PgConn,
-        subscription_id_param: uuid::Uuid,
+        subscription_id_param: SubscriptionId,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl::*;
 

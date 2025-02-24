@@ -1386,7 +1386,7 @@
                   "type": "string"
                 },
                 "id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/SubscriptionId"
                 }
               }
             }
@@ -1572,7 +1572,7 @@
             "type": "string"
           },
           "id": {
-            "type": "string"
+            "$ref": "#/components/schemas/SubscriptionId"
           }
         }
       },
@@ -1606,9 +1606,12 @@
             "type": "string"
           },
           "id": {
-            "type": "string"
+            "$ref": "#/components/schemas/SubscriptionId"
           }
         }
+      },
+      "SubscriptionId": {
+        "type": "string"
       }
     },
     "securitySchemes": {

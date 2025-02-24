@@ -652,7 +652,6 @@ diesel::table! {
         currency -> Varchar,
         mrr_cents -> Int8,
         period -> BillingPeriodEnum,
-        local_id -> Text,
     }
 }
 

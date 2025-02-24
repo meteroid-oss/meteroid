@@ -1,6 +1,7 @@
 use uuid::Uuid;
 
 use crate::enums::SubscriptionFeeBillingPeriod;
+use common_domain::ids::SubscriptionId;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -9,7 +10,7 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 pub struct SubscriptionComponentRow {
     pub id: Uuid,
     pub name: String,
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     pub price_component_id: Option<Uuid>,
     pub product_id: Option<Uuid>,
     pub period: SubscriptionFeeBillingPeriod,
@@ -22,7 +23,7 @@ pub struct SubscriptionComponentRow {
 pub struct SubscriptionComponentRowNew {
     pub id: Uuid,
     pub name: String,
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     pub price_component_id: Option<Uuid>,
     pub product_id: Option<Uuid>,
     pub period: SubscriptionFeeBillingPeriod,

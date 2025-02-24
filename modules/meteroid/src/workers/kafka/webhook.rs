@@ -2,7 +2,8 @@ use crate::workers::kafka::outbox::{parse_outbox_event, EventType, OutboxEvent};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
-use common_domain::ids::CustomerId;
+use common_domain::ids::string_serde;
+use common_domain::ids::{CustomerId, SubscriptionId};
 use error_stack::Report;
 use meteroid_store::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, WebhookOutEventTypeEnum,
@@ -89,6 +90,7 @@ impl MessageHandler for WebhookHandler {
 #[derive(Debug, Serialize, o2o)]
 #[from_owned(CustomerEvent)]
 pub struct Customer {
+    #[serde(serialize_with = "string_serde::serialize")]
     pub id: CustomerId,
     pub name: String,
     pub alias: Option<String>,
@@ -103,8 +105,9 @@ pub struct Customer {
 #[derive(Debug, Serialize, o2o)]
 #[from_owned(SubscriptionEvent)]
 pub struct Subscription {
-    #[map(local_id)]
-    pub id: String,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: SubscriptionId,
+    #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub customer_name: String,
@@ -134,6 +137,7 @@ pub struct Subscription {
 pub struct Invoice {
     #[map(local_id)]
     pub id: String,
+    #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     pub status: InvoiceStatusEnum,
     pub currency: String,

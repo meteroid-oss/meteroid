@@ -1,7 +1,7 @@
 use crate::errors::IntoDbResult;
 use crate::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use crate::{DbResult, PgConn};
-use common_domain::ids::TenantId;
+use common_domain::ids::{SubscriptionId, TenantId};
 use diesel::{debug_query, QueryDsl};
 use diesel::{ExpressionMethods, SelectableHelper};
 use diesel_async::RunQueryDsl;
@@ -28,7 +28,7 @@ impl SubscriptionAddOnRow {
     pub async fn list_by_subscription_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        subscription_id: &uuid::Uuid,
+        subscription_id: SubscriptionId,
     ) -> DbResult<Vec<SubscriptionAddOnRow>> {
         use crate::schema::subscription::dsl as s_dsl;
         use crate::schema::subscription_add_on::dsl as sao_dsl;

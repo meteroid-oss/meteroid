@@ -6,7 +6,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
@@ -33,7 +33,7 @@ pub struct Invoice {
     pub updated_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub subscription_id: Option<Uuid>,
+    pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub invoice_number: String,
@@ -90,7 +90,7 @@ pub struct InvoiceNew {
     pub external_status: Option<InvoiceExternalStatusEnum>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub subscription_id: Option<Uuid>,
+    pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub invoice_number: String,

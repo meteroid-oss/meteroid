@@ -4,6 +4,7 @@ use crate::subscription_events::SubscriptionEventRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDate;
 
+use common_domain::ids::SubscriptionId;
 use diesel::debug_query;
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -44,7 +45,7 @@ impl SubscriptionEventRow {
 
     pub async fn fetch_by_subscription_id_and_date(
         conn: &mut PgConn,
-        subscription_uid: uuid::Uuid,
+        subscription_uid: SubscriptionId,
         date: NaiveDate,
     ) -> DbResult<Vec<SubscriptionEventRow>> {
         use crate::schema::subscription_event::dsl::*;

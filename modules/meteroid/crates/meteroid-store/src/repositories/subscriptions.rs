@@ -32,7 +32,7 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
-use common_domain::ids::{BaseId, CustomerId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::applied_coupons::{
@@ -42,7 +42,6 @@ use diesel_models::billable_metrics::BillableMetricRow;
 use diesel_models::coupons::CouponRow;
 use diesel_models::price_components::PriceComponentRow;
 use diesel_models::query::plans::get_plan_names_by_version_ids;
-use diesel_models::query::IdentityDb;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
@@ -76,7 +75,7 @@ pub trait SubscriptionInterface {
     async fn get_subscription_details(
         &self,
         tenant_id: TenantId,
-        subscription_id: Identity,
+        subscription_id: SubscriptionId,
     ) -> StoreResult<SubscriptionDetails>;
 
     async fn insert_subscription_components(
@@ -87,7 +86,7 @@ pub trait SubscriptionInterface {
 
     async fn cancel_subscription(
         &self,
-        subscription_id: Uuid,
+        subscription_id: SubscriptionId,
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
@@ -156,7 +155,7 @@ pub trait SubscriptionSlotsInterface {
     async fn get_current_slots_value(
         &self,
         tenant_id: TenantId,
-        subscription_id: Uuid,
+        subscription_id: SubscriptionId,
         price_component_id: Uuid,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32>;
@@ -164,7 +163,7 @@ pub trait SubscriptionSlotsInterface {
     async fn add_slot_transaction(
         &self,
         tenant_id: TenantId,
-        subscription_id: Uuid,
+        subscription_id: SubscriptionId,
         price_component_id: Uuid,
         slots: i32,
     ) -> StoreResult<i32>;
@@ -175,7 +174,7 @@ impl SubscriptionSlotsInterface for Store {
     async fn get_current_slots_value(
         &self,
         _tenant_id: TenantId,
-        subscription_id: Uuid,
+        subscription_id: SubscriptionId,
         price_component_id: Uuid,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32> {
@@ -195,7 +194,7 @@ impl SubscriptionSlotsInterface for Store {
     async fn add_slot_transaction(
         &self,
         _tenant_id: TenantId,
-        _subscription_id: Uuid,
+        _subscription_id: SubscriptionId,
         _price_component_id: Uuid,
         _slots: i32,
     ) -> StoreResult<i32> {
@@ -558,7 +557,7 @@ impl SubscriptionInterface for Store {
         let _ = futures::future::join_all(inserted_subscriptions.clone().into_iter().map(|res| {
             self.eventbus.publish(Event::subscription_created(
                 res.created_by,
-                res.id,
+                res.id.as_uuid(),
                 res.tenant_id.as_uuid(),
             ))
         }))
@@ -573,19 +572,19 @@ impl SubscriptionInterface for Store {
     async fn get_subscription_details(
         &self,
         tenant_id: TenantId,
-        subscription_id: Identity,
+        subscription_id: SubscriptionId,
     ) -> StoreResult<SubscriptionDetails> {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, tenant_id, subscription_id.into())
+            SubscriptionRow::get_subscription_by_id(&mut conn, tenant_id, subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: Subscription = db_subscription.into();
 
         let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(&mut conn, tenant_id, &subscription.id)
+            ScheduleRow::list_schedules_by_subscription(&mut conn, tenant_id, subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -596,7 +595,7 @@ impl SubscriptionInterface for Store {
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 &mut conn,
                 tenant_id,
-                &subscription.id,
+                subscription.id,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
@@ -605,7 +604,7 @@ impl SubscriptionInterface for Store {
             .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, tenant_id, &subscription.id)
+            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, tenant_id, subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -627,7 +626,7 @@ impl SubscriptionInterface for Store {
         metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
 
         let applied_coupons =
-            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, &subscription.id)
+            AppliedCouponDetailedRow::list_by_subscription_id(&mut conn, subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -644,7 +643,6 @@ impl SubscriptionInterface for Store {
 
         Ok(SubscriptionDetails {
             id: subscription.id,
-            local_id: subscription.local_id,
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             plan_version_id: subscription.plan_version_id,
@@ -705,7 +703,7 @@ impl SubscriptionInterface for Store {
 
     async fn cancel_subscription(
         &self,
-        subscription_id: Uuid,
+        subscription_id: SubscriptionId,
         reason: Option<String>,
         effective_at: CancellationEffectiveAt,
         context: domain::TenantContext,
@@ -714,10 +712,7 @@ impl SubscriptionInterface for Store {
             .transaction(|conn| {
                 async move {
                     let subscription: SubscriptionDetails = self
-                        .get_subscription_details(
-                            context.tenant_id,
-                            Identity::UUID(subscription_id),
-                        )
+                        .get_subscription_details(context.tenant_id, subscription_id)
                         .await?;
 
                     let now = chrono::Utc::now().naive_utc();
@@ -745,7 +740,7 @@ impl SubscriptionInterface for Store {
                     let res = SubscriptionRow::get_subscription_by_id(
                         conn,
                         context.tenant_id,
-                        IdentityDb::UUID(subscription_id),
+                        subscription_id,
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
@@ -780,7 +775,7 @@ impl SubscriptionInterface for Store {
             .eventbus
             .publish(Event::subscription_canceled(
                 context.actor,
-                subscription.id,
+                subscription.id.as_uuid(),
                 subscription.tenant_id.as_uuid(),
             ))
             .await;

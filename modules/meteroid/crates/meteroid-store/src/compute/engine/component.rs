@@ -392,7 +392,7 @@ impl ComponentEngine {
             .slots_client
             .fetch_slots(
                 self.subscription_details.tenant_id,
-                &self.subscription_details.id,
+                self.subscription_details.id,
                 component_id,
                 invoice_date,
             )
