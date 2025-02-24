@@ -11,7 +11,7 @@ use crate::api_rest::subscriptions::model::{
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum_valid::Valid;
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::Identity;
 use meteroid_store::repositories::SubscriptionInterface;
@@ -111,7 +111,7 @@ async fn list_subscriptions_handler(
 pub(crate) async fn subscription_details(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(id): Path<String>,
+    Path(id): Path<SubscriptionId>,
 ) -> Result<impl IntoResponse, RestApiError> {
     subscription_details_handler(app_state.store, authorized_state.tenant_id, id)
         .await
@@ -125,10 +125,10 @@ pub(crate) async fn subscription_details(
 async fn subscription_details_handler(
     store: Store,
     tenant_id: TenantId,
-    subscription_id: String,
+    subscription_id: SubscriptionId,
 ) -> Result<SubscriptionDetails, RestApiError> {
     let res = store
-        .get_subscription_details(tenant_id, Identity::LOCAL(subscription_id))
+        .get_subscription_details(tenant_id, subscription_id)
         .await
         .map_err(|e| {
             log::error!("Error handling subscription_details: {}", e);

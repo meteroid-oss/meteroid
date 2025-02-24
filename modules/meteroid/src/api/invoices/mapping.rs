@@ -155,7 +155,7 @@ pub mod invoices {
             updated_at: invoice.updated_at.as_proto(),
             tenant_id: invoice.tenant_id.as_proto(),
             customer_id: invoice.customer_id.as_proto(),
-            subscription_id: invoice.subscription_id.as_proto(),
+            subscription_id: invoice.subscription_id.map(|x| x.as_proto()),
             currency: invoice.currency,
             external_invoice_id: invoice.external_invoice_id,
             invoice_number: invoice.invoice_number,

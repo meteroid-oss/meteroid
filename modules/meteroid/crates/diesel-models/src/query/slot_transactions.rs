@@ -4,6 +4,7 @@ use crate::slot_transactions::SlotTransactionRow;
 use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 
+use common_domain::ids::SubscriptionId;
 use diesel::sql_types;
 use diesel::{debug_query, QueryableByName};
 use error_stack::ResultExt;
@@ -26,7 +27,7 @@ impl SlotTransactionRow {
 
     pub async fn fetch_by_subscription_id_and_price_component_id(
         conn: &mut PgConn,
-        subscription_uid: uuid::Uuid,
+        subscription_uid: SubscriptionId,
         // TODO unit instead ?
         price_component_uid: uuid::Uuid,
         at_ts: Option<NaiveDateTime>,

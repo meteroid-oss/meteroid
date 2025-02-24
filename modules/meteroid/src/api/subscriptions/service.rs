@@ -1,4 +1,4 @@
-use common_domain::ids::CustomerId;
+use common_domain::ids::{CustomerId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use tonic::{Request, Response, Status};
 
@@ -103,7 +103,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .store
             .get_subscription_details(
                 tenant_id,
-                Identity::UUID(parse_uuid!(inner.subscription_id)?),
+                SubscriptionId::from_proto(inner.subscription_id)?,
             )
             .await
             .map_err(Into::<SubscriptionApiError>::into)
@@ -163,7 +163,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let inner = request.into_inner();
 
-        let subscription_id = parse_uuid!(inner.subscription_id)?;
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
         let price_component_id = parse_uuid!(inner.price_component_id)?;
 
         let added = self
@@ -185,7 +185,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
 
-        let subscription_id = parse_uuid!(inner.subscription_id)?;
+        let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
         let price_component_id = parse_uuid!(inner.price_component_id)?;
 
         let slots = self
@@ -216,7 +216,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscription = self
             .store
             .cancel_subscription(
-                parse_uuid!(inner.subscription_id)?,
+                SubscriptionId::from_proto(inner.subscription_id)?,
                 inner.reason,
                 CancellationEffectiveAt::EndOfBillingPeriod,
                 domain::TenantContext { tenant_id, actor },

@@ -112,7 +112,7 @@ async fn create_slot_transaction(
     store
         .add_slot_transaction(
             TENANT_ID.into(),
-            SLOT_SUBSCRIPTION_ID,
+            SLOT_SUBSCRIPTION_ID.into(),
             SLOT_PRICE_COMPONENT_ID,
             delta,
         )
@@ -124,7 +124,7 @@ async fn get_active_slots(store: &Store, timestamp: NaiveDateTime) -> u32 {
     store
         .get_current_slots_value(
             TENANT_ID.into(),
-            SLOT_SUBSCRIPTION_ID,
+            SLOT_SUBSCRIPTION_ID.into(),
             SLOT_PRICE_COMPONENT_ID,
             Some(timestamp),
         )

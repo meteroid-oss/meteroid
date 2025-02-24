@@ -11,9 +11,8 @@ use error_stack::{Report, ResultExt};
 use crate::compute::InvoiceLineInterface;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Identity, Invoice,
-    InvoiceLinesPatch, InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec,
-    PaginationRequest,
+    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
+    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
@@ -557,7 +556,7 @@ async fn compute_invoice_patch(
         .into()),
         Some(subscription_id) => {
             let subscription_details = store
-                .get_subscription_details(tenant_id, Identity::UUID(subscription_id))
+                .get_subscription_details(tenant_id, subscription_id)
                 .await?;
             let lines = store
                 .compute_dated_invoice_lines(&invoice.invoice.invoice_date, &subscription_details)

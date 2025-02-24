@@ -6,8 +6,7 @@ use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     Schedule, SubscriptionComponent,
 };
-use crate::utils::local_id::{IdType, LocalId};
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
@@ -18,8 +17,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, o2o)]
 #[from_owned(SubscriptionRow)]
 pub struct CreatedSubscription {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: SubscriptionId,
     pub customer_id: CustomerId,
     pub billing_day: i16,
     pub tenant_id: TenantId,
@@ -43,8 +41,7 @@ pub struct CreatedSubscription {
 
 #[derive(Debug, Clone)]
 pub struct Subscription {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: SubscriptionId,
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub customer_name: String,
@@ -75,7 +72,6 @@ impl From<SubscriptionForDisplayRow> for Subscription {
     fn from(val: SubscriptionForDisplayRow) -> Self {
         Subscription {
             id: val.subscription.id,
-            local_id: val.subscription.local_id,
             customer_id: val.subscription.customer_id,
             customer_name: val.customer_name,
             customer_alias: val.customer_alias,
@@ -127,8 +123,7 @@ impl SubscriptionNew {
         tenant_id: TenantId,
     ) -> SubscriptionRowNew {
         SubscriptionRowNew {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::Subscription),
+            id: SubscriptionId::new(),
             customer_id: self.customer_id,
             billing_day: self.billing_day,
             tenant_id,
@@ -162,8 +157,7 @@ pub struct CreateSubscription {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionDetails {
-    pub id: uuid::Uuid,
-    pub local_id: String,
+    pub id: SubscriptionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
@@ -200,7 +194,7 @@ pub struct SubscriptionDetails {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionInvoiceCandidate {
-    pub id: Uuid,
+    pub id: SubscriptionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub plan_version_id: Uuid,

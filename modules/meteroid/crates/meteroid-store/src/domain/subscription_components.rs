@@ -1,18 +1,18 @@
 use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod};
+use crate::domain::UsagePricingModel;
+use crate::errors::StoreErrorReport;
+use crate::json_value_serde;
+use common_domain::ids::SubscriptionId;
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::domain::UsagePricingModel;
-use crate::errors::StoreErrorReport;
-use crate::json_value_serde;
-
 pub trait SubscriptionFeeInterface {
     fn price_component_id(&self) -> Option<Uuid>;
     fn product_id(&self) -> Option<Uuid>;
-    fn subscription_id(&self) -> Uuid;
+    fn subscription_id(&self) -> SubscriptionId;
     fn name_ref(&self) -> &String;
     fn period_ref(&self) -> &SubscriptionFeeBillingPeriod;
     fn fee_ref(&self) -> &SubscriptionFee;
@@ -23,7 +23,7 @@ pub struct SubscriptionComponent {
     pub id: Uuid,
     pub price_component_id: Option<Uuid>,
     pub product_id: Option<Uuid>,
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
@@ -41,7 +41,7 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     }
 
     #[inline]
-    fn subscription_id(&self) -> Uuid {
+    fn subscription_id(&self) -> SubscriptionId {
         self.subscription_id
     }
 
@@ -91,7 +91,7 @@ impl SubscriptionComponent {
 
 #[derive(Debug)]
 pub struct SubscriptionComponentNew {
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     pub internal: SubscriptionComponentNewInternal,
 }
 

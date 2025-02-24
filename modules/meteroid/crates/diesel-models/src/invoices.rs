@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
 use crate::plan_versions::PlanVersionRowOverview;
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -19,7 +19,7 @@ pub struct InvoiceRow {
     pub updated_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub subscription_id: Option<Uuid>,
+    pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub line_items: serde_json::Value,
@@ -74,7 +74,7 @@ pub struct InvoiceRowNew {
     pub external_status: Option<InvoiceExternalStatusEnum>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub subscription_id: Option<Uuid>,
+    pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
     pub invoice_number: String,

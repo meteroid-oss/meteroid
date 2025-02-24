@@ -2,6 +2,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use uuid::Uuid;
 
 use crate::enums::SubscriptionEventType;
+use common_domain::ids::SubscriptionId;
 use diesel::{Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Insertable, Selectable)]
@@ -13,7 +14,7 @@ pub struct SubscriptionEventRow {
     pub event_type: SubscriptionEventType,
     pub created_at: NaiveDateTime,
     pub applies_to: NaiveDate,
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     pub bi_mrr_movement_log_id: Option<Uuid>,
     pub details: Option<serde_json::Value>,
 }

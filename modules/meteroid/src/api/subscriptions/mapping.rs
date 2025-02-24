@@ -16,7 +16,7 @@ pub mod subscriptions {
 
         Ok(proto2::Subscription {
             id: s.id.as_proto(),
-            local_id: s.local_id,
+            local_id: s.id.as_proto(), // todo remove me
             tenant_id: s.tenant_id.as_proto(),
             customer_id: s.customer_id.as_proto(),
             plan_id: s.plan_id.as_proto(),
@@ -87,7 +87,7 @@ pub mod subscriptions {
     ) -> Result<proto2::CreatedSubscription, Status> {
         Ok(proto2::CreatedSubscription {
             id: sub.id.as_proto(),
-            local_id: sub.local_id,
+            local_id: sub.id.as_proto(), //todo remove me
             customer_id: sub.customer_id.as_proto(),
             billing_day: sub.billing_day as u32,
             tenant_id: sub.tenant_id.as_proto(),
@@ -113,7 +113,7 @@ pub mod subscriptions {
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
                 id: sub.id.as_proto(),
-                local_id: sub.local_id,
+                local_id: sub.id.as_proto(), //todo remove me
                 tenant_id: sub.tenant_id.as_proto(),
                 customer_id: sub.customer_id.as_proto(),
                 plan_id: sub.plan_id.as_proto(),

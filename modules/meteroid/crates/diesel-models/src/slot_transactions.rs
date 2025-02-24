@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use common_domain::ids::SubscriptionId;
 use diesel::{Insertable, Queryable};
 
 #[derive(Queryable, Debug, Insertable)]
@@ -9,7 +10,7 @@ use diesel::{Insertable, Queryable};
 pub struct SlotTransactionRow {
     pub id: Uuid,
     pub price_component_id: Uuid,
-    pub subscription_id: Uuid,
+    pub subscription_id: SubscriptionId,
     pub delta: i32,
     pub prev_active_slots: i32,
     pub effective_at: NaiveDateTime,

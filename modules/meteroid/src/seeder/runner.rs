@@ -424,7 +424,7 @@ pub async fn run(
 
         // TODO don't refetch the details, we should have everything, or at the least do it in a batch
         let details = store
-            .get_subscription_details(subscription.tenant_id, Identity::UUID(subscription.id))
+            .get_subscription_details(subscription.tenant_id, subscription.id)
             .await
             .change_context(SeederError::TempError)?;
 

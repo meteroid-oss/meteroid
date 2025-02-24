@@ -1,7 +1,7 @@
 use crate::api_rest::model::PaginatedRequest;
-use common_domain::ids::string_serde;
 use common_domain::ids::string_serde_opt;
 use common_domain::ids::CustomerId;
+use common_domain::ids::{string_serde, SubscriptionId};
 use utoipa::ToSchema;
 use validator::Validate;
 
@@ -17,7 +17,8 @@ pub struct SubscriptionRequest {
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct Subscription {
-    pub id: String,
+    #[serde(with = "string_serde")]
+    pub id: SubscriptionId,
     #[serde(with = "string_serde")]
     pub customer_id: CustomerId,
     pub customer_name: String,
@@ -28,7 +29,8 @@ pub struct Subscription {
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct SubscriptionDetails {
-    pub id: String,
+    #[serde(with = "string_serde")]
+    pub id: SubscriptionId,
     #[serde(with = "string_serde")]
     pub customer_id: CustomerId,
     pub customer_name: String,

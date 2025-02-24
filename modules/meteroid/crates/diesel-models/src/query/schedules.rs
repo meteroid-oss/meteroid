@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use error_stack::ResultExt;
 
-use common_domain::ids::TenantId;
+use common_domain::ids::{SubscriptionId, TenantId};
 use diesel::{debug_query, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper};
 
 impl ScheduleRowNew {
@@ -72,7 +72,7 @@ impl ScheduleRow {
     pub async fn list_schedules_by_subscription(
         conn: &mut PgConn,
         tenant_id_params: TenantId,
-        subscription_id: &uuid::Uuid,
+        subscription_id: SubscriptionId,
     ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::schedule::dsl as schedule_dsl;
         use crate::schema::subscription;
