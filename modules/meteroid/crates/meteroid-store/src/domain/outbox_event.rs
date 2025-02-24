@@ -4,7 +4,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::outbox_event::OutboxEventRowNew;
 use error_stack::Report;
 use o2o::o2o;
@@ -38,7 +38,7 @@ impl OutboxEvent {
     pub fn invoice_created(event: InvoiceEvent) -> OutboxEvent {
         OutboxEvent {
             tenant_id: event.tenant_id,
-            aggregate_id: event.id,
+            aggregate_id: event.id.as_uuid(),
             event_type: EventType::InvoiceCreated(Box::new(event)),
         }
     }
@@ -46,7 +46,7 @@ impl OutboxEvent {
     pub fn invoice_finalized(event: InvoiceEvent) -> OutboxEvent {
         OutboxEvent {
             tenant_id: event.tenant_id,
-            aggregate_id: event.id,
+            aggregate_id: event.id.as_uuid(),
             event_type: EventType::InvoiceFinalized(Box::new(event)),
         }
     }
@@ -185,9 +185,7 @@ pub struct SubscriptionEvent {
 #[from_owned(DetailedInvoice)]
 pub struct InvoiceEvent {
     #[map(@.invoice.id)]
-    pub id: Uuid,
-    #[map(@.invoice.local_id)]
-    pub local_id: String,
+    pub id: InvoiceId,
     #[map(@.invoice.status)]
     pub status: InvoiceStatusEnum,
     #[map(@.invoice.tenant_id)]

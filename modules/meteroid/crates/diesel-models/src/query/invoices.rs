@@ -12,7 +12,7 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, TenantId};
 use diesel::dsl::IntervalDsl;
 use diesel::{
     debug_query, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
@@ -42,7 +42,7 @@ impl InvoiceRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
-        param_invoice_id: uuid::Uuid,
+        param_invoice_id: InvoiceId,
     ) -> DbResult<DetailedInvoiceRow> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoice::dsl as i_dsl;
@@ -126,7 +126,7 @@ impl InvoiceRow {
 
     pub async fn list_by_ids(
         conn: &mut PgConn,
-        param_invoice_ids: Vec<uuid::Uuid>,
+        param_invoice_ids: Vec<InvoiceId>,
     ) -> DbResult<Vec<InvoiceRow>> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -164,7 +164,7 @@ impl InvoiceRow {
 
     pub async fn update_external_status(
         conn: &mut PgConn,
-        id: uuid::Uuid,
+        id: InvoiceId,
         tenant_id: TenantId,
         external_status: InvoiceExternalStatusEnum,
     ) -> DbResult<usize> {
@@ -212,7 +212,7 @@ impl InvoiceRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .load_and_get_next_cursor(conn, |a| a.id)
+            .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
             .await
             .attach_printable("Error while paginating invoices to finalize")
             .into_db_result()
@@ -220,7 +220,7 @@ impl InvoiceRow {
 
     pub async fn finalize(
         conn: &mut PgConn,
-        id: uuid::Uuid,
+        id: InvoiceId,
         tenant_id: TenantId,
         new_invoice_number: String,
         applied_coupon_ids: &[uuid::Uuid],
@@ -260,7 +260,7 @@ impl InvoiceRow {
 
     pub async fn save_invoice_documents(
         conn: &mut PgConn,
-        id: uuid::Uuid,
+        id: InvoiceId,
         tenant_id: TenantId,
         pdf_document_id: String,
         xml_document_id: Option<String>,
@@ -306,7 +306,7 @@ impl InvoiceRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .load_and_get_next_cursor(conn, |a| a.id)
+            .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
             .await
             .attach_printable("Error while paginating outdated invoices")
             .into_db_result()
@@ -330,7 +330,7 @@ impl InvoiceRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .load_and_get_next_cursor(conn, |a| a.id)
+            .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
             .await
             .attach_printable("Error while paginating invoices to issue")
             .into_db_result()
@@ -338,7 +338,7 @@ impl InvoiceRow {
 
     pub async fn issue_success(
         conn: &mut PgConn,
-        id: uuid::Uuid,
+        id: InvoiceId,
         tenant_id: TenantId,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -369,7 +369,7 @@ impl InvoiceRow {
 
     pub async fn issue_error(
         conn: &mut PgConn,
-        id: uuid::Uuid,
+        id: InvoiceId,
         tenant_id: TenantId,
         last_issue_error: &str,
     ) -> DbResult<usize> {
@@ -437,7 +437,7 @@ WHERE invoice.customer_id = customer.id
 impl InvoiceRowLinesPatch {
     pub async fn update_lines(
         &self,
-        id: uuid::Uuid,
+        id: InvoiceId,
         tenant_id: TenantId,
         conn: &mut PgConn,
     ) -> DbResult<usize> {

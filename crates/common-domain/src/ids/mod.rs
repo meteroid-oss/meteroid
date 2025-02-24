@@ -15,6 +15,7 @@ id_type!(OrganizationId, "org_");
 id_type!(TenantId, "ten_");
 id_type!(CustomerId, "cus_");
 id_type!(SubscriptionId, "sub_");
+id_type!(InvoiceId, "inv_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

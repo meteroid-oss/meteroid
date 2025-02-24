@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Clone, Debug, Identifiable, Queryable, Selectable)]
@@ -13,7 +13,7 @@ pub struct CustomerBalanceTxRow {
     pub amount_cents: i32,
     pub balance_cents_after: i32,
     pub note: Option<String>,
-    pub invoice_id: Option<Uuid>,
+    pub invoice_id: Option<InvoiceId>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub created_by: Option<Uuid>,
@@ -27,7 +27,7 @@ pub struct CustomerBalanceTxRowNew {
     pub amount_cents: i32,
     pub balance_cents_after: i32,
     pub note: Option<String>,
-    pub invoice_id: Option<Uuid>,
+    pub invoice_id: Option<InvoiceId>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub created_by: Option<Uuid>,
@@ -42,7 +42,7 @@ pub struct CustomerBalancePendingTxRow {
     pub updated_at: NaiveDateTime,
     pub amount_cents: i32,
     pub note: Option<String>,
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub tx_id: Option<Uuid>,
@@ -56,7 +56,7 @@ pub struct CustomerBalancePendingTxRowNew {
     pub id: Uuid,
     pub amount_cents: i32,
     pub note: Option<String>,
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub tx_id: Option<Uuid>,

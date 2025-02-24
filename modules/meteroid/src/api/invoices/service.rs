@@ -1,4 +1,4 @@
-use common_domain::ids::CustomerId;
+use common_domain::ids::{BaseId, CustomerId, InvoiceId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
@@ -14,7 +14,6 @@ use meteroid_store::repositories::InvoiceInterface;
 use tonic::{Request, Response, Status};
 
 use crate::api::invoices::error::InvoiceApiError;
-use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
 
 use super::{mapping, InvoiceServiceComponents};
@@ -81,7 +80,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
+            .find_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
             .await
             .and_then(|inv| {
                 mapping::invoices::domain_invoice_with_plan_details_to_server(
@@ -109,7 +108,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let html = self
             .html_rendering
-            .preview_invoice_html(parse_uuid(&req.id, "invoice_id")?, tenant_id)
+            .preview_invoice_html(InvoiceId::from_proto(&req.id)?, tenant_id)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
@@ -129,7 +128,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id, parse_uuid(&req.id, "id")?)
+            .find_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
@@ -137,7 +136,7 @@ impl InvoicesService for InvoiceServiceComponents {
         self.store
             .insert_outbox_event(OutboxEvent::invoice_pdf_requested(
                 tenant_id,
-                invoice.invoice.id,
+                invoice.invoice.id.as_uuid(),
             ))
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
@@ -158,7 +157,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .refresh_invoice_data(parse_uuid(&req.id, "id")?, tenant_id)
+            .refresh_invoice_data(InvoiceId::from_proto(&req.id)?, tenant_id)
             .await
             .and_then(|inv| {
                 mapping::invoices::domain_invoice_with_plan_details_to_server(

@@ -26,7 +26,6 @@ use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::{domain, Store};
 use stripe_client::webhook::event_type;
 use stripe_client::webhook::StripeWebhook;
-use uuid::Uuid;
 
 static STRIPE: std::sync::OnceLock<Stripe> = std::sync::OnceLock::new();
 
@@ -170,8 +169,7 @@ impl Stripe {
                 event_type_clone
             )),
         };
-        let invoice_id = Uuid::parse_str(invoice.metadata.meteroid_invoice_id.as_str())
-            .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
+        let invoice_id = invoice.metadata.meteroid_invoice_id;
 
         let tenant_id = invoice.metadata.meteroid_tenant_id;
 
@@ -204,7 +202,7 @@ impl Stripe {
             },
             customer: Some(stripe_customer.as_ref()),
             metadata: MeteroidMetadata {
-                meteroid_invoice_id: invoice.id.to_string(),
+                meteroid_invoice_id: invoice.id,
                 meteroid_customer_id: invoice.customer_id,
                 meteroid_tenant_id: invoice.tenant_id,
             },

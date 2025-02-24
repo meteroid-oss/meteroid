@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use super::enums::MrrMovementType;
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable, Insertable)]
@@ -54,7 +54,7 @@ pub struct BiMrrMovementLogRow {
     pub currency: String,
     pub created_at: NaiveDateTime,
     pub applies_to: NaiveDate,
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     pub credit_note_id: Option<Uuid>,
     pub plan_version_id: Uuid,
     pub tenant_id: TenantId,
@@ -69,7 +69,7 @@ pub struct BiMrrMovementLogRowNew {
     pub net_mrr_change: i64,
     pub currency: String,
     pub applies_to: NaiveDate,
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     pub credit_note_id: Option<Uuid>,
     pub plan_version_id: Uuid,
     pub tenant_id: TenantId,

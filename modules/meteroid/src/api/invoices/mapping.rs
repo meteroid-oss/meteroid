@@ -2,6 +2,7 @@ pub mod invoices {
     use crate::api::customers::mapping::customer::ServerAddressWrapper;
     use crate::api::sharable::ShareableEntityClaims;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use common_domain::ids::BaseId;
     use error_stack::ResultExt;
     use meteroid_grpc::meteroid::api::invoices::v1::{
         DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType, LineItem,
@@ -57,7 +58,7 @@ pub mod invoices {
             let claims = ShareableEntityClaims {
                 exp,
                 sub: invoice.id.to_string(),
-                entity_id: invoice.id,
+                entity_id: invoice.id.as_uuid(),
                 tenant_id: invoice.tenant_id,
             };
 
@@ -177,7 +178,7 @@ pub mod invoices {
             net_terms: invoice.net_terms,
             reference: invoice.reference,
             memo: invoice.memo,
-            local_id: invoice.local_id,
+            local_id: invoice.id.as_proto(), // todo remove me
             due_at: invoice.due_at.as_proto(),
             plan_name: invoice.plan_name,
             customer_details: Some(InlineCustomer {

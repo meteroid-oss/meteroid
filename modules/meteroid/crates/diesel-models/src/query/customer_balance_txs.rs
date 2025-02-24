@@ -4,6 +4,7 @@ use crate::customer_balance_txs::{
 };
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
+use common_domain::ids::InvoiceId;
 use diesel::{debug_query, ExpressionMethods, OptionalExtension, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -44,7 +45,7 @@ impl CustomerBalancePendingTxRowNew {
 impl CustomerBalancePendingTxRow {
     pub async fn find_unprocessed_by_invoice_id(
         conn: &mut PgConn,
-        invoice_id: Uuid,
+        invoice_id: InvoiceId,
     ) -> DbResult<Option<CustomerBalancePendingTxRow>> {
         use crate::schema::customer_balance_pending_tx::dsl as cbptx;
 

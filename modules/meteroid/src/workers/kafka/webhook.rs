@@ -2,7 +2,7 @@ use crate::workers::kafka::outbox::{parse_outbox_event, EventType, OutboxEvent};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
-use common_domain::ids::string_serde;
+use common_domain::ids::{string_serde, InvoiceId};
 use common_domain::ids::{CustomerId, SubscriptionId};
 use error_stack::Report;
 use meteroid_store::domain::enums::{
@@ -135,8 +135,8 @@ pub struct Subscription {
 #[derive(Debug, Serialize, o2o)]
 #[from_owned(InvoiceEvent)]
 pub struct Invoice {
-    #[map(local_id)]
-    pub id: String,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub id: InvoiceId,
     #[serde(serialize_with = "string_serde::serialize")]
     pub customer_id: CustomerId,
     pub status: InvoiceStatusEnum,

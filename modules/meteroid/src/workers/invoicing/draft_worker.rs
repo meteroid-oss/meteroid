@@ -129,7 +129,10 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
         for inv in &inserted {
             let _ = store
                 .eventbus
-                .publish(Event::invoice_created(inv.id, inv.tenant_id.as_uuid()))
+                .publish(Event::invoice_created(
+                    inv.id.as_uuid(),
+                    inv.tenant_id.as_uuid(),
+                ))
                 .await;
         }
 

@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::CreditNoteStatus;
-use common_domain::ids::TenantId;
+use common_domain::ids::{CustomerId, InvoiceId, TenantId};
 use diesel::{Identifiable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable)]
@@ -17,9 +17,9 @@ pub struct CreditNoteRow {
     pub currency: String,
     pub finalized_at: NaiveDateTime,
     pub plan_version_id: Option<Uuid>,
-    pub invoice_id: Uuid,
+    pub invoice_id: InvoiceId,
     pub tenant_id: TenantId,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub status: CreditNoteStatus,
     pub local_id: String,
 }

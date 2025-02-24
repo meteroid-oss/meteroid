@@ -12,6 +12,7 @@ use crate::errors;
 
 use crate::api::sharable::ShareableEntityClaims;
 use crate::services::storage::Prefix;
+use common_domain::ids::InvoiceId;
 use error_stack::{Report, Result, ResultExt};
 use fang::Deserialize;
 use image::ImageFormat::Png;
@@ -97,7 +98,7 @@ pub struct TokenParams {
 )]
 #[axum::debug_handler]
 pub async fn get_invoice_pdf(
-    Path(uid): Path<String>,
+    Path(uid): Path<InvoiceId>,
     Query(params): Query<TokenParams>,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
@@ -111,7 +112,7 @@ pub async fn get_invoice_pdf(
 }
 
 async fn get_invoice_pdf_handler(
-    invoice_uid: String,
+    invoice_uid: InvoiceId,
     token: TokenParams,
     app_state: AppState,
 ) -> Result<Response, errors::RestApiError> {
@@ -125,11 +126,11 @@ async fn get_invoice_pdf_handler(
 
     let invoice = app_state
         .store
-        .find_invoice_by_id(claims.tenant_id, claims.entity_id)
+        .find_invoice_by_id(claims.tenant_id, claims.entity_id.into())
         .await
         .change_context(errors::RestApiError::StoreError)?;
 
-    if invoice.invoice.local_id != invoice_uid {
+    if invoice.invoice.id != invoice_uid {
         return Err(Report::new(errors::RestApiError::Forbidden));
     }
     match invoice.invoice.pdf_document_id {
