@@ -1,9 +1,9 @@
-use crate::api::utils::parse_uuid;
 use crate::services::invoice_rendering::{GenerateResult, PdfRenderingService};
 use crate::workers::kafka::outbox::{parse_outbox_event, EventType};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
-use uuid::Uuid;
+use common_domain::ids::InvoiceId;
+use std::str::FromStr;
 
 pub struct PdfRendererHandler {
     pdf_service: PdfRenderingService,
@@ -26,7 +26,7 @@ impl MessageHandler for PdfRendererHandler {
 
             match event.event_type {
                 EventType::InvoiceFinalized(_) | EventType::InvoicePdfRequested => {
-                    let invoice_id: Uuid = parse_uuid(event.aggregate_id.as_str(), "aggregate_id")?;
+                    let invoice_id: InvoiceId = InvoiceId::from_str(event.aggregate_id.as_str())?;
 
                     let result = self.pdf_service.generate_pdfs(vec![invoice_id]).await;
 

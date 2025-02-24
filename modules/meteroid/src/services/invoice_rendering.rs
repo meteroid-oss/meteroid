@@ -2,7 +2,7 @@ use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::engine::general_purpose::STANDARD as Base64Engine;
 use base64::Engine;
-use common_domain::ids::TenantId;
+use common_domain::ids::{InvoiceId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{html_render, pdf};
@@ -26,7 +26,7 @@ impl HtmlRenderingService {
 
     pub async fn preview_invoice_html(
         &self,
-        invoice_id: Uuid,
+        invoice_id: InvoiceId,
         tenant_id: TenantId,
     ) -> error_stack::Result<String, InvoicingRenderError> {
         let invoice = self
@@ -76,8 +76,14 @@ impl HtmlRenderingService {
 }
 
 pub enum GenerateResult {
-    Success { invoice_id: Uuid, pdf_url: String },
-    Failure { invoice_id: Uuid, error: String },
+    Success {
+        invoice_id: InvoiceId,
+        pdf_url: String,
+    },
+    Failure {
+        invoice_id: InvoiceId,
+        error: String,
+    },
 }
 
 pub struct PdfRenderingService {
@@ -103,7 +109,7 @@ impl PdfRenderingService {
 
     pub async fn generate_pdfs(
         &self,
-        invoice_ids: Vec<Uuid>,
+        invoice_ids: Vec<InvoiceId>,
     ) -> error_stack::Result<Vec<GenerateResult>, InvoicingRenderError> {
         let invoices = self
             .store

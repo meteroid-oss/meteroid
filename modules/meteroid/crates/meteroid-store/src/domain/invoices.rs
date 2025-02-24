@@ -4,9 +4,8 @@ use crate::domain::invoice_lines::LineItem;
 use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
-use crate::utils::local_id::{IdType, LocalId};
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
@@ -24,7 +23,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
 pub struct Invoice {
-    pub id: Uuid,
+    pub id: InvoiceId,
     #[from(~.into())]
     pub status: InvoiceStatusEnum,
     #[from(~.map(| x | x.into()))]
@@ -61,7 +60,6 @@ pub struct Invoice {
     pub net_terms: i32,
     pub reference: Option<String>,
     pub memo: Option<String>,
-    pub local_id: String,
     pub due_at: Option<NaiveDateTime>,
     pub plan_name: Option<String>,
 
@@ -79,10 +77,7 @@ pub struct Invoice {
 
 #[derive(Debug, o2o)]
 #[owned_try_into(InvoiceRowNew, StoreErrorReport)]
-#[ghosts(
-    id: {uuid::Uuid::now_v7()},
-    local_id: {LocalId::generate_for(IdType::Invoice)},
-)]
+#[ghosts(id: {InvoiceId::new()})]
 pub struct InvoiceNew {
     #[into(~.into())]
     pub status: InvoiceStatusEnum,

@@ -421,7 +421,6 @@ diesel::table! {
         net_terms -> Int4,
         memo -> Nullable<Text>,
         tax_rate -> Int4,
-        local_id -> Text,
         reference -> Nullable<Text>,
         invoice_number -> Text,
         tax_amount -> Int8,

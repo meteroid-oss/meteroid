@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
 use crate::plan_versions::PlanVersionRowOverview;
-use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -12,7 +12,7 @@ use uuid::Uuid;
 #[diesel(table_name = crate::schema::invoice)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoiceRow {
-    pub id: Uuid,
+    pub id: InvoiceId,
     pub status: InvoiceStatusEnum,
     pub external_status: Option<InvoiceExternalStatusEnum>,
     pub created_at: NaiveDateTime,
@@ -36,7 +36,6 @@ pub struct InvoiceRow {
     pub net_terms: i32,
     pub memo: Option<String>,
     pub tax_rate: i32,
-    pub local_id: String,
     pub reference: Option<String>,
     pub invoice_number: String,
     pub tax_amount: i64,
@@ -69,7 +68,7 @@ pub struct InvoiceRowLinesPatch {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::invoice)]
 pub struct InvoiceRowNew {
-    pub id: Uuid,
+    pub id: InvoiceId,
     pub status: InvoiceStatusEnum,
     pub external_status: Option<InvoiceExternalStatusEnum>,
     pub tenant_id: TenantId,
@@ -97,7 +96,6 @@ pub struct InvoiceRowNew {
     pub net_terms: i32,
     pub reference: Option<String>,
     pub memo: Option<String>,
-    pub local_id: String,
     pub due_at: Option<NaiveDateTime>,
     pub plan_name: Option<String>,
     pub customer_details: serde_json::Value,

@@ -250,7 +250,7 @@ impl AnalyticsHandler {
             .store
             .find_invoice_by_id(
                 event_data_details.tenant_id.into(),
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -282,7 +282,7 @@ impl AnalyticsHandler {
             .store
             .find_invoice_by_id(
                 event_data_details.tenant_id.into(),
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
