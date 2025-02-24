@@ -116,7 +116,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let billable_metric = self
             .store
-            .find_billable_metric_by_id(event_data_details.entity_id, event_data_details.tenant_id)
+            .find_billable_metric_by_id(
+                event_data_details.entity_id,
+                event_data_details.tenant_id.into(),
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -143,8 +146,8 @@ impl AnalyticsHandler {
         let customer = self
             .store
             .find_customer_by_id(
-                Identity::UUID(event_data_details.entity_id),
-                event_data_details.tenant_id,
+                event_data_details.entity_id.into(),
+                event_data_details.tenant_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -170,8 +173,8 @@ impl AnalyticsHandler {
         let customer = self
             .store
             .find_customer_by_id(
-                Identity::UUID(event_data_details.entity_id),
-                event_data_details.tenant_id,
+                event_data_details.entity_id.into(),
+                event_data_details.tenant_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -198,8 +201,8 @@ impl AnalyticsHandler {
         let customer = self
             .store
             .find_customer_by_id(
-                Identity::UUID(event_data_details.entity_id),
-                event_data_details.tenant_id,
+                event_data_details.entity_id.into(),
+                event_data_details.tenant_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -245,7 +248,10 @@ impl AnalyticsHandler {
             invoice, customer, ..
         } = self
             .store
-            .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
+            .find_invoice_by_id(
+                event_data_details.tenant_id.into(),
+                event_data_details.entity_id,
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -274,7 +280,10 @@ impl AnalyticsHandler {
             invoice, customer, ..
         } = self
             .store
-            .find_invoice_by_id(event_data_details.tenant_id, event_data_details.entity_id)
+            .find_invoice_by_id(
+                event_data_details.tenant_id.into(),
+                event_data_details.entity_id,
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -301,7 +310,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let plan_version = self
             .store
-            .get_plan_version_by_id(event_data_details.entity_id, event_data_details.tenant_id)
+            .get_plan_version_by_id(
+                event_data_details.entity_id,
+                event_data_details.tenant_id.into(),
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -328,7 +340,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let plan_version = self
             .store
-            .get_plan_version_by_id(event_data_details.entity_id, event_data_details.tenant_id)
+            .get_plan_version_by_id(
+                event_data_details.entity_id,
+                event_data_details.tenant_id.into(),
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -374,7 +389,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let price_component = self
             .store
-            .get_price_component_by_id(event_data_details.tenant_id, event_data_details.entity_id)
+            .get_price_component_by_id(
+                event_data_details.tenant_id.into(),
+                event_data_details.entity_id,
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -399,7 +417,10 @@ impl AnalyticsHandler {
     ) -> Result<(), EventBusError> {
         let price_component = self
             .store
-            .get_price_component_by_id(event_data_details.tenant_id, event_data_details.entity_id)
+            .get_price_component_by_id(
+                event_data_details.tenant_id.into(),
+                event_data_details.entity_id,
+            )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
 
@@ -463,7 +484,7 @@ impl AnalyticsHandler {
         let subscription = self
             .store
             .get_subscription_details(
-                event_data_details.tenant_id,
+                event_data_details.tenant_id.into(),
                 Identity::UUID(event_data_details.entity_id),
             )
             .await
@@ -494,7 +515,7 @@ impl AnalyticsHandler {
         let subscription = self
             .store
             .get_subscription_details(
-                event_data_details.tenant_id,
+                event_data_details.tenant_id.into(),
                 Identity::UUID(event_data_details.entity_id),
             )
             .await

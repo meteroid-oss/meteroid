@@ -5,6 +5,7 @@ use crate::{DbResult, PgConn};
 
 use error_stack::ResultExt;
 
+use common_domain::ids::TenantId;
 use diesel::{debug_query, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper};
 
 impl ScheduleRowNew {
@@ -25,11 +26,7 @@ impl ScheduleRowNew {
 }
 
 impl ScheduleRow {
-    pub async fn delete(
-        conn: &mut PgConn,
-        id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
-    ) -> DbResult<usize> {
+    pub async fn delete(conn: &mut PgConn, id: uuid::Uuid, tenant_id: TenantId) -> DbResult<usize> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::schedule::dsl as s_dsl;
         use diesel_async::RunQueryDsl;
@@ -74,7 +71,7 @@ impl ScheduleRow {
 
     pub async fn list_schedules_by_subscription(
         conn: &mut PgConn,
-        tenant_id_params: &uuid::Uuid,
+        tenant_id_params: TenantId,
         subscription_id: &uuid::Uuid,
     ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::schedule::dsl as schedule_dsl;
@@ -102,7 +99,7 @@ impl ScheduleRow {
     pub async fn list(
         conn: &mut PgConn,
         plan_version_id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::schedule::dsl as s_dsl;
@@ -165,7 +162,7 @@ impl ScheduleRow {
 }
 
 impl SchedulePatchRow {
-    pub async fn update(&self, conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<ScheduleRow> {
+    pub async fn update(&self, conn: &mut PgConn, tenant_id: TenantId) -> DbResult<ScheduleRow> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::schedule::dsl as s_dsl;
         use diesel_async::RunQueryDsl;

@@ -16,7 +16,6 @@ use super::types::{AdapterCommon, WebhookAdapter};
 use crate::adapters::types::{InvoicingAdapter, ParsedRequest};
 use crate::errors::InvoicingAdapterError;
 use axum::response::IntoResponse;
-use common_domain::StripeSecret;
 use error_stack::ResultExt;
 use meteroid_store::domain::enums::InvoiceExternalStatusEnum;
 use meteroid_store::domain::{
@@ -105,7 +104,7 @@ impl InvoicingAdapter for Stripe {
         customer: &Customer,
         api_key: SecretString,
     ) -> Result<(), InvoicingAdapterError> {
-        let api_key = &StripeSecret(api_key);
+        let api_key = &api_key;
 
         let stripe_customer = Self::extract_stripe_customer_id(customer)?;
         let collection_method = Self::extract_stripe_collection_method(customer)?;
@@ -174,8 +173,7 @@ impl Stripe {
         let invoice_id = Uuid::parse_str(invoice.metadata.meteroid_invoice_id.as_str())
             .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
-        let tenant_id = Uuid::parse_str(invoice.metadata.meteroid_tenant_id.as_str())
-            .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
+        let tenant_id = invoice.metadata.meteroid_tenant_id;
 
         store
             .update_invoice_external_status(invoice_id, tenant_id, external_status)
@@ -207,8 +205,8 @@ impl Stripe {
             customer: Some(stripe_customer.as_ref()),
             metadata: MeteroidMetadata {
                 meteroid_invoice_id: invoice.id.to_string(),
-                meteroid_customer_id: invoice.customer_id.to_string(),
-                meteroid_tenant_id: invoice.tenant_id.to_string(),
+                meteroid_customer_id: invoice.customer_id,
+                meteroid_tenant_id: invoice.tenant_id,
             },
         }
     }

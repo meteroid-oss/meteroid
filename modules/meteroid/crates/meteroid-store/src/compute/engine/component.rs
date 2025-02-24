@@ -356,7 +356,7 @@ impl ComponentEngine {
             .usage_client
             .fetch_usage(
                 &self.subscription_details.tenant_id,
-                &self.subscription_details.customer_local_id,
+                self.subscription_details.customer_id,
                 &self.subscription_details.customer_alias,
                 metric,
                 period,
@@ -391,7 +391,7 @@ impl ComponentEngine {
         let quantity = self
             .slots_client
             .fetch_slots(
-                &self.subscription_details.tenant_id,
+                self.subscription_details.tenant_id,
                 &self.subscription_details.id,
                 component_id,
                 invoice_date,

@@ -2,6 +2,7 @@ use crate::domain::{BankAccount, BankAccountPatch};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
+use common_domain::ids::{BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_models::bank_accounts::{BankAccountRow, BankAccountRowNew, BankAccountRowPatch};
 use error_stack::Report;
@@ -9,12 +10,15 @@ use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait BankAccountsInterface {
-    async fn list_bank_accounts(&self, tenant_id: &Uuid) -> StoreResult<Vec<BankAccount>>;
+    async fn list_bank_accounts(&self, tenant_id: TenantId) -> StoreResult<Vec<BankAccount>>;
 
-    async fn get_bank_account_by_id(&self, id: &Uuid, tenant_id: &Uuid)
-        -> StoreResult<BankAccount>;
+    async fn get_bank_account_by_id(
+        &self,
+        id: &Uuid,
+        tenant_id: TenantId,
+    ) -> StoreResult<BankAccount>;
 
-    async fn delete_bank_account(&self, id: &Uuid, tenant_id: &Uuid) -> StoreResult<()>;
+    async fn delete_bank_account(&self, id: &Uuid, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn insert_bank_account(&self, plan: domain::BankAccountNew) -> StoreResult<BankAccount>;
 
@@ -27,10 +31,10 @@ pub trait BankAccountsInterface {
 
 #[async_trait::async_trait]
 impl BankAccountsInterface for Store {
-    async fn list_bank_accounts(&self, tenant_id: &Uuid) -> StoreResult<Vec<BankAccount>> {
+    async fn list_bank_accounts(&self, tenant_id: TenantId) -> StoreResult<Vec<BankAccount>> {
         let mut conn = self.get_conn().await?;
 
-        let bank_accounts = BankAccountRow::list_by_tenant_id(&mut conn, *tenant_id)
+        let bank_accounts = BankAccountRow::list_by_tenant_id(&mut conn, tenant_id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -40,21 +44,21 @@ impl BankAccountsInterface for Store {
     async fn get_bank_account_by_id(
         &self,
         id: &Uuid,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<BankAccount> {
         let mut conn = self.get_conn().await?;
 
-        let bank_account = BankAccountRow::get_by_id(&mut conn, *id, *tenant_id)
+        let bank_account = BankAccountRow::get_by_id(&mut conn, tenant_id, *id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         Ok(bank_account.into())
     }
 
-    async fn delete_bank_account(&self, id: &Uuid, tenant_id: &Uuid) -> StoreResult<()> {
+    async fn delete_bank_account(&self, id: &Uuid, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        BankAccountRow::delete(&mut conn, *tenant_id, *id)
+        BankAccountRow::delete(&mut conn, tenant_id, *id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -81,7 +85,7 @@ impl BankAccountsInterface for Store {
                 .publish(Event::bank_account_created(
                     insertable.created_by,
                     insertable.id,
-                    insertable.tenant_id,
+                    insertable.tenant_id.as_uuid(),
                 ))
                 .await;
         }
@@ -110,7 +114,7 @@ impl BankAccountsInterface for Store {
                 .publish(Event::bank_account_edited(
                     actor,
                     patch_row.id,
-                    patch_row.tenant_id,
+                    patch_row.tenant_id.as_uuid(),
                 ))
                 .await;
         }

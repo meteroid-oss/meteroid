@@ -1,6 +1,7 @@
 use crate::errors::ObjectStoreError;
 use async_trait::async_trait;
 use bytes::Bytes;
+use common_domain::ids::TenantId;
 use error_stack::{Report, ResultExt};
 use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
@@ -17,7 +18,7 @@ pub enum Prefix {
     ImageLogo,
     WebhookArchive {
         provider_uid: String,
-        endpoint_uid: String,
+        tenant_id: TenantId,
     },
 }
 
@@ -29,8 +30,8 @@ impl Prefix {
             Prefix::ImageLogo => "image_logo".to_string(),
             Prefix::WebhookArchive {
                 provider_uid,
-                endpoint_uid,
-            } => format!("webhook_archive/{}/{}", provider_uid, endpoint_uid),
+                tenant_id,
+            } => format!("webhook_archive/{}/{}", provider_uid, tenant_id),
         }
     }
 }

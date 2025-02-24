@@ -1,9 +1,9 @@
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
-use error_stack::ResultExt;
-
 use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
+use common_domain::ids::TenantId;
+use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use error_stack::ResultExt;
 
 impl ApiTokenRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ApiTokenRow> {
@@ -40,7 +40,7 @@ impl ApiTokenRow {
 
     pub async fn find_by_tenant_id(
         conn: &mut PgConn,
-        param_tenant_id: &uuid::Uuid,
+        param_tenant_id: TenantId,
     ) -> DbResult<Vec<ApiTokenRow>> {
         use crate::schema::api_token::dsl::*;
         use diesel_async::RunQueryDsl;

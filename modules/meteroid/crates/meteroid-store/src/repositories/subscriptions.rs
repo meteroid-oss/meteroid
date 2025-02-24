@@ -32,6 +32,7 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
+use common_domain::ids::{BaseId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::applied_coupons::{
@@ -63,24 +64,24 @@ pub trait SubscriptionInterface {
     async fn insert_subscription(
         &self,
         subscription: CreateSubscription,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<CreatedSubscription>;
 
     async fn insert_subscription_batch(
         &self,
         batch: Vec<CreateSubscription>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<CreatedSubscription>>;
 
     async fn get_subscription_details(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails>;
 
     async fn insert_subscription_components(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         batch: Vec<SubscriptionComponentNew>,
     ) -> StoreResult<Vec<SubscriptionComponent>>;
 
@@ -94,8 +95,8 @@ pub trait SubscriptionInterface {
 
     async fn list_subscriptions(
         &self,
-        tenant_id: Uuid,
-        customer_id: Option<Identity>,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
         plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
@@ -154,7 +155,7 @@ fn calculate_mrr(
 pub trait SubscriptionSlotsInterface {
     async fn get_current_slots_value(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         subscription_id: Uuid,
         price_component_id: Uuid,
         ts: Option<chrono::NaiveDateTime>,
@@ -162,7 +163,7 @@ pub trait SubscriptionSlotsInterface {
 
     async fn add_slot_transaction(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         subscription_id: Uuid,
         price_component_id: Uuid,
         slots: i32,
@@ -173,7 +174,7 @@ pub trait SubscriptionSlotsInterface {
 impl SubscriptionSlotsInterface for Store {
     async fn get_current_slots_value(
         &self,
-        _tenant_id: Uuid,
+        _tenant_id: TenantId,
         subscription_id: Uuid,
         price_component_id: Uuid,
         ts: Option<chrono::NaiveDateTime>,
@@ -193,7 +194,7 @@ impl SubscriptionSlotsInterface for Store {
 
     async fn add_slot_transaction(
         &self,
-        _tenant_id: Uuid,
+        _tenant_id: TenantId,
         _subscription_id: Uuid,
         _price_component_id: Uuid,
         _slots: i32,
@@ -237,7 +238,7 @@ impl SubscriptionInterface for Store {
     async fn insert_subscription(
         &self,
         params: CreateSubscription,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<CreatedSubscription> {
         self.insert_subscription_batch(vec![params], tenant_id)
             .await?
@@ -248,7 +249,7 @@ impl SubscriptionInterface for Store {
     async fn insert_subscription_batch(
         &self,
         batch: Vec<CreateSubscription>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<CreatedSubscription>> {
         let mut conn: PgConn = self.get_conn().await?;
 
@@ -288,7 +289,7 @@ impl SubscriptionInterface for Store {
                 .map(|x| x.add_on_id)
                 .unique()
                 .collect::<Vec<_>>(),
-            &tenant_id,
+            tenant_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)
@@ -303,7 +304,7 @@ impl SubscriptionInterface for Store {
                 .map(|x| x.coupon_id)
                 .unique()
                 .collect::<Vec<_>>(),
-            &tenant_id,
+            tenant_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)
@@ -558,7 +559,7 @@ impl SubscriptionInterface for Store {
             self.eventbus.publish(Event::subscription_created(
                 res.created_by,
                 res.id,
-                res.tenant_id,
+                res.tenant_id.as_uuid(),
             ))
         }))
         .await
@@ -571,20 +572,20 @@ impl SubscriptionInterface for Store {
     /// todo parallelize db calls
     async fn get_subscription_details(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         subscription_id: Identity,
     ) -> StoreResult<SubscriptionDetails> {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id.into())
+            SubscriptionRow::get_subscription_by_id(&mut conn, tenant_id, subscription_id.into())
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscription: Subscription = db_subscription.into();
 
         let schedules: Vec<Schedule> =
-            ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription.id)
+            ScheduleRow::list_schedules_by_subscription(&mut conn, tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -594,7 +595,7 @@ impl SubscriptionInterface for Store {
         let subscription_components: Vec<SubscriptionComponent> =
             SubscriptionComponentRow::list_subscription_components_by_subscription(
                 &mut conn,
-                &tenant_id,
+                tenant_id,
                 &subscription.id,
             )
             .await
@@ -604,7 +605,7 @@ impl SubscriptionInterface for Store {
             .collect::<Result<Vec<_>, _>>()?;
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
-            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, &tenant_id, &subscription.id)
+            SubscriptionAddOnRow::list_by_subscription_id(&mut conn, tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -634,7 +635,7 @@ impl SubscriptionInterface for Store {
                 .collect::<Result<Vec<_>, _>>()?;
 
         let billable_metrics: Vec<BillableMetric> =
-            BillableMetricRow::get_by_ids(&mut conn, &metric_ids, &subscription.tenant_id)
+            BillableMetricRow::get_by_ids(&mut conn, &metric_ids, subscription.tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
@@ -647,7 +648,6 @@ impl SubscriptionInterface for Store {
             tenant_id: subscription.tenant_id,
             customer_id: subscription.customer_id,
             plan_version_id: subscription.plan_version_id,
-            customer_local_id: subscription.customer_local_id,
             customer_alias: subscription.customer_alias,
             billing_start_date: subscription.billing_start_date,
             billing_end_date: subscription.billing_end_date,
@@ -678,7 +678,7 @@ impl SubscriptionInterface for Store {
 
     async fn insert_subscription_components(
         &self,
-        _tenant_id: Uuid,
+        _tenant_id: TenantId,
         batch: Vec<SubscriptionComponentNew>,
     ) -> StoreResult<Vec<SubscriptionComponent>> {
         let mut conn = self.get_conn().await?;
@@ -744,7 +744,7 @@ impl SubscriptionInterface for Store {
 
                     let res = SubscriptionRow::get_subscription_by_id(
                         conn,
-                        &context.tenant_id,
+                        context.tenant_id,
                         IdentityDb::UUID(subscription_id),
                     )
                     .await
@@ -781,7 +781,7 @@ impl SubscriptionInterface for Store {
             .publish(Event::subscription_canceled(
                 context.actor,
                 subscription.id,
-                subscription.tenant_id,
+                subscription.tenant_id.as_uuid(),
             ))
             .await;
 
@@ -790,8 +790,8 @@ impl SubscriptionInterface for Store {
 
     async fn list_subscriptions(
         &self,
-        tenant_id: Uuid,
-        customer_id: Option<Identity>,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
         plan_id: Option<Identity>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
@@ -800,7 +800,7 @@ impl SubscriptionInterface for Store {
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            customer_id.map(Into::into),
+            customer_id,
             plan_id.map(Into::into),
             pagination.into(),
         )
@@ -935,7 +935,7 @@ async fn apply_coupons(
     tx_conn: &mut PgConn,
     subscription_coupons: &[&AppliedCouponRowNew],
     subscriptions: &[CreatedSubscription],
-    tenant_id: Uuid,
+    tenant_id: TenantId,
 ) -> DbResult<()> {
     validate_coupons(tx_conn, subscription_coupons, subscriptions, tenant_id).await?;
 
@@ -968,7 +968,7 @@ async fn validate_coupons(
     tx_conn: &mut PgConn,
     subscription_coupons: &[&AppliedCouponRowNew],
     subscriptions: &[CreatedSubscription],
-    tenant_id: Uuid,
+    tenant_id: TenantId,
 ) -> DbResult<()> {
     if subscription_coupons.is_empty() {
         return Ok(());
@@ -980,7 +980,7 @@ async fn validate_coupons(
         .unique()
         .collect::<Vec<_>>();
 
-    let coupons = CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, &tenant_id).await?;
+    let coupons = CouponRow::list_by_ids_for_update(tx_conn, &coupons_ids, tenant_id).await?;
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -1344,7 +1344,7 @@ async fn insert_created_outbox_events_tx(
     conn: &mut PgConn,
     store: &Store,
     created: &[CreatedSubscription],
-    tenant_id: Uuid,
+    tenant_id: TenantId,
 ) -> StoreResult<()> {
     let ids = created.iter().map(|c| c.id).collect::<Vec<_>>();
 
@@ -1353,7 +1353,7 @@ async fn insert_created_outbox_events_tx(
     }
 
     let subscriptions: Vec<Subscription> =
-        SubscriptionRow::list_subscriptions_by_ids(conn, &tenant_id, &ids)
+        SubscriptionRow::list_subscriptions_by_ids(conn, tenant_id, &ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()

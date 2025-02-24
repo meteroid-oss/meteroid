@@ -114,10 +114,6 @@ pub mod conversions {
             self.format("%Y-%m-%d").to_string()
         }
 
-        fn from_proto(proto: String) -> Result<Self, tonic::Status> {
-            Self::from_proto_ref(&proto)
-        }
-
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
             chrono::NaiveDate::parse_from_str(proto, "%Y-%m-%d")
                 .map_err(|e| tonic::Status::invalid_argument(format!("Invalid date: {}", e)))

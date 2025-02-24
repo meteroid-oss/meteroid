@@ -9,6 +9,7 @@ license.workspace = true
 common-config.workspace = true
 common-logging = { workspace = true }
 common-grpc-error-as-tonic-macros = { workspace = true }
+common-domain = { workspace = true }
 prost.workspace = true
 anyhow.workspace = true
 chrono = { workspace = true, features = ["clock"] }

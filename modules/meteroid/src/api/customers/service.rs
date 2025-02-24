@@ -1,8 +1,6 @@
-use error_stack::Report;
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
+use common_domain::ids::{AliasOr, CustomerId};
 use common_grpc::middleware::server::auth::RequestExt;
+use error_stack::Report;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
     customers_service_server::CustomersService, ArchiveCustomerRequest, ArchiveCustomerResponse,
@@ -18,6 +16,8 @@ use meteroid_store::domain::{
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
@@ -25,7 +25,6 @@ use crate::api::customers::mapping::customer::{
     ServerCustomerBriefWrapper, ServerCustomerWrapper,
 };
 use crate::api::shared::conversions::FromProtoOpt;
-use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
 
 use super::CustomerServiceComponents;
@@ -120,7 +119,7 @@ impl CustomersService for CustomerServiceComponents {
                 actor,
                 tenant_id,
                 CustomerPatch {
-                    id: parse_uuid(&customer.id, "id")?,
+                    id: CustomerId::from_proto(&customer.id)?,
                     name: customer.name.clone(),
                     alias: customer.alias.clone(),
                     email: customer.email.clone(),
@@ -190,11 +189,11 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let customer_id = parse_uuid(&req.id, "id")?;
+        let customer_id = CustomerId::from_proto(&req.id)?;
 
         let customer = self
             .store
-            .find_customer_by_id(Identity::UUID(customer_id), tenant_id)
+            .find_customer_by_id(customer_id, tenant_id)
             .await
             .and_then(ServerCustomerWrapper::try_from)
             .map(|v| v.0)
@@ -234,7 +233,7 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
+        let customer_id = CustomerId::from_proto(&req.customer_id)?;
 
         let customer = self
             .store
@@ -264,7 +263,7 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
+        let customer_id = CustomerId::from_proto(&req.customer_id)?;
 
         let invoice = self
             .store
@@ -297,10 +296,10 @@ impl CustomersService for CustomerServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let customer_id = parse_uuid(&req.id, "id")?;
+        let customer_id = CustomerId::from_proto(&req.id)?;
 
         self.store
-            .archive_customer(actor, tenant_id, customer_id.to_string())
+            .archive_customer(actor, tenant_id, AliasOr::Id(customer_id))
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 

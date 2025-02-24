@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -9,7 +10,7 @@ pub struct AddOnRow {
     pub id: Uuid,
     pub name: String,
     pub fee: serde_json::Value,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub local_id: String,
@@ -22,7 +23,7 @@ pub struct AddOnRowNew {
     pub id: Uuid,
     pub name: String,
     pub fee: serde_json::Value,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub local_id: String,
 }
 
@@ -32,7 +33,7 @@ pub struct AddOnRowNew {
 #[diesel(primary_key(id, tenant_id))]
 pub struct AddOnRowPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub name: Option<String>,
     pub fee: Option<serde_json::Value>,
     pub updated_at: NaiveDateTime,

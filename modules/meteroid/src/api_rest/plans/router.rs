@@ -9,11 +9,11 @@ use crate::api_rest::plans::model::{Plan, PlanFilters, PlanListRequest};
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum_valid::Valid;
+use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::PlansInterface;
 use meteroid_store::{domain, Store};
-use uuid::Uuid;
 
 #[utoipa::path(
     get,
@@ -58,7 +58,7 @@ pub(crate) async fn list_plans(
 async fn list_plans_handler(
     store: Store,
     pagination: PaginatedRequest,
-    tenant_id: Uuid,
+    tenant_id: TenantId,
     product_family_local_id: Option<String>,
     plan_filters: PlanFilters,
 ) -> Result<PaginatedResponse<Plan>, RestApiError> {

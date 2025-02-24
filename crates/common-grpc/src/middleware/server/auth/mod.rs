@@ -4,6 +4,7 @@ use uuid::Uuid;
 pub use admin_layer::AdminAuthLayer;
 pub use admin_layer::AdminAuthService;
 use common_config::auth::InternalAuthConfig;
+use common_domain::ids::{OrganizationId, TenantId};
 
 mod admin_layer;
 pub mod api_token_validator;
@@ -14,8 +15,8 @@ pub fn create_admin(config: &InternalAuthConfig) -> AdminAuthLayer {
 
 pub trait RequestExt {
     fn actor(&self) -> Result<Uuid, Status>;
-    fn tenant(&self) -> Result<Uuid, Status>;
-    fn organization(&self) -> Result<Uuid, Status>;
+    fn tenant(&self) -> Result<TenantId, Status>;
+    fn organization(&self) -> Result<OrganizationId, Status>;
 }
 
 impl<T> RequestExt for tonic::Request<T> {
@@ -23,11 +24,11 @@ impl<T> RequestExt for tonic::Request<T> {
         extract_actor(self.extensions().get::<AuthorizedState>())
     }
 
-    fn tenant(&self) -> Result<Uuid, Status> {
+    fn tenant(&self) -> Result<TenantId, Status> {
         extract_tenant(self.extensions().get::<AuthorizedState>())
     }
 
-    fn organization(&self) -> Result<Uuid, Status> {
+    fn organization(&self) -> Result<OrganizationId, Status> {
         extract_organization(self.extensions().get::<AuthorizedState>())
     }
 }
@@ -37,11 +38,11 @@ impl<T> RequestExt for http::Request<T> {
         extract_actor(self.extensions().get::<AuthorizedState>())
     }
 
-    fn tenant(&self) -> Result<Uuid, Status> {
+    fn tenant(&self) -> Result<TenantId, Status> {
         extract_tenant(self.extensions().get::<AuthorizedState>())
     }
 
-    fn organization(&self) -> Result<Uuid, Status> {
+    fn organization(&self) -> Result<OrganizationId, Status> {
         extract_organization(self.extensions().get::<AuthorizedState>())
     }
 }
@@ -60,7 +61,7 @@ pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Statu
     Ok(res)
 }
 
-pub fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
+pub fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<TenantId, Status> {
     let authorized = maybe_auth.ok_or(Status::unauthenticated(
         "Missing authorized state in request extensions",
     ))?;
@@ -73,7 +74,9 @@ pub fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Stat
     Ok(res)
 }
 
-pub fn extract_organization(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Status> {
+pub fn extract_organization(
+    maybe_auth: Option<&AuthorizedState>,
+) -> Result<OrganizationId, Status> {
     let authorized = maybe_auth.ok_or(Status::unauthenticated(
         "Missing authorized state in request extensions",
     ))?;
@@ -89,8 +92,8 @@ pub fn extract_organization(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid
 pub enum AuthenticatedState {
     ApiKey {
         id: Uuid,
-        tenant_id: Uuid,
-        organization_id: Uuid,
+        tenant_id: TenantId,
+        organization_id: OrganizationId,
     },
     User {
         id: Uuid,
@@ -100,8 +103,8 @@ pub enum AuthenticatedState {
 #[derive(Clone)]
 pub struct AuthorizedAsTenant {
     pub actor_id: Uuid,
-    pub tenant_id: Uuid,
-    pub organization_id: Uuid,
+    pub tenant_id: TenantId,
+    pub organization_id: OrganizationId,
 }
 
 #[derive(Clone)]
@@ -109,7 +112,7 @@ pub enum AuthorizedState {
     Tenant(AuthorizedAsTenant),
     Organization {
         actor_id: Uuid,
-        organization_id: Uuid,
+        organization_id: OrganizationId,
     },
     User {
         user_id: Uuid,

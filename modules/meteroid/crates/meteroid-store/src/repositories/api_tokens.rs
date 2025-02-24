@@ -1,7 +1,14 @@
+use crate::domain::api_tokens::ApiToken;
+use crate::domain::enums::TenantEnvironmentEnum;
+use crate::domain::ApiTokenValidation;
+use crate::errors::StoreError;
+use crate::store::Store;
+use crate::{domain, StoreResult};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
 };
+use common_domain::ids::TenantId;
 use common_eventbus::Event;
 use diesel_models::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use diesel_models::tenants::TenantRow;
@@ -10,19 +17,10 @@ use nanoid::nanoid;
 use tracing_log::log;
 use uuid::Uuid;
 
-use crate::domain::api_tokens::ApiToken;
-use crate::domain::enums::TenantEnvironmentEnum;
-use crate::domain::ApiTokenValidation;
-use crate::errors::StoreError;
-use crate::store::Store;
-use crate::{domain, StoreResult};
-
 #[async_trait::async_trait]
 pub trait ApiTokensInterface {
-    async fn find_api_tokens_by_tenant_id(
-        &self,
-        tenant_id: &uuid::Uuid,
-    ) -> StoreResult<Vec<ApiToken>>;
+    async fn find_api_tokens_by_tenant_id(&self, tenant_id: TenantId)
+        -> StoreResult<Vec<ApiToken>>;
 
     async fn get_api_token_by_id(&self, id: &uuid::Uuid) -> StoreResult<ApiToken>;
 
@@ -38,7 +36,7 @@ pub trait ApiTokensInterface {
 impl ApiTokensInterface for Store {
     async fn find_api_tokens_by_tenant_id(
         &self,
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<ApiToken>> {
         let mut conn = self.get_conn().await?;
 

@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
-use tonic::{Request, Response, Status};
-
+use common_domain::ids::TenantId;
 use meteroid_grpc::meteroid::internal::v1::internal_service_server::InternalService;
 use meteroid_grpc::meteroid::internal::v1::{
     ResolveApiKeyRequest, ResolveApiKeyResponse, ResolveCustomerAliasesRequest,
     ResolveCustomerAliasesResponse, ResolvedId,
 };
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use tonic::{Request, Response, Status};
 
 use crate::api::internal::error::InternalApiError;
 use crate::api::internal::InternalServiceComponents;
@@ -23,7 +23,7 @@ impl InternalService for InternalServiceComponents {
     ) -> Result<Response<ResolveCustomerAliasesResponse>, Status> {
         let inner = request.into_inner();
 
-        let tenant_id = parse_uuid!(inner.tenant_id)?;
+        let tenant_id = TenantId::from_proto(inner.tenant_id)?;
 
         let res = self
             .store
@@ -36,7 +36,7 @@ impl InternalService for InternalServiceComponents {
         for record in &res {
             customers.push(ResolvedId {
                 alias: record.alias.clone().unwrap(),
-                local_id: record.local_id.to_string(),
+                local_id: record.id.to_string(),
             });
         }
 

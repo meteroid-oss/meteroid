@@ -1,5 +1,6 @@
 use crate::errors::StoreError;
 use crate::{domain, Store, StoreResult};
+use common_domain::ids::TenantId;
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::schedules::{SchedulePatchRow, ScheduleRow, ScheduleRowNew};
 use error_stack::Report;
@@ -7,29 +8,29 @@ use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait ScheduleInterface {
-    async fn delete_schedule(&self, id: Uuid, auth_tenant_id: Uuid) -> StoreResult<()>;
+    async fn delete_schedule(&self, id: Uuid, auth_tenant_id: TenantId) -> StoreResult<()>;
     async fn list_schedules(
         &self,
         plan_version_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<domain::Schedule>>;
 
     async fn insert_schedule(
         &self,
         schedule: domain::ScheduleNew,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<domain::Schedule>;
 
     async fn patch_schedule(
         &self,
         schedule: domain::SchedulePatch,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<domain::Schedule>;
 }
 
 #[async_trait::async_trait]
 impl ScheduleInterface for Store {
-    async fn delete_schedule(&self, id: Uuid, auth_tenant_id: Uuid) -> StoreResult<()> {
+    async fn delete_schedule(&self, id: Uuid, auth_tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         ScheduleRow::delete(&mut conn, id, auth_tenant_id)
@@ -41,7 +42,7 @@ impl ScheduleInterface for Store {
     async fn list_schedules(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<Vec<domain::Schedule>> {
         let mut conn = self.get_conn().await?;
 
@@ -56,7 +57,7 @@ impl ScheduleInterface for Store {
     async fn insert_schedule(
         &self,
         schedule: domain::ScheduleNew,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<domain::Schedule> {
         let mut conn = self.get_conn().await?;
 
@@ -81,7 +82,7 @@ impl ScheduleInterface for Store {
     async fn patch_schedule(
         &self,
         schedule: domain::SchedulePatch,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<domain::Schedule> {
         let mut conn = self.get_conn().await?;
 

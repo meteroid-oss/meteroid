@@ -14,6 +14,7 @@ chrono-tz.workspace = true
 common-build-info.workspace = true
 common-config.workspace = true
 common-logging.workspace = true
+common-domain = { workspace = true, features = ["tonic"] }
 dotenvy.workspace = true
 envconfig.workspace = true
 error-stack.workspace = true

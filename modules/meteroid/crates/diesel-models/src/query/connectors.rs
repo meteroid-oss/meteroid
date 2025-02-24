@@ -2,6 +2,7 @@ use crate::connectors::{ConnectorRow, ConnectorRowNew};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 
+use common_domain::ids::TenantId;
 use diesel::debug_query;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -27,7 +28,7 @@ impl ConnectorRow {
     pub async fn delete_by_id(
         conn: &mut PgConn,
         connector_uid: uuid::Uuid,
-        tenant_uid: uuid::Uuid,
+        tenant_uid: TenantId,
     ) -> DbResult<usize> {
         use crate::schema::connector::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -50,7 +51,7 @@ impl ConnectorRow {
     pub async fn get_connector_by_id(
         conn: &mut PgConn,
         connector_uid: uuid::Uuid,
-        tenant_uid: uuid::Uuid,
+        tenant_uid: TenantId,
     ) -> DbResult<ConnectorRow> {
         use crate::schema::connector::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -71,7 +72,7 @@ impl ConnectorRow {
     pub async fn get_connector_by_alias(
         conn: &mut PgConn,
         connector_alias: String,
-        tenant_uid: uuid::Uuid,
+        tenant_uid: TenantId,
     ) -> DbResult<ConnectorRow> {
         use crate::schema::connector::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -91,7 +92,7 @@ impl ConnectorRow {
 
     pub async fn list_connectors(
         conn: &mut PgConn,
-        tenant_uid: uuid::Uuid,
+        tenant_uid: TenantId,
         connector_type_filter: Option<crate::enums::ConnectorTypeEnum>,
     ) -> DbResult<Vec<ConnectorRow>> {
         use crate::schema::connector::dsl::*;

@@ -4,6 +4,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::ids::{BaseId, CustomerId, TenantId};
 use diesel_models::outbox_event::OutboxEventRowNew;
 use error_stack::Report;
 use o2o::o2o;
@@ -12,7 +13,7 @@ use strum::Display;
 use uuid::Uuid;
 
 pub struct OutboxEvent {
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub aggregate_id: Uuid,
     pub event_type: EventType,
 }
@@ -21,12 +22,12 @@ impl OutboxEvent {
     pub fn customer_created(event: CustomerEvent) -> OutboxEvent {
         OutboxEvent {
             tenant_id: event.tenant_id,
-            aggregate_id: event.id,
+            aggregate_id: event.id.as_uuid(),
             event_type: EventType::CustomerCreated(Box::new(event)),
         }
     }
 
-    pub fn invoice_pdf_requested(tenant_id: Uuid, invoice_id: Uuid) -> OutboxEvent {
+    pub fn invoice_pdf_requested(tenant_id: TenantId, invoice_id: Uuid) -> OutboxEvent {
         OutboxEvent {
             tenant_id,
             aggregate_id: invoice_id,
@@ -125,9 +126,8 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
 #[derive(Debug, Serialize, Deserialize, o2o)]
 #[from_owned(Customer)]
 pub struct CustomerEvent {
-    pub id: Uuid,
-    pub local_id: String,
-    pub tenant_id: Uuid,
+    pub id: CustomerId,
+    pub tenant_id: TenantId,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
@@ -149,9 +149,8 @@ pub struct CustomerEvent {
 pub struct SubscriptionEvent {
     pub id: Uuid,
     pub local_id: String,
-    pub tenant_id: Uuid,
-    pub customer_id: Uuid,
-    pub customer_local_id: String,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_alias: Option<String>,
     pub customer_name: String,
@@ -193,11 +192,9 @@ pub struct InvoiceEvent {
     #[map(@.invoice.status)]
     pub status: InvoiceStatusEnum,
     #[map(@.invoice.tenant_id)]
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     #[map(@.invoice.customer_id)]
-    pub customer_id: Uuid,
-    #[map(@.customer.local_id)]
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[map(@.invoice.subscription_id)]
     pub subscription_id: Option<Uuid>,

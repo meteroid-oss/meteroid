@@ -1,6 +1,4 @@
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
+use common_domain::ids::BaseId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::bankaccounts::v1::{
     bank_accounts_service_server::BankAccountsService, CreateBankAccountRequest,
@@ -8,6 +6,8 @@ use meteroid_grpc::meteroid::api::bankaccounts::v1::{
     ListBankAccountsRequest, ListBankAccountsResponse, UpdateBankAccountRequest,
     UpdateBankAccountResponse,
 };
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 
@@ -27,7 +27,7 @@ impl BankAccountsService for BankAccountsServiceComponents {
 
         let bank_accounts = self
             .store
-            .list_bank_accounts(&tenant)
+            .list_bank_accounts(tenant)
             .await
             .map_err(Into::<BankAccountsApiError>::into)?
             .into_iter()
@@ -81,7 +81,7 @@ impl BankAccountsService for BankAccountsServiceComponents {
             .patch_bank_account(
                 mapping::bank_accounts::proto_to_patch_domain(req, tenant)
                     .map_err(Into::<Status>::into)?,
-                tenant,
+                tenant.as_uuid(),
             )
             .await
             .map_err(Into::<BankAccountsApiError>::into)?;
@@ -99,7 +99,7 @@ impl BankAccountsService for BankAccountsServiceComponents {
         let id = Uuid::from_proto(request.into_inner().id)?;
 
         self.store
-            .delete_bank_account(&id, &tenant)
+            .delete_bank_account(&id, tenant)
             .await
             .map_err(Into::<BankAccountsApiError>::into)?;
 

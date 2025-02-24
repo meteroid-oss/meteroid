@@ -1,3 +1,4 @@
+use common_domain::ids::TenantId;
 use meteroid_store::domain::outbox_event::{CustomerEvent, InvoiceEvent, SubscriptionEvent};
 use rdkafka::message::{BorrowedHeaders, BorrowedMessage, Headers};
 use rdkafka::Message;
@@ -7,7 +8,7 @@ use uuid::Uuid;
 #[derive(Debug)]
 pub struct OutboxEvent {
     pub id: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub aggregate_id: String,
     pub event_type: EventType,
 }
@@ -56,7 +57,7 @@ impl EventType {
 pub(crate) fn parse_outbox_event(m: &BorrowedMessage<'_>) -> Option<OutboxEvent> {
     let headers = m.headers()?;
     let id = headers.get_as_string("local_id")?;
-    let tenant_id = headers.get_as_uuid("tenant_id")?;
+    let tenant_id: TenantId = headers.get_as_uuid("tenant_id")?.into();
 
     let aggregate_id: String = String::from_utf8(m.key()?.to_vec()).ok()?;
 

@@ -2,7 +2,7 @@ use super::AppState;
 
 use axum::{extract::State, response::IntoResponse, Json};
 
-use crate::api_rest::model::{IdOrAlias, PaginatedResponse};
+use crate::api_rest::model::PaginatedResponse;
 use crate::api_rest::productfamilies::mapping::{create_req_to_domain, domain_to_rest};
 use crate::api_rest::productfamilies::model::{
     ProductFamily, ProductFamilyCreateRequest, ProductFamilyListRequest,
@@ -123,12 +123,12 @@ pub(crate) async fn create_product_family(
 pub(crate) async fn get_product_family_by_id_or_alias(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<IdOrAlias>>,
+    Path(id_or_alias): Path<String>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
         // todo introduce alias
-        .find_product_family_by_local_id(&String::from(id_or_alias), authorized_state.tenant_id)
+        .find_product_family_by_local_id(id_or_alias.as_str(), authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer_by_id_or_alias: {}", e);

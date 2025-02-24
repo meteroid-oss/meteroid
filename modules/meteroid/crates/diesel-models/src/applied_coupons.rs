@@ -1,4 +1,5 @@
 use crate::coupons::CouponRow;
+use common_domain::ids::CustomerId;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use uuid::Uuid;
 pub struct AppliedCouponRow {
     pub id: Uuid,
     pub coupon_id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub subscription_id: Uuid,
     pub is_active: bool,
     pub applied_amount: Option<Decimal>,
@@ -24,10 +25,7 @@ pub struct AppliedCouponRow {
 pub struct AppliedCouponForDisplayRow {
     pub id: Uuid,
     pub coupon_id: Uuid,
-    pub customer_id: Uuid,
-    #[diesel(select_expression = crate::schema::customer::local_id)]
-    #[diesel(select_expression_type = crate::schema::customer::local_id)]
-    pub customer_local_id: String,
+    pub customer_id: CustomerId,
     #[diesel(select_expression = crate::schema::customer::name)]
     #[diesel(select_expression_type = crate::schema::customer::name)]
     pub customer_name: String,
@@ -57,7 +55,7 @@ pub struct AppliedCouponForDisplayRow {
 pub struct AppliedCouponRowNew {
     pub id: Uuid,
     pub coupon_id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub subscription_id: Uuid,
     pub is_active: bool,
     pub applied_amount: Option<Decimal>,

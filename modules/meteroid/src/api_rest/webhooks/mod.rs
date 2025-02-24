@@ -5,8 +5,8 @@ use axum::Router;
 
 mod router;
 
-pub fn webhook_routes() -> Router<AppState> {
+pub fn webhook_in_routes() -> Router<AppState> {
     Router::new()
-        .route("/v1/{provider}/{endpoint_uid}", post(router::axum_handler))
+        .route("/v1/{provider}/{tenant_id}", post(router::axum_handler))
         .layer(DefaultBodyLimit::max(4096))
 }

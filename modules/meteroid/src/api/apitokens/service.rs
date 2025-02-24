@@ -20,7 +20,7 @@ impl ApiTokensService for ApiTokensServiceComponents {
         &self,
         request: Request<ListApiTokensRequest>,
     ) -> Result<Response<ListApiTokensResponse>, Status> {
-        let tenant_id = &request.tenant()?;
+        let tenant_id = request.tenant()?;
 
         let domain_api_tokens: Vec<domain::api_tokens::ApiToken> = self
             .store

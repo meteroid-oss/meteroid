@@ -3,11 +3,11 @@ pub mod subscriptions {
 
     use meteroid_store::domain;
 
+    use crate::api::shared::conversions::*;
     use crate::services::subscription::ext::DbSubscriptionExt;
+    use common_domain::ids::CustomerId;
     use tonic::Status;
     use uuid::Uuid;
-
-    use crate::api::shared::conversions::*;
 
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
 
@@ -47,8 +47,8 @@ pub mod subscriptions {
         param: proto2::CreateSubscription,
         actor: &Uuid,
     ) -> Result<domain::CreateSubscription, Status> {
-        let subscription_new = meteroid_store::domain::SubscriptionNew {
-            customer_id: Uuid::from_proto(param.customer_id)?,
+        let subscription_new = domain::SubscriptionNew {
+            customer_id: CustomerId::from_proto(&param.customer_id)?,
             billing_day: param.billing_day as i16,
             currency: param.currency,
             trial_start_date: NaiveDate::from_proto_opt(param.trial_start_date)?,

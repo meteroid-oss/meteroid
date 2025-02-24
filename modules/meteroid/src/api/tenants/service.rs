@@ -1,5 +1,4 @@
-use tonic::{Request, Response, Status};
-
+use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::tenants::v1::{
     list_tenants_currencies_with_customer_count_response::ListCurrency,
@@ -14,9 +13,9 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
 use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
+use tonic::{Request, Response, Status};
 
 use crate::api::tenants::error::TenantApiError;
-use crate::{api::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, TenantServiceComponents};
 
@@ -114,7 +113,7 @@ impl TenantsService for TenantServiceComponents {
         let organization_id = request.organization()?;
 
         let req = request.into_inner();
-        let tenant_id = parse_uuid!(&req.tenant_id)?;
+        let tenant_id = TenantId::from_proto(req.tenant_id)?;
 
         let tenant = self
             .store

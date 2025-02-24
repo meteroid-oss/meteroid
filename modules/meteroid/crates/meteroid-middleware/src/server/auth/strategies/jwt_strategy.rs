@@ -1,19 +1,19 @@
 use cached::proc_macro::cached;
-use http::HeaderMap;
-use jsonwebtoken::DecodingKey;
-use secrecy::{ExposeSecret, SecretString};
-use tonic::Status;
-use uuid::Uuid;
-
+use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
 use common_grpc::middleware::common::jwt::Claims;
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use common_grpc::middleware::server::AuthorizedState;
 use common_grpc::GrpcServiceMethod;
+use http::HeaderMap;
+use jsonwebtoken::DecodingKey;
 use meteroid_store::domain::enums::OrganizationUserRole;
 use meteroid_store::repositories::users::UserInterface;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 use meteroid_store::Store;
+use secrecy::{ExposeSecret, SecretString};
+use tonic::Status;
+use uuid::Uuid;
 
 pub fn validate_jwt(
     header_map: &HeaderMap,
@@ -58,7 +58,7 @@ async fn resolve_slugs_cached(
     store: Store,
     organization_slug: String,
     tenant_slug: Option<String>,
-) -> Result<(Uuid, Option<Uuid>), Status> {
+) -> Result<(OrganizationId, Option<TenantId>), Status> {
     let org_and_tenant_ids = match tenant_slug {
         Some(tenant_slug) => {
             let res = store
@@ -102,16 +102,16 @@ pub async fn invalidate_resolve_slugs_cache(organization_slug: &str, tenant_slug
     result = true,
     size = 150,
     time = 300, // 5 min. With RBAC, use redis backend instead & invalidate on change
-    key = "(Uuid, Uuid)",
-    convert = r#"{ (*user_id, *org_id) }"#
+    key = "(Uuid, OrganizationId)",
+    convert = r#"{ (*user_id, org_id) }"#
 )]
 async fn get_user_role_oss_cached(
     store: Store,
     user_id: &Uuid,
-    org_id: &Uuid,
+    org_id: OrganizationId,
 ) -> Result<OrganizationUserRole, Status> {
     let res = store
-        .find_user_by_id_and_organization(*user_id, *org_id)
+        .find_user_by_id_and_organization(*user_id, org_id)
         .await
         .map_err(|_| Status::permission_denied("Failed to retrieve user role"))
         .map(|x| x.role)?;
@@ -156,7 +156,7 @@ pub async fn authorize_user(
     let (organization_id, tenant_id) =
         resolve_slugs_cached(store.clone(), org_slug, tenant_slug).await?;
 
-    let role = get_user_role_oss_cached(store.clone(), &user_id, &organization_id).await?;
+    let role = get_user_role_oss_cached(store.clone(), &user_id, organization_id).await?;
 
     // if we have a tenant header, we resolve role via tenant (validating tenant access at the same time)
     let (role, state) = if let Some(tenant_id) = tenant_id {

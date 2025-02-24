@@ -2,6 +2,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel_models::coupons::{
     CouponFilter as CouponFilterDb, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch,
 };
@@ -17,7 +18,7 @@ pub struct Coupon {
     pub local_id: String,
     pub code: String,
     pub description: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>, // max number of subscriptions it can be applied to
@@ -97,7 +98,7 @@ impl TryInto<Coupon> for CouponRow {
 pub struct CouponNew {
     pub code: String,
     pub description: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub discount: CouponDiscount,
     pub expires_at: Option<NaiveDateTime>,
     pub redemption_limit: Option<i32>,
@@ -129,7 +130,7 @@ impl TryInto<CouponRowNew> for CouponNew {
 #[derive(Debug, Clone)]
 pub struct CouponPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub description: Option<String>,
     pub discount: Option<CouponDiscount>,
     pub updated_at: NaiveDateTime,
@@ -139,7 +140,7 @@ pub struct CouponPatch {
 #[owned_into(CouponStatusRowPatch)]
 pub struct CouponStatusPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub archived_at: Option<Option<NaiveDateTime>>,
     pub disabled: Option<bool>,
 }

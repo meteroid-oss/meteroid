@@ -3,6 +3,7 @@ use crate::errors::StoreError;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
+use common_domain::ids::TenantId;
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};
 use error_stack::Report;
@@ -11,17 +12,17 @@ use uuid::Uuid;
 #[async_trait::async_trait]
 pub trait ProductInterface {
     async fn create_product(&self, product: ProductNew) -> StoreResult<Product>;
-    async fn find_product_by_id(&self, id: Uuid, auth_tenant_id: Uuid) -> StoreResult<Product>;
+    async fn find_product_by_id(&self, id: Uuid, auth_tenant_id: TenantId) -> StoreResult<Product>;
     async fn list_products(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         family_local_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> StoreResult<PaginatedVec<Product>>;
     async fn search_products(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         family_local_id: Option<String>,
         query: &str,
         pagination: PaginationRequest,
@@ -59,7 +60,7 @@ impl ProductInterface for Store {
             .map(Into::into)
     }
 
-    async fn find_product_by_id(&self, id: Uuid, auth_tenant_id: Uuid) -> StoreResult<Product> {
+    async fn find_product_by_id(&self, id: Uuid, auth_tenant_id: TenantId) -> StoreResult<Product> {
         let mut conn = self.get_conn().await?;
 
         ProductRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
@@ -70,7 +71,7 @@ impl ProductInterface for Store {
 
     async fn list_products(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         family_local_id: Option<String>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -98,7 +99,7 @@ impl ProductInterface for Store {
 
     async fn search_products(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         family_local_id: Option<String>,
         query: &str,
         pagination: PaginationRequest,

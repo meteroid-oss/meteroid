@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
+use common_domain::ids::TenantId;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -14,7 +15,7 @@ pub struct ProductRow {
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
     pub local_id: String,
 }
@@ -28,6 +29,6 @@ pub struct ProductRowNew {
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
 }

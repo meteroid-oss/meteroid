@@ -2,11 +2,11 @@ use crate::errors::{DatabaseError, DatabaseErrorContainer, IntoDbResult};
 use crate::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
 use crate::{DbResult, PgConn};
 
+use common_domain::ids::{OrganizationId, TenantId};
 use diesel::dsl::not;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{debug_query, IntoSql, JoinOnDsl, PgArrayExpressionMethods, SelectableHelper};
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl TenantRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<TenantRow> {
@@ -25,7 +25,7 @@ impl TenantRowNew {
 }
 
 impl TenantRow {
-    pub async fn find_by_id(conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<TenantRow> {
+    pub async fn find_by_id(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -41,7 +41,7 @@ impl TenantRow {
 
     pub async fn get_reporting_currency_by_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<String> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -58,8 +58,8 @@ impl TenantRow {
 
     pub async fn find_by_id_and_organization_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
-        organization_id: uuid::Uuid,
+        tenant_id: TenantId,
+        organization_id: OrganizationId,
     ) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
@@ -102,7 +102,7 @@ impl TenantRow {
 
     pub async fn list_by_organization_id(
         conn: &mut PgConn,
-        organization_id: uuid::Uuid,
+        organization_id: OrganizationId,
     ) -> DbResult<Vec<TenantRow>> {
         use crate::schema::organization::dsl as o_dsl;
         use crate::schema::tenant::dsl as t_dsl;
@@ -125,7 +125,7 @@ impl TenantRow {
 
     pub async fn list_tenant_currencies_with_customer_count(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<(String, u64)>> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::tenant::dsl as t_dsl;
@@ -171,7 +171,7 @@ impl TenantRow {
 
     pub async fn list_tenant_currencies(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<String>> {
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
@@ -189,7 +189,7 @@ impl TenantRow {
 
     pub async fn add_available_currency(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         currency: String,
     ) -> DbResult<()> {
         use crate::schema::tenant::dsl as t_dsl;
@@ -215,7 +215,7 @@ impl TenantRow {
 
     pub async fn remove_available_currency(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         currency: String,
     ) -> DbResult<()> {
         use crate::schema::customer::dsl as c_dsl;
@@ -260,7 +260,7 @@ impl TenantRow {
 }
 
 impl TenantRowPatch {
-    pub async fn update(&self, conn: &mut PgConn, tenant_id: uuid::Uuid) -> DbResult<TenantRow> {
+    pub async fn update(&self, conn: &mut PgConn, tenant_id: TenantId) -> DbResult<TenantRow> {
         use crate::schema::tenant::dsl::*;
         use diesel_async::RunQueryDsl;
 

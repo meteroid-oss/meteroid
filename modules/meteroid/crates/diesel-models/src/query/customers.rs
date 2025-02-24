@@ -5,8 +5,8 @@ use crate::customers::{
 use crate::errors::IntoDbResult;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use crate::query::IdentityDb;
 use crate::{DbResult, PgConn};
+use common_domain::ids::{AliasOr, CustomerId, TenantId};
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, OptionalExtension,
     PgTextExpressionMethods, QueryDsl, SelectableHelper,
@@ -33,27 +33,50 @@ impl CustomerRowNew {
 }
 
 impl CustomerRow {
-    pub async fn find_by_id(
+    pub async fn find_by_id_or_alias(
         conn: &mut PgConn,
-        customer_id: IdentityDb,
-        tenant_id_param: Uuid,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
     ) -> DbResult<CustomerRow> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
-        let mut query = customer
-            .filter(tenant_id.eq(tenant_id_param))
-            .filter(archived_at.is_null())
+        let mut query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::archived_at.is_null())
+            .select(CustomerRow::as_select())
             .into_boxed();
 
-        match customer_id {
-            IdentityDb::UUID(id_param) => {
-                query = query.filter(id.eq(id_param));
+        match id_or_alias {
+            AliasOr::Id(id) => {
+                query = query.filter(c_dsl::id.eq(id));
             }
-            IdentityDb::LOCAL(local_id_param) => {
-                query = query.filter(local_id.eq(local_id_param));
+            AliasOr::Alias(alias) => {
+                query = query.filter(c_dsl::alias.eq(alias));
             }
         }
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding customer by id or alias")
+            .into_db_result()
+    }
+
+    pub async fn find_by_id(
+        conn: &mut PgConn,
+        customer_id: CustomerId,
+        tenant_id_param: TenantId,
+    ) -> DbResult<CustomerRow> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = c_dsl::customer
+            .filter(c_dsl::id.eq(customer_id))
+            .filter(c_dsl::tenant_id.eq(tenant_id_param))
+            .filter(c_dsl::archived_at.is_null());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -83,7 +106,7 @@ impl CustomerRow {
 
     pub async fn find_by_aliases(
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
         param_customer_aliases: Vec<String>,
     ) -> DbResult<Vec<CustomerBriefRow>> {
         use crate::schema::customer::dsl::*;
@@ -106,7 +129,7 @@ impl CustomerRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        param_tenant_id: uuid::Uuid,
+        param_tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
@@ -148,7 +171,10 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn list_by_ids(conn: &mut PgConn, ids: Vec<Uuid>) -> DbResult<Vec<CustomerRow>> {
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: Vec<CustomerId>,
+    ) -> DbResult<Vec<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -185,8 +211,8 @@ impl CustomerRow {
 
     pub async fn select_for_update(
         conn: &mut PgConn,
-        id: Uuid,
-        tenant_id: Uuid,
+        id: CustomerId,
+        tenant_id: TenantId,
     ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
@@ -205,7 +231,11 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn update_balance(conn: &mut PgConn, id: Uuid, delta_cents: i32) -> DbResult<usize> {
+    pub async fn update_balance(
+        conn: &mut PgConn,
+        id: CustomerId,
+        delta_cents: i32,
+    ) -> DbResult<usize> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -227,8 +257,8 @@ impl CustomerRow {
 
     pub async fn archive(
         conn: &mut PgConn,
-        id: Uuid,
-        tenant_id: Uuid,
+        id: CustomerId,
+        tenant_id: TenantId,
         archived_by: Uuid,
     ) -> DbResult<usize> {
         use crate::schema::customer::dsl as c_dsl;
@@ -256,7 +286,7 @@ impl CustomerRowPatch {
     pub async fn update(
         &self,
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
     ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -279,25 +309,31 @@ impl CustomerRowPatch {
 }
 
 impl CustomerForDisplayRow {
-    pub async fn find_by_local_id_or_alias(
+    pub async fn find_by_id_or_alias(
         conn: &mut PgConn,
-        tenant_id: Uuid,
-        local_id_or_alias: String,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
     ) -> DbResult<CustomerForDisplayRow> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::invoicing_entity::dsl as ie_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = c_dsl::customer
+        let mut query = c_dsl::customer
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .filter(c_dsl::archived_at.is_null())
-            .filter(
-                c_dsl::local_id
-                    .eq(local_id_or_alias.as_str())
-                    .or(c_dsl::alias.eq(local_id_or_alias.as_str())),
-            )
             .inner_join(ie_dsl::invoicing_entity.on(c_dsl::invoicing_entity_id.eq(ie_dsl::id)))
-            .select(CustomerForDisplayRow::as_select());
+            .select(CustomerForDisplayRow::as_select())
+            .into_boxed();
+
+        match id_or_alias {
+            AliasOr::Id(id) => {
+                query = query.filter(c_dsl::id.eq(id));
+            }
+            AliasOr::Alias(alias) => {
+                query = query.filter(c_dsl::alias.eq(alias));
+            }
+        }
+
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
@@ -309,7 +345,7 @@ impl CustomerForDisplayRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         param_query: Option<String>,
@@ -359,7 +395,7 @@ impl CustomerRowUpdate {
     pub async fn update(
         &self,
         conn: &mut PgConn,
-        param_tenant_id: Uuid,
+        param_tenant_id: TenantId,
     ) -> DbResult<Option<CustomerRow>> {
         use crate::schema::customer::dsl::*;
         use diesel_async::RunQueryDsl;

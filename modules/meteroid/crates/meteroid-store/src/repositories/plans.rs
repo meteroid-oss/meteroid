@@ -6,6 +6,8 @@ use crate::domain::{
     PlanAndVersionPatch, PlanFilters, PlanOverview, PlanPatch, PlanVersion, PlanVersionFilter,
     PlanVersionNew, PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
 };
+use crate::errors::StoreError;
+use common_domain::ids::{BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_versions::{
@@ -18,8 +20,6 @@ use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use uuid::Uuid;
 
-use crate::errors::StoreError;
-
 #[async_trait::async_trait]
 pub trait PlansInterface {
     async fn insert_plan(&self, plan: FullPlanNew) -> StoreResult<FullPlan>;
@@ -27,7 +27,7 @@ pub trait PlansInterface {
     async fn get_plan(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         version_filter: PlanVersionFilter,
     ) -> StoreResult<PlanWithVersion>;
 
@@ -37,7 +37,7 @@ pub trait PlansInterface {
     async fn get_plan_overview(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<PlanOverview>;
 
     /**
@@ -46,13 +46,13 @@ pub trait PlansInterface {
     async fn get_detailed_plan(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         version_filter: PlanVersionFilter,
     ) -> StoreResult<FullPlan>;
 
     async fn list_plans(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,
@@ -62,34 +62,34 @@ pub trait PlansInterface {
     async fn get_plan_version_by_id(
         &self,
         id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion>;
 
     async fn list_plan_versions(
         &self,
         plan_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<PlanVersion>>;
 
     async fn copy_plan_version_to_draft(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion>;
 
     async fn publish_plan_version(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion>;
 
     async fn discard_draft_plan_version(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<()>;
 
@@ -204,7 +204,7 @@ impl PlansInterface for Store {
             .publish(Event::plan_created_draft(
                 res.plan.created_by,
                 res.version.id,
-                res.plan.tenant_id,
+                res.plan.tenant_id.as_uuid(),
             ))
             .await;
 
@@ -214,7 +214,7 @@ impl PlansInterface for Store {
     async fn get_plan(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         version_filter: PlanVersionFilter,
     ) -> StoreResult<PlanWithVersion> {
         let mut conn = self.get_conn().await?;
@@ -233,7 +233,7 @@ impl PlansInterface for Store {
     async fn get_plan_overview(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<PlanOverview> {
         let mut conn = self.get_conn().await?;
 
@@ -246,7 +246,7 @@ impl PlansInterface for Store {
     async fn get_detailed_plan(
         &self,
         local_id: &str,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         version_filter: PlanVersionFilter,
     ) -> StoreResult<FullPlan> {
         let mut conn = self.get_conn().await?;
@@ -289,7 +289,7 @@ impl PlansInterface for Store {
 
     async fn list_plans(
         &self,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         product_family_local_id: Option<String>,
         filters: PlanFilters,
         pagination: PaginationRequest,
@@ -320,7 +320,7 @@ impl PlansInterface for Store {
     async fn get_plan_version_by_id(
         &self,
         id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion> {
         let mut conn = self.get_conn().await?;
         PlanVersionRow::find_by_id_and_tenant_id(&mut conn, id, auth_tenant_id)
@@ -332,7 +332,7 @@ impl PlansInterface for Store {
     async fn list_plan_versions(
         &self,
         plan_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<PlanVersion>> {
         let mut conn = self.get_conn().await?;
@@ -358,7 +358,7 @@ impl PlansInterface for Store {
     async fn copy_plan_version_to_draft(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion> {
         self.transaction(|conn| {
@@ -428,7 +428,7 @@ impl PlansInterface for Store {
     async fn publish_plan_version(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion> {
         let res = self
@@ -467,7 +467,7 @@ impl PlansInterface for Store {
             .publish(Event::plan_published_version(
                 auth_actor,
                 plan_version_id,
-                auth_tenant_id,
+                auth_tenant_id.as_uuid(),
             ))
             .await;
 
@@ -477,7 +477,7 @@ impl PlansInterface for Store {
     async fn discard_draft_plan_version(
         &self,
         plan_version_id: Uuid,
-        auth_tenant_id: Uuid,
+        auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<()> {
         let res = self
@@ -523,7 +523,7 @@ impl PlansInterface for Store {
             .publish(Event::plan_discarded_version(
                 auth_actor,
                 plan_version_id,
-                auth_tenant_id,
+                auth_tenant_id.as_uuid(),
             ))
             .await;
 

@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel_models::products::ProductRow;
 use o2o::o2o;
 use uuid::Uuid;
@@ -15,7 +16,7 @@ pub struct Product {
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
 }
 
@@ -24,6 +25,6 @@ pub struct ProductNew {
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub family_local_id: String,
 }

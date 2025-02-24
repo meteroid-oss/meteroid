@@ -2,6 +2,7 @@ use crate::bank_accounts::{BankAccountRow, BankAccountRowNew, BankAccountRowPatc
 use crate::errors::IntoDbResult;
 
 use crate::{DbResult, PgConn};
+use common_domain::ids::TenantId;
 use diesel::{debug_query, ExpressionMethods, QueryDsl};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -26,7 +27,7 @@ impl BankAccountRowNew {
 impl BankAccountRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         id: uuid::Uuid,
     ) -> DbResult<BankAccountRow> {
         use crate::schema::bank_account::dsl as ba_dsl;
@@ -46,7 +47,7 @@ impl BankAccountRow {
 
     pub async fn get_by_local_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
         id: String,
     ) -> DbResult<BankAccountRow> {
         use crate::schema::bank_account::dsl as ba_dsl;
@@ -66,7 +67,7 @@ impl BankAccountRow {
 
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<BankAccountRow>> {
         use crate::schema::bank_account::dsl as ba_dsl;
 
@@ -82,11 +83,7 @@ impl BankAccountRow {
             .into_db_result()
     }
 
-    pub async fn delete(
-        conn: &mut PgConn,
-        tenant_id: uuid::Uuid,
-        id: uuid::Uuid,
-    ) -> DbResult<usize> {
+    pub async fn delete(conn: &mut PgConn, tenant_id: TenantId, id: uuid::Uuid) -> DbResult<usize> {
         use crate::schema::bank_account::dsl as ba_dsl;
 
         let query = diesel::delete(ba_dsl::bank_account)
@@ -105,7 +102,7 @@ impl BankAccountRow {
     pub async fn list_by_ids(
         conn: &mut PgConn,
         ids: &[uuid::Uuid],
-        tenant_id: &uuid::Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<BankAccountRow>> {
         use crate::schema::bank_account::dsl as ba_dsl;
 

@@ -2,13 +2,10 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::metering_it;
+use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
-use opentelemetry::propagation::Injector;
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use tonic::Request;
-use uuid::{uuid, Uuid};
-
+use common_domain::ids::TenantId;
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
@@ -28,9 +25,11 @@ use meteroid_store::domain::{
 };
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
-
-use crate::metering_it;
-use crate::{helpers, meteroid_it};
+use opentelemetry::propagation::Injector;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
+use tonic::Request;
+use uuid::{uuid, Uuid};
 
 /*
 Plan with Capacity
@@ -451,8 +450,8 @@ async fn test_metering_e2e() {
         .insert_invoice(InvoiceNew {
             status: InvoiceStatusEnum::Draft,
             external_status: None,
-            tenant_id: tenant_uuid,
-            customer_id: Uuid::from_str(&customer_1).unwrap(),
+            tenant_id: tenant_uuid.into(),
+            customer_id: Uuid::from_str(&customer_1).unwrap().into(),
             subscription_id: Some(Uuid::from_str(&subscription.id).unwrap()),
             currency: subscription.currency.clone(),
             due_at: Some(
@@ -482,7 +481,7 @@ async fn test_metering_e2e() {
             tax_amount: 0,
             customer_details: InlineCustomer {
                 billing_address: None,
-                id: Uuid::from_str(&customer_1).unwrap(),
+                id: Uuid::from_str(&customer_1).unwrap().into(),
                 name: "Customer 1".to_string(),
                 email: None,
                 vat_number: None,
@@ -507,7 +506,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
 
     assert_eq!(db_invoices.len(), 2);
     assert_eq!(
@@ -523,7 +522,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = &fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = &fetch_invoices(&store, tenant_uuid.into()).await;
 
     assert_eq!(db_invoices.len(), 3);
     assert_eq!(
@@ -583,7 +582,7 @@ async fn test_metering_e2e() {
     .await
     .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
     assert_eq!(
         db_invoices
             .into_iter()
@@ -601,7 +600,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid).await;
+    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
     assert_eq!(
         db_invoices
             .into_iter()
@@ -623,7 +622,7 @@ async fn test_metering_e2e() {
         .await;
 }
 
-async fn fetch_invoices(store: &Store, tenant_id: Uuid) -> Vec<Invoice> {
+async fn fetch_invoices(store: &Store, tenant_id: TenantId) -> Vec<Invoice> {
     store
         .list_invoices(
             tenant_id,

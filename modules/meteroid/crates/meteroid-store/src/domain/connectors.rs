@@ -2,6 +2,7 @@ use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
 use crate::StoreResult;
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::ResultExt;
 use o2o::o2o;
@@ -13,7 +14,7 @@ use uuid::Uuid;
 pub struct Connector {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub alias: String,
     pub connector_type: ConnectorTypeEnum,
     pub provider: ConnectorProviderEnum,
@@ -82,7 +83,7 @@ impl Connector {
 pub struct ConnectorMeta {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub alias: String,
     #[map(~.into())]
     pub connector_type: ConnectorTypeEnum,
@@ -92,7 +93,7 @@ pub struct ConnectorMeta {
 
 #[derive(Clone, Debug)]
 pub struct ConnectorNew {
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub alias: String,
     pub connector_type: ConnectorTypeEnum,
     pub provider: ConnectorProviderEnum,

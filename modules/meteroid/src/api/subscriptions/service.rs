@@ -1,6 +1,6 @@
-use tonic::{Request, Response, Status};
-
+use common_domain::ids::CustomerId;
 use common_grpc::middleware::server::auth::RequestExt;
+use tonic::{Request, Response, Status};
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
 
@@ -12,16 +12,15 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     UpdateSlotsResponse,
 };
 
+use crate::api::subscriptions::error::SubscriptionApiError;
+use crate::api::subscriptions::{mapping, SubscriptionServiceComponents};
+use crate::api::utils::{parse_uuid, parse_uuid_opt};
 use meteroid_store::domain;
 use meteroid_store::domain::Identity;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionSlotsInterface,
 };
 use meteroid_store::repositories::SubscriptionInterface;
-
-use crate::api::subscriptions::error::SubscriptionApiError;
-use crate::api::subscriptions::{mapping, SubscriptionServiceComponents};
-use crate::api::utils::{parse_uuid, parse_uuid_opt};
 
 use crate::parse_uuid;
 
@@ -122,14 +121,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
 
-        let customer_id = parse_uuid_opt(&inner.customer_id, "customer_id")?;
+        let customer_id = CustomerId::from_proto_opt(inner.customer_id.as_ref())?;
         let plan_id = parse_uuid_opt(&inner.plan_id, "plan_id")?;
 
         let res = self
             .store
             .list_subscriptions(
                 tenant_id,
-                customer_id.map(Identity::UUID),
+                customer_id,
                 plan_id.map(Identity::UUID),
                 domain::PaginationRequest {
                     page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(0),

@@ -8,13 +8,14 @@ use diesel_async::RunQueryDsl;
 use uuid::Uuid;
 
 use crate::errors::IntoDbResult;
+use common_domain::ids::TenantId;
 use error_stack::ResultExt;
 
 impl RevenueTrendRow {
     pub async fn get(
         conn: &mut PgConn,
         period_days: i32,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<RevenueTrendRow> {
         let raw_sql = r#"
     WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
@@ -65,7 +66,7 @@ impl RevenueTrendRow {
 }
 
 impl NewSignupsTrend90DaysRow {
-    pub async fn get(conn: &mut PgConn, tenant_id: Uuid) -> DbResult<NewSignupsTrend90DaysRow> {
+    pub async fn get(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<NewSignupsTrend90DaysRow> {
         let raw_sql = r#"
         WITH signup_counts AS (SELECT DATE(created_at) AS signup_date, COUNT(*) AS daily_signups
                        FROM customer
@@ -89,7 +90,7 @@ impl NewSignupsTrend90DaysRow {
 }
 
 impl PendingInvoicesTotalRow {
-    pub async fn get(conn: &mut PgConn, tenant_id: Uuid) -> DbResult<PendingInvoicesTotalRow> {
+    pub async fn get(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<PendingInvoicesTotalRow> {
         let raw_sql = r#"
         WITH tenant_currency AS (
             SELECT reporting_currency AS currency FROM tenant WHERE id = $1
@@ -139,7 +140,7 @@ impl PendingInvoicesTotalRow {
 impl DailyNewSignups90DaysRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<DailyNewSignups90DaysRow>> {
         let raw_sql = r#"
         WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 89)) AS date),
@@ -169,7 +170,7 @@ impl DailyNewSignups90DaysRow {
 impl ActiveSubscriptionsCountRow {
     pub async fn get(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         at_ts: Option<NaiveDateTime>,
     ) -> DbResult<ActiveSubscriptionsCountRow> {
         use crate::schema::subscription::dsl as s_dsl;
@@ -200,7 +201,7 @@ impl ActiveSubscriptionsCountRow {
 impl SubscriptionTrialConversionRateRow {
     pub async fn get(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<SubscriptionTrialConversionRateRow> {
         let raw_sql = r#"
         SELECT CASE
@@ -226,7 +227,7 @@ impl SubscriptionTrialConversionRateRow {
 impl SubscriptionTrialToPaidConversionRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<Vec<SubscriptionTrialToPaidConversionRow>> {
         let raw_sql = r#"
 WITH month_series AS (SELECT generate_series(
@@ -280,7 +281,7 @@ FROM monthly_trials;
 impl CustomerTopRevenueRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         currency: &str,
         limit: i32,
     ) -> DbResult<Vec<CustomerTopRevenueRow>> {
@@ -311,7 +312,11 @@ impl CustomerTopRevenueRow {
 }
 
 impl TotalMrrRow {
-    pub async fn get(conn: &mut PgConn, tenant_id: Uuid, date: NaiveDate) -> DbResult<TotalMrrRow> {
+    pub async fn get(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        date: NaiveDate,
+    ) -> DbResult<TotalMrrRow> {
         let raw_sql = r#"
         SELECT
            COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT reporting_currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
@@ -336,7 +341,7 @@ impl TotalMrrRow {
 impl TotalMrrChartRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> DbResult<Vec<TotalMrrChartRow>> {
@@ -409,7 +414,7 @@ impl TotalMrrChartRow {
 impl TotalMrrByPlanRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         plan_ids: &Vec<Uuid>,
         start_date: NaiveDate,
         end_date: NaiveDate,
@@ -489,7 +494,7 @@ impl TotalMrrByPlanRow {
 impl MrrBreakdownRow {
     pub async fn get(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> DbResult<Option<MrrBreakdownRow>> {
@@ -539,7 +544,7 @@ impl MrrBreakdownRow {
 impl LastMrrMovementsRow {
     pub async fn list(
         conn: &mut PgConn,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         before: Option<Uuid>,
         after: Option<Uuid>,
         limit: i32,

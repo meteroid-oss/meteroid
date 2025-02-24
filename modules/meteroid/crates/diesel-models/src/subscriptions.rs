@@ -6,6 +6,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::BillingPeriodEnum;
+use common_domain::ids::{CustomerId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
@@ -14,9 +15,9 @@ use rust_decimal::Decimal;
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionRow {
     pub id: Uuid,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub billing_day: i16,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub trial_start_date: Option<NaiveDate>,
     pub billing_start_date: NaiveDate,
     pub billing_end_date: Option<NaiveDate>,
@@ -40,9 +41,9 @@ pub struct SubscriptionRow {
 pub struct SubscriptionRowNew {
     pub id: Uuid,
     pub local_id: String,
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     pub billing_day: i16,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub trial_start_date: Option<NaiveDate>,
     pub billing_start_date: NaiveDate,
     pub billing_end_date: Option<NaiveDate>,
@@ -59,7 +60,7 @@ pub struct SubscriptionRowNew {
 
 pub struct CancelSubscriptionParams {
     pub subscription_id: uuid::Uuid,
-    pub tenant_id: uuid::Uuid,
+    pub tenant_id: TenantId,
     pub canceled_at: chrono::NaiveDateTime,
     pub billing_end_date: chrono::NaiveDate,
     pub reason: Option<String>,
@@ -70,9 +71,9 @@ pub struct CancelSubscriptionParams {
 pub struct SubscriptionForDisplayRow {
     #[diesel(embed)]
     pub subscription: SubscriptionRow,
-    #[diesel(select_expression = customer::local_id)]
-    #[diesel(select_expression_type = customer::local_id)]
-    pub customer_local_id: String,
+    #[diesel(select_expression = customer::id)]
+    #[diesel(select_expression_type = customer::id)]
+    pub customer_id: CustomerId,
     #[diesel(select_expression = customer::alias)]
     #[diesel(select_expression_type = customer::alias)]
     pub customer_alias: Option<String>,
@@ -113,6 +114,7 @@ mod subscription_invoice_candidate {
 
     use chrono::{NaiveDate, NaiveDateTime};
 
+    use common_domain::ids::{CustomerId, TenantId};
     use diesel::{Queryable, Selectable};
     use uuid::Uuid;
 
@@ -122,8 +124,8 @@ mod subscription_invoice_candidate {
     pub struct SubscriptionEmbedRow {
         pub id: Uuid,
         pub local_id: String,
-        pub tenant_id: Uuid,
-        pub customer_id: Uuid,
+        pub tenant_id: TenantId,
+        pub customer_id: CustomerId,
         pub plan_version_id: Uuid,
         pub billing_start_date: NaiveDate,
         pub billing_end_date: Option<NaiveDate>,

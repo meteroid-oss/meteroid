@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use chrono::NaiveDate;
-use rust_decimal::Decimal;
-use uuid::Uuid;
-
 use crate::compute::errors::ComputeError;
 use crate::domain::{BillableMetric, Period};
+use chrono::NaiveDate;
+use common_domain::ids::CustomerId;
+use rust_decimal::Decimal;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct UsageData {
@@ -49,7 +49,7 @@ pub trait UsageClient: Send + Sync {
     async fn fetch_usage(
         &self,
         tenant_id: &Uuid,
-        customer_local_id: &str,
+        customer_id: CustomerId,
         customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
@@ -79,7 +79,7 @@ impl UsageClient for MockUsageClient {
     async fn fetch_usage(
         &self,
         _tenant_id: &Uuid,
-        _customer_local_id: &str,
+        _customer_local_id: CustomerId,
         _customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,

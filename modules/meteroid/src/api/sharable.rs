@@ -1,3 +1,4 @@
+use common_domain::ids::TenantId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -6,6 +7,6 @@ use uuid::Uuid;
 pub struct ShareableEntityClaims {
     pub sub: String,
     pub exp: usize,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub entity_id: Uuid,
 }

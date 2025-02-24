@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
+use common_domain::ids::TenantId;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
@@ -29,7 +30,7 @@ pub struct InvoicingEntityRow {
     pub vat_number: Option<String>,
     pub country: String,
     pub accounting_currency: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub cc_provider_id: Option<Uuid>,
     pub bank_account_id: Option<Uuid>,
 }

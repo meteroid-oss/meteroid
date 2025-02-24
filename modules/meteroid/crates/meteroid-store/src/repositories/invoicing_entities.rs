@@ -1,12 +1,12 @@
 use chrono::{Datelike, NaiveDate};
-use error_stack::Report;
-use uuid::Uuid;
-
+use common_domain::ids::{OrganizationId, TenantId};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
 };
 use diesel_models::organizations::OrganizationRow;
+use error_stack::Report;
+use uuid::Uuid;
 
 use crate::domain::invoicing_entities::InvoicingEntity;
 use crate::domain::{
@@ -20,7 +20,10 @@ use crate::StoreResult;
 
 #[async_trait::async_trait]
 pub trait InvoicingEntityInterface {
-    async fn list_invoicing_entities(&self, tenant_id: Uuid) -> StoreResult<Vec<InvoicingEntity>>;
+    async fn list_invoicing_entities(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<InvoicingEntity>>;
 
     async fn list_invoicing_entities_by_ids(
         &self,
@@ -29,41 +32,44 @@ pub trait InvoicingEntityInterface {
 
     async fn get_invoicing_entity(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         invoicing_id_or_default: Option<Identity>,
     ) -> StoreResult<InvoicingEntity>;
 
     async fn create_invoicing_entity(
         &self,
         invoicing_entity: InvoicingEntityNew,
-        tenant_id: Uuid,
-        organization_id: Uuid,
+        tenant_id: TenantId,
+        organization_id: OrganizationId,
     ) -> StoreResult<InvoicingEntity>;
     async fn patch_invoicing_entity(
         &self,
         invoicing_entity: InvoicingEntityPatch,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<InvoicingEntity>;
 
     async fn patch_invoicing_entity_providers(
         &self,
         invoicing_entity: InvoicingEntityProvidersPatch,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<InvoicingEntityProviders>;
 
     async fn resolve_providers_by_id(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id: Uuid,
     ) -> StoreResult<InvoicingEntityProviders>;
 }
 
 #[async_trait::async_trait]
 impl InvoicingEntityInterface for Store {
-    async fn list_invoicing_entities(&self, tenant_id: Uuid) -> StoreResult<Vec<InvoicingEntity>> {
+    async fn list_invoicing_entities(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Vec<InvoicingEntity>> {
         let mut conn = self.get_conn().await?;
 
-        let invoicing_entities = InvoicingEntityRow::list_by_tenant_id(&mut conn, &tenant_id)
+        let invoicing_entities = InvoicingEntityRow::list_by_tenant_id(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
@@ -91,7 +97,7 @@ impl InvoicingEntityInterface for Store {
 
     async fn get_invoicing_entity(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         invoicing_id_or_default: Option<Identity>,
     ) -> StoreResult<InvoicingEntity> {
         let mut conn = self.get_conn().await?;
@@ -100,13 +106,13 @@ impl InvoicingEntityInterface for Store {
             Some(invoicing_id) => InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
                 &mut conn,
                 &invoicing_id.into(),
-                &tenant_id,
+                tenant_id,
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into(),
             None => {
-                InvoicingEntityRow::get_default_invoicing_entity_for_tenant(&mut conn, &tenant_id)
+                InvoicingEntityRow::get_default_invoicing_entity_for_tenant(&mut conn, tenant_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?
                     .into()
@@ -119,8 +125,8 @@ impl InvoicingEntityInterface for Store {
     async fn create_invoicing_entity(
         &self,
         invoicing_entity: InvoicingEntityNew,
-        tenant_id: Uuid,
-        organization_id: Uuid,
+        tenant_id: TenantId,
+        organization_id: OrganizationId,
     ) -> StoreResult<InvoicingEntity> {
         let mut conn = self.get_conn().await?;
 
@@ -142,14 +148,14 @@ impl InvoicingEntityInterface for Store {
     async fn patch_invoicing_entity(
         &self,
         invoicing_entity: InvoicingEntityPatch,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<InvoicingEntity> {
         let mut conn = self.get_conn().await?;
 
         let mut row: InvoicingEntityRowPatch = invoicing_entity.into();
 
         if row.country.is_some() {
-            let is_in_use = InvoicingEntityRow::is_in_use(&mut conn, &row.id, &tenant_id)
+            let is_in_use = InvoicingEntityRow::is_in_use(&mut conn, &row.id, tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
             // we don't allow country changes if already in use
@@ -164,7 +170,7 @@ impl InvoicingEntityInterface for Store {
         }
 
         let res = row
-            .patch_invoicing_entity(&mut conn, &tenant_id)
+            .patch_invoicing_entity(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -174,36 +180,33 @@ impl InvoicingEntityInterface for Store {
     async fn patch_invoicing_entity_providers(
         &self,
         invoicing_entity: InvoicingEntityProvidersPatch,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<InvoicingEntityProviders> {
         let mut conn = self.get_conn().await?;
 
         let row: InvoicingEntityRowProvidersPatch = invoicing_entity.into();
 
         let patched = row
-            .patch_invoicing_entity_providers(&mut conn, &tenant_id)
+            .patch_invoicing_entity_providers(&mut conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(
-            &mut conn,
-            &patched.id,
-            &tenant_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let res =
+            InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, &patched.id, tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(res.into())
     }
 
     async fn resolve_providers_by_id(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         id: Uuid,
     ) -> StoreResult<InvoicingEntityProviders> {
         let mut conn = self.get_conn().await?;
 
-        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, &id, &tenant_id)
+        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, &id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -216,11 +219,11 @@ impl StoreInternal {
         &self,
         conn: &mut PgConn,
         invoicing_entity: InvoicingEntityNew,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         default_country: String,
         trade_name: String,
     ) -> StoreResult<InvoicingEntity> {
-        let other_exists = InvoicingEntityRow::exists_any_for_tenant(conn, &tenant_id)
+        let other_exists = InvoicingEntityRow::exists_any_for_tenant(conn, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 

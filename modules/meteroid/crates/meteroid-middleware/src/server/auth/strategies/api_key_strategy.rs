@@ -1,4 +1,5 @@
 use cached::proc_macro::cached;
+use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
 use common_grpc::middleware::server::auth::AuthenticatedState;
@@ -28,7 +29,7 @@ async fn validate_api_token_by_id_cached(
     store: &Store,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<(Uuid, Uuid), Status> {
+) -> Result<(OrganizationId, TenantId), Status> {
     let res = store
         .get_api_token_by_id_for_validation(api_key_id)
         .await

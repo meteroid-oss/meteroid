@@ -1,7 +1,3 @@
-use diesel_async::scoped_futures::ScopedFutureExt;
-use error_stack::Report;
-use uuid::Uuid;
-
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
@@ -19,53 +15,60 @@ use crate::repositories::InvoiceInterface;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
+use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
 use common_eventbus::Event;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{
     CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
 };
 use diesel_models::invoicing_entities::InvoicingEntityRow;
-use diesel_models::query::IdentityDb;
 use diesel_models::subscriptions::SubscriptionRow;
+use error_stack::Report;
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait CustomersInterface {
-    async fn find_customer_by_id(&self, id: Identity, tenant_id: Uuid) -> StoreResult<Customer>;
+    async fn find_customer_by_id(
+        &self,
+        id: CustomerId,
+        tenant_id: TenantId,
+    ) -> StoreResult<Customer>;
 
     async fn find_customer_by_alias(&self, alias: String) -> StoreResult<Customer>;
 
     async fn find_customer_ids_by_aliases(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         aliases: Vec<String>,
     ) -> StoreResult<Vec<CustomerBrief>>;
 
     async fn list_customers(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<Customer>>;
 
-    async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>>;
+    async fn list_customers_by_ids(&self, ids: Vec<CustomerId>) -> StoreResult<Vec<Customer>>;
 
     async fn insert_customer(
         &self,
         customer: CustomerNew,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Customer>;
 
     async fn insert_customer_batch(
         &self,
         batch: Vec<CustomerNew>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>>;
 
     async fn patch_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>>;
 
@@ -73,15 +76,15 @@ pub trait CustomersInterface {
 
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice>;
 
-    async fn find_customer_by_local_id_or_alias(
+    async fn find_customer_by_id_or_alias(
         &self,
-        id_or_alias: String,
-        tenant_id: Uuid,
+        id_or_alias: AliasOr<CustomerId>,
+        tenant_id: TenantId,
     ) -> StoreResult<CustomerForDisplay>;
 
     async fn list_customers_for_display(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -90,15 +93,15 @@ pub trait CustomersInterface {
     async fn update_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerUpdate,
     ) -> StoreResult<CustomerForDisplay>;
 
     async fn archive_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
-        id_or_alias: String,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()>;
 }
 
@@ -106,12 +109,12 @@ pub trait CustomersInterface {
 impl CustomersInterface for Store {
     async fn find_customer_by_id(
         &self,
-        customer_id: Identity,
-        tenant_id: Uuid,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_id(&mut conn, customer_id.into(), tenant_id)
+        CustomerRow::find_by_id(&mut conn, customer_id, tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -128,7 +131,7 @@ impl CustomersInterface for Store {
 
     async fn find_customer_ids_by_aliases(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         aliases: Vec<String>,
     ) -> StoreResult<Vec<CustomerBrief>> {
         let mut conn = self.get_conn().await?;
@@ -145,7 +148,7 @@ impl CustomersInterface for Store {
 
     async fn list_customers(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -177,7 +180,7 @@ impl CustomersInterface for Store {
         Ok(res)
     }
 
-    async fn list_customers_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Customer>> {
+    async fn list_customers_by_ids(&self, ids: Vec<CustomerId>) -> StoreResult<Vec<Customer>> {
         let mut conn = self.get_conn().await?;
 
         CustomerRow::list_by_ids(&mut conn, ids)
@@ -193,7 +196,7 @@ impl CustomersInterface for Store {
     async fn insert_customer(
         &self,
         customer: CustomerNew,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Customer> {
         let invoicing_entity = self
             .get_invoicing_entity(tenant_id, customer.invoicing_entity_id.clone())
@@ -226,8 +229,8 @@ impl CustomersInterface for Store {
             .eventbus
             .publish(Event::customer_created(
                 res.created_by,
-                res.id,
-                res.tenant_id,
+                res.id.as_uuid(),
+                res.tenant_id.as_uuid(),
             ))
             .await;
 
@@ -237,7 +240,7 @@ impl CustomersInterface for Store {
     async fn insert_customer_batch(
         &self,
         batch: Vec<CustomerNew>,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<Vec<Customer>> {
         let invoicing_entities = self.list_invoicing_entities(tenant_id).await?;
         let default_invoicing_entity =
@@ -302,8 +305,8 @@ impl CustomersInterface for Store {
         let _ = futures::future::join_all(res.clone().into_iter().map(|res| {
             self.eventbus.publish(Event::customer_created(
                 res.created_by,
-                res.id,
-                res.tenant_id,
+                res.id.as_uuid(),
+                res.tenant_id.as_uuid(),
             ))
         }))
         .await
@@ -316,7 +319,7 @@ impl CustomersInterface for Store {
     async fn patch_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>> {
         let mut conn = self.get_conn().await?;
@@ -335,7 +338,11 @@ impl CustomersInterface for Store {
 
                 let _ = self
                     .eventbus
-                    .publish(Event::customer_patched(actor, updated.id, tenant_id))
+                    .publish(Event::customer_patched(
+                        actor,
+                        updated.id.as_uuid(),
+                        tenant_id.as_uuid(),
+                    ))
                     .await;
 
                 Ok(Some(updated))
@@ -358,10 +365,9 @@ impl CustomersInterface for Store {
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        let customer =
-            CustomerRow::find_by_id(&mut conn, IdentityDb::UUID(req.customer_id), req.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let customer = CustomerRow::find_by_id(&mut conn, req.customer_id, req.tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let invoice = self
             .transaction_with(&mut conn, |conn| {
@@ -399,7 +405,7 @@ impl CustomersInterface for Store {
                         InvoicingEntityRow::select_for_update_by_id_and_tenant(
                             conn,
                             &customer.invoicing_entity_id,
-                            &req.tenant_id,
+                            req.tenant_id,
                         )
                         .await
                         .map_err(Into::<Report<StoreError>>::into)?
@@ -474,7 +480,7 @@ impl CustomersInterface for Store {
                     InvoicingEntityRow::update_invoicing_entity_number(
                         conn,
                         &invoicing_entity.id,
-                        &req.tenant_id,
+                        req.tenant_id,
                         invoicing_entity.next_invoice_number,
                     )
                     .await
@@ -504,14 +510,14 @@ impl CustomersInterface for Store {
         self.find_invoice_by_id(req.tenant_id, invoice.id).await
     }
 
-    async fn find_customer_by_local_id_or_alias(
+    async fn find_customer_by_id_or_alias(
         &self,
-        id_or_alias: String,
-        tenant_id: Uuid,
+        id_or_alias: AliasOr<CustomerId>,
+        tenant_id: TenantId,
     ) -> StoreResult<CustomerForDisplay> {
         let mut conn = self.get_conn().await?;
 
-        CustomerForDisplayRow::find_by_local_id_or_alias(&mut conn, tenant_id, id_or_alias)
+        CustomerForDisplayRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -519,7 +525,7 @@ impl CustomersInterface for Store {
 
     async fn list_customers_for_display(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
         query: Option<String>,
@@ -554,15 +560,15 @@ impl CustomersInterface for Store {
     async fn update_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         customer: CustomerUpdate,
     ) -> StoreResult<CustomerForDisplay> {
         let mut conn = self.get_conn().await?;
 
-        let by_id_or_alias = CustomerForDisplayRow::find_by_local_id_or_alias(
+        let by_id_or_alias = CustomerForDisplayRow::find_by_id_or_alias(
             &mut conn,
             tenant_id,
-            customer.local_id_or_alias.clone(),
+            customer.id_or_alias.clone(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -600,13 +606,17 @@ impl CustomersInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::customer_updated(actor, updated.id, tenant_id))
+            .publish(Event::customer_updated(
+                actor,
+                updated.id.as_uuid(),
+                tenant_id.as_uuid(),
+            ))
             .await;
 
-        CustomerForDisplayRow::find_by_local_id_or_alias(
+        CustomerForDisplayRow::find_by_id_or_alias(
             &mut conn,
             tenant_id,
-            customer.local_id_or_alias.clone(),
+            customer.id_or_alias.clone(),
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)
@@ -616,19 +626,19 @@ impl CustomersInterface for Store {
     async fn archive_customer(
         &self,
         actor: Uuid,
-        tenant_id: Uuid,
-        id_or_alias: String,
+        tenant_id: TenantId,
+        id_or_alias: AliasOr<CustomerId>,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        let customer = CustomerRow::find_by_alias(&mut conn, id_or_alias)
+        let customer = CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             tenant_id,
-            Some(IdentityDb::UUID(customer.id)),
+            Some(customer.id),
             None,
             PaginationRequest {
                 per_page: Some(1),

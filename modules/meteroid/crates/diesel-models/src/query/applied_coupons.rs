@@ -4,6 +4,7 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
+use common_domain::ids::TenantId;
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -92,7 +93,7 @@ impl AppliedCouponForDisplayRow {
     pub async fn list_by_coupon_local_id(
         conn: &mut PgConn,
         param_coupon_id: &String,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<AppliedCouponForDisplayRow>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
@@ -108,8 +109,8 @@ impl AppliedCouponForDisplayRow {
             .inner_join(s_dsl::subscription)
             .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
-            .filter(c_dsl::local_id.eq(param_coupon_id))
-            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(cou_dsl::local_id.eq(param_coupon_id))
+            .filter(cou_dsl::tenant_id.eq(tenant_id))
             .order(ac_dsl::created_at.desc())
             .select(AppliedCouponForDisplayRow::as_select());
 

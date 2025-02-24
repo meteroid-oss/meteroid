@@ -2,7 +2,6 @@ use crate::error::{ErrorResponse, StripeError};
 use crate::invoice::{CreateInvoice, CreateInvoiceItem, Invoice, InvoiceItem};
 use crate::request::{Outcome, RetryStrategy};
 use bytes::Bytes;
-use common_domain::StripeSecret;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Method, RequestBuilder, Url};
 use secrecy::{ExposeSecret, SecretString};
@@ -94,14 +93,14 @@ impl StripeClient {
         }
     }
 
-    pub fn get_account_id(&self, secret_key: &'_ StripeSecret) -> Response<crate::misc::Account> {
+    pub fn get_account_id(&self, secret_key: &'_ SecretString) -> Response<crate::misc::Account> {
         self.get("/account", secret_key, RetryStrategy::default())
     }
 
     pub fn create_invoice(
         &self,
         params: CreateInvoice<'_>,
-        secret_key: &'_ StripeSecret,
+        secret_key: &'_ SecretString,
         idempotency_key: String,
     ) -> Response<Invoice> {
         self.post_form(
@@ -116,7 +115,7 @@ impl StripeClient {
     pub fn finalize_invoice(
         &self,
         invoice_id: &'_ str,
-        secret_key: &'_ StripeSecret,
+        secret_key: &'_ SecretString,
     ) -> Response<Invoice> {
         self.post(
             &format!("/invoices/{}/finalize", invoice_id),
@@ -128,7 +127,7 @@ impl StripeClient {
     pub fn create_invoice_item(
         &self,
         params: CreateInvoiceItem<'_>,
-        secret_key: &'_ StripeSecret,
+        secret_key: &'_ SecretString,
         idempotency_key: String,
     ) -> Response<InvoiceItem> {
         self.post_form(
@@ -143,12 +142,12 @@ impl StripeClient {
     pub fn get<T: DeserializeOwned + Send + 'static>(
         &self,
         path: &str,
-        secret_key: &StripeSecret,
+        secret_key: &SecretString,
         retry_strategy: RetryStrategy,
     ) -> Response<T> {
         let url = self.url(path);
 
-        let request_builder = self.create_init_request(Method::GET, url, &secret_key.0, None);
+        let request_builder = self.create_init_request(Method::GET, url, secret_key, None);
 
         self.execute(request_builder, retry_strategy)
     }
@@ -156,12 +155,12 @@ impl StripeClient {
     fn post<T: DeserializeOwned + Send + 'static>(
         &self,
         path: &str,
-        secret_key: &StripeSecret,
+        secret_key: &SecretString,
         retry_strategy: RetryStrategy,
     ) -> Response<T> {
         let url = self.url(path);
 
-        let request_builder = self.create_init_request(Method::POST, url, &secret_key.0, None);
+        let request_builder = self.create_init_request(Method::POST, url, secret_key, None);
 
         self.execute(request_builder, retry_strategy)
     }
@@ -171,7 +170,7 @@ impl StripeClient {
         &self,
         path: &str,
         form: F,
-        secret_key: &'_ StripeSecret,
+        secret_key: &'_ SecretString,
         idempotency_key: String,
         retry_strategy: RetryStrategy,
     ) -> Response<T> {
@@ -189,7 +188,7 @@ impl StripeClient {
             .to_string();
 
         let request_builder = self
-            .create_init_request(Method::POST, url, &secret_key.0, Some(idempotency_key))
+            .create_init_request(Method::POST, url, secret_key, Some(idempotency_key))
             .body(body);
 
         self.execute(request_builder, retry_strategy)

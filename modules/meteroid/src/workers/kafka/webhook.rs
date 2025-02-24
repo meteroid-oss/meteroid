@@ -2,6 +2,7 @@ use crate::workers::kafka::outbox::{parse_outbox_event, EventType, OutboxEvent};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
+use common_domain::ids::CustomerId;
 use error_stack::Report;
 use meteroid_store::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, WebhookOutEventTypeEnum,
@@ -88,8 +89,7 @@ impl MessageHandler for WebhookHandler {
 #[derive(Debug, Serialize, o2o)]
 #[from_owned(CustomerEvent)]
 pub struct Customer {
-    #[map(local_id)]
-    pub id: String,
+    pub id: CustomerId,
     pub name: String,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -105,8 +105,7 @@ pub struct Customer {
 pub struct Subscription {
     #[map(local_id)]
     pub id: String,
-    #[map(customer_local_id)]
-    pub customer_id: String,
+    pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub customer_name: String,
     pub billing_day: i16,
@@ -135,8 +134,7 @@ pub struct Subscription {
 pub struct Invoice {
     #[map(local_id)]
     pub id: String,
-    #[map(customer_local_id)]
-    pub customer_id: String,
+    pub customer_id: CustomerId,
     pub status: InvoiceStatusEnum,
     pub currency: String,
     pub total: i64,      // todo convert to money?

@@ -4,6 +4,7 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
+use common_domain::ids::TenantId;
 use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -29,7 +30,7 @@ impl BillableMetricRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
         param_billable_metric_id: uuid::Uuid,
-        param_tenant_id: uuid::Uuid,
+        param_tenant_id: TenantId,
     ) -> DbResult<BillableMetricRow> {
         use crate::schema::billable_metric::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -49,7 +50,7 @@ impl BillableMetricRow {
     pub async fn get_by_ids(
         conn: &mut PgConn,
         metric_ids: &[uuid::Uuid],
-        tenant_id_param: &uuid::Uuid,
+        tenant_id_param: TenantId,
     ) -> DbResult<Vec<BillableMetricRow>> {
         use crate::schema::billable_metric::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -65,7 +66,7 @@ impl BillableMetricRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        param_tenant_id: uuid::Uuid,
+        param_tenant_id: TenantId,
         pagination: PaginationRequest,
         param_product_family_local_id: Option<String>,
     ) -> DbResult<PaginatedVec<BillableMetricMetaRow>> {

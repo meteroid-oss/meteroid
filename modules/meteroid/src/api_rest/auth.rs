@@ -14,6 +14,7 @@ use tracing::{error, log};
 
 use common_grpc::middleware::common::filters::Filter;
 
+use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::Store;
@@ -147,7 +148,7 @@ async fn validate_api_token_by_id_cached(
     store: &mut Store,
     validator: &ApiTokenValidator,
     api_key_id: &Uuid,
-) -> Result<(Uuid, Uuid), AuthStatus> {
+) -> Result<(OrganizationId, TenantId), AuthStatus> {
     let res = store
         .get_api_token_by_id_for_validation(api_key_id)
         .await

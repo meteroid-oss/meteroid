@@ -1,6 +1,4 @@
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
+use common_domain::ids::BaseId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::{
     price_components_service_server::PriceComponentsService, CreatePriceComponentRequest,
@@ -8,6 +6,8 @@ use meteroid_grpc::meteroid::api::components::v1::{
     EmptyResponse, ListPriceComponentRequest, ListPriceComponentResponse,
     RemovePriceComponentRequest,
 };
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 
@@ -79,7 +79,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .publish(Event::price_component_created(
                 actor,
                 component.id,
-                tenant_id,
+                tenant_id.as_uuid(),
             ))
             .await;
 
@@ -119,7 +119,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .publish(Event::price_component_edited(
                 actor,
                 component.id,
-                tenant_id,
+                tenant_id.as_uuid(),
             ))
             .await;
 
@@ -155,7 +155,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .publish(Event::price_component_removed(
                 actor,
                 price_component_id,
-                tenant_id,
+                tenant_id.as_uuid(),
             ))
             .await;
 

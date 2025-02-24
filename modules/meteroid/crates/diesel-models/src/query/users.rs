@@ -3,6 +3,7 @@ use crate::errors::IntoDbResult;
 use crate::users::{UserRow, UserRowNew, UserRowPatch, UserWithRoleRow};
 use crate::{DbResult, PgConn};
 
+use common_domain::ids::{OrganizationId, TenantId};
 use diesel::{
     debug_query, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper,
 };
@@ -48,7 +49,7 @@ impl UserRow {
     pub async fn find_by_id_and_org_id(
         conn: &mut PgConn,
         id: Uuid,
-        organization_id: Uuid,
+        organization_id: OrganizationId,
     ) -> DbResult<UserWithRoleRow> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
@@ -72,7 +73,7 @@ impl UserRow {
     pub async fn find_by_id_and_tenant_id(
         conn: &mut PgConn,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> DbResult<UserWithRoleRow> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::tenant::dsl as t_dsl; // we retrieve the org_id from the tenant table
@@ -98,7 +99,7 @@ impl UserRow {
     pub async fn find_by_email_and_org_id(
         conn: &mut PgConn,
         email: String,
-        organization_id: Uuid,
+        organization_id: OrganizationId,
     ) -> DbResult<UserWithRoleRow> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;
@@ -139,7 +140,7 @@ impl UserRow {
 
     pub async fn list_by_org_id(
         conn: &mut PgConn,
-        organization_id: Uuid,
+        organization_id: OrganizationId,
     ) -> DbResult<Vec<UserWithRoleRow>> {
         use crate::schema::organization_member::dsl as om_dsl;
         use crate::schema::user::dsl as u_dsl;

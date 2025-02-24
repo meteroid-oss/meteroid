@@ -18,6 +18,7 @@ use crate::domain::{
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
 use crate::utils::decimals::ToUnit;
+use common_domain::ids::{BaseId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
@@ -31,14 +32,14 @@ use uuid::Uuid;
 pub trait InvoiceInterface {
     async fn find_invoice_by_id(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         invoice_id: Uuid,
     ) -> StoreResult<DetailedInvoice>;
 
     async fn list_invoices(
         &self,
-        tenant_id: Uuid,
-        customer_id: Option<Uuid>,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
         status: Option<domain::enums::InvoiceStatusEnum>,
         query: Option<String>,
         order_by: OrderByRequest,
@@ -52,7 +53,7 @@ pub trait InvoiceInterface {
     async fn update_invoice_external_status(
         &self,
         invoice_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         external_status: InvoiceExternalStatusEnum,
     ) -> StoreResult<()>;
 
@@ -61,7 +62,7 @@ pub trait InvoiceInterface {
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
-    async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
+    async fn finalize_invoice(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn list_outdated_invoices(
         &self,
@@ -76,24 +77,27 @@ pub trait InvoiceInterface {
 
     async fn list_invoices_by_ids(&self, ids: Vec<Uuid>) -> StoreResult<Vec<Invoice>>;
 
-    async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()>;
+    async fn invoice_issue_success(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn invoice_issue_error(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         last_issue_error: &str,
     ) -> StoreResult<()>;
 
     async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()>;
 
-    async fn refresh_invoice_data(&self, id: Uuid, tenant_id: Uuid)
-        -> StoreResult<DetailedInvoice>;
+    async fn refresh_invoice_data(
+        &self,
+        id: Uuid,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice>;
 
     async fn save_invoice_documents(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pdf_id: String,
         xml_id: Option<String>,
     ) -> StoreResult<()>;
@@ -103,7 +107,7 @@ pub trait InvoiceInterface {
 impl InvoiceInterface for Store {
     async fn find_invoice_by_id(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         invoice_id: Uuid,
     ) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
@@ -116,8 +120,8 @@ impl InvoiceInterface for Store {
 
     async fn list_invoices(
         &self,
-        tenant_id: Uuid,
-        customer_id: Option<Uuid>,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
         status: Option<domain::enums::InvoiceStatusEnum>,
         query: Option<String>,
         order_by: OrderByRequest,
@@ -167,7 +171,7 @@ impl InvoiceInterface for Store {
     async fn update_invoice_external_status(
         &self,
         invoice_id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         external_status: InvoiceExternalStatusEnum,
     ) -> StoreResult<()> {
         self.transaction(|conn| {
@@ -184,7 +188,7 @@ impl InvoiceInterface for Store {
                 if external_status == InvoiceExternalStatusEnum::Paid {
                     let subscription_id = SubscriptionRow::get_subscription_id_by_invoice_id(
                         conn,
-                        &tenant_id,
+                        tenant_id,
                         &invoice_id,
                     )
                     .await
@@ -228,7 +232,7 @@ impl InvoiceInterface for Store {
         Ok(res)
     }
 
-    async fn finalize_invoice(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+    async fn finalize_invoice(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()> {
         let patch = compute_invoice_patch(self, id, tenant_id).await?;
         let applied_coupons_amounts = patch.applied_coupons.clone();
         let row_patch = patch.try_into()?;
@@ -250,7 +254,7 @@ impl InvoiceInterface for Store {
                 let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
                     conn,
                     &refreshed.customer.invoicing_entity_id,
-                    &tenant_id,
+                    tenant_id,
                 )
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
@@ -277,7 +281,7 @@ impl InvoiceInterface for Store {
                 InvoicingEntityRow::update_invoicing_entity_number(
                     conn,
                     &refreshed.customer.invoicing_entity_id,
-                    &tenant_id,
+                    tenant_id,
                     invoicing_entity.next_invoice_number,
                 )
                 .await
@@ -303,7 +307,7 @@ impl InvoiceInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::invoice_finalized(id, tenant_id))
+            .publish(Event::invoice_finalized(id, tenant_id.as_uuid()))
             .await;
 
         Ok(())
@@ -367,7 +371,7 @@ impl InvoiceInterface for Store {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    async fn invoice_issue_success(&self, id: Uuid, tenant_id: Uuid) -> StoreResult<()> {
+    async fn invoice_issue_success(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         InvoiceRow::issue_success(&mut conn, id, tenant_id)
@@ -379,7 +383,7 @@ impl InvoiceInterface for Store {
     async fn invoice_issue_error(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         last_issue_error: &str,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
@@ -402,7 +406,7 @@ impl InvoiceInterface for Store {
     async fn refresh_invoice_data(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice> {
         let patch = compute_invoice_patch(self, id, tenant_id)
             .await?
@@ -414,7 +418,7 @@ impl InvoiceInterface for Store {
     async fn save_invoice_documents(
         &self,
         id: Uuid,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
         pdf_id: String,
         xml_id: Option<String>,
     ) -> StoreResult<()> {
@@ -434,7 +438,7 @@ TODO special cases :
 - cancellation : recalculate the mrr delta (as the one in the event was calculated before the invoice was created)
 - consolidation if multiple events in the same day. Ex: new business + expansion = new business, or cancellation + reactivation => nothing
  */
-async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResult<()> {
+async fn process_mrr(inserted: &Invoice, conn: &mut PgConn) -> StoreResult<()> {
     log::info!("Processing MRR logs for invoice {}", inserted.id);
     if inserted.invoice_type == InvoiceType::Recurring
         || inserted.invoice_type == InvoiceType::Adjustment
@@ -524,7 +528,7 @@ async fn process_mrr(inserted: &domain::Invoice, conn: &mut PgConn) -> StoreResu
 async fn refresh_invoice_data(
     conn: &mut PgConn,
     id: Uuid,
-    tenant_id: Uuid,
+    tenant_id: TenantId,
     row_patch: &InvoiceRowLinesPatch,
 ) -> StoreResult<DetailedInvoice> {
     row_patch
@@ -542,7 +546,7 @@ async fn refresh_invoice_data(
 async fn compute_invoice_patch(
     store: &Store,
     invoice_id: Uuid,
-    tenant_id: Uuid,
+    tenant_id: TenantId,
 ) -> StoreResult<InvoiceLinesPatch> {
     let invoice = store.find_invoice_by_id(tenant_id, invoice_id).await?;
 

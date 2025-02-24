@@ -1,14 +1,14 @@
-use diesel_async::scoped_futures::ScopedFutureExt;
-use error_stack::Report;
-use tracing_log::log;
-use uuid::Uuid;
-
+use common_domain::ids::{BaseId, OrganizationId};
 use common_eventbus::Event;
 use common_utils::rng::BASE62_ALPHABET;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::OrganizationUserRole;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
 use diesel_models::tenants::TenantRow;
+use error_stack::Report;
+use tracing_log::log;
+use uuid::Uuid;
 
 use crate::domain::enums::TenantEnvironmentEnum;
 use crate::domain::{
@@ -29,14 +29,14 @@ pub trait OrganizationsInterface {
     async fn get_instance(&self) -> StoreResult<InstanceFlags>;
     async fn organization_get_or_create_invite_link(
         &self,
-        organization_id: Uuid,
+        organization_id: OrganizationId,
     ) -> StoreResult<String>;
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
-    async fn get_organization_by_id(&self, id: Uuid) -> StoreResult<Organization>;
+    async fn get_organization_by_id(&self, id: OrganizationId) -> StoreResult<Organization>;
     async fn get_organizations_with_tenants_by_id(
         &self,
-        id: Uuid,
+        id: OrganizationId,
     ) -> StoreResult<OrganizationWithTenants>;
     async fn get_organizations_by_slug(&self, slug: String) -> StoreResult<Organization>;
 }
@@ -64,7 +64,7 @@ impl OrganizationsInterface for Store {
         }
 
         let org = OrganizationRowNew {
-            id: Uuid::now_v7(),
+            id: OrganizationId::new(),
             slug: Organization::new_slug(),
             trade_name: organization.trade_name.clone(),
             default_country: organization.country.clone(),
@@ -115,7 +115,10 @@ impl OrganizationsInterface for Store {
 
         let _ = self
             .eventbus
-            .publish(Event::organization_created(user_id, org_created.id))
+            .publish(Event::organization_created(
+                user_id,
+                org_created.id.as_uuid(),
+            ))
             .await;
 
         Ok(OrganizationWithTenants {
@@ -147,7 +150,7 @@ impl OrganizationsInterface for Store {
 
     async fn organization_get_or_create_invite_link(
         &self,
-        organization_id: Uuid,
+        organization_id: OrganizationId,
     ) -> StoreResult<String> {
         let mut conn = self.get_conn().await?;
 
@@ -181,7 +184,7 @@ impl OrganizationsInterface for Store {
         Ok(orgs.into_iter().map(Into::into).collect())
     }
 
-    async fn get_organization_by_id(&self, id: Uuid) -> StoreResult<Organization> {
+    async fn get_organization_by_id(&self, id: OrganizationId) -> StoreResult<Organization> {
         let mut conn = self.get_conn().await?;
 
         let org = OrganizationRow::get_by_id(&mut conn, id)
@@ -193,7 +196,7 @@ impl OrganizationsInterface for Store {
 
     async fn get_organizations_with_tenants_by_id(
         &self,
-        id: Uuid,
+        id: OrganizationId,
     ) -> StoreResult<OrganizationWithTenants> {
         let mut conn = self.get_conn().await?;
 

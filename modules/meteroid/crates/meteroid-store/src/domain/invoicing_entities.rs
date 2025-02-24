@@ -1,13 +1,13 @@
-use o2o::o2o;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use crate::domain::connectors::ConnectorMeta;
 use crate::domain::{Address, BankAccount};
+use common_domain::ids::TenantId;
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
 };
+use o2o::o2o;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, o2o)]
 #[map_owned(InvoicingEntityRow)]
@@ -39,7 +39,7 @@ pub struct InvoicingEntity {
     pub country: String,
     // immutable
     pub accounting_currency: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
 
     pub cc_provider_id: Option<Uuid>,
     pub bank_account_id: Option<Uuid>,

@@ -2,10 +2,10 @@ use crate::domain::Customer;
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::StoreResult;
+use common_domain::ids::{CustomerId, TenantId};
 use diesel_models::customer_balance_txs::CustomerBalanceTxRowNew;
 use diesel_models::customers::CustomerRow;
 use diesel_models::errors::DatabaseError;
-use diesel_models::query::IdentityDb;
 use error_stack::Report;
 use uuid::Uuid;
 
@@ -19,8 +19,8 @@ pub struct CustomerBalance;
 impl CustomerBalance {
     pub async fn update(
         conn: &mut PgConn,
-        customer_id: Uuid,
-        tenant_id: Uuid,
+        customer_id: CustomerId,
+        tenant_id: TenantId,
         cents: i32,
         invoice_id: Option<Uuid>,
     ) -> StoreResult<CustomerBalanceUpdate> {
@@ -37,10 +37,9 @@ impl CustomerBalance {
                 _ => Into::<Report<StoreError>>::into(err),
             })?;
 
-        let customer_row_updated =
-            CustomerRow::find_by_id(conn, IdentityDb::UUID(customer_id), tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let customer_row_updated = CustomerRow::find_by_id(conn, customer_id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
 
         let tx = CustomerBalanceTxRowNew {
             id: Uuid::now_v7(),

@@ -11,6 +11,7 @@ use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
 
+use common_domain::ids::TenantId;
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
@@ -41,7 +42,7 @@ pub struct PlanNew {
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_local_id: String,
     pub local_id: String,
     pub plan_type: PlanTypeEnum,
@@ -96,7 +97,7 @@ pub struct PlanVersionNew {
     pub plan_id: Uuid,
     pub created_by: Uuid,
     pub version: i32,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub internal: PlanVersionNewInternal,
 }
 
@@ -148,7 +149,7 @@ pub struct Plan {
     pub description: Option<String>,
     pub created_by: Uuid,
     pub created_at: NaiveDateTime,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub product_family_id: Uuid,
     pub local_id: String,
     #[from(~.into())]
@@ -166,7 +167,7 @@ pub struct PlanVersion {
     pub is_draft_version: bool,
     pub plan_id: Uuid,
     pub version: i32,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
@@ -243,7 +244,7 @@ pub struct PlanVersionInfo {
 #[owned_into(PlanVersionRowPatch)]
 pub struct PlanVersionPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
 }
@@ -259,7 +260,7 @@ pub struct PlanAndVersionPatch {
 #[ghosts(draft_version_id: {None})]
 pub struct PlanPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub active_version_id: Option<Option<Uuid>>,
@@ -276,7 +277,7 @@ pub struct PlanWithVersion {
 
 pub struct TrialPatch {
     pub plan_version_id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub trial: Option<PlanTrial>,
 }
 

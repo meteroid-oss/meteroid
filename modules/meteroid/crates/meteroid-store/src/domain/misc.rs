@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use common_domain::ids::{OrganizationId, TenantId};
 use o2o::o2o;
 use uuid::Uuid;
 
@@ -68,19 +69,19 @@ impl<T> From<diesel_models::extend::cursor_pagination::CursorPaginatedVec<T>>
 pub struct TenantContext {
     // pub actor: Actor, // TODO
     pub actor: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct OrganizationContext {
     pub actor: Actor,
-    pub organization_id: Uuid,
+    pub organization_id: OrganizationId,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Context {
     pub actor: Actor,
-    pub tenant_id: Option<Uuid>,
+    pub tenant_id: Option<TenantId>,
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -4,13 +4,14 @@ use crate::api_rest::customers::mapping::{
 use crate::api_rest::customers::model::{
     Customer, CustomerCreateRequest, CustomerListRequest, CustomerUpdateRequest,
 };
-use crate::api_rest::model::{IdOrAlias, PaginatedResponse};
+use crate::api_rest::model::PaginatedResponse;
 use crate::api_rest::AppState;
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use axum_valid::Valid;
+use common_domain::ids::{AliasOr, CustomerId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain;
@@ -91,11 +92,11 @@ pub(crate) async fn list_customers(
 pub(crate) async fn get_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<IdOrAlias>>,
+    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
-        .find_customer_by_local_id_or_alias(id_or_alias.into(), authorized_state.tenant_id)
+        .find_customer_by_id_or_alias(id_or_alias, authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer: {}", e);
@@ -142,7 +143,7 @@ pub(crate) async fn create_customer(
 
     app_state
         .store
-        .find_customer_by_local_id_or_alias(created.local_id, authorized_state.tenant_id)
+        .find_customer_by_id_or_alias(AliasOr::Id(created.id), authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer: {}", e);
@@ -175,7 +176,7 @@ pub(crate) async fn create_customer(
 pub(crate) async fn update_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<IdOrAlias>>,
+    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
     Valid(Json(payload)): Valid<Json<CustomerUpdateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
@@ -215,14 +216,14 @@ pub(crate) async fn update_customer(
 pub(crate) async fn delete_customer(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Valid(Path(id_or_alias)): Valid<Path<IdOrAlias>>,
+    Valid(Path(id_or_alias)): Valid<Path<AliasOr<CustomerId>>>,
 ) -> Result<impl IntoResponse, RestApiError> {
     app_state
         .store
         .archive_customer(
             authorized_state.actor_id,
             authorized_state.tenant_id,
-            id_or_alias.into(),
+            id_or_alias,
         )
         .await
         .map_err(|e| {

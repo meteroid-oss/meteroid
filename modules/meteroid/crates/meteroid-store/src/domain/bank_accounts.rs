@@ -1,4 +1,5 @@
 pub use crate::domain::enums::BankAccountFormat;
+use common_domain::ids::TenantId;
 use diesel_models::bank_accounts::{BankAccountRow, BankAccountRowNew, BankAccountRowPatch};
 use o2o::o2o;
 use uuid::Uuid;
@@ -8,7 +9,7 @@ use uuid::Uuid;
 pub struct BankAccount {
     pub id: Uuid,
     pub local_id: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub currency: String,
     pub country: String,
     pub bank_name: String,
@@ -22,7 +23,7 @@ pub struct BankAccount {
 pub struct BankAccountNew {
     pub id: Uuid,
     pub local_id: String,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub created_by: Uuid,
     pub currency: String,
     pub country: String,
@@ -36,7 +37,7 @@ pub struct BankAccountNew {
 #[owned_into(BankAccountRowPatch)]
 pub struct BankAccountPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub country: Option<String>,
     pub bank_name: Option<String>,

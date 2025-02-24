@@ -2,6 +2,7 @@ use crate::domain::FeeType;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
+use common_domain::ids::TenantId;
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use error_stack::Report;
 use uuid::Uuid;
@@ -12,7 +13,7 @@ pub struct AddOn {
     pub local_id: String,
     pub name: String,
     pub fee: FeeType,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
 }
@@ -39,7 +40,7 @@ impl TryInto<AddOn> for AddOnRow {
 pub struct AddOnNew {
     pub name: String,
     pub fee: FeeType,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
 }
 
 impl TryInto<AddOnRowNew> for AddOnNew {
@@ -61,7 +62,7 @@ impl TryInto<AddOnRowNew> for AddOnNew {
 #[derive(Debug, Clone)]
 pub struct AddOnPatch {
     pub id: Uuid,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub name: Option<String>,
     pub fee: Option<FeeType>,
 }

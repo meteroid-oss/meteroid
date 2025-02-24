@@ -61,6 +61,7 @@ diesel = { version = "2.2.6", features = ["chrono", "uuid", "serde_json", "numer
 diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
+diesel-derive-newtype = { version = "2.1.0" }
 dotenvy = "0.15.7"
 env_logger = "0.11.5"
 envconfig = "0.11.0"
@@ -122,6 +123,7 @@ rust_decimal_macros = "1.32.0"
 rustls = { version = "0.23.12", default-features = false }
 rusty-money = "0.4.1"
 sailfish = "0.9.0"
+sealed = "0.6.0"
 secrecy = "0.8.0" # https://github.com/iqlusioninc/crates/issues/1234
 segment = { version = "0.2.3" }
 serde = { version = "1.0.189", default-features = false }

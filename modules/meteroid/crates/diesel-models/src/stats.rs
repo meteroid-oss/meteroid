@@ -1,5 +1,6 @@
 use crate::enums::MrrMovementType;
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::ids::{CustomerId, TenantId};
 use diesel::QueryableByName;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -73,7 +74,7 @@ pub struct SubscriptionTrialToPaidConversionRow {
 #[derive(QueryableByName, Debug)]
 pub struct CustomerTopRevenueRow {
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub id: Uuid,
+    pub id: CustomerId,
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub name: String,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -165,11 +166,11 @@ pub struct LastMrrMovementsRow {
     #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Uuid>)]
     pub credit_note_id: Option<Uuid>,
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     #[diesel(sql_type = diesel::sql_types::Uuid)]
     pub plan_version_id: Uuid,
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub customer_id: Uuid,
+    pub customer_id: CustomerId,
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub customer_name: String,
     #[diesel(sql_type = diesel::sql_types::Uuid)]

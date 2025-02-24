@@ -6,6 +6,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
 use crate::utils::local_id::{IdType, LocalId};
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::ids::{CustomerId, TenantId};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
@@ -30,8 +31,8 @@ pub struct Invoice {
     pub external_status: Option<InvoiceExternalStatusEnum>,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
     pub subscription_id: Option<Uuid>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
@@ -87,8 +88,8 @@ pub struct InvoiceNew {
     pub status: InvoiceStatusEnum,
     #[into(~.map(| x | x.into()))]
     pub external_status: Option<InvoiceExternalStatusEnum>,
-    pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
     pub subscription_id: Option<Uuid>,
     pub currency: String,
     pub external_invoice_id: Option<String>,
@@ -176,7 +177,7 @@ impl InvoiceLinesPatch {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct InlineCustomer {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: String,
     pub email: Option<String>,
     pub alias: Option<String>,

@@ -1,4 +1,4 @@
-use crate::{adapters::types::ParsedRequest, encoding};
+use crate::adapters::types::ParsedRequest;
 use crate::{adapters::types::WebhookAdapter, errors};
 use axum::{
     body::Body,
@@ -9,6 +9,7 @@ use axum::{
 
 use crate::api_rest::AppState;
 use crate::services::storage::Prefix;
+use common_domain::ids::TenantId;
 use error_stack::{Result, ResultExt};
 use meteroid_store::domain::connectors::ProviderSensitiveData;
 use meteroid_store::domain::enums::ConnectorProviderEnum;
@@ -19,11 +20,11 @@ use secrecy::SecretString;
 
 #[axum::debug_handler]
 pub async fn axum_handler(
-    Path((provider, endpoint_uid)): Path<(String, String)>,
+    Path((provider, tenant_id)): Path<(String, TenantId)>,
     State(app_state): State<AppState>,
     req: Request<Body>,
 ) -> impl IntoResponse {
-    match handler(provider, endpoint_uid, req, app_state).await {
+    match handler(provider, tenant_id, req, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
             log::error!("Error handling webhook: {}", e);
@@ -34,7 +35,7 @@ pub async fn axum_handler(
 
 async fn handler(
     provider_str: String,
-    endpoint_uid: String,
+    tenant_id: TenantId,
     req: Request<Body>,
     app_state: AppState,
 ) -> Result<Response, errors::AdapterWebhookError> {
@@ -43,14 +44,8 @@ async fn handler(
     log::trace!(
         "Received webhook for provider: {}, uid: {}",
         provider_str,
-        endpoint_uid
+        tenant_id
     );
-
-    let tenant_id_str = encoding::base64_decode(&endpoint_uid)
-        .change_context(errors::AdapterWebhookError::InvalidEndpointId)?;
-
-    let tenant_id = uuid::Uuid::parse_str(&tenant_id_str)
-        .change_context(errors::AdapterWebhookError::InvalidEndpointId)?;
 
     // - get webhook from storage (db, optional redis cache)
     let connector = app_state
@@ -66,7 +61,7 @@ async fn handler(
 
     let prefix = Prefix::WebhookArchive {
         provider_uid: provider_str,
-        endpoint_uid,
+        tenant_id,
     };
 
     let uid = app_state

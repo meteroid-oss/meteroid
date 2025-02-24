@@ -2,8 +2,8 @@ use crate::domain::Identity;
 use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
-use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
+use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
@@ -14,8 +14,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerRow, StoreErrorReport)]
 pub struct Customer {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -23,7 +22,7 @@ pub struct Customer {
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
     pub archived_by: Option<Uuid>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub invoicing_entity_id: Uuid,
     #[map(~.try_into()?)]
     pub billing_config: BillingConfig,
@@ -43,8 +42,7 @@ pub struct Customer {
 #[from_owned(CustomerBriefRow)]
 #[owned_into(CustomerBriefRow)]
 pub struct CustomerBrief {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CustomerId,
     pub name: String,
     pub alias: Option<String>,
 }
@@ -70,7 +68,7 @@ pub struct CustomerNew {
 #[derive(Clone, Debug)]
 pub struct CustomerNewWrapper {
     pub inner: CustomerNew,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub invoicing_entity_id: Uuid,
 }
 
@@ -79,8 +77,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
 
     fn try_into(self) -> Result<CustomerRowNew, Self::Error> {
         Ok(CustomerRowNew {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::Customer),
+            id: CustomerId::new(),
             name: self.inner.name,
             created_by: self.inner.created_by,
             tenant_id: self.tenant_id,
@@ -110,7 +107,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
 #[derive(Clone, Debug, o2o)]
 #[owned_try_into(CustomerRowPatch, StoreErrorReport)]
 pub struct CustomerPatch {
-    pub id: Uuid,
+    pub id: CustomerId,
     pub name: Option<String>,
     pub alias: Option<String>,
     pub email: Option<String>,
@@ -175,8 +172,8 @@ pub enum StripeCollectionMethod {
 #[derive(Clone, Debug)]
 pub struct CustomerTopUpBalance {
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
     pub cents: i32,
     pub notes: Option<String>,
 }
@@ -184,8 +181,8 @@ pub struct CustomerTopUpBalance {
 #[derive(Clone, Debug)]
 pub struct CustomerBuyCredits {
     pub created_by: Uuid,
-    pub tenant_id: Uuid,
-    pub customer_id: Uuid,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
     pub cents: i32,
     pub notes: Option<String>,
 }
@@ -193,15 +190,14 @@ pub struct CustomerBuyCredits {
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
 #[try_from_owned(CustomerForDisplayRow, StoreErrorReport)]
 pub struct CustomerForDisplay {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CustomerId,
     pub name: String,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub updated_at: Option<NaiveDateTime>,
     pub updated_by: Option<Uuid>,
     pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: Uuid,
+    pub tenant_id: TenantId,
     pub invoicing_entity_id: Uuid,
     pub invoicing_entity_local_id: String,
     #[map(~.try_into()?)]
@@ -220,7 +216,7 @@ pub struct CustomerForDisplay {
 
 #[derive(Clone, Debug)]
 pub struct CustomerUpdate {
-    pub local_id_or_alias: String,
+    pub id_or_alias: AliasOr<CustomerId>,
     pub name: String,
     pub billing_config: BillingConfig,
     pub alias: Option<String>,

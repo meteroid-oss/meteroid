@@ -2,6 +2,7 @@ use crate::domain::stats::*;
 use crate::errors::StoreError;
 use crate::utils::decimals::ToSubunit;
 use crate::{Store, StoreResult};
+use common_domain::ids::TenantId;
 use diesel_models::stats::{
     ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
     LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,
@@ -12,25 +13,24 @@ use diesel_models::tenants::TenantRow;
 use error_stack::Report;
 use rust_decimal::prelude::ToPrimitive;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait StatsInterface {
-    async fn net_revenue(&self, tenant_id: Uuid) -> StoreResult<Trend>;
-    async fn active_subscriptions(&self, tenant_id: Uuid) -> StoreResult<i64>;
-    async fn pending_invoices(&self, tenant_id: Uuid) -> StoreResult<CountAndValue>;
-    async fn signups(&self, tenant_id: Uuid) -> StoreResult<Trend>;
-    async fn signups_sparkline(&self, tenant_id: Uuid) -> StoreResult<SignupSparklineResponse>;
-    async fn trial_conversion_rate(&self, tenant_id: Uuid) -> StoreResult<f32>;
+    async fn net_revenue(&self, tenant_id: TenantId) -> StoreResult<Trend>;
+    async fn active_subscriptions(&self, tenant_id: TenantId) -> StoreResult<i64>;
+    async fn pending_invoices(&self, tenant_id: TenantId) -> StoreResult<CountAndValue>;
+    async fn signups(&self, tenant_id: TenantId) -> StoreResult<Trend>;
+    async fn signups_sparkline(&self, tenant_id: TenantId) -> StoreResult<SignupSparklineResponse>;
+    async fn trial_conversion_rate(&self, tenant_id: TenantId) -> StoreResult<f32>;
     async fn trial_conversion_rate_sparkline(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<TrialConversionRateResponse>;
     async fn top_revenue_by_customer(
         &self,
         request: RevenueByCustomerRequest,
     ) -> StoreResult<Vec<RevenueByCustomer>>;
-    async fn total_mrr(&self, tenant_id: Uuid) -> StoreResult<i64>;
+    async fn total_mrr(&self, tenant_id: TenantId) -> StoreResult<i64>;
     async fn total_mrr_chart(&self, request: MrrChartRequest) -> StoreResult<MrrChartResponse>;
     async fn mrr_breakdown(&self, request: MRRBreakdownRequest) -> StoreResult<MRRBreakdown>;
     async fn mrr_log(&self, request: MrrLogRequest) -> StoreResult<MrrLogResponse>;
@@ -38,7 +38,7 @@ pub trait StatsInterface {
 
 #[async_trait::async_trait]
 impl StatsInterface for Store {
-    async fn net_revenue(&self, tenant_id: Uuid) -> StoreResult<Trend> {
+    async fn net_revenue(&self, tenant_id: TenantId) -> StoreResult<Trend> {
         let mut conn = self.get_conn().await?;
 
         let trend = RevenueTrendRow::get(&mut conn, 7, tenant_id)
@@ -56,7 +56,7 @@ impl StatsInterface for Store {
         })
     }
 
-    async fn active_subscriptions(&self, tenant_id: Uuid) -> StoreResult<i64> {
+    async fn active_subscriptions(&self, tenant_id: TenantId) -> StoreResult<i64> {
         let mut conn = self.get_conn().await?;
 
         ActiveSubscriptionsCountRow::get(&mut conn, tenant_id, None)
@@ -65,7 +65,7 @@ impl StatsInterface for Store {
             .map(|x| x.count.into())
     }
 
-    async fn pending_invoices(&self, tenant_id: Uuid) -> StoreResult<CountAndValue> {
+    async fn pending_invoices(&self, tenant_id: TenantId) -> StoreResult<CountAndValue> {
         let mut conn = self.get_conn().await?;
 
         let trend = PendingInvoicesTotalRow::get(&mut conn, tenant_id)
@@ -87,7 +87,7 @@ impl StatsInterface for Store {
         })
     }
 
-    async fn signups(&self, tenant_id: Uuid) -> StoreResult<Trend> {
+    async fn signups(&self, tenant_id: TenantId) -> StoreResult<Trend> {
         let mut conn = self.get_conn().await?;
 
         let trend = NewSignupsTrend90DaysRow::get(&mut conn, tenant_id)
@@ -106,7 +106,7 @@ impl StatsInterface for Store {
         })
     }
 
-    async fn signups_sparkline(&self, tenant_id: Uuid) -> StoreResult<SignupSparklineResponse> {
+    async fn signups_sparkline(&self, tenant_id: TenantId) -> StoreResult<SignupSparklineResponse> {
         let mut conn = self.get_conn().await?;
 
         let chart_data = DailyNewSignups90DaysRow::list(&mut conn, tenant_id)
@@ -129,7 +129,7 @@ impl StatsInterface for Store {
         Ok(SignupSparklineResponse { series })
     }
 
-    async fn trial_conversion_rate(&self, tenant_id: Uuid) -> StoreResult<f32> {
+    async fn trial_conversion_rate(&self, tenant_id: TenantId) -> StoreResult<f32> {
         let mut conn = self.get_conn().await?;
 
         let all_time = SubscriptionTrialConversionRateRow::get(&mut conn, tenant_id)
@@ -145,7 +145,7 @@ impl StatsInterface for Store {
 
     async fn trial_conversion_rate_sparkline(
         &self,
-        tenant_id: Uuid,
+        tenant_id: TenantId,
     ) -> StoreResult<TrialConversionRateResponse> {
         let mut conn = self.get_conn().await?;
 
@@ -259,7 +259,7 @@ impl StatsInterface for Store {
             .collect())
     }
 
-    async fn total_mrr(&self, tenant_id: Uuid) -> StoreResult<i64> {
+    async fn total_mrr(&self, tenant_id: TenantId) -> StoreResult<i64> {
         let mut conn = self.get_conn().await?;
 
         TotalMrrRow::get(&mut conn, tenant_id, chrono::Utc::now().naive_utc().date())
