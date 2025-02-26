@@ -4,7 +4,7 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{CouponId, SubscriptionId, TenantId};
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
@@ -28,7 +28,7 @@ impl AppliedCouponRowNew {
 }
 
 impl AppliedCouponRow {
-    pub async fn count_by_coupon_id(conn: &mut PgConn, param_coupon_id: &Uuid) -> DbResult<i64> {
+    pub async fn count_by_coupon_id(conn: &mut PgConn, param_coupon_id: CouponId) -> DbResult<i64> {
         use crate::schema::applied_coupon::dsl as ac;
 
         let query = ac::applied_coupon
@@ -90,9 +90,9 @@ impl AppliedCouponRow {
 }
 
 impl AppliedCouponForDisplayRow {
-    pub async fn list_by_coupon_local_id(
+    pub async fn list_by_coupon_id(
         conn: &mut PgConn,
-        param_coupon_id: &String,
+        param_coupon_id: CouponId,
         tenant_id: TenantId,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<AppliedCouponForDisplayRow>> {
@@ -109,7 +109,7 @@ impl AppliedCouponForDisplayRow {
             .inner_join(s_dsl::subscription)
             .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
-            .filter(cou_dsl::local_id.eq(param_coupon_id))
+            .filter(cou_dsl::id.eq(param_coupon_id))
             .filter(cou_dsl::tenant_id.eq(tenant_id))
             .order(ac_dsl::created_at.desc())
             .select(AppliedCouponForDisplayRow::as_select());

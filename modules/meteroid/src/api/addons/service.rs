@@ -2,7 +2,7 @@ use crate::api::addons::error::AddOnApiError;
 use crate::api::addons::mapping::addons::AddOnWrapper;
 use crate::api::addons::AddOnsServiceComponents;
 use crate::api::utils::PaginationExt;
-use crate::{api::utils::parse_uuid, parse_uuid};
+use common_domain::ids::AddOnId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::addons::v1::add_ons_service_server::AddOnsService;
 use meteroid_grpc::meteroid::api::addons::v1::{
@@ -85,7 +85,7 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let req = request.into_inner();
 
-        let add_on_id = parse_uuid!(&req.add_on_id)?;
+        let add_on_id = AddOnId::from_proto(&req.add_on_id)?;
 
         self.store
             .delete_add_on(add_on_id, tenant_id)
@@ -111,7 +111,7 @@ impl AddOnsService for AddOnsServiceComponents {
         let fee = crate::api::pricecomponents::mapping::components::map_fee_to_domain(add_on.fee)?;
 
         let patch = AddOnPatch {
-            id: parse_uuid!(&add_on.id)?,
+            id: AddOnId::from_proto(&add_on.id)?,
             tenant_id,
             name: Some(add_on.name),
             fee: Some(fee),

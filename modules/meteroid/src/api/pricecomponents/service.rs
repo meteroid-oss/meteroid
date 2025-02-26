@@ -1,4 +1,4 @@
-use common_domain::ids::BaseId;
+use common_domain::ids::{BaseId, PriceComponentId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::{
     price_components_service_server::PriceComponentsService, CreatePriceComponentRequest,
@@ -78,7 +78,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .eventbus
             .publish(Event::price_component_created(
                 actor,
-                component.id,
+                component.id.as_uuid(),
                 tenant_id.as_uuid(),
             ))
             .await;
@@ -118,7 +118,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .eventbus
             .publish(Event::price_component_edited(
                 actor,
-                component.id,
+                component.id.as_uuid(),
                 tenant_id.as_uuid(),
             ))
             .await;
@@ -137,7 +137,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let price_component_id = parse_uuid(&req.price_component_id, "price_component_id")?;
+        let price_component_id = PriceComponentId::from_proto(&req.price_component_id)?;
 
         self.store
             .delete_price_component(price_component_id, tenant_id)
@@ -154,7 +154,7 @@ impl PriceComponentsService for PriceComponentServiceComponents {
             .eventbus
             .publish(Event::price_component_removed(
                 actor,
-                price_component_id,
+                price_component_id.as_uuid(),
                 tenant_id.as_uuid(),
             ))
             .await;

@@ -1,4 +1,5 @@
 use crate::api_rest::model::PaginatedRequest;
+use common_domain::ids::{string_serde, ProductFamilyId};
 use utoipa::ToSchema;
 use validator::Validate;
 
@@ -19,7 +20,8 @@ pub struct ProductFamilyListRequest {
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct ProductFamily {
-    pub id: String,
+    #[serde(with = "string_serde")]
+    pub id: ProductFamilyId,
     pub name: String,
 }
 

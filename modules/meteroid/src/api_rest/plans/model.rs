@@ -1,5 +1,6 @@
 use crate::api_rest::model::PaginatedRequest;
 use chrono::NaiveDateTime;
+use common_domain::ids::{string_serde, string_serde_opt, PlanId, ProductFamilyId};
 use meteroid_store::domain;
 use serde_enum_str::{Deserialize_enum_str, Serialize_enum_str};
 use utoipa::ToSchema;
@@ -10,7 +11,8 @@ pub struct PlanListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
-    pub product_family_id: Option<String>,
+    #[serde(with = "string_serde_opt")]
+    pub product_family_id: Option<ProductFamilyId>,
     #[serde(flatten)]
     pub plan_filters: PlanFilters,
 }
@@ -22,14 +24,16 @@ pub struct PlanFilters {
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
 pub struct Plan {
-    pub id: String,
+    #[serde(with = "string_serde")]
+    pub id: PlanId,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
     pub product_family_name: String,
-    pub product_family_id: String,
+    #[serde(with = "string_serde")]
+    pub product_family_id: ProductFamilyId,
     // #[from(~.map(| v | v.into()))]
     // pub active_version: Option<PlanVersionInfo>,
     // pub draft_version: Option<Uuid>,

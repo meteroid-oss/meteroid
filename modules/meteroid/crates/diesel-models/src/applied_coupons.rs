@@ -1,5 +1,5 @@
 use crate::coupons::CouponRow;
-use common_domain::ids::{CustomerId, SubscriptionId};
+use common_domain::ids::{CouponId, CustomerId, PlanId, SubscriptionId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -9,7 +9,7 @@ use uuid::Uuid;
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AppliedCouponRow {
     pub id: Uuid,
-    pub coupon_id: Uuid,
+    pub coupon_id: CouponId,
     pub customer_id: CustomerId,
     pub subscription_id: SubscriptionId,
     pub is_active: bool,
@@ -24,7 +24,7 @@ pub struct AppliedCouponRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AppliedCouponForDisplayRow {
     pub id: Uuid,
-    pub coupon_id: Uuid,
+    pub coupon_id: CouponId,
     pub customer_id: CustomerId,
     #[diesel(select_expression = crate::schema::customer::name)]
     #[diesel(select_expression_type = crate::schema::customer::name)]
@@ -32,10 +32,7 @@ pub struct AppliedCouponForDisplayRow {
     pub subscription_id: SubscriptionId,
     #[diesel(select_expression = crate::schema::plan::id)]
     #[diesel(select_expression_type = crate::schema::plan::id)]
-    pub plan_id: Uuid,
-    #[diesel(select_expression = crate::schema::plan::local_id)]
-    #[diesel(select_expression_type = crate::schema::plan::local_id)]
-    pub plan_local_id: String,
+    pub plan_id: PlanId,
     #[diesel(select_expression = crate::schema::plan_version::version)]
     #[diesel(select_expression_type = crate::schema::plan_version::version)]
     pub plan_version: i32,
@@ -54,7 +51,7 @@ pub struct AppliedCouponForDisplayRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AppliedCouponRowNew {
     pub id: Uuid,
-    pub coupon_id: Uuid,
+    pub coupon_id: CouponId,
     pub customer_id: CustomerId,
     pub subscription_id: SubscriptionId,
     pub is_active: bool,

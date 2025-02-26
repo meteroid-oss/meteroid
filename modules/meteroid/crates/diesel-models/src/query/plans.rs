@@ -11,7 +11,7 @@ use crate::enums::PlanStatusEnum;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
-use common_domain::ids::TenantId;
+use common_domain::ids::{PlanId, ProductFamilyId, TenantId};
 use diesel::NullableExpressionMethods;
 use diesel::{
     alias, debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl,
@@ -38,7 +38,7 @@ impl PlanRowNew {
 }
 
 impl PlanRow {
-    pub async fn activate(conn: &mut PgConn, id: Uuid, tenant_id: TenantId) -> DbResult<PlanRow> {
+    pub async fn activate(conn: &mut PgConn, id: PlanId, tenant_id: TenantId) -> DbResult<PlanRow> {
         use crate::schema::plan::dsl as p_dsl;
         use diesel_async::RunQueryDsl;
 
@@ -60,7 +60,7 @@ impl PlanRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, id: Uuid, tenant_id: TenantId) -> DbResult<usize> {
+    pub async fn delete(conn: &mut PgConn, id: PlanId, tenant_id: TenantId) -> DbResult<usize> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
         use diesel_async::RunQueryDsl;
@@ -108,9 +108,9 @@ impl PlanRow {
             .into_db_result()
     }
 
-    pub async fn get_overview_by_local_id(
+    pub async fn get_overview_by_id(
         conn: &mut PgConn,
-        local_id: &str,
+        id: PlanId,
         tenant_id: TenantId,
     ) -> DbResult<PlanRowOverview> {
         use crate::schema::plan::dsl as p_dsl;
@@ -127,7 +127,7 @@ impl PlanRow {
         let query = p_dsl::plan
             .inner_join(pf_dsl::product_family.on(p_dsl::product_family_id.eq(pf_dsl::id)))
             .filter(p_dsl::tenant_id.eq(tenant_id))
-            .filter(p_dsl::local_id.eq(local_id))
+            .filter(p_dsl::id.eq(id))
             .left_join(
                 active_version_alias.on(active_version_alias
                     .field(plan_version::id)
@@ -145,11 +145,10 @@ impl PlanRow {
                 p_dsl::name,
                 p_dsl::description,
                 p_dsl::created_at,
-                p_dsl::local_id,
                 p_dsl::plan_type,
                 p_dsl::status,
                 pf_dsl::name,
-                pf_dsl::local_id,
+                pf_dsl::id,
                 active_version_alias
                     .fields((pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),
@@ -166,9 +165,9 @@ impl PlanRow {
             .into_db_result()
     }
 
-    pub async fn get_with_version_by_local_id(
+    pub async fn get_with_version_by_id(
         conn: &mut PgConn,
-        local_id: &str,
+        id: PlanId,
         tenant_id: TenantId,
         version_filter: PlanVersionFilter,
     ) -> DbResult<PlanWithVersionRow> {
@@ -178,7 +177,7 @@ impl PlanRow {
 
         let mut query = p_dsl::plan
             .left_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
-            .filter(p_dsl::local_id.eq(local_id))
+            .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .into_boxed();
 
@@ -217,7 +216,7 @@ impl PlanRowOverview {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        product_family_local_id: Option<String>,
+        product_family_id: Option<ProductFamilyId>,
         filters: PlanFilters,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -266,11 +265,10 @@ impl PlanRowOverview {
                 p_dsl::name,
                 p_dsl::description,
                 p_dsl::created_at,
-                p_dsl::local_id,
                 p_dsl::plan_type,
                 p_dsl::status,
                 pf_dsl::name,
-                pf_dsl::local_id,
+                pf_dsl::id,
                 active_version_alias
                     .fields((pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),
@@ -279,8 +277,8 @@ impl PlanRowOverview {
             ))
             .into_boxed();
 
-        if let Some(product_family_local_id) = product_family_local_id {
-            query = query.filter(pf_dsl::local_id.eq(product_family_local_id))
+        if let Some(product_family_id) = product_family_id {
+            query = query.filter(pf_dsl::id.eq(product_family_id))
         }
 
         if !filters.filter_status.is_empty() {
@@ -292,11 +290,7 @@ impl PlanRowOverview {
         }
 
         if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
-            query = query.filter(
-                p_dsl::name
-                    .ilike(format!("%{}%", search))
-                    .or(p_dsl::local_id.ilike(format!("%{}%", search))),
-            );
+            query = query.filter(p_dsl::name.ilike(format!("%{}%", search)));
         }
 
         match order_by {

@@ -11,6 +11,7 @@ use crate::errors::RestApiError;
 use axum::extract::{Path, Query};
 use axum::Extension;
 use axum_valid::Valid;
+use common_domain::ids::{AliasOr, ProductFamilyId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
 use meteroid_store::domain::{OrderByRequest, PaginationRequest};
@@ -123,12 +124,17 @@ pub(crate) async fn create_product_family(
 pub(crate) async fn get_product_family_by_id_or_alias(
     Extension(authorized_state): Extension<AuthorizedAsTenant>,
     State(app_state): State<AppState>,
-    Path(id_or_alias): Path<String>,
+    Path(id_or_alias): Path<AliasOr<ProductFamilyId>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    // todo introduce alias
+    let id = match id_or_alias {
+        AliasOr::Id(id) => Ok(id),
+        AliasOr::Alias(_) => Err(RestApiError::InvalidInput),
+    }?;
+
     app_state
         .store
-        // todo introduce alias
-        .find_product_family_by_local_id(id_or_alias.as_str(), authorized_state.tenant_id)
+        .find_product_family_by_id(id, authorized_state.tenant_id)
         .await
         .map_err(|e| {
             log::error!("Error handling get_customer_by_id_or_alias: {}", e);

@@ -34,10 +34,10 @@ $$
 
     INSERT INTO public.plan
     (id, name, description, created_at, created_by, updated_at, archived_at, tenant_id,
-     product_family_id, local_id, plan_type, status, active_version_id, draft_version_id)
+     product_family_id, plan_type, status, active_version_id, draft_version_id)
     VALUES (var_plan_leetcode_id, 'LeetCode', '', '2023-12-04 10:05:45',
             var_user_id, NULL, NULL, var_tenant_id,
-            var_product_family_id, 'default_leet-code', 'STANDARD', 'ACTIVE', NULL, NULL);
+            var_product_family_id, 'STANDARD', 'ACTIVE', NULL, NULL);
 
     INSERT INTO public.plan_version
     VALUES (var_plan_version_1_leetcode_id, false, var_plan_leetcode_id, 1, NULL, NULL,
@@ -88,7 +88,7 @@ $$
     INSERT INTO public.plan
     VALUES (var_plan_notion_id, 'Notion', '', '2023-12-04 10:07:15.589',
             var_user_id, NULL, NULL, var_tenant_id,
-            var_product_family_id, 'default_notion', 'STANDARD', 'ACTIVE');
+            var_product_family_id, 'STANDARD', 'ACTIVE');
 
     INSERT INTO public.plan_version
     VALUES (var_plan_version_notion_id, false, var_plan_notion_id, 1, NULL, NULL,
@@ -140,7 +140,7 @@ $$
     INSERT INTO public.plan
     VALUES (var_plan_supabase_id, 'Supabase', '', '2023-12-04 10:08:53.591',
             var_user_id, NULL, NULL, var_tenant_id,
-            var_product_family_id, 'default_supabase', 'STANDARD', 'ACTIVE');
+            var_product_family_id, 'STANDARD', 'ACTIVE');
 
     INSERT INTO public.plan_version
     VALUES (var_plan_version_supabase_id, false, var_plan_supabase_id, 3, NULL, NULL,

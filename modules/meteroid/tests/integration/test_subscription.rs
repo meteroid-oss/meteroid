@@ -544,7 +544,7 @@ async fn test_subscription_create_invoice_seats() {
         .get_current_slots_value(
             db_invoice.tenant_id,
             subscription_id.into(),
-            price_component_id,
+            price_component_id.into(),
             Some(NaiveDateTime::from_str("2023-01-01T02:00:00").unwrap()),
         )
         .await

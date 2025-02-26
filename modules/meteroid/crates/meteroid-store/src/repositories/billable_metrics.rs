@@ -1,23 +1,21 @@
-use common_domain::ids::{BaseId, TenantId};
+use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
 use diesel_models::product_families::ProductFamilyRow;
 use error_stack::Report;
-use uuid::Uuid;
 
 use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
-use crate::utils::local_id::{IdType, LocalId};
 use crate::{domain, Store, StoreResult};
 
 #[async_trait::async_trait]
 pub trait BillableMetricInterface {
     async fn find_billable_metric_by_id(
         &self,
-        id: Uuid,
+        id: BillableMetricId,
         tenant_id: TenantId,
     ) -> StoreResult<domain::BillableMetric>;
 
@@ -25,7 +23,7 @@ pub trait BillableMetricInterface {
         &self,
         tenant_id: TenantId,
         pagination: PaginationRequest,
-        product_family_local_id: Option<String>,
+        product_family_id: Option<ProductFamilyId>,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
 
     async fn insert_billable_metric(
@@ -38,7 +36,7 @@ pub trait BillableMetricInterface {
 impl BillableMetricInterface for Store {
     async fn find_billable_metric_by_id(
         &self,
-        id: Uuid,
+        id: BillableMetricId,
         tenant_id: TenantId,
     ) -> StoreResult<domain::BillableMetric> {
         let mut conn = self.get_conn().await?;
@@ -53,18 +51,14 @@ impl BillableMetricInterface for Store {
         &self,
         tenant_id: TenantId,
         pagination: PaginationRequest,
-        product_family_local_id: Option<String>,
+        product_family_id: Option<ProductFamilyId>,
     ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
         let mut conn = self.get_conn().await?;
 
-        let rows = BillableMetricRow::list(
-            &mut conn,
-            tenant_id,
-            pagination.into(),
-            product_family_local_id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let rows =
+            BillableMetricRow::list(&mut conn, tenant_id, pagination.into(), product_family_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<BillableMetricMeta> = PaginatedVec {
             items: rows.items.into_iter().map(|s| s.into()).collect(),
@@ -81,9 +75,9 @@ impl BillableMetricInterface for Store {
     ) -> StoreResult<BillableMetric> {
         let mut conn = self.get_conn().await?;
 
-        let family = ProductFamilyRow::find_by_local_id_and_tenant_id(
+        let family = ProductFamilyRow::find_by_id(
             &mut conn,
-            &billable_metric.family_local_id,
+            billable_metric.product_family_id,
             billable_metric.tenant_id,
         )
         .await
@@ -92,8 +86,7 @@ impl BillableMetricInterface for Store {
         // TODO create product if None ?
 
         let insertable_entity = BillableMetricRowNew {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::BillableMetric),
+            id: BillableMetricId::new(),
             name: billable_metric.name,
             description: billable_metric.description,
             code: billable_metric.code,
@@ -130,7 +123,7 @@ impl BillableMetricInterface for Store {
 
                     let _ = &self
                         .usage_client
-                        .register_meter(&res.tenant_id, &res)
+                        .register_meter(res.tenant_id, &res)
                         .await
                         .map_err(|x| {
                             StoreError::MeteringServiceError(
@@ -149,7 +142,7 @@ impl BillableMetricInterface for Store {
             .eventbus
             .publish(Event::billable_metric_created(
                 res.created_by,
-                res.id,
+                res.id.as_uuid(),
                 res.tenant_id.as_uuid(),
             ))
             .await;

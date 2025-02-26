@@ -1,12 +1,10 @@
 pub mod bank_accounts {
     use crate::api::bankaccounts::error::BankAccountsApiError;
-    use crate::api::shared::conversions::ProtoConv;
     use meteroid_grpc::meteroid::api::bankaccounts::v1 as server;
 
     use meteroid_store::domain::bank_accounts as domain;
-    use meteroid_store::utils::local_id::{IdType, LocalId};
 
-    use common_domain::ids::TenantId;
+    use common_domain::ids::{BankAccountId, BaseId, TenantId};
     use uuid::Uuid;
 
     mod format {
@@ -156,8 +154,7 @@ pub mod bank_accounts {
         );
 
         Ok(domain::BankAccountNew {
-            id: Default::default(),
-            local_id: LocalId::generate_for(IdType::BankAccount),
+            id: BankAccountId::new(),
             created_by: actor,
             tenant_id,
             country: proto.country,
@@ -170,8 +167,8 @@ pub mod bank_accounts {
 
     pub fn domain_to_proto(domain: domain::BankAccount) -> server::BankAccount {
         server::BankAccount {
-            id: domain.id.to_string(),
-            local_id: domain.local_id.to_string(),
+            id: domain.id.as_proto(),
+            local_id: domain.id.as_proto(), //todo remove me
             data: Some(server::BankAccountData {
                 country: domain.country,
                 bank_name: domain.bank_name,
@@ -198,7 +195,7 @@ pub mod bank_accounts {
         );
 
         Ok(domain::BankAccountPatch {
-            id: Uuid::from_proto(proto.id).unwrap(),
+            id: BankAccountId::from_proto(proto.id).unwrap(),
             tenant_id,
             country: Some(data.country),
             bank_name: Some(data.bank_name),

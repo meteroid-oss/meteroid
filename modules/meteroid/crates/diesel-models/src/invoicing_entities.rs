@@ -2,15 +2,14 @@ use uuid::Uuid;
 
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
-use common_domain::ids::TenantId;
+use common_domain::ids::{InvoicingEntityId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::invoicing_entity)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoicingEntityRow {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: InvoicingEntityId,
     pub is_default: bool,
     pub legal_name: String,
     pub invoice_number_pattern: String,
@@ -39,7 +38,7 @@ pub struct InvoicingEntityRow {
 #[diesel(table_name = crate::schema::invoicing_entity)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoicingEntityRowPatch {
-    pub id: Uuid,
+    pub id: InvoicingEntityId,
     pub legal_name: Option<String>,
     pub invoice_number_pattern: Option<String>,
     pub grace_period_hours: Option<i32>,
@@ -62,7 +61,7 @@ pub struct InvoicingEntityRowPatch {
 #[diesel(table_name = crate::schema::invoicing_entity)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoicingEntityRowProvidersPatch {
-    pub id: Uuid,
+    pub id: InvoicingEntityId,
     pub cc_provider_id: Option<Uuid>,
     pub bank_account_id: Option<Uuid>,
 }

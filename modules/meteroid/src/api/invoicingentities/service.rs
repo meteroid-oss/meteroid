@@ -1,10 +1,7 @@
 use bytes::Bytes;
-use image::ImageFormat;
-use std::io::Cursor;
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
+use common_domain::ids::InvoicingEntityId;
 use common_grpc::middleware::server::auth::RequestExt;
+use image::ImageFormat;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     invoicing_entities_service_server::InvoicingEntitiesService, CreateInvoicingEntityRequest,
     CreateInvoicingEntityResponse, GetInvoicingEntityProvidersRequest,
@@ -14,11 +11,14 @@ use meteroid_grpc::meteroid::api::invoicingentities::v1::{
     UpdateInvoicingEntityRequest, UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
     UploadInvoicingEntityLogoResponse,
 };
-use meteroid_store::domain::{Identity, InvoicingEntityPatch, InvoicingEntityProvidersPatch};
+use meteroid_store::domain::{InvoicingEntityPatch, InvoicingEntityProvidersPatch};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use std::io::Cursor;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
-use crate::api::shared::conversions::{FromProtoOpt, ProtoConv};
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::services::storage::Prefix;
 
 use super::{mapping, InvoicingEntitiesServiceComponents};
@@ -31,7 +31,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         request: Request<GetInvoicingEntityRequest>,
     ) -> Result<Response<GetInvoicingEntityResponse>, Status> {
         let tenant = request.tenant()?;
-        let id = Uuid::from_proto_opt(request.into_inner().id)?.map(Identity::UUID);
+        let id = InvoicingEntityId::from_proto_opt(request.into_inner().id)?;
 
         let invoicing_entity = self
             .store
@@ -112,7 +112,10 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         let res = self
             .store
             .patch_invoicing_entity(
-                mapping::invoicing_entities::proto_to_patch_domain(data, Uuid::from_proto(req.id)?),
+                mapping::invoicing_entities::proto_to_patch_domain(
+                    data,
+                    InvoicingEntityId::from_proto(req.id)?,
+                ),
                 tenant,
             )
             .await
@@ -156,7 +159,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         self.store
             .patch_invoicing_entity(
                 InvoicingEntityPatch {
-                    id: Uuid::from_proto(req.id)?,
+                    id: InvoicingEntityId::from_proto(req.id)?,
                     logo_attachment_id: Some(logo_attachment_id.clone()), // Option<Option<Uuid>> as we need to set it to None if no logo is uploaded
                     ..InvoicingEntityPatch::default()
                 },
@@ -180,7 +183,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
 
         let res = self
             .store
-            .resolve_providers_by_id(tenant, Uuid::from_proto(req.id)?)
+            .resolve_providers_by_id(tenant, InvoicingEntityId::from_proto(req.id)?)
             .await
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
@@ -208,7 +211,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
                 InvoicingEntityProvidersPatch {
                     bank_account_id: Uuid::from_proto_opt(req.bank_account_id)?,
                     cc_provider_id: Uuid::from_proto_opt(req.cc_provider_id)?,
-                    id: Uuid::from_proto(req.id)?,
+                    id: InvoicingEntityId::from_proto(req.id)?,
                 },
                 tenant,
             )

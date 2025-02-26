@@ -1,5 +1,4 @@
-use tonic::{Request, Response, Status};
-
+use common_domain::ids::{ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::products::v1::{
     products_service_server::ProductsService, CreateProductRequest, CreateProductResponse,
@@ -9,10 +8,10 @@ use meteroid_grpc::meteroid::api::products::v1::{
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::products::ProductInterface;
+use tonic::{Request, Response, Status};
 
 use crate::api::productitems::error::ProductApiError;
 use crate::api::productitems::mapping::products::{ProductMetaWrapper, ProductWrapper};
-use crate::api::utils::parse_uuid;
 use crate::api::utils::PaginationExt;
 
 use super::ProductServiceComponents;
@@ -36,7 +35,7 @@ impl ProductsService for ProductServiceComponents {
                 description: req.description,
                 created_by: actor,
                 tenant_id,
-                family_local_id: req.family_local_id,
+                family_id: ProductFamilyId::from_proto(req.family_local_id)?,
             })
             .await
             .map_err(Into::<ProductApiError>::into)
@@ -62,7 +61,12 @@ impl ProductsService for ProductServiceComponents {
 
         let res = self
             .store
-            .list_products(tenant_id, req.family_local_id, pagination_req, order_by)
+            .list_products(
+                tenant_id,
+                ProductFamilyId::from_proto_opt(req.family_local_id)?,
+                pagination_req,
+                order_by,
+            )
             .await
             .map_err(Into::<ProductApiError>::into)?;
 
@@ -96,7 +100,7 @@ impl ProductsService for ProductServiceComponents {
             .store
             .search_products(
                 tenant_id,
-                req.family_local_id,
+                ProductFamilyId::from_proto_opt(req.family_local_id)?,
                 req.query.unwrap_or("".to_string()).as_str(), // todo add some validation on the query
                 pagination_req,
                 order_by,
@@ -124,7 +128,7 @@ impl ProductsService for ProductServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let product_id = parse_uuid(req.product_id.as_str(), "product_id")?;
+        let product_id = ProductId::from_proto(req.product_id.as_str())?;
 
         let res = self
             .store

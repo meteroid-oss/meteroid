@@ -1,11 +1,11 @@
-use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest};
+use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, ProductFamily};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{domain, StoreResult};
-use common_domain::ids::{BaseId, TenantId};
+use common_domain::ids::{BaseId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
-use error_stack::Report;
+use error_stack::{report, Report};
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -24,9 +24,14 @@ pub trait ProductFamilyInterface {
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<domain::ProductFamily>>;
 
-    async fn find_product_family_by_local_id(
+    async fn find_product_family_by_id(
         &self,
-        local_id: &str,
+        id: ProductFamilyId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<domain::ProductFamily>;
+
+    async fn find_default_product_family(
+        &self,
         auth_tenant_id: TenantId,
     ) -> StoreResult<domain::ProductFamily>;
 }
@@ -65,7 +70,7 @@ impl ProductFamilyInterface for Store {
             .eventbus
             .publish(Event::product_family_created(
                 actor,
-                res.id,
+                res.id.as_uuid(),
                 res.tenant_id.as_uuid(),
             ))
             .await;
@@ -101,16 +106,43 @@ impl ProductFamilyInterface for Store {
         Ok(res)
     }
 
-    async fn find_product_family_by_local_id(
+    async fn find_product_family_by_id(
         &self,
-        local_id: &str,
+        id: ProductFamilyId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<domain::ProductFamily> {
         let mut conn = self.get_conn().await?;
 
-        ProductFamilyRow::find_by_local_id_and_tenant_id(&mut conn, local_id, auth_tenant_id)
+        ProductFamilyRow::find_by_id(&mut conn, id, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)
+    }
+
+    async fn find_default_product_family(
+        &self,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<ProductFamily> {
+        let mut conn = self.get_conn().await?;
+        ProductFamilyRow::list(
+            &mut conn,
+            auth_tenant_id,
+            PaginationRequest {
+                page: 0,
+                per_page: Some(1),
+            }
+            .into(),
+            OrderByRequest::IdAsc.into(),
+            None,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?
+        .items
+        .into_iter()
+        .next()
+        .map(Into::into)
+        .ok_or(report!(StoreError::ValueNotFound(
+            "Default product family".to_string()
+        )))
     }
 }

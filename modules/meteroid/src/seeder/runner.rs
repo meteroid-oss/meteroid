@@ -28,7 +28,7 @@ use chrono::Utc;
 
 use common_domain::ids::OrganizationId;
 use meteroid_store::domain::{
-    Address, BillingConfig, Identity, InlineCustomer, InlineInvoicingEntity, OrderByRequest,
+    Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, OrderByRequest,
     PaginationRequest, TenantContext,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
@@ -104,7 +104,7 @@ pub async fn run(
                 usage_group_key: None,
                 description: None,
                 created_by: user_id,
-                family_local_id: product_family.local_id.clone(),
+                product_family_id: product_family.id,
                 product_id: None, // TODO
             })
             .await
@@ -118,12 +118,11 @@ pub async fn run(
         let created = store
             .insert_plan(store_domain::FullPlanNew {
                 plan: store_domain::PlanNew {
-                    local_id: slugify(&plan.name),
                     name: plan.name,
                     plan_type: plan.plan_type,
                     status: PlanStatusEnum::Active,
                     tenant_id: tenant.id,
-                    product_family_local_id: product_family.local_id.clone(),
+                    product_family_id: product_family.id,
                     description: plan.description,
                     created_by: user_id,
                 },
@@ -177,7 +176,7 @@ pub async fn run(
 
             let alias = format!("{}-{}", slugify(&company_name), nanoid!(5));
             customers_to_create.push(store_domain::CustomerNew {
-                invoicing_entity_id: Some(Identity::UUID(invoicing_entity.id)),
+                invoicing_entity_id: Some(invoicing_entity.id),
                 billing_config: BillingConfig::Manual,
                 email: SafeEmail().fake(),
                 invoicing_email: None,

@@ -1,11 +1,10 @@
-use crate::domain::Identity;
 use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
-use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
+use common_domain::ids::{AliasOr, BaseId, CustomerId, InvoicingEntityId, TenantId};
+use diesel_models::customers::CustomerRow;
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
-use diesel_models::customers::{CustomerForDisplayRow, CustomerRow};
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -23,7 +22,7 @@ pub struct Customer {
     pub archived_at: Option<NaiveDateTime>,
     pub archived_by: Option<Uuid>,
     pub tenant_id: TenantId,
-    pub invoicing_entity_id: Uuid,
+    pub invoicing_entity_id: InvoicingEntityId,
     #[map(~.try_into()?)]
     pub billing_config: BillingConfig,
     pub alias: Option<String>,
@@ -60,7 +59,7 @@ pub struct CustomerNew {
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
     pub created_by: Uuid,
-    pub invoicing_entity_id: Option<Identity>,
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
     // for seeding
     pub force_created_date: Option<NaiveDateTime>,
 }
@@ -69,7 +68,7 @@ pub struct CustomerNew {
 pub struct CustomerNewWrapper {
     pub inner: CustomerNew,
     pub tenant_id: TenantId,
-    pub invoicing_entity_id: Uuid,
+    pub invoicing_entity_id: InvoicingEntityId,
 }
 
 impl TryInto<CustomerRowNew> for CustomerNewWrapper {
@@ -119,7 +118,7 @@ pub struct CustomerPatch {
     pub billing_address: Option<Address>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
-    pub invoicing_entity_id: Option<Uuid>,
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -187,33 +186,6 @@ pub struct CustomerBuyCredits {
     pub notes: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, o2o)]
-#[try_from_owned(CustomerForDisplayRow, StoreErrorReport)]
-pub struct CustomerForDisplay {
-    pub id: CustomerId,
-    pub name: String,
-    pub created_at: NaiveDateTime,
-    pub created_by: Uuid,
-    pub updated_at: Option<NaiveDateTime>,
-    pub updated_by: Option<Uuid>,
-    pub archived_at: Option<NaiveDateTime>,
-    pub tenant_id: TenantId,
-    pub invoicing_entity_id: Uuid,
-    pub invoicing_entity_local_id: String,
-    #[map(~.try_into()?)]
-    pub billing_config: BillingConfig,
-    pub alias: Option<String>,
-    pub email: Option<String>,
-    pub invoicing_email: Option<String>,
-    pub phone: Option<String>,
-    pub balance_value_cents: i32,
-    pub currency: String,
-    #[map(~.map(|v| v.try_into()).transpose()?)]
-    pub billing_address: Option<Address>,
-    #[map(~.map(|v| v.try_into()).transpose()?)]
-    pub shipping_address: Option<ShippingAddress>,
-}
-
 #[derive(Clone, Debug)]
 pub struct CustomerUpdate {
     pub id_or_alias: AliasOr<CustomerId>,
@@ -226,5 +198,5 @@ pub struct CustomerUpdate {
     pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    pub invoicing_entity_id: Identity,
+    pub invoicing_entity_id: InvoicingEntityId,
 }

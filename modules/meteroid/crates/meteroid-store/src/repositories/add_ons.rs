@@ -2,10 +2,9 @@ use crate::domain::add_ons::{AddOn, AddOnNew, AddOnPatch};
 use crate::domain::{PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use common_domain::ids::TenantId;
+use common_domain::ids::{AddOnId, TenantId};
 use diesel_models::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use error_stack::Report;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait AddOnInterface {
@@ -15,10 +14,10 @@ pub trait AddOnInterface {
         pagination: PaginationRequest,
         search: Option<String>,
     ) -> StoreResult<PaginatedVec<AddOn>>;
-    async fn get_add_on_by_id(&self, tenant_id: TenantId, id: Uuid) -> StoreResult<AddOn>;
+    async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn>;
     async fn create_add_on(&self, add_on: AddOnNew) -> StoreResult<AddOn>;
     async fn update_add_on(&self, add_on: AddOnPatch) -> StoreResult<AddOn>;
-    async fn delete_add_on(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()>;
+    async fn delete_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -46,7 +45,7 @@ impl AddOnInterface for Store {
         })
     }
 
-    async fn get_add_on_by_id(&self, tenant_id: TenantId, id: Uuid) -> StoreResult<AddOn> {
+    async fn get_add_on_by_id(&self, tenant_id: TenantId, id: AddOnId) -> StoreResult<AddOn> {
         let mut conn = self.get_conn().await?;
 
         AddOnRow::get_by_id(&mut conn, tenant_id, id)
@@ -79,7 +78,7 @@ impl AddOnInterface for Store {
             .and_then(TryInto::try_into)
     }
 
-    async fn delete_add_on(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()> {
+    async fn delete_add_on(&self, id: AddOnId, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         AddOnRow::delete(&mut conn, id, tenant_id)

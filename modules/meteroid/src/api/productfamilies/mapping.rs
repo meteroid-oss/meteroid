@@ -7,9 +7,9 @@ pub mod product_family {
     impl From<domain::ProductFamily> for ProductFamilyWrapper {
         fn from(domain_family: domain::ProductFamily) -> Self {
             ProductFamilyWrapper(ProductFamily {
-                id: domain_family.id.to_string(),
+                id: domain_family.id.as_proto(),
                 name: domain_family.name,
-                local_id: domain_family.local_id,
+                local_id: domain_family.id.as_proto(), //todo remove me
             })
         }
     }

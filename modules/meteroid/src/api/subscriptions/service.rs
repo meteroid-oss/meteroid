@@ -1,4 +1,4 @@
-use common_domain::ids::{CustomerId, SubscriptionId};
+use common_domain::ids::{CustomerId, PlanId, PriceComponentId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use tonic::{Request, Response, Status};
 
@@ -14,15 +14,11 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
 
 use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::api::subscriptions::{mapping, SubscriptionServiceComponents};
-use crate::api::utils::{parse_uuid, parse_uuid_opt};
 use meteroid_store::domain;
-use meteroid_store::domain::Identity;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionSlotsInterface,
 };
 use meteroid_store::repositories::SubscriptionInterface;
-
-use crate::parse_uuid;
 
 #[tonic::async_trait]
 impl SubscriptionsService for SubscriptionServiceComponents {
@@ -122,14 +118,14 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let customer_id = CustomerId::from_proto_opt(inner.customer_id.as_ref())?;
-        let plan_id = parse_uuid_opt(&inner.plan_id, "plan_id")?;
+        let plan_id = PlanId::from_proto_opt(inner.plan_id)?;
 
         let res = self
             .store
             .list_subscriptions(
                 tenant_id,
                 customer_id,
-                plan_id.map(Identity::UUID),
+                plan_id,
                 domain::PaginationRequest {
                     page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(0),
                     per_page: inner.pagination.as_ref().map(|p| p.per_page),
@@ -164,7 +160,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let price_component_id = parse_uuid!(inner.price_component_id)?;
+        let price_component_id = PriceComponentId::from_proto(inner.price_component_id)?;
 
         let added = self
             .store
@@ -186,7 +182,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let price_component_id = parse_uuid!(inner.price_component_id)?;
+        let price_component_id = PriceComponentId::from_proto(inner.price_component_id)?;
 
         let slots = self
             .store

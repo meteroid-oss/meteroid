@@ -1,13 +1,12 @@
 use chrono::NaiveDateTime;
-use common_domain::ids::TenantId;
+use common_domain::ids::{CouponId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
-use uuid::Uuid;
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::coupon)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CouponRow {
-    pub id: Uuid,
+    pub id: CouponId,
     pub code: String,
     pub description: String,
     pub tenant_id: TenantId,
@@ -22,15 +21,13 @@ pub struct CouponRow {
     pub last_redemption_at: Option<NaiveDateTime>,
     pub disabled: bool,
     pub archived_at: Option<NaiveDateTime>,
-    pub local_id: String,
 }
 
 #[derive(Debug, Default, Insertable)]
 #[diesel(table_name = crate::schema::coupon)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CouponRowNew {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CouponId,
     pub code: String,
     pub description: String,
     pub tenant_id: TenantId,
@@ -46,7 +43,7 @@ pub struct CouponRowNew {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
 pub struct CouponRowPatch {
-    pub id: Uuid,
+    pub id: CouponId,
     pub tenant_id: TenantId,
     pub description: Option<String>,
     pub discount: Option<serde_json::Value>,
@@ -58,7 +55,7 @@ pub struct CouponRowPatch {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
 pub struct CouponStatusRowPatch {
-    pub id: Uuid,
+    pub id: CouponId,
     pub tenant_id: TenantId,
     pub archived_at: Option<Option<NaiveDateTime>>,
     pub disabled: Option<bool>,

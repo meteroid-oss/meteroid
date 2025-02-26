@@ -1,6 +1,6 @@
 use crate::enums::MrrMovementType;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, PlanId, SubscriptionId, TenantId};
 use diesel::QueryableByName;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -184,7 +184,7 @@ pub struct TotalMrrByPlanRow {
     #[diesel(sql_type = diesel::sql_types::Date)]
     pub date: NaiveDate,
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     #[diesel(sql_type = diesel::sql_types::Text)]
     pub plan_name: String,
     #[diesel(sql_type = diesel::sql_types::BigInt)]

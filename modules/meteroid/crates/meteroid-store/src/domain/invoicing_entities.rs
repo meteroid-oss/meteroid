@@ -1,6 +1,6 @@
 use crate::domain::connectors::ConnectorMeta;
 use crate::domain::{Address, BankAccount};
-use common_domain::ids::TenantId;
+use common_domain::ids::{InvoicingEntityId, TenantId};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
@@ -12,8 +12,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, o2o)]
 #[map_owned(InvoicingEntityRow)]
 pub struct InvoicingEntity {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: InvoicingEntityId,
     pub is_default: bool,
 
     pub legal_name: String,
@@ -83,7 +82,7 @@ pub struct InvoicingEntityNew {
 #[owned_into(InvoicingEntityRowPatch)]
 #[ghosts(accounting_currency: {None})]
 pub struct InvoicingEntityPatch {
-    pub id: Uuid,
+    pub id: InvoicingEntityId,
     pub legal_name: Option<String>,
     pub invoice_number_pattern: Option<String>,
     pub grace_period_hours: Option<i32>,
@@ -104,7 +103,7 @@ pub struct InvoicingEntityPatch {
 #[derive(Clone, Debug, o2o, Default)]
 #[owned_into(InvoicingEntityRowProvidersPatch)]
 pub struct InvoicingEntityProvidersPatch {
-    pub id: Uuid,
+    pub id: InvoicingEntityId,
     pub cc_provider_id: Option<Uuid>,
     pub bank_account_id: Option<Uuid>,
 }

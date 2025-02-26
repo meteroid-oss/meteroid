@@ -47,10 +47,10 @@ $$
 
 
     INSERT INTO public.invoicing_entity
-    (id, local_id, is_default, legal_name, invoice_number_pattern, next_invoice_number, next_credit_note_number,
+    (id, is_default, legal_name, invoice_number_pattern, next_invoice_number, next_credit_note_number,
      grace_period_hours, net_terms, invoice_footer_info, invoice_footer_legal, logo_attachment_id, brand_color,
      address_line1, address_line2, zip_code, state, city, vat_number, country, accounting_currency, tenant_id)
-    VALUES (var_invoicing_entity_id, 'ive_O0sddA9FDlfeq', true, 'ACME_UK', 'INV-{number}', 1, 1, 23, 30, 'hello',
+    VALUES (var_invoicing_entity_id, true, 'ACME_UK', 'INV-{number}', 1, 1, 23, 30, 'hello',
             'world', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'FE', 'EUR', var_tenant_id);
 
 

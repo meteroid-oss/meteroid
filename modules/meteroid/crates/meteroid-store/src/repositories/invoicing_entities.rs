@@ -1,21 +1,19 @@
 use chrono::{Datelike, NaiveDate};
-use common_domain::ids::{OrganizationId, TenantId};
+use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
 };
 use diesel_models::organizations::OrganizationRow;
 use error_stack::Report;
-use uuid::Uuid;
 
 use crate::domain::invoicing_entities::InvoicingEntity;
 use crate::domain::{
-    Identity, InvoicingEntityNew, InvoicingEntityPatch, InvoicingEntityProviders,
+    InvoicingEntityNew, InvoicingEntityPatch, InvoicingEntityProviders,
     InvoicingEntityProvidersPatch,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
-use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 
 #[async_trait::async_trait]
@@ -27,13 +25,13 @@ pub trait InvoicingEntityInterface {
 
     async fn list_invoicing_entities_by_ids(
         &self,
-        ids: Vec<Uuid>,
+        ids: Vec<InvoicingEntityId>,
     ) -> StoreResult<Vec<InvoicingEntity>>;
 
     async fn get_invoicing_entity(
         &self,
         tenant_id: TenantId,
-        invoicing_id_or_default: Option<Identity>,
+        invoicing_id_or_default: Option<InvoicingEntityId>,
     ) -> StoreResult<InvoicingEntity>;
 
     async fn create_invoicing_entity(
@@ -57,7 +55,7 @@ pub trait InvoicingEntityInterface {
     async fn resolve_providers_by_id(
         &self,
         tenant_id: TenantId,
-        id: Uuid,
+        id: InvoicingEntityId,
     ) -> StoreResult<InvoicingEntityProviders>;
 }
 
@@ -81,7 +79,7 @@ impl InvoicingEntityInterface for Store {
 
     async fn list_invoicing_entities_by_ids(
         &self,
-        ids: Vec<Uuid>,
+        ids: Vec<InvoicingEntityId>,
     ) -> StoreResult<Vec<InvoicingEntity>> {
         let mut conn = self.get_conn().await?;
 
@@ -98,14 +96,14 @@ impl InvoicingEntityInterface for Store {
     async fn get_invoicing_entity(
         &self,
         tenant_id: TenantId,
-        invoicing_id_or_default: Option<Identity>,
+        invoicing_id_or_default: Option<InvoicingEntityId>,
     ) -> StoreResult<InvoicingEntity> {
         let mut conn = self.get_conn().await?;
 
         let invoicing_entity = match invoicing_id_or_default {
             Some(invoicing_id) => InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
                 &mut conn,
-                &invoicing_id.into(),
+                invoicing_id,
                 tenant_id,
             )
             .await
@@ -155,7 +153,7 @@ impl InvoicingEntityInterface for Store {
         let mut row: InvoicingEntityRowPatch = invoicing_entity.into();
 
         if row.country.is_some() {
-            let is_in_use = InvoicingEntityRow::is_in_use(&mut conn, &row.id, tenant_id)
+            let is_in_use = InvoicingEntityRow::is_in_use(&mut conn, row.id, tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
             // we don't allow country changes if already in use
@@ -192,7 +190,7 @@ impl InvoicingEntityInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         let res =
-            InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, &patched.id, tenant_id)
+            InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, patched.id, tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -202,11 +200,11 @@ impl InvoicingEntityInterface for Store {
     async fn resolve_providers_by_id(
         &self,
         tenant_id: TenantId,
-        id: Uuid,
+        id: InvoicingEntityId,
     ) -> StoreResult<InvoicingEntityProviders> {
         let mut conn = self.get_conn().await?;
 
-        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, &id, tenant_id)
+        let res = InvoicingEntityProvidersRow::resolve_providers_by_id(&mut conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -235,8 +233,7 @@ impl StoreInternal {
         let currency = self.get_currency_from_country(&country)?;
 
         let entity = InvoicingEntity {
-            id: Uuid::new_v4(),
-            local_id: LocalId::generate_for(IdType::InvoicingEntity),
+            id: InvoicingEntityId::new(),
             is_default: !other_exists,
             legal_name: invoicing_entity.legal_name.unwrap_or(trade_name),
             invoice_number_pattern: invoicing_entity

@@ -117,7 +117,7 @@ impl AnalyticsHandler {
         let billable_metric = self
             .store
             .find_billable_metric_by_id(
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
                 event_data_details.tenant_id.into(),
             )
             .await
@@ -391,7 +391,7 @@ impl AnalyticsHandler {
             .store
             .get_price_component_by_id(
                 event_data_details.tenant_id.into(),
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
@@ -419,7 +419,7 @@ impl AnalyticsHandler {
             .store
             .get_price_component_by_id(
                 event_data_details.tenant_id.into(),
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
             )
             .await
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;

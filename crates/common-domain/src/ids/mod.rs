@@ -16,6 +16,17 @@ id_type!(TenantId, "ten_");
 id_type!(CustomerId, "cus_");
 id_type!(SubscriptionId, "sub_");
 id_type!(InvoiceId, "inv_");
+id_type!(InvoicingEntityId, "ive_");
+id_type!(AddOnId, "add_");
+id_type!(BankAccountId, "ba_");
+id_type!(BillableMetricId, "bm_");
+id_type!(CouponId, "cou_");
+id_type!(CreditNoteId, "crn_");
+id_type!(EventId, "evt_");
+id_type!(ProductFamilyId, "pf_");
+id_type!(ProductId, "prd_");
+id_type!(PriceComponentId, "price_");
+id_type!(PlanId, "plan_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

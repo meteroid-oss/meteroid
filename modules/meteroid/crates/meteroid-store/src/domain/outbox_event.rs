@@ -1,10 +1,11 @@
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::{Address, Customer, DetailedInvoice, ShippingAddress, Subscription};
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::utils::local_id::{IdType, LocalId};
 use crate::StoreResult;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, CustomerId, EventId, InvoiceId, PlanId, SubscriptionId, TenantId,
+};
 use diesel_models::outbox_event::OutboxEventRowNew;
 use error_stack::Report;
 use o2o::o2o;
@@ -112,8 +113,7 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
     type Error = StoreErrorReport;
     fn try_into(self) -> Result<OutboxEventRowNew, Self::Error> {
         Ok(OutboxEventRowNew {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::Event),
+            id: EventId::new(),
             tenant_id: self.tenant_id,
             aggregate_id: self.aggregate_id.to_string(),
             aggregate_type: self.event_type.aggregate_type(),
@@ -160,7 +160,7 @@ pub struct SubscriptionEvent {
     pub billing_start_date: NaiveDate,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_end_date: Option<NaiveDate>,
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     pub plan_name: String,
     pub plan_version_id: Uuid,
     pub version: u32,

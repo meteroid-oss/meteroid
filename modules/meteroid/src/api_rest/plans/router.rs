@@ -9,7 +9,7 @@ use crate::api_rest::plans::model::{Plan, PlanFilters, PlanListRequest};
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum_valid::Valid;
-use common_domain::ids::TenantId;
+use common_domain::ids::{ProductFamilyId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::PlansInterface;
@@ -59,13 +59,13 @@ async fn list_plans_handler(
     store: Store,
     pagination: PaginatedRequest,
     tenant_id: TenantId,
-    product_family_local_id: Option<String>,
+    product_family_id: Option<ProductFamilyId>,
     plan_filters: PlanFilters,
 ) -> Result<PaginatedResponse<Plan>, RestApiError> {
     let res = store
         .list_plans(
             tenant_id,
-            product_family_local_id,
+            product_family_id,
             domain::PlanFilters {
                 search: plan_filters.search,
                 filter_status: Vec::new(),

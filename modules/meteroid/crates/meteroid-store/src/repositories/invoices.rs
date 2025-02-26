@@ -252,7 +252,7 @@ impl InvoiceInterface for Store {
 
                 let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
                     conn,
-                    &refreshed.customer.invoicing_entity_id,
+                    refreshed.customer.invoicing_entity_id,
                     tenant_id,
                 )
                 .await
@@ -279,7 +279,7 @@ impl InvoiceInterface for Store {
 
                 InvoicingEntityRow::update_invoicing_entity_number(
                     conn,
-                    &refreshed.customer.invoicing_entity_id,
+                    refreshed.customer.invoicing_entity_id,
                     tenant_id,
                     invoicing_entity.next_invoice_number,
                 )

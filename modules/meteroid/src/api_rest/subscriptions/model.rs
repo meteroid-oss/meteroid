@@ -1,7 +1,7 @@
 use crate::api_rest::model::PaginatedRequest;
-use common_domain::ids::string_serde_opt;
 use common_domain::ids::CustomerId;
 use common_domain::ids::{string_serde, SubscriptionId};
+use common_domain::ids::{string_serde_opt, PlanId};
 use utoipa::ToSchema;
 use validator::Validate;
 
@@ -12,7 +12,8 @@ pub struct SubscriptionRequest {
     pub pagination: PaginatedRequest,
     #[serde(with = "string_serde_opt")]
     pub customer_id: Option<CustomerId>,
-    pub plan_id: Option<String>,
+    #[serde(with = "string_serde_opt")]
+    pub plan_id: Option<PlanId>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]

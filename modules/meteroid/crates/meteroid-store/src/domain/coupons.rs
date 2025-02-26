@@ -1,8 +1,7 @@
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use crate::utils::local_id::{IdType, LocalId};
 use chrono::NaiveDateTime;
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, CouponId, TenantId};
 use diesel_models::coupons::{
     CouponFilter as CouponFilterDb, CouponRow, CouponRowNew, CouponRowPatch, CouponStatusRowPatch,
 };
@@ -10,12 +9,10 @@ use error_stack::Report;
 use o2o::o2o;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct Coupon {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: CouponId,
     pub code: String,
     pub description: String,
     pub tenant_id: TenantId,
@@ -75,7 +72,6 @@ impl TryInto<Coupon> for CouponRow {
 
         Ok(Coupon {
             id: self.id,
-            local_id: self.local_id,
             code: self.code,
             description: self.description,
             tenant_id: self.tenant_id,
@@ -113,8 +109,7 @@ impl TryInto<CouponRowNew> for CouponNew {
         let json_discount: serde_json::Value = (&self.discount).try_into()?;
 
         Ok(CouponRowNew {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::Coupon),
+            id: CouponId::new(),
             code: self.code,
             description: self.description,
             tenant_id: self.tenant_id,
@@ -129,7 +124,7 @@ impl TryInto<CouponRowNew> for CouponNew {
 
 #[derive(Debug, Clone)]
 pub struct CouponPatch {
-    pub id: Uuid,
+    pub id: CouponId,
     pub tenant_id: TenantId,
     pub description: Option<String>,
     pub discount: Option<CouponDiscount>,
@@ -139,7 +134,7 @@ pub struct CouponPatch {
 #[derive(Clone, Debug, o2o)]
 #[owned_into(CouponStatusRowPatch)]
 pub struct CouponStatusPatch {
-    pub id: Uuid,
+    pub id: CouponId,
     pub tenant_id: TenantId,
     pub archived_at: Option<Option<NaiveDateTime>>,
     pub disabled: Option<bool>,

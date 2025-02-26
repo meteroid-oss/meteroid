@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use crate::enums::BillingPeriodEnum;
-use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
@@ -86,7 +86,7 @@ pub struct SubscriptionForDisplayRow {
     pub plan_name: String,
     #[diesel(select_expression = plan::id)]
     #[diesel(select_expression_type = plan::id)]
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
 }
 
 #[derive(Debug, Queryable, Selectable)]
@@ -112,7 +112,7 @@ mod subscription_invoice_candidate {
 
     use chrono::{NaiveDate, NaiveDateTime};
 
-    use common_domain::ids::{CustomerId, SubscriptionId, TenantId};
+    use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
     use diesel::{Queryable, Selectable};
     use uuid::Uuid;
 
@@ -136,15 +136,12 @@ mod subscription_invoice_candidate {
     #[diesel(table_name = crate::schema::plan_version)]
     #[diesel(check_for_backend(diesel::pg::Pg))]
     pub struct PlanVersionEmbedRow {
-        pub plan_id: Uuid,
+        pub plan_id: PlanId,
         pub currency: String,
         pub net_terms: i32,
         pub version: i32,
         #[diesel(select_expression = crate::schema::plan::name)]
         #[diesel(select_expression_type = crate::schema::plan::name)]
         pub plan_name: String,
-        #[diesel(select_expression = crate::schema::plan::local_id)]
-        #[diesel(select_expression_type = crate::schema::plan::local_id)]
-        pub plan_local_id: String,
     }
 }

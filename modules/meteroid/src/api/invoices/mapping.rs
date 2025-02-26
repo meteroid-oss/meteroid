@@ -82,15 +82,15 @@ pub mod invoices {
                     id: line.local_id,
                     name: line.name,
                     subtotal: line.subtotal,
-                    metric_id: line.metric_id.as_proto(),
-                    price_component_id: line.price_component_id.as_proto(),
+                    metric_id: line.metric_id.map(|x| x.as_proto()),
+                    price_component_id: line.price_component_id.map(|x| x.as_proto()),
                     end_date: line.end_date.as_proto(),
                     start_date: line.start_date.as_proto(),
                     quantity: line.quantity.as_proto(),
                     total: line.total,
                     unit_price: line.unit_price.as_proto(),
                     is_prorated: line.is_prorated,
-                    product_id: line.product_id.as_proto(),
+                    product_id: line.product_id.map(|x| x.as_proto()),
                     description: line.description,
                     sub_line_items: line.sub_lines.into_iter().map(
                         |sub_line| {

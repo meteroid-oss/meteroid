@@ -5,12 +5,11 @@ use crate::domain::enums::{
 use crate::domain::{
     BillableMetric, BillingConfig, CreateSubscription, CreateSubscriptionAddOns,
     CreateSubscriptionComponents, CreateSubscriptionCoupons, CreatedSubscription,
-    CursorPaginatedVec, CursorPaginationRequest, Customer, Identity, InlineCustomer,
-    InlineInvoicingEntity, InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent,
-    Schedule, Subscription, SubscriptionAddOnCustomization, SubscriptionAddOnNew,
-    SubscriptionAddOnNewInternal, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionComponentNewInternal, SubscriptionDetails, SubscriptionFee,
-    SubscriptionInvoiceCandidate, SubscriptionNew,
+    CursorPaginatedVec, CursorPaginationRequest, Customer, InlineCustomer, InlineInvoicingEntity,
+    InvoicingEntity, PaginatedVec, PaginationRequest, PriceComponent, Schedule, Subscription,
+    SubscriptionAddOnCustomization, SubscriptionAddOnNew, SubscriptionAddOnNewInternal,
+    SubscriptionComponent, SubscriptionComponentNew, SubscriptionComponentNewInternal,
+    SubscriptionDetails, SubscriptionFee, SubscriptionInvoiceCandidate, SubscriptionNew,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
@@ -32,7 +31,9 @@ use crate::domain::subscription_add_ons::SubscriptionAddOn;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, InvoiceInterface};
-use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, CouponId, CustomerId, PlanId, PriceComponentId, SubscriptionId, TenantId,
+};
 use common_eventbus::Event;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::applied_coupons::{
@@ -96,7 +97,7 @@ pub trait SubscriptionInterface {
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
-        plan_id: Option<Identity>,
+        plan_id: Option<PlanId>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
 
@@ -156,7 +157,7 @@ pub trait SubscriptionSlotsInterface {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: Uuid,
+        price_component_id: PriceComponentId,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32>;
 
@@ -164,7 +165,7 @@ pub trait SubscriptionSlotsInterface {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: Uuid,
+        price_component_id: PriceComponentId,
         slots: i32,
     ) -> StoreResult<i32>;
 }
@@ -175,7 +176,7 @@ impl SubscriptionSlotsInterface for Store {
         &self,
         _tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: Uuid,
+        price_component_id: PriceComponentId,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32> {
         let mut conn = self.get_conn().await?;
@@ -195,7 +196,7 @@ impl SubscriptionSlotsInterface for Store {
         &self,
         _tenant_id: TenantId,
         _subscription_id: SubscriptionId,
-        _price_component_id: Uuid,
+        _price_component_id: PriceComponentId,
         _slots: i32,
     ) -> StoreResult<i32> {
         todo!()
@@ -787,7 +788,7 @@ impl SubscriptionInterface for Store {
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
-        plan_id: Option<Identity>,
+        plan_id: Option<PlanId>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>> {
         let mut conn = self.get_conn().await?;
@@ -796,7 +797,7 @@ impl SubscriptionInterface for Store {
             &mut conn,
             tenant_id,
             customer_id,
-            plan_id.map(Into::into),
+            plan_id,
             pagination.into(),
         )
         .await
@@ -947,7 +948,7 @@ async fn apply_coupons(
     )
     .await?;
 
-    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+    let subscriptions_by_coupon: HashMap<CouponId, usize> =
         subscription_coupons.iter().counts_by(|x| x.coupon_id);
 
     for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
@@ -1035,7 +1036,7 @@ async fn validate_coupons(
     }
 
     // check if the coupon has reached its redemption limit
-    let subscriptions_by_coupon: HashMap<Uuid, usize> =
+    let subscriptions_by_coupon: HashMap<CouponId, usize> =
         subscription_coupons.iter().counts_by(|x| x.coupon_id);
     for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
         let coupon = coupons.iter().find(|x| x.id == coupon_id).ok_or(report!(

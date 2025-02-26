@@ -4,7 +4,7 @@ use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::TenantId;
+use common_domain::ids::{BillableMetricId, ProductFamilyId, TenantId};
 use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
@@ -29,7 +29,7 @@ impl BillableMetricRowNew {
 impl BillableMetricRow {
     pub async fn find_by_id(
         conn: &mut PgConn,
-        param_billable_metric_id: uuid::Uuid,
+        param_billable_metric_id: BillableMetricId,
         param_tenant_id: TenantId,
     ) -> DbResult<BillableMetricRow> {
         use crate::schema::billable_metric::dsl::*;
@@ -49,7 +49,7 @@ impl BillableMetricRow {
 
     pub async fn get_by_ids(
         conn: &mut PgConn,
-        metric_ids: &[uuid::Uuid],
+        metric_ids: &[BillableMetricId],
         tenant_id_param: TenantId,
     ) -> DbResult<Vec<BillableMetricRow>> {
         use crate::schema::billable_metric::dsl::*;
@@ -68,7 +68,7 @@ impl BillableMetricRow {
         conn: &mut PgConn,
         param_tenant_id: TenantId,
         pagination: PaginationRequest,
-        param_product_family_local_id: Option<String>,
+        param_product_family_id: Option<ProductFamilyId>,
     ) -> DbResult<PaginatedVec<BillableMetricMetaRow>> {
         use crate::schema::billable_metric::dsl as bm_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -78,8 +78,8 @@ impl BillableMetricRow {
             .filter(bm_dsl::tenant_id.eq(param_tenant_id))
             .into_boxed();
 
-        if let Some(id) = param_product_family_local_id {
-            query = query.filter(pf_dsl::local_id.eq(id));
+        if let Some(id) = param_product_family_id {
+            query = query.filter(pf_dsl::id.eq(id));
         }
 
         let query = query

@@ -4,8 +4,7 @@ use error_stack::Report;
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNew};
 use crate::errors::StoreError;
-use crate::utils::local_id::{IdType, LocalId};
-use common_domain::ids::TenantId;
+use common_domain::ids::{PriceComponentId, TenantId};
 use diesel_models::price_components::PriceComponentRow;
 use uuid::Uuid;
 
@@ -20,7 +19,7 @@ pub trait PriceComponentInterface {
     async fn get_price_component_by_id(
         &self,
         tenant_id: TenantId,
-        id: Uuid,
+        id: PriceComponentId,
     ) -> StoreResult<PriceComponent>;
 
     async fn create_price_component(
@@ -42,7 +41,7 @@ pub trait PriceComponentInterface {
 
     async fn delete_price_component(
         &self,
-        component_id: Uuid,
+        component_id: PriceComponentId,
         tenant_id: TenantId,
     ) -> StoreResult<()>;
 }
@@ -70,7 +69,7 @@ impl PriceComponentInterface for Store {
     async fn get_price_component_by_id(
         &self,
         tenant_id: TenantId,
-        price_component_id: Uuid,
+        price_component_id: PriceComponentId,
     ) -> StoreResult<PriceComponent> {
         let mut conn = self.get_conn().await?;
 
@@ -124,7 +123,6 @@ impl PriceComponentInterface for Store {
         let mut conn = self.get_conn().await?;
         let price_component: PriceComponentRow = PriceComponentRow {
             id: price_component.id,
-            local_id: LocalId::generate_for(IdType::PriceComponent),
             plan_version_id,
             name: price_component.name,
             product_id: price_component.product_id,
@@ -147,7 +145,7 @@ impl PriceComponentInterface for Store {
 
     async fn delete_price_component(
         &self,
-        component_id: Uuid,
+        component_id: PriceComponentId,
         tenant_id: TenantId,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;

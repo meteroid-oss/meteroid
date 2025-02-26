@@ -2,11 +2,8 @@ use crate::add_ons::{AddOnRow, AddOnRowNew, AddOnRowPatch};
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::TenantId;
-use diesel::{
-    debug_query, BoolExpressionMethods, ExpressionMethods, PgTextExpressionMethods, QueryDsl,
-    SelectableHelper,
-};
+use common_domain::ids::{AddOnId, TenantId};
+use diesel::{debug_query, ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -31,7 +28,7 @@ impl AddOnRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        id: uuid::Uuid,
+        id: AddOnId,
     ) -> DbResult<AddOnRow> {
         use crate::schema::add_on::dsl as ao_dsl;
 
@@ -61,11 +58,7 @@ impl AddOnRow {
             .into_boxed();
 
         if let Some(search) = search {
-            query = query.filter(
-                ao_dsl::name
-                    .ilike(format!("%{}%", search))
-                    .or(ao_dsl::local_id.ilike(format!("%{}%", search))),
-            );
+            query = query.filter(ao_dsl::name.ilike(format!("%{}%", search)));
         }
 
         let query = query.select(AddOnRow::as_select());
@@ -82,7 +75,7 @@ impl AddOnRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, id: uuid::Uuid, tenant_id: TenantId) -> DbResult<()> {
+    pub async fn delete(conn: &mut PgConn, id: AddOnId, tenant_id: TenantId) -> DbResult<()> {
         use crate::schema::add_on::dsl as ao_dsl;
 
         let query = diesel::delete(ao_dsl::add_on)
@@ -103,7 +96,7 @@ impl AddOnRow {
 
     pub async fn list_by_ids(
         conn: &mut PgConn,
-        ids: &[uuid::Uuid],
+        ids: &[AddOnId],
         tenant_id: TenantId,
     ) -> DbResult<Vec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;

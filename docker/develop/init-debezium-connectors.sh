@@ -25,7 +25,7 @@ localhost:8083/connectors \
     "transforms": "outbox",
     "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
     "transforms.outbox.table.expand.json.payload": "true",
-    "transforms.outbox.table.fields.additional.placement": "event_type:header:event_type,tenant_id:header:tenant_id,local_id:header:local_id",
+    "transforms.outbox.table.fields.additional.placement": "event_type:header:event_type,tenant_id:header:tenant_id,id:header:id",
     "transforms.outbox.route.topic.replacement": "outbox.event.${routedByValue}",
     "transforms.outbox.table.field.event.key": "aggregate_id",
     "transforms.outbox.route.by.field": "aggregate_type",

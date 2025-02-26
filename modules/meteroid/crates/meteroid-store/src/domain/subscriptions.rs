@@ -6,7 +6,7 @@ use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     Schedule, SubscriptionComponent,
 };
-use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
@@ -51,7 +51,7 @@ pub struct Subscription {
     pub trial_start_date: Option<NaiveDate>,
     pub billing_start_date: NaiveDate,
     pub billing_end_date: Option<NaiveDate>,
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     pub plan_name: String,
     pub plan_version_id: Uuid,
     pub version: u32,
@@ -178,7 +178,7 @@ pub struct SubscriptionDetails {
     //
     pub version: u32,
     pub plan_name: String,
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     pub customer_name: String,
     pub canceled_at: Option<chrono::NaiveDateTime>,
 

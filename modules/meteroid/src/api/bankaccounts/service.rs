@@ -1,4 +1,4 @@
-use common_domain::ids::BaseId;
+use common_domain::ids::{BankAccountId, BaseId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::bankaccounts::v1::{
     bank_accounts_service_server::BankAccountsService, CreateBankAccountRequest,
@@ -7,12 +7,10 @@ use meteroid_grpc::meteroid::api::bankaccounts::v1::{
     UpdateBankAccountResponse,
 };
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 
 use crate::api::bankaccounts::error::BankAccountsApiError;
-use crate::api::shared::conversions::ProtoConv;
 
 use super::{mapping, BankAccountsServiceComponents};
 
@@ -96,10 +94,10 @@ impl BankAccountsService for BankAccountsServiceComponents {
         request: Request<DeleteBankAccountRequest>,
     ) -> Result<Response<DeleteBankAccountResponse>, Status> {
         let tenant = request.tenant()?;
-        let id = Uuid::from_proto(request.into_inner().id)?;
+        let id = BankAccountId::from_proto(request.into_inner().id)?;
 
         self.store
-            .delete_bank_account(&id, tenant)
+            .delete_bank_account(id, tenant)
             .await
             .map_err(Into::<BankAccountsApiError>::into)?;
 
