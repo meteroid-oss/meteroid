@@ -14,7 +14,7 @@ pub mod applied {
                 customer_id: value.customer_id.as_proto(),
                 subscription_id: value.subscription_id.as_proto(),
                 plan_name: value.plan_name,
-                plan_local_id: value.plan_local_id,
+                plan_local_id: value.id.as_proto(), // todo remove me
                 plan_version: value.plan_version,
                 is_active: value.is_active,
                 applied_amount: value.applied_amount.as_proto(),
@@ -34,8 +34,8 @@ pub mod coupons {
     impl From<domain::coupons::Coupon> for CouponWrapper {
         fn from(value: domain::coupons::Coupon) -> Self {
             Self(server::Coupon {
-                id: value.id.to_string(),
-                local_id: value.local_id,
+                id: value.id.as_proto(),
+                local_id: value.id.as_proto(), //todo remove me
                 description: value.description,
                 code: value.code,
                 discount: Some(discount::to_server(&value.discount)),

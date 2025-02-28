@@ -30,8 +30,3 @@ pub mod subscriptions;
 pub mod tenants;
 pub mod users;
 pub mod webhooks;
-
-pub enum IdentityDb {
-    UUID(uuid::Uuid),
-    LOCAL(String),
-}

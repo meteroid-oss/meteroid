@@ -11,7 +11,7 @@ use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
 
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, PlanId, ProductFamilyId, TenantId};
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
@@ -43,22 +43,20 @@ pub struct PlanNew {
     pub description: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: TenantId,
-    pub product_family_local_id: String,
-    pub local_id: String,
+    pub product_family_id: ProductFamilyId,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
 }
 
 impl PlanNew {
-    pub fn into_raw(self, product_family_id: Uuid) -> PlanRowNew {
+    pub fn into_raw(self, product_family_id: ProductFamilyId) -> PlanRowNew {
         PlanRowNew {
-            id: Uuid::now_v7(),
+            id: PlanId::new(),
             name: self.name,
             description: self.description,
             created_by: self.created_by,
             tenant_id: self.tenant_id,
             product_family_id,
-            local_id: self.local_id,
             plan_type: self.plan_type.into(),
             status: self.status.into(),
         }
@@ -85,16 +83,16 @@ pub struct PlanVersionNewInternal {
 pub struct PlanTrial {
     pub duration_days: u32,
     // which plan is resolved after trial ends (if different from the current plan)
-    pub downgrade_plan_id: Option<Uuid>,
+    pub downgrade_plan_id: Option<PlanId>,
     // which plan is resolved during trial (if different from the current plan)
-    pub trialing_plan_id: Option<Uuid>,
+    pub trialing_plan_id: Option<PlanId>,
     pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub require_pre_authorization: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct PlanVersionNew {
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     pub created_by: Uuid,
     pub version: i32,
     pub tenant_id: TenantId,
@@ -144,14 +142,13 @@ impl PlanVersionNew {
 #[derive(Debug, Clone, PartialEq, o2o)]
 #[from_owned(PlanRow)]
 pub struct Plan {
-    pub id: Uuid,
+    pub id: PlanId,
     pub name: String,
     pub description: Option<String>,
     pub created_by: Uuid,
     pub created_at: NaiveDateTime,
     pub tenant_id: TenantId,
-    pub product_family_id: Uuid,
-    pub local_id: String,
+    pub product_family_id: ProductFamilyId,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
@@ -165,7 +162,7 @@ pub struct Plan {
 pub struct PlanVersion {
     pub id: Uuid,
     pub is_draft_version: bool,
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     pub version: i32,
     pub tenant_id: TenantId,
     pub period_start_day: Option<i16>,
@@ -174,11 +171,11 @@ pub struct PlanVersion {
     pub billing_cycles: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
-    pub trialing_plan_id: Option<Uuid>,
+    pub trialing_plan_id: Option<PlanId>,
     #[from(~.map(| v | v.into()))]
     pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
-    pub downgrade_plan_id: Option<Uuid>,
+    pub downgrade_plan_id: Option<PlanId>,
     pub trial_duration_days: Option<i32>,
 }
 
@@ -191,17 +188,16 @@ pub struct FullPlan {
 #[derive(Clone, Debug, o2o)]
 #[from_owned(PlanRowOverview)]
 pub struct PlanOverview {
-    pub id: Uuid,
+    pub id: PlanId,
     pub name: String,
     pub description: Option<String>,
     pub created_at: NaiveDateTime,
-    pub local_id: String,
     #[from(~.into())]
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
     pub status: PlanStatusEnum,
     pub product_family_name: String,
-    pub product_family_local_id: String,
+    pub product_family_id: ProductFamilyId,
     #[from(~.map(| v | v.into()))]
     pub active_version: Option<PlanVersionInfo>,
     // pub draft_version: Option<Uuid>,
@@ -214,21 +210,20 @@ pub struct PlanOverview {
 #[from_owned(PlanVersionRowOverview)]
 pub struct PlanVersionOverview {
     pub id: Uuid,
-    pub plan_id: Uuid,
+    pub plan_id: PlanId,
     pub plan_name: String,
-    pub local_id: String,
     pub version: i32,
     pub created_by: Uuid,
     pub period_start_day: Option<i16>,
     pub net_terms: i32,
     pub currency: String,
-    pub product_family_id: Uuid,
+    pub product_family_id: ProductFamilyId,
     pub product_family_name: String,
-    pub trialing_plan_id: Option<Uuid>,
+    pub trialing_plan_id: Option<PlanId>,
     #[from(~.map(| v | v.into()))]
     pub action_after_trial: Option<ActionAfterTrialEnum>,
     pub trial_is_free: bool,
-    pub downgrade_plan_id: Option<Uuid>,
+    pub downgrade_plan_id: Option<PlanId>,
     pub trial_duration_days: Option<i32>,
 }
 
@@ -259,7 +254,7 @@ pub struct PlanAndVersionPatch {
 #[owned_into(PlanRowPatch)]
 #[ghosts(draft_version_id: {None})]
 pub struct PlanPatch {
-    pub id: Uuid,
+    pub id: PlanId,
     pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,

@@ -10,6 +10,7 @@ pub mod components {
 
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
 
+    use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
     use meteroid_store::domain::price_components as domain;
     use rust_decimal::Decimal;
     use tonic::Status;
@@ -22,7 +23,7 @@ pub mod components {
         Ok(domain::PriceComponentNew {
             name: comp.name,
             fee: map_fee_to_domain(comp.fee)?,
-            product_id: Uuid::from_proto_opt(comp.product_id)?,
+            product_id: ProductId::from_proto_opt(comp.product_id)?,
             plan_version_id: Uuid::from_proto_ref(&comp.plan_version_id)?,
         })
     }
@@ -37,9 +38,8 @@ pub mod components {
         Ok(domain::PriceComponent {
             name: component.name,
             fee: map_fee_to_domain(component.fee)?,
-            product_id: Uuid::from_proto_opt(component.product_id)?,
-            id: Uuid::from_proto_ref(&component.id)?,
-            local_id: component.local_id,
+            product_id: ProductId::from_proto_opt(component.product_id)?,
+            id: PriceComponentId::from_proto(&component.id)?,
         })
     }
 
@@ -76,7 +76,7 @@ pub mod components {
                         .collect::<Result<Vec<_>, _>>()?,
                 }),
                 api::fee::FeeType::Capacity(fee) => Ok(domain::FeeType::Capacity {
-                    metric_id: Uuid::from_proto_ref(&fee.metric_id)?,
+                    metric_id: BillableMetricId::from_proto(&fee.metric_id)?,
                     thresholds: fee
                         .thresholds
                         .iter()
@@ -113,7 +113,7 @@ pub mod components {
                     let mapped = usage_pricing_model_from_grpc(fee)?;
 
                     Ok(domain::FeeType::Usage {
-                        metric_id: Uuid::from_proto_ref(&fee.metric_id)?,
+                        metric_id: BillableMetricId::from_proto(&fee.metric_id)?,
                         pricing: mapped,
                     })
                 }
@@ -124,11 +124,11 @@ pub mod components {
 
     pub fn domain_to_api(comp: domain::PriceComponent) -> api::PriceComponent {
         api::PriceComponent {
-            id: comp.id.to_string(),
-            local_id: comp.local_id,
+            id: comp.id.as_proto(),
+            local_id: comp.id.as_proto(),
             name: comp.name.to_string(),
             fee: Some(map_fee_domain_to_api(comp.fee)),
-            product_id: comp.product_id.as_proto(),
+            product_id: comp.product_id.map(|x| x.as_proto()),
         }
     }
 

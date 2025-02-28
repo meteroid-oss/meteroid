@@ -1,0 +1,11 @@
+alter table invoicing_entity drop column local_id;
+alter table add_on drop column local_id;
+alter table bank_account drop column local_id;
+alter table billable_metric drop column local_id;
+alter table coupon drop column local_id;
+alter table credit_note drop column local_id;
+alter table outbox_event drop column local_id;
+alter table product_family drop column local_id;
+alter table product drop column local_id;
+alter table price_component drop column local_id;
+alter table plan drop column local_id;

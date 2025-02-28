@@ -1,6 +1,6 @@
+use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(PartialEq, Debug, Deserialize, Serialize, Eq, Clone)]
 pub struct LineItem {
@@ -19,9 +19,9 @@ pub struct LineItem {
 
     pub is_prorated: bool,
 
-    pub price_component_id: Option<Uuid>, // local_id ?
-    pub product_id: Option<Uuid>,
-    pub metric_id: Option<Uuid>,
+    pub price_component_id: Option<PriceComponentId>, // local_id ?
+    pub product_id: Option<ProductId>,
+    pub metric_id: Option<BillableMetricId>,
 
     pub description: Option<String>,
 }

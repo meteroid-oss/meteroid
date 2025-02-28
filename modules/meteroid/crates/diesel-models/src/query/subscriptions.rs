@@ -18,8 +18,7 @@ use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use crate::query::IdentityDb;
-use common_domain::ids::{BaseId, CustomerId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -191,7 +190,7 @@ impl SubscriptionRow {
         conn: &mut PgConn,
         tenant_id_param: TenantId,
         customer_id_opt: Option<CustomerId>,
-        plan_id_param_opt: Option<IdentityDb>,
+        plan_id_param_opt: Option<PlanId>,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
@@ -211,14 +210,7 @@ impl SubscriptionRow {
         }
 
         if let Some(plan_id_param) = plan_id_param_opt {
-            match plan_id_param {
-                IdentityDb::UUID(plan_id) => {
-                    query = query.filter(p_dsl::id.eq(plan_id));
-                }
-                IdentityDb::LOCAL(plan_local_id) => {
-                    query = query.filter(p_dsl::local_id.eq(plan_local_id));
-                }
-            }
+            query = query.filter(p_dsl::id.eq(plan_id_param));
         }
 
         //

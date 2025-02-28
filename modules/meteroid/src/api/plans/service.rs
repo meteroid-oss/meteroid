@@ -1,15 +1,12 @@
-use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
 use super::PlanServiceComponents;
 use crate::api::plans::error::PlanApiError;
 use crate::api::plans::mapping::plans::{
     ActionAfterTrialWrapper, ListPlanVersionWrapper, PlanOverviewWrapper, PlanStatusWrapper,
     PlanTypeWrapper, PlanVersionWrapper, PlanWithVersionWrapper,
 };
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 use crate::{api::utils::parse_uuid, parse_uuid};
+use common_domain::ids::{PlanId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::plans::v1::get_plan_with_version_request::Filter;
 use meteroid_grpc::meteroid::api::plans::v1::{
@@ -28,8 +25,8 @@ use meteroid_store::domain::{
     OrderByRequest, PlanAndVersionPatch, PlanFilters, PlanPatch, PlanVersionFilter,
     PlanVersionPatch, TrialPatch,
 };
-use meteroid_store::repositories::PlansInterface;
-use meteroid_store::utils::local_id::{IdType, LocalId};
+use meteroid_store::repositories::{PlansInterface, ProductFamilyInterface};
+use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
 impl PlansService for PlanServiceComponents {
@@ -45,14 +42,24 @@ impl PlansService for PlanServiceComponents {
 
         let plan_type: domain::enums::PlanTypeEnum = PlanTypeWrapper(req.plan_type()).into();
 
+        // hack, remove when default product family is revisited
+        let pf_id = if req.product_family_local_id.to_lowercase().as_str() == "default" {
+            self.store
+                .find_default_product_family(tenant_id)
+                .await
+                .map_err(Into::<PlanApiError>::into)?
+                .id
+        } else {
+            ProductFamilyId::from_proto(req.product_family_local_id)?
+        };
+
         let plan_new = domain::FullPlanNew {
             plan: domain::PlanNew {
                 name: req.name,
                 description: req.description,
                 created_by,
                 tenant_id,
-                local_id: LocalId::generate_for(IdType::Plan),
-                product_family_local_id: req.product_family_local_id,
+                product_family_id: pf_id,
                 status: domain::enums::PlanStatusEnum::Draft,
                 plan_type,
             },
@@ -124,7 +131,7 @@ impl PlansService for PlanServiceComponents {
             .store
             .list_plans(
                 tenant_id,
-                req.product_family_local_id,
+                ProductFamilyId::from_proto_opt(req.product_family_local_id)?,
                 plan_filters,
                 pagination_req,
                 order_by,
@@ -152,7 +159,7 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
-        let plan_id = parse_uuid!(&req.plan_id)?;
+        let plan_id = PlanId::from_proto(&req.plan_id)?;
 
         let pagination_req = domain::PaginationRequest {
             page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
@@ -280,7 +287,7 @@ impl PlansService for PlanServiceComponents {
     ) -> Result<Response<UpdatePublishedPlanOverviewResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let plan_id = parse_uuid!(&req.plan_id)?;
+        let plan_id = PlanId::from_proto(&req.plan_id)?;
 
         let res = self
             .store
@@ -331,8 +338,8 @@ impl PlansService for PlanServiceComponents {
                                 ActionAfterTrialWrapper(t.action_after_trial()).into(),
                             ),
                             duration_days: t.duration_days,
-                            trialing_plan_id: Uuid::from_proto_opt(t.trialing_plan_id)?,
-                            downgrade_plan_id: Uuid::from_proto_opt(t.downgrade_plan_id)?,
+                            trialing_plan_id: PlanId::from_proto_opt(t.trialing_plan_id)?,
+                            downgrade_plan_id: PlanId::from_proto_opt(t.downgrade_plan_id)?,
                             require_pre_authorization: t.trial_is_free,
                         })
                     })
@@ -355,7 +362,7 @@ impl PlansService for PlanServiceComponents {
 
         let res = self
             .store
-            .get_plan_overview(&req.local_id, tenant_id)
+            .get_plan_overview(PlanId::from_proto(&req.local_id)?, tenant_id)
             .await
             .map(|x| PlanOverviewWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;
@@ -384,7 +391,7 @@ impl PlansService for PlanServiceComponents {
 
         let res = self
             .store
-            .get_plan(&req.local_id, tenant_id, filter)
+            .get_plan(PlanId::from_proto(&req.local_id)?, tenant_id, filter)
             .await
             .map(|x| PlanWithVersionWrapper::from(x).0)
             .map_err(Into::<PlanApiError>::into)?;

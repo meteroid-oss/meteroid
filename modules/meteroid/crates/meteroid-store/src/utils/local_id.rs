@@ -2,42 +2,12 @@ use nanoid::nanoid;
 
 #[derive(Debug)]
 pub enum IdType {
-    AddOn,
-    BankAccount,
-    BillableMetric,
-    Coupon,
-    Customer,
-    Invoice,
-    InvoicingEntity,
     Other,
-    Plan,
-    PriceComponent,
-    Product,
-    ProductFamily,
-    Subscription,
-    Tenant,
-    Event,
 }
 
 impl IdType {
     fn prefix(&self) -> &'static str {
-        match self {
-            IdType::AddOn => "add_",
-            IdType::BankAccount => "ba_",
-            IdType::BillableMetric => "bm_",
-            IdType::Coupon => "cou_",
-            IdType::Customer => "cus_",
-            IdType::Event => "evt_",
-            IdType::Invoice => "inv_",
-            IdType::InvoicingEntity => "ive_",
-            IdType::Plan => "plan_",
-            IdType::PriceComponent => "price_",
-            IdType::Product => "prd_",
-            IdType::ProductFamily => "pf_",
-            IdType::Subscription => "sub_",
-            IdType::Tenant => "",
-            _ => "",
-        }
+        ""
     }
 }
 

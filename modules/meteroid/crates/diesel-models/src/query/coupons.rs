@@ -3,7 +3,7 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
 use crate::{DbResult, PgConn};
-use common_domain::ids::TenantId;
+use common_domain::ids::{CouponId, TenantId};
 use diesel::dsl::not;
 use diesel::{
     debug_query, BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods,
@@ -34,32 +34,12 @@ impl CouponRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        id: uuid::Uuid,
+        id: CouponId,
     ) -> DbResult<CouponRow> {
         use crate::schema::coupon::dsl as c_dsl;
 
         let query = c_dsl::coupon
             .filter(c_dsl::id.eq(id))
-            .filter(c_dsl::tenant_id.eq(tenant_id));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-        query
-            .first(conn)
-            .await
-            .attach_printable("Error while getting coupon")
-            .into_db_result()
-    }
-
-    pub async fn get_by_local_id(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        id: String,
-    ) -> DbResult<CouponRow> {
-        use crate::schema::coupon::dsl as c_dsl;
-
-        let query = c_dsl::coupon
-            .filter(c_dsl::local_id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -85,11 +65,7 @@ impl CouponRow {
             .into_boxed();
 
         if let Some(search) = search {
-            query = query.filter(
-                c_dsl::code
-                    .ilike(format!("%{}%", search))
-                    .or(c_dsl::local_id.ilike(format!("%{}%", search))),
-            );
+            query = query.filter(c_dsl::code.ilike(format!("%{}%", search)));
         }
 
         let is_expired = c_dsl::expires_at
@@ -133,7 +109,7 @@ impl CouponRow {
             .into_db_result()
     }
 
-    pub async fn delete(conn: &mut PgConn, tenant_id: TenantId, id: uuid::Uuid) -> DbResult<usize> {
+    pub async fn delete(conn: &mut PgConn, tenant_id: TenantId, id: CouponId) -> DbResult<usize> {
         use crate::schema::coupon::dsl as c_dsl;
 
         let query = diesel::delete(c_dsl::coupon)
@@ -151,7 +127,7 @@ impl CouponRow {
 
     pub async fn list_by_ids(
         conn: &mut PgConn,
-        ids: &[uuid::Uuid],
+        ids: &[CouponId],
         tenant_id: TenantId,
     ) -> DbResult<Vec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
@@ -172,7 +148,7 @@ impl CouponRow {
 
     pub async fn list_by_ids_for_update(
         conn: &mut PgConn,
-        ids: &[uuid::Uuid],
+        ids: &[CouponId],
         tenant_id: TenantId,
     ) -> DbResult<Vec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
@@ -193,7 +169,7 @@ impl CouponRow {
 
     pub async fn inc_redemption_count(
         conn: &mut PgConn,
-        coupon_id: uuid::Uuid,
+        coupon_id: CouponId,
         delta: i32,
     ) -> DbResult<CouponRow> {
         use crate::schema::coupon::dsl as c_dsl;
@@ -213,8 +189,8 @@ impl CouponRow {
 
     pub async fn customers_count(
         conn: &mut PgConn,
-        coupons: &[uuid::Uuid],
-    ) -> DbResult<HashMap<uuid::Uuid, i64>> {
+        coupons: &[CouponId],
+    ) -> DbResult<HashMap<CouponId, i64>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
 
         let query = ac_dsl::applied_coupon
@@ -225,16 +201,16 @@ impl CouponRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .load::<(uuid::Uuid, i64)>(conn)
+            .load::<(CouponId, i64)>(conn)
             .await
             .attach_printable("Error while counting customers for coupons")
             .into_db_result()
-            .map(|rows: Vec<(uuid::Uuid, i64)>| rows.into_iter().collect())
+            .map(|rows: Vec<(CouponId, i64)>| rows.into_iter().collect())
     }
 
     pub async fn update_last_redemption_at(
         conn: &mut PgConn,
-        coupon_ids: &[uuid::Uuid],
+        coupon_ids: &[CouponId],
         last_redemption_at: chrono::NaiveDateTime,
     ) -> DbResult<()> {
         use crate::schema::coupon::dsl as c_dsl;

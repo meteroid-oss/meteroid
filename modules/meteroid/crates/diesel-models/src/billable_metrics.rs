@@ -3,14 +3,14 @@ use uuid::Uuid;
 
 use crate::enums::{BillingMetricAggregateEnum, UnitConversionRoundingEnum};
 
-use common_domain::ids::TenantId;
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetricRow {
-    pub id: Uuid,
+    pub id: BillableMetricId,
     pub name: String,
     pub description: Option<String>,
     pub code: String,
@@ -25,16 +25,15 @@ pub struct BillableMetricRow {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
-    pub product_family_id: Uuid,
-    pub product_id: Option<Uuid>,
-    pub local_id: String,
+    pub product_family_id: ProductFamilyId,
+    pub product_id: Option<ProductId>,
 }
 
 #[derive(Debug, Clone, Insertable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetricRowNew {
-    pub id: Uuid,
+    pub id: BillableMetricId,
     pub name: String,
     pub description: Option<String>,
     pub code: String,
@@ -46,17 +45,15 @@ pub struct BillableMetricRowNew {
     pub usage_group_key: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: TenantId,
-    pub product_family_id: Uuid,
-    pub product_id: Option<Uuid>,
-    pub local_id: String,
+    pub product_family_id: ProductFamilyId,
+    pub product_id: Option<ProductId>,
 }
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::billable_metric)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BillableMetricMetaRow {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: BillableMetricId,
     pub name: String,
     pub code: String,
     pub aggregation_type: BillingMetricAggregateEnum,

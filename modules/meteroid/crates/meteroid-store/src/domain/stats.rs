@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{CustomerId, PlanId, TenantId};
 use uuid::Uuid;
 
 pub enum TrendScope {
@@ -94,7 +94,7 @@ pub struct MrrChartSeries {
 }
 
 pub struct PlanBrief {
-    pub id: Uuid,
+    pub id: PlanId,
     pub name: String,
 }
 

@@ -177,6 +177,7 @@ mod price_components {
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
 
+    use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
     use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
     use meteroid_grpc::meteroid::api::components::v1::usage_fee::TieredAndVolume;
     use tonic::{Code, Result, Status};
@@ -189,7 +190,7 @@ mod price_components {
             .parameterized_components
             .into_iter()
             .map(|c| {
-                let component_id = Uuid::from_proto_ref(&c.component_id)?;
+                let component_id = PriceComponentId::from_proto(&c.component_id)?;
 
                 let billing_period = c
                     .billing_period
@@ -213,7 +214,7 @@ mod price_components {
             .overridden_components
             .into_iter()
             .map(|c| {
-                let component_id = Uuid::from_proto_ref(&c.component_id)?;
+                let component_id = PriceComponentId::from_proto(&c.component_id)?;
                 let component = c
                     .component
                     .ok_or_else(|| {
@@ -246,10 +247,8 @@ mod price_components {
         let remove_components = data
             .remove_components
             .iter()
-            .map(|remove_component_id| {
-                crate::api::utils::parse_uuid(remove_component_id, "remove_component_id")
-            })
-            .collect::<Result<Vec<Uuid>>>()?;
+            .map(PriceComponentId::from_proto)
+            .collect::<Result<Vec<PriceComponentId>>>()?;
 
         Ok(domain::CreateSubscriptionComponents {
             parameterized_components,
@@ -285,11 +284,11 @@ mod price_components {
             period: subscription_fee_billing_period_from_grpc(component.period())?,
             price_component_id: component
                 .price_component_id
-                .map(|id| Uuid::from_proto_ref(&id))
+                .map(|id| PriceComponentId::from_proto(&id))
                 .transpose()?,
             product_id: component
                 .product_id
-                .map(|id| Uuid::from_proto_ref(&id))
+                .map(ProductId::from_proto)
                 .transpose()?,
             name: component.name.clone(),
             fee: subscription_fee_from_grpc(&component.fee)?,
@@ -486,7 +485,7 @@ mod price_components {
             Some(api::subscription_fee::Fee::Capacity(capacity)) => {
                 let rate = rust_decimal::Decimal::from_proto_ref(&capacity.rate)?;
                 let overage_rate = rust_decimal::Decimal::from_proto_ref(&capacity.overage_rate)?;
-                let metric_id = Uuid::from_proto_ref(&capacity.metric_id)?;
+                let metric_id = BillableMetricId::from_proto(&capacity.metric_id)?;
                 Ok(domain::SubscriptionFee::Capacity {
                     rate,
                     included: capacity.included,
@@ -505,7 +504,7 @@ mod price_components {
                 })
             }
             Some(api::subscription_fee::Fee::Usage(usage)) => {
-                let metric_id = Uuid::from_proto_ref(&usage.metric_id)?;
+                let metric_id = BillableMetricId::from_proto(&usage.metric_id)?;
                 let model = usage_pricing_model_from_grpc(usage)?;
                 Ok(domain::SubscriptionFee::Usage { metric_id, model })
             }
@@ -677,17 +676,16 @@ mod price_components {
 }
 
 mod add_ons {
-    use crate::api::shared::conversions::ProtoConv;
     use crate::api::subscriptions::mapping::price_components::{
         map_billing_period_from_grpc, subscription_fee_billing_period_from_grpc,
         subscription_fee_billing_period_to_grpc, subscription_fee_from_grpc,
         subscription_fee_to_grpc,
     };
+    use common_domain::ids::AddOnId;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
     use tonic::Status;
-    use uuid::Uuid;
 
     pub fn subscription_add_on_to_grpc(
         add_on: &domain::SubscriptionAddOn,
@@ -717,7 +715,7 @@ mod add_ons {
     fn create_subscription_add_on_from_grpc(
         data: api::CreateSubscriptionAddOn,
     ) -> tonic::Result<domain::CreateSubscriptionAddOn> {
-        let id = Uuid::from_proto_ref(&data.add_on_id)?;
+        let id = AddOnId::from_proto(&data.add_on_id)?;
 
         let customization: domain::SubscriptionAddOnCustomization = match data.customization {
             Some(api::create_subscription_add_on::Customization::Override(override_)) => {
@@ -767,12 +765,11 @@ pub mod ext {
 
 pub mod coupons {
     use crate::api::coupons::mapping::coupons as coupon_mapping;
-    use crate::api::shared::conversions::ProtoConv;
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use common_domain::ids::CouponId;
     use meteroid_grpc::meteroid::api::coupons::v1 as coupon_api;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as api;
     use meteroid_store::domain;
-    use uuid::Uuid;
 
     pub fn create_subscription_coupons_from_grpc(
         data: &api::CreateSubscriptionCoupons,
@@ -791,7 +788,7 @@ pub mod coupons {
         data: &api::CreateSubscriptionCoupon,
     ) -> tonic::Result<domain::CreateSubscriptionCoupon> {
         Ok(domain::CreateSubscriptionCoupon {
-            coupon_id: Uuid::from_proto_ref(&data.coupon_id)?,
+            coupon_id: CouponId::from_proto(&data.coupon_id)?,
         })
     }
 

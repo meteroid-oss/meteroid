@@ -14,8 +14,8 @@ $$
 --
 
     INSERT INTO public.product_family
-      (id, name, local_id, created_at, updated_at, archived_at, tenant_id)
-    VALUES (var_product_family_id, 'Default', 'default', '2023-12-02 21:49:42.255', NULL, NULL, var_tenant_id);
+      (id, name, created_at, updated_at, archived_at, tenant_id)
+    VALUES (var_product_family_id, 'Default', '2023-12-02 21:49:42.255', NULL, NULL, var_tenant_id);
 
 
     --

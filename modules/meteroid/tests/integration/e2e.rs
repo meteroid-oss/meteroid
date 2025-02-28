@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, InvoicingEntityId, TenantId};
 use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
@@ -489,7 +489,7 @@ async fn test_metering_e2e() {
                 snapshot_at: period_2_start.naive_utc(),
             },
             seller_details: InlineInvoicingEntity {
-                id: Uuid::now_v7(),
+                id: InvoicingEntityId::new(),
                 legal_name: "".to_string(),
                 vat_number: None,
                 address: Address {

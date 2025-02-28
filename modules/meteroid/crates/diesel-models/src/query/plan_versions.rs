@@ -7,7 +7,7 @@ use crate::plan_versions::{
 use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::TenantId;
+use common_domain::ids::{PlanId, TenantId};
 use diesel::prelude::{ExpressionMethods, QueryDsl};
 use diesel::{debug_query, JoinOnDsl, OptionalExtension, SelectableHelper};
 use error_stack::ResultExt;
@@ -52,7 +52,7 @@ impl PlanVersionRow {
 
     pub async fn find_latest_by_plan_id_and_tenant_id(
         conn: &mut PgConn,
-        plan_id: uuid::Uuid,
+        plan_id: PlanId,
         tenant_id: TenantId,
         is_draft: Option<bool>,
     ) -> DbResult<Option<PlanVersionRow>> {
@@ -84,7 +84,7 @@ impl PlanVersionRow {
 
     pub async fn get_latest_by_plan_id_and_tenant_id(
         conn: &mut PgConn,
-        plan_id: uuid::Uuid,
+        plan_id: PlanId,
         tenant_id: TenantId,
     ) -> DbResult<PlanVersionRow> {
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -108,7 +108,7 @@ impl PlanVersionRow {
 
     pub async fn list_by_plan_id_and_tenant_id(
         conn: &mut PgConn,
-        plan_id: uuid::Uuid,
+        plan_id: PlanId,
         tenant_id: TenantId,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<PlanVersionRow>> {
@@ -136,7 +136,7 @@ impl PlanVersionRow {
     pub async fn delete_others_draft(
         conn: &mut PgConn,
         excl_plan_version_id: uuid::Uuid,
-        plan_id: uuid::Uuid,
+        plan_id: PlanId,
         tenant_id: TenantId,
     ) -> DbResult<usize> {
         use crate::schema::plan_version::dsl as pv_dsl;

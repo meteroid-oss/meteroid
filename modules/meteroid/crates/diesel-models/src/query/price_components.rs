@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::TenantId;
+use common_domain::ids::{PriceComponentId, TenantId};
 use diesel::{
     debug_query, ExpressionMethods, Insertable, OptionalExtension, QueryDsl, SelectableHelper,
 };
@@ -35,7 +35,7 @@ impl PriceComponentRow {
     pub async fn get_by_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
-        param_id: uuid::Uuid,
+        param_id: PriceComponentId,
     ) -> DbResult<PriceComponentRow> {
         use crate::schema::plan_version::dsl as pv_dsl;
         use crate::schema::price_component::dsl as pc_dsl;
@@ -174,7 +174,7 @@ impl PriceComponentRow {
 
     pub async fn delete_by_id_and_tenant(
         conn: &mut PgConn,
-        component_id: uuid::Uuid,
+        component_id: PriceComponentId,
         tenant_id: TenantId,
     ) -> DbResult<()> {
         use crate::schema::plan_version::dsl as plan_version_dsl;

@@ -1,4 +1,4 @@
-use common_domain::ids::{AliasOr, CustomerId};
+use common_domain::ids::{AliasOr, CustomerId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
@@ -12,19 +12,17 @@ use meteroid_grpc::meteroid::api::customers::v1::{
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
-    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, Identity, OrderByRequest,
+    CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
 };
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::CustomersInterface;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
     DomainAddressWrapper, DomainBillingConfigWrapper, DomainShippingAddressWrapper,
     ServerCustomerBriefWrapper, ServerCustomerWrapper,
 };
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 
 use super::CustomerServiceComponents;
@@ -52,8 +50,7 @@ impl CustomersService for CustomerServiceComponents {
         let customer_new = CustomerNew {
             name: inner.name,
             created_by: actor,
-            invoicing_entity_id: Uuid::from_proto_opt(inner.invoicing_entity_id)?
-                .map(Identity::UUID),
+            invoicing_entity_id: InvoicingEntityId::from_proto_opt(inner.invoicing_entity_id)?,
             billing_config,
             alias: inner.alias,
             email: inner.email,
@@ -126,7 +123,9 @@ impl CustomersService for CustomerServiceComponents {
                     invoicing_email: customer.invoicing_email.clone(),
                     phone: customer.phone.clone(),
                     balance_value_cents: customer.balance_value_cents,
-                    invoicing_entity_id: Uuid::from_proto_opt(customer.invoicing_entity_id)?,
+                    invoicing_entity_id: InvoicingEntityId::from_proto_opt(
+                        customer.invoicing_entity_id,
+                    )?,
                     currency: customer.currency.clone(),
                     billing_address,
                     shipping_address,

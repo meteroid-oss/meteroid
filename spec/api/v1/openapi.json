@@ -976,7 +976,7 @@
             ]
           },
           "invoicing_entity_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/InvoicingEntityId"
           },
           "name": {
             "type": "string"
@@ -1042,9 +1042,13 @@
             ]
           },
           "invoicing_entity_id": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InvoicingEntityId"
+              }
             ]
           },
           "name": {
@@ -1115,7 +1119,7 @@
             ]
           },
           "invoicing_entity_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/InvoicingEntityId"
           },
           "name": {
             "type": "string"
@@ -1137,6 +1141,9 @@
             ]
           }
         }
+      },
+      "InvoicingEntityId": {
+        "type": "string"
       },
       "PaginatedResponse_Customer": {
         "type": "object",
@@ -1196,7 +1203,7 @@
                   ]
                 },
                 "invoicing_entity_id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/InvoicingEntityId"
                 },
                 "name": {
                   "type": "string"
@@ -1269,7 +1276,7 @@
                   "type": "boolean"
                 },
                 "id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/PlanId"
                 },
                 "name": {
                   "type": "string"
@@ -1278,7 +1285,7 @@
                   "$ref": "#/components/schemas/PlanTypeEnum"
                 },
                 "product_family_id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ProductFamilyId"
                 },
                 "product_family_name": {
                   "type": "string"
@@ -1326,7 +1333,7 @@
               ],
               "properties": {
                 "id": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/ProductFamilyId"
                 },
                 "name": {
                   "type": "string"
@@ -1430,7 +1437,7 @@
             "type": "boolean"
           },
           "id": {
-            "type": "string"
+            "$ref": "#/components/schemas/PlanId"
           },
           "name": {
             "type": "string"
@@ -1439,7 +1446,7 @@
             "$ref": "#/components/schemas/PlanTypeEnum"
           },
           "product_family_id": {
-            "type": "string"
+            "$ref": "#/components/schemas/ProductFamilyId"
           },
           "product_family_name": {
             "type": "string"
@@ -1455,6 +1462,9 @@
             "format": "int64"
           }
         }
+      },
+      "PlanId": {
+        "type": "string"
       },
       "PlanStatusEnum": {
         "type": "string",
@@ -1481,7 +1491,7 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "$ref": "#/components/schemas/ProductFamilyId"
           },
           "name": {
             "type": "string"
@@ -1498,6 +1508,9 @@
             "type": "string"
           }
         }
+      },
+      "ProductFamilyId": {
+        "type": "string"
       },
       "ShippingAddress": {
         "type": "object",

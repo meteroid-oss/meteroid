@@ -4,7 +4,7 @@ use chrono::NaiveDateTime;
 use std::collections::HashMap;
 
 use crate::json_value_serde;
-use common_domain::ids::TenantId;
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId, TenantId};
 use diesel_models::billable_metrics::{BillableMetricMetaRow, BillableMetricRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, o2o)]
 #[try_map_owned(BillableMetricRow, StoreErrorReport)]
 pub struct BillableMetric {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: BillableMetricId,
     pub name: String,
     pub description: Option<String>,
     pub code: String,
@@ -32,8 +31,8 @@ pub struct BillableMetric {
     pub updated_at: Option<NaiveDateTime>,
     pub archived_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
-    pub product_family_id: Uuid,
-    pub product_id: Option<Uuid>,
+    pub product_family_id: ProductFamilyId,
+    pub product_id: Option<ProductId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,16 +70,15 @@ pub struct BillableMetricNew {
     pub usage_group_key: Option<String>,
     pub created_by: Uuid,
     pub tenant_id: TenantId,
-    pub family_local_id: String,
-    pub product_id: Option<Uuid>,
+    pub product_family_id: ProductFamilyId,
+    pub product_id: Option<ProductId>,
 }
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(BillableMetricMetaRow)]
 #[owned_into(BillableMetricMetaRow)]
 pub struct BillableMetricMeta {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: BillableMetricId,
     pub name: String,
     pub code: String,
     #[map(~.into())]

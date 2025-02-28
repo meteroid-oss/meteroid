@@ -5,7 +5,9 @@ use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOvervie
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, CustomerId, InvoiceId, InvoicingEntityId, SubscriptionId, TenantId,
+};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
@@ -183,7 +185,7 @@ pub struct InlineCustomer {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct InlineInvoicingEntity {
-    pub id: Uuid,
+    pub id: InvoicingEntityId,
     pub legal_name: String,
     pub vat_number: Option<String>,
     pub address: Address,

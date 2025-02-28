@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use crate::compute::errors::ComputeError;
 use crate::domain::{BillableMetric, Period};
 use chrono::NaiveDate;
-use common_domain::ids::CustomerId;
+use common_domain::ids::{BillableMetricId, CustomerId, TenantId};
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct UsageData {
@@ -42,13 +41,13 @@ pub struct Metadata {
 pub trait UsageClient: Send + Sync {
     async fn register_meter(
         &self,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
         metric: &BillableMetric,
     ) -> Result<Vec<Metadata>, ComputeError>;
 
     async fn fetch_usage(
         &self,
-        tenant_id: &Uuid,
+        tenant_id: TenantId,
         customer_id: CustomerId,
         customer_alias: &Option<String>,
         metric: &BillableMetric,
@@ -58,7 +57,7 @@ pub trait UsageClient: Send + Sync {
 
 #[derive(Eq, Hash, PartialEq)]
 pub struct MockUsageDataParams {
-    metric_id: Uuid,
+    metric_id: BillableMetricId,
     invoice_date: NaiveDate,
 }
 
@@ -70,7 +69,7 @@ pub struct MockUsageClient {
 impl UsageClient for MockUsageClient {
     async fn register_meter(
         &self,
-        _tenant_id: &Uuid,
+        _tenant_id: TenantId,
         _metric: &BillableMetric,
     ) -> Result<Vec<Metadata>, ComputeError> {
         Ok(vec![])
@@ -78,7 +77,7 @@ impl UsageClient for MockUsageClient {
 
     async fn fetch_usage(
         &self,
-        _tenant_id: &Uuid,
+        _tenant_id: TenantId,
         _customer_local_id: CustomerId,
         _customer_alias: &Option<String>,
         metric: &BillableMetric,

@@ -44,7 +44,7 @@ pub(crate) async fn list_customers(
 ) -> Result<impl IntoResponse, RestApiError> {
     let res = app_state
         .store
-        .list_customers_for_display(
+        .list_customers(
             authorized_state.tenant_id,
             domain::PaginationRequest {
                 page: request.pagination.offset.unwrap_or(0),

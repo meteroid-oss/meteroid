@@ -5,7 +5,7 @@ use meteroid_store::domain::ProductFamilyNew;
 
 pub(crate) fn domain_to_rest(d: domain::ProductFamily) -> ProductFamily {
     ProductFamily {
-        id: d.local_id,
+        id: d.id,
         name: d.name,
     }
 }

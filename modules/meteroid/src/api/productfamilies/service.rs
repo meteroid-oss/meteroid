@@ -1,5 +1,4 @@
-use tonic::{Request, Response, Status};
-
+use common_domain::ids::ProductFamilyId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::productfamilies::v1::{
     product_families_service_server::ProductFamiliesService, CreateProductFamilyRequest,
@@ -9,6 +8,7 @@ use meteroid_grpc::meteroid::api::productfamilies::v1::{
 use meteroid_store::domain;
 use meteroid_store::domain::{OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::ProductFamilyInterface;
+use tonic::{Request, Response, Status};
 
 use crate::api::productfamilies::error::ProductFamilyApiError;
 use crate::api::productfamilies::mapping::product_family::ProductFamilyWrapper;
@@ -82,9 +82,16 @@ impl ProductFamiliesService for ProductFamilyServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let rs = self
-            .store
-            .find_product_family_by_local_id(req.local_id.as_str(), tenant_id)
+        let rs = if req.local_id.to_lowercase().as_str() == "default" {
+            self.store.find_default_product_family(tenant_id)
+        } else {
+            self.store.find_product_family_by_id(
+                ProductFamilyId::from_proto(req.local_id.as_str())?,
+                tenant_id,
+            )
+        };
+
+        let rs = rs
             .await
             .map_err(Into::<ProductFamilyApiError>::into)
             .map(|x| ProductFamilyWrapper::from(x).0)?;

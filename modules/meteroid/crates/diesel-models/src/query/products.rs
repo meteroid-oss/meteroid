@@ -5,12 +5,11 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::TenantId;
+use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
 use diesel::{
     debug_query, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper,
 };
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl ProductRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductRow> {
@@ -32,7 +31,7 @@ impl ProductRowNew {
 impl ProductRow {
     pub async fn find_by_id_and_tenant_id(
         conn: &mut PgConn,
-        id: Uuid,
+        id: ProductId,
         tenant_id: TenantId,
     ) -> DbResult<ProductRow> {
         use crate::schema::product::dsl as p_dsl;
@@ -54,7 +53,7 @@ impl ProductRow {
     pub async fn list(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        family_local_id: Option<String>,
+        family_id: Option<ProductFamilyId>,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
     ) -> DbResult<PaginatedVec<ProductRow>> {
@@ -66,8 +65,8 @@ impl ProductRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .into_boxed();
 
-        if let Some(family_local_id) = family_local_id {
-            query = query.filter(pf_dsl::local_id.eq(family_local_id))
+        if let Some(family_id) = family_id {
+            query = query.filter(pf_dsl::id.eq(family_id))
         }
 
         let mut query = query.select(ProductRow::as_select());
@@ -98,7 +97,7 @@ impl ProductRow {
     pub async fn search(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        family_local_id: Option<String>,
+        family_id: Option<ProductFamilyId>,
         query: &str,
         pagination: PaginationRequest,
         order_by: OrderByRequest,
@@ -112,8 +111,8 @@ impl ProductRow {
             .filter(p_dsl::name.ilike(format!("%{}%", query)))
             .into_boxed();
 
-        if let Some(family_local_id) = family_local_id {
-            query = query.filter(pf_dsl::local_id.eq(family_local_id))
+        if let Some(family_id) = family_id {
+            query = query.filter(pf_dsl::id.eq(family_id))
         }
 
         let mut query = query.select(ProductRow::as_select());

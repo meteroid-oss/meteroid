@@ -1,11 +1,10 @@
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    Customer, CustomerBrief, CustomerBuyCredits, CustomerForDisplay, CustomerNew,
-    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
-    Identity, InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals,
-    InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
-    PaginationRequest,
+    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
+    CustomerTopUpBalance, CustomerUpdate, DetailedInvoice, InlineCustomer, InlineInvoicingEntity,
+    InvoiceNew, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest,
+    PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
@@ -19,9 +18,7 @@ use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
-use diesel_models::customers::{
-    CustomerForDisplayRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
-};
+use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
@@ -80,22 +77,14 @@ pub trait CustomersInterface {
         &self,
         id_or_alias: AliasOr<CustomerId>,
         tenant_id: TenantId,
-    ) -> StoreResult<CustomerForDisplay>;
-
-    async fn list_customers_for_display(
-        &self,
-        tenant_id: TenantId,
-        pagination: PaginationRequest,
-        order_by: OrderByRequest,
-        query: Option<String>,
-    ) -> StoreResult<PaginatedVec<CustomerForDisplay>>;
+    ) -> StoreResult<Customer>;
 
     async fn update_customer(
         &self,
         actor: Uuid,
         tenant_id: TenantId,
         customer: CustomerUpdate,
-    ) -> StoreResult<CustomerForDisplay>;
+    ) -> StoreResult<Customer>;
 
     async fn archive_customer(
         &self,
@@ -199,7 +188,7 @@ impl CustomersInterface for Store {
         tenant_id: TenantId,
     ) -> StoreResult<Customer> {
         let invoicing_entity = self
-            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id.clone())
+            .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
             .await?;
 
         let customer: CustomerRowNew = CustomerNewWrapper {
@@ -257,12 +246,7 @@ impl CustomersInterface for Store {
                 let invoicing_entity = c
                     .invoicing_entity_id
                     .as_ref()
-                    .and_then(|id| {
-                        invoicing_entities.iter().find(|ie| match id {
-                            Identity::UUID(id) => ie.id == *id,
-                            Identity::LOCAL(id) => ie.local_id == *id,
-                        })
-                    })
+                    .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == *id))
                     .unwrap_or(default_invoicing_entity);
 
                 let c: CustomerRowNew = CustomerNewWrapper {
@@ -404,7 +388,7 @@ impl CustomersInterface for Store {
                     let invoicing_entity: InvoicingEntity =
                         InvoicingEntityRow::select_for_update_by_id_and_tenant(
                             conn,
-                            &customer.invoicing_entity_id,
+                            customer.invoicing_entity_id,
                             req.tenant_id,
                         )
                         .await
@@ -479,7 +463,7 @@ impl CustomersInterface for Store {
 
                     InvoicingEntityRow::update_invoicing_entity_number(
                         conn,
-                        &invoicing_entity.id,
+                        invoicing_entity.id,
                         req.tenant_id,
                         invoicing_entity.next_invoice_number,
                     )
@@ -514,47 +498,13 @@ impl CustomersInterface for Store {
         &self,
         id_or_alias: AliasOr<CustomerId>,
         tenant_id: TenantId,
-    ) -> StoreResult<CustomerForDisplay> {
+    ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerForDisplayRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
+        CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, id_or_alias)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
-    }
-
-    async fn list_customers_for_display(
-        &self,
-        tenant_id: TenantId,
-        pagination: PaginationRequest,
-        order_by: OrderByRequest,
-        query: Option<String>,
-    ) -> StoreResult<PaginatedVec<CustomerForDisplay>> {
-        let mut conn = self.get_conn().await?;
-
-        let rows = CustomerForDisplayRow::list(
-            &mut conn,
-            tenant_id,
-            pagination.into(),
-            order_by.into(),
-            query,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let res: PaginatedVec<CustomerForDisplay> = PaginatedVec {
-            items: rows
-                .items
-                .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Vec<Result<CustomerForDisplay, Report<StoreError>>>>()
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()?,
-            total_pages: rows.total_pages,
-            total_results: rows.total_results,
-        };
-
-        Ok(res)
     }
 
     async fn update_customer(
@@ -562,16 +512,13 @@ impl CustomersInterface for Store {
         actor: Uuid,
         tenant_id: TenantId,
         customer: CustomerUpdate,
-    ) -> StoreResult<CustomerForDisplay> {
+    ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        let by_id_or_alias = CustomerForDisplayRow::find_by_id_or_alias(
-            &mut conn,
-            tenant_id,
-            customer.id_or_alias.clone(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        let by_id_or_alias =
+            CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, customer.id_or_alias.clone())
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
 
         let invoicing_entity = self
             .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
@@ -613,14 +560,10 @@ impl CustomersInterface for Store {
             ))
             .await;
 
-        CustomerForDisplayRow::find_by_id_or_alias(
-            &mut conn,
-            tenant_id,
-            customer.id_or_alias.clone(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)
-        .and_then(TryInto::try_into)
+        CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, customer.id_or_alias.clone())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(TryInto::try_into)
     }
 
     async fn archive_customer(

@@ -86,7 +86,6 @@ diesel::table! {
         tenant_id -> Uuid,
         created_at -> Timestamp,
         updated_at -> Timestamp,
-        local_id -> Text,
     }
 }
 
@@ -122,7 +121,6 @@ diesel::table! {
 
     bank_account (id) {
         id -> Uuid,
-        local_id -> Text,
         tenant_id -> Uuid,
         currency -> Text,
         country -> Text,
@@ -227,7 +225,6 @@ diesel::table! {
         tenant_id -> Uuid,
         product_family_id -> Uuid,
         product_id -> Nullable<Uuid>,
-        local_id -> Text,
     }
 }
 
@@ -265,7 +262,6 @@ diesel::table! {
         last_redemption_at -> Nullable<Timestamp>,
         disabled -> Bool,
         archived_at -> Nullable<Timestamp>,
-        local_id -> Text,
     }
 }
 
@@ -286,7 +282,6 @@ diesel::table! {
         tenant_id -> Uuid,
         customer_id -> Uuid,
         status -> CreditNoteStatus,
-        local_id -> Text,
     }
 }
 
@@ -441,7 +436,6 @@ diesel::table! {
 diesel::table! {
     invoicing_entity (id) {
         id -> Uuid,
-        local_id -> Text,
         is_default -> Bool,
         legal_name -> Text,
         invoice_number_pattern -> Text,
@@ -512,7 +506,6 @@ diesel::table! {
         event_type -> Text,
         payload -> Nullable<Jsonb>,
         created_at -> Timestamp,
-        local_id -> Text,
     }
 }
 
@@ -531,7 +524,6 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
-        local_id -> Text,
         plan_type -> PlanTypeEnum,
         status -> PlanStatusEnum,
         active_version_id -> Nullable<Uuid>,
@@ -571,7 +563,6 @@ diesel::table! {
         plan_version_id -> Uuid,
         product_id -> Nullable<Uuid>,
         billable_metric_id -> Nullable<Uuid>,
-        local_id -> Text,
     }
 }
 
@@ -586,7 +577,6 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
-        local_id -> Text,
     }
 }
 
@@ -594,7 +584,6 @@ diesel::table! {
     product_family (id) {
         id -> Uuid,
         name -> Text,
-        local_id -> Text,
         created_at -> Timestamp,
         updated_at -> Nullable<Timestamp>,
         archived_at -> Nullable<Timestamp>,

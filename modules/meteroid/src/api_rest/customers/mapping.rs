@@ -6,10 +6,10 @@ use crate::api_rest::customers::model::{
 use crate::errors::RestApiError;
 use common_domain::ids::{AliasOr, CustomerId};
 use meteroid_store::domain;
-use meteroid_store::domain::{CustomerNew, Identity};
+use meteroid_store::domain::CustomerNew;
 use uuid::Uuid;
 
-pub fn domain_to_rest(d: domain::CustomerForDisplay) -> Result<Customer, RestApiError> {
+pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
     Ok(Customer {
         id: d.id,
         name: d.name,
@@ -25,7 +25,7 @@ pub fn domain_to_rest(d: domain::CustomerForDisplay) -> Result<Customer, RestApi
             .map(addresses::mapping::shipping_address::domain_to_rest),
         currency: currencies::mapping::from_str(d.currency.as_str())?,
         billing_config: d.billing_config.into(),
-        invoicing_entity_id: d.invoicing_entity_local_id,
+        invoicing_entity_id: d.invoicing_entity_id,
     })
 }
 
@@ -52,7 +52,7 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
     CustomerNew {
         name: req.name,
         created_by,
-        invoicing_entity_id: req.invoicing_entity_id.map(Identity::LOCAL),
+        invoicing_entity_id: req.invoicing_entity_id,
         billing_config: billing_config_to_domain(req.billing_config),
         alias: req.alias,
         email: req.email,
@@ -77,7 +77,7 @@ pub fn update_req_to_domain(
     domain::CustomerUpdate {
         id_or_alias,
         name: req.name,
-        invoicing_entity_id: Identity::LOCAL(req.invoicing_entity_id),
+        invoicing_entity_id: req.invoicing_entity_id,
         billing_config: billing_config_to_domain(req.billing_config),
         alias: req.alias,
         email: req.email,

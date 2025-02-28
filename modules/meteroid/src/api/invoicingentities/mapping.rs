@@ -1,8 +1,7 @@
 pub mod invoicing_entities {
-    use crate::api::shared::conversions::ProtoConv;
+    use common_domain::ids::InvoicingEntityId;
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
     use meteroid_store::domain::invoicing_entities as domain;
-    use uuid::Uuid;
 
     pub fn proto_to_domain(proto: server::InvoicingEntityData) -> domain::InvoicingEntityNew {
         domain::InvoicingEntityNew {
@@ -28,7 +27,7 @@ pub mod invoicing_entities {
 
     pub fn proto_to_patch_domain(
         proto: server::InvoicingEntityData,
-        id: Uuid,
+        id: InvoicingEntityId,
     ) -> domain::InvoicingEntityPatch {
         domain::InvoicingEntityPatch {
             id,
@@ -55,7 +54,7 @@ pub mod invoicing_entities {
     pub fn domain_to_proto(domain: domain::InvoicingEntity) -> server::InvoicingEntity {
         server::InvoicingEntity {
             id: domain.id.as_proto(),
-            local_id: domain.local_id,
+            local_id: domain.id.as_proto(), // todo remove me
             is_default: domain.is_default,
             legal_name: domain.legal_name,
             invoice_number_pattern: domain.invoice_number_pattern,

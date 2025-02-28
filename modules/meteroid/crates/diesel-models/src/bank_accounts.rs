@@ -1,6 +1,6 @@
 use crate::enums::BankAccountFormat;
 use chrono::NaiveDateTime;
-use common_domain::ids::TenantId;
+use common_domain::ids::{BankAccountId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -8,8 +8,7 @@ use uuid::Uuid;
 #[diesel(table_name = crate::schema::bank_account)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BankAccountRow {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: BankAccountId,
     pub tenant_id: TenantId,
     pub currency: String,
     pub country: String,
@@ -24,8 +23,7 @@ pub struct BankAccountRow {
 #[diesel(table_name = crate::schema::bank_account)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct BankAccountRowNew {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: BankAccountId,
     pub tenant_id: TenantId,
     pub created_by: Uuid,
     pub currency: String,
@@ -40,7 +38,7 @@ pub struct BankAccountRowNew {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
 pub struct BankAccountRowPatch {
-    pub id: Uuid,
+    pub id: BankAccountId,
     pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub country: Option<String>,

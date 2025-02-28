@@ -42,8 +42,8 @@ pub mod plans {
             fn trial_config(version: &domain::PlanVersion) -> Option<TrialConfig> {
                 match version.trial_duration_days {
                     Some(days) if days > 0 => Some(TrialConfig {
-                        trialing_plan_id: version.trialing_plan_id.as_proto(),
-                        downgrade_plan_id: version.downgrade_plan_id.as_proto(),
+                        trialing_plan_id: version.trialing_plan_id.map(|x| x.as_proto()),
+                        downgrade_plan_id: version.downgrade_plan_id.map(|x| x.as_proto()),
                         action_after_trial: version
                             .action_after_trial
                             .as_ref()
@@ -99,8 +99,8 @@ pub mod plans {
         fn from(value: domain::FullPlan) -> Self {
             Self(PlanWithVersion {
                 plan: Some(Plan {
-                    id: value.plan.id.to_string(),
-                    local_id: value.plan.local_id,
+                    id: value.plan.id.as_proto(),
+                    local_id: value.plan.id.as_proto(),
                     name: value.plan.name,
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
@@ -117,8 +117,8 @@ pub mod plans {
         fn from(value: domain::PlanWithVersion) -> Self {
             Self(PlanWithVersion {
                 plan: Some(Plan {
-                    id: value.plan.id.to_string(),
-                    local_id: value.plan.local_id,
+                    id: value.plan.id.as_proto(),
+                    local_id: value.plan.id.as_proto(), //todo remove me
                     name: value.plan.name,
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
@@ -196,14 +196,14 @@ pub mod plans {
     impl From<domain::PlanOverview> for PlanOverviewWrapper {
         fn from(value: domain::PlanOverview) -> Self {
             Self(PlanOverview {
-                id: value.id.to_string(),
+                id: value.id.as_proto(),
                 name: value.name,
-                local_id: value.local_id,
+                local_id: value.id.as_proto(), //todo remove me
                 description: value.description,
                 plan_type: PlanTypeWrapper::from(value.plan_type).0 as i32,
                 plan_status: PlanStatusWrapper::from(value.status).0 as i32,
                 product_family_name: value.product_family_name,
-                product_family_local_id: value.product_family_local_id,
+                product_family_local_id: value.product_family_id.as_proto(), // todo rename product_family_local_id
                 created_at: value.created_at.as_proto(),
                 has_draft_version: value.has_draft_version,
                 active_version: value.active_version.map(|v| ActiveVersionInfo {

@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::TenantId;
+use common_domain::ids::{ProductFamilyId, TenantId};
 use diesel::{debug_query, ExpressionMethods, PgTextExpressionMethods, QueryDsl};
 use error_stack::ResultExt;
 
@@ -66,16 +66,16 @@ impl ProductFamilyRow {
             .into_db_result()
     }
 
-    pub async fn find_by_local_id_and_tenant_id(
+    pub async fn find_by_id(
         conn: &mut PgConn,
-        local_id: &str,
+        id: ProductFamilyId,
         tenant_id: TenantId,
     ) -> DbResult<ProductFamilyRow> {
         use crate::schema::product_family::dsl as pf_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = pf_dsl::product_family
-            .filter(pf_dsl::local_id.eq(local_id))
+            .filter(pf_dsl::id.eq(id))
             .filter(pf_dsl::tenant_id.eq(tenant_id));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -83,7 +83,7 @@ impl ProductFamilyRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding product family by local_id and tenant_id")
+            .attach_printable("Error while finding product family by id and tenant_id")
             .into_db_result()
     }
 }

@@ -1,3 +1,9 @@
+use crate::api::billablemetrics::error::BillableMetricApiError;
+use crate::api::billablemetrics::mapping::metric::{
+    ServerBillableMetricMetaWrapper, ServerBillableMetricWrapper,
+};
+use crate::api::utils::PaginationExt;
+use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
@@ -10,14 +16,6 @@ use meteroid_store::domain::BillableMetric;
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
-
-use crate::api::billablemetrics::error::BillableMetricApiError;
-use crate::api::billablemetrics::mapping::metric::{
-    ServerBillableMetricMetaWrapper, ServerBillableMetricWrapper,
-};
-use crate::api::shared::conversions::FromProtoOpt;
-use crate::api::utils::{parse_uuid, PaginationExt};
 
 use super::{mapping, BillableMetricsComponents};
 
@@ -63,8 +61,8 @@ impl BillableMetricsService for BillableMetricsComponents {
                 usage_group_key: inner.usage_group_key,
                 created_by: actor,
                 tenant_id,
-                family_local_id: inner.family_local_id,
-                product_id: Uuid::from_proto_opt(inner.product_id)?,
+                product_family_id: ProductFamilyId::from_proto(inner.family_local_id)?,
+                product_id: ProductId::from_proto_opt(inner.product_id)?,
             })
             .await
             .map_err(Into::<BillableMetricApiError>::into)?;
@@ -94,7 +92,11 @@ impl BillableMetricsService for BillableMetricsComponents {
 
         let res = self
             .store
-            .list_billable_metrics(tenant_id, pagination_req, inner.family_local_id)
+            .list_billable_metrics(
+                tenant_id,
+                pagination_req,
+                ProductFamilyId::from_proto_opt(inner.family_local_id)?,
+            )
             .await
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
@@ -121,7 +123,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let billable_metric_id = parse_uuid(&req.id, "id")?;
+        let billable_metric_id = BillableMetricId::from_proto(&req.id)?;
 
         let billable_metric = self
             .store

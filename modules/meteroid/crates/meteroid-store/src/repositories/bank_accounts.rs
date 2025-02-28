@@ -2,7 +2,7 @@ use crate::domain::{BankAccount, BankAccountPatch};
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{domain, StoreResult};
-use common_domain::ids::{BaseId, TenantId};
+use common_domain::ids::{BankAccountId, BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_models::bank_accounts::{BankAccountRow, BankAccountRowNew, BankAccountRowPatch};
 use error_stack::Report;
@@ -14,11 +14,11 @@ pub trait BankAccountsInterface {
 
     async fn get_bank_account_by_id(
         &self,
-        id: &Uuid,
+        id: BankAccountId,
         tenant_id: TenantId,
     ) -> StoreResult<BankAccount>;
 
-    async fn delete_bank_account(&self, id: &Uuid, tenant_id: TenantId) -> StoreResult<()>;
+    async fn delete_bank_account(&self, id: BankAccountId, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn insert_bank_account(&self, plan: domain::BankAccountNew) -> StoreResult<BankAccount>;
 
@@ -43,22 +43,22 @@ impl BankAccountsInterface for Store {
 
     async fn get_bank_account_by_id(
         &self,
-        id: &Uuid,
+        id: BankAccountId,
         tenant_id: TenantId,
     ) -> StoreResult<BankAccount> {
         let mut conn = self.get_conn().await?;
 
-        let bank_account = BankAccountRow::get_by_id(&mut conn, tenant_id, *id)
+        let bank_account = BankAccountRow::get_by_id(&mut conn, tenant_id, id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         Ok(bank_account.into())
     }
 
-    async fn delete_bank_account(&self, id: &Uuid, tenant_id: TenantId) -> StoreResult<()> {
+    async fn delete_bank_account(&self, id: BankAccountId, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        BankAccountRow::delete(&mut conn, tenant_id, *id)
+        BankAccountRow::delete(&mut conn, tenant_id, id)
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
@@ -84,7 +84,7 @@ impl BankAccountsInterface for Store {
                 .eventbus
                 .publish(Event::bank_account_created(
                     insertable.created_by,
-                    insertable.id,
+                    insertable.id.as_uuid(),
                     insertable.tenant_id.as_uuid(),
                 ))
                 .await;
@@ -113,7 +113,7 @@ impl BankAccountsInterface for Store {
                 .eventbus
                 .publish(Event::bank_account_edited(
                     actor,
-                    patch_row.id,
+                    patch_row.id.as_uuid(),
                     patch_row.tenant_id.as_uuid(),
                 ))
                 .await;

@@ -2,7 +2,7 @@ use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::{SubscriptionFee, SubscriptionFeeInterface};
 use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
-use common_domain::ids::SubscriptionId;
+use common_domain::ids::{AddOnId, PriceComponentId, ProductId, SubscriptionId};
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -11,7 +11,7 @@ use uuid::Uuid;
 pub struct SubscriptionAddOn {
     pub id: Uuid,
     pub subscription_id: SubscriptionId,
-    pub add_on_id: Uuid,
+    pub add_on_id: AddOnId,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
@@ -20,12 +20,12 @@ pub struct SubscriptionAddOn {
 
 impl SubscriptionFeeInterface for SubscriptionAddOn {
     #[inline]
-    fn price_component_id(&self) -> Option<Uuid> {
+    fn price_component_id(&self) -> Option<PriceComponentId> {
         None
     }
 
     #[inline]
-    fn product_id(&self) -> Option<Uuid> {
+    fn product_id(&self) -> Option<ProductId> {
         None
     }
 
@@ -70,7 +70,7 @@ impl TryInto<SubscriptionAddOn> for SubscriptionAddOnRow {
 
 #[derive(Clone, Debug)]
 pub struct SubscriptionAddOnNewInternal {
-    pub add_on_id: Uuid,
+    pub add_on_id: AddOnId,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     pub fee: SubscriptionFee,
@@ -122,7 +122,7 @@ pub enum SubscriptionAddOnCustomization {
 
 #[derive(Debug, Clone)]
 pub struct CreateSubscriptionAddOn {
-    pub add_on_id: Uuid,
+    pub add_on_id: AddOnId,
     pub customization: SubscriptionAddOnCustomization,
 }
 

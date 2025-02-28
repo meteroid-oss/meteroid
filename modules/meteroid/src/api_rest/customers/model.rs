@@ -1,8 +1,8 @@
 use crate::api_rest::addresses::model::{Address, ShippingAddress};
 use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::PaginatedRequest;
-use common_domain::ids::string_serde;
 use common_domain::ids::CustomerId;
+use common_domain::ids::{string_serde, string_serde_opt, InvoicingEntityId};
 use meteroid_store::domain;
 use utoipa::ToSchema;
 use validator::Validate;
@@ -34,7 +34,8 @@ pub struct Customer {
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
     pub currency: Currency,
-    pub invoicing_entity_id: String,
+    #[serde(with = "string_serde")]
+    pub invoicing_entity_id: InvoicingEntityId,
     pub billing_config: BillingConfig, // todo revisit how we present billing config in the API
 }
 
@@ -88,7 +89,8 @@ pub struct CustomerCreateRequest {
     pub currency: Currency,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    pub invoicing_entity_id: Option<String>,
+    #[serde(with = "string_serde_opt")]
+    pub invoicing_entity_id: Option<InvoicingEntityId>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
@@ -102,5 +104,6 @@ pub struct CustomerUpdateRequest {
     pub currency: Currency,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    pub invoicing_entity_id: String,
+    #[serde(with = "string_serde")]
+    pub invoicing_entity_id: InvoicingEntityId,
 }

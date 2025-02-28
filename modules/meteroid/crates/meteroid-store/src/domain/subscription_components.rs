@@ -2,7 +2,7 @@ use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod}
 use crate::domain::UsagePricingModel;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
-use common_domain::ids::SubscriptionId;
+use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId, SubscriptionId};
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub trait SubscriptionFeeInterface {
-    fn price_component_id(&self) -> Option<Uuid>;
-    fn product_id(&self) -> Option<Uuid>;
+    fn price_component_id(&self) -> Option<PriceComponentId>;
+    fn product_id(&self) -> Option<ProductId>;
     fn subscription_id(&self) -> SubscriptionId;
     fn name_ref(&self) -> &String;
     fn period_ref(&self) -> &SubscriptionFeeBillingPeriod;
@@ -21,8 +21,8 @@ pub trait SubscriptionFeeInterface {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionComponent {
     pub id: Uuid,
-    pub price_component_id: Option<Uuid>,
-    pub product_id: Option<Uuid>,
+    pub price_component_id: Option<PriceComponentId>,
+    pub product_id: Option<ProductId>,
     pub subscription_id: SubscriptionId,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
@@ -31,12 +31,12 @@ pub struct SubscriptionComponent {
 
 impl SubscriptionFeeInterface for SubscriptionComponent {
     #[inline]
-    fn price_component_id(&self) -> Option<Uuid> {
+    fn price_component_id(&self) -> Option<PriceComponentId> {
         self.price_component_id
     }
 
     #[inline]
-    fn product_id(&self) -> Option<Uuid> {
+    fn product_id(&self) -> Option<ProductId> {
         self.product_id
     }
 
@@ -80,7 +80,7 @@ impl TryInto<SubscriptionComponent> for SubscriptionComponentRow {
 }
 
 impl SubscriptionComponent {
-    pub fn metric_id(&self) -> Option<Uuid> {
+    pub fn metric_id(&self) -> Option<BillableMetricId> {
         self.fee.metric_id()
     }
 
@@ -118,12 +118,12 @@ pub struct CreateSubscriptionComponents {
     pub parameterized_components: Vec<ComponentParameterization>,
     pub overridden_components: Vec<ComponentOverride>,
     pub extra_components: Vec<ExtraComponent>,
-    pub remove_components: Vec<Uuid>,
+    pub remove_components: Vec<PriceComponentId>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ComponentParameterization {
-    pub component_id: Uuid,
+    pub component_id: PriceComponentId,
     pub parameters: ComponentParameters,
 }
 
@@ -136,7 +136,7 @@ pub struct ComponentParameters {
 
 #[derive(Debug, Clone)]
 pub struct ComponentOverride {
-    pub component_id: Uuid,
+    pub component_id: PriceComponentId,
     pub component: SubscriptionComponentNewInternal,
 }
 
@@ -147,8 +147,8 @@ pub struct ExtraComponent {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionComponentNewInternal {
-    pub price_component_id: Option<Uuid>,
-    pub product_id: Option<Uuid>,
+    pub price_component_id: Option<PriceComponentId>,
+    pub product_id: Option<ProductId>,
     pub name: String,
     pub period: SubscriptionFeeBillingPeriod,
     // pub mrr_value: Option<rust_decimal::Decimal>, // TODO
@@ -175,7 +175,7 @@ pub enum SubscriptionFee {
         rate: rust_decimal::Decimal,
         included: u64,
         overage_rate: rust_decimal::Decimal,
-        metric_id: Uuid,
+        metric_id: BillableMetricId,
     },
     Slot {
         unit: String,
@@ -186,7 +186,7 @@ pub enum SubscriptionFee {
         // upgrade downgrade policies TODO
     },
     Usage {
-        metric_id: Uuid,
+        metric_id: BillableMetricId,
         model: UsagePricingModel,
     },
 }
@@ -194,7 +194,7 @@ pub enum SubscriptionFee {
 json_value_serde!(SubscriptionFee);
 
 impl SubscriptionFee {
-    pub fn metric_id(&self) -> Option<Uuid> {
+    pub fn metric_id(&self) -> Option<BillableMetricId> {
         match self {
             SubscriptionFee::Usage { metric_id, .. } => Some(*metric_id),
             SubscriptionFee::Capacity { metric_id, .. } => Some(*metric_id),

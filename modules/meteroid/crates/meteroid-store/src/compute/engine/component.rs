@@ -4,7 +4,6 @@ use chrono::NaiveDate;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use uuid::Uuid;
 
 use crate::domain::enums::BillingType;
 use crate::domain::*;
@@ -18,6 +17,7 @@ use crate::utils::decimals::ToSubunit;
 use super::super::clients::usage::UsageClient;
 use super::super::errors::ComputeError;
 use super::fees;
+use common_domain::ids::{BillableMetricId, PriceComponentId};
 use error_stack::{Report, Result};
 
 pub struct ComponentEngine {
@@ -110,7 +110,7 @@ impl ComponentEngine {
                 let slots = self
                     .fetch_slots(
                         invoice_date,
-                        &component
+                        component
                             .price_component_id()
                             .ok_or(Report::new(ComputeError::InternalError))?,
                     ) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
@@ -343,7 +343,7 @@ impl ComponentEngine {
     async fn fetch_usage(
         &self,
         period: Period,
-        metric_id: Uuid,
+        metric_id: BillableMetricId,
     ) -> Result<UsageData, ComputeError> {
         let metric = self
             .subscription_details
@@ -355,7 +355,7 @@ impl ComponentEngine {
         let usage = self
             .usage_client
             .fetch_usage(
-                &self.subscription_details.tenant_id,
+                self.subscription_details.tenant_id,
                 self.subscription_details.customer_id,
                 &self.subscription_details.customer_alias,
                 metric,
@@ -386,7 +386,7 @@ impl ComponentEngine {
     async fn fetch_slots(
         &self,
         invoice_date: &NaiveDate,
-        component_id: &Uuid,
+        component_id: PriceComponentId,
     ) -> Result<u64, ComputeError> {
         let quantity = self
             .slots_client

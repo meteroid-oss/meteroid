@@ -212,7 +212,7 @@ impl TryInto<Option<WebhookOutMessageNew>> for OutboxEvent {
         };
 
         let webhook = WebhookOutMessageNew {
-            id: self.id,
+            id: self.id.to_string(),
             event_type,
             payload,
         };

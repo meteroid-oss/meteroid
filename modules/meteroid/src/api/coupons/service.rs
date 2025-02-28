@@ -4,8 +4,8 @@ use crate::api::coupons::mapping::coupons::CouponWrapper;
 use crate::api::coupons::{mapping, CouponsServiceComponents};
 use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
-use crate::{api::utils::parse_uuid, parse_uuid};
 use chrono::NaiveDateTime;
+use common_domain::ids::CouponId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::coupons::v1::coupons_service_server::CouponsService;
 use meteroid_grpc::meteroid::api::coupons::v1::{
@@ -30,7 +30,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let coupon = self
             .store
-            .get_coupon_by_local_id(tenant_id, req.coupon_local_id)
+            .get_coupon_by_id(tenant_id, CouponId::from_proto(req.coupon_local_id)?)
             .await
             .map(|x| CouponWrapper::from(x).0)
             .map_err(Into::<CouponApiError>::into)?;
@@ -89,7 +89,11 @@ impl CouponsService for CouponsServiceComponents {
 
         let coupons = self
             .store
-            .list_applied_coupons_by_coupon_local_id(tenant_id, req.coupon_local_id, pagination_req)
+            .list_applied_coupons_by_coupon_id(
+                tenant_id,
+                CouponId::from_proto(req.coupon_local_id)?,
+                pagination_req,
+            )
             .await
             .map_err(Into::<CouponApiError>::into)?;
 
@@ -148,7 +152,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let req = request.into_inner();
 
-        let id = parse_uuid!(&req.coupon_id)?;
+        let id = CouponId::from_proto(&req.coupon_id)?;
 
         self.store
             .delete_coupon(tenant_id, id)
@@ -170,7 +174,7 @@ impl CouponsService for CouponsServiceComponents {
         let discount = mapping::coupons::discount::to_domain(req.discount)?;
 
         let patch = domain::coupons::CouponPatch {
-            id: parse_uuid!(&req.coupon_id)?,
+            id: CouponId::from_proto(&req.coupon_id)?,
             tenant_id,
             description: Some(req.description),
             discount: Some(discount),
@@ -197,7 +201,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let req = request.into_inner();
 
-        let id = parse_uuid!(&req.coupon_id)?;
+        let id = CouponId::from_proto(&req.coupon_id)?;
 
         let (archived_at, disabled) = match req.action() {
             CouponAction::Archive => {

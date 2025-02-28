@@ -7,17 +7,16 @@ use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod}
 use crate::domain::SubscriptionFee;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use crate::utils::local_id::{IdType, LocalId};
+use common_domain::ids::{BaseId, BillableMetricId, PriceComponentId, ProductId};
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct PriceComponent {
-    pub id: Uuid,
-    pub local_id: String,
+    pub id: PriceComponentId,
     pub name: String,
     pub fee: FeeType,
-    pub product_id: Option<Uuid>,
+    pub product_id: Option<ProductId>,
 }
 
 impl TryInto<PriceComponent> for PriceComponentRow {
@@ -30,7 +29,6 @@ impl TryInto<PriceComponent> for PriceComponentRow {
         Ok(PriceComponent {
             id: self.id,
             name: self.name,
-            local_id: self.local_id,
             fee,
             product_id: self.product_id,
         })
@@ -41,7 +39,7 @@ impl TryInto<PriceComponent> for PriceComponentRow {
 pub struct PriceComponentNew {
     pub name: String,
     pub fee: FeeType,
-    pub product_id: Option<Uuid>,
+    pub product_id: Option<ProductId>,
     pub plan_version_id: Uuid,
 }
 
@@ -49,7 +47,7 @@ pub struct PriceComponentNew {
 pub struct PriceComponentNewInternal {
     pub name: String,
     pub fee: FeeType,
-    pub product_id: Option<Uuid>,
+    pub product_id: Option<ProductId>,
 }
 
 impl TryInto<PriceComponentRowNew> for PriceComponentNew {
@@ -59,8 +57,7 @@ impl TryInto<PriceComponentRowNew> for PriceComponentNew {
         let json_fee = (&self.fee).try_into()?;
 
         Ok(PriceComponentRowNew {
-            id: Uuid::now_v7(),
-            local_id: LocalId::generate_for(IdType::PriceComponent),
+            id: PriceComponentId::new(),
             plan_version_id: self.plan_version_id,
             name: self.name,
             fee: json_fee,
@@ -129,11 +126,11 @@ pub enum FeeType {
         quota: Option<u32>,
     },
     Capacity {
-        metric_id: Uuid,
+        metric_id: BillableMetricId,
         thresholds: Vec<CapacityThreshold>,
     },
     Usage {
-        metric_id: Uuid,
+        metric_id: BillableMetricId,
         pricing: UsagePricingModel,
     },
     ExtraRecurring {
@@ -151,7 +148,7 @@ pub enum FeeType {
 json_value_serde!(FeeType);
 
 impl FeeType {
-    pub fn metric_id(&self) -> Option<Uuid> {
+    pub fn metric_id(&self) -> Option<BillableMetricId> {
         match self {
             FeeType::Capacity { metric_id, .. } => Some(*metric_id),
             FeeType::Usage { metric_id, .. } => Some(*metric_id),
