@@ -86,7 +86,10 @@ fn init_telemetry_tracing(config: &TelemetryConfig, service_name: &str) {
 
     tracing_subscriber::registry()
         .with(otel_layer)
-        .with(init_tracing_opentelemetry::tracing_subscriber_ext::build_loglevel_filter_layer())
+        .with(
+            init_tracing_opentelemetry::tracing_subscriber_ext::build_level_filter_layer("")
+                .unwrap(),
+        )
         .with(log_otel_layer)
         .with(fmt_layer)
         .try_init()

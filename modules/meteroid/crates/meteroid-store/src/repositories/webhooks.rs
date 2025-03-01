@@ -115,6 +115,7 @@ impl WebhooksInterface for Store {
                     uid: None,
                     url: endpoint.url.into(),
                     version: None,
+                    headers: None,
                 },
                 None,
             )
