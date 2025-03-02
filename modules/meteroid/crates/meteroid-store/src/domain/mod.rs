@@ -44,6 +44,7 @@ pub mod misc;
 pub mod organizations;
 pub mod outbox_event;
 pub mod payment_transactions;
+pub mod pgmq;
 pub mod product_families;
 pub mod products;
 pub mod schedules;

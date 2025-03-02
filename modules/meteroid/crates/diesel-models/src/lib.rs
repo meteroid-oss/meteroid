@@ -34,6 +34,7 @@ pub mod invoicing_entities;
 pub mod oauth_verifiers;
 pub mod outbox_event;
 pub mod payments;
+pub mod pgmq;
 pub mod stats;
 pub mod subscription_add_ons;
 pub mod subscription_components;

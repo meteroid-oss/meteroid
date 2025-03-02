@@ -18,6 +18,7 @@ pub mod organization_members;
 pub mod organizations;
 pub mod outbox_event;
 pub mod payment_transactions;
+pub mod pgmq;
 pub mod plan_versions;
 pub mod plans;
 pub mod price_components;

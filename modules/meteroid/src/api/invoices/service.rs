@@ -1,4 +1,7 @@
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId};
+use super::{mapping, InvoiceServiceComponents};
+use crate::api::invoices::error::InvoiceApiError;
+use crate::api::utils::PaginationExt;
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
@@ -7,16 +10,11 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     RequestPdfGenerationRequest, RequestPdfGenerationResponse,
 };
 use meteroid_store::domain;
-use meteroid_store::domain::outbox_event::OutboxEvent;
+use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
 use meteroid_store::domain::OrderByRequest;
-use meteroid_store::repositories::outbox::OutboxInterface;
+use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::repositories::InvoiceInterface;
 use tonic::{Request, Response, Status};
-
-use crate::api::invoices::error::InvoiceApiError;
-use crate::api::utils::PaginationExt;
-
-use super::{mapping, InvoiceServiceComponents};
 
 #[tonic::async_trait]
 impl InvoicesService for InvoiceServiceComponents {
@@ -134,12 +132,13 @@ impl InvoicesService for InvoiceServiceComponents {
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
+        let pgmq_msg_new: PgmqMessageNew = InvoicePdfRequestEvent::new(invoice.invoice.id)
+            .try_into()
+            .map_err(Into::<InvoiceApiError>::into)?;
+
         // check if already generated ?
         self.store
-            .insert_outbox_event(OutboxEvent::invoice_pdf_requested(
-                tenant_id,
-                invoice.invoice.id.as_uuid(),
-            ))
+            .pgmq_send_batch(PgmqQueue::InvoicePdfRequest, vec![pgmq_msg_new])
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
