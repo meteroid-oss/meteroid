@@ -10,7 +10,7 @@ services:
 
   ### Meteroid Dependencies
   meteroid-db:
-    image: postgres:15.2
+    image: quay.io/tembo/pg17-pgmq:v1.5.0
     ports:
       - '5432:5432'
     user: postgres
@@ -29,6 +29,7 @@ services:
       - "postgres"
       - "-c"
       - "wal_level=logical"
+      - "shared_preload_libraries=pg_stat_statements"
     networks:
       - meteroid_net
 

@@ -110,10 +110,10 @@ axum-valid = { workspace = true }
 [dev-dependencies]
 rstest = { workspace = true }
 testcontainers = { workspace = true }
-testcontainers-modules = { workspace = true, features = ["postgres"] }
 tokio-util = { workspace = true }
 clickhouse-rs = { workspace = true }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
+backon = { workspace = true }
 
 [[bin]]
 name = "meteroid-api"

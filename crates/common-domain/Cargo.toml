@@ -9,9 +9,13 @@ license.workspace = true
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v7"] }
 base62 = { workspace = true }
-diesel = { workspace = true, features = ["uuid", "postgres_backend"], optional = true }
+diesel = { workspace = true, features = [
+    "uuid",
+    "postgres_backend",
+], optional = true }
 diesel-derive-newtype = { workspace = true, optional = true }
 utoipa = { workspace = true, optional = true }
 validator = { workspace = true, features = ["derive"] }
@@ -26,4 +30,3 @@ diesel = ["dep:diesel", "dep:diesel-derive-newtype"]
 utoipa = ["dep:utoipa"]
 tonic = ["dep:tonic"]
 default = []
-
