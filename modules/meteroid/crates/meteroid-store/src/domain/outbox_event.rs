@@ -1,12 +1,14 @@
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::{Address, Customer, DetailedInvoice, ShippingAddress, Subscription};
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::StoreResult;
+use crate::{json_value_serde, StoreResult};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BaseId, CustomerId, EventId, InvoiceId, PlanId, SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
+use diesel_models::pgmq;
+use diesel_models::pgmq::PgmqRowNew;
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
@@ -20,6 +22,8 @@ pub struct OutboxEvent {
 }
 
 impl OutboxEvent {
+    pub const QUEUE_NAME: &'static str = "outbox_event";
+
     pub fn customer_created(event: CustomerEvent) -> OutboxEvent {
         OutboxEvent {
             tenant_id: event.tenant_id,
@@ -203,4 +207,34 @@ pub struct InvoiceEvent {
     pub total: i64,
     #[map(@.invoice.created_at)]
     pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OutboxPgmqHeaders {
+    pub event_id: EventId,
+    pub event_type: String,
+}
+
+json_value_serde!(OutboxPgmqHeaders);
+
+impl TryInto<pgmq::Headers> for EventType {
+    type Error = StoreErrorReport;
+    fn try_into(self) -> Result<pgmq::Headers, Self::Error> {
+        let headers = OutboxPgmqHeaders {
+            event_id: EventId::new(),
+            event_type: self.to_string(),
+        };
+
+        Ok(pgmq::Headers(Some(headers.try_into()?)))
+    }
+}
+
+impl TryInto<PgmqRowNew> for OutboxEvent {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<PgmqRowNew, Self::Error> {
+        let message = pgmq::Message(self.payload_json()?);
+        let headers = self.event_type.try_into()?;
+        Ok(PgmqRowNew { message, headers })
+    }
 }

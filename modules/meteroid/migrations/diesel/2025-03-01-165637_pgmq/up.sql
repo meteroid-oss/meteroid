@@ -1,0 +1,4 @@
+CREATE SCHEMA IF NOT EXISTS pgmq;
+CREATE EXTENSION IF NOT EXISTS pgmq WITH SCHEMA pgmq;
+
+SELECT pgmq.create('outbox_event');
