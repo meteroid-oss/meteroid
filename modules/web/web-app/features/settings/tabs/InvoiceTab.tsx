@@ -75,7 +75,6 @@ export const InvoiceTab = () => {
     const entity = listInvoicingEntitiesQuery.data?.entities?.find(
       entity => entity.id === invoiceEntityId
     )
-    console.log('useEffect', invoiceEntityId)
 
     if (entity) {
       console.log('entity', entity)
@@ -140,7 +139,11 @@ export const InvoiceTab = () => {
                           <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
                           <div>{entity.legalName}</div>
                           <div className="flex-grow" />
-                          {entity.isDefault && <Badge variant="primary">Default</Badge>}
+                          {entity.isDefault && (
+                            <Badge variant="primary" size={'sm'}>
+                              Default
+                            </Badge>
+                          )}
                         </div>
                       ),
                       value: entity.id,

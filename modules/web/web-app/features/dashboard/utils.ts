@@ -35,6 +35,6 @@ export const formattedTrend = (trend?: Trend): TrendProp | undefined => {
     percent: changePercent,
     period: trendScopeToString[scope],
     positiveIsGreen: positiveIsGood,
-    value: Number(changeAmount),
+    value: Number(changeAmount) / 100,
   }
 }

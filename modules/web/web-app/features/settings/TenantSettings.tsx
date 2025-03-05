@@ -3,7 +3,9 @@ import { FunctionComponent } from 'react'
 
 import { CompanyTab } from '@/features/settings/tabs/CompanyTab'
 import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
+import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
 import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
+import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
 import { useQueryState } from '@/hooks/useQueryState'
 
@@ -19,6 +21,7 @@ export const TenantSettings: FunctionComponent = () => {
             <TabsTrigger value="merchant">Merchant</TabsTrigger>
             <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="integrations">Integrations</TabsTrigger>
+            <TabsTrigger value="payments">Payment methods</TabsTrigger>
             <TabsTrigger value="taxes">Taxes</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
           </TabsList>
@@ -31,7 +34,12 @@ export const TenantSettings: FunctionComponent = () => {
           <TabsContent value="invoices">
             <InvoiceTab />
           </TabsContent>
-          <TabsContent value="integrations">Not implemented</TabsContent>
+          <TabsContent value="integrations">
+            <IntegrationsTab />
+          </TabsContent>
+          <TabsContent value="payments">
+            <PaymentMethodsTab />
+          </TabsContent>
           <TabsContent value="taxes">Not implemented</TabsContent>
           <TabsContent value="users">
             <UsersTab />

@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
  
+
+
 @layer base {
     :root {
       --background: 0 0% 100%;
@@ -36,6 +38,7 @@
     
     }
 
+
     .dark  {
       --background: 230 11% 11%;
       --foreground: 0 0% 100%;
@@ -45,7 +48,7 @@
       --popover-foreground: 0 0% 95%;
       // TODO rename primary into brand and alternative into primary
       --brand: 211 95% 63%;
-      --brand-foreground: 144.9 80.4% 10%;
+      --brand-foreground: 144 21% 9%;
       --primary: 0 0% 90%;
       --primary-foreground: 240 15% 5%;
       --secondary: 233 11% 17%;
@@ -67,9 +70,11 @@
       --ring: 211 95% 63%;
     }
 
-    .light {
+
+
+    body .light {
       @extend :root;
-      color-scheme: light;
+      color-scheme: light !important;
     }
   }
   
@@ -144,6 +149,11 @@ body,
 #root > div {
   @apply h-full;
 }
+
+.password {
+  -webkit-text-security: disc;
+}
+
 
 .form-group .form-text,
 .Form .form-text {

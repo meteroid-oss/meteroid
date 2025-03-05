@@ -172,22 +172,22 @@ export const ProductMetricsEditPanel = () => {
               </SheetHeader>
               <ScrollArea className="flex grow pr-2 -mr-4">
                 <div className="px-2 relative">
-                  <section className="">
+                  <section className="mb-2">
                     <Flex direction="column" gap={spaces.space7}>
                       <InputFormField
                         name="metricName"
                         label="Metric name"
                         control={methods.control}
                         placeholder="Compute (GB-hr)"
-                        className="max-w-xs"
+                        className="max-w-sm"
                       />
 
                       <SelectFormField
                         name="productFamilyId"
                         label="Product line"
-                        layout="horizontal"
+                        layout="vertical"
                         placeholder="Select a product line"
-                        className="max-w-[320px]  "
+                        className="max-w-sm  "
                         empty={families.length === 0}
                         control={methods.control}
                       >
@@ -204,7 +204,7 @@ export const ProductMetricsEditPanel = () => {
                           label="Event Code"
                           control={methods.control}
                           placeholder="compute_usage"
-                          className="max-w-xs"
+                          className="max-w-sm"
                         />
                         <FormDescription>
                           Qualifies an event stream, ex: page_views.
@@ -214,7 +214,7 @@ export const ProductMetricsEditPanel = () => {
                       <TextareaFormField
                         name="metricDescription"
                         label="Description"
-                        className="max-w-lg"
+                        className="max-w-sm "
                         control={methods.control}
                         placeholder="Serverless compute usage for ..."
                       />

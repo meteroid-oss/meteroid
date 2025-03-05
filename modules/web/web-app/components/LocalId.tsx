@@ -1,9 +1,5 @@
-import { Button } from '@ui/components'
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { cn } from '@ui/lib'
-import { CopyIcon } from 'lucide-react'
-import { toast } from 'sonner'
-
-import { copyToClipboard } from '@/lib/helpers'
 
 export const LocalId = ({
   localId,
@@ -15,27 +11,10 @@ export const LocalId = ({
   className?: string
 }) => {
   return (
-    <Button
-      type="button"
-      variant="special"
-      size="content"
-      title="Copy to clipboard"
-      hasIcon
-      className={cn(
-        'text-xs px-3 py-2 bg-secondary text-secondary-foreground border-none font-normal',
-        buttonClassName
-      )}
-      onClick={ev => {
-        ev?.stopPropagation()
-        ev?.preventDefault()
-        copyToClipboard(localId, () => toast.success('Copied to clipboard : ' + localId))
-      }}
-    >
-      <span className={cn('  whitespace-nowrap overflow-hidden text-ellipsis', className)}>
-        {localId}
-      </span>
-
-      <CopyIcon size="10" />
-    </Button>
+    <CopyToClipboardButton
+      text={localId}
+      buttonClassName={cn(' bg-secondary text-secondary-foreground', buttonClassName)}
+      className={className}
+    />
   )
 }

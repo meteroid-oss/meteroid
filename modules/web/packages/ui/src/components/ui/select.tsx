@@ -145,10 +145,13 @@ const SelectSeparator = React.forwardRef<
 ))
 SelectSeparator.displayName = SelectPrimitive.Separator.displayName
 
-const SelectEmpty = () => {
+interface SelectEmptyProps {
+  children?: React.ReactNode
+}
+const SelectEmpty = (props: SelectEmptyProps) => {
   return (
     <SelectGroup>
-      <SelectLabel>No data</SelectLabel>
+      <SelectLabel>{props.children ?? 'No data'}</SelectLabel>
     </SelectGroup>
   )
 }

@@ -2,7 +2,7 @@ import { colors, fontSizes, fontWeights, spaces } from '@md/foundation'
 import { styled } from '@stitches/react'
 
 export const StyledPageHeading = styled('h1', {
-  fontSize: fontSizes.fontSize8,
+  fontSize: fontSizes.fontSize6,
   fontWeight: fontWeights.bold,
   lineHeight: 1,
 })

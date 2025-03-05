@@ -4,6 +4,7 @@ types:
     - meteroid.api.addons.v1.AddOnsService
     - meteroid.api.apitokens.v1.ApiTokensService
     - meteroid.api.billablemetrics.v1.BillableMetricsService
+    - meteroid.api.connectors.v1.ConnectorsService
     - meteroid.api.customers.v1.CustomersService
     - meteroid.api.coupons.v1.CouponsService
     - meteroid.api.instance.v1.InstanceService
@@ -19,6 +20,7 @@ types:
     - meteroid.api.users.v1.UsersService
     - meteroid.api.organizations.v1.OrganizationsService
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
+    - meteroid.portal.checkout.v1.PortalCheckoutService
 plugins:
   - plugin: buf.build/bufbuild/es:v1.7.1
     opt:

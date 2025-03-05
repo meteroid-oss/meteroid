@@ -2,6 +2,7 @@ import { RouteObject } from 'react-router-dom'
 
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
+import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
 import { ReportsPage } from '@/pages/tenants/reports'
@@ -22,6 +23,12 @@ export const tenantRoutes: RouteObject = {
     {
       path: 'settings',
       element: <TenantSettings />,
+      children: [
+        {
+          path: 'add-stripe',
+          element: <StripeIntegrationModal />,
+        },
+      ],
     },
     {
       path: 'developers',

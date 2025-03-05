@@ -9,6 +9,7 @@ import { useCurrency } from '@/hooks/useCurrency'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
 import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 
+import { useBasePath } from '@/hooks/useBasePath'
 import type { FunctionComponent, ReactNode } from 'react'
 
 interface SubscriptionsTableProps {
@@ -31,6 +32,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
   hidePlan = false,
 }) => {
   const { formatAmount } = useCurrency()
+  const basePath = useBasePath()
 
   const columns = useMemo<ColumnDef<Subscription>[]>(
     () =>
@@ -38,7 +40,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
         {
           header: 'Customer',
           cell: ({ row }: { row: Row<Subscription> }) => (
-            <Link to={`../../customers/${row.original.customerId}`}>
+            <Link to={`${basePath}/customers/${row.original.customerId}`}>
               {row.original.customerName}
             </Link>
           ),
@@ -101,6 +103,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
       setPagination={setPagination}
       totalCount={totalCount}
       isLoading={isLoading}
+      rowLink={row => `${basePath}/subscriptions/${row.original.id}`}
     />
   )
 }
@@ -115,7 +118,7 @@ function formatStatus(status: SubscriptionStatus): ReactNode {
       return <Badge variant="secondary">Ended</Badge>
     case SubscriptionStatus.PENDING:
       return <Badge variant="warning">Pending</Badge>
-    case SubscriptionStatus.TRIAL:
+    case SubscriptionStatus.TRIALING:
       return <Badge variant="outline">Trial</Badge>
     default:
       return 'Unknown'

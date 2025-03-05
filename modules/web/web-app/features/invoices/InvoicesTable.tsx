@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import { StandardTable } from '@/components/table/StandardTable'
 import { StatusPill } from '@/features/invoices/StatusPill'
 import { amountFormat } from '@/features/invoices/amountFormat'
+import { useBasePath } from '@/hooks/useBasePath'
 import { Invoice } from '@/rpc/api/invoices/v1/models_pb'
 
 interface CustomersTableProps {
@@ -26,18 +27,22 @@ export const InvoicesTable = ({
   isLoading,
   linkPrefix = '',
 }: CustomersTableProps) => {
+  const basePath = useBasePath()
+
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [
       {
         header: 'Invoice Number',
         cell: ({ row }) => (
-          <Link to={`${linkPrefix}${row.original.id}`}>{row.original.invoiceNumber}</Link>
+          <Link to={`${basePath}/invoices/${row.original.id}`}>{row.original.invoiceNumber}</Link>
         ),
       },
       {
         header: 'Customer',
         cell: ({ row }) => (
-          <Link to={`../../customers/${row.original.customerId}`}>{row.original.customerName}</Link>
+          <Link to={`${basePath}/customers/${row.original.customerId}`}>
+            {row.original.customerName}
+          </Link>
         ),
       },
       {
@@ -89,6 +94,7 @@ export const InvoicesTable = ({
       setPagination={setPagination}
       totalCount={totalCount}
       isLoading={isLoading}
+      rowLink={row => `${basePath}/invoices/${row.original.id}`}
     />
   )
 }

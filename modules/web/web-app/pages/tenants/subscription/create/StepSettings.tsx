@@ -16,9 +16,11 @@ import { toast } from 'sonner'
 import { z } from 'zod'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useZodForm } from '@/hooks/useZodForm'
 import { mapDatev2 } from '@/lib/mapping'
 import { createSubscriptionAtom } from '@/pages/tenants/subscription/create/state'
+import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
 import {
   createSubscription,
   listSubscriptions,
@@ -26,6 +28,7 @@ import {
 
 export const StepSettings = () => {
   const navigate = useNavigate()
+  const basePath = useBasePath()
   const { previousStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
   const methods = useZodForm({
@@ -46,19 +49,20 @@ export const StepSettings = () => {
     })
 
     // TOD missing quite a lot of properties
-    await createSubscriptionMutation.mutateAsync({
+    const created = await createSubscriptionMutation.mutateAsync({
       subscription: {
         planVersionId: state.planVersionId,
         customerId: state.customerId,
-        billingStartDate: mapDatev2(data.fromDate),
-        billingEndDate: data.toDate && mapDatev2(data.toDate),
-        billingDay: data.billingDay === 'FIRST' ? 1 : data.fromDate.getDate(),
-        currency: 'EUR', // TODO drop currency from subscription. That's a customer field
+        startDate: mapDatev2(data.fromDate),
+        endDate: data.toDate && mapDatev2(data.toDate),
+        billingDayAnchor: data.billingDay === 'FIRST' ? 1 : data.fromDate.getDate(),
         netTerms: 30,
+        activationCondition: ActivationCondition.ON_CHECKOUT, // TODO make this configurable
+        // TODO rest of the properties, addons etc
       },
     })
     toast.success('Subscription created')
-    navigate('..')
+    navigate(`${basePath}/subscriptions/${created.subscription?.id}`)
   }
 
   return (
@@ -115,13 +119,17 @@ export const StepSettings = () => {
                   value={field.value}
                   onValueChange={field.onChange}
                 >
-                  <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-4  ">
                     <RadioGroupItem value="FIRST" id="r1" />
-                    <Label htmlFor="r1">1st of the month</Label>
+                    <Label htmlFor="r1" className="font-normal">
+                      1st of the month
+                    </Label>
                   </div>
                   <div className="flex items-center space-x-4">
                     <RadioGroupItem value="SUB_START_DAY" id="r2" />
-                    <Label htmlFor="r2">Start date of the subscription</Label>
+                    <Label htmlFor="r2" className="font-normal">
+                      Anniversary date of the subscription
+                    </Label>
                   </div>
                 </RadioGroup>
               )}

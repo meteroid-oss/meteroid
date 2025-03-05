@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
 export interface UseThemeProps {
+  isInitialized: boolean
   isDarkMode: boolean
   toggleTheme: () => void
   setDarkMode: (darkMode: boolean, options?: { persistent: boolean }) => void
@@ -11,6 +12,7 @@ interface ThemeProviderProps {
 }
 
 export const ThemeContext = createContext<UseThemeProps>({
+  isInitialized: false,
   isDarkMode: false,
   toggleTheme: () => {},
   setDarkMode: () => {},
@@ -20,22 +22,25 @@ export const useTheme = () => useContext(ThemeContext)
 
 // force the theme to X and restore to previous value on unmount
 export const useForceTheme = (theme: 'dark' | 'light') => {
-  const { isDarkMode, setDarkMode } = useTheme()
+  const { isDarkMode, setDarkMode, isInitialized } = useTheme()
 
   const prevDarkMode = isDarkMode
 
   useEffect(() => {
+    if (!isInitialized) return
+    console.log('useForceTheme', theme)
     setDarkMode(theme === 'dark', { persistent: false })
 
     return () => {
       setDarkMode(prevDarkMode, { persistent: false })
     }
-  }, [])
+  }, [isInitialized])
 }
 
 const LSK = 'userpreferences_DarkMode'
 export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [isDarkMode, setIsDarkMode] = useState(false)
+  const [isInitialized, setIsInitialized] = useState(false)
 
   useEffect(() => {
     const key = localStorage.getItem(LSK)
@@ -45,7 +50,9 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
     // Default to dark mode if no preference config
     const darkMode = key === 'true' || (!key && prefersDarkMode)
 
+    console.log('userpreferences_DarkMode', darkMode)
     setDarkMode(darkMode)
+    setIsInitialized(true)
   }, [])
 
   const setDarkMode: UseThemeProps['setDarkMode'] = (darkMode, options = { persistent: true }) => {
@@ -73,6 +80,7 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
           isDarkMode,
           toggleTheme,
           setDarkMode,
+          isInitialized,
         }}
       >
         {children}

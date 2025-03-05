@@ -9,6 +9,7 @@ import { Root } from '@/pages/root'
 import { TenantNew } from '@/pages/tenants/new'
 import { Providers } from 'providers/Providers'
 import { anonymousRoutes } from 'router/anonymous'
+import { portalRoutes } from 'router/portal'
 import { tenantRoutes } from 'router/tenant'
 
 const router = createBrowserRouter(
@@ -55,6 +56,7 @@ const router = createBrowserRouter(
           ],
         },
         anonymousRoutes,
+        portalRoutes,
         {
           path: '/logout',
           element: <Logout />,
