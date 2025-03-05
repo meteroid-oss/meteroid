@@ -1,16 +1,15 @@
 use chrono::NaiveDateTime;
-use uuid::Uuid;
 
 use crate::enums::ConnectorProviderEnum;
 use crate::enums::ConnectorTypeEnum;
-use common_domain::ids::TenantId;
+use common_domain::ids::{ConnectorId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Selectable, Debug, Identifiable)]
 #[diesel(table_name = crate::schema::connector)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ConnectorRow {
-    pub id: Uuid,
+    pub id: ConnectorId,
     pub created_at: NaiveDateTime,
     pub tenant_id: TenantId,
     pub alias: String,
@@ -23,7 +22,7 @@ pub struct ConnectorRow {
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::connector)]
 pub struct ConnectorRowNew {
-    pub id: Uuid,
+    pub id: ConnectorId,
     pub tenant_id: TenantId,
     pub alias: String,
     pub connector_type: ConnectorTypeEnum,

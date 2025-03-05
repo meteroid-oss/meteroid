@@ -1,6 +1,11 @@
+pub mod accounts;
 pub mod client;
+pub mod customers;
 pub mod error;
 pub mod invoice;
-mod misc;
 mod request;
 pub mod webhook;
+
+pub mod payment_intents;
+
+pub mod setup_intents;

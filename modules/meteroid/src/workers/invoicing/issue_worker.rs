@@ -144,4 +144,44 @@ async fn issue_invoice(
     _store: &Store,
 ) -> Result<(), errors::WorkerError> {
     todo!()
+    // what happens when we issue an invoice :
+
+    // we check the subscription mode
+    // - IF AUTO (aka if defined payment method) & if collect = true
+    // - then do we collect then issue, or issue then collect ?
+    // I would try collecting, then send with a pay button TODO check
+
+    // - IF MANUAL
+    // we send by email (put in kafka)
+
+    // TODO should we consider that this worker is only responsible for issuing (mail) ?
+    // and we have another worker for billing via PP ?
+    // ex: ready_to_issue or date TODO
+
+    //
+    // match invoice.payment_provider {
+    //     PaymentProviderEnum::Stripe => {
+    //         let customer = store
+    //             .find_customer_by_id(Identity::UUID(invoice.customer_id), invoice.tenant_id)
+    //             .await
+    //             .change_context(errors::WorkerError::DatabaseError)?;
+    //         let api_key = store
+    //             .find_provider_config(PaymentProviderEnum::Stripe, invoice.tenant_id)
+    //             .await
+    //             .change_context(errors::WorkerError::DatabaseError)?
+    //             .api_security
+    //             .api_key;
+    //
+    //         stripe_adapter
+    //             .send_invoice(invoice, &customer, SecretString::new(api_key))
+    //             .await
+    //             .change_context(errors::WorkerError::ProviderError)?;
+    //
+    //         Ok(())
+    //     }
+    //     PaymentProviderEnum::Manual => {
+    //         log::warn!("Invoice has Manual provider so shouldn't be picked-up by issue_worker");
+    //         Ok(())
+    //     }
+    // }
 }

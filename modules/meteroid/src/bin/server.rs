@@ -64,7 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         oauth,
     })?;
     // todo this is a hack to register the event types in svix, should be managed by an api
-    store.insert_webhook_out_event_types().await?;
+    if let Err(err) = store.insert_webhook_out_event_types().await {
+        log::error!("Failed to insert webhook out event types: {}", err)
+    }
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 

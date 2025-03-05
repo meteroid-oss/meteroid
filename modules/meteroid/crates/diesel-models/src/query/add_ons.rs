@@ -97,7 +97,7 @@ impl AddOnRow {
     pub async fn list_by_ids(
         conn: &mut PgConn,
         ids: &[AddOnId],
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
     ) -> DbResult<Vec<AddOnRow>> {
         use crate::schema::add_on::dsl as ao_dsl;
 

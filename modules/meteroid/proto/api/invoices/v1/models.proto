@@ -143,3 +143,29 @@ enum InvoiceType {
   ADJUSTMENT = 2;
   USAGE_THRESHOLD = 3;
 }
+
+
+message Transaction {
+  string id = 1;
+  optional string provider_transaction_id = 2;
+  optional string payment_method_id = 3;
+  uint64 amount = 4;
+  string currency = 5;
+  string invoice_id = 6;
+  optional string error = 7;
+  PaymentStatusEnum status = 8;
+  PaymentTypeEnum payment_type = 9;
+
+  enum PaymentStatusEnum {
+    READY = 0;
+    PENDING = 1;
+    SETTLED = 2;
+    CANCELLED = 3;
+    FAILED = 4;
+  }
+
+  enum PaymentTypeEnum {
+    PAYMENT = 0;
+    REFUND = 1;
+  }
+}

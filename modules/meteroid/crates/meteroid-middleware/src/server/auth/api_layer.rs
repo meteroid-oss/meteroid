@@ -4,7 +4,10 @@ use secrecy::SecretString;
 
 use crate::server::auth::strategies::api_key_strategy::validate_api_key;
 use crate::server::auth::strategies::jwt_strategy::{authorize_user, validate_jwt};
-use common_grpc::middleware::common::auth::{API_KEY_HEADER, BEARER_AUTH_HEADER};
+use crate::server::auth::strategies::portal_jwt_strategy::{authorize_portal, validate_portal_jwt};
+use common_grpc::middleware::common::auth::{
+    API_KEY_HEADER, BEARER_AUTH_HEADER, PORTAL_KEY_HEADER,
+};
 use common_grpc::middleware::common::filters::Filter;
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use common_grpc::middleware::server::AuthorizedState;
@@ -130,6 +133,9 @@ where
                 validate_api_key(&metadata, &store, &sm)
                     .await
                     .map_err(|e| BoxError::from(e) as BoxError)
+            } else if metadata.contains_key(PORTAL_KEY_HEADER) {
+                validate_portal_jwt(&metadata, jwt_secret)
+                    .map_err(|e| BoxError::from(e) as BoxError)
             } else if metadata.contains_key(BEARER_AUTH_HEADER) {
                 validate_jwt(&metadata, jwt_secret).map_err(|e| BoxError::from(e) as BoxError)
             } else {
@@ -155,6 +161,12 @@ where
                             .map_err(|e| BoxError::from(e) as BoxError)
                     }
                 }
+                AuthenticatedState::Shared {
+                    resource_access,
+                    tenant_id,
+                } => authorize_portal(tenant_id, resource_access, sm)
+                    .await
+                    .map_err(|e| BoxError::from(e) as BoxError),
             }?;
 
             request.extensions_mut().insert(authorized_state);
@@ -164,7 +176,7 @@ where
 
         // if the future is an error , we recover by providing an empty REsponse
         let future = future.or_else(|e: BoxError| async move {
-            log::warn!("Error in auth middleware: {}", e);
+            log::warn!("Error in auth middleware: {:?}", e);
             let response = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
                 .body(empty_body())

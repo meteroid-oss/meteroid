@@ -49,8 +49,8 @@ impl SubscriptionComponentRow {
 
     pub async fn list_subscription_components_by_subscription(
         conn: &mut PgConn,
-        tenant_id_params: TenantId,
-        subscription_id: SubscriptionId,
+        tenant_id_params: &TenantId,
+        subscription_id: &SubscriptionId,
     ) -> DbResult<Vec<SubscriptionComponentRow>> {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;
         use diesel_async::RunQueryDsl;
@@ -72,7 +72,7 @@ impl SubscriptionComponentRow {
 
     pub async fn list_subscription_components_by_subscriptions(
         conn: &mut PgConn,
-        tenant_id_params: TenantId,
+        tenant_id_param: &TenantId,
         subscription_ids: &[SubscriptionId],
     ) -> DbResult<HashMap<SubscriptionId, Vec<SubscriptionComponentRow>>> {
         use crate::schema::subscription_component::dsl as subscription_component_dsl;
@@ -81,7 +81,7 @@ impl SubscriptionComponentRow {
         let query = subscription_component_dsl::subscription_component
             .filter(subscription_component_dsl::subscription_id.eq_any(subscription_ids))
             .inner_join(crate::schema::subscription::table)
-            .filter(crate::schema::subscription::tenant_id.eq(tenant_id_params))
+            .filter(crate::schema::subscription::tenant_id.eq(tenant_id_param))
             .select(SubscriptionComponentRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

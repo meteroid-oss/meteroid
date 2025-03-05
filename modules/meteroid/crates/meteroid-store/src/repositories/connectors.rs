@@ -1,5 +1,6 @@
 use crate::domain::connectors::{
-    Connector, ConnectorMeta, ConnectorNew, ProviderSensitiveData, StripeSensitiveData,
+    Connector, ConnectorMeta, ConnectorNew, ProviderData, ProviderSensitiveData, StripePublicData,
+    StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
@@ -8,6 +9,7 @@ use common_domain::ids::TenantId;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::Report;
 use secrecy::SecretString;
+use stripe_client::accounts::AccountsApi;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -24,6 +26,7 @@ pub trait ConnectorsInterface {
         &self,
         tenant_id: TenantId,
         alias: String,
+        publishable_key: String,
         stripe_data: StripeSensitiveData,
     ) -> StoreResult<ConnectorMeta>;
 
@@ -75,14 +78,16 @@ impl ConnectorsInterface for Store {
         &self,
         tenant_id: TenantId,
         alias: String,
+        publishable_key: String,
         stripe_data: StripeSensitiveData,
     ) -> StoreResult<ConnectorMeta> {
         // we test with the account api, and fail if we cannot reach it
         let secret = &SecretString::new(stripe_data.api_secret_key.clone());
-        self.stripe
-            .get_account_id(secret)
+        let account = self
+            .stripe
+            .get_account(secret)
             .await
-            .map_err(|err| Report::new(err).change_context(StoreError::StripeError))?;
+            .map_err(|err| Report::new(err).change_context(StoreError::PaymentProviderError))?;
 
         // then insert
         let mut conn = self.get_conn().await?;
@@ -92,7 +97,10 @@ impl ConnectorsInterface for Store {
             alias,
             connector_type: ConnectorTypeEnum::PaymentProvider,
             provider: ConnectorProviderEnum::Stripe,
-            data: None,
+            data: Some(ProviderData::Stripe(StripePublicData {
+                api_publishable_key: publishable_key,
+                account_id: account.id,
+            })),
             sensitive: Some(ProviderSensitiveData::Stripe(stripe_data)),
         }
         .to_row(&self.settings.crypt_key)?;

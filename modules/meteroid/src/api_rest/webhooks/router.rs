@@ -9,7 +9,7 @@ use axum::{
 
 use crate::api_rest::AppState;
 use crate::services::storage::Prefix;
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, TenantId};
 use error_stack::{Result, ResultExt};
 use meteroid_store::domain::connectors::ProviderSensitiveData;
 use meteroid_store::domain::enums::ConnectorProviderEnum;
@@ -20,11 +20,11 @@ use secrecy::SecretString;
 
 #[axum::debug_handler]
 pub async fn axum_handler(
-    Path((provider, tenant_id)): Path<(String, TenantId)>,
+    Path((tenant_id, connection_alias)): Path<(TenantId, String)>,
     State(app_state): State<AppState>,
     req: Request<Body>,
 ) -> impl IntoResponse {
-    match handler(provider, tenant_id, req, app_state).await {
+    match handler(tenant_id, connection_alias, req, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
             log::error!("Error handling webhook: {}", e);
@@ -34,23 +34,23 @@ pub async fn axum_handler(
 }
 
 async fn handler(
-    provider_str: String,
     tenant_id: TenantId,
+    connection_alias: String,
     req: Request<Body>,
     app_state: AppState,
 ) -> Result<Response, errors::AdapterWebhookError> {
     let received_at = chrono::Utc::now().naive_utc();
 
     log::trace!(
-        "Received webhook for provider: {}, uid: {}",
-        provider_str,
-        tenant_id
+        "Received webhook for tenant: {}, connection: {}",
+        tenant_id,
+        connection_alias
     );
 
     // - get webhook from storage (db, optional redis cache)
     let connector = app_state
         .store
-        .get_connector_with_data_by_alias(provider_str.clone(), tenant_id)
+        .get_connector_with_data_by_alias(connection_alias.clone(), tenant_id)
         .await
         .change_context(errors::AdapterWebhookError::UnknownEndpointId)?;
 
@@ -60,7 +60,7 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
     let prefix = Prefix::WebhookArchive {
-        provider_uid: provider_str,
+        connection_alias: connection_alias.clone(),
         tenant_id,
     };
 
@@ -83,7 +83,7 @@ async fn handler(
             key,
             processed: false,
             error: None,
-            provider_config_id: connector.id,
+            provider_config_id: connector.id.as_uuid(),
         })
         .await
         .change_context(errors::AdapterWebhookError::DatabaseError)?;

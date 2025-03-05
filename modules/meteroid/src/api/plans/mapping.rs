@@ -207,6 +207,7 @@ pub mod plans {
                 created_at: value.created_at.as_proto(),
                 has_draft_version: value.has_draft_version,
                 active_version: value.active_version.map(|v| ActiveVersionInfo {
+                    id: v.id.as_proto(),
                     version: v.version as u32,
                     trial_duration_days: v.trial_duration_days.map(|x| x as u32),
                 }),

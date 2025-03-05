@@ -10,10 +10,12 @@ package meteroid.api.subscriptions.v1;
 
 enum SubscriptionStatus {
   PENDING = 0;
-  TRIAL = 1;
+  TRIALING = 1;
   ACTIVE = 2;
   CANCELED = 3;
   ENDED = 4;
+  TRIAL_EXPIRED = 5;
+  // PENDING_CHECKOUT
 }
 
 message Subscription {
@@ -21,12 +23,12 @@ message Subscription {
   string customer_id = 2;
   string customer_name = 3;
   optional string customer_alias = 4;
-  uint32 billing_day = 5;
+  uint32 billing_day_anchor = 5;
   string tenant_id = 6;
   string currency = 7;
-  optional string trial_start_date = 8;
-  string billing_start_date = 9;
-  optional string billing_end_date = 10;
+  optional uint32 trial_duration = 8;
+  string start_date = 9;
+  optional string end_date = 10;
   string plan_id = 11;
   string plan_name = 12;
   string plan_version_id = 13;
@@ -43,6 +45,8 @@ message Subscription {
   SubscriptionStatus status = 24;
   // TODO accrued (total up until now ? ) , due (next billing cycle) , last X months of revenue for a graph ?
   string local_id = 25;
+  optional string billing_start_date = 26;
+  optional string checkout_token = 27;
 }
 
 message SubscriptionDetails {
@@ -58,12 +62,12 @@ message SubscriptionDetails {
 message CreatedSubscription {
   string id = 1;
   string customer_id = 2;
-  uint32 billing_day = 3;
-  string tenant_id = 4;
-  string currency = 5;
-  optional string trial_start_date = 6;
-  string billing_start_date = 7;
-  optional string billing_end_date = 8;
+  string tenant_id = 3;
+  string currency = 4;
+  optional uint32 trial_duration = 5;
+  string start_date = 6;
+  optional string billing_start_date = 7;
+  optional string end_date = 8;
   string plan_version_id = 9;
   string created_at = 10;
   string created_by = 11;
@@ -73,22 +77,30 @@ message CreatedSubscription {
   optional string activated_at = 15;
   uint64 mrr_cents = 18;
   string local_id = 19;
+  uint32 billing_day_anchor = 20;
+  optional string checkout_token = 21;
 }
 
 message CreateSubscription {
   string plan_version_id = 2;
   string customer_id = 3;
-  string currency = 4;
-  optional string trial_start_date = 5;
-  string billing_start_date = 6;
-  optional string billing_end_date = 7;
-  uint32 billing_day = 8;
-  uint32 net_terms = 10;
+  optional uint32 trial_duration = 5;
+  string start_date = 6;
+  optional string end_date = 7;
+  optional uint32 billing_day_anchor = 8;
+  optional uint32 net_terms = 10;
   optional string invoice_memo = 11;
   optional string invoice_threshold = 12;
   CreateSubscriptionComponents components = 14;
   CreateSubscriptionAddOns add_ons = 15;
   CreateSubscriptionCoupons coupons = 16;
+  ActivationCondition activation_condition = 17;
+}
+
+enum ActivationCondition {
+  ON_START = 0;
+  ON_CHECKOUT = 1;
+  MANUAL = 2;
 }
 
 message CreateSubscriptionAddOn {
@@ -189,6 +201,7 @@ enum SubscriptionFeeBillingPeriod {
   QUARTERLY = 2;
   YEARLY = 3;
 }
+
 
 
 message SubscriptionFee {

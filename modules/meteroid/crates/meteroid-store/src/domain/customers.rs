@@ -1,8 +1,13 @@
+use crate::domain::enums::PaymentMethodTypeEnum;
 use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
-use common_domain::ids::{AliasOr, BaseId, CustomerId, InvoicingEntityId, TenantId};
+use common_domain::ids::{
+    AliasOr, BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId,
+    CustomerPaymentMethodId, InvoicingEntityId, TenantId,
+};
+use diesel_models::customer_connection::CustomerConnectionRow;
 use diesel_models::customers::CustomerRow;
 use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatch};
 use error_stack::Report;
@@ -23,11 +28,8 @@ pub struct Customer {
     pub archived_by: Option<Uuid>,
     pub tenant_id: TenantId,
     pub invoicing_entity_id: InvoicingEntityId,
-    #[map(~.try_into()?)]
-    pub billing_config: BillingConfig,
     pub alias: Option<String>,
-    pub email: Option<String>,
-    pub invoicing_email: Option<String>,
+    pub billing_email: Option<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
     pub currency: String,
@@ -35,6 +37,13 @@ pub struct Customer {
     pub billing_address: Option<Address>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
+    pub bank_account_id: Option<BankAccountId>,
+    pub current_payment_method_id: Option<CustomerPaymentMethodId>,
+    pub default_psp_connection_id: Option<CustomerConnectionId>,
+    pub vat_number: Option<String>,
+    pub custom_vat_rate: Option<i32>,
+    #[map(~.into_iter().flatten().collect())]
+    pub invoicing_emails: Vec<String>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -49,10 +58,9 @@ pub struct CustomerBrief {
 #[derive(Clone, Debug)]
 pub struct CustomerNew {
     pub name: String,
-    pub billing_config: BillingConfig,
     pub alias: Option<String>,
-    pub email: Option<String>,
-    pub invoicing_email: Option<String>,
+    pub billing_email: Option<String>,
+    pub invoicing_emails: Vec<String>,
     pub phone: Option<String>,
     pub balance_value_cents: i32,
     pub currency: String,
@@ -62,6 +70,9 @@ pub struct CustomerNew {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     // for seeding
     pub force_created_date: Option<NaiveDateTime>,
+    pub bank_account_id: Option<BankAccountId>,
+    pub vat_number: Option<String>,
+    pub custom_vat_rate: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -81,10 +92,14 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             created_by: self.inner.created_by,
             tenant_id: self.tenant_id,
             invoicing_entity_id: self.invoicing_entity_id,
-            billing_config: self.inner.billing_config.try_into()?,
             alias: self.inner.alias,
-            email: self.inner.email,
-            invoicing_email: self.inner.invoicing_email,
+            billing_email: self.inner.billing_email,
+            invoicing_emails: self
+                .inner
+                .invoicing_emails
+                .into_iter()
+                .map(|v| Some(v))
+                .collect(),
             phone: self.inner.phone,
             balance_value_cents: self.inner.balance_value_cents,
             currency: self.inner.currency,
@@ -99,6 +114,11 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
                 .map(|v| v.try_into())
                 .transpose()?,
             created_at: self.inner.force_created_date,
+            bank_account_id: self.inner.bank_account_id,
+            current_payment_method_id: None,
+            default_psp_connection_id: None,
+            vat_number: self.inner.vat_number,
+            custom_vat_rate: self.inner.custom_vat_rate,
         })
     }
 }
@@ -109,8 +129,9 @@ pub struct CustomerPatch {
     pub id: CustomerId,
     pub name: Option<String>,
     pub alias: Option<String>,
-    pub email: Option<String>,
-    pub invoicing_email: Option<String>,
+    pub billing_email: Option<String>,
+    #[map(~.map(|v| v.into_iter().map(|t| Some(t.into())).collect()))]
+    pub invoicing_emails: Option<Vec<String>>,
     pub phone: Option<String>,
     pub balance_value_cents: Option<i32>,
     pub currency: Option<String>,
@@ -119,6 +140,8 @@ pub struct CustomerPatch {
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: Option<InvoicingEntityId>,
+    pub vat_number: Option<Option<String>>,
+    pub custom_vat_rate: Option<Option<i32>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -147,14 +170,6 @@ pub struct ShippingAddress {
 }
 
 json_value_serde!(ShippingAddress);
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum BillingConfig {
-    Stripe(StripeCustomerConfig),
-    Manual,
-}
-
-json_value_serde!(BillingConfig);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StripeCustomerConfig {
@@ -190,13 +205,25 @@ pub struct CustomerBuyCredits {
 pub struct CustomerUpdate {
     pub id_or_alias: AliasOr<CustomerId>,
     pub name: String,
-    pub billing_config: BillingConfig,
     pub alias: Option<String>,
-    pub email: Option<String>,
-    pub invoicing_email: Option<String>,
+    pub billing_email: Option<String>,
+    pub invoicing_emails: Vec<String>,
     pub phone: Option<String>,
     pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: InvoicingEntityId,
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(CustomerConnectionRow)]
+#[owned_into(CustomerConnectionRow)]
+pub struct CustomerConnection {
+    pub id: CustomerConnectionId,
+    pub customer_id: CustomerId,
+    pub connector_id: ConnectorId,
+    #[into(~.map(|v| v.into_iter().map(|t| Some(t.into())).collect()))]
+    #[from(~.map(|v| v.into_iter().flatten().map(|t| t.into()).collect()))]
+    pub supported_payment_types: Option<Vec<PaymentMethodTypeEnum>>,
+    pub external_customer_id: String,
 }

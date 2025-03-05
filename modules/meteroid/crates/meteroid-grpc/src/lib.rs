@@ -168,6 +168,14 @@ pub mod meteroid {
             tonic::include_proto!("meteroid.internal.v1");
         }
     }
+
+    pub mod portal {
+        pub mod checkout {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.portal.checkout.v1");
+            }
+        }
+    }
 }
 
 pub mod _reflection {

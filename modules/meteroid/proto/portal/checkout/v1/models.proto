@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package meteroid.portal.checkout.v1;
+
+import "api/subscriptions/v1/models.proto";
+import "api/customers/v1/models.proto";
+import "api/invoices/v1/models.proto";
+
+
+
+message Checkout {
+  api.subscriptions.v1.SubscriptionDetails subscription = 1;
+  api.customers.v1.Customer customer = 2;
+  repeated api.invoices.v1.LineItem invoice_lines = 3;
+  repeated api.customers.v1.CustomerPaymentMethod payment_methods = 4;
+  optional string logo_url = 8;
+  string trade_name = 9;
+}
+
+message SetupIntent {
+  string intent_id = 1;
+  string intent_secret = 2;
+  string provider = 3;
+  string provider_public_key = 4;
+}
+
+message PaymentIntent {}

@@ -80,7 +80,12 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         let res = self
             .store
-            .connect_stripe(tenant_id, data.alias, sensitive_data)
+            .connect_stripe(
+                tenant_id,
+                data.alias,
+                data.api_publishable_key,
+                sensitive_data,
+            )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
 

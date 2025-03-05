@@ -50,7 +50,7 @@ impl BillableMetricRow {
     pub async fn get_by_ids(
         conn: &mut PgConn,
         metric_ids: &[BillableMetricId],
-        tenant_id_param: TenantId,
+        tenant_id_param: &TenantId,
     ) -> DbResult<Vec<BillableMetricRow>> {
         use crate::schema::billable_metric::dsl::*;
         use diesel_async::RunQueryDsl;

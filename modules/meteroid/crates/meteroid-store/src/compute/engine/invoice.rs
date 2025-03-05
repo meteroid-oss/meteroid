@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use super::period::calculate_component_period;
 use crate::compute::engine::component::ComponentEngine;
 use crate::compute::errors::ComputeError;
 use crate::constants::Currency;
@@ -10,6 +9,7 @@ use crate::Store;
 use chrono::NaiveDate;
 use itertools::Itertools;
 
+use crate::utils::periods::calculate_component_period_for_invoice_date;
 use error_stack::{Report, Result, ResultExt};
 
 #[async_trait::async_trait]
@@ -26,22 +26,29 @@ impl InvoiceLineInterface for Store {
     // Here we consider that we HAVE the invoice_date, and we want to compute the invoice that need to be produced for a billing on that date.
     // However, this may not be the right/the only approach, and we may prefer an alternative approach where we compute the next invoices following the current date. (so the next invoice for each component)
     // => I guess that this ends up being similar ? we just compute these "invoice_dates" right ?
+
+    //TODO storeerror
     async fn compute_dated_invoice_lines(
         &self,
         invoice_date: &NaiveDate,
         subscription_details: &SubscriptionDetails,
     ) -> Result<Vec<LineItem>, ComputeError> {
-        if *invoice_date < subscription_details.billing_start_date {
+        let billing_start_date = subscription_details
+            .subscription
+            .billing_start_date
+            // TODO should we return empty ?
+            .ok_or(Report::new(ComputeError::InternalError))
+            .attach_printable("No billing_start_date is present")?;
+
+        if *invoice_date < billing_start_date {
             return Err(Report::new(ComputeError::InvalidInvoiceDate));
         }
 
         let currency = self
-            .get_reporting_currency_by_tenant_id(subscription_details.tenant_id)
+            .get_reporting_currency_by_tenant_id(subscription_details.subscription.tenant_id)
             .await
             .change_context(ComputeError::InternalError)?;
 
-        let billing_start_date = subscription_details.billing_start_date;
-        let billing_day = subscription_details.billing_day;
         let invoice_date = *invoice_date;
 
         let component_engine = ComponentEngine::new(
@@ -54,7 +61,7 @@ impl InvoiceLineInterface for Store {
             &component_engine,
             &subscription_details.price_components,
             billing_start_date,
-            billing_day,
+            subscription_details.subscription.billing_day_anchor,
             invoice_date,
             &currency,
         )
@@ -64,7 +71,7 @@ impl InvoiceLineInterface for Store {
             &component_engine,
             &subscription_details.add_ons,
             billing_start_date,
-            billing_day,
+            subscription_details.subscription.billing_day_anchor,
             invoice_date,
             &currency,
         )
@@ -83,7 +90,7 @@ async fn compute_invoice_lines<T: SubscriptionFeeInterface>(
     component_engine: &ComponentEngine,
     fee_records: &[T],
     billing_start_date: NaiveDate,
-    billing_day: i16,
+    billing_day: u16,
     invoice_date: NaiveDate,
     currency: &Currency,
 ) -> Result<Vec<LineItem>, ComputeError> {
@@ -102,9 +109,9 @@ async fn compute_invoice_lines<T: SubscriptionFeeInterface>(
             //    - if billing_day is null or is the invoice date's day. No proration needed
             //    - else, proration needed
             // - else : invoice date is not the billing start date. We consider advance and arrear fees. No proration to apply
-            let period = calculate_component_period(
+            let period = calculate_component_period_for_invoice_date(
                 billing_start_date,
-                billing_day as u32,
+                billing_day,
                 invoice_date,
                 &billing_period,
             );

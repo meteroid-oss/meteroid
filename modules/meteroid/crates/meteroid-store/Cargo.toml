@@ -11,7 +11,7 @@ repository.workspace = true
 [dependencies]
 common-eventbus.workspace = true
 
-argon2 = { workspace = true }
+argon2 = { workspace = true, features = ["rand"] }
 base62.workspace = true
 backon = { workspace = true }
 cached = { workspace = true, features = ["async", "tokio"] }

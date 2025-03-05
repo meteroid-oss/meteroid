@@ -128,7 +128,7 @@ impl CouponRow {
     pub async fn list_by_ids(
         conn: &mut PgConn,
         ids: &[CouponId],
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
     ) -> DbResult<Vec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
 
@@ -149,7 +149,7 @@ impl CouponRow {
     pub async fn list_by_ids_for_update(
         conn: &mut PgConn,
         ids: &[CouponId],
-        tenant_id: TenantId,
+        tenant_id: &TenantId,
     ) -> DbResult<Vec<CouponRow>> {
         use crate::schema::coupon::dsl as c_dsl;
 

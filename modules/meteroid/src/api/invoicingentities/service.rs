@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use common_domain::ids::InvoicingEntityId;
+use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use image::ImageFormat;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
@@ -15,7 +15,6 @@ use meteroid_store::domain::{InvoicingEntityPatch, InvoicingEntityProvidersPatch
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use std::io::Cursor;
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
 use crate::api::shared::conversions::FromProtoOpt;
@@ -209,8 +208,8 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .store
             .patch_invoicing_entity_providers(
                 InvoicingEntityProvidersPatch {
-                    bank_account_id: Uuid::from_proto_opt(req.bank_account_id)?,
-                    cc_provider_id: Uuid::from_proto_opt(req.cc_provider_id)?,
+                    bank_account_id: Some(BankAccountId::from_proto_opt(req.bank_account_id)?),
+                    cc_provider_id: Some(ConnectorId::from_proto_opt(req.cc_provider_id)?),
                     id: InvoicingEntityId::from_proto(req.id)?,
                 },
                 tenant,

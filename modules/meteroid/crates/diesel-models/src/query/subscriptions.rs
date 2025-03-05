@@ -58,7 +58,7 @@ impl SubscriptionRow {
 
     pub async fn get_subscription_by_id(
         conn: &mut PgConn,
-        tenant_id_param: TenantId,
+        tenant_id_param: &TenantId,
         subscription_id_param: SubscriptionId,
     ) -> DbResult<SubscriptionForDisplayRow> {
         use crate::schema::subscription::dsl::*;
@@ -86,7 +86,7 @@ impl SubscriptionRow {
 
     pub async fn list_subscriptions_by_ids(
         conn: &mut PgConn,
-        tenant_id_param: TenantId,
+        tenant_id_param: &TenantId,
         subscription_ids: &[SubscriptionId],
     ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
         use crate::schema::plan::dsl as p_dsl;
@@ -122,7 +122,7 @@ impl SubscriptionRow {
             .filter(tenant_id.eq(params.tenant_id))
             .filter(canceled_at.is_null())
             .set((
-                billing_end_date.eq(params.billing_end_date),
+                end_date.eq(params.billing_end_date),
                 canceled_at.eq(params.canceled_at),
                 cancellation_reason.eq(params.reason),
             ));
@@ -140,8 +140,8 @@ impl SubscriptionRow {
 
     pub async fn activate_subscription(
         conn: &mut PgConn,
-        id: SubscriptionId,
-        tenant_id: TenantId,
+        id: &SubscriptionId,
+        tenant_id: &TenantId,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl as s_dsl;
 
@@ -164,7 +164,7 @@ impl SubscriptionRow {
 
     pub async fn get_subscription_id_by_invoice_id(
         conn: &mut PgConn,
-        tenant_id_param: TenantId,
+        tenant_id_param: &TenantId,
         invoice_id: &uuid::Uuid,
     ) -> DbResult<Option<SubscriptionId>> {
         use crate::schema::invoice::dsl as i_dsl;
@@ -188,7 +188,7 @@ impl SubscriptionRow {
 
     pub async fn list_subscriptions(
         conn: &mut PgConn,
-        tenant_id_param: TenantId,
+        tenant_id_param: &TenantId,
         customer_id_opt: Option<CustomerId>,
         plan_id_param_opt: Option<PlanId>,
         pagination: PaginationRequest,
@@ -252,11 +252,11 @@ impl SubscriptionRow {
         let query = s_dsl::subscription
             // only if not already ended
             .filter(
-                s_dsl::billing_end_date
+                s_dsl::end_date
                     .is_null()
-                    .or(s_dsl::billing_end_date.gt(input_date_param)),
+                    .or(s_dsl::end_date.gt(input_date_param)),
             )
-            // only if started. lt => we consider that initial invoice was already created
+            // only if started. lt => we consider that initial invoice was already created TODO start_date or billing_start_date?
             .filter(s_dsl::billing_start_date.lt(input_date_param))
             // only if no future recurring invoice exist.
             // (requires a single recurring invoice in parallel. For now, this is true)

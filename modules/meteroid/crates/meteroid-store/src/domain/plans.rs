@@ -5,6 +5,7 @@ use diesel_models::plan_versions::PlanVersionRowOverview;
 use diesel_models::plan_versions::PlanVersionRowPatch;
 use diesel_models::plans::PlanFilters as PlanFiltersDb;
 use diesel_models::plans::PlanRow;
+use diesel_models::plans::PlanRowForSubscription;
 use diesel_models::plans::PlanRowNew;
 use diesel_models::plans::PlanRowOverview;
 use diesel_models::plans::PlanRowPatch;
@@ -230,9 +231,21 @@ pub struct PlanVersionOverview {
 #[derive(Clone, Debug, o2o)]
 #[from_owned(PlanVersionRowInfo)]
 pub struct PlanVersionInfo {
+    pub id: Uuid,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
     // add currency(-ies) ?
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(PlanRowForSubscription)]
+pub struct PlanForSubscription {
+    pub version_id: Uuid,
+    pub net_terms: i32,
+    pub name: String,
+    pub currency: String,
+    #[from(~.into())]
+    pub plan_type: PlanTypeEnum,
 }
 
 #[derive(Clone, Debug, o2o)]

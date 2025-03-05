@@ -20,8 +20,8 @@ use tonic::{Request, Response, Status};
 
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
-    DomainAddressWrapper, DomainBillingConfigWrapper, DomainShippingAddressWrapper,
-    ServerCustomerBriefWrapper, ServerCustomerWrapper,
+    DomainAddressWrapper, DomainShippingAddressWrapper, ServerCustomerBriefWrapper,
+    ServerCustomerWrapper,
 };
 use crate::api::utils::PaginationExt;
 
@@ -42,19 +42,13 @@ impl CustomersService for CustomerServiceComponents {
             .data
             .ok_or(CustomerApiError::MissingArgument("no data".into()))?;
 
-        let billing_config = match inner.billing_config {
-            Some(b) => DomainBillingConfigWrapper::try_from(b)?.0,
-            None => domain::BillingConfig::Manual,
-        };
-
         let customer_new = CustomerNew {
             name: inner.name,
             created_by: actor,
             invoicing_entity_id: InvoicingEntityId::from_proto_opt(inner.invoicing_entity_id)?,
-            billing_config,
             alias: inner.alias,
-            email: inner.email,
-            invoicing_email: inner.invoicing_email,
+            billing_email: inner.billing_email,
+            invoicing_emails: inner.invoicing_emails,
             phone: inner.phone,
             balance_value_cents: 0,
             currency: inner.currency,
@@ -69,6 +63,10 @@ impl CustomersService for CustomerServiceComponents {
                 .transpose()?
                 .map(|v| v.0),
             force_created_date: None,
+            // TODO
+            bank_account_id: None,
+            vat_number: None,
+            custom_vat_rate: None,
         };
 
         let customer = self
@@ -119,8 +117,8 @@ impl CustomersService for CustomerServiceComponents {
                     id: CustomerId::from_proto(&customer.id)?,
                     name: customer.name.clone(),
                     alias: customer.alias.clone(),
-                    email: customer.email.clone(),
-                    invoicing_email: customer.invoicing_email.clone(),
+                    billing_email: customer.billing_email.clone(),
+                    invoicing_emails: customer.invoicing_emails.map(|v| v.emails),
                     phone: customer.phone.clone(),
                     balance_value_cents: customer.balance_value_cents,
                     invoicing_entity_id: InvoicingEntityId::from_proto_opt(
@@ -129,6 +127,9 @@ impl CustomersService for CustomerServiceComponents {
                     currency: customer.currency.clone(),
                     billing_address,
                     shipping_address,
+                    // TODO
+                    vat_number: None,
+                    custom_vat_rate: None,
                 },
             )
             .await

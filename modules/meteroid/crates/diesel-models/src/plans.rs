@@ -55,7 +55,17 @@ pub struct PlanRowOverview {
 }
 
 #[derive(Debug, Queryable)]
+pub struct PlanRowForSubscription {
+    pub version_id: Uuid,
+    pub net_terms: i32,
+    pub name: String,
+    pub currency: String,
+    pub plan_type: PlanTypeEnum,
+}
+
+#[derive(Debug, Queryable)]
 pub struct PlanVersionRowInfo {
+    pub id: Uuid,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
 }

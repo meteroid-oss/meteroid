@@ -1,13 +1,13 @@
 use crate::errors::IntoDbResult;
 use crate::plan_versions::PlanVersionFilter;
 use crate::plans::{
-    PlanFilters, PlanRow, PlanRowNew, PlanRowOverview, PlanRowPatch, PlanWithVersionRow,
+    PlanFilters, PlanRow, PlanRowForSubscription, PlanRowNew, PlanRowOverview, PlanRowPatch,
+    PlanWithVersionRow,
 };
-use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::PlanStatusEnum;
+use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
@@ -150,7 +150,7 @@ impl PlanRow {
                 pf_dsl::name,
                 pf_dsl::id,
                 active_version_alias
-                    .fields((pv_dsl::version, pv_dsl::trial_duration_days))
+                    .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>("null"),
@@ -236,11 +236,11 @@ impl PlanRowOverview {
         let active_subscriptions_count_subselect = s_dsl::subscription
             .inner_join(pv_dsl::plan_version.on(s_dsl::plan_version_id.eq(pv_dsl::id)))
             .filter(pv_dsl::plan_id.eq(p_dsl::id))
-            .filter(s_dsl::billing_start_date.le(today))
+            .filter(s_dsl::start_date.le(today))
             .filter(
-                s_dsl::billing_end_date
+                s_dsl::end_date
                     .is_null()
-                    .or(s_dsl::billing_end_date.nullable().ge(today)),
+                    .or(s_dsl::end_date.nullable().ge(today)),
             )
             .count()
             .single_value(); // single_value transforms the query in subquery
@@ -270,7 +270,7 @@ impl PlanRowOverview {
                 pf_dsl::name,
                 pf_dsl::id,
                 active_version_alias
-                    .fields((pv_dsl::version, pv_dsl::trial_duration_days))
+                    .fields((pv_dsl::id, pv_dsl::version, pv_dsl::trial_duration_days))
                     .nullable(),
                 draft_version_alias.field(pv_dsl::id).nullable(),
                 active_subscriptions_count_subselect,
@@ -335,26 +335,45 @@ impl PlanRowPatch {
             .into_db_result()
     }
 }
+impl PlanRowForSubscription {
+    pub async fn get_plans_for_subscription_by_version_ids(
+        conn: &mut PgConn,
+        version_ids: Vec<Uuid>,
+    ) -> DbResult<Vec<PlanRowForSubscription>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
 
-pub async fn get_plan_names_by_version_ids(
-    conn: &mut PgConn,
-    version_ids: Vec<Uuid>,
-) -> DbResult<HashMap<Uuid, String>> {
-    use crate::schema::plan::dsl as p_dsl;
-    use crate::schema::plan_version::dsl as pv_dsl;
-    use diesel_async::RunQueryDsl;
+        let query = pv_dsl::plan_version
+            .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
+            .filter(pv_dsl::id.eq_any(version_ids))
+            .select((
+                pv_dsl::id,
+                pv_dsl::net_terms,
+                p_dsl::name,
+                pv_dsl::currency,
+                p_dsl::plan_type,
+            ));
 
-    let query = pv_dsl::plan_version
-        .inner_join(p_dsl::plan.on(pv_dsl::plan_id.eq(p_dsl::id)))
-        .filter(pv_dsl::id.eq_any(version_ids))
-        .select((pv_dsl::id, p_dsl::name));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
-    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
-
-    query
-        .load(conn)
-        .await
-        .attach_printable("Error while getting plan names by version ids")
-        .into_db_result()
-        .map(|rows: Vec<(Uuid, String)>| rows.into_iter().collect())
+        query
+            .load(conn)
+            .await
+            .attach_printable("Error while getting plan names by version ids")
+            .into_db_result()
+            .map(|rows: Vec<(Uuid, i32, String, String, PlanTypeEnum)>| {
+                rows.into_iter()
+                    .map(|(version_id, net_terms, name, currency, plan_type)| {
+                        PlanRowForSubscription {
+                            version_id,
+                            net_terms,
+                            name,
+                            currency,
+                            plan_type,
+                        }
+                    })
+                    .collect()
+            })
+    }
 }

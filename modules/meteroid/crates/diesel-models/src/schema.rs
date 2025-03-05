@@ -54,12 +54,28 @@ pub mod sql_types {
     pub struct OrganizationUserRole;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "PaymentMethodTypeEnum"))]
+    pub struct PaymentMethodTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "PaymentStatusEnum"))]
+    pub struct PaymentStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "PaymentTypeEnum"))]
+    pub struct PaymentTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "PlanStatusEnum"))]
     pub struct PlanStatusEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "PlanTypeEnum"))]
     pub struct PlanTypeEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "SubscriptionActivationConditionEnum"))]
+    pub struct SubscriptionActivationConditionEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "SubscriptionEventType"))]
@@ -295,10 +311,8 @@ diesel::table! {
         updated_by -> Nullable<Uuid>,
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
-        billing_config -> Jsonb,
         alias -> Nullable<Text>,
-        email -> Nullable<Text>,
-        invoicing_email -> Nullable<Text>,
+        billing_email -> Nullable<Text>,
         phone -> Nullable<Text>,
         balance_value_cents -> Int4,
         currency -> Text,
@@ -306,6 +320,12 @@ diesel::table! {
         shipping_address -> Nullable<Jsonb>,
         invoicing_entity_id -> Uuid,
         archived_by -> Nullable<Uuid>,
+        bank_account_id -> Nullable<Uuid>,
+        current_payment_method_id -> Nullable<Uuid>,
+        default_psp_connection_id -> Nullable<Uuid>,
+        vat_number -> Nullable<Text>,
+        custom_vat_rate -> Nullable<Int4>,
+        invoicing_emails -> Array<Nullable<Text>>,
     }
 }
 
@@ -335,6 +355,41 @@ diesel::table! {
         tenant_id -> Uuid,
         customer_id -> Uuid,
         created_by -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::PaymentMethodTypeEnum;
+
+    customer_connection (id) {
+        id -> Uuid,
+        customer_id -> Uuid,
+        connector_id -> Uuid,
+        supported_payment_types -> Nullable<Array<Nullable<PaymentMethodTypeEnum>>>,
+        external_customer_id -> Text,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::PaymentMethodTypeEnum;
+
+    customer_payment_method (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        connection_id -> Nullable<Uuid>,
+        external_payment_method_id -> Nullable<Text>,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        archived_at -> Nullable<Timestamp>,
+        payment_method_type -> PaymentMethodTypeEnum,
+        account_number_hint -> Nullable<Text>,
+        card_brand -> Nullable<Text>,
+        card_last4 -> Nullable<Text>,
+        card_exp_month -> Nullable<Int4>,
+        card_exp_year -> Nullable<Int4>,
     }
 }
 
@@ -511,6 +566,27 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::PaymentStatusEnum;
+    use super::sql_types::PaymentTypeEnum;
+
+    payment_transaction (id) {
+        id -> Uuid,
+        tenant_id -> Uuid,
+        invoice_id -> Uuid,
+        provider_transaction_id -> Nullable<Text>,
+        processed_at -> Nullable<Timestamp>,
+        refunded_at -> Nullable<Timestamp>,
+        amount -> Int8,
+        currency -> Text,
+        payment_method_id -> Nullable<Uuid>,
+        status -> PaymentStatusEnum,
+        payment_type -> PaymentTypeEnum,
+        error_type -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::PlanTypeEnum;
     use super::sql_types::PlanStatusEnum;
 
@@ -618,15 +694,15 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
+    use super::sql_types::PaymentMethodTypeEnum;
+    use super::sql_types::SubscriptionActivationConditionEnum;
 
     subscription (id) {
         id -> Uuid,
         customer_id -> Uuid,
-        billing_day -> Int2,
+        billing_day_anchor -> Int2,
         tenant_id -> Uuid,
-        trial_start_date -> Nullable<Date>,
-        billing_start_date -> Date,
-        billing_end_date -> Nullable<Date>,
+        start_date -> Date,
         plan_version_id -> Uuid,
         created_at -> Timestamp,
         created_by -> Uuid,
@@ -636,10 +712,17 @@ diesel::table! {
         activated_at -> Nullable<Timestamp>,
         canceled_at -> Nullable<Timestamp>,
         cancellation_reason -> Nullable<Text>,
-        #[max_length = 3]
-        currency -> Varchar,
         mrr_cents -> Int8,
         period -> BillingPeriodEnum,
+        currency -> Text,
+        psp_connection_id -> Nullable<Uuid>,
+        pending_checkout -> Bool,
+        payment_method_type -> Nullable<PaymentMethodTypeEnum>,
+        payment_method -> Nullable<Uuid>,
+        end_date -> Nullable<Date>,
+        trial_duration -> Nullable<Int4>,
+        activation_condition -> SubscriptionActivationConditionEnum,
+        billing_start_date -> Nullable<Date>,
     }
 }
 
@@ -754,6 +837,7 @@ diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
+diesel::joinable!(customer -> bank_account (bank_account_id));
 diesel::joinable!(customer -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(customer -> tenant (tenant_id));
 diesel::joinable!(customer_balance_pending_tx -> customer (customer_id));
@@ -765,6 +849,9 @@ diesel::joinable!(customer_balance_tx -> customer (customer_id));
 diesel::joinable!(customer_balance_tx -> invoice (invoice_id));
 diesel::joinable!(customer_balance_tx -> tenant (tenant_id));
 diesel::joinable!(customer_balance_tx -> user (created_by));
+diesel::joinable!(customer_connection -> connector (connector_id));
+diesel::joinable!(customer_payment_method -> customer_connection (connection_id));
+diesel::joinable!(customer_payment_method -> tenant (tenant_id));
 diesel::joinable!(invoice -> customer (customer_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
@@ -773,6 +860,9 @@ diesel::joinable!(invoicing_entity -> connector (cc_provider_id));
 diesel::joinable!(invoicing_entity -> tenant (tenant_id));
 diesel::joinable!(organization_member -> organization (organization_id));
 diesel::joinable!(organization_member -> user (user_id));
+diesel::joinable!(payment_transaction -> customer_payment_method (payment_method_id));
+diesel::joinable!(payment_transaction -> invoice (invoice_id));
+diesel::joinable!(payment_transaction -> tenant (tenant_id));
 diesel::joinable!(plan -> product_family (product_family_id));
 diesel::joinable!(plan -> tenant (tenant_id));
 diesel::joinable!(price_component -> billable_metric (billable_metric_id));
@@ -785,6 +875,8 @@ diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(slot_transaction -> price_component (price_component_id));
 diesel::joinable!(slot_transaction -> subscription (subscription_id));
 diesel::joinable!(subscription -> customer (customer_id));
+diesel::joinable!(subscription -> customer_connection (psp_connection_id));
+diesel::joinable!(subscription -> customer_payment_method (payment_method));
 diesel::joinable!(subscription -> plan_version (plan_version_id));
 diesel::joinable!(subscription -> tenant (tenant_id));
 diesel::joinable!(subscription_add_on -> add_on (add_on_id));
@@ -813,6 +905,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     customer,
     customer_balance_pending_tx,
     customer_balance_tx,
+    customer_connection,
+    customer_payment_method,
     fang_tasks,
     fang_tasks_archive,
     historical_rates_from_usd,
@@ -822,6 +916,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     organization,
     organization_member,
     outbox_event,
+    payment_transaction,
     plan,
     plan_version,
     price_component,

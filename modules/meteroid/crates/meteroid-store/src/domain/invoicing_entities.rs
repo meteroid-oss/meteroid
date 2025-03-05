@@ -1,13 +1,15 @@
-use crate::domain::connectors::ConnectorMeta;
+use secrecy::SecretString;
+
+use crate::domain::connectors::{Connector, ConnectorMeta};
 use crate::domain::{Address, BankAccount};
-use common_domain::ids::{InvoicingEntityId, TenantId};
+use crate::StoreResult;
+use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, TenantId};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
 };
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize, Deserialize, o2o)]
 #[map_owned(InvoicingEntityRow)]
@@ -40,8 +42,8 @@ pub struct InvoicingEntity {
     pub accounting_currency: String,
     pub tenant_id: TenantId,
 
-    pub cc_provider_id: Option<Uuid>,
-    pub bank_account_id: Option<Uuid>,
+    pub cc_provider_id: Option<ConnectorId>,
+    pub bank_account_id: Option<BankAccountId>,
 }
 
 impl InvoicingEntity {
@@ -104,11 +106,13 @@ pub struct InvoicingEntityPatch {
 #[owned_into(InvoicingEntityRowProvidersPatch)]
 pub struct InvoicingEntityProvidersPatch {
     pub id: InvoicingEntityId,
-    pub cc_provider_id: Option<Uuid>,
-    pub bank_account_id: Option<Uuid>,
+    pub cc_provider_id: Option<Option<ConnectorId>>,
+    pub bank_account_id: Option<Option<BankAccountId>>,
 }
 
+#[derive(Clone, Debug)]
 pub struct InvoicingEntityProviders {
+    pub id: InvoicingEntityId,
     pub bank_account: Option<BankAccount>,
     pub cc_provider: Option<ConnectorMeta>,
 }
@@ -116,8 +120,29 @@ pub struct InvoicingEntityProviders {
 impl From<InvoicingEntityProvidersRow> for InvoicingEntityProviders {
     fn from(row: InvoicingEntityProvidersRow) -> Self {
         Self {
+            id: row.entity.id,
             bank_account: row.bank_account.map(BankAccount::from),
             cc_provider: row.cc_provider.map(ConnectorMeta::from),
         }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct InvoicingEntityProviderSensitive {
+    pub id: InvoicingEntityId,
+    pub bank_account: Option<BankAccount>,
+    pub cc_provider: Option<Connector>,
+}
+
+impl InvoicingEntityProviderSensitive {
+    pub fn from_row(row: InvoicingEntityProvidersRow, key: &SecretString) -> StoreResult<Self> {
+        Ok(Self {
+            id: row.entity.id,
+            bank_account: row.bank_account.map(BankAccount::from),
+            cc_provider: row
+                .cc_provider
+                .map(|p| Connector::from_row(key, p))
+                .transpose()?,
+        })
     }
 }

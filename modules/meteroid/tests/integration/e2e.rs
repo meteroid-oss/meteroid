@@ -410,15 +410,14 @@ async fn test_metering_e2e() {
                 subscription: Some(
                     api::subscriptions::v1::CreateSubscription {
                         plan_version_id: plan_version_id.clone(),
-                        billing_start_date: period_1_start.date_naive().to_string(),
-                        billing_end_date: None,
-                        net_terms: 0,
+                        start_date: period_1_start.date_naive().to_string(),
+                        end_date: None,
+                        net_terms: None,
                         invoice_memo: None,
                         invoice_threshold: None,
-                        billing_day,
+                        billing_day_anchor: Some(billing_day),
                         customer_id: customer_1.clone(),
-                        currency: "USD".to_string(),
-                        trial_start_date: None,
+                        trial_duration: None,
                         components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                             parameterized_components: vec![
                                 api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -434,6 +433,7 @@ async fn test_metering_e2e() {
                         }),
                         add_ons: None,
                         coupons: None,
+                        activation_condition: api::subscriptions::v1::ActivationCondition::Manual.into(),
                     },
                 )
             },
@@ -626,6 +626,7 @@ async fn fetch_invoices(store: &Store, tenant_id: TenantId) -> Vec<Invoice> {
     store
         .list_invoices(
             tenant_id,
+            None,
             None,
             None,
             None,

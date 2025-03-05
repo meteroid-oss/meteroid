@@ -17,6 +17,7 @@ message ListInvoicesRequest {
   meteroid.common.v1.Pagination pagination = 3;
   optional InvoiceStatus status = 4;
   optional string customer_id = 5;
+  optional string subscription_id = 6;
 }
 
 message ListInvoicesResponse {

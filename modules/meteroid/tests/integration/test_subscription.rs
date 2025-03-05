@@ -74,10 +74,9 @@ async fn test_subscription_create() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: now.as_proto(),
-                    billing_day: 1,
+                    start_date: now.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -105,10 +104,9 @@ async fn test_subscription_create() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: now.as_proto(),
-                    billing_day: 1,
+                    start_date: now.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -136,10 +134,9 @@ async fn test_subscription_create() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: now.as_proto(),
-                    billing_day: 1,
+                    start_date: now.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -233,10 +230,9 @@ async fn test_subscription_cancel() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: now.as_proto(),
-                    billing_day: 1,
+                    start_date: now.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -309,7 +305,7 @@ async fn test_subscription_cancel() {
 //             api::subscriptions::v1::CreateSubscriptionRequest {
 //                 subscription: Some(api::subscriptions::v1::CreateSubscription {
 //                     plan_version_id: plan_version_id.clone(),
-//                     billing_start_date: start.as_proto(),
+//                     start_date: start.as_proto(),
 //                     billing_day: start.day(),
 //                     customer_id: customer_id.clone(),
 //                     currency: "USD".to_string(),
@@ -472,10 +468,9 @@ async fn test_subscription_create_invoice_seats() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: start.as_proto(),
-                    billing_day: 10,
+                    start_date: start.as_proto(),
+                    billing_day_anchor: Some(10),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -579,10 +574,9 @@ async fn test_subscription_create_invoice_rate() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: start.as_proto(),
-                    billing_day: 1,
+                    start_date: start.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -609,10 +603,9 @@ async fn test_subscription_create_invoice_rate() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: start.as_proto(),
-                    billing_day: 1,
+                    start_date: start.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -639,10 +632,9 @@ async fn test_subscription_create_invoice_rate() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: start.as_proto(),
-                    billing_day: 1,
+                    start_date: start.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -668,10 +660,9 @@ async fn test_subscription_create_invoice_rate() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: start.as_proto(),
-                    billing_day: 30,
+                    start_date: start.as_proto(),
+                    billing_day_anchor: Some(30),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {
@@ -801,10 +792,9 @@ async fn test_subscription_create_invoice_usage() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version_id.clone(),
-                    billing_start_date: start.as_proto(),
-                    billing_day: 10,
+                    start_date: start.as_proto(),
+                    billing_day_anchor: Some(10),
                     customer_id: customer_id.clone(),
-                    currency: "USD".to_string(),
                     components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                         parameterized_components: vec![
                             api::subscriptions::v1::create_subscription_components::ComponentParameterization {

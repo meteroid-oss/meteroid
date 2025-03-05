@@ -72,7 +72,7 @@ pub enum InvoiceExternalStatusEnum {
     Void,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoiceStatusEnum {
@@ -127,6 +127,37 @@ pub enum OrganizationUserRole {
     Member,
 }
 
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::PaymentMethodTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum PaymentMethodTypeEnum {
+    Card,
+    Transfer,
+    DirectDebitSepa,
+    DirectDebitAch,
+    DirectDebitBacs,
+    Other,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::PaymentStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum PaymentStatusEnum {
+    Ready,
+    Pending,
+    Settled,
+    Cancelled,
+    Failed,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::PaymentTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum PaymentTypeEnum {
+    Payment,
+    Refund,
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Default)]
 #[ExistingTypePath = "crate::schema::sql_types::PlanStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
@@ -146,6 +177,16 @@ pub enum PlanTypeEnum {
     #[default]
     Free,
     Custom,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Default, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::SubscriptionActivationConditionEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum SubscriptionActivationConditionEnum {
+    OnStart,
+    OnCheckout,
+    #[default]
+    Manual,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

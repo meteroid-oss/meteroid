@@ -41,7 +41,7 @@ pub async fn start_api_server(
         .layer(common_middleware::metric::create())
         .layer(
             meteroid_middleware::server::auth::create(config.jwt_secret.clone(), store.clone())
-                .filter(common_filters::only_api),
+                .filter(|path| common_filters::only_api(path) || common_filters::only_portal(path)),
         )
         .layer(
             common_middleware::auth::create_admin(&config.internal_auth)
@@ -62,6 +62,7 @@ pub async fn start_api_server(
             store.clone(),
             object_store.clone(),
         ))
+        .add_service(api::connectors::service(store.clone()))
         .add_service(api::coupons::service(store.clone()))
         .add_service(api::customers::service(
             store.clone(),
@@ -84,6 +85,10 @@ pub async fn start_api_server(
         .add_service(api::subscriptions::service(store.clone()))
         .add_service(api::webhooksout::service(store.clone()))
         .add_service(api::internal::service(store.clone()))
+        .add_service(api::portal::checkout::service(
+            store.clone(),
+            object_store.clone(),
+        ))
         .serve(config.grpc_listen_addr)
         .await?;
 

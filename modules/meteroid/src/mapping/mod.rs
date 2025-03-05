@@ -1,3 +1,4 @@
+use meteroid_store::errors::StoreError;
 use tonic::Status;
 
 pub mod common;
@@ -19,5 +20,11 @@ impl MappingError {
 impl From<MappingError> for Status {
     fn from(error: MappingError) -> Self {
         Status::new(tonic::Code::InvalidArgument, error.message)
+    }
+}
+
+impl From<MappingError> for StoreError {
+    fn from(error: MappingError) -> Self {
+        StoreError::InvalidArgument(error.message)
     }
 }

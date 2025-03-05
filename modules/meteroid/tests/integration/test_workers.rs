@@ -121,6 +121,7 @@ async fn list_invoices(store: &Store) -> Vec<InvoiceWithCustomer> {
             None,
             None,
             None,
+            None,
             OrderByRequest::DateAsc,
             PaginationRequest {
                 per_page: Some(100),

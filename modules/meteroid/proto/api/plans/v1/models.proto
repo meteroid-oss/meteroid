@@ -122,8 +122,9 @@ message PlanOverview {
 
 
   message ActiveVersionInfo {
-    uint32 version = 1;
-    optional uint32 trial_duration_days = 2;
+    string id = 1;
+    uint32 version = 2;
+    optional uint32 trial_duration_days = 3;
   }
 }
 
@@ -132,20 +133,6 @@ message PlanWithVersion {
   PlanVersion version = 2;
 }
 
-//message PlanOverview {
-//  string plan_id = 1;
-//  string plan_version_id = 2;
-//  string name = 3;
-//  uint32 version = 4;
-//  optional string description = 5;
-//  string currency = 6;
-//  uint32 net_terms = 7;
-//  string local_id = 8;
-//  PlanType plan_type = 9;
-//  bool is_draft = 10;
-//  bool has_draft = 11;
-//  optional string default_version_id = 12; // TODO we should get the version number here
-//}
 
 message PlanParameter {
   oneof param {

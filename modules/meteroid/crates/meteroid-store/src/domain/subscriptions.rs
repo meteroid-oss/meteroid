@@ -1,12 +1,15 @@
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
-use crate::domain::enums::BillingPeriodEnum;
+use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
-    Schedule, SubscriptionComponent,
+    PlanForSubscription, Schedule, SubscriptionComponent,
 };
-use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PlanId, SubscriptionId,
+    TenantId,
+};
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
@@ -19,12 +22,13 @@ use uuid::Uuid;
 pub struct CreatedSubscription {
     pub id: SubscriptionId,
     pub customer_id: CustomerId,
-    pub billing_day: i16,
+    pub billing_day_anchor: i16,
     pub tenant_id: TenantId,
     pub currency: String,
-    pub trial_start_date: Option<NaiveDate>,
-    pub billing_start_date: NaiveDate,
-    pub billing_end_date: Option<NaiveDate>,
+    pub trial_duration: Option<i32>,
+    pub start_date: NaiveDate,
+    pub end_date: Option<NaiveDate>,
+    pub billing_start_date: Option<NaiveDate>,
     pub plan_version_id: Uuid,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -37,6 +41,9 @@ pub struct CreatedSubscription {
     pub mrr_cents: i64,
     #[from(~.into())]
     pub period: BillingPeriodEnum,
+    pub pending_checkout: bool,
+    #[ghost({None})]
+    pub checkout_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,12 +52,14 @@ pub struct Subscription {
     pub customer_id: CustomerId,
     pub customer_alias: Option<String>,
     pub customer_name: String,
-    pub billing_day: i16,
+    pub billing_day_anchor: u16,
     pub tenant_id: TenantId,
     pub currency: String,
-    pub trial_start_date: Option<NaiveDate>,
-    pub billing_start_date: NaiveDate,
-    pub billing_end_date: Option<NaiveDate>,
+    pub trial_duration: Option<u32>,
+    pub start_date: NaiveDate,
+    pub end_date: Option<NaiveDate>,
+    pub billing_start_date: Option<NaiveDate>,
+    pub psp_connection_id: Option<CustomerConnectionId>,
     pub plan_id: PlanId,
     pub plan_name: String,
     pub plan_version_id: Uuid,
@@ -66,6 +75,7 @@ pub struct Subscription {
     pub cancellation_reason: Option<String>,
     pub mrr_cents: u64,
     pub period: BillingPeriodEnum,
+    pub pending_checkout: bool,
 }
 
 impl From<SubscriptionForDisplayRow> for Subscription {
@@ -75,15 +85,17 @@ impl From<SubscriptionForDisplayRow> for Subscription {
             customer_id: val.subscription.customer_id,
             customer_name: val.customer_name,
             customer_alias: val.customer_alias,
-            billing_day: val.subscription.billing_day,
+            billing_day_anchor: val.subscription.billing_day_anchor as u16,
             tenant_id: val.subscription.tenant_id,
             currency: val.subscription.currency,
-            trial_start_date: val.subscription.trial_start_date,
+            trial_duration: val.subscription.trial_duration.map(|x| x as u32),
             billing_start_date: val.subscription.billing_start_date,
-            billing_end_date: val.subscription.billing_end_date,
+            end_date: val.subscription.end_date,
+            start_date: val.subscription.start_date,
             plan_id: val.plan_id,
             plan_name: val.plan_name,
             plan_version_id: val.subscription.plan_version_id,
+            psp_connection_id: val.subscription.psp_connection_id,
             version: val.version as u32,
             created_at: val.subscription.created_at,
             created_by: val.subscription.created_by,
@@ -95,54 +107,133 @@ impl From<SubscriptionForDisplayRow> for Subscription {
             cancellation_reason: val.subscription.cancellation_reason,
             mrr_cents: val.subscription.mrr_cents as u64,
             period: val.subscription.period.into(),
+            pending_checkout: val.subscription.pending_checkout,
         }
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubscriptionPaymentStrategy {
+    Auto, // uses the existing method if exist, do card checkout if standard plan & configured provider, else bank if exists else external
+    // Checkout, // forces a checkout, even if the user already has a card on file. Checkout can basically be a validation step.
+    Bank, // TODO not a strategy ? same as external ? (we add the bank info to the invoice if there's one configured ?)
+    External,
+    // TODO
+    // CustomerPaymentMethod(id)
+    // PaymentProvider(id)
+    // Bank(id)
+}
+
+/*
+
+StartDate : the start of the contract (including any trial period)
+
+EndDate : the end of the contract (if set, the subscription will be canceled at that date)
+
+TrialDuration : the duration of the trial period in days
+
+BillingStartDate : the start of the first billing period / the date at which the first invoice should be issued.
+Could be StartDate, or StartDate+TrialDuration, or next BillingAnchorDay, or maybe there's reasons to set something else.
+Question : Free subscription => should we even have abilling start date ?
+
+BillingDayAnchor : the day of the month on which the billing should be anchored.
+If not set, defaults to the day of the start date
+
+ActivatedAt : the date at which the subscription was activated (ex: paid)
+
+ */
+
 #[derive(Debug, Clone)]
 pub struct SubscriptionNew {
+    // TODO
+    // pub customer_id: String,
+    // pub plan_id: String,
+    // pub plan_version_number: Option<u32>,
+    //
     pub customer_id: CustomerId,
-    pub billing_day: i16,
-    pub currency: String,
-    pub trial_start_date: Option<NaiveDate>,
-    pub billing_start_date: NaiveDate,
-    pub billing_end_date: Option<NaiveDate>,
     pub plan_version_id: Uuid,
     pub created_by: Uuid,
-    pub net_terms: i32,
+
+    pub net_terms: Option<u32>, // 0 = due on issue, null = default to plan.net_terms TODO overrides
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
-    pub activated_at: Option<NaiveDateTime>,
+
+    // when the subscription associated benefits should run from, trial included. Can be in the past (will be billed accordingly, for any past period)
+    pub start_date: NaiveDate, // contract_start_date
+    pub end_date: Option<NaiveDate>,
+
+    // when the subscription should be billed from. Defaults to start_date + possible free trial period
+    pub billing_start_date: Option<NaiveDate>,
+
+    pub activation_condition: SubscriptionActivationCondition,
+
+    // add trial config override ? ex: trial_end_date
+    pub trial_duration: Option<u32>, // in days
+
+    // if None, defaults to billing_start_date.day
+    pub billing_day_anchor: Option<u16>,
+
+    // commitments etc will be represented by the Phases/Schedule, with possibly a way to simplify that in the UI (like trials that should also end up as a sort of phase, though it's a bit different as there's some conditional logic)
+
+    // Do we need activated_at here ? How do we know if a subscription is active or pending ?
+    // activated = paid or considered as paid. If not activated, then the trial fallback applies
+
+    // describes how the subscription should be billed.
+    // Auto is default : uses the existing default method for customer, or attempts a checkout if invoicing entity's PP, or link to bank, or set as external payment
+    // TODO confusing. Just use payment_method: X, etc
+    pub payment_strategy: Option<SubscriptionPaymentStrategy>,
 }
 
 impl SubscriptionNew {
     pub fn map_to_row(
-        self,
+        &self,
         period: BillingPeriodEnum,
-        should_activate: bool,
         tenant_id: TenantId,
+        plan: &PlanForSubscription,
+        psp_connection_id: Option<CustomerConnectionId>,
+        payment_method: Option<CustomerPaymentMethodId>,
+        pending_checkout: bool,
     ) -> SubscriptionRowNew {
+        // in the current state we set billing_date/day even if free.
+        // That is because a free plan could still have included usage
+        // TODO : => decide to make it mandatory or not in db
+
+        let billing_start_date = self.billing_start_date.unwrap_or_else(|| self.start_date);
+        let billing_day_anchor = self.billing_day_anchor.unwrap_or_else(|| {
+            self.billing_start_date
+                .unwrap_or_else(|| self.start_date)
+                .day() as u16
+        });
+        let net_terms = self.net_terms.unwrap_or(plan.net_terms as u32);
+
+        let activated_at = match self.activation_condition {
+            SubscriptionActivationCondition::OnStart => self.start_date.and_hms_opt(0, 0, 0),
+            _ => None,
+        };
+
         SubscriptionRowNew {
             id: SubscriptionId::new(),
+            trial_duration: None,
             customer_id: self.customer_id,
-            billing_day: self.billing_day,
+            billing_day_anchor: billing_day_anchor as i16,
             tenant_id,
-            currency: self.currency,
-            trial_start_date: self.trial_start_date,
-            billing_start_date: self.billing_start_date,
-            billing_end_date: self.billing_end_date,
+            currency: plan.currency.clone(),
+            billing_start_date: Some(billing_start_date),
+            end_date: self.end_date,
             plan_version_id: self.plan_version_id,
+            created_at: Default::default(),
+            psp_connection_id,
             created_by: self.created_by,
-            net_terms: self.net_terms,
-            invoice_memo: self.invoice_memo,
+            net_terms: net_terms as i32,
+            invoice_memo: self.invoice_memo.clone(),
             invoice_threshold: self.invoice_threshold,
-            activated_at: if should_activate {
-                Some(chrono::Utc::now().naive_utc())
-            } else {
-                self.activated_at
-            },
+            activated_at,
             mrr_cents: 0,
             period: period.into(),
+            start_date: self.start_date,
+            activation_condition: self.activation_condition.clone().into(),
+            payment_method,
+            pending_checkout,
         }
     }
 }
@@ -157,39 +248,13 @@ pub struct CreateSubscription {
 
 #[derive(Debug, Clone)]
 pub struct SubscriptionDetails {
-    pub id: SubscriptionId,
-    pub tenant_id: TenantId,
-    pub customer_id: CustomerId,
-    pub customer_alias: Option<String>,
-    pub plan_version_id: uuid::Uuid,
-    pub billing_start_date: chrono::NaiveDate,
-    pub billing_end_date: Option<chrono::NaiveDate>,
-    pub billing_day: i16,
-
-    pub currency: String,
-    pub net_terms: u32,
+    pub subscription: Subscription,
     pub schedules: Vec<Schedule>,
     pub price_components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,
     pub applied_coupons: Vec<AppliedCouponDetailed>,
     pub metrics: Vec<BillableMetric>,
-    pub mrr_cents: u64,
-
-    //
-    pub version: u32,
-    pub plan_name: String,
-    pub plan_id: PlanId,
-    pub customer_name: String,
-    pub canceled_at: Option<chrono::NaiveDateTime>,
-
-    pub invoice_memo: Option<String>,
-    pub invoice_threshold: Option<rust_decimal::Decimal>,
-    pub created_at: chrono::NaiveDateTime,
-    pub cancellation_reason: Option<String>,
-    pub activated_at: Option<chrono::NaiveDateTime>,
-    pub created_by: Uuid,
-    pub trial_start_date: Option<chrono::NaiveDate>,
-    pub period: BillingPeriodEnum,
+    pub checkout_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -199,13 +264,14 @@ pub struct SubscriptionInvoiceCandidate {
     pub customer_id: CustomerId,
     pub plan_version_id: Uuid,
     pub plan_name: String,
-    pub billing_start_date: NaiveDate,
-    pub billing_end_date: Option<NaiveDate>,
-    pub billing_day: i16,
+    pub start_date: chrono::NaiveDate,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub billing_start_date: Option<chrono::NaiveDate>,
+    pub billing_day_anchor: i16,
+    pub net_terms: i32,
     pub activated_at: Option<NaiveDateTime>,
     pub canceled_at: Option<NaiveDateTime>,
     pub currency: String,
-    pub net_terms: i32,
     pub period: BillingPeriodEnum,
 }
 
@@ -216,15 +282,16 @@ impl From<SubscriptionInvoiceCandidateRow> for SubscriptionInvoiceCandidate {
             tenant_id: val.subscription.tenant_id,
             customer_id: val.subscription.customer_id,
             plan_version_id: val.subscription.plan_version_id,
+            start_date: val.subscription.start_date,
             billing_start_date: val.subscription.billing_start_date,
-            billing_end_date: val.subscription.billing_end_date,
-            billing_day: val.subscription.billing_day,
+            end_date: val.subscription.end_date,
+            billing_day_anchor: val.subscription.billing_day_anchor,
             activated_at: val.subscription.activated_at,
             canceled_at: val.subscription.canceled_at,
             // plan_id: self.plan_version.plan_id,
             plan_name: val.plan_version.plan_name,
             currency: val.plan_version.currency,
-            net_terms: val.plan_version.net_terms,
+            net_terms: val.subscription.net_terms,
             // version: self.plan_version.version,
             period: val.subscription.period.into(),
         }

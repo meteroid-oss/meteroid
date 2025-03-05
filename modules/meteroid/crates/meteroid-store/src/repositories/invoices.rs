@@ -17,7 +17,7 @@ use crate::domain::{
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
 use crate::utils::decimals::ToUnit;
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use common_eventbus::Event;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
@@ -39,6 +39,7 @@ pub trait InvoiceInterface {
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
+        subscription_id: Option<SubscriptionId>,
         status: Option<domain::enums::InvoiceStatusEnum>,
         query: Option<String>,
         order_by: OrderByRequest,
@@ -121,6 +122,7 @@ impl InvoiceInterface for Store {
         &self,
         tenant_id: TenantId,
         customer_id: Option<CustomerId>,
+        subscription_id: Option<SubscriptionId>,
         status: Option<domain::enums::InvoiceStatusEnum>,
         query: Option<String>,
         order_by: OrderByRequest,
@@ -132,6 +134,7 @@ impl InvoiceInterface for Store {
             &mut conn,
             tenant_id,
             customer_id,
+            subscription_id,
             status.map(Into::into),
             query,
             order_by.into(),
@@ -187,14 +190,14 @@ impl InvoiceInterface for Store {
                 if external_status == InvoiceExternalStatusEnum::Paid {
                     let subscription_id = SubscriptionRow::get_subscription_id_by_invoice_id(
                         conn,
-                        tenant_id,
+                        &tenant_id,
                         &invoice_id,
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
                     if let Some(subscription_id) = subscription_id {
-                        SubscriptionRow::activate_subscription(conn, subscription_id, tenant_id)
+                        SubscriptionRow::activate_subscription(conn, &subscription_id, &tenant_id)
                             .await
                             .map_err(Into::<Report<StoreError>>::into)?;
                     }
@@ -603,7 +606,7 @@ async fn insert_invoice_batch_tx(
         })?;
 
     // TODO batch
-    for inv in &inserted {
+    for inv in inserted.iter() {
         process_mrr(inv, tx).await?;
         let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(tx, inv.tenant_id, inv.id)
             .await

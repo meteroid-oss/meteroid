@@ -22,3 +22,4 @@ chrono = { workspace = true, features = ["clock"] }
 hex = { workspace = true }
 reqwest = { workspace = true, features = ["default"] }
 bytes = { workspace = true }
+async-trait = { workspace = true }
