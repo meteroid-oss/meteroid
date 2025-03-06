@@ -26,16 +26,16 @@ impl OrganizationRowNew {
 }
 
 impl OrganizationRow {
-    pub async fn count_all(conn: &mut PgConn) -> DbResult<i64> {
+    pub async fn exists(conn: &mut PgConn) -> DbResult<bool> {
         use crate::schema::organization::dsl as o_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = o_dsl::organization.count();
+        let query = diesel::dsl::select(diesel::dsl::exists(o_dsl::organization.limit(1)));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query
-            .get_result(conn)
+            .first(conn)
             .await
             .attach_printable("Error while counting all organizations")
             .into_db_result()

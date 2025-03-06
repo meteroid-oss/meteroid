@@ -51,11 +51,11 @@ impl OrganizationsInterface for Store {
         let mut conn = self.get_conn().await?;
 
         if !self.settings.multi_organization_enabled {
-            let count = OrganizationRow::count_all(&mut conn)
+            let exists = OrganizationRow::exists(&mut conn)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            if count > 0 {
+            if exists {
                 return Err(StoreError::InvalidArgument(
                     "This instance does not allow mutiple organizations".to_string(),
                 )
@@ -135,11 +135,11 @@ impl OrganizationsInterface for Store {
                 (true, true)
             } else {
                 // single organization
-                let count = OrganizationRow::count_all(&mut conn)
+                let exists = OrganizationRow::exists(&mut conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                (false, count > 0)
+                (false, exists)
             };
 
         Ok(InstanceFlags {
