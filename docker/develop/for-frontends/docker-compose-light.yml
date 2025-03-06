@@ -1,0 +1,53 @@
+volumes:
+  pg_data:
+
+networks:
+  meteroid_net:
+
+name: meteroid-ffe-light
+
+services:
+
+  ### Meteroid Dependencies
+  meteroid-db:
+    image: postgres:15.2
+    ports:
+      - '5432:5432'
+    user: postgres
+    environment:
+      - POSTGRES_USER=${DATABASE_USER:-meteroid}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_DB=${DATABASE_NAME:-meteroid}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+    networks:
+      - meteroid_net
+
+  meteroid-api:
+    image: ghcr.io/meteroid-oss/meteroid-api:main
+    ports:
+      - "8084:8084"
+      - "50061:50061"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - SECRETS_CRYPT_KEY=${SECRETS_CRYPT_KEY}
+      - DATABASE_URL=postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@meteroid-db:5432/${DATABASE_NAME}?sslmode=disable
+      - METEROID_API_LISTEN_ADDRESS=${METEROID_API_LISTEN_ADDRESS}
+      - METEROID_REST_API_LISTEN_ADDRESS=${METEROID_REST_API_LISTEN_ADDRESS}
+      - METERING_API_EXTERNAL_URL=${METERING_API_EXTERNAL_URL}
+      - OBJECT_STORE_URI=${OBJECT_STORE_URI}
+      - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN}
+      - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID}
+      - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET}
+    networks:
+      - meteroid_net
