@@ -48,7 +48,7 @@ the tool of your choice.
 - Start the Web frontend
   `pnpm --prefix modules/web/web-app run dev`
 
-You can now access the app at http://127.0.0.1:5147 (_not localhost_).
+You can now access the app at http://localhost:5173
 
 If you used the seed data, you can log in with the credentials found in docker/develop/data/README.md.
 Click on the "Sandbox" tenant on the left to access the main UI.
@@ -96,4 +96,24 @@ To add new migration following steps are needed (executed from the project root)
 On meteroid_api startup the un-applied migrations run automatically.
 
 See https://diesel.rs/guides/getting-started for more info.
-        
+
+## Contributing as a frontend (without rust)
+
+We provide a light docker compose that starts the latest api docker image from the main branch.
+
+Noticer that this doesn't start the metering server, nor the automation processes, so some functionalities will be
+missing.
+
+- copy the .env.example to a .env
+
+- Start the database and api ;
+
+`docker compose -f docker/develop/for-frontends/docker-compose-light.yml --env-file .env up`
+
+- Start the frontend
+
+`pnpm install --prefix modules/web`
+
+`pnpm --prefix modules/web/web-app dev`
+
+You can now access the app at http://localhost:5173  
