@@ -134,6 +134,7 @@ impl OrganizationsInterface for Store {
             Ok(InstanceFlags {
                 multi_organization_enabled: true,
                 instance_initiated: true,
+                skip_email_validation: self.settings.skip_email_validation,
             })
         } else {
             // single organization
@@ -144,6 +145,7 @@ impl OrganizationsInterface for Store {
             Ok(InstanceFlags {
                 multi_organization_enabled: false,
                 instance_initiated: count > 0,
+                skip_email_validation: self.settings.skip_email_validation,
             })
         }
     }

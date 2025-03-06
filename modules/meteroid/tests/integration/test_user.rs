@@ -73,10 +73,11 @@ async fn test_users_basic() {
     let resp = clients
         .users
         .clone()
-        .register(api::users::v1::RegisterRequest {
+        .complete_registration(api::users::v1::CompleteRegistrationRequest {
             email: new_email.clone(),
             password: new_pass.clone(),
             invite_key: Some(invite_key),
+            validation_token: None,
         })
         .await
         .unwrap()

@@ -32,6 +32,7 @@ pub struct Settings {
     pub jwt_secret: secrecy::SecretString,
     pub multi_organization_enabled: bool,
     pub public_url: String,
+    pub skip_email_validation: bool,
 }
 
 #[derive(Clone)]
@@ -52,6 +53,7 @@ pub struct StoreConfig {
     pub crypt_key: secrecy::SecretString,
     pub jwt_secret: secrecy::SecretString,
     pub multi_organization_enabled: bool,
+    pub skip_email_validation: bool,
     pub public_url: String,
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub usage_client: Arc<dyn UsageClient>,
@@ -131,6 +133,7 @@ impl Store {
                 jwt_secret: config.jwt_secret,
                 multi_organization_enabled: config.multi_organization_enabled,
                 public_url: config.public_url,
+                skip_email_validation: config.skip_email_validation,
             },
             internal: StoreInternal {},
             svix: config.svix,

@@ -159,12 +159,14 @@ async fn grpc_call_returns_err(
     channel: Channel,
     idempotency: Option<&str>,
 ) -> Result<MetadataMap, Status> {
-    let mut request =
-        tonic::Request::new(meteroid_grpc::meteroid::api::users::v1::RegisterRequest {
+    let mut request = tonic::Request::new(
+        meteroid_grpc::meteroid::api::users::v1::CompleteRegistrationRequest {
             email: "fake@user.com".to_string(),
             password: "fake-password".to_string(),
             invite_key: None,
-        });
+            validation_token: None,
+        },
+    );
 
     let metadata = request.metadata_mut();
 
@@ -176,7 +178,7 @@ async fn grpc_call_returns_err(
     AllClients::from_channel(channel, "", "TESTORG", "")
         .users
         .clone()
-        .register(request)
+        .complete_registration(request)
         .await
         .map(|r| r.metadata().to_owned())
 }

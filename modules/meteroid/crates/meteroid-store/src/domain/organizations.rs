@@ -41,4 +41,5 @@ pub struct OrganizationNew {
 pub struct InstanceFlags {
     pub multi_organization_enabled: bool,
     pub instance_initiated: bool,
+    pub skip_email_validation: bool,
 }

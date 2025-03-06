@@ -37,16 +37,29 @@ message LoginResponse {
   User user = 2;
 }
 
-message RegisterRequest {
+
+message InitRegistrationRequest {
   string email = 1;
-  string password = 2;
-  optional string invite_key = 3;
+  optional string invite_key = 2;
 }
 
-message RegisterResponse {
+message InitRegistrationResponse {
+  bool validation_required = 1;
+}
+
+message CompleteRegistrationRequest {
+  string email = 1;
+  string password = 2;
+  optional string validation_token = 3;
+  // only if not validation_required
+  optional string invite_key = 4;
+}
+
+message CompleteRegistrationResponse {
   string token = 1;
   User user = 2;
 }
+
 
 message OnboardMeRequest {
   optional string first_name = 1;
@@ -79,7 +92,9 @@ service UsersService {
   rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {}
 
   rpc Login(LoginRequest) returns (LoginResponse) {}
-  rpc Register(RegisterRequest) returns (RegisterResponse) {}
+
+  rpc InitRegistration(InitRegistrationRequest) returns (InitRegistrationResponse) {}
+  rpc CompleteRegistration(CompleteRegistrationRequest) returns (CompleteRegistrationResponse) {}
 
   rpc InitResetPassword(InitResetPasswordRequest) returns (InitResetPasswordResponse) {}
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {}
