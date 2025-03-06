@@ -32,7 +32,7 @@ pub fn validate_jwt(
     let decoding_key = DecodingKey::from_secret(jwt_secret.expose_secret().as_bytes());
 
     let mut validation = jsonwebtoken::Validation::default();
-    validation.set_audience(&vec![Audience::WebApi.as_str()]);
+    validation.set_audience(&[Audience::WebApi.as_str()]);
 
     let decoded = jsonwebtoken::decode::<JwtClaims>(token, &decoding_key, &validation)
         .map_err(|_| Status::permission_denied("Invalid JWT"))?;

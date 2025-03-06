@@ -125,7 +125,7 @@ impl UserInterface for Store {
         };
 
         let mut validation = Validation::default();
-        validation.set_audience(&vec![Audience::EmailValidation.as_str()]);
+        validation.set_audience(&[Audience::EmailValidation.as_str()]);
 
         let token_data = jsonwebtoken::decode::<JwtClaims>(
             &token,
@@ -429,7 +429,7 @@ impl UserInterface for Store {
         new_password: SecretString,
     ) -> StoreResult<()> {
         let mut validation = Validation::default();
-        validation.set_audience(&vec![Audience::ResetPassword.as_str()]);
+        validation.set_audience(&[Audience::ResetPassword.as_str()]);
 
         let token_data = jsonwebtoken::decode::<JwtClaims>(
             token.expose_secret(),
@@ -456,7 +456,13 @@ impl UserInterface for Store {
         is_signup: bool,
         invite_key: Option<SecretString>,
     ) -> StoreResult<SecretString> {
-        let callback_url = self.oauth.for_provider(provider).callback_url();
+        let callback_url = self
+            .oauth
+            .for_provider(provider)
+            .ok_or(Report::new(StoreError::OauthError(
+                "Provider not configured".to_string(),
+            )))?
+            .callback_url();
 
         fn enc(key: &SecretString, raw: &str) -> StoreResult<String> {
             encrypt(key, raw)
@@ -525,6 +531,9 @@ impl UserInterface for Store {
         let oauth_user = self
             .oauth
             .for_provider(provider)
+            .ok_or(Report::new(StoreError::OauthError(
+                "Provider not configured".to_string(),
+            )))?
             .get_user_info(code, pkce_verifier)
             .await
             .change_context(StoreError::OauthError(

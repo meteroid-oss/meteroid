@@ -14,8 +14,8 @@ impl OauthConfig {
         Self {
             public_url: "https://meteroid.com".to_owned(),
             google: GoogleOauthConfig {
-                client_id: SecretString::new("google_client_id".to_owned()),
-                client_secret: SecretString::new("google_client_secret".to_owned()),
+                client_id: Some(SecretString::new("google_client_id".to_owned())),
+                client_secret: Some(SecretString::new("google_client_secret".to_owned())),
             },
         }
     }
@@ -24,7 +24,13 @@ impl OauthConfig {
 #[derive(Envconfig, Debug, Clone)]
 pub struct GoogleOauthConfig {
     #[envconfig(from = "OAUTH_GOOGLE_CLIENT_ID")]
-    pub client_id: SecretString,
+    pub client_id: Option<SecretString>,
     #[envconfig(from = "OAUTH_GOOGLE_CLIENT_SECRET")]
-    pub client_secret: SecretString,
+    pub client_secret: Option<SecretString>,
+}
+
+impl GoogleOauthConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.client_id.is_some() && self.client_secret.is_some()
+    }
 }

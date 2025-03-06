@@ -31,6 +31,8 @@ type Oauth2BasicClient = Client<
 
 #[async_trait]
 pub trait OauthService: Send + Sync {
+    fn client_id(&self) -> String;
+
     fn callback_url(&self) -> CallbackUrl;
     async fn get_user_info(
         &self,
@@ -41,7 +43,7 @@ pub trait OauthService: Send + Sync {
 
 #[derive(Clone)]
 pub struct OauthServices {
-    google: Arc<dyn OauthService>,
+    google: Option<Arc<dyn OauthService>>,
 }
 
 impl OauthServices {
@@ -51,9 +53,15 @@ impl OauthServices {
         }
     }
 
-    pub fn for_provider(&self, provider: OauthProvider) -> Arc<dyn OauthService> {
+    pub fn for_provider(&self, provider: OauthProvider) -> Option<Arc<dyn OauthService>> {
         match provider {
             OauthProvider::Google => self.google.clone(),
+        }
+    }
+
+    pub fn client_id(&self, provider: OauthProvider) -> Option<String> {
+        match provider {
+            OauthProvider::Google => self.google.as_ref().map(|google| google.client_id()),
         }
     }
 }
@@ -64,24 +72,30 @@ struct OauthServiceImpl {
 }
 
 impl OauthServiceImpl {
-    fn google(config: crate::config::OauthConfig) -> Arc<dyn OauthService> {
-        Arc::new(Self {
-            config: crate::model::OauthProviderConfig {
-                provider: OauthProvider::Google,
-                client_id: config.google.client_id.expose_secret().to_owned(),
-                client_secret: config.google.client_secret.expose_secret().to_owned(),
-                auth_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
-                token_url: "https://www.googleapis.com/oauth2/v3/token".to_string(),
-                callback_url: format!("{}/oauth-callback/google", config.public_url.as_str()),
-                user_info_url: "https://www.googleapis.com/oauth2/v3/userinfo".to_string(),
-                scopes: vec!["email".to_string(), "openid".to_string()],
-            },
-            http_client: reqwest::ClientBuilder::new()
-                // Following redirects opens the client up to SSRF vulnerabilities.
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("Client should build"),
-        })
+    fn google(config: crate::config::OauthConfig) -> Option<Arc<dyn OauthService>> {
+        if let (Some(client_id), Some(client_secret)) =
+            (config.google.client_id, config.google.client_secret)
+        {
+            Some(Arc::new(Self {
+                config: crate::model::OauthProviderConfig {
+                    provider: OauthProvider::Google,
+                    client_id: client_id.expose_secret().to_owned(),
+                    client_secret: client_secret.expose_secret().to_owned(),
+                    auth_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
+                    token_url: "https://www.googleapis.com/oauth2/v3/token".to_string(),
+                    callback_url: format!("{}/oauth-callback/google", config.public_url.as_str()),
+                    user_info_url: "https://www.googleapis.com/oauth2/v3/userinfo".to_string(),
+                    scopes: vec!["email".to_string(), "openid".to_string()],
+                },
+                http_client: reqwest::ClientBuilder::new()
+                    // Following redirects opens the client up to SSRF vulnerabilities.
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()
+                    .expect("Client should build"),
+            }))
+        } else {
+            None
+        }
     }
 
     fn oauth_basic_client(&self) -> Oauth2BasicClient {
@@ -138,6 +152,10 @@ impl OauthServiceImpl {
 
 #[async_trait]
 impl OauthService for OauthServiceImpl {
+    fn client_id(&self) -> String {
+        self.config.client_id.to_owned()
+    }
+
     fn callback_url(&self) -> CallbackUrl {
         // Generate a PKCE challenge.
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -196,12 +214,15 @@ mod tests {
         let srv = OauthServices::new(OauthConfig {
             public_url: "http://localhost:8080".to_string(),
             google: crate::config::GoogleOauthConfig {
-                client_id: SecretString::from_str("client_id").unwrap(),
-                client_secret: SecretString::from_str("client_secret").unwrap(),
+                client_id: Some(SecretString::from_str("client_id").unwrap()),
+                client_secret: Some(SecretString::from_str("client_secret").unwrap()),
             },
         });
 
-        let url = srv.for_provider(OauthProvider::Google).callback_url();
+        let url = srv
+            .for_provider(OauthProvider::Google)
+            .unwrap()
+            .callback_url();
         let url = url.url.expose_secret();
 
         assert!(url.starts_with("https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=client_id&state="));

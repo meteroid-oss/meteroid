@@ -31,6 +31,7 @@ impl InstanceService for InstanceServiceComponents {
             multi_organization_enabled: maybe_instance.multi_organization_enabled,
             instance_initiated: maybe_instance.instance_initiated,
             skip_email_validation: maybe_instance.skip_email_validation,
+            google_oauth_client_id: maybe_instance.google_oauth_client_id,
         }))
     }
 
