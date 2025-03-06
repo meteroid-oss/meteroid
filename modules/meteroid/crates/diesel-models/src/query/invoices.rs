@@ -72,6 +72,7 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list(
         conn: &mut PgConn,
         param_tenant_id: TenantId,

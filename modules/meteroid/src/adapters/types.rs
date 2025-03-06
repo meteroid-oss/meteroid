@@ -39,14 +39,4 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
     ) -> Result<bool, errors::AdapterWebhookError>;
 }
 
-// #[async_trait::async_trait]
-// pub trait InvoicingAdapter: AdapterCommon + Sync {
-//     async fn send_invoice(
-//         &self,
-//         invoice: &Invoice,
-//         customer: &Customer,
-//         api_key: SecretString,
-//     ) -> Result<(), errors::InvoicingAdapterError>;
-// }
-
 pub trait Adapter: Send + Debug + WebhookAdapter {}

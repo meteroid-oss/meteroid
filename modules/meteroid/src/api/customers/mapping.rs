@@ -134,7 +134,6 @@ pub mod customer {
 }
 pub mod customer_payment_method {
 
-    use crate::api::shared::conversions::ProtoConv;
     use meteroid_grpc::meteroid::api::customers::v1 as server;
     use meteroid_store::domain;
 

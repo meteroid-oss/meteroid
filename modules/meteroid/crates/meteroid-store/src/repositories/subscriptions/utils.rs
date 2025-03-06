@@ -126,7 +126,7 @@ pub fn process_create_subscription_coupons(
     coupons: &[Coupon],
 ) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
     let processed_coupons = coupons
-        .into_iter()
+        .iter()
         .unique_by(|x| x.id)
         .map(|x| AppliedCouponRowNew {
             id: Uuid::now_v7(),
@@ -327,8 +327,7 @@ pub async fn calculate_coupons_discount(
                             subscription_currency,
                             chrono::Utc::now().date_naive(),
                         )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
+                        .await?
                         .ok_or(StoreError::ValueNotFound(format!(
                             "historical rate from {} to {}",
                             currency, subscription_currency

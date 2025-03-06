@@ -83,7 +83,7 @@ impl PaymentProvider for StripeClient {
                 state: a.state.clone(),
                 postal_code: a.zip_code.clone(),
             }
-        };
+        }
 
         // add instance (org, tenant slug ?)
         let mut metadata = HashMap::from([

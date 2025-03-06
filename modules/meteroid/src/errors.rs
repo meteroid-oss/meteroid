@@ -76,20 +76,6 @@ pub enum WorkerError {
     CurrencyRatesUpdateError,
 }
 
-#[derive(Debug, thiserror::Error, PartialEq, Clone)]
-pub enum InvoicingAdapterError {
-    #[error("Database error")]
-    DatabaseError,
-    #[error("Provider is not configured")]
-    ProviderNotConfigured,
-    #[error("Invalid Invoice Data")]
-    InvalidData,
-    #[error("Grpc error")]
-    GrpcError,
-    #[error("Stripe call error")]
-    StripeError,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum InvoicingRenderError {
     #[error("Failed to initialize invoice rendering service")]

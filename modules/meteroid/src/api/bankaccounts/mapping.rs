@@ -88,7 +88,7 @@ pub mod bank_accounts {
                     let (iban, bic_swift) = parse_parts(&account_numbers);
                     server::bank_account_data::Format::IbanBicSwift(server::IbanBicSwift {
                         iban,
-                        bic_swift: bic_swift.into(),
+                        bic_swift,
                     })
                 }
                 BankAccountFormat::AccountBicSwift => {

@@ -9,7 +9,6 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::store::{PgConn, StoreInternal};
 use crate::StoreResult;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::errors::DatabaseErrorContainer;
 use error_stack::{Report, Result};
 use futures::TryFutureExt;
 use secrecy::SecretString;
@@ -65,7 +64,7 @@ impl StoreInternal {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<DetailedSubscription>> {
         let res = batch
-            .into_iter()
+            .iter()
             .map(|params| {
                 let CreateSubscription {
                     subscription,
@@ -103,8 +102,8 @@ impl StoreInternal {
                     .clone();
 
                 let components =
-                    self.process_components(&price_components, &subscription, context)?;
-                let subscription_add_ons = self.process_add_ons(&add_ons, context)?;
+                    self.process_components(price_components, subscription, context)?;
+                let subscription_add_ons = self.process_add_ons(add_ons, context)?;
 
                 let coupons = if let Some(coupons) = coupons {
                     let coupons = context
@@ -168,15 +167,14 @@ impl StoreInternal {
             payment_setup_result.payment_method,
             payment_setup_result.checkout,
         );
-        let subscription_coupons =
-            self.process_coupons(&subscription_row, &sub.coupons, context)?;
+        let subscription_coupons = self.process_coupons(&subscription_row, &sub.coupons)?;
 
         let event = self.build_subscription_event(
             &subscription_row,
             &sub.components,
             &sub.add_ons,
             &context.all_coupons,
-            sub.currency.precision.clone(),
+            sub.currency.precision,
         )?;
 
         let components = sub
@@ -237,18 +235,16 @@ impl StoreInternal {
         &self,
         subscription: &SubscriptionRowNew,
         coupons: &Vec<Coupon>,
-        context: &SubscriptionCreationContext,
     ) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
         process_create_subscription_coupons(subscription, coupons)
     }
 
-    // TODO
     fn build_subscription_event(
         &self,
         subscription: &SubscriptionRowNew,
         components: &[SubscriptionComponentNewInternal],
         add_ons: &[SubscriptionAddOnNewInternal],
-        coupons: &[Coupon],
+        _coupons: &[Coupon],
         precision: u8,
     ) -> Result<SubscriptionEventRow, StoreError> {
         let cmrr: i64 = components
@@ -312,7 +308,6 @@ impl StoreInternal {
                     let inserted: Vec<CreatedSubscription> =
                         SubscriptionRow::insert_subscription_batch(conn, subscriptions)
                             .await
-                            .map_err(Into::<DatabaseErrorContainer>::into)
                             .map(|v| v.into_iter().map(Into::into).collect())?;
 
                     SubscriptionComponentRow::insert_subscription_component_batch(conn, components)
@@ -331,13 +326,6 @@ impl StoreInternal {
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 
-                    // let res = SubscriptionRow::list_subscriptions_by_ids(
-                    //     conn,
-                    //     &tenant_id,
-                    //     &inserted.into_iter().map(|s| s.id).collect::<Vec<Uuid>>(),
-                    // )
-                    // .await?;
-
                     self.insert_created_outbox_events_tx(conn, &inserted, tenant_id)
                         .await?;
 
@@ -351,11 +339,8 @@ impl StoreInternal {
             .into_iter()
             .map(|mut sub| {
                 if sub.pending_checkout {
-                    sub.checkout_token = Some(generate_checkout_token(
-                        jwt_secret,
-                        tenant_id.clone(),
-                        sub.id.clone(),
-                    )?);
+                    sub.checkout_token =
+                        Some(generate_checkout_token(jwt_secret, tenant_id, sub.id)?);
                 }
                 Ok(sub)
             })
@@ -364,19 +349,12 @@ impl StoreInternal {
         Ok(inserted_with_tokens)
     }
 
-    // TODO invoices should not be created here, or it should be in transaction.
+    // TODO if ON_START & now => activate. Also, invoice ?
     pub async fn handle_post_insertion(
         &self,
         event_bus: Arc<dyn EventBus<Event>>,
         inserted: &[CreatedSubscription],
-        context: &SubscriptionCreationContext,
     ) -> StoreResult<()> {
-        // Handle invoice creation for manual billing
-        // let invoices = self.prepare_invoices(inserted, context)?;
-        // if !invoices.is_empty() {
-        //     self.insert_invoice_batch(invoices).await?;
-        // }
-
         // Publish events
         self.publish_subscription_events(event_bus, inserted)
             .await?;

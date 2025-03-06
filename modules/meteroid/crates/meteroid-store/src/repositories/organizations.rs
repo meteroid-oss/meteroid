@@ -200,7 +200,7 @@ impl OrganizationsInterface for Store {
     async fn get_organization_by_tenant_id(&self, id: &TenantId) -> StoreResult<Organization> {
         let mut conn = self.get_conn().await?;
 
-        let org = OrganizationRow::get_by_tenant_id(&mut conn, &id)
+        let org = OrganizationRow::get_by_tenant_id(&mut conn, id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 

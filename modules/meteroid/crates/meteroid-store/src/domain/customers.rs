@@ -98,7 +98,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
                 .inner
                 .invoicing_emails
                 .into_iter()
-                .map(|v| Some(v))
+                .map(Some)
                 .collect(),
             phone: self.inner.phone,
             balance_value_cents: self.inner.balance_value_cents,

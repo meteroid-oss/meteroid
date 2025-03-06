@@ -91,7 +91,7 @@ impl SubscriptionInterface for Store {
 
         // Step 4: Handle post-insertion tasks
         self.internal
-            .handle_post_insertion(self.eventbus.clone(), &inserted, &context)
+            .handle_post_insertion(self.eventbus.clone(), &inserted)
             .await?;
 
         Ok(inserted)
@@ -105,7 +105,7 @@ impl SubscriptionInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id.into())
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -121,7 +121,7 @@ impl SubscriptionInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let db_subscription =
-            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id.into())
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -186,18 +186,15 @@ impl SubscriptionInterface for Store {
                 .collect::<Result<Vec<_>, _>>()?;
 
         let checkout_token = if subscription.pending_checkout {
-            let jwt = generate_checkout_token(
-                &self.settings.jwt_secret,
-                tenant_id.clone(),
-                subscription.id.clone(),
-            )?;
+            let jwt =
+                generate_checkout_token(&self.settings.jwt_secret, tenant_id, subscription.id)?;
             Some(jwt)
         } else {
             None
         };
 
         Ok(SubscriptionDetails {
-            subscription: subscription,
+            subscription,
             price_components: subscription_components,
             add_ons: subscription_add_ons,
             applied_coupons,
@@ -328,8 +325,8 @@ impl SubscriptionInterface for Store {
         let db_subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
             &tenant_id,
-            customer_id.map(Into::into),
-            plan_id.map(Into::into),
+            customer_id,
+            plan_id,
             pagination.into(),
         )
         .await

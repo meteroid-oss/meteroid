@@ -222,8 +222,8 @@ impl SubscriptionTrialConversionRateRow {
 
 impl SubscriptionTrialToPaidConversionRow {
     pub async fn list(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
+        _conn: &mut PgConn,
+        _tenant_id: TenantId,
     ) -> DbResult<Vec<SubscriptionTrialToPaidConversionRow>> {
         //         let raw_sql = r#"
         // WITH month_series AS (SELECT generate_series(

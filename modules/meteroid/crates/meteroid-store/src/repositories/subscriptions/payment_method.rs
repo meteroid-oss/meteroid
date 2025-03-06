@@ -111,13 +111,13 @@ impl StoreInternal {
         // Use customer's default payment method if available
         if let Some(payment_method) = &customer.current_payment_method_id {
             return Ok(PaymentSetupResult::with_existing_method(
-                payment_method.clone(),
+                *payment_method,
             ));
         }
 
         // Check if customer has a default payment service provider connection
         if let Some(connection) = &customer.default_psp_connection_id {
-            return Ok(PaymentSetupResult::with_checkout(connection.clone()));
+            return Ok(PaymentSetupResult::with_checkout(*connection));
         }
 
         // Try to use or create a connection to the invoicing entity's payment provider
@@ -134,7 +134,7 @@ impl StoreInternal {
                         // Create a new customer in the payment provider
                         let provider = initialize_payment_provider(config);
                         let external_id = provider
-                            .create_customer_in_provider(&customer, &config)
+                            .create_customer_in_provider(customer, config)
                             .await
                             .change_context(StoreError::PaymentProviderError)?;
 
@@ -147,7 +147,7 @@ impl StoreInternal {
                         )
                         .await?
                     }
-                    Some(cc) => cc.id.clone(),
+                    Some(cc) => cc.id,
                 };
                 return Ok(PaymentSetupResult::with_checkout(customer_connection_id));
             }
@@ -165,9 +165,9 @@ impl StoreInternal {
         invoicing_entity: &InvoicingEntityProviderSensitive,
     ) -> StoreResult<PaymentSetupResult> {
         if let Some(bank_account_id) = &customer.bank_account_id {
-            Ok(PaymentSetupResult::with_bank(bank_account_id.clone()))
+            Ok(PaymentSetupResult::with_bank(*bank_account_id))
         } else if let Some(bank_account) = &invoicing_entity.bank_account {
-            Ok(PaymentSetupResult::with_bank(bank_account.id.clone()))
+            Ok(PaymentSetupResult::with_bank(bank_account.id))
         } else {
             Ok(PaymentSetupResult::external())
         }
@@ -188,8 +188,8 @@ impl StoreInternal {
         let customer_connection: CustomerConnectionRow = CustomerConnection {
             id: CustomerConnectionId::new(),
             external_customer_id: external_id.to_string(),
-            customer_id: customer_id.clone(),
-            connector_id: connector_id.clone(),
+            customer_id: *customer_id,
+            connector_id: *connector_id,
             supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
         }
         .into();

@@ -300,7 +300,7 @@ impl BillingService for Store {
         );
 
         let patch = PaymentTransactionRowPatch {
-            id: transaction.id.clone(),
+            id: transaction.id,
             status: Some(new_status.clone()),
             processed_at: Some(processed_at),
             refunded_at: None,
@@ -365,7 +365,7 @@ impl Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        let subscription_id = invoice.invoice.subscription_id.clone();
+        let subscription_id = invoice.invoice.subscription_id;
 
         // if the invoice is not finalized nor void, finalize it
         // TODO any action if the invoice is void ?
@@ -394,7 +394,7 @@ impl Store {
                 transaction.invoice_id,
                 transaction.tenant_id,
                 invoice_number,
-                &vec![],
+                &[],
             )
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
@@ -439,12 +439,12 @@ impl Store {
                 let subscription = SubscriptionRow::get_subscription_by_id(
                     conn,
                     &transaction.tenant_id,
-                    subscription_id.clone(),
+                    *subscription_id,
                 )
                 .await?;
 
                 // TODO also in case of paused / ex: because of failed payments
-                let should_activate = subscription.subscription.activated_at == None
+                let should_activate = subscription.subscription.activated_at.is_none()
                     && subscription.subscription.activation_condition
                         == SubscriptionActivationConditionEnum::OnCheckout;
                 if should_activate {

@@ -116,7 +116,7 @@ impl From<SubscriptionForDisplayRow> for Subscription {
 pub enum SubscriptionPaymentStrategy {
     Auto, // uses the existing method if exist, do card checkout if standard plan & configured provider, else bank if exists else external
     // Checkout, // forces a checkout, even if the user already has a card on file. Checkout can basically be a validation step.
-    Bank, // TODO not a strategy ? same as external ? (we add the bank info to the invoice if there's one configured ?)
+    Bank, // TODO not a strategy ? we just add the bank_id to the subscription & invoice
     External,
     // TODO
     // CustomerPaymentMethod(id)
@@ -124,32 +124,10 @@ pub enum SubscriptionPaymentStrategy {
     // Bank(id)
 }
 
-/*
-
-StartDate : the start of the contract (including any trial period)
-
-EndDate : the end of the contract (if set, the subscription will be canceled at that date)
-
-TrialDuration : the duration of the trial period in days
-
-BillingStartDate : the start of the first billing period / the date at which the first invoice should be issued.
-Could be StartDate, or StartDate+TrialDuration, or next BillingAnchorDay, or maybe there's reasons to set something else.
-Question : Free subscription => should we even have abilling start date ?
-
-BillingDayAnchor : the day of the month on which the billing should be anchored.
-If not set, defaults to the day of the start date
-
-ActivatedAt : the date at which the subscription was activated (ex: paid)
-
- */
-
+// commitments etc will be represented by the Phases/Schedule, with possibly a way to simplify that in the UI (like trials that should also end up as a sort of phase, though it's a bit different as there's some conditional logic)
+// activated = paid or considered as paid. If not activated, then the trial fallback applies
 #[derive(Debug, Clone)]
 pub struct SubscriptionNew {
-    // TODO
-    // pub customer_id: String,
-    // pub plan_id: String,
-    // pub plan_version_number: Option<u32>,
-    //
     pub customer_id: CustomerId,
     pub plan_version_id: Uuid,
     pub created_by: Uuid,
@@ -173,14 +151,9 @@ pub struct SubscriptionNew {
     // if None, defaults to billing_start_date.day
     pub billing_day_anchor: Option<u16>,
 
-    // commitments etc will be represented by the Phases/Schedule, with possibly a way to simplify that in the UI (like trials that should also end up as a sort of phase, though it's a bit different as there's some conditional logic)
-
-    // Do we need activated_at here ? How do we know if a subscription is active or pending ?
-    // activated = paid or considered as paid. If not activated, then the trial fallback applies
-
-    // describes how the subscription should be billed.
+    // API only. describes how the subscription should be billed.
     // Auto is default : uses the existing default method for customer, or attempts a checkout if invoicing entity's PP, or link to bank, or set as external payment
-    // TODO confusing. Just use payment_method: X, etc
+    // ==> try to simplify TODO
     pub payment_strategy: Option<SubscriptionPaymentStrategy>,
 }
 
@@ -197,11 +170,10 @@ impl SubscriptionNew {
         // in the current state we set billing_date/day even if free.
         // That is because a free plan could still have included usage
         // TODO : => decide to make it mandatory or not in db
-
-        let billing_start_date = self.billing_start_date.unwrap_or_else(|| self.start_date);
+        let billing_start_date = self.billing_start_date.unwrap_or(self.start_date);
         let billing_day_anchor = self.billing_day_anchor.unwrap_or_else(|| {
             self.billing_start_date
-                .unwrap_or_else(|| self.start_date)
+                .unwrap_or(self.start_date)
                 .day() as u16
         });
         let net_terms = self.net_terms.unwrap_or(plan.net_terms as u32);

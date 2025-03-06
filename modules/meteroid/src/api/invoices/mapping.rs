@@ -219,7 +219,6 @@ pub mod invoices {
 }
 
 pub mod transactions {
-    use crate::api::shared::conversions::AsProtoOpt;
     use meteroid_grpc::meteroid::api::invoices::v1::transaction::{
         PaymentStatusEnum, PaymentTypeEnum,
     };

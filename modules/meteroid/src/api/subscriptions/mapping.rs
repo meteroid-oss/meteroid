@@ -64,7 +64,7 @@ pub mod subscriptions {
             billing_day_anchor: param.billing_day_anchor.map(|day| day as u16),
             billing_start_date: None, //TODO
             activation_condition: map_activation_condition_proto(
-                proto2::ActivationCondition::try_from(param.activation_condition.clone()).map_err(
+                proto2::ActivationCondition::try_from(param.activation_condition).map_err(
                     |_| Status::invalid_argument("Invalid activation condition".to_string()),
                 )?,
             ),

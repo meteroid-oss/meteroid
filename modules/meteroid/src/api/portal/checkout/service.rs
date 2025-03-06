@@ -4,7 +4,6 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::services::storage::Prefix;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use common_domain::ids::{
@@ -119,6 +118,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         request: Request<UpdateCustomerRequest>,
     ) -> Result<Response<UpdateCustomerResponse>, Status> {
         let tenant_id = request.tenant()?;
+        // TODO check subscription
 
         let customer =
             request

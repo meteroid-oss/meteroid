@@ -48,7 +48,9 @@ export const Customer = () => {
                   />
                   <h2 className="font-semibold">
                     {data.name || data.alias}
-                    <div className="text-sm font-light text-muted-foreground">{data.email}</div>
+                    <div className="text-sm font-light text-muted-foreground">
+                      {data.billingEmail}
+                    </div>
                   </h2>
                 </div>
                 {data.archivedAt && (

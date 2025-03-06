@@ -3,7 +3,7 @@ use crate::customers::CustomerRow;
 use crate::enums::PaymentMethodTypeEnum;
 use crate::schema::customer_connection;
 use common_domain::ids::{ConnectorId, CustomerConnectionId, CustomerId};
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use diesel::{Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Insertable, Debug, Selectable)]
 #[diesel(table_name = customer_connection)]

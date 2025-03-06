@@ -88,7 +88,7 @@ impl StoreInternal {
             all_coupons: coupons,
             invoicing_entity_providers: invoicing_entities,
             tenant_id,
-            customer_connection: customer_connection,
+            customer_connection,
         })
     }
 
@@ -215,7 +215,7 @@ impl StoreInternal {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|s| CustomerConnection::from(s))
+                .map(CustomerConnection::from)
                 .collect();
 
         Ok(res)
