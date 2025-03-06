@@ -9,7 +9,7 @@ import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
-import { register } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+import { completeRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const RegistrationForm = ({ invite }: { invite?: string }) => {
   const navigate = useNavigate()
@@ -24,7 +24,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
     },
   })
 
-  const registerMut = useMutation(register, {
+  const registerMut = useMutation(completeRegistration, {
     onSuccess: async res => {
       await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
       setSession(res)
