@@ -28,7 +28,8 @@ pub struct InvoicingEntityRow {
     pub country: String,
     pub accounting_currency: String,
     pub tenant_id: TenantId,
-    pub cc_provider_id: Option<ConnectorId>,
+    pub card_provider_id: Option<ConnectorId>,
+    pub direct_debit_provider_id: Option<ConnectorId>,
     pub bank_account_id: Option<BankAccountId>,
 }
 
@@ -60,17 +61,15 @@ pub struct InvoicingEntityRowPatch {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct InvoicingEntityRowProvidersPatch {
     pub id: InvoicingEntityId,
-    pub cc_provider_id: Option<Option<ConnectorId>>,
+    pub card_provider_id: Option<Option<ConnectorId>>,
+    pub direct_debit_provider_id: Option<Option<ConnectorId>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
 }
 
-#[derive(Debug, Queryable, Selectable)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
+#[derive(Debug, Queryable)]
 pub struct InvoicingEntityProvidersRow {
-    #[diesel(embed)]
     pub entity: InvoicingEntityRow,
-    #[diesel(embed)]
-    pub cc_provider: Option<ConnectorRow>,
-    #[diesel(embed)]
+    pub card_provider: Option<ConnectorRow>,
+    pub direct_debit_provider: Option<ConnectorRow>,
     pub bank_account: Option<BankAccountRow>,
 }

@@ -42,7 +42,8 @@ pub struct InvoicingEntity {
     pub accounting_currency: String,
     pub tenant_id: TenantId,
 
-    pub cc_provider_id: Option<ConnectorId>,
+    pub card_provider_id: Option<ConnectorId>,
+    pub direct_debit_provider_id: Option<ConnectorId>,
     pub bank_account_id: Option<BankAccountId>,
 }
 
@@ -106,7 +107,8 @@ pub struct InvoicingEntityPatch {
 #[owned_into(InvoicingEntityRowProvidersPatch)]
 pub struct InvoicingEntityProvidersPatch {
     pub id: InvoicingEntityId,
-    pub cc_provider_id: Option<Option<ConnectorId>>,
+    pub card_provider_id: Option<Option<ConnectorId>>,
+    pub direct_debit_provider_id: Option<Option<ConnectorId>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
 }
 
@@ -114,7 +116,8 @@ pub struct InvoicingEntityProvidersPatch {
 pub struct InvoicingEntityProviders {
     pub id: InvoicingEntityId,
     pub bank_account: Option<BankAccount>,
-    pub cc_provider: Option<ConnectorMeta>,
+    pub card_provider: Option<ConnectorMeta>,
+    pub direct_debit_provider: Option<ConnectorMeta>,
 }
 
 impl From<InvoicingEntityProvidersRow> for InvoicingEntityProviders {
@@ -122,7 +125,8 @@ impl From<InvoicingEntityProvidersRow> for InvoicingEntityProviders {
         Self {
             id: row.entity.id,
             bank_account: row.bank_account.map(BankAccount::from),
-            cc_provider: row.cc_provider.map(ConnectorMeta::from),
+            card_provider: row.card_provider.map(ConnectorMeta::from),
+            direct_debit_provider: row.direct_debit_provider.map(ConnectorMeta::from),
         }
     }
 }
@@ -131,7 +135,8 @@ impl From<InvoicingEntityProvidersRow> for InvoicingEntityProviders {
 pub struct InvoicingEntityProviderSensitive {
     pub id: InvoicingEntityId,
     pub bank_account: Option<BankAccount>,
-    pub cc_provider: Option<Connector>,
+    pub card_provider: Option<Connector>,
+    pub direct_debit_provider: Option<Connector>,
 }
 
 impl InvoicingEntityProviderSensitive {
@@ -139,8 +144,12 @@ impl InvoicingEntityProviderSensitive {
         Ok(Self {
             id: row.entity.id,
             bank_account: row.bank_account.map(BankAccount::from),
-            cc_provider: row
-                .cc_provider
+            card_provider: row
+                .card_provider
+                .map(|p| Connector::from_row(key, p))
+                .transpose()?,
+            direct_debit_provider: row
+                .direct_debit_provider
                 .map(|p| Connector::from_row(key, p))
                 .transpose()?,
         })

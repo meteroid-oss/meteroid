@@ -52,6 +52,8 @@ pub mod subscriptions {
             mrr_cents: s.mrr_cents,
             status,
             checkout_token: None,
+            card_connection_id: s.card_connection_id.map(|id| id.as_proto()),
+            direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
         })
     }
 
@@ -159,6 +161,8 @@ pub mod subscriptions {
                 mrr_cents: sub.mrr_cents,
                 status,
                 checkout_token: details.checkout_token,
+                card_connection_id: sub.card_connection_id.map(|id| id.as_proto()),
+                direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
             }),
             schedules: vec![], // TODO
             price_components: details

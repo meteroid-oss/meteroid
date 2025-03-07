@@ -127,11 +127,13 @@ impl CustomerConnectionDetailsRow {
         use crate::schema::connector::dsl as co_dsl;
         use crate::schema::customer::dsl as cu_dsl;
         use crate::schema::customer_connection::dsl as cc_dsl;
+        use crate::schema::invoicing_entity::dsl as ie_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = cc_dsl::customer_connection
             .inner_join(cu_dsl::customer.on(cc_dsl::customer_id.eq(cu_dsl::id)))
             .inner_join(co_dsl::connector.on(cc_dsl::connector_id.eq(co_dsl::id)))
+            .inner_join(ie_dsl::invoicing_entity.on(cu_dsl::invoicing_entity_id.eq(ie_dsl::id)))
             .filter(cc_dsl::id.eq(id_param))
             .filter(cu_dsl::tenant_id.eq(tenant_id_param))
             .select(CustomerConnectionDetailsRow::as_select());

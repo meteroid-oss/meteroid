@@ -7,6 +7,7 @@ import {
   Skeleton,
 } from '@md/ui'
 import { ChevronDown, ChevronLeftIcon } from 'lucide-react'
+import { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
@@ -19,7 +20,6 @@ import {
 } from '@/rpc/api/subscriptions/v1/models_pb'
 import { getSubscriptionDetails } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import { ReactNode } from 'react'
 
 // Status Badge Component
 const StatusBadge = ({ status }: { status: SubscriptionStatus }) => {

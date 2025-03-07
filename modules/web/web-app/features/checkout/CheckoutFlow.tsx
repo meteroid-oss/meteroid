@@ -1,7 +1,9 @@
+import { ArrowLeft } from 'lucide-react'
 import React, { useState } from 'react'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
-import { ArrowLeft } from 'lucide-react'
+import { formatCurrency } from '@/utils/numbers'
+
 import { BillingInfo } from './components/BillingInfo'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
@@ -11,7 +13,7 @@ import { CheckoutFlowProps } from './types'
  */
 const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
-  const { subscription, customer, paymentMethods } = checkoutData
+  const { subscription, customer, paymentMethods, totalAmount } = checkoutData
 
   /**
    * Process payment with selected payment method
@@ -53,45 +55,8 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
     }
   }
 
-  /**
-   * Update billing address
-   */
-  const handleSaveAddress = async (address: any) => {
-    try {
-      const response = await fetch('/api/customers/update-billing-address', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: customer?.id,
-          billingAddress: address,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Failed to update billing address')
-      }
-
-      setIsAddressEditing(false)
-    } catch (error) {
-      console.error('Error updating billing address:', error)
-      // You could set an error state here to display to the user
-    }
-  }
-
   if (!subscription || !customer) {
     return <div className="p-8 text-center">Loading checkout information...</div>
-  }
-
-  // Format the total amount for display
-  const formatTotalAmount = () => {
-    if (!subscription.totalAmount || !subscription.subscription?.currency) {
-      return 'N/A'
-    }
-
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: subscription.subscription.currency,
-    }).format(subscription.totalAmount / 100) // Convert cents to dollars
   }
 
   return (
@@ -125,18 +90,18 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
             <BillingInfo
               customer={customer}
               isEditing={isAddressEditing}
-              onEdit={() => setIsAddressEditing(true)}
-              onSave={handleSaveAddress}
-              onCancel={() => setIsAddressEditing(false)}
+              setIsEditing={setIsAddressEditing}
             />
 
             {/* Payment panel */}
             <PaymentPanel
               customer={customer}
               paymentMethods={paymentMethods || []}
-              currency={subscription.subscription?.currency || 'USD'}
-              totalAmount={formatTotalAmount()}
+              currency={subscription.subscription?.currency!}
+              totalAmount={formatCurrency(totalAmount, subscription.subscription?.currency!)}
               onPaymentSubmit={handlePaymentSubmit}
+              cardConnectionId={subscription.subscription?.cardConnectionId}
+              directDebitConnectionId={subscription.subscription?.directDebitConnectionId}
             />
           </div>
         </div>

@@ -136,6 +136,7 @@ pub enum ConnectorTypeEnum {
 pub enum ConnectorProviderEnum {
     Stripe,
 }
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::PaymentMethodTypeEnum)]
 pub enum PaymentMethodTypeEnum {

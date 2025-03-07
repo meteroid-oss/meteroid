@@ -229,7 +229,7 @@ pub async fn run(
             .unwrap();
 
         let customer_created_at_date = customer.created_at.date();
-        let trial_start_date = version
+        let _trial_start_date = version
             .trial_duration_days
             .map(|_| customer_created_at_date);
 
@@ -239,7 +239,7 @@ pub async fn run(
             .checked_add_days(Days::new(version.trial_duration_days.unwrap_or(0) as u64))
             .unwrap_or(customer_created_at_date);
 
-        let activated_at = if plan.plan_type != PlanTypeEnum::Free {
+        let _activated_at = if plan.plan_type != PlanTypeEnum::Free {
             billing_start_date.and_hms_opt(0, 0, 0)
         } else {
             None

@@ -17,6 +17,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { siStripe } from 'simple-icons'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -33,10 +34,10 @@ import {
   listInvoicingEntities,
   updateInvoicingEntityProviders,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { siStripe } from 'simple-icons'
 
 const paymentMethodsSchema = z.object({
-  ccProviderId: z.string().optional(),
+  cardProviderId: z.string().optional(),
+  directDebitProviderId: z.string().optional(),
   bankAccountId: z.string().optional(),
 })
 
@@ -60,7 +61,7 @@ export const PaymentMethodsTab = () => {
   const providersQuery = useQuery(
     getInvoicingEntityProviders,
     {
-      id: invoiceEntityId!!,
+      id: invoiceEntityId!,
     },
     { enabled: !!invoiceEntityId }
   )
@@ -68,10 +69,11 @@ export const PaymentMethodsTab = () => {
   const updateInvoicingEntityMut = useMutation(updateInvoicingEntityProviders, {
     onSuccess: async res => {
       queryClient.setQueryData(
-        createConnectQueryKey(getInvoicingEntityProviders, { id: invoiceEntityId!! }),
+        createConnectQueryKey(getInvoicingEntityProviders, { id: invoiceEntityId! }),
         createProtobufSafeUpdater(getInvoicingEntityProviders, () => {
           return {
-            ccProvider: res.ccProvider,
+            cardProvider: res.cardProvider,
+            directDebitProvider: res.directDebitProvider,
             bankAccount: res.bankAccount,
           }
         })
@@ -83,7 +85,8 @@ export const PaymentMethodsTab = () => {
   const methods = useZodForm({
     schema: paymentMethodsSchema,
     defaultValues: {
-      ccProviderId: '',
+      cardProviderId: '',
+      directDebitProviderId: '',
       bankAccountId: '',
     },
   })
@@ -96,7 +99,8 @@ export const PaymentMethodsTab = () => {
 
   useEffect(() => {
     if (providersQuery.data) {
-      methods.setValue('ccProviderId', providersQuery.data.ccProvider?.id)
+      methods.setValue('cardProviderId', providersQuery.data.cardProvider?.id)
+      methods.setValue('directDebitProviderId', providersQuery.data.directDebitProvider?.id)
       methods.setValue('bankAccountId', providersQuery.data.bankAccount?.id)
     }
   }, [providersQuery.data])
@@ -112,7 +116,10 @@ export const PaymentMethodsTab = () => {
   const onSubmit = async (values: z.infer<typeof paymentMethodsSchema>) => {
     await updateInvoicingEntityMut.mutateAsync({
       id: invoiceEntityId,
-      ccProviderId: values.ccProviderId?.length ? values.ccProviderId : undefined,
+      cardProviderId: values.cardProviderId?.length ? values.cardProviderId : undefined,
+      directDebitProviderId: values.directDebitProviderId?.length
+        ? values.directDebitProviderId
+        : undefined,
       bankAccountId: values.bankAccountId?.length ? values.bankAccountId : undefined,
     })
   }
@@ -151,7 +158,7 @@ export const PaymentMethodsTab = () => {
                           <div>{entity.legalName}</div>
                           <div className="flex-grow" />
                           {entity.isDefault && (
-                            <Badge variant="primary" size={'sm'}>
+                            <Badge variant="primary" size="sm">
                               Default
                             </Badge>
                           )}
@@ -184,9 +191,9 @@ export const PaymentMethodsTab = () => {
                     </td>
                     <td className="py-4 px-3">
                       <Select
-                        value={methods.watch('ccProviderId')}
+                        value={methods.watch('cardProviderId')}
                         onValueChange={value =>
-                          methods.setValue('ccProviderId', value, { shouldDirty: true })
+                          methods.setValue('cardProviderId', value, { shouldDirty: true })
                         }
                       >
                         <SelectTrigger className="w-60">
@@ -219,42 +226,49 @@ export const PaymentMethodsTab = () => {
                       </Select>
                     </td>
                   </tr>
-                  {/* <tr className="border-b">
-                    <td className="py-4 px-3 flex items-center">
-                      <span className="mr-2">SEPA Direct Debit</span>
-                      <span className="inline-block">⬇️</span>
-                    </td>
-                    <td className="py-4 px-3">
-                      <div className="flex items-center text-gray-400">
-                        <span>Unavailable</span>
-                        <InfoIcon size={16} className="ml-2" />
-                      </div>
-                    </td>
-                  </tr>
                   <tr className="border-b">
                     <td className="py-4 px-3 flex items-center">
-                      <span className="mr-2">Bacs Direct Debit</span>
-                      <span className="inline-block">⬇️</span>
+                      <span className="mr-2 inline-block">⬇️</span>
+                      <span className="mr-2">Direct Debit (SEPA, BACS, ACH)</span>
                     </td>
                     <td className="py-4 px-3">
-                      <div className="flex items-center text-gray-400">
-                        <span>Unavailable</span>
-                        <InfoIcon size={16} className="ml-2" />
-                      </div>
+                      <Select
+                        value={methods.watch('directDebitProviderId')}
+                        onValueChange={value =>
+                          methods.setValue('directDebitProviderId', value, { shouldDirty: true })
+                        }
+                      >
+                        <SelectTrigger className="w-60">
+                          <SelectValue placeholder="Select a provider" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {paymentProviders.length == 0 ? <SelectEmpty /> : null}
+
+                          {paymentProviders.map(provider => (
+                            <SelectItem key={provider.id} value={provider.id}>
+                              <div className="flex items-center">
+                                <div className="w-5 h-5  rounded flex items-center justify-center mr-2">
+                                  <span className="  text-xs">
+                                    {provider.provider === ConnectorProviderEnum.STRIPE ? (
+                                      <BrandIcon
+                                        path={siStripe.path}
+                                        color="#635bff"
+                                        className="w-3 h-3"
+                                      />
+                                    ) : (
+                                      'P'
+                                    )}
+                                  </span>
+                                </div>
+                                {provider.alias}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </td>
                   </tr>
-                  <tr className="border-b">
-                    <td className="py-4 px-3 flex items-center">
-                      <span className="mr-2">ACH Direct Debit</span>
-                      <span className="inline-block">⬇️</span>
-                    </td>
-                    <td className="py-4 px-3">
-                      <div className="flex items-center text-gray-400">
-                        <span>Unavailable</span>
-                        <InfoIcon size={16} className="ml-2" />
-                      </div>
-                    </td>
-                  </tr> */}
+
                   <tr className="border-b">
                     <td className="py-4 px-3 flex items-center">
                       <span className="mr-2 inline-block">🏦</span>

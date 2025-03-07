@@ -1,6 +1,7 @@
 use super::enums::PaymentMethodTypeEnum;
 use chrono::NaiveDateTime;
 
+use crate::domain::ConnectorProviderEnum;
 use common_domain::ids::{
     ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId,
 };
@@ -16,8 +17,8 @@ pub struct CustomerPaymentMethod {
     pub id: CustomerPaymentMethodId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub connection_id: Option<CustomerConnectionId>,
-    pub external_payment_method_id: Option<String>,
+    pub connection_id: CustomerConnectionId,
+    pub external_payment_method_id: String,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
@@ -36,8 +37,8 @@ pub struct CustomerPaymentMethodNew {
     pub id: CustomerPaymentMethodId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub connection_id: Option<CustomerConnectionId>,
-    pub external_payment_method_id: Option<String>,
+    pub connection_id: CustomerConnectionId,
+    pub external_payment_method_id: String,
     #[map(~.into())]
     pub payment_method_type: PaymentMethodTypeEnum,
     pub account_number_hint: Option<String>,
@@ -51,6 +52,7 @@ pub struct SetupIntent {
     pub intent_id: String,
     pub client_secret: String,
     pub public_key: SecretString,
-    pub cc_provider: String,
-    pub cc_provider_id: ConnectorId,
+    pub provider: ConnectorProviderEnum,
+    pub connector_id: ConnectorId,
+    pub connection_id: CustomerConnectionId,
 }

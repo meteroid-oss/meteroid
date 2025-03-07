@@ -22,7 +22,9 @@ message UpdateCustomerResponse {
   api.customers.v1.Customer customer = 1;
 }
 
-message SetupIntentRequest {}
+message SetupIntentRequest {
+  string connection_id = 1;
+}
 message SetupIntentResponse {
   SetupIntent setup_intent = 1;
 }

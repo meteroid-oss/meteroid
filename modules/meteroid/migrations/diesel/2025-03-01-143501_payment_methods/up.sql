@@ -20,8 +20,8 @@ CREATE TABLE "customer_payment_method"
   "id"                         UUID                    NOT NULL PRIMARY KEY,
   "tenant_id"                  UUID                    NOT NULL REFERENCES "tenant" ON DELETE RESTRICT,
   "customer_id"                UUID                    NOT NULL REFERENCES "customer" ON DELETE CASCADE,
-  "connection_id"              UUID REFERENCES "customer_connection" ON DELETE CASCADE,
-  "external_payment_method_id" TEXT,
+  "connection_id"              UUID                    NOT NULL REFERENCES "customer_connection" ON DELETE CASCADE,
+  "external_payment_method_id" TEXT                    NOT NULL,
   "created_at"                 TIMESTAMP               NOT NULL,
   "updated_at"                 TIMESTAMP               NOT NULL,
   "archived_at"                TIMESTAMP,
@@ -69,23 +69,24 @@ ALTER TABLE "subscription"
 
 
 ALTER TABLE "subscription"
-  ADD COLUMN "psp_connection_id"    UUID                                  REFERENCES "customer_connection" ON DELETE SET NULL,
-  ADD COLUMN "pending_checkout"     BOOLEAN                               NOT NULL DEFAULT false,
-  ADD COLUMN payment_method_type    "PaymentMethodTypeEnum",
-  ADD COLUMN "payment_method"       UUID                                  REFERENCES "customer_payment_method" ON DELETE SET NULL,
-  ADD COLUMN "end_date"             DATE,
-  ADD COLUMN "trial_duration"       INT4,
-  ADD COLUMN "activation_condition" "SubscriptionActivationConditionEnum" NOT NULL DEFAULT 'MANUAL',
-  ADD COLUMN "billing_start_date"   DATE;
+  ADD COLUMN "card_connection_id"         UUID                                  REFERENCES "customer_connection" ON DELETE SET NULL,
+  ADD COLUMN "direct_debit_connection_id" UUID                                  REFERENCES "customer_connection" ON DELETE SET NULL,
+  ADD COLUMN "bank_account_id"            UUID                                  REFERENCES "bank_account" ON DELETE SET NULL,
+  ADD COLUMN "pending_checkout"           BOOLEAN                               NOT NULL DEFAULT false,
+  ADD COLUMN payment_method_type          "PaymentMethodTypeEnum",
+  ADD COLUMN "payment_method"             UUID                                  REFERENCES "customer_payment_method" ON DELETE SET NULL,
+  ADD COLUMN "end_date"                   DATE,
+  ADD COLUMN "trial_duration"             INT4,
+  ADD COLUMN "activation_condition"       "SubscriptionActivationConditionEnum" NOT NULL DEFAULT 'MANUAL',
+  ADD COLUMN "billing_start_date"         DATE;
 
 
--- a customer can define the active connection. As a second step we'll allow defining multiple connections based on the payment method
 ALTER TABLE "customer"
   ADD COLUMN "bank_account_id"           UUID   REFERENCES "bank_account" ON DELETE SET NULL,
   ADD COLUMN "current_payment_method_id" UUID   REFERENCES "customer_payment_method" ON DELETE SET NULL,
-  ADD COLUMN "default_psp_connection_id" UUID   REFERENCES "customer_connection" ON DELETE SET NULL,
-  --   ADD COLUMN "card_provider_id" UUID REFERENCES "connector" ON DELETE SET NULL
-  --   ADD COLUMN "sepa_provider_id" UUID REFERENCES "connector" ON DELETE SET NULL etc
+  -- override the invoicing_entity's config
+  ADD COLUMN "card_provider_id"          UUID   REFERENCES "connector" ON DELETE SET NULL,
+  ADD COLUMN "direct_debit_provider_id"  UUID   REFERENCES "connector" ON DELETE SET NULL,
   ADD COLUMN "vat_number"                TEXT,
   ADD COLUMN "custom_vat_rate"           INT4,
   ADD COLUMN "invoicing_emails"          TEXT[] NOT NULL DEFAULT '{}',
@@ -95,3 +96,8 @@ ALTER TABLE "customer"
 
 ALTER TABLE "customer"
   RENAME COLUMN "email" TO "billing_email";
+
+ALTER TABLE "invoicing_entity"
+  ADD COLUMN "direct_debit_provider_id" UUID REFERENCES "connector" ON DELETE SET NULL;
+ALTER TABLE "invoicing_entity"
+  RENAME COLUMN "cc_provider_id" TO "card_provider_id";

@@ -1,13 +1,15 @@
+import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
+import { loadStripe } from '@stripe/stripe-js'
+import { AlertCircle, Building, CreditCard } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+
 import { useQuery } from '@/lib/connectrpc'
 import {
   CustomerPaymentMethod,
   CustomerPaymentMethod_PaymentMethodTypeEnum,
 } from '@/rpc/api/customers/v1/models_pb'
 import { setupIntent } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
-import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
-import { AlertCircle, Building, CreditCard } from 'lucide-react'
-import React, { useEffect, useState } from 'react'
+
 import { CardBrandLogo } from './components/CardBrandLogo'
 import { PaymentForm } from './components/PaymentForm'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
@@ -16,8 +18,6 @@ import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types
 const PaymentPanelInner: React.FC<PaymentPanelProps & { clientSecret: string }> = ({
   customer,
   paymentMethods,
-  totalAmount,
-  currency,
   onPaymentSubmit,
   clientSecret,
 }) => {
@@ -34,7 +34,7 @@ const PaymentPanelInner: React.FC<PaymentPanelProps & { clientSecret: string }> 
   // Initially select default payment method if available
   useEffect(() => {
     if (paymentMethods.length > 0) {
-      const defaultMethodId = customer?.defaultPaymentMethodId
+      const defaultMethodId = customer?.currentPaymentMethodId
       const defaultMethod = defaultMethodId
         ? paymentMethods.find(pm => pm.id === defaultMethodId)
         : paymentMethods[0]
@@ -122,7 +122,7 @@ const PaymentPanelInner: React.FC<PaymentPanelProps & { clientSecret: string }> 
       selectedPaymentMethod?.type === 'saved' && selectedPaymentMethod.id === method.id
 
     const isCard = method.paymentMethodType === CustomerPaymentMethod_PaymentMethodTypeEnum.CARD
-    const isDefault = customer?.defaultPaymentMethodId === method.id
+    const isDefault = customer?.currentPaymentMethodId === method.id
 
     return (
       <div
@@ -329,7 +329,15 @@ const PaymentPanelInner: React.FC<PaymentPanelProps & { clientSecret: string }> 
  */
 export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
   // Fetch setup intent to get client secret
-  const setupIntentQuery = useQuery(setupIntent, undefined)
+  // TODO support direct debit through separate setup as well
+  const connection = props.cardConnectionId ?? props.directDebitConnectionId
+  const setupIntentQuery = useQuery(
+    setupIntent,
+    {
+      connectionId: connection!,
+    },
+    { enabled: !!connection }
+  )
 
   // Extract clientSecret and publishableKey from the setupIntent response
   const clientSecret = setupIntentQuery.data?.setupIntent?.intentSecret

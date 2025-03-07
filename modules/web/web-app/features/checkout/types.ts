@@ -34,6 +34,8 @@ export interface PaymentPanelProps {
   paymentMethods: CustomerPaymentMethod[]
   totalAmount: string
   currency: string
+  cardConnectionId?: string
+  directDebitConnectionId?: string
   onPaymentSubmit: (paymentMethodId: string, isNew: boolean) => Promise<void>
 }
 

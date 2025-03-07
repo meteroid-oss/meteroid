@@ -45,6 +45,7 @@ message Customer {
   string invoicing_entity_id = 14;
   string local_id = 15;
   optional string vat_number = 16;
+  optional string current_payment_method_id = 17;
 
 }
 
@@ -84,7 +85,8 @@ message PatchCustomer {
 message CustomerPaymentMethod {
   string id = 1;
   string customer_id = 2;
-  optional string connection_id = 3;
+  string connection_id = 3;
+  string external_payment_method = 4;
   PaymentMethodTypeEnum payment_method_type = 8;
   optional string card_brand = 9;
   optional string card_last4 = 10;

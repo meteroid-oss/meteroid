@@ -1,7 +1,8 @@
 ALTER TABLE "customer"
   DROP COLUMN IF EXISTS "bank_account_id",
   DROP COLUMN IF EXISTS "current_payment_method_id",
-  DROP COLUMN IF EXISTS "default_psp_connection_id",
+  DROP COLUMN IF EXISTS "card_provider_id",
+  DROP COLUMN IF EXISTS "direct_debit_provider_id",
   DROP COLUMN IF EXISTS "vat_number",
   DROP COLUMN IF EXISTS "custom_vat_rate",
   DROP COLUMN IF EXISTS "invoicing_emails",
@@ -18,7 +19,9 @@ DROP TABLE IF EXISTS "payment_transaction" CASCADE;
 DROP TABLE IF EXISTS "customer_connection" CASCADE;
 
 ALTER TABLE "subscription"
-  DROP COLUMN IF EXISTS "psp_connection_id",
+  DROP COLUMN IF EXISTS "card_connection_id",
+  DROP COLUMN IF EXISTS "bank_account_id",
+  DROP COLUMN IF EXISTS "direct_debit_connection_id",
   DROP COLUMN IF EXISTS "pending_checkout",
   DROP COLUMN IF EXISTS "payment_method",
   DROP COLUMN IF EXISTS "payment_method_type",
@@ -42,3 +45,9 @@ DROP TYPE IF EXISTS "PaymentStatusEnum";
 DROP TYPE IF EXISTS "PaymentTypeEnum";
 DROP TYPE IF EXISTS "PaymentMethodTypeEnum";
 DROP TYPE IF EXISTS "SubscriptionActivationConditionEnum";
+
+
+ALTER TABLE "invoicing_entity"
+  DROP COLUMN "direct_debit_provider_id";
+ALTER TABLE "invoicing_entity"
+  RENAME COLUMN "card_provider_id" TO "cc_provider_id";

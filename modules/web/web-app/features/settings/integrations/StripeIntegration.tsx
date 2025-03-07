@@ -9,6 +9,10 @@ import {
   Spinner,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { Building2, CheckCircle2, CreditCard, ExternalLink, Key, WebhookIcon } from 'lucide-react'
+import React, { KeyboardEvent as ReactKeyboardEvent, useState } from 'react'
+import { useWatch } from 'react-hook-form'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -22,10 +26,6 @@ import {
   listConnectors,
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
-import { Building2, CheckCircle2, CreditCard, ExternalLink, Key, WebhookIcon } from 'lucide-react'
-import React, { KeyboardEvent as ReactKeyboardEvent, useState } from 'react'
-import { useWatch } from 'react-hook-form'
-import { useNavigate } from 'react-router'
 
 export const StripeIntegrationModal = () => {
   const navigate = useNavigate()

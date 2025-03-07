@@ -1,6 +1,7 @@
 use crate::connectors::ConnectorRow;
 use crate::customers::CustomerRow;
 use crate::enums::PaymentMethodTypeEnum;
+use crate::invoicing_entities::InvoicingEntityRow;
 use crate::schema::customer_connection;
 use common_domain::ids::{ConnectorId, CustomerConnectionId, CustomerId};
 use diesel::{Insertable, Queryable, Selectable};
@@ -33,4 +34,6 @@ pub struct CustomerConnectionDetailsRow {
     pub customer: CustomerRow,
     #[diesel(embed)]
     pub connector: ConnectorRow,
+    #[diesel(embed)]
+    pub invoicing_entity: InvoicingEntityRow,
 }

@@ -140,7 +140,7 @@ export const InvoiceTab = () => {
                           <div>{entity.legalName}</div>
                           <div className="flex-grow" />
                           {entity.isDefault && (
-                            <Badge variant="primary" size={'sm'}>
+                            <Badge variant="primary" size="sm">
                               Default
                             </Badge>
                           )}

@@ -1,10 +1,3 @@
-import { CopyToClipboardButton } from '@/components/CopyToClipboard'
-import { useQuery } from '@/lib/connectrpc'
-import {
-  disconnectConnector,
-  listConnectors,
-} from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
-import { Connector, ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
@@ -26,10 +19,18 @@ import {
   PlusIcon,
   Users,
 } from 'lucide-react'
-import { useConfirmationModal } from 'providers/ConfirmationProvider'
 import { FunctionComponent, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { siAdyen, siStripe } from 'simple-icons'
+
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { useQuery } from '@/lib/connectrpc'
+import {
+  disconnectConnector,
+  listConnectors,
+} from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
+import { Connector, ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
+import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
 interface Integration {
   name: string
@@ -63,9 +64,8 @@ export const BrandIcon = ({
 )
 
 export const IntegrationsTab = () => {
-  const [activeSection, setActiveSection] = useState('')
-
-  console.log(siStripe)
+  // TODO set based on #hash
+  const [activeSection] = useState('')
 
   const connectorsQuery = useQuery(listConnectors, {})
 

@@ -17,7 +17,6 @@ use std::io::Cursor;
 use tonic::{Request, Response, Status};
 
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
-use crate::api::shared::conversions::FromProtoOpt;
 use crate::services::storage::Prefix;
 
 use super::{mapping, InvoicingEntitiesServiceComponents};
@@ -187,7 +186,10 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(GetInvoicingEntityProvidersResponse {
-            cc_provider: res.cc_provider.map(|c| {
+            card_provider: res.card_provider.map(|c| {
+                super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
+            }),
+            direct_debit_provider: res.direct_debit_provider.map(|c| {
                 super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
             }),
             bank_account: res
@@ -209,7 +211,10 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .patch_invoicing_entity_providers(
                 InvoicingEntityProvidersPatch {
                     bank_account_id: Some(BankAccountId::from_proto_opt(req.bank_account_id)?),
-                    cc_provider_id: Some(ConnectorId::from_proto_opt(req.cc_provider_id)?),
+                    card_provider_id: Some(ConnectorId::from_proto_opt(req.card_provider_id)?),
+                    direct_debit_provider_id: Some(ConnectorId::from_proto_opt(
+                        req.direct_debit_provider_id,
+                    )?),
                     id: InvoicingEntityId::from_proto(req.id)?,
                 },
                 tenant,
@@ -218,7 +223,10 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .map_err(Into::<InvoicingEntitiesApiError>::into)?;
 
         Ok(Response::new(UpdateInvoicingEntityProvidersResponse {
-            cc_provider: res.cc_provider.map(|c| {
+            card_provider: res.card_provider.map(|c| {
+                super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
+            }),
+            direct_debit_provider: res.direct_debit_provider.map(|c| {
                 super::super::connectors::mapping::connectors::connector_meta_to_server(&c)
             }),
             bank_account: res

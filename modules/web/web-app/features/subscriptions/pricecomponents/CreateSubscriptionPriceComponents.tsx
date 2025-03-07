@@ -1,9 +1,3 @@
-import { useQuery } from '@/lib/connectrpc'
-import { BillingPeriod } from '@/lib/mapping'
-import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
-import { PriceComponent } from '@/lib/schemas/plans'
-import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
-import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
 import {
   Button,
   Card,
@@ -16,9 +10,16 @@ import {
   SelectItem,
   SelectTrigger,
 } from '@ui/components'
-
 import { Activity, Calendar, Edit2, Package, Trash2, Users } from 'lucide-react'
 import { match } from 'ts-pattern'
+
+import { useQuery } from '@/lib/connectrpc'
+import { BillingPeriod } from '@/lib/mapping'
+import { mapFeeType } from '@/lib/mapping/feesFromGrpc'
+import { PriceComponent } from '@/lib/schemas/plans'
+import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
+import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
+
 
 export const CreateSubscriptionPriceComponents = ({
   planVersionId,
@@ -88,7 +89,7 @@ const ComponentConfig = ({ originalComponent }: { originalComponent: PriceCompon
         <Select>
           {' '}
           {/*  value={value} onValueChange={onValueChange} */}
-          <SelectTrigger className="w-[180px]">{'Choose one'}</SelectTrigger>
+          <SelectTrigger className="w-[180px]">Choose one</SelectTrigger>
           <SelectContent>
             {originalComponent.fee.data.rates.map(v => (
               <>
@@ -110,7 +111,7 @@ const ComponentConfig = ({ originalComponent }: { originalComponent: PriceCompon
       <>
         <Label>Committed capacity</Label>
         <Select>
-          <SelectTrigger className="w-[180px]">{'Choose one'}</SelectTrigger>
+          <SelectTrigger className="w-[180px]">Choose one</SelectTrigger>
           <SelectContent>
             {originalComponent.fee.data.thresholds.map(v => (
               <>

@@ -1,5 +1,6 @@
-import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 import { cn } from '@ui/lib'
+
+import { CopyToClipboardButton } from '@/components/CopyToClipboard'
 
 export const LocalId = ({
   localId,

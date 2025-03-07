@@ -9,6 +9,7 @@ use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
 
 pub mod internal;
 mod slots;
+pub use payment_method::PaymentSetupResult;
 pub use slots::SubscriptionSlotsInterface;
 mod context;
 mod payment_method;

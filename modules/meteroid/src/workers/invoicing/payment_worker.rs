@@ -44,7 +44,10 @@ impl AsyncRunnable for PaymentWorker {
 }
 
 #[tracing::instrument(skip_all)]
-async fn payment_worker(store: &Store, stripe_adapter: &Stripe) -> Result<(), errors::WorkerError> {
+async fn payment_worker(
+    _store: &Store,
+    _stripe_adapter: &Stripe,
+) -> Result<(), errors::WorkerError> {
     // let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS));
 
     // let mut tasks = Vec::new();
@@ -132,9 +135,9 @@ async fn payment_worker(store: &Store, stripe_adapter: &Stripe) -> Result<(), er
 
 #[tracing::instrument(skip_all)]
 async fn payment_invoice(
-    invoice: &domain::Invoice,
-    stripe_adapter: &Stripe,
-    store: &Store,
+    _invoice: &domain::Invoice,
+    _stripe_adapter: &Stripe,
+    _store: &Store,
 ) -> Result<(), errors::WorkerError> {
     // # 1- we resolve payment method for subscription
 

@@ -93,6 +93,7 @@ pub mod customer {
                 invoicing_emails: value.invoicing_emails,
                 phone: value.phone,
                 balance_value_cents: value.balance_value_cents,
+                current_payment_method_id: value.current_payment_method_id.map(|v| v.as_proto()),
                 currency: value.currency,
                 archived_at: value.archived_at.map(chrono_to_timestamp),
                 created_at: Some(chrono_to_timestamp(value.created_at)),
@@ -143,8 +144,8 @@ pub mod customer_payment_method {
         server::CustomerPaymentMethod {
             id: method.id.as_proto(),
             customer_id: method.customer_id.as_proto(),
-
-            connection_id: method.connection_id.map(|v| v.as_proto()),
+            connection_id: method.connection_id.as_proto(),
+            external_payment_method: method.external_payment_method_id,
             payment_method_type: match method.payment_method_type {
                 domain::PaymentMethodTypeEnum::Card => {
                     server::customer_payment_method::PaymentMethodTypeEnum::Card as i32

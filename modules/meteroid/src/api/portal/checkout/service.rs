@@ -1,3 +1,4 @@
+use crate::api::connectors::mapping::connectors::connector_provider_to_server;
 use crate::api::customers::error::CustomerApiError;
 use crate::api::customers::mapping::customer::{
     DomainAddressWrapper, DomainShippingAddressWrapper, ServerCustomerWrapper,
@@ -14,7 +15,10 @@ use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::*;
 use meteroid_store::compute::InvoiceLineInterface;
-use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew, PaymentMethodTypeEnum};
+use meteroid_store::domain::{
+    CustomerPatch, CustomerPaymentMethodNew, InvoiceTotals, InvoiceTotalsParams,
+    PaymentMethodTypeEnum,
+};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::billing::BillingService;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
@@ -49,7 +53,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .compute_dated_invoice_lines(&subscription.subscription.start_date, &subscription)
             .await
             .change_context(StoreError::InvoiceComputationError)
-            .map(crate::api::invoices::mapping::invoices::domain_invoice_lines_to_server)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
         let customer = self
@@ -80,6 +83,16 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
+        let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
+            line_items: &invoice_lines,
+            total: 0, // no prepaid (TODO check)
+            amount_due: 0,
+            tax_rate: 0,
+            customer_balance_cents: customer.balance_value_cents,
+            subscription_applied_coupons: &vec![], // TODO
+            invoice_currency: subscription.subscription.currency.as_str(),
+        });
+
         let subscription =
             crate::api::subscriptions::mapping::subscriptions::details_domain_to_proto(
                 subscription,
@@ -100,6 +113,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             None
         };
 
+        let invoice_lines =
+            crate::api::invoices::mapping::invoices::domain_invoice_lines_to_server(invoice_lines);
+
         Ok(Response::new(GetSubscriptionCheckoutResponse {
             checkout: Some(Checkout {
                 subscription: Some(subscription),
@@ -108,6 +124,10 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 logo_url,
                 trade_name: organization.trade_name,
                 payment_methods,
+                // TODO recurring_total => also check this is not prorated
+                // amount_due
+                total_amount: totals.total as u64,
+                subtotal_amount: totals.subtotal as u64,
             }),
         }))
     }
@@ -185,15 +205,31 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         let tenant = request.tenant()?;
         let subscription = request.portal_resource()?.subscription()?;
 
+        let inner = request.into_inner();
+
         let subscription = self
             .store
             .get_subscription(tenant, subscription)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let customer_connection_id = subscription
-            .psp_connection_id
-            .ok_or_else(|| PortalCheckoutApiError::MissingCustomerConnection)?;
+        let customer_connection_id = CustomerConnectionId::from_proto(&inner.connection_id)?;
+
+        // validate that customer_connection_id is either subscription.card_provider_id or subscription.direct_debit_provider_id
+        let is_valid = match (
+            &subscription.card_connection_id,
+            &subscription.direct_debit_connection_id,
+        ) {
+            (Some(card_id), _) if *card_id == customer_connection_id => true,
+            (_, Some(debit_id)) if *debit_id == customer_connection_id => true,
+            _ => false,
+        };
+
+        if !is_valid {
+            Err(PortalCheckoutApiError::InvalidArgument(
+                "Connection is not valid for this subscription".to_string(),
+            ))?;
+        }
 
         let intent = self
             .store
@@ -206,7 +242,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 intent_id: intent.intent_id,
                 intent_secret: intent.client_secret,
                 provider_public_key: intent.public_key.expose_secret().clone(),
-                provider: intent.cc_provider,
+                provider: connector_provider_to_server(&intent.provider) as i32,
+                connection_id: intent.connection_id.as_proto(),
             }),
         }))
     }
@@ -282,8 +319,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 id: CustomerPaymentMethodId::new(),
                 tenant_id: tenant,
                 customer_id: connection.customer_id,
-                connection_id: Some(connection_id),
-                external_payment_method_id: Some(external_payment_method_id),
+                connection_id,
+                external_payment_method_id,
                 payment_method_type: PaymentMethodTypeEnum::Card, // TODO
                 account_number_hint: None,
                 card_brand: None,

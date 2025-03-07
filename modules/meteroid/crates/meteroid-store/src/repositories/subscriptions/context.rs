@@ -23,7 +23,6 @@ use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct SubscriptionCreationContext {
-    pub tenant_id: TenantId,
     pub customers: Vec<Customer>,
     pub customer_connection: Vec<CustomerConnection>,
     pub plans: Vec<PlanForSubscription>,
@@ -87,7 +86,6 @@ impl StoreInternal {
             all_add_ons: add_ons,
             all_coupons: coupons,
             invoicing_entity_providers: invoicing_entities,
-            tenant_id,
             customer_connection,
         })
     }

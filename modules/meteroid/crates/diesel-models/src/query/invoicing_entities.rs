@@ -6,10 +6,12 @@ use crate::invoicing_entities::{
 
 use crate::{DbResult, PgConn};
 
+use crate::bank_accounts::BankAccountRow;
+use crate::connectors::ConnectorRow;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
 use diesel::{
-    debug_query, ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl,
-    SelectableHelper,
+    alias, debug_query, ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl,
+    Selectable, SelectableHelper,
 };
 use error_stack::ResultExt;
 
@@ -210,14 +212,36 @@ impl InvoicingEntityProvidersRow {
         use crate::schema::connector::dsl as c_dsl;
         use crate::schema::invoicing_entity::dsl as i_dsl;
 
+        use diesel::alias;
         use diesel_async::RunQueryDsl;
+
+        let (card_connector, direct_debut_connector) = alias!(
+            crate::schema::connector as card_connector,
+            crate::schema::connector as direct_debut_connector
+        );
 
         let query = i_dsl::invoicing_entity
             .filter(i_dsl::tenant_id.eq(tenant_id))
             .filter(i_dsl::id.eq(id))
             .left_join(b_dsl::bank_account.on(i_dsl::bank_account_id.eq(b_dsl::id.nullable())))
-            .left_join(c_dsl::connector.on(i_dsl::cc_provider_id.eq(c_dsl::id.nullable())))
-            .select(InvoicingEntityProvidersRow::as_select());
+            .left_join(
+                card_connector
+                    .on(i_dsl::card_provider_id.eq(card_connector.field(c_dsl::id).nullable())),
+            )
+            .left_join(
+                direct_debut_connector.on(i_dsl::direct_debit_provider_id
+                    .eq(direct_debut_connector.field(c_dsl::id).nullable())),
+            )
+            .select((
+                InvoicingEntityRow::as_select(),
+                card_connector
+                    .fields(<ConnectorRow as Selectable<diesel::pg::Pg>>::construct_selection())
+                    .nullable(),
+                direct_debut_connector
+                    .fields(<ConnectorRow as Selectable<diesel::pg::Pg>>::construct_selection())
+                    .nullable(),
+                Option::<BankAccountRow>::as_select(),
+            ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
@@ -230,19 +254,41 @@ impl InvoicingEntityProvidersRow {
 
     pub async fn list_by_tenant_id(
         conn: &mut PgConn,
-        tenant_id: &uuid::Uuid,
+        tenant_id: &TenantId,
     ) -> DbResult<Vec<InvoicingEntityProvidersRow>> {
         use crate::schema::bank_account::dsl as b_dsl;
         use crate::schema::connector::dsl as c_dsl;
         use crate::schema::invoicing_entity::dsl as i_dsl;
 
+        use diesel::alias;
         use diesel_async::RunQueryDsl;
+
+        let (card_connector, direct_debut_connector) = alias!(
+            crate::schema::connector as card_connector,
+            crate::schema::connector as direct_debut_connector
+        );
 
         let query = i_dsl::invoicing_entity
             .filter(i_dsl::tenant_id.eq(tenant_id))
             .left_join(b_dsl::bank_account.on(i_dsl::bank_account_id.eq(b_dsl::id.nullable())))
-            .left_join(c_dsl::connector.on(i_dsl::cc_provider_id.eq(c_dsl::id.nullable())))
-            .select(InvoicingEntityProvidersRow::as_select());
+            .left_join(
+                card_connector
+                    .on(i_dsl::card_provider_id.eq(card_connector.field(c_dsl::id).nullable())),
+            )
+            .left_join(
+                direct_debut_connector.on(i_dsl::direct_debit_provider_id
+                    .eq(direct_debut_connector.field(c_dsl::id).nullable())),
+            )
+            .select((
+                InvoicingEntityRow::as_select(),
+                card_connector
+                    .fields(<ConnectorRow as Selectable<diesel::pg::Pg>>::construct_selection())
+                    .nullable(),
+                direct_debut_connector
+                    .fields(<ConnectorRow as Selectable<diesel::pg::Pg>>::construct_selection())
+                    .nullable(),
+                Option::<BankAccountRow>::as_select(),
+            ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

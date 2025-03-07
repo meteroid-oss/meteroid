@@ -1,17 +1,17 @@
-import { Button, Card, ComboboxFormField, Form, InputFormField, Label } from '@md/ui'
-import { Edit2, PlusIcon, XIcon } from 'lucide-react'
-import { useState } from 'react'
-import { toast } from 'sonner'
-import { z } from 'zod'
-
-import { useZodForm } from '@/hooks/useZodForm'
 import {
   createConnectQueryKey,
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
+import { Button, Card, ComboboxFormField, Form, InputFormField, Label } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
+import { Edit2, PlusIcon, XIcon } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { z } from 'zod'
 
 import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
 import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
@@ -19,7 +19,7 @@ import {
   getSubscriptionCheckout,
   updateCustomer,
 } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
-import { useQueryClient } from '@tanstack/react-query'
+
 
 const billingInfoSchema = z.object({
   name: z.string().optional(),
@@ -32,8 +32,13 @@ const billingInfoSchema = z.object({
   vatNumber: z.string().optional(),
 })
 
-export const BillingInfo = ({ customer }: { customer: Customer }) => {
-  const [isEditing, setIsEditing] = useState(false)
+interface BillingInfoProps {
+  customer: Customer
+  isEditing: boolean
+  setIsEditing: (isEditing: boolean) => void
+}
+
+export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoProps) => {
   const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
   const queryClient = useQueryClient()
 
@@ -286,7 +291,7 @@ export const BillingInfo = ({ customer }: { customer: Customer }) => {
               disabled={
                 !methods.formState.isDirty ||
                 methods.formState.isSubmitting ||
-                updateBillingInfoMut.isLoading
+                updateBillingInfoMut.isPending
               }
             >
               Save changes

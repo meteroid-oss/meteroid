@@ -295,6 +295,8 @@ pub async fn validate_coupons(
     Ok(())
 }
 
+// TODO check with the other calculate_coupons_discount
+#[allow(dead_code)]
 pub async fn calculate_coupons_discount(
     store: &Store,
     coupons: &[Coupon],

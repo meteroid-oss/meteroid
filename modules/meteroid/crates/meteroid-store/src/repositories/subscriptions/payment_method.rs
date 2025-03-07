@@ -1,11 +1,12 @@
 use crate::domain::enums::{ConnectorTypeEnum, PaymentMethodTypeEnum, PlanTypeEnum};
 use crate::domain::{
-    Customer, CustomerConnection, InvoicingEntity, InvoicingEntityProviderSensitive,
-    SubscriptionNew, SubscriptionPaymentStrategy,
+    Customer, CustomerConnection, InvoicingEntityProviderSensitive, SubscriptionNew,
+    SubscriptionPaymentStrategy,
 };
 use crate::errors::StoreError;
 
 use crate::adapters::payment_service_providers::initialize_payment_provider;
+use crate::domain::connectors::Connector;
 use crate::repositories::subscriptions::context::SubscriptionCreationContext;
 use crate::store::{PgConn, StoreInternal};
 use crate::StoreResult;
@@ -13,17 +14,7 @@ use common_domain::ids::{
     BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
 };
 use diesel_models::customer_connection::CustomerConnectionRow;
-use diesel_models::subscriptions::SubscriptionRowNew;
 use error_stack::{Report, ResultExt};
-
-/// Context for processing payment setup during subscription creation
-#[derive(Debug)]
-pub struct PaymentContext {
-    customer: Customer,
-    invoicing_entity: InvoicingEntity,
-    subscription: SubscriptionRowNew,
-    payment_strategy: SubscriptionPaymentStrategy,
-}
 
 impl StoreInternal {
     /// Sets up the appropriate payment provider for a subscription
@@ -77,18 +68,57 @@ impl StoreInternal {
             })?;
 
         // Get customer's existing payment provider connections
-        let connectors = context.get_customer_connection_for_customer(customer);
+        let connections = context.get_customer_connection_for_customer(customer);
 
         // Process the payment setup based on the selected strategy
         match strategy {
             SubscriptionPaymentStrategy::Auto => {
-                self.setup_auto_payment(conn, customer, invoicing_entity_providers, connectors)
+                self.setup_auto_payment(conn, customer, invoicing_entity_providers, connections)
                     .await
             }
             SubscriptionPaymentStrategy::Bank => {
                 self.setup_bank_payment(customer, invoicing_entity_providers)
             }
             SubscriptionPaymentStrategy::External => Ok(PaymentSetupResult::external()),
+        }
+    }
+
+    async fn use_or_create_connection(
+        &self,
+        conn: &mut PgConn,
+        config: &Connector,
+        customer: &Customer,
+        customer_connectors: &Vec<&CustomerConnection>,
+    ) -> StoreResult<Option<CustomerConnectionId>> {
+        if config.connector_type == ConnectorTypeEnum::PaymentProvider {
+            // Find an existing connection to this provider
+            let customer_connector_opt = customer_connectors
+                .iter()
+                .find(|cc| cc.connector_id == config.id && cc.customer_id == customer.id);
+
+            let customer_connection_id = match customer_connector_opt {
+                None => {
+                    // Create a new customer in the payment provider
+                    let provider = initialize_payment_provider(config);
+                    let external_id = provider
+                        .create_customer_in_provider(customer, config)
+                        .await
+                        .change_context(StoreError::PaymentProviderError)?;
+
+                    // Connect the customer to the payment provider in our system
+                    self.connect_customer_payment_provider(
+                        conn,
+                        &customer.id,
+                        &config.id,
+                        &external_id,
+                    )
+                    .await?
+                }
+                Some(cc) => cc.id,
+            };
+            Ok(Some(customer_connection_id))
+        } else {
+            Ok(None)
         }
     }
 
@@ -110,47 +140,44 @@ impl StoreInternal {
     ) -> StoreResult<PaymentSetupResult> {
         // Use customer's default payment method if available
         if let Some(payment_method) = &customer.current_payment_method_id {
-            return Ok(PaymentSetupResult::with_existing_method(
-                *payment_method,
-            ));
+            return Ok(PaymentSetupResult::with_existing_method(*payment_method));
         }
+
+        // TODO support customer overrides  customer.card_provider_id + customer.direct_debit_provider_id
 
         // Check if customer has a default payment service provider connection
-        if let Some(connection) = &customer.default_psp_connection_id {
-            return Ok(PaymentSetupResult::with_checkout(*connection));
-        }
+        // if let Some(card_provider_id) = &customer.card_provider_id { ... }
+        // if let Some(card_provider_id) = &customer.direct_debit_provider_id { ... }
 
         // Try to use or create a connection to the invoicing entity's payment provider
-        let provider_config = &invoicing_entity_providers.cc_provider;
-        if let Some(config) = provider_config {
-            if config.connector_type == ConnectorTypeEnum::PaymentProvider {
-                // Find an existing connection to this provider
-                let customer_connector_opt = customer_connectors
-                    .iter()
-                    .find(|cc| cc.connector_id == config.id && cc.customer_id == customer.id);
 
-                let customer_connection_id = match customer_connector_opt {
-                    None => {
-                        // Create a new customer in the payment provider
-                        let provider = initialize_payment_provider(config);
-                        let external_id = provider
-                            .create_customer_in_provider(customer, config)
-                            .await
-                            .change_context(StoreError::PaymentProviderError)?;
+        let card_connection = if let Some(card_provider) = &invoicing_entity_providers.card_provider
+        {
+            self.use_or_create_connection(conn, card_provider, customer, &customer_connectors)
+                .await
+        } else {
+            Ok(None)
+        }?;
 
-                        // Connect the customer to the payment provider in our system
-                        self.connect_customer_payment_provider(
-                            conn,
-                            &customer.id,
-                            &config.id,
-                            &external_id,
-                        )
-                        .await?
-                    }
-                    Some(cc) => cc.id,
-                };
-                return Ok(PaymentSetupResult::with_checkout(customer_connection_id));
-            }
+        let direct_debit_connection = if let Some(direct_debit_provider) =
+            &invoicing_entity_providers.direct_debit_provider
+        {
+            self.use_or_create_connection(
+                conn,
+                direct_debit_provider,
+                customer,
+                &customer_connectors,
+            )
+            .await
+        } else {
+            Ok(None)
+        }?;
+
+        if card_connection.is_some() || direct_debit_connection.is_some() {
+            return Ok(PaymentSetupResult::with_checkout(
+                card_connection,
+                direct_debit_connection,
+            )); // TODO
         }
 
         // fallback on bank or external
@@ -210,7 +237,8 @@ impl StoreInternal {
 #[derive(Debug, Clone)]
 pub struct PaymentSetupResult {
     /// The customer's connection to a payment provider, if applicable
-    pub customer_connection_id: Option<CustomerConnectionId>,
+    pub card_connection_id: Option<CustomerConnectionId>,
+    pub direct_debit_connection_id: Option<CustomerConnectionId>,
 
     /// Indicates whether a checkout session is needed to collect payment details
     pub checkout: bool,
@@ -224,9 +252,13 @@ pub struct PaymentSetupResult {
 
 impl PaymentSetupResult {
     /// Creates a payment setup result for initiating a checkout flow
-    fn with_checkout(customer_connection_id: CustomerConnectionId) -> Self {
+    fn with_checkout(
+        card_connection_id: Option<CustomerConnectionId>,
+        direct_debit_connection_id: Option<CustomerConnectionId>,
+    ) -> Self {
         Self {
-            customer_connection_id: Some(customer_connection_id),
+            card_connection_id,
+            direct_debit_connection_id,
             checkout: true,
             payment_method: None,
             bank: None,
@@ -236,7 +268,8 @@ impl PaymentSetupResult {
     /// Creates a payment setup result using an existing payment method
     fn with_existing_method(method_id: CustomerPaymentMethodId) -> Self {
         Self {
-            customer_connection_id: None,
+            card_connection_id: None,
+            direct_debit_connection_id: None,
             checkout: false,
             bank: None,
             payment_method: Some(method_id),
@@ -246,7 +279,8 @@ impl PaymentSetupResult {
     /// Creates a payment setup result associating a bank account for direct transfers
     fn with_bank(bank_account_id: BankAccountId) -> Self {
         Self {
-            customer_connection_id: None,
+            card_connection_id: None,
+            direct_debit_connection_id: None,
             checkout: false,
             bank: Some(bank_account_id),
             payment_method: None,
@@ -256,7 +290,8 @@ impl PaymentSetupResult {
     /// Creates a payment setup result for external/manual payments
     fn external() -> Self {
         Self {
-            customer_connection_id: None,
+            card_connection_id: None,
+            direct_debit_connection_id: None,
             checkout: false,
             payment_method: None,
             bank: None,

@@ -211,6 +211,7 @@ impl BillingService for Store {
             .create_payment_intent(
                 &tenant_id,
                 &payment_method_id,
+                &payment_tx.id,
                 totals.amount_due as u64,
                 currency.clone(),
             )

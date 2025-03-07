@@ -2,8 +2,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use common_domain::ids::{
-    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
-    TenantId,
+    BankAccountId, ConnectorId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -30,7 +29,8 @@ pub struct CustomerRow {
     pub archived_by: Option<Uuid>,
     pub bank_account_id: Option<BankAccountId>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
-    pub default_psp_connection_id: Option<CustomerConnectionId>,
+    pub card_provider_id: Option<ConnectorId>,
+    pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
     pub custom_vat_rate: Option<i32>,
     pub invoicing_emails: Vec<Option<String>>,
@@ -65,7 +65,8 @@ pub struct CustomerRowNew {
     pub billing_email: Option<String>,
     pub bank_account_id: Option<BankAccountId>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
-    pub default_psp_connection_id: Option<CustomerConnectionId>,
+    pub card_provider_id: Option<ConnectorId>,
+    pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
     pub custom_vat_rate: Option<i32>,
     pub invoicing_emails: Vec<Option<String>>,

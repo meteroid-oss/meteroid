@@ -105,19 +105,6 @@ impl StripeClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    pub(crate) fn post<T: DeserializeOwned + Send + 'static>(
-        &self,
-        path: &str,
-        secret_key: &SecretString,
-        retry_strategy: RetryStrategy,
-    ) -> Response<T> {
-        let url = self.url(path);
-
-        let request_builder = self.create_init_request(Method::POST, url, secret_key, None);
-
-        self.execute(request_builder, retry_strategy)
-    }
-
     /// Make a `POST` http request with urlencoded body
     pub(crate) fn post_form<T: DeserializeOwned + Send + 'static, F: Serialize>(
         &self,

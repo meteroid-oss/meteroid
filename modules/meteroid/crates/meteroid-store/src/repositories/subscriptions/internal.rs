@@ -52,7 +52,6 @@ pub struct DetailedSubscription {
     coupons: Vec<Coupon>,
     pub customer: Customer,
     pub invoicing_entity: InvoicingEntityProviderSensitive,
-    tenant_id: TenantId,
     currency: Currency,
 }
 
@@ -61,7 +60,6 @@ impl StoreInternal {
         &self,
         batch: &Vec<CreateSubscription>,
         context: &SubscriptionCreationContext,
-        tenant_id: TenantId,
     ) -> StoreResult<Vec<DetailedSubscription>> {
         let res = batch
             .iter()
@@ -131,7 +129,6 @@ impl StoreInternal {
                         coupons,
                         customer: customer.clone(),
                         invoicing_entity: invoicing_entity.clone(),
-                        tenant_id,
                         currency,
                     }
                 })
@@ -159,14 +156,9 @@ impl StoreInternal {
                 "Plan id not found".to_string(),
             )))?;
 
-        let subscription_row = sub.subscription.map_to_row(
-            period,
-            tenant_id,
-            plan,
-            payment_setup_result.customer_connection_id,
-            payment_setup_result.payment_method,
-            payment_setup_result.checkout,
-        );
+        let subscription_row =
+            sub.subscription
+                .map_to_row(period, tenant_id, plan, payment_setup_result);
         let subscription_coupons = self.process_coupons(&subscription_row, &sub.coupons)?;
 
         let event = self.build_subscription_event(

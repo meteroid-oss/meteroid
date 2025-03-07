@@ -5,11 +5,11 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useCurrency } from '@/hooks/useCurrency'
 import { mapDateFromGrpcv2 } from '@/lib/mapping'
 import { Subscription, SubscriptionStatus } from '@/rpc/api/subscriptions/v1/models_pb'
 
-import { useBasePath } from '@/hooks/useBasePath'
 import type { FunctionComponent, ReactNode } from 'react'
 
 interface SubscriptionsTableProps {
@@ -72,8 +72,8 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
         {
           header: 'End date',
           cell: ({ row }: { row: Row<Subscription> }) =>
-            row.original.billingEndDate
-              ? format(mapDateFromGrpcv2(row.original.billingEndDate), 'dd/MM/yyyy')
+            row.original.endDate
+              ? format(mapDateFromGrpcv2(row.original.endDate), 'dd/MM/yyyy')
               : null,
           enableSorting: false,
         },

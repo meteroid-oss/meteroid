@@ -6,9 +6,9 @@ use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     PlanForSubscription, Schedule, SubscriptionComponent,
 };
+use crate::repositories::subscriptions::PaymentSetupResult;
 use common_domain::ids::{
-    BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PlanId, SubscriptionId,
-    TenantId,
+    BankAccountId, BaseId, CustomerConnectionId, CustomerId, PlanId, SubscriptionId, TenantId,
 };
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
@@ -59,7 +59,9 @@ pub struct Subscription {
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
     pub billing_start_date: Option<NaiveDate>,
-    pub psp_connection_id: Option<CustomerConnectionId>,
+    pub card_connection_id: Option<CustomerConnectionId>,
+    pub direct_debit_connection_id: Option<CustomerConnectionId>,
+    pub bank_account_id: Option<BankAccountId>,
     pub plan_id: PlanId,
     pub plan_name: String,
     pub plan_version_id: Uuid,
@@ -95,7 +97,9 @@ impl From<SubscriptionForDisplayRow> for Subscription {
             plan_id: val.plan_id,
             plan_name: val.plan_name,
             plan_version_id: val.subscription.plan_version_id,
-            psp_connection_id: val.subscription.psp_connection_id,
+            card_connection_id: val.subscription.card_connection_id,
+            direct_debit_connection_id: val.subscription.direct_debit_connection_id,
+            bank_account_id: val.subscription.bank_account_id,
             version: val.version as u32,
             created_at: val.subscription.created_at,
             created_by: val.subscription.created_by,
@@ -163,19 +167,15 @@ impl SubscriptionNew {
         period: BillingPeriodEnum,
         tenant_id: TenantId,
         plan: &PlanForSubscription,
-        psp_connection_id: Option<CustomerConnectionId>,
-        payment_method: Option<CustomerPaymentMethodId>,
-        pending_checkout: bool,
+        payment_setup_result: &PaymentSetupResult,
     ) -> SubscriptionRowNew {
         // in the current state we set billing_date/day even if free.
         // That is because a free plan could still have included usage
         // TODO : => decide to make it mandatory or not in db
         let billing_start_date = self.billing_start_date.unwrap_or(self.start_date);
-        let billing_day_anchor = self.billing_day_anchor.unwrap_or_else(|| {
-            self.billing_start_date
-                .unwrap_or(self.start_date)
-                .day() as u16
-        });
+        let billing_day_anchor = self
+            .billing_day_anchor
+            .unwrap_or_else(|| self.billing_start_date.unwrap_or(self.start_date).day() as u16);
         let net_terms = self.net_terms.unwrap_or(plan.net_terms as u32);
 
         let activated_at = match self.activation_condition {
@@ -183,9 +183,11 @@ impl SubscriptionNew {
             _ => None,
         };
 
+        let now = chrono::Utc::now().naive_utc();
+
         SubscriptionRowNew {
             id: SubscriptionId::new(),
-            trial_duration: None,
+            trial_duration: self.trial_duration.map(|x| x as i32),
             customer_id: self.customer_id,
             billing_day_anchor: billing_day_anchor as i16,
             tenant_id,
@@ -193,8 +195,10 @@ impl SubscriptionNew {
             billing_start_date: Some(billing_start_date),
             end_date: self.end_date,
             plan_version_id: self.plan_version_id,
-            created_at: Default::default(),
-            psp_connection_id,
+            created_at: now,
+            card_connection_id: payment_setup_result.card_connection_id.clone(),
+            direct_debit_connection_id: payment_setup_result.direct_debit_connection_id.clone(),
+            bank_account_id: payment_setup_result.bank.clone(),
             created_by: self.created_by,
             net_terms: net_terms as i32,
             invoice_memo: self.invoice_memo.clone(),
@@ -204,8 +208,8 @@ impl SubscriptionNew {
             period: period.into(),
             start_date: self.start_date,
             activation_condition: self.activation_condition.clone().into(),
-            payment_method,
-            pending_checkout,
+            payment_method: payment_setup_result.payment_method.clone(),
+            pending_checkout: payment_setup_result.checkout.clone(),
         }
     }
 }
@@ -236,9 +240,9 @@ pub struct SubscriptionInvoiceCandidate {
     pub customer_id: CustomerId,
     pub plan_version_id: Uuid,
     pub plan_name: String,
-    pub start_date: chrono::NaiveDate,
-    pub end_date: Option<chrono::NaiveDate>,
-    pub billing_start_date: Option<chrono::NaiveDate>,
+    pub start_date: NaiveDate,
+    pub end_date: Option<NaiveDate>,
+    pub billing_start_date: Option<NaiveDate>,
     pub billing_day_anchor: i16,
     pub net_terms: i32,
     pub activated_at: Option<NaiveDateTime>,

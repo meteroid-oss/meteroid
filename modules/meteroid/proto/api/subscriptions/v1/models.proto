@@ -47,6 +47,9 @@ message Subscription {
   string local_id = 25;
   optional string billing_start_date = 26;
   optional string checkout_token = 27;
+
+  optional string card_connection_id = 30;
+  optional string direct_debit_connection_id = 31;
 }
 
 message SubscriptionDetails {

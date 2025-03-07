@@ -10,7 +10,6 @@ use crate::store::Store;
 use crate::{domain, StoreResult};
 use chrono::NaiveDate;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::AsyncConnection;
 use error_stack::Report;
 use itertools::Itertools;
 use uuid::Uuid;
@@ -62,9 +61,7 @@ impl SubscriptionInterface for Store {
             .await?;
 
         // Step 2 : Prepare for internal usage, compute etc
-        let subscriptions = self
-            .internal
-            .build_subscription_details(&batch, &context, tenant_id)?;
+        let subscriptions = self.internal.build_subscription_details(&batch, &context)?;
 
         let mut results = Vec::new();
         for sub in subscriptions {

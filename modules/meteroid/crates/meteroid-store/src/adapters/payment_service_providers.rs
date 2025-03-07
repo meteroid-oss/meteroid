@@ -1,9 +1,10 @@
 use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::customer_payment_methods::SetupIntent;
 use crate::domain::enums::ConnectorProviderEnum;
-use crate::domain::{Address, Customer};
+use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum};
 use crate::utils::local_id::LocalId;
 use async_trait::async_trait;
+use common_domain::ids::{BaseId, PaymentTransactionId};
 use error_stack::Report;
 use secrecy::SecretString;
 use std::collections::HashMap;
@@ -14,27 +15,23 @@ use stripe_client::customers::{
 use stripe_client::payment_intents::{
     FutureUsage, PaymentIntent, PaymentIntentApi, PaymentIntentRequest,
 };
-use stripe_client::setup_intents::{CreateSetupIntent, CreateSetupIntentUsage, SetupIntentApi};
+use stripe_client::setup_intents::{
+    CreateSetupIntent, CreateSetupIntentUsage, SetupIntentApi, StripePaymentMethodType,
+};
 use uuid::Uuid;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PaymentProviderError {
     #[error("Provider configuration error: {0}")]
     Configuration(String),
-    #[error("Provider communication failed: {0}")]
-    ProviderError(String),
     #[error("Customer creation failed: {0}")]
     CustomerCreation(String),
-    #[error("Invalid payment method: {0}")]
-    PaymentMethod(String),
     #[error("Setup Intent error: {0}")]
     SetupIntent(String),
     #[error("Payment Intent error: {0}")]
     PaymentIntent(String),
     #[error("Database error: {0}")]
     Database(#[from] diesel::result::Error),
-    #[error("Validation error: {0}")]
-    Validation(String),
 }
 
 #[async_trait]
@@ -46,13 +43,15 @@ pub trait PaymentProvider: Send + Sync {
     ) -> error_stack::Result<String, PaymentProviderError>;
     async fn create_setup_intent_in_provider(
         &self,
+        connection: &CustomerConnection,
         connector: &Connector,
-        customer_external_id: &String,
+        payment_methods: Vec<PaymentMethodTypeEnum>,
     ) -> error_stack::Result<SetupIntent, PaymentProviderError>;
 
     async fn create_payment_intent_in_provider(
         &self,
         connector: &Connector,
+        transaction_id: &PaymentTransactionId,
         customer_external_id: &String,
         payment_method_external_id: &String,
         amount: i64,
@@ -87,10 +86,10 @@ impl PaymentProvider for StripeClient {
 
         // add instance (org, tenant slug ?)
         let mut metadata = HashMap::from([
-            ("meteroid.id".to_string(), customer.id.clone().to_string()),
+            ("meteroid.id".to_string(), customer.id.as_base62()),
             (
                 "meteroid.tenant_id".to_string(),
-                customer.tenant_id.clone().to_string(),
+                customer.tenant_id.as_base62(),
             ),
         ]);
 
@@ -132,22 +131,51 @@ impl PaymentProvider for StripeClient {
 
     async fn create_setup_intent_in_provider(
         &self,
+        connection: &CustomerConnection,
         connector: &Connector,
-        customer_external_id: &String,
+        payment_methods: Vec<PaymentMethodTypeEnum>,
     ) -> error_stack::Result<SetupIntent, PaymentProviderError> {
         let secret_key = extract_stripe_secret_key(connector)?;
         let public_key = extract_stripe_public_key(connector)?;
 
+        let stripe_payment_methods = payment_methods
+            .into_iter()
+            .filter_map(|method| match method {
+                PaymentMethodTypeEnum::Card => Some(StripePaymentMethodType::Card),
+                PaymentMethodTypeEnum::DirectDebitSepa => Some(StripePaymentMethodType::Sepa),
+                PaymentMethodTypeEnum::DirectDebitAch => Some(StripePaymentMethodType::Ach),
+                PaymentMethodTypeEnum::DirectDebitBacs => Some(StripePaymentMethodType::Bacs),
+                PaymentMethodTypeEnum::Other => None,
+                PaymentMethodTypeEnum::Transfer => None,
+            })
+            .collect();
+
+        let metadata = HashMap::from([
+            (
+                "meteroid.tenant_id".to_string(),
+                connector.tenant_id.as_base62(),
+            ),
+            (
+                "meteroid.customer_id".to_string(),
+                connection.customer_id.as_base62(),
+            ),
+            (
+                "meteroid.connection_id".to_string(),
+                connection.id.as_base62(),
+            ),
+        ]);
+
         let setup_intent = self
             .create_setup_intent(
                 CreateSetupIntent {
-                    customer: Some(customer_external_id.clone()),
-                    payment_method_types: Some(vec!["card".to_string()]), // TODO
+                    customer: Some(connection.external_customer_id.clone()),
+                    payment_method_types: Some(stripe_payment_methods),
                     usage: Some(CreateSetupIntentUsage::OffSession),
-                    setup_mandate_details: None, // TODO double check
+                    setup_mandate_details: None,
+                    metadata,
                 },
                 &secret_key,
-                Uuid::now_v7().to_string(), // TODO pass idempotency from api ?
+                Uuid::now_v7().to_string(), // TODO pass idempotency from api (though we already do check idp at the api level)
             )
             .await
             .map_err(|e| PaymentProviderError::SetupIntent(e.to_string()))?;
@@ -156,14 +184,16 @@ impl PaymentProvider for StripeClient {
             intent_id: setup_intent.id,
             client_secret: setup_intent.client_secret,
             public_key,
-            cc_provider: "stripe".to_string(),
-            cc_provider_id: connector.id,
+            provider: ConnectorProviderEnum::Stripe,
+            connector_id: connector.id,
+            connection_id: connection.id,
         })
     }
 
     async fn create_payment_intent_in_provider(
         &self,
         connector: &Connector,
+        transaction_id: &PaymentTransactionId,
         customer_external_id: &String,
         payment_method_external_id: &String,
         amount: i64,
@@ -171,10 +201,16 @@ impl PaymentProvider for StripeClient {
     ) -> error_stack::Result<PaymentIntent, PaymentProviderError> {
         let secret_key = extract_stripe_secret_key(connector)?;
 
-        let metadata = HashMap::from([(
-            "meteroid.tenant_id".to_string(),
-            connector.tenant_id.clone().to_string(),
-        )]);
+        let metadata = HashMap::from([
+            (
+                "meteroid.tenant_id".to_string(),
+                connector.tenant_id.as_base62(),
+            ),
+            (
+                "meteroid.transaction_id".to_string(),
+                transaction_id.as_base62(),
+            ),
+        ]);
 
         let payment_intent = self
             .create_payment_intent(

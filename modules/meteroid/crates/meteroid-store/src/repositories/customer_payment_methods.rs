@@ -1,14 +1,17 @@
 use crate::adapters::payment_service_providers::initialize_payment_provider;
 use crate::domain::connectors::Connector;
 use crate::domain::customer_payment_methods::{CustomerPaymentMethod, SetupIntent};
-use crate::domain::CustomerPaymentMethodNew;
+use crate::domain::{CustomerConnection, CustomerPaymentMethodNew, PaymentMethodTypeEnum};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId};
+use common_domain::ids::{
+    CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PaymentTransactionId, TenantId,
+};
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
+use diesel_models::invoicing_entities::InvoicingEntityProvidersRow;
 use error_stack::ResultExt;
 use stripe_client::payment_intents::PaymentIntent;
 
@@ -24,6 +27,7 @@ pub trait CustomerPaymentMethodsInterface {
         &self,
         tenant_id: &TenantId,
         payment_method_id: &CustomerPaymentMethodId,
+        transaction_id: &PaymentTransactionId,
         amount: u64,
         currency: String,
     ) -> StoreResult<PaymentIntent>;
@@ -70,12 +74,62 @@ impl CustomerPaymentMethodsInterface for Store {
                 .await
                 .map_err(|err| StoreError::DatabaseError(err.error))?;
 
+        let customer_connection: CustomerConnection = CustomerConnection {
+            id: connection.id,
+            customer_id: connection.customer.id,
+            connector_id: connection.connector.id,
+            supported_payment_types: connection
+                .supported_payment_types
+                .as_ref()
+                .map(|v| v.into_iter().flatten().map(|t| t.clone().into()).collect()),
+            external_customer_id: connection.external_customer_id,
+        };
+
         let connector = Connector::from_row(&self.settings.crypt_key, connection.connector)?;
 
         let provider = initialize_payment_provider(&connector);
 
+        // payment methods for that connector are either retrieved from invoicing entity (default) or overridden through the connection
+        let payment_methods = match connection.supported_payment_types {
+            Some(types) => types
+                .into_iter()
+                .filter_map(|t| t.map(Into::<PaymentMethodTypeEnum>::into))
+                .collect(),
+            None => {
+                let invoicing_entity_providers =
+                    InvoicingEntityProvidersRow::resolve_providers_by_id(
+                        &mut conn,
+                        connection.customer.invoicing_entity_id,
+                        *tenant_id,
+                    )
+                    .await
+                    .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+                let mut payment_methods = Vec::new();
+                if let Some(card_provider) = invoicing_entity_providers.card_provider {
+                    if card_provider.id == connector.id {
+                        payment_methods.push(PaymentMethodTypeEnum::Card);
+                    }
+                }
+                if let Some(direct_debit_provider) =
+                    invoicing_entity_providers.direct_debit_provider
+                {
+                    // TODO only one based on customer.country ? Or stripe / other do it by themselves ?
+                    if direct_debit_provider.id == connector.id {
+                        payment_methods = vec![
+                            PaymentMethodTypeEnum::DirectDebitSepa,
+                            PaymentMethodTypeEnum::DirectDebitAch,
+                            PaymentMethodTypeEnum::DirectDebitBacs,
+                        ];
+                    }
+                }
+
+                payment_methods
+            }
+        };
+
         let setup_intent = provider
-            .create_setup_intent_in_provider(&connector, &connection.external_customer_id)
+            .create_setup_intent_in_provider(&customer_connection, &connector, payment_methods)
             .await
             .change_context_lazy(|| StoreError::PaymentProviderError)?;
 
@@ -86,6 +140,7 @@ impl CustomerPaymentMethodsInterface for Store {
         &self,
         tenant_id: &TenantId,
         payment_method_id: &CustomerPaymentMethodId,
+        transaction_id: &PaymentTransactionId,
         amount: u64,
         currency: String,
     ) -> StoreResult<PaymentIntent> {
@@ -95,23 +150,10 @@ impl CustomerPaymentMethodsInterface for Store {
             .await
             .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-        let connection = CustomerConnectionDetailsRow::get_by_id(
-            &mut conn,
-            tenant_id,
-            &method.connection_id.ok_or(StoreError::InvalidArgument(
-                "Payment method is not connected and cannot be used for payment intent".to_string(),
-            ))?,
-        )
-        .await
-        .map_err(|err| StoreError::DatabaseError(err.error))?;
-
-        let external_payment_method_id =
-            method
-                .external_payment_method_id
-                .ok_or(StoreError::InvalidArgument(
-                    "Payment method has no external id and cannot be used for payment intent"
-                        .to_string(),
-                ))?;
+        let connection =
+            CustomerConnectionDetailsRow::get_by_id(&mut conn, tenant_id, &method.connection_id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
 
         let connector = Connector::from_row(&self.settings.crypt_key, connection.connector)?;
 
@@ -120,8 +162,9 @@ impl CustomerPaymentMethodsInterface for Store {
         let payment_intent = provider
             .create_payment_intent_in_provider(
                 &connector,
+                transaction_id,
                 &connection.external_customer_id,
-                &external_payment_method_id,
+                &method.external_payment_method_id,
                 amount as i64,
                 &currency,
             )

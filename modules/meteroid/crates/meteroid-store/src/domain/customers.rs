@@ -39,7 +39,8 @@ pub struct Customer {
     pub shipping_address: Option<ShippingAddress>,
     pub bank_account_id: Option<BankAccountId>,
     pub current_payment_method_id: Option<CustomerPaymentMethodId>,
-    pub default_psp_connection_id: Option<CustomerConnectionId>,
+    pub card_provider_id: Option<ConnectorId>,
+    pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
     pub custom_vat_rate: Option<i32>,
     #[map(~.into_iter().flatten().collect())]
@@ -94,12 +95,7 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             invoicing_entity_id: self.invoicing_entity_id,
             alias: self.inner.alias,
             billing_email: self.inner.billing_email,
-            invoicing_emails: self
-                .inner
-                .invoicing_emails
-                .into_iter()
-                .map(Some)
-                .collect(),
+            invoicing_emails: self.inner.invoicing_emails.into_iter().map(Some).collect(),
             phone: self.inner.phone,
             balance_value_cents: self.inner.balance_value_cents,
             currency: self.inner.currency,
@@ -116,7 +112,8 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             created_at: self.inner.force_created_date,
             bank_account_id: self.inner.bank_account_id,
             current_payment_method_id: None,
-            default_psp_connection_id: None,
+            direct_debit_provider_id: None,
+            card_provider_id: None,
             vat_number: self.inner.vat_number,
             custom_vat_rate: self.inner.custom_vat_rate,
         })

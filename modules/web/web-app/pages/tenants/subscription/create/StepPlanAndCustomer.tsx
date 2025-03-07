@@ -76,7 +76,7 @@ export const StepPlanAndCustomer = () => {
               }}
             >
               <div>
-                <Alert variant={'destructive'}>
+                <Alert variant="destructive">
                   <AlertDescription>
                     !! WIP !! This UI only works for non-parametrized price component in this
                     iteration

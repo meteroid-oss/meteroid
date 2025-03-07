@@ -39,8 +39,9 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
         id: customer.id,
         name: data.name,
         alias: data.alias,
-        email: data.email,
-        invoicingEmail: data.invoicingEmail,
+        billingEmail: data.email,
+        // TODO allow multiple
+        invoicingEmails: data.invoicingEmail ? { emails: [data.invoicingEmail] } : undefined,
         phone: data.phone,
       },
     })

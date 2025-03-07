@@ -107,7 +107,7 @@ impl Stripe {
         &self,
         parsed: Event,
         data: SetupIntent,
-        store: Store,
+        _store: Store,
     ) -> Result<bool, errors::AdapterWebhookError> {
         let event_type_clone = parsed.event_type.clone();
 
@@ -128,7 +128,7 @@ impl Stripe {
         &self,
         parsed: Event,
         data: PaymentIntent,
-        store: Store,
+        _store: Store,
     ) -> Result<bool, errors::AdapterWebhookError> {
         let event_type_clone = parsed.event_type.clone();
 

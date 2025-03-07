@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::enums::{BillingPeriodEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum};
 use common_domain::ids::{
-    CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PlanId, SubscriptionId, TenantId,
+    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PlanId,
+    SubscriptionId, TenantId,
 };
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
@@ -33,7 +34,9 @@ pub struct SubscriptionRow {
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
     pub currency: String,
-    pub psp_connection_id: Option<CustomerConnectionId>,
+    pub card_connection_id: Option<CustomerConnectionId>,
+    pub direct_debit_connection_id: Option<CustomerConnectionId>,
+    pub bank_account_id: Option<BankAccountId>,
     pub pending_checkout: bool,
     // this is used if payment_method is null (ex: payment method deleted) to elect a new payment method/start a checkout
     pub payment_method_type: Option<PaymentMethodTypeEnum>,
@@ -60,11 +63,14 @@ pub struct SubscriptionRowNew {
     pub invoice_threshold: Option<Decimal>,
     pub activated_at: Option<NaiveDateTime>,
     pub currency: String,
-    pub psp_connection_id: Option<CustomerConnectionId>,
+    pub card_connection_id: Option<CustomerConnectionId>,
+    pub direct_debit_connection_id: Option<CustomerConnectionId>,
+    pub bank_account_id: Option<BankAccountId>,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
     pub payment_method: Option<CustomerPaymentMethodId>,
+    // TODO payment_method_type
     pub end_date: Option<NaiveDate>,
     pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
