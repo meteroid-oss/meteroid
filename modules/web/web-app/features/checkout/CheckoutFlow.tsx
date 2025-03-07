@@ -1,13 +1,14 @@
+import { useMutation } from '@connectrpc/connect-query'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
+import { confirmCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 import { formatCurrency } from '@/utils/numbers'
 
 import { BillingInfo } from './components/BillingInfo'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { CheckoutFlowProps } from './types'
-
 /**
  * Main checkout flow component
  */
@@ -15,40 +16,36 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
   const { subscription, customer, paymentMethods, totalAmount } = checkoutData
 
+  // Mutation to confirm the checkout
+  const confirmCheckoutMutation = useMutation(confirmCheckout, {
+    onSuccess: () => {
+      alert('OK') //TODO
+    },
+    onError: error => {
+      console.error('Checkout confirmation error:', error)
+      alert('ERROR')
+    },
+  })
+
+  // Mutation to add a new payment method
+
   /**
    * Process payment with selected payment method
    */
-  const handlePaymentSubmit = async (paymentMethodId: string, isNew: boolean) => {
+  const handlePaymentSubmit = async (paymentMethodId: string) => {
     try {
-      // Determine the API endpoint based on whether we're using a saved or new payment method
-      const endpoint = isNew
-        ? '/api/checkout/process-payment-with-new-method'
-        : '/api/checkout/process-payment'
+      if (!subscription?.subscription?.currency) {
+        throw new Error('Currency is not defined')
+      }
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paymentMethodId,
-          customerId: customer?.id,
-          subscriptionId: subscription?.subscription?.id,
-        }),
+      await confirmCheckoutMutation.mutateAsync({
+        displayedAmount: totalAmount,
+        displayedCurrency: subscription.subscription.currency,
+        paymentMethodId,
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'Payment failed')
-      }
-
-      // Check if we need to redirect (e.g., for 3D Secure or bank redirects)
-      const data = await response.json()
-      if (data.redirectUrl) {
-        window.location.href = data.redirectUrl
-        return
-      }
-
       // On success, redirect to success page
-      window.location.href = `/checkout/success?subscription=${subscription?.subscription?.id}`
+      alert('OK2') //TODO
     } catch (error) {
       console.error('Payment submission error:', error)
       throw error // Let the PaymentPanel handle this error

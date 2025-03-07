@@ -36,7 +36,7 @@ export interface PaymentPanelProps {
   currency: string
   cardConnectionId?: string
   directDebitConnectionId?: string
-  onPaymentSubmit: (paymentMethodId: string, isNew: boolean) => Promise<void>
+  onPaymentSubmit: (paymentMethodId: string) => Promise<void>
 }
 
 /**

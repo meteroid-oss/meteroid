@@ -1,3 +1,4 @@
+import { useMutation } from '@connectrpc/connect-query'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
 import { AlertCircle, Building, CreditCard } from 'lucide-react'
@@ -8,17 +9,21 @@ import {
   CustomerPaymentMethod,
   CustomerPaymentMethod_PaymentMethodTypeEnum,
 } from '@/rpc/api/customers/v1/models_pb'
-import { setupIntent } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
+import {
+  addPaymentMethod,
+  setupIntent,
+} from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 
 import { CardBrandLogo } from './components/CardBrandLogo'
 import { PaymentForm } from './components/PaymentForm'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
 
 // Inner payment panel component that is wrapped by Elements
-const PaymentPanelInner: React.FC<PaymentPanelProps> = ({
+const PaymentPanelInner: React.FC<PaymentPanelProps & { setupConnectionId: string }> = ({
   customer,
   paymentMethods,
   onPaymentSubmit,
+  setupConnectionId,
 }) => {
   const stripe = useStripe()
   const elements = useElements()
@@ -28,6 +33,8 @@ const PaymentPanelInner: React.FC<PaymentPanelProps> = ({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodSelection | null>(
     null
   )
+
+  const addPaymentMethodMutation = useMutation(addPaymentMethod)
 
   // Initially select default payment method if available
   useEffect(() => {
@@ -61,7 +68,7 @@ const PaymentPanelInner: React.FC<PaymentPanelProps> = ({
     try {
       if (selectedPaymentMethod.type === 'saved') {
         // Use saved payment method
-        await onPaymentSubmit(selectedPaymentMethod.id, false)
+        await onPaymentSubmit(selectedPaymentMethod.id)
         setPaymentState(PaymentState.SUCCESS)
       } else if (
         selectedPaymentMethod.type === 'new' &&
@@ -92,7 +99,17 @@ const PaymentPanelInner: React.FC<PaymentPanelProps> = ({
         }
 
         if (setupIntent && setupIntent.payment_method) {
-          await onPaymentSubmit(setupIntent.payment_method.toString(), true)
+          const res = await addPaymentMethodMutation.mutateAsync({
+            connectionId: setupConnectionId,
+            externalPaymentMethodId: setupIntent.payment_method.toString(),
+          })
+
+          if (!res.paymentMethod?.id) {
+            throw new Error('Payment method creation failed. No id returned')
+          }
+
+          // TODO no we want the payment method id from meteroid
+          await onPaymentSubmit(res.paymentMethod.id)
           setPaymentState(PaymentState.SUCCESS)
         } else {
           throw new Error('Payment method creation failed')
@@ -335,13 +352,14 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
   // Extract clientSecret and publishableKey from the setupIntent response
   const clientSecret = setupIntentQuery.data?.setupIntent?.intentSecret
   const stripePublishableKey = setupIntentQuery.data?.setupIntent?.providerPublicKey
+  const connectionId = setupIntentQuery.data?.setupIntent?.connectionId
 
   // Wait for setup intent to load
   if (setupIntentQuery.isLoading) {
     return <div className="w-full p-6 lg:p-10 text-center">Loading payment options...</div>
   }
 
-  if (setupIntentQuery.isError || !clientSecret || !stripePublishableKey) {
+  if (setupIntentQuery.isError || !clientSecret || !stripePublishableKey || !connectionId) {
     return (
       <div className="w-full p-6 lg:p-10 text-center text-red-600">
         Unable to initialize payment system. Please try again later.
@@ -367,7 +385,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
         },
       }}
     >
-      <PaymentPanelInner {...props} />
+      <PaymentPanelInner {...props} setupConnectionId={connectionId} />
     </Elements>
   )
 }

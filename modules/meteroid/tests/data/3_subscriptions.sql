@@ -39,8 +39,8 @@ $$
     --
 -- Data for Name: subscription; Type: TABLE DATA; Schema: public; Owner: meteroidbilling
 --
-    INSERT INTO public.subscription (id, customer_id, billing_day, tenant_id, trial_start_date, billing_start_date,
-                                     billing_end_date, plan_version_id, created_at, created_by, net_terms,
+    INSERT INTO public.subscription (id, customer_id, billing_day_anchor, tenant_id, trial_duration, start_date,
+                                     end_date, plan_version_id, created_at, created_by, net_terms,
                                      invoice_memo,
                                      invoice_threshold, activated_at, canceled_at, cancellation_reason, currency,
                                      mrr_cents,
@@ -67,7 +67,12 @@ $$
       }');
 
 
-    INSERT INTO public.subscription
+    INSERT INTO public.subscription (id, customer_id, billing_day_anchor, tenant_id, trial_duration, start_date,
+                                     end_date, plan_version_id, created_at, created_by, net_terms,
+                                     invoice_memo,
+                                     invoice_threshold, activated_at, canceled_at, cancellation_reason, currency,
+                                     mrr_cents,
+                                     period)
     VALUES (var_sub_comodo_leetcode_id, var_cust_comodo_id, 31,
             var_tenant_id, NULL, '2023-11-04', NULL,
             var_plan_version_1_leetcode_id,
@@ -85,8 +90,8 @@ $$
       }');
 
 
-    INSERT INTO public.subscription (id, customer_id, billing_day, tenant_id, trial_start_date, billing_start_date,
-                                     billing_end_date, plan_version_id, created_at, created_by, net_terms,
+    INSERT INTO public.subscription (id, customer_id, billing_day_anchor, tenant_id, trial_duration, start_date,
+                                     end_date, plan_version_id, created_at, created_by, net_terms,
                                      invoice_memo,
                                      invoice_threshold, activated_at, canceled_at, cancellation_reason, currency,
                                      mrr_cents,
@@ -112,7 +117,12 @@ $$
       }');
 
 
-    INSERT INTO public.subscription
+    INSERT INTO public.subscription(id, customer_id, billing_day_anchor, tenant_id, trial_duration, start_date,
+                                    end_date, plan_version_id, created_at, created_by, net_terms,
+                                    invoice_memo,
+                                    invoice_threshold, activated_at, canceled_at, cancellation_reason, currency,
+                                    mrr_cents,
+                                    period)
     VALUES (var_sub_uber_leetcode_id, var_cust_uber_id, 15,
             var_tenant_id, NULL, '2023-11-04', NULL,
             var_plan_version_1_leetcode_id,
@@ -130,7 +140,12 @@ $$
         }
       }');
 
-    INSERT INTO public.subscription
+    INSERT INTO public.subscription (id, customer_id, billing_day_anchor, tenant_id, trial_duration, start_date,
+                                     end_date, plan_version_id, created_at, created_by, net_terms,
+                                     invoice_memo,
+                                     invoice_threshold, activated_at, canceled_at, cancellation_reason, currency,
+                                     mrr_cents,
+                                     period)
     VALUES (var_sub_spotify_supabase_id, var_cust_spotify_id, 1,
             var_tenant_id, NULL, '2023-11-04', NULL,
             var_plan_version_supabase_id,
@@ -152,7 +167,12 @@ $$
       }');
 
 
-    INSERT INTO public.subscription
+    INSERT INTO public.subscription (id, customer_id, billing_day_anchor, tenant_id, trial_duration, start_date,
+                                     end_date, plan_version_id, created_at, created_by, net_terms,
+                                     invoice_memo,
+                                     invoice_threshold, activated_at, canceled_at, cancellation_reason, currency,
+                                     mrr_cents,
+                                     period)
     VALUES (var_sub_comodo_supabase_id, var_cust_comodo_id, 1,
             var_tenant_id, NULL, '2023-11-04', NULL,
             var_plan_version_supabase_id,
