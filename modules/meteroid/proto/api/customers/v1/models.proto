@@ -4,29 +4,11 @@ package meteroid.api.customers.v1;
 
 import "google/protobuf/timestamp.proto";
 
-message CustomerBillingConfig {
-  message Stripe {
-    string customer_id = 1;
-    CollectionMethod collection_method = 2;
-
-    enum CollectionMethod {
-      SEND_INVOICE = 0;
-      CHARGE_AUTOMATICALLY = 1;
-    }
-  }
-
-  message Manual {}
-
-  oneof billing_config_oneof {
-    Stripe stripe = 1;
-    Manual manual = 2;
-  }
-}
 
 message CustomerBrief {
   string id = 1;
   string name = 2;
-  optional string email = 3;
+  optional string billing_email = 3;
   optional string alias = 4;
   optional string country = 5;
   string created_at = 6;
@@ -50,10 +32,9 @@ message ShippingAddress {
 message Customer {
   string id = 1;
   string name = 2;
-  optional string email = 3;
+  optional string billing_email = 3;
   optional string alias = 4;
-  CustomerBillingConfig billing_config = 5;
-  optional string invoicing_email = 6;
+  repeated string invoicing_emails = 6;
   optional string phone = 7;
   int32 balance_value_cents = 8;
   string currency = 9;
@@ -63,14 +44,16 @@ message Customer {
   optional ShippingAddress shipping_address = 13;
   string invoicing_entity_id = 14;
   string local_id = 15;
+  optional string vat_number = 16;
+  optional string current_payment_method_id = 17;
+
 }
 
 message CustomerNew {
   string name = 2;
-  optional string email = 3;
+  optional string billing_email = 3;
   optional string alias = 4;
-  CustomerBillingConfig billing_config = 5;
-  optional string invoicing_email = 6;
+  repeated string invoicing_emails = 6;
   optional string phone = 7;
   string currency = 9;
   optional Address billing_address = 12;
@@ -78,16 +61,48 @@ message CustomerNew {
   optional string invoicing_entity_id = 14;
 }
 
+
+// TODO need better patch mechanism / need to check empty (diesel option<option<>>)
 message PatchCustomer {
   string id = 10;
   optional string name = 1;
-  optional string email = 2;
+  optional string billing_email = 2;
   optional string alias = 3;
-  optional string invoicing_email = 4;
+  InvoicingEmails invoicing_emails = 4;
   optional string phone = 5;
   optional int32 balance_value_cents = 6;
   optional string currency = 7;
   optional Address billing_address = 8;
   optional ShippingAddress shipping_address = 9;
   optional string invoicing_entity_id = 14;
+  optional string vat_number = 15;
+
+  message InvoicingEmails {
+    repeated string emails = 1;
+  }
 }
+
+message CustomerPaymentMethod {
+  string id = 1;
+  string customer_id = 2;
+  string connection_id = 3;
+  string external_payment_method = 4;
+  PaymentMethodTypeEnum payment_method_type = 8;
+  optional string card_brand = 9;
+  optional string card_last4 = 10;
+  optional int32 card_exp_month = 11;
+  optional int32 card_exp_year = 12;
+  optional string account_number_hint = 13;
+
+  enum PaymentMethodTypeEnum {
+    CARD = 0;
+    TRANSFER = 1;
+    DIRECT_DEBIT_SEPA = 2;
+    DIRECT_DEBIT_ACH = 3;
+    DIRECT_DEBIT_BACS = 4;
+    OTHER = 5;
+  }
+
+
+}
+

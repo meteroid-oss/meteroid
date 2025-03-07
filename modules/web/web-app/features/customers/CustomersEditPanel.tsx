@@ -30,7 +30,6 @@ import {
   createCustomer,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { CustomerBillingConfig_Stripe_CollectionMethod } from '@/rpc/api/customers/v1/models_pb'
 
 interface CustomersEditPanelProps {
   visible: boolean
@@ -74,18 +73,6 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                   data: {
                     name: values.companyName,
                     alias: values.alias,
-                    billingConfig: values.stripeCustomerId
-                      ? {
-                          billingConfigOneof: {
-                            case: 'stripe',
-                            value: {
-                              collectionMethod:
-                                CustomerBillingConfig_Stripe_CollectionMethod.CHARGE_AUTOMATICALLY, // TODO
-                              customerId: values.stripeCustomerId,
-                            },
-                          },
-                        }
-                      : undefined,
                   },
                 })
                 if (res.customer?.id) {

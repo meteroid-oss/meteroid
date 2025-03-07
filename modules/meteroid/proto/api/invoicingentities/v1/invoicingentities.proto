@@ -49,12 +49,14 @@ message GetInvoicingEntityResponse {
 
 message UpdateInvoicingEntityProvidersRequest {
   string id = 1;
-  optional string cc_provider_id = 2;
-  optional string bank_account_id = 3;
+  optional string bank_account_id = 2;
+  optional string card_provider_id = 3;
+  optional string direct_debit_provider_id = 4;
 }
 
 message UpdateInvoicingEntityProvidersResponse {
-  meteroid.api.connectors.v1.Connector cc_provider = 1;
+  meteroid.api.connectors.v1.Connector card_provider = 1;
+  meteroid.api.connectors.v1.Connector direct_debit_provider = 2;
   meteroid.api.bankaccounts.v1.BankAccount bank_account = 5;
 }
 
@@ -63,7 +65,8 @@ message GetInvoicingEntityProvidersRequest {
 }
 
 message GetInvoicingEntityProvidersResponse {
-  meteroid.api.connectors.v1.Connector cc_provider = 1;
+  meteroid.api.connectors.v1.Connector card_provider = 1;
+  meteroid.api.connectors.v1.Connector direct_debit_provider = 2;
   meteroid.api.bankaccounts.v1.BankAccount bank_account = 5;
 }
 

@@ -16,14 +16,21 @@ pub enum ConnectorApiError {
     #[code(InvalidArgument)]
     InvalidArgument(String),
 
-    #[error("Store error: {0}")]
+    #[error("{0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
 }
 
 impl From<Report<StoreError>> for ConnectorApiError {
     fn from(value: Report<StoreError>) -> Self {
-        let err = Box::new(value.into_error());
-        Self::StoreError("Error in api connector service".to_string(), err)
+        let error_message = value.current_context().to_string();
+
+        let err = Box::new(
+            value
+                .attach_printable("Error in api connector service".to_string())
+                .into_error(),
+        );
+
+        Self::StoreError(error_message, err)
     }
 }

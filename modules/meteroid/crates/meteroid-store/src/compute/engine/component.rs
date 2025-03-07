@@ -18,7 +18,7 @@ use super::super::clients::usage::UsageClient;
 use super::super::errors::ComputeError;
 use super::fees;
 use common_domain::ids::{BillableMetricId, PriceComponentId};
-use error_stack::{Report, Result};
+use error_stack::{Report, Result, ResultExt};
 
 pub struct ComponentEngine {
     usage_client: Arc<dyn UsageClient + Send + Sync>,
@@ -112,7 +112,8 @@ impl ComponentEngine {
                         invoice_date,
                         component
                             .price_component_id()
-                            .ok_or(Report::new(ComputeError::InternalError))?,
+                            .ok_or(Report::new(ComputeError::InternalError))
+                            .attach_printable("Failed to fetch slot data")?,
                     ) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
                     .await?
                     .max(min_slots.unwrap_or(0) as u64)
@@ -355,9 +356,9 @@ impl ComponentEngine {
         let usage = self
             .usage_client
             .fetch_usage(
-                self.subscription_details.tenant_id,
-                self.subscription_details.customer_id,
-                &self.subscription_details.customer_alias,
+                &self.subscription_details.subscription.tenant_id,
+                &self.subscription_details.subscription.customer_id,
+                &self.subscription_details.subscription.customer_alias,
                 metric,
                 period,
             )
@@ -391,8 +392,8 @@ impl ComponentEngine {
         let quantity = self
             .slots_client
             .fetch_slots(
-                self.subscription_details.tenant_id,
-                self.subscription_details.id,
+                self.subscription_details.subscription.tenant_id,
+                self.subscription_details.subscription.id,
                 component_id,
                 invoice_date,
             )

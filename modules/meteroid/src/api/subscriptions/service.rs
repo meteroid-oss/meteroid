@@ -47,6 +47,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         let res = mapping::subscriptions::created_domain_to_proto(created)?;
 
+        // TODO checkout_url
         Ok(Response::new(CreateSubscriptionResponse {
             subscription: Some(res),
         }))
@@ -102,9 +103,9 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 SubscriptionId::from_proto(inner.subscription_id)?,
             )
             .await
-            .map_err(Into::<SubscriptionApiError>::into)
-            .map_err(Into::<Status>::into)
-            .and_then(mapping::subscriptions::details_domain_to_proto)?;
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        let subscription = mapping::subscriptions::details_domain_to_proto(subscription)?;
 
         Ok(Response::new(subscription))
     }

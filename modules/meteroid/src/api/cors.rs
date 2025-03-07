@@ -5,7 +5,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 const DEFAULT_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const DEFAULT_EXPOSED_HEADERS: [&str; 3] =
     ["grpc-status", "grpc-message", "grpc-status-details-bin"];
-const DEFAULT_ALLOW_HEADERS: [&str; 7] = [
+const DEFAULT_ALLOW_HEADERS: [&str; 8] = [
     "x-grpc-web",
     "content-type",
     "x-user-agent",
@@ -13,6 +13,7 @@ const DEFAULT_ALLOW_HEADERS: [&str; 7] = [
     "x-api-key",
     "authorization",
     "x-md-context",
+    "x-portal-token",
 ];
 
 pub fn cors() -> CorsLayer {

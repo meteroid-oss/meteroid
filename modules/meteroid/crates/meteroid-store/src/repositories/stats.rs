@@ -229,7 +229,7 @@ impl StatsInterface for Store {
     ) -> StoreResult<Vec<RevenueByCustomer>> {
         let mut conn = self.get_conn().await?;
 
-        let currency = match request.currency {
+        let reporting_currency = match request.currency {
             Some(currency) => currency,
             None => {
                 TenantRow::find_by_id(&mut conn, request.tenant_id)
@@ -242,7 +242,7 @@ impl StatsInterface for Store {
         let data = CustomerTopRevenueRow::list(
             &mut conn,
             request.tenant_id,
-            currency.as_str(),
+            reporting_currency.as_str(),
             request.limit as i32,
         )
         .await

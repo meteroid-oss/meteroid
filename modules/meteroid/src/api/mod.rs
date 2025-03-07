@@ -19,6 +19,7 @@ pub mod invoices;
 pub mod invoicingentities;
 pub mod organizations;
 pub mod plans;
+pub mod portal;
 pub mod pricecomponents;
 pub mod productfamilies;
 pub mod productitems;

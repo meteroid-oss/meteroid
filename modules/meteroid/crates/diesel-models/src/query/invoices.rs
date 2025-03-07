@@ -12,7 +12,7 @@ use crate::extend::cursor_pagination::{
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, TenantId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel::dsl::IntervalDsl;
 use diesel::{
     debug_query, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
@@ -72,10 +72,12 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn list(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
         param_customer_id: Option<CustomerId>,
+        param_subscription_id: Option<SubscriptionId>,
         param_status: Option<InvoiceStatusEnum>,
         param_query: Option<String>,
         order_by: OrderByRequest,
@@ -92,6 +94,10 @@ impl InvoiceRow {
 
         if let Some(param_customer_id) = param_customer_id {
             query = query.filter(i_dsl::customer_id.eq(param_customer_id))
+        }
+
+        if let Some(param_subscription_id) = param_subscription_id {
+            query = query.filter(i_dsl::subscription_id.eq(param_subscription_id))
         }
 
         if let Some(param_status) = param_status {
@@ -163,6 +169,7 @@ impl InvoiceRow {
     }
 
     pub async fn update_external_status(
+        // TODO delete
         conn: &mut PgConn,
         id: InvoiceId,
         tenant_id: TenantId,
@@ -255,6 +262,34 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .attach_printable("Error while finalizing invoice")
+            .into_db_result()
+    }
+
+    pub async fn apply_transaction(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        transaction_amount: i64,
+    ) -> DbResult<InvoiceRow> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set((
+                i_dsl::updated_at.eq(now),
+                i_dsl::amount_due.eq(i_dsl::amount_due - transaction_amount),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while applying transaction to invoice")
             .into_db_result()
     }
 

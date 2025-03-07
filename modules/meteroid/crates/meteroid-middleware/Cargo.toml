@@ -24,3 +24,4 @@ uuid = { workspace = true, features = ["serde"] }
 secrecy = { workspace = true }
 jsonwebtoken = { workspace = true }
 chrono = { workspace = true }
+tap = { workspace = true }

@@ -5,7 +5,6 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::customers::v1::CustomerBillingConfig;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
 use meteroid_store::domain::CursorPaginationRequest;
@@ -130,19 +129,9 @@ async fn test_main() {
             api::customers::v1::CreateCustomerRequest {
                 data: Some(api::customers::v1::CustomerNew {
                     name: "Customer A".to_string(),
-                    email: Some("customer@domain.com".to_string()),
+                    billing_email: Some("customer@domain.com".to_string()),
                     alias: None,
-                    billing_config: Some(CustomerBillingConfig {
-                        billing_config_oneof: Some(
-                            api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
-                                api::customers::v1::customer_billing_config::Stripe {
-                                    customer_id: "customer_id".to_string(),
-                                    collection_method: 0,
-                                },
-                            ),
-                        ),
-                    }),
-                    invoicing_email: None,
+                    invoicing_emails: Vec::new(),
                     phone: None,
                     currency: "EUR".to_string(),
                     billing_address: None,
@@ -166,10 +155,9 @@ async fn test_main() {
             api::subscriptions::v1::CreateSubscriptionRequest {
                 subscription: Some(api::subscriptions::v1::CreateSubscription {
                     plan_version_id: plan_version.clone().id,
-                    billing_start_date: now.as_proto(),
-                    billing_day: 1,
+                    start_date: now.as_proto(),
+                    billing_day_anchor: Some(1),
                     customer_id: customer.id.clone(),
-                    currency: "USD".to_string(),
                     ..Default::default()
                 }),
             },
@@ -182,7 +170,7 @@ async fn test_main() {
 
     // check DB state
     assert_eq!(subscription.customer_id.clone(), customer.id.clone());
-    assert_eq!(subscription.billing_day, 1);
+    assert_eq!(subscription.billing_day_anchor, 1);
     assert_eq!(subscription.plan_version_id, plan_version.id);
 
     let db_invoices = setup

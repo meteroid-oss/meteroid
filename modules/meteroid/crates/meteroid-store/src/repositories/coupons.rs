@@ -127,8 +127,8 @@ impl CouponInterface for Store {
 
         let coupons = AppliedCouponForDisplayRow::list_by_coupon_id(
             &mut conn,
-            coupon_id,
-            tenant_id,
+            &coupon_id,
+            &tenant_id,
             pagination.into(),
         )
         .await

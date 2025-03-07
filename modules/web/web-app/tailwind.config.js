@@ -37,7 +37,7 @@ module.exports = {
   mode: 'jit',
   darkMode: [
     'variant',
-    ['@media (prefers-color-scheme: dark) { &:not(.light *) }', '&:is(.dark *)'],
+    ['@media (prefers-color-scheme: dark) { &:not(.light *) }', '&:not(.light *):is(.dark *)'],
   ],
   content: [
     './features/**/*.{js,ts,jsx,tsx}',

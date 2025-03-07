@@ -71,8 +71,8 @@ impl ScheduleRow {
 
     pub async fn list_schedules_by_subscription(
         conn: &mut PgConn,
-        tenant_id_params: TenantId,
-        subscription_id: SubscriptionId,
+        tenant_id_params: &TenantId,
+        subscription_id: &SubscriptionId,
     ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::schedule::dsl as schedule_dsl;
         use crate::schema::subscription;

@@ -27,8 +27,8 @@ impl SubscriptionAddOnRow {
 
     pub async fn list_by_subscription_id(
         conn: &mut PgConn,
-        tenant_id: TenantId,
-        subscription_id: SubscriptionId,
+        tenant_id: &TenantId,
+        subscription_id: &SubscriptionId,
     ) -> DbResult<Vec<SubscriptionAddOnRow>> {
         use crate::schema::subscription::dsl as s_dsl;
         use crate::schema::subscription_add_on::dsl as sao_dsl;

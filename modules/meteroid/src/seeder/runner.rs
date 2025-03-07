@@ -3,7 +3,7 @@ use error_stack::ResultExt;
 use fake::Fake;
 use meteroid_store::domain::enums::{
     BillingMetricAggregateEnum, BillingPeriodEnum, InvoiceStatusEnum, InvoiceType, PlanStatusEnum,
-    PlanTypeEnum, TenantEnvironmentEnum,
+    PlanTypeEnum, SubscriptionActivationCondition, TenantEnvironmentEnum,
 };
 
 use meteroid_store::domain as store_domain;
@@ -22,18 +22,19 @@ use fake::faker::internet::en::SafeEmail;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
-use meteroid_store::compute::{calculate_period_range, InvoiceLineInterface};
+use meteroid_store::compute::InvoiceLineInterface;
 
 use chrono::Utc;
 
 use common_domain::ids::OrganizationId;
 use meteroid_store::domain::{
-    Address, BillingConfig, InlineCustomer, InlineInvoicingEntity, OrderByRequest,
-    PaginationRequest, TenantContext,
+    Address, InlineCustomer, InlineInvoicingEntity, OrderByRequest, PaginationRequest,
+    TenantContext,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+use meteroid_store::utils::periods::calculate_period_range;
 use nanoid::nanoid;
 
 pub async fn run(
@@ -177,9 +178,8 @@ pub async fn run(
             let alias = format!("{}-{}", slugify(&company_name), nanoid!(5));
             customers_to_create.push(store_domain::CustomerNew {
                 invoicing_entity_id: Some(invoicing_entity.id),
-                billing_config: BillingConfig::Manual,
-                email: SafeEmail().fake(),
-                invoicing_email: None,
+                billing_email: SafeEmail().fake(),
+                invoicing_emails: Vec::new(),
                 phone: None,
                 balance_value_cents: 0,
                 currency: "EUR".to_string(),
@@ -193,9 +193,12 @@ pub async fn run(
                 }),
                 created_by: user_id,
                 force_created_date: date.and_hms_opt(0, 0, 0),
+                bank_account_id: None,
+                vat_number: None,
                 alias: Some(alias),
                 name: company_name.to_string(),
                 shipping_address: None,
+                custom_vat_rate: None,
             });
         });
     }
@@ -226,7 +229,7 @@ pub async fn run(
             .unwrap();
 
         let customer_created_at_date = customer.created_at.date();
-        let trial_start_date = version
+        let _trial_start_date = version
             .trial_duration_days
             .map(|_| customer_created_at_date);
 
@@ -236,7 +239,7 @@ pub async fn run(
             .checked_add_days(Days::new(version.trial_duration_days.unwrap_or(0) as u64))
             .unwrap_or(customer_created_at_date);
 
-        let activated_at = if plan.plan_type != PlanTypeEnum::Free {
+        let _activated_at = if plan.plan_type != PlanTypeEnum::Free {
             billing_start_date.and_hms_opt(0, 0, 0)
         } else {
             None
@@ -300,19 +303,21 @@ pub async fn run(
             }
         }
 
+        // TODO review all that
         let subscription = store_domain::SubscriptionNew {
             customer_id: customer.id,
-            currency: "EUR".to_string(), // TODO
-            billing_day: version.period_start_day.unwrap_or(1),
-            trial_start_date,
-            billing_start_date,
-            billing_end_date,
+            activation_condition: SubscriptionActivationCondition::OnStart,
+            trial_duration: version.trial_duration_days.map(|a| a as u32),
+            billing_day_anchor: version.period_start_day.map(|a| a as u16),
             plan_version_id: version.id,
             created_by: user_id,
-            net_terms: version.net_terms,
+            net_terms: Some(version.net_terms as u32),
             invoice_memo: None,
             invoice_threshold: None,
-            activated_at,
+            start_date: billing_start_date,
+            end_date: billing_end_date,
+            payment_strategy: None, // TODO
+            billing_start_date: None,
         };
 
         let create_subscription_components = if parameterized_components.is_empty() {
@@ -334,8 +339,6 @@ pub async fn run(
         };
 
         subscriptions_to_create.push(params);
-
-        // let created_subscription = store.insert_subscription(subscription).await?;
     }
 
     let created_subscriptions = store
@@ -375,20 +378,25 @@ pub async fn run(
             .find(|p| p.name == plan.plan.name)
             .and_then(|c| c.churn_rate);
 
+        let billing_start_date = subscription.billing_start_date.unwrap_or(
+            subscription.start_date
+                + chrono::Duration::days(subscription.trial_duration.unwrap_or(0) as i64),
+        );
+
         // Add some variations (cancellations, reactivations, upgrades, downgrades, switch, trial conversions TODO)
         // CHURN START
         if let Some(churn_rate) = churn_rate {
             if plan.plan.plan_type != PlanTypeEnum::Free {
-                let months_since_start = (now.year() - subscription.billing_start_date.year()) * 12
+                let months_since_start = (now.year() - subscription.start_date.year()) * 12
                     + now.month() as i32
-                    - subscription.billing_start_date.month() as i32;
+                    - subscription.start_date.month() as i32;
 
                 let churn_probability = 1.0 - (1.0 - churn_rate).powi(months_since_start);
 
                 if rng.random::<f64>() < churn_probability {
                     let end_month = rng.random_range(0..=months_since_start);
-                    let end_date = subscription.billing_start_date
-                        + chrono::Duration::days(end_month as i64 * 30);
+                    let end_date =
+                        billing_start_date + chrono::Duration::days(end_month as i64 * 30);
 
                     if end_date < now {
                         store
@@ -415,9 +423,9 @@ pub async fn run(
 
         // TODO for ALL billing periods of the subscription
         let invoice_dates = calculate_period_end_dates(
-            subscription.billing_start_date,
-            subscription.billing_end_date,
-            subscription.billing_day as u32,
+            billing_start_date,
+            subscription.end_date,
+            subscription.billing_day_anchor as u32,
             &BillingPeriodEnum::Monthly,
         );
 
@@ -495,15 +503,15 @@ pub async fn run(
                 reference: None,
                 memo: None,
                 due_at: Some((invoice_date + chrono::Duration::days(30)).and_time(NaiveTime::MIN)),
-                plan_name: Some(subscription_details.plan_name.clone()),
+                plan_name: Some(subscription_details.subscription.plan_name.clone()),
                 invoice_number: format!("{}-{:0>8}", invoice_number_prefix, i.to_string()),
                 customer_details: InlineCustomer {
                     id: subscription.customer_id,
-                    name: subscription_details.customer_name.clone(),
+                    name: subscription_details.subscription.customer_name.clone(),
                     snapshot_at: subscription.created_at,
                     billing_address: customer.billing_address.clone(),
                     alias: customer.alias.clone(),
-                    email: customer.email.clone(),
+                    email: customer.billing_email.clone(),
                     vat_number: None,
                 },
                 seller_details: InlineInvoicingEntity {
@@ -542,7 +550,7 @@ fn calculate_period_end_dates(
     loop {
         let period = calculate_period_range(
             billing_start_date,
-            billing_day,
+            billing_day as u16,
             period_index,
             billing_period,
         );

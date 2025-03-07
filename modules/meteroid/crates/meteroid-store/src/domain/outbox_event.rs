@@ -132,9 +132,9 @@ pub struct CustomerEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub invoicing_email: Option<String>,
+    pub billing_email: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub invoicing_emails: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub currency: String,
@@ -153,13 +153,15 @@ pub struct SubscriptionEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_alias: Option<String>,
     pub customer_name: String,
-    pub billing_day: i16,
+    pub billing_day_anchor: u16,
     pub currency: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub trial_start_date: Option<NaiveDate>,
-    pub billing_start_date: NaiveDate,
+    pub trial_duration: Option<u32>,
+    pub start_date: NaiveDate,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub billing_end_date: Option<NaiveDate>,
+    pub end_date: Option<NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_start_date: Option<NaiveDate>,
     pub plan_id: PlanId,
     pub plan_name: String,
     pub plan_version_id: Uuid,

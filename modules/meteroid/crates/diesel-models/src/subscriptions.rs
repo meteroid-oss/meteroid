@@ -5,8 +5,11 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::BillingPeriodEnum;
-use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
+use crate::enums::{BillingPeriodEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum};
+use common_domain::ids::{
+    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PlanId,
+    SubscriptionId, TenantId,
+};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
@@ -16,11 +19,9 @@ use rust_decimal::Decimal;
 pub struct SubscriptionRow {
     pub id: SubscriptionId,
     pub customer_id: CustomerId,
-    pub billing_day: i16,
+    pub billing_day_anchor: i16,
     pub tenant_id: TenantId,
-    pub trial_start_date: Option<NaiveDate>,
-    pub billing_start_date: NaiveDate,
-    pub billing_end_date: Option<NaiveDate>,
+    pub start_date: NaiveDate,
     pub plan_version_id: Uuid,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -30,9 +31,20 @@ pub struct SubscriptionRow {
     pub activated_at: Option<NaiveDateTime>,
     pub canceled_at: Option<NaiveDateTime>,
     pub cancellation_reason: Option<String>,
-    pub currency: String,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
+    pub currency: String,
+    pub card_connection_id: Option<CustomerConnectionId>,
+    pub direct_debit_connection_id: Option<CustomerConnectionId>,
+    pub bank_account_id: Option<BankAccountId>,
+    pub pending_checkout: bool,
+    // this is used if payment_method is null (ex: payment method deleted) to elect a new payment method/start a checkout
+    pub payment_method_type: Option<PaymentMethodTypeEnum>,
+    pub payment_method: Option<CustomerPaymentMethodId>,
+    pub end_date: Option<NaiveDate>,
+    pub trial_duration: Option<i32>,
+    pub activation_condition: SubscriptionActivationConditionEnum,
+    pub billing_start_date: Option<NaiveDate>,
 }
 
 #[derive(Insertable, Debug)]
@@ -40,20 +52,29 @@ pub struct SubscriptionRow {
 pub struct SubscriptionRowNew {
     pub id: SubscriptionId,
     pub customer_id: CustomerId,
-    pub billing_day: i16,
+    pub billing_day_anchor: i16,
     pub tenant_id: TenantId,
-    pub trial_start_date: Option<NaiveDate>,
-    pub billing_start_date: NaiveDate,
-    pub billing_end_date: Option<NaiveDate>,
+    pub start_date: NaiveDate,
     pub plan_version_id: Uuid,
+    pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub net_terms: i32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub activated_at: Option<NaiveDateTime>,
     pub currency: String,
+    pub card_connection_id: Option<CustomerConnectionId>,
+    pub direct_debit_connection_id: Option<CustomerConnectionId>,
+    pub bank_account_id: Option<BankAccountId>,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
+    pub pending_checkout: bool,
+    pub payment_method: Option<CustomerPaymentMethodId>,
+    // TODO payment_method_type
+    pub end_date: Option<NaiveDate>,
+    pub trial_duration: Option<i32>,
+    pub activation_condition: SubscriptionActivationConditionEnum,
+    pub billing_start_date: Option<NaiveDate>,
 }
 
 pub struct CancelSubscriptionParams {
@@ -98,15 +119,6 @@ pub struct SubscriptionInvoiceCandidateRow {
     pub plan_version: subscription_invoice_candidate::PlanVersionEmbedRow,
 }
 
-#[derive(Debug, Queryable, Selectable)]
-#[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct SubscriptionInvoiceCandidateGroupByRow {
-    #[diesel(embed)]
-    pub subscription: subscription_invoice_candidate::SubscriptionEmbedRow,
-    #[diesel(embed)]
-    pub plan_version: subscription_invoice_candidate::PlanVersionEmbedRow,
-}
-
 mod subscription_invoice_candidate {
     use crate::enums::BillingPeriodEnum;
 
@@ -124,9 +136,11 @@ mod subscription_invoice_candidate {
         pub tenant_id: TenantId,
         pub customer_id: CustomerId,
         pub plan_version_id: Uuid,
-        pub billing_start_date: NaiveDate,
-        pub billing_end_date: Option<NaiveDate>,
-        pub billing_day: i16,
+        pub start_date: NaiveDate,
+        pub end_date: Option<NaiveDate>,
+        pub billing_start_date: Option<NaiveDate>,
+        pub billing_day_anchor: i16,
+        pub net_terms: i32,
         pub activated_at: Option<NaiveDateTime>,
         pub canceled_at: Option<NaiveDateTime>,
         pub period: BillingPeriodEnum,

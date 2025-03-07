@@ -32,8 +32,9 @@ export const CustomerCard = ({ customer, className }: Props) => {
           />
         </div>
         <div className="basis-2/4 flex flex-col gap-2">
-          <Property label="Email" value={customer.email} />
-          <Property label="Invoicing email" value={customer.invoicingEmail} />
+          <Property label="Email" value={customer.billingEmail} />
+          {/* TODO */}
+          <Property label="Invoicing emails" value={customer.invoicingEmails.join(', ')} />
           <Property label="Phone" value={customer.phone} />
         </div>
       </div>

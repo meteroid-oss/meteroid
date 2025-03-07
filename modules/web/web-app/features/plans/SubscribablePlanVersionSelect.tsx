@@ -30,10 +30,11 @@ export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
   const plansByFamily = pipe(
     plansQuery.data?.plans,
     F.defaultTo([] as PlanOverview[]),
+    A.filter(p => !!p.activeVersion?.id),
     A.groupBy(p => p.productFamilyName)
   )
 
-  const selectedPlan = plansQuery.data?.plans.find(p => p.id === value)?.name
+  const selectedPlan = plansQuery.data?.plans.find(p => p.activeVersion?.id === value)?.name
 
   return (
     <Select value={value} onValueChange={onChange}>
@@ -46,7 +47,7 @@ export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
             <SelectGroup key={family}>
               <SelectLabel className="SelectLabel">{family}</SelectLabel>
               {plans?.map(p => (
-                <SelectItem key={p.id} value={p.id}>
+                <SelectItem key={p.activeVersion?.id} value={p.activeVersion?.id ?? 'none'}>
                   {p.name}
                 </SelectItem>
               ))}

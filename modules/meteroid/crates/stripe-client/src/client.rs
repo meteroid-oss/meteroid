@@ -1,5 +1,4 @@
 use crate::error::{ErrorResponse, StripeError};
-use crate::invoice::{CreateInvoice, CreateInvoiceItem, Invoice, InvoiceItem};
 use crate::request::{Outcome, RetryStrategy};
 use bytes::Bytes;
 use reqwest::header::{HeaderMap, HeaderValue};
@@ -93,53 +92,7 @@ impl StripeClient {
         }
     }
 
-    pub fn get_account_id(&self, secret_key: &'_ SecretString) -> Response<crate::misc::Account> {
-        self.get("/account", secret_key, RetryStrategy::default())
-    }
-
-    pub fn create_invoice(
-        &self,
-        params: CreateInvoice<'_>,
-        secret_key: &'_ SecretString,
-        idempotency_key: String,
-    ) -> Response<Invoice> {
-        self.post_form(
-            "/invoices",
-            params,
-            secret_key,
-            idempotency_key,
-            RetryStrategy::default(),
-        )
-    }
-
-    pub fn finalize_invoice(
-        &self,
-        invoice_id: &'_ str,
-        secret_key: &'_ SecretString,
-    ) -> Response<Invoice> {
-        self.post(
-            &format!("/invoices/{}/finalize", invoice_id),
-            secret_key,
-            RetryStrategy::default(),
-        )
-    }
-
-    pub fn create_invoice_item(
-        &self,
-        params: CreateInvoiceItem<'_>,
-        secret_key: &'_ SecretString,
-        idempotency_key: String,
-    ) -> Response<InvoiceItem> {
-        self.post_form(
-            "/invoiceitems",
-            params,
-            secret_key,
-            idempotency_key,
-            RetryStrategy::default(),
-        )
-    }
-
-    pub fn get<T: DeserializeOwned + Send + 'static>(
+    pub(crate) fn get<T: DeserializeOwned + Send + 'static>(
         &self,
         path: &str,
         secret_key: &SecretString,
@@ -152,21 +105,8 @@ impl StripeClient {
         self.execute(request_builder, retry_strategy)
     }
 
-    fn post<T: DeserializeOwned + Send + 'static>(
-        &self,
-        path: &str,
-        secret_key: &SecretString,
-        retry_strategy: RetryStrategy,
-    ) -> Response<T> {
-        let url = self.url(path);
-
-        let request_builder = self.create_init_request(Method::POST, url, secret_key, None);
-
-        self.execute(request_builder, retry_strategy)
-    }
-
     /// Make a `POST` http request with urlencoded body
-    fn post_form<T: DeserializeOwned + Send + 'static, F: Serialize>(
+    pub(crate) fn post_form<T: DeserializeOwned + Send + 'static, F: Serialize>(
         &self,
         path: &str,
         form: F,

@@ -1,14 +1,24 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { spaces } from '@md/foundation'
-import { Badge, Button, Card, cn, Skeleton } from '@md/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  Skeleton,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Flex } from '@ui/components/legacy'
-import { Download, DownloadIcon, RefreshCcw } from 'lucide-react'
+import { ChevronDown, Download, DownloadIcon, RefreshCcw } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
 import {
@@ -52,7 +62,7 @@ export const Invoice = () => {
         ) : (
           <>
             <InvoiceView invoice={data} previewHtml={setOpenPreview} />
-            {invoiceId && (
+            {invoiceId && openPreview && (
               <PreviewInvoiceDialog
                 invoiceId={invoiceId}
                 open={openPreview}
@@ -71,6 +81,7 @@ interface Props {
 }
 
 export const InvoiceMeta = ({ invoice }: Props) => {
+  const basePath = useBasePath()
   return (
     <div className="text-sm">
       <Card className="p-6 ">
@@ -97,7 +108,7 @@ export const InvoiceMeta = ({ invoice }: Props) => {
               <span className="text-muted-foreground">Bill to</span>
               <span className="break-words">
                 <Link
-                  to={`../../../customers/${invoice.customerId}`}
+                  to={`${basePath}/customers/${invoice.customerId}`}
                   className="flex items-center text-brand hover:underline"
                 >
                   <a>{invoice.customerDetails?.name}</a>
@@ -183,7 +194,16 @@ const LeftOverview: React.FC<{
       <div className="gap-y-4">
         <div className="py-6 space-y-6">
           <div>Timeline</div>
-          <div className="text-muted-foreground text-sm">No invoice events</div>
+
+          {invoice.finalizedAt && (
+            <div className="text-muted-foreground text-sm">
+              {parseAndFormatDate(invoice.finalizedAt)} - Invoice finalized
+            </div>
+          )}
+
+          <div className="text-muted-foreground text-sm">
+            {parseAndFormatDate(invoice.createdAt)} - Invoice created
+          </div>
         </div>
       </div>
     </div>
@@ -238,6 +258,20 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
           >
             Preview
           </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="primary" className="gap-2  " size="sm" hasIcon>
+                Actions <ChevronDown className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {/* {secondaryActions.map((option, optionIndex) => (
+                <DropdownMenuItem key={optionIndex} onClick={option.onClick}>
+                  {option.label}
+                </DropdownMenuItem>
+              ))} */}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <Button size="sm" variant="primary">
             <Download size="16" />

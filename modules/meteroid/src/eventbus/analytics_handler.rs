@@ -488,7 +488,8 @@ impl AnalyticsHandler {
                 event_data_details.entity_id.into(),
             )
             .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?
+            .subscription;
 
         self.send_track(
             "subscription-created".to_string(),
@@ -519,7 +520,8 @@ impl AnalyticsHandler {
                 event_data_details.entity_id.into(),
             )
             .await
-            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?;
+            .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?
+            .subscription;
 
         let canceled_at = subscription
             .canceled_at
@@ -534,13 +536,13 @@ impl AnalyticsHandler {
             .unwrap_or("unknown".to_string());
 
         let billing_end_date = subscription
-            .billing_end_date
-            .map(|canceled_at| {
+            .end_date
+            .map(|ended_at| {
                 format!(
                     "{}-{}-{}",
-                    canceled_at.year(),
-                    canceled_at.month(),
-                    canceled_at.day()
+                    ended_at.year(),
+                    ended_at.month(),
+                    ended_at.day()
                 )
             })
             .unwrap_or("unknown".to_string());

@@ -269,7 +269,7 @@ Kept for reference until the EventBus is implemented in the service, and the Slo
 //
 //         let params = db::invoices::CreateInvoiceParams {
 //             id: common_utils::uuid::v7(),
-//             invoicing_provider: db::InvoicingProviderEnum::STRIPE,
+//             payment_provider: db::PaymentProviderEnum::STRIPE,
 //             status: db::InvoiceStatusEnum::FINALIZED,
 //             invoice_date: chrono_to_date(subscription.billing_start_date)?,
 //             plan_version_id,
@@ -514,7 +514,7 @@ Kept for reference until the EventBus is implemented in the service, and the Slo
 //
 //             let params = db::invoices::CreateInvoiceParams {
 //                 id: common_utils::uuid::v7(),
-//                 invoicing_provider: db::InvoicingProviderEnum::STRIPE,
+//                 payment_provider: db::PaymentProviderEnum::STRIPE,
 //                 status: db::InvoiceStatusEnum::FINALIZED,
 //                 invoice_date: now.date(),
 //                 tenant_id: subscription.tenant_id,

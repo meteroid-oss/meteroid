@@ -19,6 +19,7 @@ pub mod connectors;
 mod constants;
 pub mod coupons;
 pub mod customer_balance;
+pub mod customer_connection;
 pub mod historical_rates;
 pub mod invoicing_entities;
 pub mod organizations;
@@ -30,5 +31,7 @@ pub mod schedules;
 pub mod stats;
 pub mod subscriptions;
 
+pub mod billing;
+pub mod customer_payment_methods;
 pub mod users;
 pub mod webhooks;

@@ -72,8 +72,8 @@ impl UsageClient for MeteringUsageClient {
 
     async fn fetch_usage(
         &self,
-        tenant_id: TenantId,
-        customer_id: CustomerId,
+        tenant_id: &TenantId,
+        customer_id: &CustomerId,
         customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
@@ -138,12 +138,12 @@ impl UsageClient for MeteringUsageClient {
         };
 
         let request = QueryMeterRequest {
-            tenant_id: tenant_id.to_string(),
+            tenant_id: tenant_id.as_proto(),
             meter_slug: metric.id.to_string(),
             event_name: metric.code.clone(),
             meter_aggregation_type: aggregation_type,
             customers: vec![CustomerIdentifier {
-                local_id: customer_id.to_string(),
+                local_id: customer_id.to_string(), // TODO
                 alias: customer_alias.clone(),
             }],
             from: Some(date_to_timestamp(period.start)),

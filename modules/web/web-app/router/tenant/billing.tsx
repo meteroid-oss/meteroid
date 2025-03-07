@@ -4,6 +4,7 @@ import { NotImplemented } from '@/features/NotImplemented'
 import { Billing, BillingOutlet } from '@/pages/tenants/billing'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { Subscriptions } from '@/pages/tenants/subscription'
+import { Subscription } from '@/pages/tenants/subscription/subscription'
 import { SubscriptionCreate } from '@/pages/tenants/subscription/subscriptionCreate'
 
 export const billingRoutes: RouteObject = {
@@ -19,6 +20,10 @@ export const billingRoutes: RouteObject = {
         {
           index: true,
           element: <Subscriptions />,
+        },
+        {
+          path: ':subscriptionId',
+          element: <Subscription />,
         },
         {
           path: 'create',

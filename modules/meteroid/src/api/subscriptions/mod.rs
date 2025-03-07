@@ -6,7 +6,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 
 pub mod error;
-mod mapping;
+pub(crate) mod mapping;
 
 pub use mapping::ext;
 

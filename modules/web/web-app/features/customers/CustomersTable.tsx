@@ -38,7 +38,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
       {
         header: 'Email',
         cell: ({ row }) => {
-          row.original.email
+          row.original.billingEmail
         },
       },
       {

@@ -66,8 +66,8 @@ impl CustomerRow {
 
     pub async fn find_by_id(
         conn: &mut PgConn,
-        customer_id: CustomerId,
-        tenant_id_param: TenantId,
+        customer_id: &CustomerId,
+        tenant_id_param: &TenantId,
     ) -> DbResult<CustomerRow> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;
@@ -170,7 +170,7 @@ impl CustomerRow {
             .into_db_result()
     }
 
-    pub async fn list_by_ids(
+    pub async fn list_by_ids_global(
         conn: &mut PgConn,
         ids: Vec<CustomerId>,
     ) -> DbResult<Vec<CustomerRow>> {
@@ -180,6 +180,28 @@ impl CustomerRow {
         let query = customer
             .filter(id.eq_any(ids))
             .filter(archived_at.is_null())
+            .select(CustomerRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while listing customers by ids")
+            .into_db_result()
+    }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        ids: Vec<CustomerId>,
+    ) -> DbResult<Vec<CustomerRow>> {
+        use crate::schema::customer::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = customer
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(id.eq_any(ids))
             .select(CustomerRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

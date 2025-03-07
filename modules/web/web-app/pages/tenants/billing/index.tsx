@@ -37,7 +37,7 @@ export const BillingOutlet: FunctionComponent = () => {
                       <>Trials</>
                     </span>
                   ),
-                  to: 'subscriptions?status=trialing',
+                  to: 'subscriptions/trialing',
                 },
                 {
                   label: (
@@ -46,15 +46,15 @@ export const BillingOutlet: FunctionComponent = () => {
                       <>At risk</>
                     </span>
                   ),
-                  to: 'subscriptions?status=past-due',
+                  to: 'subscriptions/past-due',
                 },
                 {
                   label: 'Expired',
-                  to: 'subscriptions?status=expired',
+                  to: 'subscriptions/expired',
                 },
                 {
                   label: 'Cancelled',
-                  to: 'subscriptions?status=cancelled',
+                  to: 'subscriptions/cancelled',
                 },
               ],
             },

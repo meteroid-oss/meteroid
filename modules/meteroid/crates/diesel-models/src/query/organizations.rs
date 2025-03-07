@@ -1,9 +1,9 @@
 use crate::errors::IntoDbResult;
 use crate::organizations::{OrganizationRow, OrganizationRowNew};
+use common_domain::ids::{OrganizationId, TenantId};
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::OrganizationId;
 use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
 use tap::TapFallible;
@@ -64,6 +64,25 @@ impl OrganizationRow {
         use diesel_async::RunQueryDsl;
 
         let query = o_dsl::organization.filter(o_dsl::id.eq(id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding organization by id")
+            .into_db_result()
+    }
+
+    pub async fn get_by_tenant_id(conn: &mut PgConn, id: &TenantId) -> DbResult<OrganizationRow> {
+        use crate::schema::organization::dsl as o_dsl;
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = o_dsl::organization
+            .inner_join(t_dsl::tenant.on(o_dsl::id.eq(t_dsl::organization_id)))
+            .filter(t_dsl::id.eq(id))
+            .select(OrganizationRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 

@@ -137,6 +137,34 @@ pub enum ConnectorProviderEnum {
     Stripe,
 }
 
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::PaymentMethodTypeEnum)]
+pub enum PaymentMethodTypeEnum {
+    Card,
+    Transfer,
+    DirectDebitSepa,
+    DirectDebitAch,
+    DirectDebitBacs,
+    Other,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::PaymentStatusEnum)]
+pub enum PaymentStatusEnum {
+    Ready,   // ready to process
+    Pending, // waiting for external service
+    Settled,
+    Cancelled,
+    Failed,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::PaymentTypeEnum)]
+pub enum PaymentTypeEnum {
+    Payment,
+    Refund,
+}
+
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]
 #[map_owned(diesel_enums::MrrMovementType)]
 pub enum MrrMovementType {
@@ -221,6 +249,14 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::InvoiceFinalized => "invoice".to_string(),
         }
     }
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[map_owned(diesel_enums::SubscriptionActivationConditionEnum)]
+pub enum SubscriptionActivationCondition {
+    OnStart,
+    OnCheckout,
+    Manual,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone)]

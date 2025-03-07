@@ -37,7 +37,7 @@ impl CustomerBalance {
                 _ => Into::<Report<StoreError>>::into(err),
             })?;
 
-        let customer_row_updated = CustomerRow::find_by_id(conn, customer_id, tenant_id)
+        let customer_row_updated = CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 

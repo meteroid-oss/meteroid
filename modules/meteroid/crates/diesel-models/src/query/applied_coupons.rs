@@ -92,8 +92,8 @@ impl AppliedCouponRow {
 impl AppliedCouponForDisplayRow {
     pub async fn list_by_coupon_id(
         conn: &mut PgConn,
-        param_coupon_id: CouponId,
-        tenant_id: TenantId,
+        param_coupon_id: &CouponId,
+        tenant_id: &TenantId,
         pagination: PaginationRequest,
     ) -> DbResult<PaginatedVec<AppliedCouponForDisplayRow>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
@@ -132,7 +132,7 @@ impl AppliedCouponForDisplayRow {
 impl AppliedCouponDetailedRow {
     pub async fn list_by_subscription_id(
         conn: &mut PgConn,
-        param_subscription_id: SubscriptionId,
+        param_subscription_id: &SubscriptionId,
     ) -> DbResult<Vec<AppliedCouponDetailedRow>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
         use crate::schema::coupon::dsl as c_dsl;

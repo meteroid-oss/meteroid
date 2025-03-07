@@ -37,18 +37,8 @@ async fn test_customers_basic() {
             data: Some(api::customers::v1::CustomerNew {
                 name: customer_name.to_string(),
                 alias: Some(customer_alias.to_string()),
-                email: Some(customer_email.to_string()),
-                billing_config: Some(api::customers::v1::CustomerBillingConfig {
-                    billing_config_oneof: Some(
-                        api::customers::v1::customer_billing_config::BillingConfigOneof::Stripe(
-                            api::customers::v1::customer_billing_config::Stripe {
-                                customer_id: "customer_id".to_string(),
-                                collection_method: 0,
-                            },
-                        ),
-                    ),
-                }),
-                invoicing_email: None,
+                billing_email: Some(customer_email.to_string()),
+                invoicing_emails: Vec::new(),
                 phone: None,
                 currency: "EUR".to_string(),
                 billing_address: None,
@@ -69,15 +59,8 @@ async fn test_customers_basic() {
             data: Some(api::customers::v1::CustomerNew {
                 name: "created_manual".to_string(),
                 alias: Some("created_manual".to_string()),
-                email: Some("created_manual@meteroid.com".to_string()),
-                billing_config: Some(api::customers::v1::CustomerBillingConfig {
-                    billing_config_oneof: Some(
-                        api::customers::v1::customer_billing_config::BillingConfigOneof::Manual(
-                            api::customers::v1::customer_billing_config::Manual {},
-                        ),
-                    ),
-                }),
-                invoicing_email: None,
+                billing_email: Some("created_manual@meteroid.com".to_string()),
+                invoicing_emails: Vec::new(),
                 phone: None,
                 currency: "EUR".to_string(),
                 billing_address: None,
@@ -93,7 +76,7 @@ async fn test_customers_basic() {
 
     assert_eq!(created.name, customer_name.clone());
     assert_eq!(created.alias, Some(customer_alias.clone()));
-    assert_eq!(created.email, Some(customer_email.clone()));
+    assert_eq!(created.billing_email, Some(customer_email.clone()));
 
     // list by [fake] search
     let list_by_fake = clients
@@ -177,15 +160,16 @@ async fn test_customers_basic() {
             customer: Some(api::customers::v1::PatchCustomer {
                 id: created.id.clone(),
                 name: Some("new name".to_string()),
-                email: None,
+                billing_email: None,
                 alias: None,
-                invoicing_email: None,
+                invoicing_emails: None,
                 phone: None,
                 balance_value_cents: None,
                 currency: None,
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
+                vat_number: None,
             }),
         })
         .await

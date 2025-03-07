@@ -180,11 +180,7 @@ impl ActiveSubscriptionsCountRow {
         let query = s_dsl::subscription
             .filter(s_dsl::tenant_id.eq(tenant_id))
             .filter(s_dsl::activated_at.le(ts))
-            .filter(
-                s_dsl::billing_end_date
-                    .is_null()
-                    .or(s_dsl::billing_end_date.ge(ts.date())),
-            )
+            .filter(s_dsl::end_date.is_null().or(s_dsl::end_date.ge(ts.date())))
             .count();
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
@@ -212,7 +208,7 @@ impl SubscriptionTrialConversionRateRow {
            END AS all_time_conversion_rate_percentage
         FROM subscription s
         WHERE s.tenant_id = $1
-           AND s.trial_start_date IS NOT NULL;
+           AND s.trial_duration IS NOT NULL;
         "#;
 
         diesel::sql_query(raw_sql)
@@ -226,55 +222,56 @@ impl SubscriptionTrialConversionRateRow {
 
 impl SubscriptionTrialToPaidConversionRow {
     pub async fn list(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
+        _conn: &mut PgConn,
+        _tenant_id: TenantId,
     ) -> DbResult<Vec<SubscriptionTrialToPaidConversionRow>> {
-        let raw_sql = r#"
-WITH month_series AS (SELECT generate_series(
-                                     DATE_TRUNC('month', COALESCE(MIN(trial_start_date), CURRENT_DATE)),
-                                     CURRENT_DATE,
-                                     '1 month'
-                             ) AS month
-                      FROM subscription
-                      WHERE tenant_id = $1),
-     monthly_trials AS (SELECT ms.month,
-                               COALESCE(COUNT(s.trial_start_date), 0)                                                AS total_trials,
-                               COALESCE(COUNT(s.activated_at)
-                                        FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '30 days'),
-                                        0)                                                                           AS conversions_30,
-                               COALESCE(COUNT(s.activated_at)
-                                        FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '90 days'),
-                                        0)                                                                           AS conversions_90,
-                               COALESCE(COUNT(s.activated_at), 0)                                                    AS conversions
-                        FROM month_series ms
-                                 LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
-                            AND s.tenant_id = $2
-                        GROUP BY ms.month
-                        ORDER BY ms.month)
-SELECT month,
-       total_trials,
-       conversions,
-       CASE
-           WHEN total_trials > 0 THEN ROUND((conversions::DECIMAL / total_trials) * 100, 2)
-           ELSE 0 END                                                                                      AS conversion_rate_percentage,
-       conversions_30,
-       CASE
-           WHEN total_trials > 0 THEN ROUND((conversions_30::DECIMAL / total_trials) * 100, 2)
-           ELSE 0 END                                                                                      AS conversion_rate_30_percentage,
-       conversions_90,
-       CASE
-           WHEN total_trials > 0 THEN ROUND((conversions_90::DECIMAL / total_trials) * 100, 2)
-           ELSE 0 END                                                                                      AS conversion_rate_90_percentage
-FROM monthly_trials;
-        "#;
-
-        diesel::sql_query(raw_sql)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .bind::<sql_types::Uuid, _>(tenant_id)
-            .get_results::<SubscriptionTrialToPaidConversionRow>(conn)
-            .await
-            .attach_printable("Error while fetching subscription trial to paid conversion")
-            .into_db_result()
+        //         let raw_sql = r#"
+        // WITH month_series AS (SELECT generate_series(
+        //                                      DATE_TRUNC('month', COALESCE(MIN(trial_start_date), CURRENT_DATE)),
+        //                                      CURRENT_DATE,
+        //                                      '1 month'
+        //                              ) AS month
+        //                       FROM subscription
+        //                       WHERE tenant_id = $1),
+        //      monthly_trials AS (SELECT ms.month,
+        //                                COALESCE(COUNT(s.trial_start_date), 0)                                                AS total_trials,
+        //                                COALESCE(COUNT(s.activated_at)
+        //                                         FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '30 days'),
+        //                                         0)                                                                           AS conversions_30,
+        //                                COALESCE(COUNT(s.activated_at)
+        //                                         FILTER (WHERE s.activated_at - s.trial_start_date <= INTERVAL '90 days'),
+        //                                         0)                                                                           AS conversions_90,
+        //                                COALESCE(COUNT(s.activated_at), 0)                                                    AS conversions
+        //                         FROM month_series ms
+        //                                  LEFT JOIN subscription s ON DATE_TRUNC('month', s.trial_start_date) = ms.month
+        //                             AND s.tenant_id = $2
+        //                         GROUP BY ms.month
+        //                         ORDER BY ms.month)
+        // SELECT month,
+        //        total_trials,
+        //        conversions,
+        //        CASE
+        //            WHEN total_trials > 0 THEN ROUND((conversions::DECIMAL / total_trials) * 100, 2)
+        //            ELSE 0 END                                                                                      AS conversion_rate_percentage,
+        //        conversions_30,
+        //        CASE
+        //            WHEN total_trials > 0 THEN ROUND((conversions_30::DECIMAL / total_trials) * 100, 2)
+        //            ELSE 0 END                                                                                      AS conversion_rate_30_percentage,
+        //        conversions_90,
+        //        CASE
+        //            WHEN total_trials > 0 THEN ROUND((conversions_90::DECIMAL / total_trials) * 100, 2)
+        //            ELSE 0 END                                                                                      AS conversion_rate_90_percentage
+        // FROM monthly_trials;
+        //         "#;
+        //
+        //         diesel::sql_query(raw_sql)
+        //             .bind::<sql_types::Uuid, _>(tenant_id)
+        //             .bind::<sql_types::Uuid, _>(tenant_id)
+        //             .get_results::<SubscriptionTrialToPaidConversionRow>(conn)
+        //             .await
+        //             .attach_printable("Error while fetching subscription trial to paid conversion")
+        //             .into_db_result()
+        Ok(vec![])
     }
 }
 

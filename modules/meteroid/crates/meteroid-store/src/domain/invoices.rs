@@ -1,6 +1,7 @@
 use super::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType};
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
+use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
@@ -13,6 +14,7 @@ use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
 use diesel_models::invoices::InvoiceRowNew;
 use diesel_models::invoices::InvoiceWithCustomerRow;
+use diesel_models::payments::PaymentTransactionRow;
 use error_stack::Report;
 use itertools::Itertools;
 use o2o::o2o;
@@ -214,6 +216,14 @@ pub struct DetailedInvoice {
     pub invoice: Invoice,
     pub customer: Customer,
     pub plan: Option<PlanVersionOverview>,
+    pub transactions: Vec<PaymentTransaction>,
+}
+
+impl DetailedInvoice {
+    pub fn with_transactions(mut self, transactions: Vec<PaymentTransactionRow>) -> Self {
+        self.transactions = transactions.into_iter().map(|x| x.into()).collect();
+        self
+    }
 }
 
 impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
@@ -224,6 +234,7 @@ impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
             invoice: value.invoice.try_into()?,
             customer: value.customer.try_into()?,
             plan: value.plan.map(|x| x.into()),
+            transactions: vec![],
         })
     }
 }

@@ -2,29 +2,36 @@ use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
 use crate::StoreResult;
 use chrono::NaiveDateTime;
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, ConnectorId, TenantId};
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::ResultExt;
 use o2o::o2o;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct Connector {
-    pub id: Uuid,
+    pub id: ConnectorId,
     pub created_at: NaiveDateTime,
     pub tenant_id: TenantId,
     pub alias: String,
     pub connector_type: ConnectorTypeEnum,
     pub provider: ConnectorProviderEnum,
     pub data: Option<ProviderData>,
-    // this gets turned into json string then encrypted before storing
+    // this gets turned into json string then is encrypted before storing
     pub sensitive: Option<ProviderSensitiveData>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ProviderData {}
+pub enum ProviderData {
+    Stripe(StripePublicData),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StripePublicData {
+    pub api_publishable_key: String,
+    pub account_id: String,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProviderSensitiveData {
@@ -81,10 +88,11 @@ impl Connector {
 #[derive(Clone, Debug, o2o)]
 #[from_owned(ConnectorRow)]
 pub struct ConnectorMeta {
-    pub id: Uuid,
+    pub id: ConnectorId,
     pub created_at: NaiveDateTime,
     pub tenant_id: TenantId,
     pub alias: String,
+    // pub data: Option<ProviderData>,
     #[map(~.into())]
     pub connector_type: ConnectorTypeEnum,
     #[map(~.into())]
@@ -127,7 +135,7 @@ impl ConnectorNew {
         }?;
 
         Ok(ConnectorRowNew {
-            id: Uuid::now_v7(),
+            id: ConnectorId::new(),
             tenant_id: self.tenant_id,
             alias: self.alias.clone(),
             connector_type: self.connector_type.clone().into(),

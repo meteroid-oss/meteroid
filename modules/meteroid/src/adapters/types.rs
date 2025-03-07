@@ -3,7 +3,6 @@ use error_stack::Result;
 use secrecy::SecretString;
 use std::fmt::Debug;
 
-use meteroid_store::domain::{Customer, Invoice};
 use meteroid_store::Store;
 
 pub enum IncomingWebhookEvent {
@@ -38,16 +37,6 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
         request: &ParsedRequest,
         store: Store,
     ) -> Result<bool, errors::AdapterWebhookError>;
-}
-
-#[async_trait::async_trait]
-pub trait InvoicingAdapter: AdapterCommon + Sync {
-    async fn send_invoice(
-        &self,
-        invoice: &Invoice,
-        customer: &Customer,
-        api_key: SecretString,
-    ) -> Result<(), errors::InvoicingAdapterError>;
 }
 
 pub trait Adapter: Send + Debug + WebhookAdapter {}

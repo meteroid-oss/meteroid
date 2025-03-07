@@ -1,6 +1,5 @@
 pub mod subscriptions {
     use chrono::NaiveDate;
-
     use meteroid_store::domain;
 
     use crate::api::shared::conversions::*;
@@ -10,6 +9,17 @@ pub mod subscriptions {
     use uuid::Uuid;
 
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
+    use meteroid_store::domain::enums::SubscriptionActivationCondition;
+
+    fn map_activation_condition_proto(
+        e: proto2::ActivationCondition,
+    ) -> SubscriptionActivationCondition {
+        match e {
+            proto2::ActivationCondition::OnStart => SubscriptionActivationCondition::OnStart,
+            proto2::ActivationCondition::Manual => SubscriptionActivationCondition::Manual,
+            proto2::ActivationCondition::OnCheckout => SubscriptionActivationCondition::OnCheckout,
+        }
+    }
 
     pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
         let status = s.status_proto()? as i32;
@@ -28,18 +38,22 @@ pub mod subscriptions {
             currency: s.currency,
             version: s.version,
             created_at: s.created_at.as_proto(),
-            billing_end_date: s.billing_end_date.as_proto(),
+            start_date: s.start_date.as_proto(),
+            end_date: s.end_date.as_proto(),
             billing_start_date: s.billing_start_date.as_proto(),
             customer_name: s.customer_name,
             customer_alias: s.customer_alias,
             canceled_at: s.canceled_at.as_proto(),
             cancellation_reason: s.cancellation_reason,
-            billing_day: s.billing_day as u32,
-            trial_start_date: s.trial_start_date.as_proto(),
+            billing_day_anchor: s.billing_day_anchor as u32,
+            trial_duration: s.trial_duration,
             created_by: s.created_by.as_proto(),
             activated_at: s.activated_at.as_proto(),
             mrr_cents: s.mrr_cents,
             status,
+            checkout_token: None,
+            card_connection_id: s.card_connection_id.map(|id| id.as_proto()),
+            direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
         })
     }
 
@@ -49,17 +63,22 @@ pub mod subscriptions {
     ) -> Result<domain::CreateSubscription, Status> {
         let subscription_new = domain::SubscriptionNew {
             customer_id: CustomerId::from_proto(&param.customer_id)?,
-            billing_day: param.billing_day as i16,
-            currency: param.currency,
-            trial_start_date: NaiveDate::from_proto_opt(param.trial_start_date)?,
-            billing_start_date: NaiveDate::from_proto(param.billing_start_date)?,
-            billing_end_date: NaiveDate::from_proto_opt(param.billing_end_date)?,
+            billing_day_anchor: param.billing_day_anchor.map(|day| day as u16),
+            billing_start_date: None, //TODO
+            activation_condition: map_activation_condition_proto(
+                proto2::ActivationCondition::try_from(param.activation_condition).map_err(
+                    |_| Status::invalid_argument("Invalid activation condition".to_string()),
+                )?,
+            ),
             plan_version_id: Uuid::from_proto(param.plan_version_id)?,
             created_by: *actor,
-            net_terms: param.net_terms as i32,
+            net_terms: param.net_terms,
             invoice_memo: param.invoice_memo,
             invoice_threshold: rust_decimal::Decimal::from_proto_opt(param.invoice_threshold)?,
-            activated_at: None, //NaiveDateTime::from_proto_opt(param.activated_at)?,
+            start_date: NaiveDate::from_proto(param.start_date)?,
+            end_date: NaiveDate::from_proto_opt(param.end_date)?,
+            trial_duration: param.trial_duration,
+            payment_strategy: None,
         };
 
         let res = domain::CreateSubscription {
@@ -89,12 +108,13 @@ pub mod subscriptions {
             id: sub.id.as_proto(),
             local_id: sub.id.as_proto(), //todo remove me
             customer_id: sub.customer_id.as_proto(),
-            billing_day: sub.billing_day as u32,
+            billing_day_anchor: sub.billing_day_anchor as u32,
             tenant_id: sub.tenant_id.as_proto(),
             currency: sub.currency,
-            trial_start_date: sub.trial_start_date.as_proto(),
+            trial_duration: sub.trial_duration.map(|d| d as u32),
             billing_start_date: sub.billing_start_date.as_proto(),
-            billing_end_date: sub.billing_end_date.as_proto(),
+            start_date: sub.start_date.as_proto(),
+            end_date: sub.end_date.as_proto(),
             plan_version_id: sub.plan_version_id.as_proto(),
             created_at: sub.created_at.as_proto(),
             created_by: sub.created_by.as_proto(),
@@ -103,12 +123,14 @@ pub mod subscriptions {
             invoice_threshold: sub.invoice_threshold.as_proto(),
             activated_at: sub.activated_at.as_proto(),
             mrr_cents: sub.mrr_cents as u64,
+            checkout_token: sub.checkout_token,
         })
     }
 
     pub(crate) fn details_domain_to_proto(
-        sub: domain::SubscriptionDetails,
+        details: domain::SubscriptionDetails,
     ) -> Result<proto2::SubscriptionDetails, Status> {
+        let sub = details.subscription;
         let status = sub.status_proto()? as i32;
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
@@ -125,31 +147,35 @@ pub mod subscriptions {
                 currency: sub.currency,
                 version: sub.version,
                 created_at: sub.created_at.as_proto(),
-                billing_end_date: sub.billing_end_date.as_proto(),
+                end_date: sub.end_date.as_proto(),
+                start_date: sub.start_date.as_proto(),
                 billing_start_date: sub.billing_start_date.as_proto(),
                 customer_name: sub.customer_name,
                 customer_alias: sub.customer_alias,
                 canceled_at: sub.canceled_at.as_proto(),
                 cancellation_reason: sub.cancellation_reason,
-                billing_day: sub.billing_day as u32,
-                trial_start_date: sub.trial_start_date.as_proto(),
+                billing_day_anchor: sub.billing_day_anchor as u32,
+                trial_duration: sub.trial_duration,
                 created_by: sub.created_by.as_proto(),
                 activated_at: sub.activated_at.as_proto(),
                 mrr_cents: sub.mrr_cents,
                 status,
+                checkout_token: details.checkout_token,
+                card_connection_id: sub.card_connection_id.map(|id| id.as_proto()),
+                direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
             }),
             schedules: vec![], // TODO
-            price_components: sub
+            price_components: details
                 .price_components
                 .iter()
                 .map(super::price_components::subscription_component_to_grpc)
                 .collect(),
-            add_ons: sub
+            add_ons: details
                 .add_ons
                 .iter()
                 .map(super::add_ons::subscription_add_on_to_grpc)
                 .collect(),
-            metrics: sub
+            metrics: details
                 .metrics
                 .into_iter()
                 .map(|m| proto2::BillableMetric {
@@ -158,7 +184,7 @@ pub mod subscriptions {
                     alias: m.code,
                 })
                 .collect(),
-            applied_coupons: sub
+            applied_coupons: details
                 .applied_coupons
                 .into_iter()
                 .map(super::coupons::applied_coupon_detailed_to_grpc)

@@ -2,12 +2,6 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
-use meteroid_grpc::meteroid::api::plans::v1::plan_billing_configuration::BillingCycles;
-use meteroid_grpc::meteroid::api::plans::v1::plan_billing_configuration::SubscriptionAnniversary;
-use meteroid_grpc::meteroid::api::plans::v1::plan_billing_configuration::{
-    Forever, ServicePeriodStart,
-};
-use meteroid_grpc::meteroid::api::plans::v1::PlanBillingConfiguration;
 
 #[tokio::test]
 async fn test_plans_basic() {
@@ -68,16 +62,6 @@ async fn test_plans_basic() {
     assert_eq!(created_version.currency.as_str(), "EUR");
     assert!(created_version.is_draft);
     assert_eq!(created_version.trial_config, None);
-    assert_eq!(
-        created_version.billing_config,
-        Some(PlanBillingConfiguration {
-            net_terms: 0,
-            service_period_start: Some(ServicePeriodStart::SubscriptionAnniversary(
-                SubscriptionAnniversary {}
-            )),
-            billing_cycles: Some(BillingCycles::Forever(Forever {})),
-        })
-    );
 
     // get plan by local_id
     let plan_details = clients

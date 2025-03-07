@@ -47,17 +47,19 @@ export const errorInterceptor: Interceptor = next => async req => {
 }
 
 export const authInterceptor: Interceptor = next => async req => {
-  const matchingRoutes = matchRoutes(router.routes, window.location)
-
-  const params = matchingRoutes?.[0]?.params
-
-  const organizationSlug = params?.organizationSlug
-  const tenantSlug = params?.tenantSlug
-
-  const token = getSessionToken()
-
-  organizationSlug && req.header.append('x-md-context', `${organizationSlug}/${tenantSlug || ''}`)
-  token && req.header.append('Authorization', `Bearer ${token}`)
+  if (req.service.typeName.startsWith('meteroid.api')) {
+    const matchingRoutes = matchRoutes(router.routes, window.location)
+    const params = matchingRoutes?.[0]?.params
+    const organizationSlug = params?.organizationSlug
+    const tenantSlug = params?.tenantSlug
+    const sessionToken = getSessionToken()
+    organizationSlug && req.header.append('x-md-context', `${organizationSlug}/${tenantSlug || ''}`)
+    sessionToken && req.header.append('Authorization', `Bearer ${sessionToken}`)
+  } else if (req.service.typeName.startsWith('meteroid.portal')) {
+    // token is in search params
+    const token = new URLSearchParams(window.location.search).get('token')
+    token && req.header.append('x-portal-token', token)
+  }
 
   const result = await next(req)
   return result

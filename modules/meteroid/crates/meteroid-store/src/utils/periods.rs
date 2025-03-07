@@ -9,7 +9,7 @@ use chrono::{Datelike, Months, NaiveDate};
  */
 pub fn calculate_periods_for_date(
     billing_start_date: NaiveDate,
-    billing_day: u32,
+    billing_day: u16,
     date: NaiveDate,
     billing_period: &BillingPeriodEnum,
 ) -> ComponentPeriods {
@@ -47,7 +47,7 @@ pub fn calculate_periods_for_date(
  */
 pub fn calculate_component_period_for_invoice_date(
     billing_start_date: NaiveDate,
-    billing_day: u32,
+    billing_day: u16,
     invoice_date: NaiveDate,
     billing_period: &SubscriptionFeeBillingPeriod,
 ) -> Option<ComponentPeriods> {
@@ -145,10 +145,11 @@ fn applies_this_period(
 
 pub fn calculate_period_range(
     billing_start_date: NaiveDate,
-    billing_day: u32,
+    billing_day: u16,
     period_index: i32,
     billing_period: &BillingPeriodEnum,
 ) -> Period {
+    let billing_day = billing_day as u32;
     let months_in_period = billing_period.as_months();
 
     let start_day_after_billing_day = billing_start_date.day() >= billing_day;
@@ -178,10 +179,11 @@ pub fn calculate_period_range(
 
 fn calculate_period_idx(
     billing_start_date: NaiveDate,
-    billing_day: u32,
+    billing_day: u16,
     considered_date: NaiveDate,
     billing_period: &BillingPeriodEnum,
 ) -> i32 {
+    let billing_day = billing_day as u32;
     let month_diff = considered_date.year() * 12 + considered_date.month() as i32
         - (billing_start_date.year() * 12 + billing_start_date.month() as i32);
     let day_adjustment =
@@ -370,7 +372,7 @@ mod test {
     fn test_calculate_period_range(
         #[case] billing_period: BillingPeriodEnum,
         #[case] billing_start_date: NaiveDate,
-        #[case] billing_day: u32,
+        #[case] billing_day: u16,
         #[case] period_idx: i32,
         #[case] expected_period_start: NaiveDate,
         #[case] expected_period_end: NaiveDate,
@@ -408,7 +410,7 @@ mod test {
     fn test_calculate_period_idx(
         #[case] billing_period: BillingPeriodEnum,
         #[case] billing_start_date: NaiveDate,
-        #[case] billing_day: u32,
+        #[case] billing_day: u16,
         #[case] current_date: NaiveDate,
         #[case] expected_period_idx: i32,
     ) {

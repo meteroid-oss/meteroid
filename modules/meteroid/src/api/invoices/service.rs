@@ -1,4 +1,4 @@
-use common_domain::ids::{BaseId, CustomerId, InvoiceId};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     invoices_service_server::InvoicesService, list_invoices_request::SortBy, GetInvoiceRequest,
@@ -30,6 +30,7 @@ impl InvoicesService for InvoiceServiceComponents {
         let inner = request.into_inner();
 
         let customer_id = CustomerId::from_proto_opt(inner.customer_id)?;
+        let subscription_id = SubscriptionId::from_proto_opt(inner.subscription_id)?;
 
         let pagination_req = domain::PaginationRequest {
             page: inner.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
@@ -49,6 +50,7 @@ impl InvoicesService for InvoiceServiceComponents {
             .list_invoices(
                 tenant_id,
                 customer_id,
+                subscription_id,
                 mapping::invoices::status_server_to_domain(inner.status),
                 inner.search,
                 order_by,

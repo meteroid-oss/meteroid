@@ -256,7 +256,8 @@ impl StoreInternal {
             country,
             accounting_currency: currency,
             tenant_id,
-            cc_provider_id: None,
+            card_provider_id: None,
+            direct_debit_provider_id: None,
             bank_account_id: None,
         };
 

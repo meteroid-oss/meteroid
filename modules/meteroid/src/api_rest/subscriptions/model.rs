@@ -24,7 +24,7 @@ pub struct Subscription {
     pub customer_id: CustomerId,
     pub customer_name: String,
     pub customer_alias: Option<String>,
-    pub billing_day: i16,
+    pub billing_day_anchor: i16,
     pub currency: String,
 }
 
@@ -36,6 +36,6 @@ pub struct SubscriptionDetails {
     pub customer_id: CustomerId,
     pub customer_name: String,
     pub customer_alias: Option<String>,
-    pub billing_day: i16,
+    pub billing_day_anchor: i16,
     pub currency: String,
 }

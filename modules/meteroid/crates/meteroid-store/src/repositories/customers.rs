@@ -48,7 +48,10 @@ pub trait CustomersInterface {
         query: Option<String>,
     ) -> StoreResult<PaginatedVec<Customer>>;
 
-    async fn list_customers_by_ids(&self, ids: Vec<CustomerId>) -> StoreResult<Vec<Customer>>;
+    async fn list_customers_by_ids_global(
+        &self,
+        ids: Vec<CustomerId>,
+    ) -> StoreResult<Vec<Customer>>;
 
     async fn insert_customer(
         &self,
@@ -103,7 +106,7 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Customer> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::find_by_id(&mut conn, customer_id, tenant_id)
+        CustomerRow::find_by_id(&mut conn, &customer_id, &tenant_id)
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
@@ -169,10 +172,13 @@ impl CustomersInterface for Store {
         Ok(res)
     }
 
-    async fn list_customers_by_ids(&self, ids: Vec<CustomerId>) -> StoreResult<Vec<Customer>> {
+    async fn list_customers_by_ids_global(
+        &self,
+        ids: Vec<CustomerId>,
+    ) -> StoreResult<Vec<Customer>> {
         let mut conn = self.get_conn().await?;
 
-        CustomerRow::list_by_ids(&mut conn, ids)
+        CustomerRow::list_by_ids_global(&mut conn, ids)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
@@ -349,9 +355,11 @@ impl CustomersInterface for Store {
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
-        let customer = CustomerRow::find_by_id(&mut conn, req.customer_id, req.tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let customer: Customer =
+            CustomerRow::find_by_id(&mut conn, &req.customer_id, &req.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into()?;
 
         let invoice = self
             .transaction_with(&mut conn, |conn| {
@@ -442,12 +450,12 @@ impl CustomersInterface for Store {
                         tax_rate: 0, // TODO
                         tax_amount: totals.tax_amount,
                         customer_details: InlineCustomer {
-                            billing_address: None, // TODO
+                            billing_address: customer.billing_address.clone(),
                             id: req.customer_id,
                             name: customer.name,
                             alias: customer.alias,
-                            email: customer.email,
-                            vat_number: None, // TODO
+                            email: customer.billing_email,
+                            vat_number: customer.vat_number,
                             snapshot_at: now,
                         },
                         seller_details: InlineInvoicingEntity {
@@ -528,8 +536,8 @@ impl CustomersInterface for Store {
             id: by_id_or_alias.id,
             name: customer.name,
             alias: customer.alias,
-            email: customer.email,
-            invoicing_email: customer.invoicing_email,
+            billing_email: customer.billing_email,
+            invoicing_emails: customer.invoicing_emails.into_iter().map(Some).collect(),
             phone: customer.phone,
             currency: customer.currency,
             billing_address: customer
@@ -541,7 +549,6 @@ impl CustomersInterface for Store {
                 .map(TryInto::try_into)
                 .transpose()?,
             updated_by: actor,
-            billing_config: customer.billing_config.try_into()?,
             invoicing_entity_id: invoicing_entity.id,
         };
 
@@ -580,7 +587,7 @@ impl CustomersInterface for Store {
 
         let subscriptions = SubscriptionRow::list_subscriptions(
             &mut conn,
-            tenant_id,
+            &tenant_id,
             Some(customer.id),
             None,
             PaginationRequest {

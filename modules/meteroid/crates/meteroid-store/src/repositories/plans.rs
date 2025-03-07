@@ -137,6 +137,7 @@ impl PlansInterface for Store {
                         version: 1,
                         created_by: inserted.created_by,
                     }
+                    // TODO parameter
                     .into_raw(tenant.reporting_currency);
 
                     let inserted_plan_version_new: PlanVersion = plan_version_to_insert

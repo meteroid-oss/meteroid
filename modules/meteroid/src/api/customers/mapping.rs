@@ -2,97 +2,12 @@ pub mod customer {
     use error_stack::Report;
 
     use meteroid_grpc::meteroid::api::customers::v1 as server;
-    use meteroid_grpc::meteroid::api::customers::v1::customer_billing_config::stripe::CollectionMethod;
     use meteroid_store::domain;
     use meteroid_store::errors::StoreError;
 
     use crate::api::customers::error::CustomerApiError;
     use crate::api::shared::conversions::ProtoConv;
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
-
-    pub struct ServerBillingConfigWrapper(pub server::CustomerBillingConfig);
-
-    impl TryFrom<domain::BillingConfig> for ServerBillingConfigWrapper {
-        type Error = Report<StoreError>;
-
-        fn try_from(value: domain::BillingConfig) -> Result<Self, Self::Error> {
-            match value {
-                domain::BillingConfig::Stripe(value) => {
-                    Ok(ServerBillingConfigWrapper(server::CustomerBillingConfig {
-                        billing_config_oneof: Some(
-                            server::customer_billing_config::BillingConfigOneof::Stripe(
-                                server::customer_billing_config::Stripe {
-                                    customer_id: value.customer_id,
-                                    collection_method: stripe_collection_method_to_grpc(
-                                        &value.collection_method,
-                                    )
-                                    .into(),
-                                },
-                            ),
-                        ),
-                    }))
-                }
-                domain::BillingConfig::Manual => {
-                    Ok(ServerBillingConfigWrapper(server::CustomerBillingConfig {
-                        billing_config_oneof: Some(
-                            server::customer_billing_config::BillingConfigOneof::Manual(
-                                server::customer_billing_config::Manual {},
-                            ),
-                        ),
-                    }))
-                }
-            }
-        }
-    }
-
-    pub struct DomainBillingConfigWrapper(pub domain::BillingConfig);
-
-    impl TryFrom<server::CustomerBillingConfig> for DomainBillingConfigWrapper {
-        type Error = CustomerApiError;
-
-        fn try_from(value: server::CustomerBillingConfig) -> Result<Self, Self::Error> {
-            match value.billing_config_oneof {
-                Some(server::customer_billing_config::BillingConfigOneof::Stripe(value)) => {
-                    Ok(DomainBillingConfigWrapper(domain::BillingConfig::Stripe(
-                        domain::StripeCustomerConfig {
-                            customer_id: value.customer_id.clone(),
-                            collection_method: stripe_collection_method_to_domain(
-                                &value.collection_method(),
-                            ),
-                        },
-                    )))
-                }
-                Some(server::customer_billing_config::BillingConfigOneof::Manual(_)) => {
-                    Ok(DomainBillingConfigWrapper(domain::BillingConfig::Manual))
-                }
-                None => Err(CustomerApiError::MissingArgument(
-                    "billing_config".to_string(),
-                )),
-            }
-        }
-    }
-
-    fn stripe_collection_method_to_grpc(
-        value: &domain::StripeCollectionMethod,
-    ) -> CollectionMethod {
-        match value {
-            domain::StripeCollectionMethod::ChargeAutomatically => {
-                CollectionMethod::ChargeAutomatically
-            }
-            domain::StripeCollectionMethod::SendInvoice => CollectionMethod::SendInvoice,
-        }
-    }
-
-    fn stripe_collection_method_to_domain(
-        value: &CollectionMethod,
-    ) -> domain::StripeCollectionMethod {
-        match value {
-            CollectionMethod::ChargeAutomatically => {
-                domain::StripeCollectionMethod::ChargeAutomatically
-            }
-            CollectionMethod::SendInvoice => domain::StripeCollectionMethod::SendInvoice,
-        }
-    }
 
     pub struct ServerAddressWrapper(pub server::Address);
 
@@ -171,17 +86,18 @@ pub mod customer {
             Ok(ServerCustomerWrapper(server::Customer {
                 id: value.id.as_proto(),
                 local_id: value.id.as_proto(), // todo remove me
-                billing_config: Some(ServerBillingConfigWrapper::try_from(value.billing_config)?.0),
                 invoicing_entity_id: value.invoicing_entity_id.as_proto(),
                 name: value.name,
                 alias: value.alias,
-                email: value.email,
-                invoicing_email: value.invoicing_email,
+                billing_email: value.billing_email,
+                invoicing_emails: value.invoicing_emails,
                 phone: value.phone,
                 balance_value_cents: value.balance_value_cents,
+                current_payment_method_id: value.current_payment_method_id.map(|v| v.as_proto()),
                 currency: value.currency,
                 archived_at: value.archived_at.map(chrono_to_timestamp),
                 created_at: Some(chrono_to_timestamp(value.created_at)),
+                vat_number: value.vat_number,
                 billing_address: value
                     .billing_address
                     .map(ServerAddressWrapper::try_from)
@@ -211,9 +127,50 @@ pub mod customer {
                     .billing_address
                     .as_ref()
                     .and_then(|v| v.country.clone()),
-                email: value.email,
+                billing_email: value.billing_email,
                 created_at: value.created_at.as_proto(),
             }))
+        }
+    }
+}
+pub mod customer_payment_method {
+
+    use meteroid_grpc::meteroid::api::customers::v1 as server;
+    use meteroid_store::domain;
+
+    pub fn domain_to_server(
+        method: domain::CustomerPaymentMethod,
+    ) -> server::CustomerPaymentMethod {
+        server::CustomerPaymentMethod {
+            id: method.id.as_proto(),
+            customer_id: method.customer_id.as_proto(),
+            connection_id: method.connection_id.as_proto(),
+            external_payment_method: method.external_payment_method_id,
+            payment_method_type: match method.payment_method_type {
+                domain::PaymentMethodTypeEnum::Card => {
+                    server::customer_payment_method::PaymentMethodTypeEnum::Card as i32
+                }
+                domain::PaymentMethodTypeEnum::DirectDebitAch => {
+                    server::customer_payment_method::PaymentMethodTypeEnum::DirectDebitAch as i32
+                }
+                domain::PaymentMethodTypeEnum::Transfer => {
+                    server::customer_payment_method::PaymentMethodTypeEnum::Transfer as i32
+                }
+                domain::PaymentMethodTypeEnum::DirectDebitSepa => {
+                    server::customer_payment_method::PaymentMethodTypeEnum::DirectDebitSepa as i32
+                }
+                domain::PaymentMethodTypeEnum::DirectDebitBacs => {
+                    server::customer_payment_method::PaymentMethodTypeEnum::DirectDebitBacs as i32
+                }
+                domain::PaymentMethodTypeEnum::Other => {
+                    server::customer_payment_method::PaymentMethodTypeEnum::Other as i32
+                }
+            },
+            card_brand: method.card_brand,
+            card_last4: method.card_last4,
+            card_exp_month: method.card_exp_month,
+            card_exp_year: method.card_exp_year,
+            account_number_hint: method.account_number_hint,
         }
     }
 }

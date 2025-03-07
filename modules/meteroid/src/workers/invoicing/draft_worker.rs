@@ -82,7 +82,7 @@ pub async fn draft_worker(store: &Store, today: NaiveDate) -> Result<(), errors:
             .collect::<Vec<_>>();
 
         let customers = &store
-            .list_customers_by_ids(customer_ids)
+            .list_customers_by_ids_global(customer_ids)
             .await
             .change_context(errors::WorkerError::DatabaseError)?;
 

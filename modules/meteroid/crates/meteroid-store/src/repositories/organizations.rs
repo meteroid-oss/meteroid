@@ -5,7 +5,7 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::StoreResult;
-use common_domain::ids::{BaseId, OrganizationId};
+use common_domain::ids::{BaseId, OrganizationId, TenantId};
 use common_eventbus::Event;
 use common_utils::rng::BASE62_ALPHABET;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -34,6 +34,7 @@ pub trait OrganizationsInterface {
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
     async fn get_organization_by_id(&self, id: OrganizationId) -> StoreResult<Organization>;
+    async fn get_organization_by_tenant_id(&self, id: &TenantId) -> StoreResult<Organization>;
     async fn get_organizations_with_tenants_by_id(
         &self,
         id: OrganizationId,
@@ -190,6 +191,16 @@ impl OrganizationsInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let org = OrganizationRow::get_by_id(&mut conn, id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(org.into())
+    }
+
+    async fn get_organization_by_tenant_id(&self, id: &TenantId) -> StoreResult<Organization> {
+        let mut conn = self.get_conn().await?;
+
+        let org = OrganizationRow::get_by_tenant_id(&mut conn, id)
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 

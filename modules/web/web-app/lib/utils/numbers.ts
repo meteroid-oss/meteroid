@@ -13,7 +13,7 @@ export const formatUsage = (quantity: number) => {
   return rounded.toString() // TODO: consider toLocaleString?
 }
 
-export const formatCurrency = (amount: bigint, currencyCode: string) => {
+export const formatCurrency = (amount: bigint | number, currencyCode: string) => {
   const currency = CURRENCIES[currencyCode]
 
   const precision = currency.precision

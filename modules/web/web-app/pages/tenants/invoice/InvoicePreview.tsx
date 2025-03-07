@@ -1,5 +1,4 @@
 import { Dialog, DialogContent } from '@md/ui'
-import { useEffect } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
 import { previewInvoiceHtml } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
@@ -13,13 +12,17 @@ export const PreviewInvoiceDialog = ({
   setOpen: (open: boolean) => void
   invoiceId: string
 }) => {
-  const previewInvoiceHtmlQuery = useQuery(previewInvoiceHtml, { id: invoiceId }, { gcTime: 0 })
+  const previewInvoiceHtmlQuery = useQuery(
+    previewInvoiceHtml,
+    { id: invoiceId },
+    { refetchOnMount: 'always' }
+  )
 
-  useEffect(() => {
-    if (open) {
-      previewInvoiceHtmlQuery.refetch()
-    }
-  }, [open, previewInvoiceHtmlQuery])
+  // useEffect(() => {
+  //   if (open) {
+  //     previewInvoiceHtmlQuery.refetch()
+  //   }
+  // }, [open, invoiceId])
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

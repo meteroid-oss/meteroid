@@ -1,49 +1,39 @@
 use crate::error::WebhookError;
-use crate::invoice::Invoice;
+use crate::payment_intents::PaymentIntent;
+use crate::setup_intents::SetupIntent;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::Sha256;
 use std::collections::HashMap;
 
 pub mod event_type {
-    pub const INVOICE_CREATED: &str = "invoice.created";
-    pub const INVOICE_DELETED: &str = "invoice.deleted";
-    pub const INVOICE_FINALIZED: &str = "invoice.finalized";
-    pub const INVOICE_PAYMENT_FAILED: &str = "invoice.payment_failed";
-    pub const INVOICE_PAID: &str = "invoice.paid";
-    pub const INVOICE_VOIDED: &str = "invoice.voided";
-    pub const INVOICE_MARKED_UNCOLLECTIBLE: &str = "invoice.marked_uncollectible";
+    pub const SETUP_INTENT_SUCCEEDED: &str = "setup_intent.succeeded";
+    pub const PAYMENT_INTENT_SUCCEEDED: &str = "payment_intent.succeeded";
+    pub const PAYMENT_INTENT_FAILED: &str = "payment_intent.payment_failed";
+    pub const PAYMENT_INTENT_PARTIALLY_FUNDED: &str = "payment_intent.partially_funded";
 }
 
-pub static INVOICE_WEBHOOKS: [&str; 7] = [
-    event_type::INVOICE_CREATED,
-    event_type::INVOICE_DELETED,
-    event_type::INVOICE_FINALIZED,
-    event_type::INVOICE_PAYMENT_FAILED,
-    event_type::INVOICE_PAID,
-    event_type::INVOICE_VOIDED,
-    event_type::INVOICE_MARKED_UNCOLLECTIBLE,
+pub static STRIPE_PAYMENT_WEBHOOKS: [&str; 4] = [
+    event_type::SETUP_INTENT_SUCCEEDED,
+    event_type::PAYMENT_INTENT_SUCCEEDED,
+    event_type::PAYMENT_INTENT_FAILED,
+    event_type::PAYMENT_INTENT_PARTIALLY_FUNDED,
 ];
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "object", rename_all = "snake_case")]
 pub enum EventObject {
-    Invoice(Invoice),
+    PaymentIntent(PaymentIntent),
+    SetupIntent(SetupIntent),
 }
 
-impl Default for EventObject {
-    fn default() -> Self {
-        EventObject::Invoice(Invoice::default())
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct NotificationEventData {
     pub object: EventObject,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Event {
     /// Unique identifier for the object.
     pub id: String,

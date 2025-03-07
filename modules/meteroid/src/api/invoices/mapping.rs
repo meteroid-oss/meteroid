@@ -45,38 +45,8 @@ pub mod invoices {
         }
     }
 
-    pub fn domain_invoice_with_plan_details_to_server(
-        value: domain::DetailedInvoice,
-        jwt_secret: SecretString,
-    ) -> error_stack::Result<DetailedInvoice, StoreError> {
-        let domain::DetailedInvoice { invoice, .. } = value;
-
-        let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
-            // encode InvoiceShareableClaims
-
-            let exp = chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7; // 7 days
-            let claims = ShareableEntityClaims {
-                exp,
-                sub: invoice.id.to_string(),
-                entity_id: invoice.id.as_uuid(),
-                tenant_id: invoice.tenant_id,
-            };
-
-            let encoded = jsonwebtoken::encode(
-                &jsonwebtoken::Header::default(),
-                &claims,
-                &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
-            )
-            .change_context(StoreError::CryptError(
-                "Failed to encode shareable claims".to_string(),
-            ))?;
-
-            Some(encoded)
-        } else {
-            None
-        };
-
-        let line_items: Vec<LineItem> = invoice.line_items.into_iter()
+    pub fn domain_invoice_lines_to_server(line_items: Vec<domain::LineItem>) -> Vec<LineItem> {
+        line_items.into_iter()
             .map(|line| {
                 LineItem {
                     id: line.local_id,
@@ -147,7 +117,39 @@ pub mod invoices {
                     ).collect(),
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    pub fn domain_invoice_with_plan_details_to_server(
+        value: domain::DetailedInvoice,
+        jwt_secret: SecretString,
+    ) -> error_stack::Result<DetailedInvoice, StoreError> {
+        let domain::DetailedInvoice { invoice, .. } = value;
+
+        let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
+            let exp = chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7; // 7 days
+            let claims = ShareableEntityClaims {
+                exp,
+                sub: invoice.id.to_string(),
+                entity_id: invoice.id.as_uuid(),
+                tenant_id: invoice.tenant_id,
+            };
+
+            let encoded = jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
+            )
+            .change_context(StoreError::CryptError(
+                "Failed to encode shareable claims".to_string(),
+            ))?;
+
+            Some(encoded)
+        } else {
+            None
+        };
+
+        let line_items = domain_invoice_lines_to_server(invoice.line_items);
 
         Ok(DetailedInvoice {
             id: invoice.id.as_proto(),
@@ -212,6 +214,47 @@ pub mod invoices {
             currency: value.invoice.currency,
             due_at: value.invoice.due_at.as_proto(),
             total: value.invoice.total,
+        }
+    }
+}
+
+pub mod transactions {
+    use meteroid_grpc::meteroid::api::invoices::v1::transaction::{
+        PaymentStatusEnum, PaymentTypeEnum,
+    };
+    use meteroid_grpc::meteroid::api::invoices::v1::Transaction;
+    use meteroid_store::domain;
+
+    fn status_domain_to_server(value: domain::enums::PaymentStatusEnum) -> PaymentStatusEnum {
+        match value {
+            domain::enums::PaymentStatusEnum::Ready => PaymentStatusEnum::Ready,
+            domain::enums::PaymentStatusEnum::Pending => PaymentStatusEnum::Pending,
+            domain::enums::PaymentStatusEnum::Settled => PaymentStatusEnum::Settled,
+            domain::enums::PaymentStatusEnum::Cancelled => PaymentStatusEnum::Cancelled,
+            domain::enums::PaymentStatusEnum::Failed => PaymentStatusEnum::Failed,
+        }
+    }
+
+    fn type_domain_to_server(value: domain::enums::PaymentTypeEnum) -> PaymentTypeEnum {
+        match value {
+            domain::enums::PaymentTypeEnum::Payment => PaymentTypeEnum::Payment,
+            domain::enums::PaymentTypeEnum::Refund => PaymentTypeEnum::Refund,
+        }
+    }
+
+    pub fn domain_to_server(
+        value: domain::payment_transactions::PaymentTransaction,
+    ) -> Transaction {
+        Transaction {
+            id: value.id.as_proto(),
+            status: status_domain_to_server(value.status).into(),
+            payment_type: type_domain_to_server(value.payment_type).into(),
+            currency: value.currency,
+            payment_method_id: value.payment_method_id.map(|x| x.as_proto()),
+            provider_transaction_id: value.provider_transaction_id,
+            amount: value.amount as u64,
+            error: value.error_type,
+            invoice_id: value.invoice_id.as_proto(),
         }
     }
 }

@@ -163,7 +163,11 @@ export const CompanyTab = () => {
                           <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
                           <div>{entity.legalName}</div>
                           <div className="flex-grow" />
-                          {entity.isDefault && <Badge variant="primary">Default</Badge>}
+                          {entity.isDefault && (
+                            <Badge variant="primary" size="sm">
+                              Default
+                            </Badge>
+                          )}
                         </div>
                       ),
                       value: entity.id,
