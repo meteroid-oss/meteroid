@@ -1,3 +1,10 @@
+use crate::domain::enums::TenantEnvironmentEnum;
+use crate::domain::{
+    InstanceFlags, Organization, OrganizationNew, OrganizationWithTenants, TenantNew,
+};
+use crate::errors::StoreError;
+use crate::store::Store;
+use crate::StoreResult;
 use common_domain::ids::{BaseId, OrganizationId};
 use common_eventbus::Event;
 use common_utils::rng::BASE62_ALPHABET;
@@ -7,16 +14,9 @@ use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
 use diesel_models::tenants::TenantRow;
 use error_stack::Report;
+use meteroid_oauth::model::OauthProvider;
 use tracing_log::log;
 use uuid::Uuid;
-
-use crate::domain::enums::TenantEnvironmentEnum;
-use crate::domain::{
-    InstanceFlags, Organization, OrganizationNew, OrganizationWithTenants, TenantNew,
-};
-use crate::errors::StoreError;
-use crate::store::Store;
-use crate::StoreResult;
 
 #[async_trait::async_trait]
 pub trait OrganizationsInterface {
@@ -51,11 +51,11 @@ impl OrganizationsInterface for Store {
         let mut conn = self.get_conn().await?;
 
         if !self.settings.multi_organization_enabled {
-            let count = OrganizationRow::count_all(&mut conn)
+            let exists = OrganizationRow::exists(&mut conn)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-            if count > 0 {
+            if exists {
                 return Err(StoreError::InvalidArgument(
                     "This instance does not allow mutiple organizations".to_string(),
                 )
@@ -130,22 +130,24 @@ impl OrganizationsInterface for Store {
     async fn get_instance(&self) -> StoreResult<InstanceFlags> {
         let mut conn = self.get_conn().await?;
 
-        if self.settings.multi_organization_enabled {
-            Ok(InstanceFlags {
-                multi_organization_enabled: true,
-                instance_initiated: true,
-            })
-        } else {
-            // single organization
-            let count = OrganizationRow::count_all(&mut conn)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let (multi_organization_enabled, instance_initiated) =
+            if self.settings.multi_organization_enabled {
+                (true, true)
+            } else {
+                // single organization
+                let exists = OrganizationRow::exists(&mut conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-            Ok(InstanceFlags {
-                multi_organization_enabled: false,
-                instance_initiated: count > 0,
-            })
-        }
+                (false, exists)
+            };
+
+        Ok(InstanceFlags {
+            multi_organization_enabled,
+            instance_initiated,
+            skip_email_validation: self.settings.skip_email_validation,
+            google_oauth_client_id: self.oauth.client_id(OauthProvider::Google),
+        })
     }
 
     async fn organization_get_or_create_invite_link(

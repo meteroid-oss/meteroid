@@ -28,6 +28,7 @@ async fn test_slot_transaction_active_slots() {
         database_url: postgres_connection_string.clone(),
         crypt_key: SecretString::new("00000000000000000000000000000000".into()),
         jwt_secret: SecretString::new("secret".into()),
+        skip_email_validation: true,
         multi_organization_enabled: false,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_memory(),

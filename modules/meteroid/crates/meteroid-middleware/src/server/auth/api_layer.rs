@@ -69,9 +69,12 @@ impl<S> Layer<S> for ApiAuthLayer {
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 // services that don't require authentication
-const ANONYMOUS_SERVICES: [&str; 3] = [
+const ANONYMOUS_SERVICES: [&str; 6] = [
     "/meteroid.api.instance.v1.InstanceService/GetInstance",
-    "/meteroid.api.users.v1.UsersService/Register",
+    "/meteroid.api.users.v1.UsersService/InitRegistration",
+    "/meteroid.api.users.v1.UsersService/CompleteRegistration",
+    "/meteroid.api.users.v1.UsersService/InitResetPassword",
+    "/meteroid.api.users.v1.UsersService/ResetPassword",
     "/meteroid.api.users.v1.UsersService/Login",
 ];
 

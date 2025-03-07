@@ -102,4 +102,8 @@ impl Config {
             }
         }
     }
+
+    pub fn mailer_enabled(&self) -> bool {
+        self.mailer.smtp_host.is_some()
+    }
 }

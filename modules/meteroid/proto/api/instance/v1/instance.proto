@@ -6,6 +6,8 @@ message GetInstanceRequest {}
 message GetInstanceResponse {
   bool multi_organization_enabled = 1;
   bool instance_initiated = 2;
+  bool skip_email_validation = 3;
+  optional string google_oauth_client_id = 6;
 }
 
 message GetInviteRequest {}

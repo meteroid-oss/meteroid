@@ -4,10 +4,11 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
 use meteroid_grpc::meteroid::api::users::v1::{
-    users_service_server::UsersService, GetUserByIdRequest, GetUserByIdResponse,
+    users_service_server::UsersService, CompleteRegistrationRequest, CompleteRegistrationResponse,
+    GetUserByIdRequest, GetUserByIdResponse, InitRegistrationRequest, InitRegistrationResponse,
     InitResetPasswordRequest, InitResetPasswordResponse, ListUsersRequest, ListUsersResponse,
     LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest, OnboardMeResponse,
-    RegisterRequest, RegisterResponse, ResetPasswordRequest, ResetPasswordResponse,
+    ResetPasswordRequest, ResetPasswordResponse,
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
 use meteroid_store::repositories::users::UserInterface;
@@ -17,6 +18,8 @@ use crate::{api::utils::parse_uuid, parse_uuid};
 
 use super::{mapping, UsersServiceComponents};
 
+/// **Modifying this service ?**
+/// Make sure to update **api_layer.ANONYMOUS_SERVICES** in meteroid-middleware if any anonymous rpc is updated/added
 #[tonic::async_trait]
 impl UsersService for UsersServiceComponents {
     #[tracing::instrument(skip_all)]
@@ -128,32 +131,6 @@ impl UsersService for UsersServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn register(
-        &self,
-        request: Request<RegisterRequest>,
-    ) -> Result<Response<RegisterResponse>, Status> {
-        idempotency_cache(request, |request| async {
-            let req = request.into_inner();
-
-            let resp = self
-                .store
-                .register_user(RegisterUserRequest {
-                    email: req.email,
-                    password: SecretString::new(req.password),
-                    invite_key: req.invite_key.map(SecretString::new),
-                })
-                .await
-                .map_err(Into::<UserApiError>::into)?;
-
-            Ok(Response::new(RegisterResponse {
-                token: resp.token.expose_secret().clone(),
-                user: Some(mapping::user::domain_to_proto(resp.user)),
-            }))
-        })
-        .await
-    }
-
-    #[tracing::instrument(skip_all)]
     async fn init_reset_password(
         &self,
         request: Request<InitResetPasswordRequest>,
@@ -181,5 +158,53 @@ impl UsersService for UsersServiceComponents {
             .map_err(Into::<UserApiError>::into)?;
 
         Ok(Response::new(ResetPasswordResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn init_registration(
+        &self,
+        request: Request<InitRegistrationRequest>,
+    ) -> Result<Response<InitRegistrationResponse>, Status> {
+        idempotency_cache(request, |request| async {
+            let req = request.into_inner();
+
+            let resp = self
+                .store
+                .init_registration(req.email, req.invite_key.map(SecretString::new))
+                .await
+                .map_err(Into::<UserApiError>::into)?;
+
+            Ok(Response::new(InitRegistrationResponse {
+                validation_required: resp.validation_required,
+            }))
+        })
+        .await
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn complete_registration(
+        &self,
+        request: Request<CompleteRegistrationRequest>,
+    ) -> Result<Response<CompleteRegistrationResponse>, Status> {
+        idempotency_cache(request, |request| async {
+            let req = request.into_inner();
+
+            let resp = self
+                .store
+                .complete_registration(RegisterUserRequest {
+                    email: req.email,
+                    password: Some(SecretString::new(req.password)),
+                    invite_key: req.invite_key.map(SecretString::new),
+                    email_validation_token: req.validation_token.map(SecretString::new),
+                })
+                .await
+                .map_err(Into::<UserApiError>::into)?;
+
+            Ok(Response::new(CompleteRegistrationResponse {
+                token: resp.token.expose_secret().clone(),
+                user: Some(mapping::user::domain_to_proto(resp.user)),
+            }))
+        })
+        .await
     }
 }

@@ -64,15 +64,19 @@ pub struct LoginUserResponse {
 #[derive(Clone, Debug)]
 pub struct RegisterUserRequest {
     pub email: String,
-    pub password: SecretString,
+    pub password: Option<SecretString>,
     pub invite_key: Option<SecretString>,
+    pub email_validation_token: Option<SecretString>,
 }
 
-#[derive(Clone, Debug, o2o)]
-#[from_owned(RegisterUserRequest)]
+#[derive(Clone, Debug)]
+pub struct InitRegistrationResponse {
+    pub validation_required: bool,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct RegisterUserRequestInternal {
     pub email: String,
-    #[map(Some(~))]
     pub password: Option<SecretString>,
     pub invite_key: Option<SecretString>,
 }

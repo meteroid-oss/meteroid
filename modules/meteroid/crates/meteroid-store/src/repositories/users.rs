@@ -1,8 +1,8 @@
 use crate::crypt::{decrypt, encrypt};
 use crate::domain::enums::OrganizationUserRole;
 use crate::domain::users::{
-    LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest, RegisterUserRequestInternal,
-    RegisterUserResponse, UpdateUser, User, UserWithRole,
+    InitRegistrationResponse, LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest,
+    RegisterUserRequestInternal, RegisterUserResponse, UpdateUser, User, UserWithRole,
 };
 use crate::domain::Organization;
 use crate::errors::StoreError;
@@ -12,6 +12,7 @@ use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
+use common_domain::auth::{Audience, JwtClaims, JwtPayload};
 use common_domain::ids::{OrganizationId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -21,7 +22,7 @@ use diesel_models::organizations::OrganizationRow;
 use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
 use error_stack::{bail, Report, ResultExt};
 use jsonwebtoken::{DecodingKey, Validation};
-use meteroid_mailer::model::{EmailRecipient, ResetPasswordLink};
+use meteroid_mailer::model::{EmailRecipient, EmailValidationLink, ResetPasswordLink};
 use meteroid_oauth::model::OauthProvider;
 use secrecy::{ExposeSecret, SecretString};
 use std::ops::Add;
@@ -30,7 +31,16 @@ use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait UserInterface {
-    async fn register_user(&self, req: RegisterUserRequest) -> StoreResult<RegisterUserResponse>;
+    async fn init_registration(
+        &self,
+        email: String,
+        invite_key: Option<SecretString>,
+    ) -> StoreResult<InitRegistrationResponse>;
+    async fn complete_registration(
+        &self,
+        req: RegisterUserRequest,
+    ) -> StoreResult<RegisterUserResponse>;
+
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse>;
     async fn me(
         &self,
@@ -89,8 +99,57 @@ pub trait UserInterface {
 
 #[async_trait::async_trait]
 impl UserInterface for Store {
-    async fn register_user(&self, req: RegisterUserRequest) -> StoreResult<RegisterUserResponse> {
-        register_user_internal(self, req.into()).await
+    async fn complete_registration(
+        &self,
+        req: RegisterUserRequest,
+    ) -> StoreResult<RegisterUserResponse> {
+        if self.settings.skip_email_validation {
+            return register_user_internal(
+                self,
+                RegisterUserRequestInternal {
+                    password: req.password,
+                    email: req.email,
+                    invite_key: req.invite_key,
+                },
+            )
+            .await;
+        }
+
+        let token = match req.email_validation_token {
+            Some(token) => token.expose_secret().to_string(),
+            None => {
+                bail!(StoreError::InvalidArgument(
+                    "email validation token is required".into()
+                ));
+            }
+        };
+
+        let mut validation = Validation::default();
+        validation.set_audience(&[Audience::EmailValidation.as_str()]);
+
+        let token_data = jsonwebtoken::decode::<JwtClaims>(
+            &token,
+            &DecodingKey::from_secret(self.settings.jwt_secret.expose_secret().as_bytes()),
+            &validation,
+        )
+        .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
+
+        let email = token_data.claims.sub.as_str();
+
+        let invite_key = match token_data.claims.payload {
+            Some(JwtPayload::EmailValidation { invite_key }) => invite_key,
+            _ => None,
+        };
+
+        register_user_internal(
+            self,
+            RegisterUserRequestInternal {
+                password: req.password,
+                email: email.to_string(),
+                invite_key: invite_key.map(SecretString::new),
+            },
+        )
+        .await
     }
 
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse> {
@@ -270,6 +329,8 @@ impl UserInterface for Store {
                 &user.id.to_string(),
                 &self.settings.jwt_secret,
                 Utc::now() + url_expires_in,
+                Audience::ResetPassword,
+                None,
             )?;
 
             let url = SecretString::new(format!(
@@ -301,15 +362,79 @@ impl UserInterface for Store {
         Ok(())
     }
 
+    async fn init_registration(
+        &self,
+        email: String,
+        invite_key: Option<SecretString>,
+    ) -> StoreResult<InitRegistrationResponse> {
+        let mut conn = self.get_conn().await?;
+
+        let user_opt = UserRow::find_by_email(&mut conn, email.clone()).await?;
+
+        if user_opt.is_some() {
+            return Err(StoreError::DuplicateValue {
+                entity: "user",
+                key: None,
+            }
+            .into());
+        }
+
+        if self.settings.skip_email_validation {
+            return Ok(InitRegistrationResponse {
+                validation_required: false,
+            });
+        }
+
+        let url_expires_in = chrono::Duration::hours(24);
+
+        let token = generate_jwt_token(
+            &email,
+            &self.settings.jwt_secret,
+            Utc::now() + url_expires_in,
+            Audience::EmailValidation,
+            Some(JwtPayload::EmailValidation {
+                invite_key: invite_key.map(|s| s.expose_secret().to_string()),
+            }),
+        )?;
+
+        let url = SecretString::new(format!(
+            "{}/validate-email?token={}",
+            self.settings.public_url.as_str(),
+            token.expose_secret()
+        ));
+
+        let recipient = EmailRecipient {
+            email,
+            first_name: None,
+            last_name: None,
+        };
+
+        self.mailer
+            .send_email_validation_link(EmailValidationLink {
+                url,
+                recipient,
+                url_expires_in,
+            })
+            .await
+            .change_context(StoreError::MailServiceError)?;
+
+        Ok(InitRegistrationResponse {
+            validation_required: true,
+        })
+    }
+
     async fn reset_password(
         &self,
         token: SecretString,
         new_password: SecretString,
     ) -> StoreResult<()> {
+        let mut validation = Validation::default();
+        validation.set_audience(&[Audience::ResetPassword.as_str()]);
+
         let token_data = jsonwebtoken::decode::<JwtClaims>(
             token.expose_secret(),
             &DecodingKey::from_secret(self.settings.jwt_secret.expose_secret().as_bytes()),
-            &Validation::default(),
+            &validation,
         )
         .map_err(|_| StoreError::InvalidArgument("invalid token".into()))?;
 
@@ -331,7 +456,13 @@ impl UserInterface for Store {
         is_signup: bool,
         invite_key: Option<SecretString>,
     ) -> StoreResult<SecretString> {
-        let callback_url = self.oauth.for_provider(provider).callback_url();
+        let callback_url = self
+            .oauth
+            .for_provider(provider)
+            .ok_or(Report::new(StoreError::OauthError(
+                "Provider not configured".to_string(),
+            )))?
+            .callback_url();
 
         fn enc(key: &SecretString, raw: &str) -> StoreResult<String> {
             encrypt(key, raw)
@@ -400,6 +531,9 @@ impl UserInterface for Store {
         let oauth_user = self
             .oauth
             .for_provider(provider)
+            .ok_or(Report::new(StoreError::OauthError(
+                "Provider not configured".to_string(),
+            )))?
             .get_user_info(code, pkce_verifier)
             .await
             .change_context(StoreError::OauthError(
@@ -447,13 +581,17 @@ impl UserInterface for Store {
 }
 
 fn generate_jwt_token(
-    user_id: &str,
+    sub: &str,
     secret: &SecretString,
     expires_at: DateTime<Utc>,
+    audience: Audience,
+    payload: Option<JwtPayload>,
 ) -> StoreResult<SecretString> {
     let claims = serde_json::to_value(JwtClaims {
-        sub: user_id.to_owned(),
+        sub: sub.to_owned(),
         exp: expires_at.timestamp() as usize,
+        aud: audience,
+        payload,
     })
     .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
 
@@ -468,7 +606,13 @@ fn generate_jwt_token(
 }
 
 fn generate_auth_jwt_token(user_id: &str, secret: &SecretString) -> StoreResult<SecretString> {
-    generate_jwt_token(user_id, secret, Utc::now() + chrono::Duration::weeks(1))
+    generate_jwt_token(
+        user_id,
+        secret,
+        Utc::now() + chrono::Duration::weeks(1),
+        Audience::WebApi,
+        None,
+    )
 }
 
 fn hash_password(password: &str) -> StoreResult<String> {
@@ -478,13 +622,6 @@ fn hash_password(password: &str) -> StoreResult<String> {
         .hash_password(password.as_bytes(), &salt)
         .map_err(|_| StoreError::InvalidArgument("unable to hash password".to_string()))?;
     Ok(hash.to_string())
-}
-
-// todo reuse in common-grpc as well
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct JwtClaims {
-    sub: String,
-    exp: usize,
 }
 
 async fn register_user_internal(

@@ -1,7 +1,7 @@
 use crate::config::MailerConfig;
 use crate::errors::MailerServiceError;
-use crate::model::{Email, ResetPasswordLink};
-use crate::template::ResetPasswordLinkTemplate;
+use crate::model::{Email, EmailValidationLink, ResetPasswordLink};
+use crate::template::{EmailValidationLinkTemplate, ResetPasswordLinkTemplate};
 use async_trait::async_trait;
 use error_stack::Report;
 use lettre::transport::smtp::authentication::Credentials;
@@ -17,6 +17,11 @@ pub trait MailerService: Send + Sync {
     async fn send_reset_password_link(
         &self,
         link: ResetPasswordLink,
+    ) -> error_stack::Result<(), MailerServiceError>;
+
+    async fn send_email_validation_link(
+        &self,
+        link: EmailValidationLink,
     ) -> error_stack::Result<(), MailerServiceError>;
 }
 
@@ -54,6 +59,25 @@ where
             reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
             to: link.recipient.clone(),
             subject: "Reset password".into(),
+            body_html,
+            attachments: vec![],
+        };
+        self.send(email).await
+    }
+
+    async fn send_email_validation_link(
+        &self,
+        link: EmailValidationLink,
+    ) -> error_stack::Result<(), MailerServiceError> {
+        let tpl = EmailValidationLinkTemplate::from(link.clone());
+
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+
+        let email = Email {
+            from: self.config.from.clone(),
+            reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
+            to: link.recipient.clone(),
+            subject: "Validate your email".into(),
             body_html,
             attachments: vec![],
         };

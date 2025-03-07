@@ -92,6 +92,13 @@ pub struct ResetPasswordLink {
     pub recipient: EmailRecipient,
 }
 
+#[derive(Clone)]
+pub struct EmailValidationLink {
+    pub url: SecretString,
+    pub url_expires_in: chrono::Duration,
+    pub recipient: EmailRecipient,
+}
+
 impl TryInto<Mailbox> for EmailRecipient {
     type Error = Report<MailerServiceError>;
 

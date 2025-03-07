@@ -1,7 +1,7 @@
 use cached::proc_macro::cached;
+use common_domain::auth::{Audience, JwtClaims};
 use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::common::auth::{BEARER_AUTH_HEADER, INTERNAL_API_CONTEXT_HEADER};
-use common_grpc::middleware::common::jwt::Claims;
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use common_grpc::middleware::server::AuthorizedState;
 use common_grpc::GrpcServiceMethod;
@@ -30,9 +30,12 @@ pub fn validate_jwt(
         .ok_or(Status::unauthenticated("Missing JWT"))?;
 
     let decoding_key = DecodingKey::from_secret(jwt_secret.expose_secret().as_bytes());
-    let decoded =
-        jsonwebtoken::decode::<Claims>(token, &decoding_key, &jsonwebtoken::Validation::default())
-            .map_err(|_| Status::permission_denied("Invalid JWT"))?;
+
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.set_audience(&[Audience::WebApi.as_str()]);
+
+    let decoded = jsonwebtoken::decode::<JwtClaims>(token, &decoding_key, &validation)
+        .map_err(|_| Status::permission_denied("Invalid JWT"))?;
 
     let user_id = Uuid::parse_str(&decoded.claims.sub)
         .map_err(|_| Status::permission_denied("Invalid JWT"))?;

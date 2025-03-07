@@ -43,6 +43,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
             .map(SecretString::new)
             .change_context(SeederError::InitializationError)?,
         multi_organization_enabled: false,
+        skip_email_validation: true,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_noop().await,
         usage_client: Arc::new(MockUsageClient {

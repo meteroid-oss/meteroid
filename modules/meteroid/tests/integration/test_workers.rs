@@ -31,6 +31,7 @@ async fn test_draft_worker() {
         crypt_key: secrecy::SecretString::new("test-key".into()),
         jwt_secret: secrecy::SecretString::new("test-jwt-key".into()),
         multi_organization_enabled: false,
+        skip_email_validation: true,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_noop().await,
         usage_client: Arc::new(MockUsageClient::noop()),
