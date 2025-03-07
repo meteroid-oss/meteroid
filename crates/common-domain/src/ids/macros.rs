@@ -83,6 +83,7 @@ macro_rules! id_type {
                     .and_then(|s| {
                         base62::decode(s)
                             .map_err(|e| $crate::ids::IdError(e.to_string()))
+                            .map(|decoded| decoded.rotate_right(67))
                             .map(uuid::Uuid::from_u128)
                             .map($id_name)
                     })

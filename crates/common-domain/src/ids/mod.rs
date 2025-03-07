@@ -54,11 +54,10 @@ pub trait BaseId: Deref<Target = Uuid> {
     fn parse_uuid(s: &str) -> Result<Self::IdType, IdError>;
 
     fn as_base62(&self) -> String {
-        format!(
-            "{}{}",
-            Self::PREFIX,
-            base62::encode(self.as_uuid().as_u128())
-        )
+        let original = self.as_uuid().as_u128();
+        let rotated = original.rotate_left(67); // avoids similar-looking ids with the timestamp in first characters
+
+        format!("{}{}", Self::PREFIX, base62::encode(rotated))
     }
 
     fn parse_base62(s: &str) -> Result<Self::IdType, IdError>;
