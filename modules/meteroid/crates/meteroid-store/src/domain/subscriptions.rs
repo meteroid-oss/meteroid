@@ -196,9 +196,9 @@ impl SubscriptionNew {
             end_date: self.end_date,
             plan_version_id: self.plan_version_id,
             created_at: now,
-            card_connection_id: payment_setup_result.card_connection_id.clone(),
-            direct_debit_connection_id: payment_setup_result.direct_debit_connection_id.clone(),
-            bank_account_id: payment_setup_result.bank.clone(),
+            card_connection_id: payment_setup_result.card_connection_id,
+            direct_debit_connection_id: payment_setup_result.direct_debit_connection_id,
+            bank_account_id: payment_setup_result.bank,
             created_by: self.created_by,
             net_terms: net_terms as i32,
             invoice_memo: self.invoice_memo.clone(),
@@ -208,8 +208,8 @@ impl SubscriptionNew {
             period: period.into(),
             start_date: self.start_date,
             activation_condition: self.activation_condition.clone().into(),
-            payment_method: payment_setup_result.payment_method.clone(),
-            pending_checkout: payment_setup_result.checkout.clone(),
+            payment_method: payment_setup_result.payment_method,
+            pending_checkout: payment_setup_result.checkout,
         }
     }
 }

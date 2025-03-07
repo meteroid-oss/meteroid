@@ -52,8 +52,8 @@ pub trait PaymentProvider: Send + Sync {
         &self,
         connector: &Connector,
         transaction_id: &PaymentTransactionId,
-        customer_external_id: &String,
-        payment_method_external_id: &String,
+        customer_external_id: &str,
+        payment_method_external_id: &str,
         amount: i64,
         currency: &str,
     ) -> error_stack::Result<PaymentIntent, PaymentProviderError>;
@@ -194,8 +194,8 @@ impl PaymentProvider for StripeClient {
         &self,
         connector: &Connector,
         transaction_id: &PaymentTransactionId,
-        customer_external_id: &String,
-        payment_method_external_id: &String,
+        customer_external_id: &str,
+        payment_method_external_id: &str,
         amount: i64,
         currency: &str,
     ) -> error_stack::Result<PaymentIntent, PaymentProviderError> {
@@ -217,9 +217,9 @@ impl PaymentProvider for StripeClient {
                 PaymentIntentRequest {
                     amount,
                     currency: currency.to_string(),
-                    customer: Some(customer_external_id.clone()),
+                    customer: Some(customer_external_id.to_string()),
                     setup_mandate_details: None,
-                    payment_method: payment_method_external_id.clone(),
+                    payment_method: payment_method_external_id.to_string(),
                     confirm: true,
                     metadata,
                     off_session: Some(true),

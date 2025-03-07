@@ -58,7 +58,7 @@ pub struct DetailedSubscription {
 impl StoreInternal {
     pub(super) fn build_subscription_details(
         &self,
-        batch: &Vec<CreateSubscription>,
+        batch: &[CreateSubscription],
         context: &SubscriptionCreationContext,
     ) -> StoreResult<Vec<DetailedSubscription>> {
         let res = batch
@@ -226,7 +226,7 @@ impl StoreInternal {
     fn process_coupons(
         &self,
         subscription: &SubscriptionRowNew,
-        coupons: &Vec<Coupon>,
+        coupons: &[Coupon],
     ) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
         process_create_subscription_coupons(subscription, coupons)
     }

@@ -81,7 +81,7 @@ impl CustomerPaymentMethodsInterface for Store {
             supported_payment_types: connection
                 .supported_payment_types
                 .as_ref()
-                .map(|v| v.into_iter().flatten().map(|t| t.clone().into()).collect()),
+                .map(|v| v.iter().flatten().map(|t| t.clone().into()).collect()),
             external_customer_id: connection.external_customer_id,
         };
 

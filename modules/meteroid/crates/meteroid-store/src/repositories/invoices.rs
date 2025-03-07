@@ -35,6 +35,7 @@ pub trait InvoiceInterface {
         invoice_id: InvoiceId,
     ) -> StoreResult<DetailedInvoice>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn list_invoices(
         &self,
         tenant_id: TenantId,

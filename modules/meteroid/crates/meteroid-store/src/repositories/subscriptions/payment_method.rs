@@ -88,7 +88,7 @@ impl StoreInternal {
         conn: &mut PgConn,
         config: &Connector,
         customer: &Customer,
-        customer_connectors: &Vec<&CustomerConnection>,
+        customer_connectors: &[&CustomerConnection],
     ) -> StoreResult<Option<CustomerConnectionId>> {
         if config.connector_type == ConnectorTypeEnum::PaymentProvider {
             // Find an existing connection to this provider
