@@ -112,7 +112,7 @@ impl BillingService for Store {
 
         let period = crate::utils::periods::calculate_period_range(
             billing_start_date,
-            subscription.subscription.billing_day_anchor as u16,
+            subscription.subscription.billing_day_anchor,
             0,
             &subscription.subscription.period,
         );

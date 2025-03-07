@@ -13,7 +13,7 @@ pub use payment_method::PaymentSetupResult;
 pub use slots::SubscriptionSlotsInterface;
 mod context;
 mod payment_method;
-mod subscriptions;
+mod subscriptions_impl;
 mod utils;
 
 pub use utils::subscription_to_draft;

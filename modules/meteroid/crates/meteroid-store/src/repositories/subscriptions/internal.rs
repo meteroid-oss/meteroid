@@ -19,7 +19,7 @@ use crate::constants::{Currencies, Currency};
 use crate::domain::coupons::Coupon;
 use crate::repositories::subscriptions::context::SubscriptionCreationContext;
 use crate::repositories::subscriptions::payment_method::PaymentSetupResult;
-use crate::repositories::subscriptions::subscriptions::generate_checkout_token;
+use crate::repositories::subscriptions::subscriptions_impl::generate_checkout_token;
 use crate::repositories::subscriptions::utils::{
     apply_coupons, calculate_mrr, extract_billing_period, process_create_subscription_add_ons,
     process_create_subscription_components, process_create_subscription_coupons,

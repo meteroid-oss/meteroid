@@ -6,9 +6,6 @@ use error_stack::Result;
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
 use meteroid_store::{domain, Store};
 
-const BATCH_SIZE: usize = 100;
-const MAX_CONCURRENT_REQUESTS: usize = 10;
-
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]
 pub struct PaymentWorker;

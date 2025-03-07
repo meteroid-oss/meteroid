@@ -725,45 +725,6 @@
           }
         }
       },
-      "BillingConfig": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/StripeBillingConfig"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "object"
-                ],
-                "properties": {
-                  "object": {
-                    "type": "string",
-                    "enum": [
-                      "stripe"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "type": "object",
-            "required": [
-              "object"
-            ],
-            "properties": {
-              "object": {
-                "type": "string",
-                "enum": [
-                  "manual"
-                ]
-              }
-            }
-          }
-        ]
-      },
       "Currency": {
         "type": "string",
         "enum": [
@@ -933,9 +894,9 @@
         "required": [
           "id",
           "name",
+          "invoicing_emails",
           "currency",
-          "invoicing_entity_id",
-          "billing_config"
+          "invoicing_entity_id"
         ],
         "properties": {
           "alias": {
@@ -954,26 +915,23 @@
               }
             ]
           },
-          "billing_config": {
-            "$ref": "#/components/schemas/BillingConfig"
+          "billing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "email": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "id": {
             "$ref": "#/components/schemas/CustomerId"
           },
-          "invoicing_email": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "invoicing_emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "invoicing_entity_id": {
             "$ref": "#/components/schemas/InvoicingEntityId"
@@ -1003,7 +961,7 @@
         "type": "object",
         "required": [
           "name",
-          "billing_config",
+          "invoicing_emails",
           "currency"
         ],
         "properties": {
@@ -1023,23 +981,20 @@
               }
             ]
           },
-          "billing_config": {
-            "$ref": "#/components/schemas/BillingConfig"
+          "billing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "email": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "invoicing_email": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "invoicing_emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "invoicing_entity_id": {
             "oneOf": [
@@ -1079,7 +1034,7 @@
         "type": "object",
         "required": [
           "name",
-          "billing_config",
+          "invoicing_emails",
           "currency",
           "invoicing_entity_id"
         ],
@@ -1100,23 +1055,20 @@
               }
             ]
           },
-          "billing_config": {
-            "$ref": "#/components/schemas/BillingConfig"
+          "billing_email": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "email": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "invoicing_email": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "invoicing_emails": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "invoicing_entity_id": {
             "$ref": "#/components/schemas/InvoicingEntityId"
@@ -1160,9 +1112,9 @@
               "required": [
                 "id",
                 "name",
+                "invoicing_emails",
                 "currency",
-                "invoicing_entity_id",
-                "billing_config"
+                "invoicing_entity_id"
               ],
               "properties": {
                 "alias": {
@@ -1181,26 +1133,23 @@
                     }
                   ]
                 },
-                "billing_config": {
-                  "$ref": "#/components/schemas/BillingConfig"
+                "billing_email": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "currency": {
                   "$ref": "#/components/schemas/Currency"
                 },
-                "email": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
                 "id": {
                   "$ref": "#/components/schemas/CustomerId"
                 },
-                "invoicing_email": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
+                "invoicing_emails": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 "invoicing_entity_id": {
                   "$ref": "#/components/schemas/InvoicingEntityId"
@@ -1369,11 +1318,11 @@
                 "id",
                 "customer_id",
                 "customer_name",
-                "billing_day",
+                "billing_day_anchor",
                 "currency"
               ],
               "properties": {
-                "billing_day": {
+                "billing_day_anchor": {
                   "type": "integer",
                   "format": "int32"
                 },
@@ -1533,39 +1482,17 @@
           }
         }
       },
-      "StripeBillingConfig": {
-        "type": "object",
-        "required": [
-          "customer_id",
-          "collection_method"
-        ],
-        "properties": {
-          "collection_method": {
-            "$ref": "#/components/schemas/StripeCollectionMethod"
-          },
-          "customer_id": {
-            "type": "string"
-          }
-        }
-      },
-      "StripeCollectionMethod": {
-        "type": "string",
-        "enum": [
-          "charge_automatically",
-          "send_invoice"
-        ]
-      },
       "Subscription": {
         "type": "object",
         "required": [
           "id",
           "customer_id",
           "customer_name",
-          "billing_day",
+          "billing_day_anchor",
           "currency"
         ],
         "properties": {
-          "billing_day": {
+          "billing_day_anchor": {
             "type": "integer",
             "format": "int32"
           },
@@ -1595,11 +1522,11 @@
           "id",
           "customer_id",
           "customer_name",
-          "billing_day",
+          "billing_day_anchor",
           "currency"
         ],
         "properties": {
-          "billing_day": {
+          "billing_day_anchor": {
             "type": "integer",
             "format": "int32"
           },
