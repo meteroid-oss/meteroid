@@ -43,12 +43,12 @@ export const LoginForm = () => {
   return (
     <Form {...methods}>
       <form onSubmit={methods.handleSubmit(onSubmit)}>
-        <div className="flex flex-col gap-7">
+        <div className="flex flex-col gap-2">
           <InputFormField
             name="email"
             label="Email"
             control={methods.control}
-            placeholder="john@acme.com"
+            placeholder="you@company.com"
             id="login-email"
           />
 
@@ -56,12 +56,17 @@ export const LoginForm = () => {
             name="password"
             label="Password"
             control={methods.control}
-            placeholder="Password"
+            placeholder="Enter your password"
             type="password"
             id="login-password"
           />
 
-          <Button variant="primary" type="submit" disabled={!methods.formState.isValid}>
+          <Button
+            variant="primary"
+            type="submit"
+            className="mt-3"
+            disabled={!methods.formState.isValid}
+          >
             Login
           </Button>
           {error && <div className="text-base">{error}</div>}

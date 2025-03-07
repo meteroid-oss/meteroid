@@ -5,6 +5,14 @@ export const emailPasswordSchema = z.object({
   password: z.string().min(5, '5 characters minimum'),
 })
 
+export const emailSchema = z.object({
+  email: z.string().email('Please enter a valid email address'),
+})
+
+export const validateEmailSchema = z.object({
+  code: z.string().length(6, '6 characters required'),
+})
+
 export const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(5, '5 characters minimum'),
