@@ -10,7 +10,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Building2, CheckCircle2, CreditCard, ExternalLink, Key, WebhookIcon } from 'lucide-react'
-import React, { KeyboardEvent as ReactKeyboardEvent, useState } from 'react'
+import { Fragment, KeyboardEvent as ReactKeyboardEvent, createElement, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
@@ -131,8 +131,8 @@ export const StripeIntegrationModal = () => {
                 <br />
               </li>
               <li>
-                Then click on "Add an endpoint", reveal and copy the "Signing secret" to the form
-                input below
+                {`Then click on "Add an endpoint", reveal and copy the "Signing secret" to the form
+                input below`}
               </li>
             </ol>
           </div>
@@ -237,7 +237,7 @@ export const StripeIntegrationModal = () => {
             <span>Connect Stripe</span>
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Let's get your payments flowing in just a few steps
+            Let&apos;s get your payments flowing in just a few steps
           </DialogDescription>
         </>
       }
@@ -251,7 +251,7 @@ export const StripeIntegrationModal = () => {
           <form autoComplete="off">
             <div className="flex items-center justify-center gap-2 mb-6 mt-4">
               {steps.map((_step, idx) => (
-                <React.Fragment key={idx}>
+                <Fragment key={idx}>
                   <div
                     className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
                       currentStep === idx
@@ -270,13 +270,13 @@ export const StripeIntegrationModal = () => {
                       }`}
                     />
                   )}
-                </React.Fragment>
+                </Fragment>
               ))}
             </div>
 
             {/* Current step icon */}
             <div className="flex justify-center">
-              {React.createElement(steps[currentStep].icon, {
+              {createElement(steps[currentStep].icon, {
                 className: 'w-12 h-12 text-brand',
                 strokeWidth: 1.2,
               })}

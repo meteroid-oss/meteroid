@@ -20,7 +20,6 @@ import {
   updateCustomer,
 } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
 
-
 const billingInfoSchema = z.object({
   name: z.string().optional(),
   billingEmail: z.string().email().optional(),
@@ -41,8 +40,6 @@ interface BillingInfoProps {
 export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoProps) => {
   const [showTaxNumber, setShowTaxNumber] = useState(!!customer.vatNumber)
   const queryClient = useQueryClient()
-
-  console.log('customer', customer)
 
   const updateBillingInfoMut = useMutation(updateCustomer, {
     onSuccess: res => {

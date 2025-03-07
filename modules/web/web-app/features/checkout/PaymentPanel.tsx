@@ -1,7 +1,7 @@
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
 import { AlertCircle, Building, CreditCard } from 'lucide-react'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -15,18 +15,16 @@ import { PaymentForm } from './components/PaymentForm'
 import { PaymentMethodSelection, PaymentPanelProps, PaymentState } from './types'
 
 // Inner payment panel component that is wrapped by Elements
-const PaymentPanelInner: React.FC<PaymentPanelProps & { clientSecret: string }> = ({
+const PaymentPanelInner: React.FC<PaymentPanelProps> = ({
   customer,
   paymentMethods,
   onPaymentSubmit,
-  clientSecret,
 }) => {
   const stripe = useStripe()
   const elements = useElements()
 
   const [paymentState, setPaymentState] = useState<PaymentState>(PaymentState.INITIAL)
   const [paymentError, setPaymentError] = useState<string | null>(null)
-  const [savePaymentMethod, setSavePaymentMethod] = useState(true)
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethodSelection | null>(
     null
   )
@@ -225,12 +223,7 @@ const PaymentPanelInner: React.FC<PaymentPanelProps & { clientSecret: string }> 
           )}
 
           {selectedPaymentMethod?.type === 'new' && selectedPaymentMethod.methodType === 'card' && (
-            <PaymentForm
-              customer={customer}
-              clientSecret={clientSecret}
-              savePaymentMethod={savePaymentMethod}
-              setSavePaymentMethod={setSavePaymentMethod}
-            />
+            <PaymentForm />
           )}
         </div>
 
@@ -374,7 +367,7 @@ export const PaymentPanel: React.FC<PaymentPanelProps> = props => {
         },
       }}
     >
-      <PaymentPanelInner {...props} clientSecret={clientSecret} />
+      <PaymentPanelInner {...props} />
     </Elements>
   )
 }

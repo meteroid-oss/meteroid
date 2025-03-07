@@ -1,6 +1,7 @@
-import { cn } from '@ui/lib'
 import { Eye, EyeOff } from 'lucide-react'
 import * as React from 'react'
+
+import { cn } from '@ui/lib'
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   rightText?: string

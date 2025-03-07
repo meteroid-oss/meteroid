@@ -6,7 +6,6 @@ use crate::domain::users::{
 };
 use crate::domain::Organization;
 use crate::errors::StoreError;
-use crate::jwt_claims::JwtClaims;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use argon2::password_hash::rand_core::OsRng;

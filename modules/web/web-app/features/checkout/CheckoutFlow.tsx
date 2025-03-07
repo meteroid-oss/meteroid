@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react'
-import React, { useState } from 'react'
+import { useState } from 'react'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { formatCurrency } from '@/utils/numbers'
@@ -55,7 +55,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
     }
   }
 
-  if (!subscription || !customer) {
+  if (!subscription?.subscription || !customer) {
     return <div className="p-8 text-center">Loading checkout information...</div>
   }
 
@@ -71,7 +71,7 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
           )}
         </button>
         <div className="text-sm font-medium mx-auto">
-          Subscribe to {subscription.subscription?.planName}
+          Subscribe to {subscription.subscription.planName}
         </div>
       </div>
 
@@ -97,11 +97,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
             <PaymentPanel
               customer={customer}
               paymentMethods={paymentMethods || []}
-              currency={subscription.subscription?.currency!}
-              totalAmount={formatCurrency(totalAmount, subscription.subscription?.currency!)}
+              currency={subscription.subscription.currency}
+              totalAmount={formatCurrency(totalAmount, subscription.subscription.currency)}
               onPaymentSubmit={handlePaymentSubmit}
-              cardConnectionId={subscription.subscription?.cardConnectionId}
-              directDebitConnectionId={subscription.subscription?.directDebitConnectionId}
+              cardConnectionId={subscription.subscription.cardConnectionId}
+              directDebitConnectionId={subscription.subscription.directDebitConnectionId}
             />
           </div>
         </div>

@@ -1,5 +1,3 @@
-import React from 'react'
-
 import { Checkout } from '@/rpc/portal/checkout/v1/models_pb'
 import { formatCurrency } from '@/utils/numbers'
 

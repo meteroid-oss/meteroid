@@ -45,24 +45,3 @@ export interface PaymentPanelProps {
 export interface CheckoutFlowProps {
   checkoutData: Checkout
 }
-
-/**
- * Props for the BillingInfo component
- */
-export interface BillingInfoProps {
-  customer: Customer
-  isEditing: boolean
-  onEdit: () => void
-  onSave: (address: any) => void
-  onCancel: () => void
-}
-
-/**
- * Props for the PaymentForm component
- */
-export interface PaymentFormProps {
-  customer?: Customer
-  clientSecret: string
-  savePaymentMethod: boolean
-  setSavePaymentMethod: (save: boolean) => void
-}

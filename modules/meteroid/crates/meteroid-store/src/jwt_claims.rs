@@ -2,12 +2,6 @@ use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
 // todo reuse in common-grpc as well
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub struct JwtClaims {
-    pub sub: String,
-    pub exp: usize,
-}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub enum ResourceAccess {
     SubscriptionCheckout(SubscriptionId),
     // OneTimeCheckout
