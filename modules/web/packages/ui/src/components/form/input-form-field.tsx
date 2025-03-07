@@ -31,10 +31,11 @@ export const InputFormField = <
 >({
   ...props
 }: InputFieldProps<TFieldValues, TName> & GenericFormFieldVariantProps) => {
-  const { inputProps, ...formFieldProps } = destructuredFormProps(props)
+  const { inputProps, key, ...formFieldProps } = destructuredFormProps(props)
 
   return (
     <GenericFormField
+      key={key}
       {...formFieldProps}
       render={({ field, className }) => {
         const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {

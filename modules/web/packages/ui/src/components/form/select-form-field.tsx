@@ -32,10 +32,11 @@ export const SelectFormField = <
   empty,
   ...props
 }: SelectFormFieldProps<TFieldValues, TName> & GenericFormFieldVariantProps) => {
-  const { inputProps, className, ...formFieldProps } = destructuredFormProps(props)
+  const { inputProps, key, className, ...formFieldProps } = destructuredFormProps(props)
 
   return (
     <GenericFormField
+      key={key}
       {...formFieldProps}
       className={cn('flex-row', className)}
       render={({ field, className }) => {
