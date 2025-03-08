@@ -714,9 +714,10 @@ diesel::table! {
         activated_at -> Nullable<Timestamp>,
         canceled_at -> Nullable<Timestamp>,
         cancellation_reason -> Nullable<Text>,
+        #[max_length = 3]
+        currency -> Varchar,
         mrr_cents -> Int8,
         period -> BillingPeriodEnum,
-        currency -> Text,
         card_connection_id -> Nullable<Uuid>,
         direct_debit_connection_id -> Nullable<Uuid>,
         bank_account_id -> Nullable<Uuid>,
