@@ -1,11 +1,11 @@
 use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, ProductFamily};
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use common_domain::ids::{BaseId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
-use error_stack::{report, Report};
+use error_stack::{Report, report};
 use uuid::Uuid;
 
 #[async_trait::async_trait]

@@ -2,7 +2,7 @@ use crate::customer_connection::{CustomerConnectionDetailsRow, CustomerConnectio
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CustomerConnectionId, CustomerId, TenantId};
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl CustomerConnectionRow {

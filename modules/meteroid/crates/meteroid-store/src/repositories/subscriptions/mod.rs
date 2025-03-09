@@ -3,7 +3,7 @@ use crate::domain::{
     PaginatedVec, PaginationRequest, Subscription, SubscriptionComponent, SubscriptionComponentNew,
     SubscriptionDetails, SubscriptionInvoiceCandidate,
 };
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use chrono::NaiveDate;
 use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
 

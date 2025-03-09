@@ -4,11 +4,11 @@ use tonic::{Request, Response, Status};
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
 use meteroid_grpc::meteroid::api::users::v1::{
-    users_service_server::UsersService, CompleteRegistrationRequest, CompleteRegistrationResponse,
-    GetUserByIdRequest, GetUserByIdResponse, InitRegistrationRequest, InitRegistrationResponse,
+    CompleteRegistrationRequest, CompleteRegistrationResponse, GetUserByIdRequest,
+    GetUserByIdResponse, InitRegistrationRequest, InitRegistrationResponse,
     InitResetPasswordRequest, InitResetPasswordResponse, ListUsersRequest, ListUsersResponse,
     LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest, OnboardMeResponse,
-    ResetPasswordRequest, ResetPasswordResponse,
+    ResetPasswordRequest, ResetPasswordResponse, users_service_server::UsersService,
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
 use meteroid_store::repositories::users::UserInterface;
@@ -16,7 +16,7 @@ use meteroid_store::repositories::users::UserInterface;
 use crate::api::users::error::UserApiError;
 use crate::{api::utils::parse_uuid, parse_uuid};
 
-use super::{mapping, UsersServiceComponents};
+use super::{UsersServiceComponents, mapping};
 
 /// **Modifying this service ?**
 /// Make sure to update **api_layer.ANONYMOUS_SERVICES** in meteroid-middleware if any anonymous rpc is updated/added

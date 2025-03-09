@@ -16,7 +16,7 @@ use common_domain::ids::InvoiceId;
 use error_stack::{Report, Result, ResultExt};
 use fang::Deserialize;
 use image::ImageFormat::Png;
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
 use utoipa::OpenApi;

@@ -6,7 +6,7 @@ use crate::{DbResult, PgConn};
 use error_stack::ResultExt;
 
 use common_domain::ids::{SubscriptionId, TenantId};
-use diesel::{debug_query, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 
 impl ScheduleRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ScheduleRow> {

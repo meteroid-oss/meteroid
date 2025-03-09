@@ -1,3 +1,4 @@
+use crate::domain::WebhookPage;
 use crate::domain::enums::WebhookOutEventTypeEnum;
 use crate::domain::webhooks::{
     WebhookInEvent, WebhookInEventNew, WebhookOutCreateMessageResult, WebhookOutEndpoint,
@@ -5,7 +6,6 @@ use crate::domain::webhooks::{
     WebhookOutListMessageAttemptFilter, WebhookOutMessageAttempt, WebhookOutMessageNew,
     WebhookPortalAccess,
 };
-use crate::domain::WebhookPage;
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use backon::{ConstantBuilder, Retryable};
@@ -17,7 +17,7 @@ use diesel_models::webhooks::WebhookInEventRowNew;
 use error_stack::{Report, ResultExt};
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
-use governor::{clock, Jitter, Quota, RateLimiter};
+use governor::{Jitter, Quota, RateLimiter, clock};
 use itertools::Itertools;
 use nonzero_ext::nonzero;
 use std::time::Duration;
@@ -79,8 +79,8 @@ static API_RATE_LIMITER: std::sync::OnceLock<
 struct ApiRateLimiter;
 
 impl ApiRateLimiter {
-    pub fn get(
-    ) -> &'static RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware> {
+    pub fn get()
+    -> &'static RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware> {
         API_RATE_LIMITER.get_or_init(|| RateLimiter::direct(Quota::per_second(nonzero!(50u32))))
     }
 }
@@ -238,7 +238,7 @@ impl WebhooksInterface for Store {
                     .await
             })
             .retry(ConstantBuilder::default().with_jitter())
-            .when(|err| matches!(err, Error::Http(ref e) if e.status.as_u16() == 429 || e.status.as_u16() >= 500))
+            .when(|err| matches!(err, Error::Http(e) if e.status.as_u16() == 429 || e.status.as_u16() >= 500))
             .notify(|err: &Error, dur: Duration| {
                 log::warn!("Retrying svix api error {:?} after {:?}", err, dur);
             })

@@ -1,3 +1,4 @@
+use crate::StoreResult;
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::Coupon;
 use crate::domain::{
@@ -6,7 +7,6 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, StoreInternal};
-use crate::StoreResult;
 use common_domain::ids::TenantId;
 use diesel_models::add_ons::AddOnRow;
 use diesel_models::coupons::CouponRow;

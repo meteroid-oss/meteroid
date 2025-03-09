@@ -2,7 +2,7 @@ use crate::stats::*;
 use crate::{DbResult, PgConn};
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel::{
-    debug_query, sql_types, BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryDsl,
+    BoolExpressionMethods, ExpressionMethods, OptionalExtension, QueryDsl, debug_query, sql_types,
 };
 use diesel_async::RunQueryDsl;
 use uuid::Uuid;

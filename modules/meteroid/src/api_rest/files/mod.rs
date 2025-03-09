@@ -1,6 +1,6 @@
 use crate::api_rest::AppState;
-use axum::routing::get;
 use axum::Router;
+use axum::routing::get;
 
 mod router;
 

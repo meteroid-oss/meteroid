@@ -3,7 +3,7 @@ use common_config::telemetry::TelemetryConfig;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::LogExporter;
 use opentelemetry_sdk::logs::SdkLoggerProvider;
-use tracing::{log, Subscriber};
+use tracing::{Subscriber, log};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::registry::LookupSpan;
@@ -44,10 +44,12 @@ fn init_telemetry_tracing(config: &TelemetryConfig, service_name: &str) {
     //     https://lib.rs/crates/init-tracing-opentelemetry
     //     https://opentelemetry.io/docs/concepts/sdk-configuration/otlp-exporter-configuration/
     //
-    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", config.otel_endpoint.clone());
-    std::env::set_var("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc");
-
-    std::env::set_var("OTEL_SERVICE_NAME", service_name);
+    // todo fix unsafe code, move these env vars to.env?
+    unsafe {
+        std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", config.otel_endpoint.clone());
+        std::env::set_var("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "grpc");
+        std::env::set_var("OTEL_SERVICE_NAME", service_name);
+    }
 
     let (otel_layer, _guard) =
         init_tracing_opentelemetry::tracing_subscriber_ext::build_otel_layer().unwrap();

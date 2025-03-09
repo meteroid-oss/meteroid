@@ -1,7 +1,7 @@
 use crate::api_rest::model::PaginatedRequest;
 use common_domain::ids::CustomerId;
-use common_domain::ids::{string_serde, SubscriptionId};
-use common_domain::ids::{string_serde_opt, PlanId};
+use common_domain::ids::{PlanId, string_serde_opt};
+use common_domain::ids::{SubscriptionId, string_serde};
 use utoipa::ToSchema;
 use validator::Validate;
 

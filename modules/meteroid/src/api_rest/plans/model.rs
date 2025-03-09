@@ -1,6 +1,6 @@
 use crate::api_rest::model::PaginatedRequest;
 use chrono::NaiveDateTime;
-use common_domain::ids::{string_serde, string_serde_opt, PlanId, ProductFamilyId};
+use common_domain::ids::{PlanId, ProductFamilyId, string_serde, string_serde_opt};
 use meteroid_store::domain;
 use serde_enum_str::{Deserialize_enum_str, Serialize_enum_str};
 use utoipa::ToSchema;

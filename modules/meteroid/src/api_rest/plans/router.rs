@@ -1,7 +1,7 @@
 use super::AppState;
 
 use axum::extract::Query;
-use axum::{extract::State, response::IntoResponse, Json};
+use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::plans::mapping::domain_to_rest;
@@ -13,7 +13,7 @@ use common_domain::ids::{ProductFamilyId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::PlansInterface;
-use meteroid_store::{domain, Store};
+use meteroid_store::{Store, domain};
 
 #[utoipa::path(
     get,

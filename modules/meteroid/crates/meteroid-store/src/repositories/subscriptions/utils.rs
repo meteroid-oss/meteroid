@@ -10,10 +10,10 @@ use crate::domain::{
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::utils::decimals::ToSubunit;
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use chrono::{NaiveDate, NaiveTime};
 use diesel_models::errors::DatabaseError;
-use error_stack::{report, Report};
+use error_stack::{Report, report};
 use itertools::Itertools;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -22,10 +22,10 @@ use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::{Coupon, CouponDiscount};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::repositories::historical_rates::HistoricalRatesInterface;
+use diesel_models::DbResult;
 use diesel_models::applied_coupons::{AppliedCouponRow, AppliedCouponRowNew};
 use diesel_models::coupons::CouponRow;
 use diesel_models::subscriptions::{SubscriptionRow, SubscriptionRowNew};
-use diesel_models::DbResult;
 use rust_decimal::prelude::*;
 
 use common_domain::ids::{CouponId, TenantId};

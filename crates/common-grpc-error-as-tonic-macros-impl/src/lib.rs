@@ -4,7 +4,7 @@ use proc_macro::TokenStream;
 
 use quote::quote;
 use syn::punctuated::Punctuated;
-use syn::{parse_macro_input, Attribute, Data, DeriveInput, Meta, Token};
+use syn::{Attribute, Data, DeriveInput, Meta, Token, parse_macro_input};
 
 #[proc_macro_derive(ErrorAsTonic, attributes(code))]
 pub fn error_as_tonic_derive(input: TokenStream) -> TokenStream {
@@ -24,7 +24,7 @@ fn error_as_tonic_impl(ast: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
             return Err(syn::Error::new_spanned(
                 ast,
                 "ErrorAsTonic can only be used on enums",
-            ))
+            ));
         }
     };
 
@@ -47,7 +47,7 @@ fn error_as_tonic_impl(ast: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
         arms.extend(arm);
     }
 
-    let gen = quote! {
+    let r#gen = quote! {
         impl From<#name> for ::tonic::Status {
             fn from(error: #name) -> ::tonic::Status {
                 let code = match &error {
@@ -61,7 +61,7 @@ fn error_as_tonic_impl(ast: &DeriveInput) -> syn::Result<proc_macro2::TokenStrea
         }
     };
 
-    Ok(gen)
+    Ok(r#gen)
 }
 
 fn parse_code_attr(attr: &Attribute) -> syn::Result<proc_macro2::TokenStream> {

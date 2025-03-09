@@ -1,16 +1,16 @@
 use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
-use base64::engine::general_purpose::STANDARD as Base64Engine;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD as Base64Engine;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{html_render, pdf};
+use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
+use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
-use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::Store;
 use std::io::Cursor;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -238,8 +238,8 @@ mod mapper {
 
     use meteroid_store::domain as store_model;
     use meteroid_store::domain::historical_rates::HistoricalRate;
-    use rust_decimal::prelude::FromPrimitive;
     use rust_decimal::Decimal;
+    use rust_decimal::prelude::FromPrimitive;
 
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,

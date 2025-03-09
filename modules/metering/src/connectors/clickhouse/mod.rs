@@ -1,6 +1,6 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
-use crate::connectors::errors::ConnectorError;
 use crate::connectors::Connector;
+use crate::connectors::errors::ConnectorError;
 use crate::domain::{Meter, QueryMeterParams, Usage};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};

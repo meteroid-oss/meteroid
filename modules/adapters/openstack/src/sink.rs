@@ -1,5 +1,5 @@
 use crate::config::Config;
-use common_grpc::middleware::client::{build_api_layered_client_service, LayeredApiClientService};
+use common_grpc::middleware::client::{LayeredApiClientService, build_api_layered_client_service};
 use metering_grpc::meteroid::metering::v1::events_service_client::EventsServiceClient;
 use tonic::transport::Channel;
 

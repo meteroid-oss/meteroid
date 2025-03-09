@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[async_trait]
 pub trait MessageHandler: Send + Sync {
     async fn handle(&self, message: &BorrowedMessage<'_>)
-        -> Result<(), Box<dyn std::error::Error>>;
+    -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub(crate) async fn run_message_processor<H>(

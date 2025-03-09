@@ -1,3 +1,4 @@
+use crate::api_rest::AppState;
 use crate::api_rest::customers::mapping::{
     create_req_to_domain, domain_to_rest, update_req_to_domain,
 };
@@ -5,7 +6,6 @@ use crate::api_rest::customers::model::{
     Customer, CustomerCreateRequest, CustomerListRequest, CustomerUpdateRequest,
 };
 use crate::api_rest::model::PaginatedResponse;
-use crate::api_rest::AppState;
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;

@@ -1,5 +1,5 @@
 use crate::api_rest::server::ApiDoc;
-use crate::api_rest::{api_routes, AppState};
+use crate::api_rest::{AppState, api_routes};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 

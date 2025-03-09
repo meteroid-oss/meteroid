@@ -8,7 +8,7 @@ use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQuer
 
 use common_grpc::middleware::client::auth::create_api_auth_layer;
 use common_grpc::middleware::client::auth::{
-    create_admin_auth_layer, AdminAuthService, ApiAuthService,
+    AdminAuthService, ApiAuthService, create_admin_auth_layer,
 };
 
 pub type TestLayeredClientService = AdminAuthService<ApiAuthService<Channel>>;

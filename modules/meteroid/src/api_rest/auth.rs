@@ -16,8 +16,8 @@ use common_grpc::middleware::common::filters::Filter;
 
 use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
-use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::Store;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use uuid::Uuid;
 
 #[allow(unused)]

@@ -1,7 +1,7 @@
+use crate::StoreResult;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::{Address, Customer, DetailedInvoice, ShippingAddress, Subscription};
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::StoreResult;
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BaseId, CustomerId, EventId, InvoiceId, PlanId, SubscriptionId, TenantId,

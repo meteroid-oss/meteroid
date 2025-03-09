@@ -14,6 +14,7 @@ use common_eventbus::{
 };
 use common_eventbus::{EventBusError, EventHandler};
 use common_logging::unwrapper::UnwrapLogger;
+use meteroid_store::Store;
 use meteroid_store::domain::DetailedInvoice;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
@@ -21,7 +22,6 @@ use meteroid_store::repositories::price_components::PriceComponentInterface;
 use meteroid_store::repositories::{
     CustomersInterface, InvoiceInterface, PlansInterface, SubscriptionInterface,
 };
-use meteroid_store::Store;
 
 pub struct AnalyticsHandler {
     store: Store,

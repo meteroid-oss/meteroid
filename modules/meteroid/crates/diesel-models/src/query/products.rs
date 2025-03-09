@@ -7,7 +7,7 @@ use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{ProductFamilyId, ProductId, TenantId};
 use diesel::{
-    debug_query, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper,
+    ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
 

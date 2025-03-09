@@ -6,7 +6,7 @@ use crate::{DbResult, PgConn};
 
 use common_domain::ids::{PriceComponentId, TenantId};
 use diesel::{
-    debug_query, ExpressionMethods, Insertable, OptionalExtension, QueryDsl, SelectableHelper,
+    ExpressionMethods, Insertable, OptionalExtension, QueryDsl, SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
 use itertools::Itertools;

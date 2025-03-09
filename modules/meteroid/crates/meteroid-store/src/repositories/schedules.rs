@@ -1,5 +1,5 @@
 use crate::errors::StoreError;
-use crate::{domain, Store, StoreResult};
+use crate::{Store, StoreResult, domain};
 use common_domain::ids::TenantId;
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::schedules::{SchedulePatchRow, ScheduleRow, ScheduleRowNew};

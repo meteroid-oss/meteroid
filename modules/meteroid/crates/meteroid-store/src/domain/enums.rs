@@ -1,5 +1,5 @@
-use crate::errors::StoreError;
 use crate::StoreResult;
+use crate::errors::StoreError;
 use diesel_models::enums as diesel_enums;
 use error_stack::ResultExt;
 use o2o::o2o;

@@ -1,4 +1,4 @@
-use log::{logger, Level, MetadataBuilder, Record};
+use log::{Level, MetadataBuilder, Record, logger};
 
 // Extension to log and swallow error
 pub trait UnwrapLogger<T, E>: Sized {

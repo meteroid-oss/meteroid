@@ -5,15 +5,15 @@ use chrono::NaiveDateTime;
 use meteroid::eventbus::create_eventbus_memory;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
+use meteroid_store::Store;
 use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::store::StoreConfig;
-use meteroid_store::Store;
 use secrecy::SecretString;
 use std::str::FromStr;
 use std::sync::Arc;
 use stripe_client::client::StripeClient;
-use uuid::{uuid, Uuid};
+use uuid::{Uuid, uuid};
 
 const SLOT_SUBSCRIPTION_ID: Uuid = SUBSCRIPTION_UBER_ID1;
 const SLOT_PRICE_COMPONENT_ID: Uuid = uuid!("018c344c-9ec9-7608-b115-1537b6985e73");

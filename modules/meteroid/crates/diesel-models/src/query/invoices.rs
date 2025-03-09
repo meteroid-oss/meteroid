@@ -15,8 +15,8 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel::dsl::IntervalDsl;
 use diesel::{
-    debug_query, BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods,
-    PgTextExpressionMethods, SelectableHelper,
+    BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods, PgTextExpressionMethods,
+    SelectableHelper, debug_query,
 };
 use diesel::{ExpressionMethods, QueryDsl};
 use error_stack::ResultExt;

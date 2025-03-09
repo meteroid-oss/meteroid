@@ -1,11 +1,11 @@
 use crate::errors::InvoicingError;
 use crate::model::*;
-use chrono::prelude::*;
 use chrono::NaiveDate;
+use chrono::prelude::*;
 use fluent_static::{LanguageAware, MessageBundle};
-use maud::{html, Markup, DOCTYPE};
+use maud::{DOCTYPE, Markup, html};
 use rust_decimal::Decimal;
-use rusty_money::{iso, FormattableCurrency};
+use rusty_money::{FormattableCurrency, iso};
 
 #[allow(clippy::all)]
 mod l10n {

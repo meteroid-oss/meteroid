@@ -5,11 +5,11 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 
+use crate::StoreResult;
 use crate::adapters::payment_service_providers::initialize_payment_provider;
 use crate::domain::connectors::Connector;
 use crate::repositories::subscriptions::context::SubscriptionCreationContext;
 use crate::store::{PgConn, StoreInternal};
-use crate::StoreResult;
 use common_domain::ids::{
     BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
 };

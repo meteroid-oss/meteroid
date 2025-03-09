@@ -4,7 +4,7 @@ use crate::{errors, singletons};
 use common_utils::timed::TimedExt;
 use error_stack::Result;
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
-use meteroid_store::{domain, Store};
+use meteroid_store::{Store, domain};
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]

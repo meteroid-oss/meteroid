@@ -204,8 +204,8 @@ mod price_components {
     use meteroid_store::domain;
 
     use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
-    use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
     use meteroid_grpc::meteroid::api::components::v1::usage_fee::TieredAndVolume;
+    use meteroid_grpc::meteroid::api::components::v1::usage_fee::matrix::MatrixDimension;
     use tonic::{Code, Result, Status};
     use uuid::Uuid;
 

@@ -13,8 +13,8 @@ use tracing::error;
 use crate::ingest::domain::{FailedEvent, ProcessedEvent};
 use crate::ingest::sinks::Sink;
 use common_grpc::middleware::server::auth::RequestExt;
-use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveCustomerAliasesRequest;
+use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 
 #[derive(Clone)]
 pub struct EventsService {

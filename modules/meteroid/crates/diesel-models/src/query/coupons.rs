@@ -6,8 +6,8 @@ use crate::{DbResult, PgConn};
 use common_domain::ids::{CouponId, TenantId};
 use diesel::dsl::not;
 use diesel::{
-    debug_query, BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods,
-    PgTextExpressionMethods, QueryDsl,
+    BoolExpressionMethods, ExpressionMethods, NullableExpressionMethods, PgTextExpressionMethods,
+    QueryDsl, debug_query,
 };
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;

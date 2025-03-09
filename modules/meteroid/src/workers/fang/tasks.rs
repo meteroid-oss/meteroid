@@ -1,8 +1,8 @@
 use std::ops::Deref;
 
 use deadpool_postgres::tokio_postgres::{
-    tls::{MakeTlsConnect, TlsConnect},
     NoTls, Socket,
+    tls::{MakeTlsConnect, TlsConnect},
 };
 use distributed_lock::locks::{DistributedLock, LockKey, PostgresLock};
 use fang::{AsyncQueue, AsyncQueueable, AsyncRunnable, AsyncWorkerPool};
@@ -10,7 +10,7 @@ use fang::{AsyncQueue, AsyncQueueable, AsyncRunnable, AsyncWorkerPool};
 use crate::config::Config;
 
 use futures::future::try_join_all;
-use meteroid_store::store::{get_tls, PgPool};
+use meteroid_store::store::{PgPool, get_tls};
 
 pub async fn schedule(
     tasks: Vec<(Box<dyn AsyncRunnable>, LockKey)>,

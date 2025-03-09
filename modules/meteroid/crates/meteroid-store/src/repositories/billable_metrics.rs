@@ -9,7 +9,7 @@ use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
-use crate::{domain, Store, StoreResult};
+use crate::{Store, StoreResult, domain};
 
 #[async_trait::async_trait]
 pub trait BillableMetricInterface {

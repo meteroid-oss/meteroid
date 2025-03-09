@@ -1,8 +1,8 @@
 use crate::helpers;
 use chrono::{Datelike, Months, NaiveDate, NaiveDateTime};
 use meteroid::api::shared::conversions::ProtoConv;
-use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
@@ -16,12 +16,12 @@ use crate::meteroid_it;
 use crate::meteroid_it::clients::AllClients;
 use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
-use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
+use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 
 use meteroid_store::domain::{CursorPaginationRequest, LineItem};
-use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 
 struct TestContext {
     setup: MeteroidSetup,

@@ -2,9 +2,9 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::schedules::v1::{
-    schedules_service_server::SchedulesService, CreateScheduleRequest, CreateScheduleResponse,
-    EditScheduleRequest, EditScheduleResponse, EmptyResponse, ListSchedulesRequests,
-    ListSchedulesResponse, RemoveScheduleRequest,
+    CreateScheduleRequest, CreateScheduleResponse, EditScheduleRequest, EditScheduleResponse,
+    EmptyResponse, ListSchedulesRequests, ListSchedulesResponse, RemoveScheduleRequest,
+    schedules_service_server::SchedulesService,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::schedules::ScheduleInterface;

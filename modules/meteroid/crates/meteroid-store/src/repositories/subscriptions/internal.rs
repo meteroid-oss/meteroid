@@ -1,3 +1,4 @@
+use crate::StoreResult;
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
@@ -7,7 +8,6 @@ use crate::domain::{
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::store::{PgConn, StoreInternal};
-use crate::StoreResult;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::{Report, Result};
 use futures::TryFutureExt;

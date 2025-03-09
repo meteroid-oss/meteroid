@@ -1,6 +1,6 @@
+use crate::StoreResult;
 use crate::compute::clients::usage::UsageClient;
 use crate::errors::StoreError;
-use crate::StoreResult;
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::deadpool::Object;
@@ -9,8 +9,8 @@ use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfi
 use diesel_async::scoped_futures::{ScopedBoxFuture, ScopedFutureExt};
 use diesel_async::{AsyncConnection, AsyncPgConnection};
 use error_stack::{Report, ResultExt};
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use meteroid_mailer::service::MailerService;
 use meteroid_oauth::service::OauthServices;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};

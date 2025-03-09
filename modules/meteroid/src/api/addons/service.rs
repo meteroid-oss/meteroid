@@ -1,6 +1,6 @@
+use crate::api::addons::AddOnsServiceComponents;
 use crate::api::addons::error::AddOnApiError;
 use crate::api::addons::mapping::addons::AddOnWrapper;
-use crate::api::addons::AddOnsServiceComponents;
 use crate::api::utils::PaginationExt;
 use common_domain::ids::AddOnId;
 use common_grpc::middleware::server::auth::RequestExt;

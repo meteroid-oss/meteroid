@@ -68,7 +68,7 @@ pub fn extract_actor(maybe_auth: Option<&AuthorizedState>) -> Result<Uuid, Statu
         AuthorizedState::Shared { .. } => {
             return Err(Status::invalid_argument(
                 "Actor is not available for portal events.",
-            ))
+            ));
         }
     };
 
@@ -97,10 +97,14 @@ pub fn extract_tenant(maybe_auth: Option<&AuthorizedState>) -> Result<TenantId, 
     ))?;
 
     let res = match authorized {
-        AuthorizedState::Tenant(tenant) => { Ok(tenant.tenant_id) }
-        AuthorizedState::Organization { .. }  => { Err(Status::invalid_argument("Tenant is absent from the authorized state. This indicates an incomplete x-md-context header.")) }
-        AuthorizedState::User { .. }  => { Err(Status::invalid_argument("Tenant is absent from the authorized state. This indicates a missing x-md-context header.")) }
-        AuthorizedState::Shared(state) => { Ok(state.tenant_id) }
+        AuthorizedState::Tenant(tenant) => Ok(tenant.tenant_id),
+        AuthorizedState::Organization { .. } => Err(Status::invalid_argument(
+            "Tenant is absent from the authorized state. This indicates an incomplete x-md-context header.",
+        )),
+        AuthorizedState::User { .. } => Err(Status::invalid_argument(
+            "Tenant is absent from the authorized state. This indicates a missing x-md-context header.",
+        )),
+        AuthorizedState::Shared(state) => Ok(state.tenant_id),
     }?;
     Ok(res)
 }
@@ -113,13 +117,16 @@ pub fn extract_organization(
     ))?;
 
     let res = match authorized {
-        AuthorizedState::Tenant(tenant) => { Ok(tenant.organization_id) }
-        AuthorizedState::Organization { organization_id, .. } => { Ok(*organization_id) }
-        AuthorizedState::User { .. } => { Err(Status::invalid_argument("Organization is absent from the authorized state. This indicates a missing x-md-context header.")) }
-        AuthorizedState::Shared(_) => {
-            Err(Status::invalid_argument("Organization is not available in authorized state for portal apis."))
-        }
-
+        AuthorizedState::Tenant(tenant) => Ok(tenant.organization_id),
+        AuthorizedState::Organization {
+            organization_id, ..
+        } => Ok(*organization_id),
+        AuthorizedState::User { .. } => Err(Status::invalid_argument(
+            "Organization is absent from the authorized state. This indicates a missing x-md-context header.",
+        )),
+        AuthorizedState::Shared(_) => Err(Status::invalid_argument(
+            "Organization is not available in authorized state for portal apis.",
+        )),
     }?;
     Ok(res)
 }

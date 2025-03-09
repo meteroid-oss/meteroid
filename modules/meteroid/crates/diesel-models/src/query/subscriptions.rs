@@ -8,8 +8,8 @@ use crate::subscriptions::{
 use crate::{DbResult, PgConn};
 
 use diesel::{
-    debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
-    OptionalExtension, QueryDsl, SelectableHelper,
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
+    OptionalExtension, QueryDsl, SelectableHelper, debug_query,
 };
 use diesel_async::RunQueryDsl;
 

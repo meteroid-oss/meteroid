@@ -1,5 +1,5 @@
 use crate::api_rest::model::PaginatedRequest;
-use common_domain::ids::{string_serde, ProductFamilyId};
+use common_domain::ids::{ProductFamilyId, string_serde};
 use utoipa::ToSchema;
 use validator::Validate;
 

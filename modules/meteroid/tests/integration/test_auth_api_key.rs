@@ -10,8 +10,8 @@ use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use meteroid_grpc::meteroid::api::apitokens::v1::CreateApiTokenResponse;
-use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::customers::v1::ListCustomerResponse;
+use meteroid_grpc::meteroid::api::customers::v1::customers_service_client::CustomersServiceClient;
 use meteroid_grpc::meteroid::api::users::v1::users_service_client::UsersServiceClient;
 
 #[tokio::test]

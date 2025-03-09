@@ -16,8 +16,8 @@ use error_stack::ResultExt;
 use meteroid_store::Store;
 use stripe_client::payment_intents::PaymentIntent;
 use stripe_client::setup_intents::SetupIntent;
-use stripe_client::webhook::event_type;
 use stripe_client::webhook::StripeWebhook;
+use stripe_client::webhook::event_type;
 
 static STRIPE: std::sync::OnceLock<Stripe> = std::sync::OnceLock::new();
 

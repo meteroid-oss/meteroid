@@ -1,5 +1,5 @@
 // MIT License, taken from https://github.com/Roger/serde-with-expand-env/blob/master/src/lib.rs
-use serde::{de::Error, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de::Error};
 use std::fmt::Display;
 use std::str::FromStr;
 

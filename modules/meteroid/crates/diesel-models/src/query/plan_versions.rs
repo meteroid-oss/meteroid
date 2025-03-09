@@ -9,7 +9,7 @@ use crate::{DbResult, PgConn};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{PlanId, TenantId};
 use diesel::prelude::{ExpressionMethods, QueryDsl};
-use diesel::{debug_query, JoinOnDsl, OptionalExtension, SelectableHelper};
+use diesel::{JoinOnDsl, OptionalExtension, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl PlanVersionRowNew {

@@ -1,7 +1,7 @@
 use common_logging::GLOBAL_METER;
 use once_cell::sync::Lazy;
-use opentelemetry::metrics::*;
 pub use opentelemetry::KeyValue;
+use opentelemetry::metrics::*;
 
 pub static CALL_COUNTER: Lazy<Counter<u64>> = Lazy::new(|| {
     GLOBAL_METER

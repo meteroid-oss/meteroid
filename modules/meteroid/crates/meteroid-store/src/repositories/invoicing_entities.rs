@@ -7,6 +7,7 @@ use diesel_models::invoicing_entities::{
 use diesel_models::organizations::OrganizationRow;
 use error_stack::Report;
 
+use crate::StoreResult;
 use crate::domain::invoicing_entities::InvoicingEntity;
 use crate::domain::{
     InvoicingEntityNew, InvoicingEntityPatch, InvoicingEntityProviders,
@@ -14,7 +15,6 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
-use crate::StoreResult;
 
 #[async_trait::async_trait]
 pub trait InvoicingEntityInterface {

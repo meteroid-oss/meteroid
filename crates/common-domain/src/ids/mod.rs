@@ -113,7 +113,7 @@ pub mod string_serde_opt {
 #[cfg(test)]
 mod tests {
     use crate::ids::BaseId;
-    use crate::ids::{string_serde, CustomerId};
+    use crate::ids::{CustomerId, string_serde};
     use serde::Deserialize;
     use serde::Serialize;
     use serde_json::json;

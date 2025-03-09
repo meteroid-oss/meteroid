@@ -1,9 +1,9 @@
 use error_stack::Report;
 
+use crate::StoreResult;
 use crate::domain::outbox_event;
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
-use crate::StoreResult;
 use diesel_models::outbox_event::OutboxEventRowNew;
 
 #[async_trait::async_trait]

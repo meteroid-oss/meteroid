@@ -1,10 +1,10 @@
 use diesel::{
+    PgConnection, QueryId, QueryResult,
     pg::Pg,
     query_builder::{AstPass, Query, QueryFragment},
     sql_types::BigInt,
-    PgConnection, QueryId, QueryResult,
 };
-use diesel_async::{methods::LoadQuery, AsyncPgConnection, RunQueryDsl};
+use diesel_async::{AsyncPgConnection, RunQueryDsl, methods::LoadQuery};
 
 pub struct PaginationRequest {
     pub per_page: Option<u32>,

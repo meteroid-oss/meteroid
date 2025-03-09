@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
-use meteroid_store::domain::enums::PlanTypeEnum;
 use meteroid_store::domain::PlanTrial;
+use meteroid_store::domain::enums::PlanTypeEnum;
 
 // pub enum PlanType {
 //     Free,

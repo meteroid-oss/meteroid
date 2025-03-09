@@ -13,12 +13,12 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
 };
 
 use crate::api::subscriptions::error::SubscriptionApiError;
-use crate::api::subscriptions::{mapping, SubscriptionServiceComponents};
+use crate::api::subscriptions::{SubscriptionServiceComponents, mapping};
 use meteroid_store::domain;
+use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionSlotsInterface,
 };
-use meteroid_store::repositories::SubscriptionInterface;
 
 #[tonic::async_trait]
 impl SubscriptionsService for SubscriptionServiceComponents {

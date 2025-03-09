@@ -1,10 +1,10 @@
 use common_domain::ids::{BankAccountId, BaseId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::bankaccounts::v1::{
-    bank_accounts_service_server::BankAccountsService, CreateBankAccountRequest,
-    CreateBankAccountResponse, DeleteBankAccountRequest, DeleteBankAccountResponse,
-    ListBankAccountsRequest, ListBankAccountsResponse, UpdateBankAccountRequest,
-    UpdateBankAccountResponse,
+    CreateBankAccountRequest, CreateBankAccountResponse, DeleteBankAccountRequest,
+    DeleteBankAccountResponse, ListBankAccountsRequest, ListBankAccountsResponse,
+    UpdateBankAccountRequest, UpdateBankAccountResponse,
+    bank_accounts_service_server::BankAccountsService,
 };
 use tonic::{Request, Response, Status};
 
@@ -12,7 +12,7 @@ use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
 
 use crate::api::bankaccounts::error::BankAccountsApiError;
 
-use super::{mapping, BankAccountsServiceComponents};
+use super::{BankAccountsServiceComponents, mapping};
 
 #[tonic::async_trait]
 impl BankAccountsService for BankAccountsServiceComponents {

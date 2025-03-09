@@ -1,5 +1,5 @@
-use crate::store::Store;
 use crate::StoreResult;
+use crate::store::Store;
 use common_domain::ids::{PriceComponentId, SubscriptionId, TenantId};
 use diesel_models::slot_transactions::SlotTransactionRow;
 

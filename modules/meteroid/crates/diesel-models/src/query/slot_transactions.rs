@@ -6,7 +6,7 @@ use chrono::NaiveDateTime;
 
 use common_domain::ids::{PriceComponentId, SubscriptionId};
 use diesel::sql_types;
-use diesel::{debug_query, QueryableByName};
+use diesel::{QueryableByName, debug_query};
 use error_stack::ResultExt;
 
 impl SlotTransactionRow {

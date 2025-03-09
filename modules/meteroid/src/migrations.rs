@@ -5,7 +5,7 @@ use std::error::Error;
 use thiserror::Error;
 
 mod diesel {
-    use diesel_migrations::{embed_migrations, EmbeddedMigrations};
+    use diesel_migrations::{EmbeddedMigrations, embed_migrations};
     pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/diesel");
 }
 

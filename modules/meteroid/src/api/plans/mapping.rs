@@ -2,11 +2,11 @@ pub mod plans {
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use meteroid_grpc::meteroid::api::plans::v1::plan_overview::ActiveVersionInfo;
     use meteroid_grpc::meteroid::api::plans::v1::{
-        plan_billing_configuration as billing_config_grpc, ListPlanVersion, PlanOverview,
+        ListPlanVersion, PlanOverview, plan_billing_configuration as billing_config_grpc,
     };
     use meteroid_grpc::meteroid::api::plans::v1::{
-        trial_config::ActionAfterTrial, Plan, PlanBillingConfiguration, PlanStatus, PlanType,
-        PlanVersion, PlanWithVersion, TrialConfig,
+        Plan, PlanBillingConfiguration, PlanStatus, PlanType, PlanVersion, PlanWithVersion,
+        TrialConfig, trial_config::ActionAfterTrial,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::enums::{ActionAfterTrialEnum, PlanStatusEnum, PlanTypeEnum};

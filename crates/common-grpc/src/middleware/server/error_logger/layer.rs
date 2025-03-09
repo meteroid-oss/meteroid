@@ -10,9 +10,9 @@ use pin_project::pin_project;
 use tonic::metadata::MetadataMap;
 use tonic::{Code, Status};
 use tower::{Layer, Service};
-use tracing::log::{logger, Level, MetadataBuilder, Record};
+use tracing::log::{Level, MetadataBuilder, Record, logger};
 
-use common_grpc_error_as_tonic_macros::{SourceDetails, HEADER_SOURCE_DETAILS};
+use common_grpc_error_as_tonic_macros::{HEADER_SOURCE_DETAILS, SourceDetails};
 
 use crate::GrpcServiceMethod;
 

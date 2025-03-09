@@ -7,9 +7,9 @@ use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
-    billable_metrics_service_server::BillableMetricsService, BillableMetricMeta,
-    CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
-    GetBillableMetricResponse, ListBillableMetricsRequest, ListBillableMetricsResponse,
+    BillableMetricMeta, CreateBillableMetricRequest, CreateBillableMetricResponse,
+    GetBillableMetricRequest, GetBillableMetricResponse, ListBillableMetricsRequest,
+    ListBillableMetricsResponse, billable_metrics_service_server::BillableMetricsService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::BillableMetric;
@@ -17,7 +17,7 @@ use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use tonic::{Request, Response, Status};
 
-use super::{mapping, BillableMetricsComponents};
+use super::{BillableMetricsComponents, mapping};
 
 #[tonic::async_trait]
 impl BillableMetricsService for BillableMetricsComponents {

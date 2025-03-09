@@ -9,8 +9,8 @@ use meteroid_grpc::meteroid::internal::v1::{
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use tonic::{Request, Response, Status};
 
-use crate::api::internal::error::InternalApiError;
 use crate::api::internal::InternalServiceComponents;
+use crate::api::internal::error::InternalApiError;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use meteroid_store::repositories::customers::CustomersInterface;
 

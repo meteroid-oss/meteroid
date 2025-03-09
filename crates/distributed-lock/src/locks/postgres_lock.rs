@@ -1,7 +1,7 @@
 use crate::errors::LockError;
 use crate::locks::DistributedLock;
 use diesel::sql_types::Bool;
-use diesel::{sql_query, QueryableByName};
+use diesel::{QueryableByName, sql_query};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
 pub struct PostgresLock<'a> {

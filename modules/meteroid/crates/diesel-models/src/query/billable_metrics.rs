@@ -5,8 +5,8 @@ use crate::{DbResult, PgConn};
 
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{BillableMetricId, ProductFamilyId, TenantId};
-use diesel::{debug_query, JoinOnDsl, SelectableHelper};
 use diesel::{ExpressionMethods, QueryDsl};
+use diesel::{JoinOnDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl BillableMetricRowNew {

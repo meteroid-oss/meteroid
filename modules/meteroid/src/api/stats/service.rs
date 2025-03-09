@@ -3,16 +3,16 @@ use tonic::{Request, Response, Status};
 
 use crate::{api::utils::parse_uuid, parse_uuid};
 
-use super::{mapping, StatsServiceComponents};
+use super::{StatsServiceComponents, mapping};
 use meteroid_grpc::meteroid::api::stats::v1 as grpc;
 use meteroid_grpc::meteroid::api::stats::v1::{
-    general_stats_response, signup_series, stats_service_server::StatsService, GeneralStatsRequest,
-    GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse, MrrBreakdownScope,
-    MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest, MrrLogResponse, SignupSeries,
-    SignupSparklineRequest, SignupSparklineRequestResponse, TopRevenueByCustomerRequest,
-    TopRevenueByCustomerResponse, TrialConversionMetaDataPoint,
+    GeneralStatsRequest, GeneralStatsResponse, MrrBreakdownRequest, MrrBreakdownResponse,
+    MrrBreakdownScope, MrrChartRequest, MrrChartResponse, MrrChartSeries, MrrLogRequest,
+    MrrLogResponse, SignupSeries, SignupSparklineRequest, SignupSparklineRequestResponse,
+    TopRevenueByCustomerRequest, TopRevenueByCustomerResponse, TrialConversionMetaDataPoint,
     TrialConversionRateSparklineRequest, TrialConversionRateSparklineResponse,
-    TrialConversionSeries,
+    TrialConversionSeries, general_stats_response, signup_series,
+    stats_service_server::StatsService,
 };
 
 use meteroid_store::repositories::stats::StatsInterface;

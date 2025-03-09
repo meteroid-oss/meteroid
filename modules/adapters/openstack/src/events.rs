@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::sink::MeteroidSink;
 use crate::source::RabbitSource;
 use futures_lite::stream::StreamExt;
-use lapin::{options::*, types::FieldTable, Channel, Consumer};
+use lapin::{Channel, Consumer, options::*, types::FieldTable};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;

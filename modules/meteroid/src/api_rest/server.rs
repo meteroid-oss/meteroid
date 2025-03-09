@@ -1,19 +1,19 @@
 use crate::adapters::stripe::Stripe;
+use crate::api_rest::AppState;
 use crate::api_rest::api_routes;
 use crate::api_rest::auth::ExternalApiAuthLayer;
-use crate::api_rest::AppState;
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
 use axum::routing::get;
 use axum::{
-    extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse, Router,
+    Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
 };
 use meteroid_store::Store;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use utoipa::{
-    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
     Modify, OpenApi,
+    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
 };
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_rapidoc::RapiDoc;

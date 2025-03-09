@@ -5,7 +5,7 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CouponId, SubscriptionId, TenantId};
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use rust_decimal::Decimal;

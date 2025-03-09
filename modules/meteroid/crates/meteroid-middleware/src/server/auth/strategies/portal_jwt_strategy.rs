@@ -5,10 +5,10 @@ use tonic::Status;
 use tracing::log;
 
 use common_domain::ids::TenantId;
-use common_grpc::middleware::common::auth::PORTAL_KEY_HEADER;
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsPortalUser};
-use common_grpc::middleware::server::AuthorizedState;
 use common_grpc::GrpcServiceMethod;
+use common_grpc::middleware::common::auth::PORTAL_KEY_HEADER;
+use common_grpc::middleware::server::AuthorizedState;
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsPortalUser};
 use meteroid_store::jwt_claims::{PortalJwtClaims, ResourceAccess};
 use tap::tap::TapFallible;
 

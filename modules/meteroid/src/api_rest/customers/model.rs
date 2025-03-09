@@ -2,7 +2,7 @@ use crate::api_rest::addresses::model::{Address, ShippingAddress};
 use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::PaginatedRequest;
 use common_domain::ids::CustomerId;
-use common_domain::ids::{string_serde, string_serde_opt, InvoicingEntityId};
+use common_domain::ids::{InvoicingEntityId, string_serde, string_serde_opt};
 use utoipa::ToSchema;
 use validator::Validate;
 

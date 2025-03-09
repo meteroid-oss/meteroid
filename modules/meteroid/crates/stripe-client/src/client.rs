@@ -4,7 +4,7 @@ use bytes::Bytes;
 use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Method, RequestBuilder, Url};
 use secrecy::{ExposeSecret, SecretString};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::future;
 use std::future::Future;
 use std::pin::Pin;
@@ -254,7 +254,7 @@ impl Default for StripeClient {
 
 #[cfg(test)]
 mod tests {
-    use crate::client::{StripeHeaders, API_VERSION, USER_AGENT};
+    use crate::client::{API_VERSION, StripeHeaders, USER_AGENT};
     use reqwest::header::HeaderValue;
 
     #[test]

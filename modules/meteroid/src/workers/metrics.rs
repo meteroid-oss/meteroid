@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
-use opentelemetry::metrics::*;
 pub use opentelemetry::KeyValue;
+use opentelemetry::metrics::*;
 use std::time::Duration;
 
 use common_logging::GLOBAL_METER;

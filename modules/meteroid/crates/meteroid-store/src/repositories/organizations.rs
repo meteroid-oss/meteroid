@@ -1,10 +1,10 @@
+use crate::StoreResult;
 use crate::domain::enums::TenantEnvironmentEnum;
 use crate::domain::{
     InstanceFlags, Organization, OrganizationNew, OrganizationWithTenants, TenantNew,
 };
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::StoreResult;
 use common_domain::ids::{BaseId, OrganizationId, TenantId};
 use common_eventbus::Event;
 use common_utils::rng::BASE62_ALPHABET;
