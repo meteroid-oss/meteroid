@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use chrono::NaiveDate;
-use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal_macros::dec;
 
 use crate::domain::enums::BillingType;

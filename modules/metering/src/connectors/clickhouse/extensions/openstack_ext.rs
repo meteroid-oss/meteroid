@@ -1,9 +1,9 @@
 // init the clickhouse MV
 
-use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
-use crate::connectors::clickhouse::sql::init::get_events_table_name;
-use crate::connectors::clickhouse::sql::DATABASE;
 use crate::connectors::clickhouse::ClickhouseConnector;
+use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
+use crate::connectors::clickhouse::sql::DATABASE;
+use crate::connectors::clickhouse::sql::init::get_events_table_name;
 use crate::connectors::errors::ConnectorError;
 use crate::domain::WindowSize;
 use crate::domain::{QueryMeterParams, Usage};
@@ -198,8 +198,11 @@ mod tests {
         println!("{}", query);
 
         assert!(query.contains("toStartOfHour"));
-        assert!(query
-            .contains("GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id, ip.flavor"));
+        assert!(
+            query.contains(
+                "GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id, ip.flavor"
+            )
+        );
         assert!(query.contains("ORDER BY ts.windowstart, ip.flavor"));
     }
 
@@ -240,7 +243,10 @@ mod tests {
         assert!(query.contains("toStartOfMinute"));
         assert!(query.contains("toDateTime('2023-08-01 12:00:00') AS window_start"));
         assert!(query.contains("toDateTime('2023-08-01 13:00:00') AS window_end"));
-        assert!(query
-            .contains("GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id, ip.flavor"));
+        assert!(
+            query.contains(
+                "GROUP BY ts.windowstart, ts.windowend, customer_id, tenant_id, ip.flavor"
+            )
+        );
     }
 }

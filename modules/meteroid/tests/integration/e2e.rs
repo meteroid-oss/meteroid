@@ -6,7 +6,7 @@ use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
 use common_domain::ids::{BaseId, InvoicingEntityId, TenantId};
-use metering_grpc::meteroid::metering::v1::{event::CustomerId, Event, IngestRequest};
+use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event::CustomerId};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
 use meteroid_grpc::meteroid::api;
@@ -18,18 +18,18 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     Aggregation, CreateBillableMetricRequest, SegmentationMatrix,
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
+use meteroid_store::Store;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use meteroid_store::domain::{
     Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, LineItem, OrderByRequest,
     PaginationRequest,
 };
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::Store;
 use opentelemetry::propagation::Injector;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tonic::Request;
-use uuid::{uuid, Uuid};
+use uuid::{Uuid, uuid};
 
 /*
 Plan with Capacity

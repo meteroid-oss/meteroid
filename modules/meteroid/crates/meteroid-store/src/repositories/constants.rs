@@ -1,7 +1,7 @@
+use crate::StoreResult;
 use crate::constants::COUNTRIES;
 use crate::errors::StoreError;
 use crate::store::StoreInternal;
-use crate::StoreResult;
 
 impl StoreInternal {
     pub fn get_currency_from_country(&self, country: &str) -> StoreResult<String> {

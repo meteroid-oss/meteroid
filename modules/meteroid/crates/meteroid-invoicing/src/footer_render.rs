@@ -1,6 +1,6 @@
-use base64::engine::general_purpose::STANDARD as Base64Engine;
 use base64::Engine;
-use maud::{html, Markup, DOCTYPE};
+use base64::engine::general_purpose::STANDARD as Base64Engine;
+use maud::{DOCTYPE, Markup, html};
 
 static CSS: &str = include_str!("../assets/footer.css");
 static METEROID_FOOTER_LOGO: &[u8] = include_bytes!("../assets/footer-logo.png");

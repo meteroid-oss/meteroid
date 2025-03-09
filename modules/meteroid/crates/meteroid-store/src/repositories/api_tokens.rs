@@ -1,12 +1,12 @@
+use crate::domain::ApiTokenValidation;
 use crate::domain::api_tokens::ApiToken;
 use crate::domain::enums::TenantEnvironmentEnum;
-use crate::domain::ApiTokenValidation;
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
     Argon2,
+    password_hash::{PasswordHasher, SaltString, rand_core::OsRng},
 };
 use common_domain::ids::TenantId;
 use common_eventbus::Event;
@@ -20,7 +20,7 @@ use uuid::Uuid;
 #[async_trait::async_trait]
 pub trait ApiTokensInterface {
     async fn find_api_tokens_by_tenant_id(&self, tenant_id: TenantId)
-        -> StoreResult<Vec<ApiToken>>;
+    -> StoreResult<Vec<ApiToken>>;
 
     async fn get_api_token_by_id(&self, id: &uuid::Uuid) -> StoreResult<ApiToken>;
 

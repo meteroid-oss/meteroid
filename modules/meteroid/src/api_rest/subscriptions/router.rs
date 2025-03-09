@@ -1,7 +1,7 @@
 use super::AppState;
 
 use axum::extract::{Path, Query};
-use axum::{extract::State, response::IntoResponse, Json};
+use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::model::{PaginatedRequest, PaginatedResponse};
 use crate::api_rest::subscriptions::mapping::{domain_to_rest, domain_to_rest_details};
@@ -14,7 +14,7 @@ use axum_valid::Valid;
 use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use meteroid_store::repositories::SubscriptionInterface;
-use meteroid_store::{domain, Store};
+use meteroid_store::{Store, domain};
 
 #[utoipa::path(
     get,

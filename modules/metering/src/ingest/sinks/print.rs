@@ -1,7 +1,7 @@
 use super::{FailedRecord, Sink};
 use crate::ingest::domain::ProcessedEvent;
 use crate::ingest::errors::IngestError;
-use crate::ingest::metrics::{INGESTED_EVENTS_TOTAL, INGEST_BATCH_SIZE};
+use crate::ingest::metrics::{INGEST_BATCH_SIZE, INGESTED_EVENTS_TOTAL};
 use async_trait::async_trait;
 pub use opentelemetry::KeyValue;
 use tracing::info;

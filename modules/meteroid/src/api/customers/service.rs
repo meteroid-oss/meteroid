@@ -3,12 +3,12 @@ use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
 use meteroid_grpc::meteroid::api::customers::v1::{
-    customers_service_server::CustomersService, ArchiveCustomerRequest, ArchiveCustomerResponse,
-    BuyCustomerCreditsRequest, BuyCustomerCreditsResponse, CreateCustomerRequest,
-    CreateCustomerResponse, CustomerBrief, GetCustomerByAliasRequest, GetCustomerByAliasResponse,
-    GetCustomerByIdRequest, GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse,
-    PatchCustomerRequest, PatchCustomerResponse, TopUpCustomerBalanceRequest,
-    TopUpCustomerBalanceResponse,
+    ArchiveCustomerRequest, ArchiveCustomerResponse, BuyCustomerCreditsRequest,
+    BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
+    GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
+    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
+    PatchCustomerResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
+    customers_service_server::CustomersService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{

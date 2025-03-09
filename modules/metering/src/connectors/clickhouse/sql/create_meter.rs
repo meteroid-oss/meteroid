@@ -1,5 +1,5 @@
 use crate::connectors::clickhouse::sql::init::get_events_table_name;
-use crate::connectors::clickhouse::sql::{escape_sql_identifier, get_meter_view_name, Column};
+use crate::connectors::clickhouse::sql::{Column, escape_sql_identifier, get_meter_view_name};
 use crate::domain::{Meter, MeterAggregation};
 
 use std::fmt;
@@ -30,10 +30,9 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
     ];
 
     // we rasterize the value property to be an option of non empty string
-    let value_property_nes =
-        meter
-            .value_property
-            .and_then(|v| if v.is_empty() { None } else { Some(v) });
+    let value_property_nes = meter
+        .value_property
+        .and_then(|v| if v.is_empty() { None } else { Some(v) });
 
     match value_property_nes {
         Some(value_property) => {

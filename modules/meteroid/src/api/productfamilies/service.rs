@@ -1,9 +1,9 @@
 use common_domain::ids::ProductFamilyId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::productfamilies::v1::{
-    product_families_service_server::ProductFamiliesService, CreateProductFamilyRequest,
-    CreateProductFamilyResponse, GetProductFamilyByLocalIdRequest,
+    CreateProductFamilyRequest, CreateProductFamilyResponse, GetProductFamilyByLocalIdRequest,
     GetProductFamilyByLocalIdResponse, ListProductFamiliesRequest, ListProductFamiliesResponse,
+    product_families_service_server::ProductFamiliesService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{OrderByRequest, PaginationRequest};

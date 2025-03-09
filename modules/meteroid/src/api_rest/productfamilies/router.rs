@@ -1,6 +1,6 @@
 use super::AppState;
 
-use axum::{extract::State, response::IntoResponse, Json};
+use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::api_rest::model::PaginatedResponse;
 use crate::api_rest::productfamilies::mapping::{create_req_to_domain, domain_to_rest};
@@ -8,8 +8,8 @@ use crate::api_rest::productfamilies::model::{
     ProductFamily, ProductFamilyCreateRequest, ProductFamilyListRequest,
 };
 use crate::errors::RestApiError;
-use axum::extract::{Path, Query};
 use axum::Extension;
+use axum::extract::{Path, Query};
 use axum_valid::Valid;
 use common_domain::ids::{AliasOr, ProductFamilyId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;

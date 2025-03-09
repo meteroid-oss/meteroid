@@ -4,7 +4,7 @@
 pub(crate) const CONTAINER_NAME: &str = "clickhouse/clickhouse-server";
 pub(crate) const CONTAINER_VERSION: &str = "23.12.1-alpine";
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clickhouse_rs::{ClientHandle, Options, Pool};
 use futures::FutureExt;
 use log::error;

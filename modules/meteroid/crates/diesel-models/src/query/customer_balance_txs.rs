@@ -5,7 +5,7 @@ use crate::customer_balance_txs::{
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::InvoiceId;
-use diesel::{debug_query, ExpressionMethods, OptionalExtension, QueryDsl};
+use diesel::{ExpressionMethods, OptionalExtension, QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use uuid::Uuid;

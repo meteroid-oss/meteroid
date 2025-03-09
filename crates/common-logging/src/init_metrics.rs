@@ -1,5 +1,5 @@
 use common_config::telemetry::TelemetryConfig;
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{KeyValue, global};
 use opentelemetry_otlp::{Protocol, WithExportConfig};
 use opentelemetry_sdk::Resource;
 use std::time::Duration;

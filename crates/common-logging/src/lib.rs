@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
+pub use opentelemetry::KeyValue;
 use opentelemetry::global::meter;
 use opentelemetry::metrics::*;
-pub use opentelemetry::KeyValue;
 
 pub mod init;
 mod init_metrics;

@@ -7,7 +7,7 @@ use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Ser
 use futures::future::join_all;
 use meteroid_store::domain::CursorPaginationRequest;
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::{domain, Store};
+use meteroid_store::{Store, domain};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 

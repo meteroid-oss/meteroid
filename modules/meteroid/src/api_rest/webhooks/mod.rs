@@ -1,7 +1,7 @@
 use crate::api_rest::AppState;
+use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::post;
-use axum::Router;
 
 mod router;
 

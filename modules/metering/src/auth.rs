@@ -1,5 +1,5 @@
-use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use common_grpc::GrpcServiceMethod;
+use common_grpc::middleware::common::auth::API_KEY_HEADER;
 
 use cached::proc_macro::cached;
 use common_grpc::middleware::client::LayeredClientService;
@@ -10,8 +10,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tonic::body::{empty_body, BoxBody};
 use tonic::Status;
+use tonic::body::{BoxBody, empty_body};
 use tower::Service;
 use tower_layer::Layer;
 use tracing::{error, log};
@@ -22,8 +22,8 @@ use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{
     AuthenticatedState, AuthorizedAsTenant, AuthorizedState,
 };
-use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use meteroid_grpc::meteroid::internal::v1::ResolveApiKeyRequest;
+use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]

@@ -1,6 +1,6 @@
 use crate::domain::{InvoicingEntityNew, OrganizationWithTenants, Tenant, TenantNew, TenantUpdate};
-use cached::proc_macro::cached;
 use cached::Cached;
+use cached::proc_macro::cached;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
 
@@ -8,7 +8,7 @@ use crate::constants::{Currencies, Currency};
 use crate::errors::StoreError;
 use crate::repositories::OrganizationsInterface;
 use crate::store::{PgConn, Store, StoreInternal};
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use common_domain::ids::{BaseId, OrganizationId, TenantId};
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};

@@ -2,7 +2,7 @@ mod model;
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use clap::Parser;
-use common_grpc::middleware::client::{build_api_layered_client_service, LayeredApiClientService};
+use common_grpc::middleware::client::{LayeredApiClientService, build_api_layered_client_service};
 use futures::StreamExt;
 use futures_util::stream::BoxStream;
 use log::{error, info};

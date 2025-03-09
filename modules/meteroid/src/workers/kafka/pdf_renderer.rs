@@ -1,5 +1,5 @@
 use crate::services::invoice_rendering::{GenerateResult, PdfRenderingService};
-use crate::workers::kafka::outbox::{parse_outbox_event, EventType};
+use crate::workers::kafka::outbox::{EventType, parse_outbox_event};
 use crate::workers::kafka::processor::MessageHandler;
 use async_trait::async_trait;
 use common_domain::ids::InvoiceId;

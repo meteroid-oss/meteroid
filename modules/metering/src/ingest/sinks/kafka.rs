@@ -1,7 +1,7 @@
 use crate::config::KafkaConfig;
 use crate::ingest::domain::ProcessedEvent;
 use crate::ingest::errors::IngestError;
-use crate::ingest::metrics::{INGESTED_EVENTS_TOTAL, INGEST_BATCH_SIZE};
+use crate::ingest::metrics::{INGEST_BATCH_SIZE, INGESTED_EVENTS_TOTAL};
 use crate::ingest::sinks::{FailedRecord, Sink};
 use opentelemetry::KeyValue;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
@@ -181,11 +181,11 @@ mod tests {
     use crate::config;
     use crate::ingest::domain::ProcessedEvent;
     use crate::ingest::errors::IngestError;
-    use crate::ingest::sinks::kafka::KafkaSink;
     use crate::ingest::sinks::Sink;
+    use crate::ingest::sinks::kafka::KafkaSink;
     use kafka::config::KafkaConnectionConfig;
-    use rand::distr::Alphanumeric;
     use rand::Rng;
+    use rand::distr::Alphanumeric;
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::DefaultProducerContext;
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};

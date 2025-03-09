@@ -2,8 +2,8 @@ use crate::errors::IntoDbResult;
 use crate::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{SubscriptionId, TenantId};
-use diesel::{debug_query, QueryDsl};
 use diesel::{ExpressionMethods, SelectableHelper};
+use diesel::{QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 

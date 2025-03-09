@@ -1,7 +1,7 @@
 use crate::domain::enums::{InvoiceExternalStatusEnum, InvoiceType};
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
@@ -14,8 +14,8 @@ use crate::domain::{
     CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
     InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
 };
-use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::customer_balance::CustomerBalance;
 use crate::utils::decimals::ToUnit;
 use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use common_eventbus::Event;

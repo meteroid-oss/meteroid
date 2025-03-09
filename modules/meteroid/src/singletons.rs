@@ -2,8 +2,8 @@ use crate::clients::usage::MeteringUsageClient;
 use crate::config::Config;
 use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use crate::svix::new_svix;
-use meteroid_store::store::StoreConfig;
 use meteroid_store::Store;
+use meteroid_store::store::StoreConfig;
 use std::sync::Arc;
 use stripe_client::client::StripeClient;
 

@@ -3,7 +3,7 @@ use crate::errors::OauthServiceError;
 
 use crate::model::{CallbackUrl, OAuthUser, OauthProvider};
 use async_trait::async_trait;
-use error_stack::{bail, ResultExt};
+use error_stack::{ResultExt, bail};
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
     BasicTokenResponse,

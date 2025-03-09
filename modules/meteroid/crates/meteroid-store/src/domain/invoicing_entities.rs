@@ -1,8 +1,8 @@
 use secrecy::SecretString;
 
+use crate::StoreResult;
 use crate::domain::connectors::{Connector, ConnectorMeta};
 use crate::domain::{Address, BankAccount};
-use crate::StoreResult;
 use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, TenantId};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,

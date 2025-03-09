@@ -10,8 +10,8 @@ use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
 use diesel::{
-    alias, debug_query, ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl,
-    Selectable, SelectableHelper,
+    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, QueryDsl, Selectable,
+    SelectableHelper, alias, debug_query,
 };
 use error_stack::ResultExt;
 

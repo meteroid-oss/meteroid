@@ -4,7 +4,7 @@ use common_domain::ids::{OrganizationId, TenantId};
 
 use crate::{DbResult, PgConn};
 
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 use tap::TapFallible;
 

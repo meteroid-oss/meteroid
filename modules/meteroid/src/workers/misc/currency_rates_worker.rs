@@ -5,9 +5,9 @@ use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
 use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Serialize};
+use meteroid_store::Store;
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
-use meteroid_store::Store;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]

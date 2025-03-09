@@ -3,13 +3,13 @@ use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use image::ImageFormat;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
-    invoicing_entities_service_server::InvoicingEntitiesService, CreateInvoicingEntityRequest,
-    CreateInvoicingEntityResponse, GetInvoicingEntityProvidersRequest,
-    GetInvoicingEntityProvidersResponse, GetInvoicingEntityRequest, GetInvoicingEntityResponse,
-    ListInvoicingEntitiesRequest, ListInvoicingEntitiesResponse,
-    UpdateInvoicingEntityProvidersRequest, UpdateInvoicingEntityProvidersResponse,
-    UpdateInvoicingEntityRequest, UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
-    UploadInvoicingEntityLogoResponse,
+    CreateInvoicingEntityRequest, CreateInvoicingEntityResponse,
+    GetInvoicingEntityProvidersRequest, GetInvoicingEntityProvidersResponse,
+    GetInvoicingEntityRequest, GetInvoicingEntityResponse, ListInvoicingEntitiesRequest,
+    ListInvoicingEntitiesResponse, UpdateInvoicingEntityProvidersRequest,
+    UpdateInvoicingEntityProvidersResponse, UpdateInvoicingEntityRequest,
+    UpdateInvoicingEntityResponse, UploadInvoicingEntityLogoRequest,
+    UploadInvoicingEntityLogoResponse, invoicing_entities_service_server::InvoicingEntitiesService,
 };
 use meteroid_store::domain::{InvoicingEntityPatch, InvoicingEntityProvidersPatch};
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -19,7 +19,7 @@ use tonic::{Request, Response, Status};
 use crate::api::invoicingentities::error::InvoicingEntitiesApiError;
 use crate::services::storage::Prefix;
 
-use super::{mapping, InvoicingEntitiesServiceComponents};
+use super::{InvoicingEntitiesServiceComponents, mapping};
 
 #[tonic::async_trait]
 impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {

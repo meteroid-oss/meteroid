@@ -9,9 +9,9 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
 };
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 
+use crate::api::webhooksout::WebhooksServiceComponents;
 use crate::api::webhooksout::error::WebhookApiError;
 use crate::api::webhooksout::mapping::endpoint;
-use crate::api::webhooksout::WebhooksServiceComponents;
 
 #[tonic::async_trait]
 impl WebhooksService for WebhooksServiceComponents {

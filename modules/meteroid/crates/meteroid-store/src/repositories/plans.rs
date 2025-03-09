@@ -1,5 +1,5 @@
-use crate::store::Store;
 use crate::StoreResult;
+use crate::store::Store;
 
 use crate::domain::{
     FullPlan, FullPlanNew, OrderByRequest, PaginatedVec, PaginationRequest, Plan,

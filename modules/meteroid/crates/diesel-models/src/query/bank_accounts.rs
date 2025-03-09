@@ -3,7 +3,7 @@ use crate::errors::IntoDbResult;
 
 use crate::{DbResult, PgConn};
 use common_domain::ids::{BankAccountId, TenantId};
-use diesel::{debug_query, ExpressionMethods, QueryDsl};
+use diesel::{ExpressionMethods, QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;

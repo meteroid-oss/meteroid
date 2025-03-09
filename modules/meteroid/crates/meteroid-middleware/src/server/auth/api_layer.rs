@@ -5,21 +5,21 @@ use secrecy::SecretString;
 use crate::server::auth::strategies::api_key_strategy::validate_api_key;
 use crate::server::auth::strategies::jwt_strategy::{authorize_user, validate_jwt};
 use crate::server::auth::strategies::portal_jwt_strategy::{authorize_portal, validate_portal_jwt};
+use common_grpc::GrpcServiceMethod;
 use common_grpc::middleware::common::auth::{
     API_KEY_HEADER, BEARER_AUTH_HEADER, PORTAL_KEY_HEADER,
 };
 use common_grpc::middleware::common::filters::Filter;
-use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use common_grpc::middleware::server::AuthorizedState;
-use common_grpc::GrpcServiceMethod;
+use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use futures_util::TryFutureExt;
 use http::StatusCode;
 use meteroid_store::Store;
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tonic::body::{empty_body, BoxBody};
 use tonic::Status;
+use tonic::body::{BoxBody, empty_body};
 use tower::Service;
 use tower_layer::Layer;
 use tracing::log;

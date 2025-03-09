@@ -1,6 +1,6 @@
 use crate::enums::FangTaskState;
-use chrono::offset::Utc;
 use chrono::DateTime;
+use chrono::offset::Utc;
 use diesel::sql_types::{Bpchar, Nullable};
 use diesel::{Identifiable, Queryable};
 use uuid::Uuid;

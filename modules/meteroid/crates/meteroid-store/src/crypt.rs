@@ -1,6 +1,6 @@
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
     ChaCha20Poly1305, Nonce,
+    aead::{Aead, KeyInit},
 };
 use error_stack::{Result, ResultExt};
 use secrecy::{ExposeSecret, SecretString};

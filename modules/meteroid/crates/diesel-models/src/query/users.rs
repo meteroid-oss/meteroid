@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use common_domain::ids::{OrganizationId, TenantId};
 use diesel::{
-    debug_query, ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper,
+    ExpressionMethods, JoinOnDsl, OptionalExtension, QueryDsl, SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
 use uuid::Uuid;

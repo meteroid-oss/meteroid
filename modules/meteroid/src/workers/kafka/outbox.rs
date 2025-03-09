@@ -1,7 +1,7 @@
 use common_domain::ids::{EventId, TenantId};
 use meteroid_store::domain::outbox_event::{CustomerEvent, InvoiceEvent, SubscriptionEvent};
-use rdkafka::message::{BorrowedHeaders, BorrowedMessage, Headers};
 use rdkafka::Message;
+use rdkafka::message::{BorrowedHeaders, BorrowedMessage, Headers};
 use serde::Deserialize;
 use uuid::Uuid;
 

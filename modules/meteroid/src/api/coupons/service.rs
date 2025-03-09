@@ -1,7 +1,7 @@
 use crate::api::coupons::error::CouponApiError;
 use crate::api::coupons::mapping::applied::AppliedCouponForDisplayWrapper;
 use crate::api::coupons::mapping::coupons::CouponWrapper;
-use crate::api::coupons::{mapping, CouponsServiceComponents};
+use crate::api::coupons::{CouponsServiceComponents, mapping};
 use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 use chrono::NaiveDateTime;

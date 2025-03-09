@@ -7,7 +7,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use chrono::NaiveDate;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::Report;
@@ -15,8 +15,8 @@ use itertools::Itertools;
 use uuid::Uuid;
 
 use crate::domain::subscription_add_ons::SubscriptionAddOn;
-use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::subscriptions::CancellationEffectiveAt;
 use common_eventbus::Event;
 use diesel_models::applied_coupons::AppliedCouponDetailedRow;
 use diesel_models::billable_metrics::BillableMetricRow;

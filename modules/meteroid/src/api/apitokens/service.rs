@@ -2,8 +2,8 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::apitokens::v1::{
-    api_tokens_service_server::ApiTokensService, CreateApiTokenRequest, CreateApiTokenResponse,
-    GetApiTokenByIdRequest, GetApiTokenByIdResponse, ListApiTokensRequest, ListApiTokensResponse,
+    CreateApiTokenRequest, CreateApiTokenResponse, GetApiTokenByIdRequest, GetApiTokenByIdResponse,
+    ListApiTokensRequest, ListApiTokensResponse, api_tokens_service_server::ApiTokensService,
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
@@ -11,7 +11,7 @@ use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use crate::api::apitokens::error::ApiTokenApiError;
 use crate::{api::utils::parse_uuid, parse_uuid};
 
-use super::{mapping, ApiTokensServiceComponents};
+use super::{ApiTokensServiceComponents, mapping};
 
 #[tonic::async_trait]
 impl ApiTokensService for ApiTokensServiceComponents {

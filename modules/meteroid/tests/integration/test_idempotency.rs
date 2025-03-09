@@ -1,6 +1,6 @@
+use tonic::Status;
 use tonic::metadata::MetadataMap;
 use tonic::transport::Channel;
-use tonic::Status;
 
 use common_grpc::middleware::common::idempotency::{
     IDEMPOTENCY_CACHE_RESPONSE_HEADER, IDEMPOTENCY_KEY_HEADER,
@@ -44,10 +44,11 @@ async fn test_idempotency() {
         // call should pass because method doesn't use idempotency
         let res = grpc_call(setup.channel.clone(), Some(key)).await;
         assert!(res.is_ok());
-        assert!(res
-            .unwrap()
-            .get(IDEMPOTENCY_CACHE_RESPONSE_HEADER)
-            .is_none());
+        assert!(
+            res.unwrap()
+                .get(IDEMPOTENCY_CACHE_RESPONSE_HEADER)
+                .is_none()
+        );
     }
 
     // ~~~
@@ -57,10 +58,11 @@ async fn test_idempotency() {
         // call should pass because method doesn't use idempotency
         let res = grpc_call(setup.channel.clone(), Some(key)).await;
         assert!(res.is_ok());
-        assert!(res
-            .unwrap()
-            .get(IDEMPOTENCY_CACHE_RESPONSE_HEADER)
-            .is_none());
+        assert!(
+            res.unwrap()
+                .get(IDEMPOTENCY_CACHE_RESPONSE_HEADER)
+                .is_none()
+        );
     }
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;

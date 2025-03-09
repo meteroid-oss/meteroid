@@ -1,14 +1,14 @@
 use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::tenants::v1::{
+    ActiveTenantRequest, ActiveTenantResponse, AddTenantCurrencyRequest, AddTenantCurrencyResponse,
+    CreateTenantRequest, CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse,
+    ListTenantsCurrenciesRequest, ListTenantsCurrenciesResponse,
+    ListTenantsCurrenciesWithCustomerCountRequest, ListTenantsCurrenciesWithCustomerCountResponse,
+    ListTenantsRequest, ListTenantsResponse, RemoveTenantCurrencyRequest,
+    RemoveTenantCurrencyResponse, UpdateTenantRequest, UpdateTenantResponse,
     list_tenants_currencies_with_customer_count_response::ListCurrency,
-    tenants_service_server::TenantsService, ActiveTenantRequest, ActiveTenantResponse,
-    AddTenantCurrencyRequest, AddTenantCurrencyResponse, CreateTenantRequest, CreateTenantResponse,
-    GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsCurrenciesRequest,
-    ListTenantsCurrenciesResponse, ListTenantsCurrenciesWithCustomerCountRequest,
-    ListTenantsCurrenciesWithCustomerCountResponse, ListTenantsRequest, ListTenantsResponse,
-    RemoveTenantCurrencyRequest, RemoveTenantCurrencyResponse, UpdateTenantRequest,
-    UpdateTenantResponse,
+    tenants_service_server::TenantsService,
 };
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
 use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
@@ -17,7 +17,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::tenants::error::TenantApiError;
 
-use super::{mapping, TenantServiceComponents};
+use super::{TenantServiceComponents, mapping};
 
 #[tonic::async_trait]
 impl TenantsService for TenantServiceComponents {

@@ -1,7 +1,7 @@
 use crate::domain::{BankAccount, BankAccountPatch};
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::{domain, StoreResult};
+use crate::{StoreResult, domain};
 use common_domain::ids::{BankAccountId, BaseId, TenantId};
 use common_eventbus::Event;
 use diesel_models::bank_accounts::{BankAccountRow, BankAccountRowNew, BankAccountRowPatch};

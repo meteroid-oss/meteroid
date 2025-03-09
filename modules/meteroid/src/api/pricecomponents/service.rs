@@ -1,10 +1,10 @@
 use common_domain::ids::{BaseId, PriceComponentId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::{
-    price_components_service_server::PriceComponentsService, CreatePriceComponentRequest,
-    CreatePriceComponentResponse, EditPriceComponentRequest, EditPriceComponentResponse,
-    EmptyResponse, ListPriceComponentRequest, ListPriceComponentResponse,
-    RemovePriceComponentRequest,
+    CreatePriceComponentRequest, CreatePriceComponentResponse, EditPriceComponentRequest,
+    EditPriceComponentResponse, EmptyResponse, ListPriceComponentRequest,
+    ListPriceComponentResponse, RemovePriceComponentRequest,
+    price_components_service_server::PriceComponentsService,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -16,7 +16,7 @@ use crate::api::shared::conversions::ProtoConv;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use common_eventbus::Event;
 
-use super::{mapping, PriceComponentServiceComponents};
+use super::{PriceComponentServiceComponents, mapping};
 
 #[tonic::async_trait]
 impl PriceComponentsService for PriceComponentServiceComponents {

@@ -1,15 +1,15 @@
 use crate::crypt::{decrypt, encrypt};
+use crate::domain::Organization;
 use crate::domain::enums::OrganizationUserRole;
 use crate::domain::users::{
     InitRegistrationResponse, LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest,
     RegisterUserRequestInternal, RegisterUserResponse, UpdateUser, User, UserWithRole,
 };
-use crate::domain::Organization;
 use crate::errors::StoreError;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
-use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::SaltString;
+use argon2::password_hash::rand_core::OsRng;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::{DateTime, Utc};
 use common_domain::auth::{Audience, JwtClaims, JwtPayload};
@@ -20,7 +20,7 @@ use diesel_models::oauth_verifiers::OauthVerifierRow;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
-use error_stack::{bail, Report, ResultExt};
+use error_stack::{Report, ResultExt, bail};
 use jsonwebtoken::{DecodingKey, Validation};
 use meteroid_mailer::model::{EmailRecipient, EmailValidationLink, ResetPasswordLink};
 use meteroid_oauth::model::OauthProvider;

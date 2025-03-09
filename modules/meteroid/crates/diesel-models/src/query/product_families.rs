@@ -6,7 +6,7 @@ use crate::{DbResult, PgConn};
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{ProductFamilyId, TenantId};
-use diesel::{debug_query, ExpressionMethods, PgTextExpressionMethods, QueryDsl};
+use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, debug_query};
 use error_stack::ResultExt;
 
 impl ProductFamilyRowNew {

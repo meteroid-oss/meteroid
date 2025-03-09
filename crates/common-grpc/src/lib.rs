@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::{Datelike, NaiveDate};
 use http::Uri;
 use rust_decimal::Decimal;

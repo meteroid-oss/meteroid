@@ -1,5 +1,5 @@
-use common_domain::ids::{string_serde, InvoiceId};
 use common_domain::ids::{CustomerId, TenantId};
+use common_domain::ids::{InvoiceId, string_serde};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

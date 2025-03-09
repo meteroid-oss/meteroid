@@ -2,7 +2,7 @@ use crate::api_tokens::{ApiTokenRow, ApiTokenRowNew, ApiTokenValidationRow};
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::TenantId;
-use diesel::{debug_query, ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl ApiTokenRowNew {

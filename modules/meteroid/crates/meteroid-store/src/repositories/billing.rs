@@ -1,3 +1,4 @@
+use crate::Store;
 use crate::compute::InvoiceLineInterface;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
@@ -11,7 +12,6 @@ use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::{CustomersInterface, SubscriptionInterface};
 use crate::store::PgConn;
-use crate::Store;
 use async_trait::async_trait;
 use chrono::NaiveTime;
 use common_domain::ids::{

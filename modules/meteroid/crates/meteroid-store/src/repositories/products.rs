@@ -1,7 +1,7 @@
+use crate::StoreResult;
 use crate::domain::{OrderByRequest, PaginatedVec, PaginationRequest, Product, ProductNew};
 use crate::errors::StoreError;
 use crate::store::Store;
-use crate::StoreResult;
 use common_domain::ids::{BaseId, ProductFamilyId, ProductId, TenantId};
 use diesel_models::product_families::ProductFamilyRow;
 use diesel_models::products::{ProductRow, ProductRowNew};

@@ -11,8 +11,8 @@ use meteroid_grpc::meteroid::api::instance::v1::{
 use meteroid_store::constants::{COUNTRIES, CURRENCIES};
 use meteroid_store::repositories::OrganizationsInterface;
 
-use crate::api::instance::error::InstanceApiError;
 use crate::api::instance::InstanceServiceComponents;
+use crate::api::instance::error::InstanceApiError;
 
 #[tonic::async_trait]
 impl InstanceService for InstanceServiceComponents {

@@ -1,5 +1,5 @@
 use crate::api::connectors::error::ConnectorApiError;
-use crate::api::connectors::{mapping, ConnectorsServiceComponents};
+use crate::api::connectors::{ConnectorsServiceComponents, mapping};
 use crate::{api::utils::parse_uuid, parse_uuid};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;

@@ -8,7 +8,7 @@ use crate::ingest::sinks::kafka::KafkaSink;
 
 use common_grpc::middleware::server as common_middleware;
 
-use common_grpc::middleware::client::{build_layered_client_service, LayeredClientService};
+use common_grpc::middleware::client::{LayeredClientService, build_layered_client_service};
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use std::sync::Arc;
 use tonic::transport::{Channel, Endpoint, Server};
@@ -17,10 +17,10 @@ use tonic_tracing_opentelemetry::middleware as otel_middleware;
 #[cfg(not(feature = "kafka"))]
 use crate::ingest::sinks::print::PrintSink;
 
-#[cfg(feature = "openstack")]
-use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhouseExtension;
 #[cfg(feature = "clickhouse")]
 use crate::connectors::clickhouse::ClickhouseConnector;
+#[cfg(feature = "openstack")]
+use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhouseExtension;
 
 #[cfg(not(feature = "clickhouse"))]
 use crate::connectors::PrintConnector;

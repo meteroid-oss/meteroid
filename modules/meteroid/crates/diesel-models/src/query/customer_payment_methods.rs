@@ -3,7 +3,7 @@ use crate::customer_payment_methods::{CustomerPaymentMethodRow, CustomerPaymentM
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
 use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId};
-use diesel::{debug_query, ExpressionMethods, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl CustomerPaymentMethodRow {

@@ -2,9 +2,9 @@
 // Adapted from https://github.com/tremor-rs/tremor-runtime/blob/main/src/connectors/tests/kafka.rs
 
 use rdkafka::{
+    ClientConfig,
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
     config::FromClientConfig,
-    ClientConfig,
 };
 
 pub(crate) const CONTAINER_NAME: &str = "redpandadata/redpanda";

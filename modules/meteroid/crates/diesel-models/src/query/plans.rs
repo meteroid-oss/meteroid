@@ -14,8 +14,8 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{PlanId, ProductFamilyId, TenantId};
 use diesel::NullableExpressionMethods;
 use diesel::{
-    alias, debug_query, BoolExpressionMethods, ExpressionMethods, JoinOnDsl,
-    PgTextExpressionMethods, QueryDsl, SelectableHelper,
+    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl,
+    SelectableHelper, alias, debug_query,
 };
 use error_stack::ResultExt;
 use uuid::Uuid;

@@ -3,7 +3,7 @@ use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AddOnId, TenantId};
-use diesel::{debug_query, ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper};
+use diesel::{ExpressionMethods, PgTextExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use tap::TapFallible;

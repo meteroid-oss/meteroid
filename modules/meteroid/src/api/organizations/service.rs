@@ -2,16 +2,16 @@ use tonic::{Request, Response, Status};
 
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::organizations::v1::{
-    organizations_service_server::OrganizationsService, CreateOrganizationRequest,
-    CreateOrganizationResponse, GetCurrentOrganizationRequest, GetCurrentOrganizationResponse,
-    ListOrganizationsRequest, ListOrganizationsResponse, Organization,
+    CreateOrganizationRequest, CreateOrganizationResponse, GetCurrentOrganizationRequest,
+    GetCurrentOrganizationResponse, ListOrganizationsRequest, ListOrganizationsResponse,
+    Organization, organizations_service_server::OrganizationsService,
 };
 use meteroid_store::domain::OrganizationNew;
 use meteroid_store::repositories::organizations::OrganizationsInterface;
 
 use crate::api::organizations::error::OrganizationApiError;
 
-use super::{mapping, OrganizationsServiceComponents};
+use super::{OrganizationsServiceComponents, mapping};
 
 #[tonic::async_trait]
 impl OrganizationsService for OrganizationsServiceComponents {

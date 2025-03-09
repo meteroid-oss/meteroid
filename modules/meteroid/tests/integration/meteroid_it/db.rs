@@ -7,7 +7,7 @@
 // pub const PLAN_VERSION_SUPABASE_ID: &str = "018c35cc-3f41-7551-b7b6-f8bbcd62b784";
 
 pub mod seed {
-    use uuid::{uuid, Uuid};
+    use uuid::{Uuid, uuid};
 
     pub const TENANT_ID: Uuid = uuid!("018c2c82-3df1-7e84-9e05-6e141d0e751a");
     pub const CUSTOMER_SPORTIFY_ID: Uuid = uuid!("018c345f-7324-7cd2-a692-78e5ab9158e0");

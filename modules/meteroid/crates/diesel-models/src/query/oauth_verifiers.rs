@@ -1,7 +1,7 @@
 use crate::errors::IntoDbResult;
 use crate::oauth_verifiers::OauthVerifierRow;
 use crate::{DbResult, PgConn};
-use diesel::{debug_query, ExpressionMethods, SelectableHelper};
+use diesel::{ExpressionMethods, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 

@@ -219,10 +219,10 @@ pub mod invoices {
 }
 
 pub mod transactions {
+    use meteroid_grpc::meteroid::api::invoices::v1::Transaction;
     use meteroid_grpc::meteroid::api::invoices::v1::transaction::{
         PaymentStatusEnum, PaymentTypeEnum,
     };
-    use meteroid_grpc::meteroid::api::invoices::v1::Transaction;
     use meteroid_store::domain;
 
     fn status_domain_to_server(value: domain::enums::PaymentStatusEnum) -> PaymentStatusEnum {

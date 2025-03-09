@@ -3,7 +3,7 @@ use crate::historical_rates_from_usd::{HistoricalRatesFromUsdRow, HistoricalRate
 
 use crate::{DbResult, PgConn};
 use diesel::query_dsl::methods::{FilterDsl, LimitDsl, OrderDsl};
-use diesel::{debug_query, ExpressionMethods, OptionalExtension};
+use diesel::{ExpressionMethods, OptionalExtension, debug_query};
 use error_stack::ResultExt;
 
 impl HistoricalRatesFromUsdRowNew {

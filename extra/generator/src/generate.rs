@@ -9,7 +9,7 @@ use common_grpc::middleware::common::auth::API_KEY_HEADER;
 use metering_grpc::meteroid::metering::v1::event::CustomerId;
 use metering_grpc::meteroid::metering::v1::events_service_client::EventsServiceClient;
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tonic::metadata::MetadataValue;
 use tonic::transport::Channel;
 

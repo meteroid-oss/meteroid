@@ -9,8 +9,8 @@ use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQuer
 use metering_grpc::meteroid::metering::v1::{
     CustomerIdentifier, Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest,
 };
-use meteroid_store::compute::clients::usage::*;
 use meteroid_store::compute::ComputeError;
+use meteroid_store::compute::clients::usage::*;
 use meteroid_store::domain;
 use meteroid_store::domain::{BillableMetric, Period};
 use rust_decimal::Decimal;

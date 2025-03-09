@@ -5,8 +5,8 @@ use fang::{AsyncQueueable, AsyncRunnable, Deserialize, FangError, Scheduled, Ser
 use crate::workers::metrics::record_call;
 use common_utils::timed::TimedExt;
 use error_stack::{Result, ResultExt};
-use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::Store;
+use meteroid_store::repositories::InvoiceInterface;
 
 #[derive(Serialize, Deserialize)]
 #[serde(crate = "fang::serde")]

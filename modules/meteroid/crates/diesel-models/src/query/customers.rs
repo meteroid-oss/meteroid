@@ -7,8 +7,8 @@ use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
 use common_domain::ids::{AliasOr, CustomerId, TenantId};
 use diesel::{
-    debug_query, BoolExpressionMethods, ExpressionMethods, OptionalExtension,
-    PgTextExpressionMethods, QueryDsl, SelectableHelper,
+    BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
+    SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
 use std::ops::Add;

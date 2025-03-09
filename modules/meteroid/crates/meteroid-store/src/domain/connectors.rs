@@ -1,6 +1,6 @@
+use crate::StoreResult;
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
-use crate::StoreResult;
 use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, ConnectorId, TenantId};
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};

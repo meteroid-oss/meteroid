@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 use common_domain::ids::{OrganizationId, TenantId};
 use diesel::dsl::not;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
-use diesel::{debug_query, IntoSql, JoinOnDsl, PgArrayExpressionMethods, SelectableHelper};
+use diesel::{IntoSql, JoinOnDsl, PgArrayExpressionMethods, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl TenantRowNew {

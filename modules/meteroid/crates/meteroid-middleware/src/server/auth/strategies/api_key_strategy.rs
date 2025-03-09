@@ -1,12 +1,12 @@
 use cached::proc_macro::cached;
 use common_domain::ids::{OrganizationId, TenantId};
-use common_grpc::middleware::common::auth::API_KEY_HEADER;
-use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
-use common_grpc::middleware::server::auth::AuthenticatedState;
 use common_grpc::GrpcServiceMethod;
+use common_grpc::middleware::common::auth::API_KEY_HEADER;
+use common_grpc::middleware::server::auth::AuthenticatedState;
+use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
 use http::HeaderMap;
-use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::Store;
+use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use tonic::Status;
 use uuid::Uuid;
 

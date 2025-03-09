@@ -1,5 +1,5 @@
-use crate::store::Store;
 use crate::StoreResult;
+use crate::store::Store;
 use error_stack::Report;
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNew};

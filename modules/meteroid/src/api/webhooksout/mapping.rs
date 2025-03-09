@@ -7,12 +7,12 @@ pub mod endpoint {
         WebhookEndpoint as WebhookEndpointProto,
         WebhookEndpointListItem as WebhookEndpointListItemProto,
     };
+    use meteroid_store::domain::WebhookPage;
     use meteroid_store::domain::enums::WebhookOutEventTypeEnum;
     use meteroid_store::domain::webhooks::{
         WebhookOutEndpoint, WebhookOutEndpointListItem, WebhookOutEndpointNew,
         WebhookOutListEndpointFilter,
     };
-    use meteroid_store::domain::WebhookPage;
     use secrecy::ExposeSecret;
 
     pub fn to_proto(endpoint: WebhookOutEndpoint) -> WebhookEndpointProto {
