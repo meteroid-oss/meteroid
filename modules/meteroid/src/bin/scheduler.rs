@@ -13,8 +13,7 @@ use meteroid::config::Config;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
-use meteroid::workers::fang as mfang;
-use meteroid::workers::kafka::processors;
+use meteroid::workers::{fang as mfang, pgmq};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -61,13 +60,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store.clone(),
     )?;
 
+    let store_pgmq1 = store.clone();
+    let store_pgmq2 = store.clone();
+    let store_pgmq3 = store.clone();
+
     tokio::try_join!(
+        // to run several processors concurrently, just copy the tokio::spawn
         tokio::spawn(async move {
-            processors::run_pdf_renderer_outbox_processor(&config.kafka, pdf_service).await;
+            pgmq::processors::run_outbox_dispatch(store_pgmq1).await;
         }),
         tokio::spawn(async move {
-            processors::run_webhook_outbox_processor(&config.kafka, store.clone()).await;
+            pgmq::processors::run_pdf_render(store_pgmq2, pdf_service).await;
         }),
+        tokio::spawn(async move {
+            pgmq::processors::run_webhook_out(store_pgmq3).await;
+        }),
+        // tokio::spawn(async move {
+        //     processors::run_pdf_renderer_outbox_processor(&config.kafka, pdf_service).await;
+        // }),
+        // tokio::spawn(async move {
+        //     processors::run_webhook_outbox_processor(&config.kafka, store.clone()).await;
+        // }),
         // ...
     )?;
 

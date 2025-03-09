@@ -14,6 +14,19 @@ macro_rules! json_value_serde {
             }
         }
 
+        impl TryFrom<&serde_json::Value> for $t {
+            type Error = error_stack::Report<$crate::errors::StoreError>;
+
+            fn try_from(value: &serde_json::Value) -> Result<Self, Self::Error> {
+                <$t as serde::Deserialize>::deserialize(value).map_err(|e| {
+                    error_stack::report!($crate::errors::StoreError::SerdeError(
+                        format!("Failed to deserialize {}", stringify!($t)),
+                        e
+                    ))
+                })
+            }
+        }
+
         impl TryInto<serde_json::Value> for $t {
             type Error = error_stack::Report<$crate::errors::StoreError>;
 

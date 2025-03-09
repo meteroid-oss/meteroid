@@ -98,15 +98,12 @@ mod tests {
             randomness_factor,
         );
 
-        let print = true;
-        if !!print {
-            println!("Date                 | New Customers | Total Customers");
-            for (date, new_customers, total_customers) in &result {
-                println!(
-                    "{:?} | {:<13} | {:<15}",
-                    date, new_customers, total_customers
-                );
-            }
+        println!("Date       | New Customers | Total Customers");
+        for (date, new_customers, total_customers) in &result {
+            println!(
+                "{:?} | {:<13} | {:<15}",
+                date, new_customers, total_customers
+            );
         }
 
         assert_eq!(result.len(), 365);

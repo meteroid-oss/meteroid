@@ -1,10 +1,9 @@
-use error_stack::Report;
-
 use crate::StoreResult;
 use crate::domain::outbox_event;
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
-use diesel_models::outbox_event::OutboxEventRowNew;
+use diesel_models::query::pgmq;
+use error_stack::Report;
 
 #[async_trait::async_trait]
 pub trait OutboxInterface {
@@ -27,12 +26,12 @@ impl StoreInternal {
         conn: &mut PgConn,
         events: Vec<outbox_event::OutboxEvent>,
     ) -> StoreResult<()> {
-        let rows: Vec<OutboxEventRowNew> = events
+        let batch = events
             .into_iter()
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
 
-        OutboxEventRowNew::insert_batch(conn, &rows)
+        pgmq::send_batch(conn, outbox_event::OutboxEvent::QUEUE_NAME, &batch)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }
