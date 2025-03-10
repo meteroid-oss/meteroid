@@ -52,7 +52,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.8
       - name: Install nextest
         uses: taiki-e/cache-cargo-install-action@v2
         with:
@@ -92,7 +92,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.8
       - name: Linting
         run: cargo clippy -- -D warnings
 
@@ -113,7 +113,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@v0.0.8
       - name: Validate OpenAPI
         run: |
           cargo run -p meteroid --bin openapi-generate
