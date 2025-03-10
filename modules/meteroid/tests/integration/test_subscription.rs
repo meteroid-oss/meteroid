@@ -6,8 +6,7 @@ use rust_decimal::prelude::FromPrimitive;
 use rust_decimal_macros::dec;
 use std::error::Error;
 use std::str::FromStr;
-use testcontainers::ContainerAsync;
-use testcontainers_modules::postgres::Postgres;
+use testcontainers::{ContainerAsync, GenericImage};
 use tonic::Code;
 
 use meteroid_grpc::meteroid::api;
@@ -26,7 +25,7 @@ use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 struct TestContext {
     setup: MeteroidSetup,
     clients: AllClients,
-    _container: ContainerAsync<Postgres>,
+    _container: ContainerAsync<GenericImage>,
 }
 
 async fn setup_test(seed_level: SeedLevel) -> Result<TestContext, Box<dyn Error>> {

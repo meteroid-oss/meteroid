@@ -13,6 +13,7 @@ chrono.workspace = true
 diesel = { workspace = true, features = ["64-column-tables"] }
 diesel-derive-enum.workspace = true
 diesel-async.workspace = true
+diesel-derive-newtype.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

@@ -1,10 +1,11 @@
+use backon::{ConstantBuilder, Retryable};
+use diesel_async::SimpleAsyncConnection;
 use std::sync::Arc;
 use std::time::Duration;
-
-use diesel_async::SimpleAsyncConnection;
+use testcontainers::core::WaitFor;
+use testcontainers::core::wait::LogWaitStrategy;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, ImageExt};
-use testcontainers_modules::postgres::Postgres;
+use testcontainers::{ContainerAsync, GenericImage, ImageExt, TestcontainersError};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
@@ -137,18 +138,31 @@ pub async fn terminate_meteroid(token: CancellationToken, join_handle: JoinHandl
     log::info!("Stopped meteroid server");
 }
 
-pub async fn start_postgres() -> (ContainerAsync<Postgres>, String) {
-    let postgres = Postgres::default().with_tag("15.2");
+pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
+    let container = (|| async {
+        let postgres = GenericImage::new("quay.io/tembo/pg17-pgmq", "v1.5.0")
+            .with_wait_for(WaitFor::log(LogWaitStrategy::stdout(
+                "database system is ready to accept connections",
+            )))
+            .with_wait_for(WaitFor::log(LogWaitStrategy::stderr(
+                "database system is ready to accept connections",
+            )))
+            .with_env_var("POSTGRES_DB", "postgres")
+            .with_env_var("POSTGRES_USER", "postgres")
+            .with_env_var("POSTGRES_PASSWORD", "postgres");
 
-    // Retry once if the first attempt fails (e.g. due to slow daemon cleanup)
-    let container = match postgres.start().await {
-        Ok(container) => container,
-        Err(e) => {
-            log::warn!("Failed to start container on first attempt: {}", e);
-            tokio::time::sleep(Duration::from_secs(3)).await;
-            Postgres::default().with_tag("15.2").start().await.unwrap()
-        }
-    };
+        postgres.start().await
+    })
+    .retry(ConstantBuilder::default())
+    .notify(|err: &TestcontainersError, dur: Duration| {
+        log::warn!(
+            "Retrying to start docker container {:?} after {:?}",
+            err,
+            dur
+        );
+    })
+    .await
+    .unwrap();
 
     let port = container.get_host_port_ipv4(5432).await.unwrap();
 
