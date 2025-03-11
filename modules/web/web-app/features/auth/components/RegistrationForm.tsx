@@ -1,19 +1,17 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
-import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
-import { completeRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+import { initRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
+import { useNavigate } from 'react-router-dom'
 
 export const RegistrationForm = ({ invite }: { invite?: string }) => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [, setSession] = useSession()
 
   const methods = useZodForm({
     schema: schemas.me.emailSchema,
@@ -22,10 +20,9 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
     },
   })
 
-  const registerMut = useMutation(completeRegistration, {
-    onSuccess: async res => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
-      setSession(res)
+  const registerMut = useMutation(initRegistration, {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: createConnectQueryKey(getInstance) })
     },
     onError: err => {
       methods.setError('email', {
@@ -39,8 +36,13 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
       email: data.email,
       inviteKey: invite,
     })
-    console.log(res)
-    // navigate('/login')
+    res.validationRequired
+      ? navigate('/check-inbox', {
+          state: data.email,
+        })
+      : navigate('/validate-email', {
+          state: data.email,
+        })
   }
 
   return (

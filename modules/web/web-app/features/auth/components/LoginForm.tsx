@@ -1,7 +1,7 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useSession } from '@/features/auth/session'
@@ -59,6 +59,11 @@ export const LoginForm = () => {
             placeholder="Enter your password"
             type="password"
             id="login-password"
+            rightLabel={
+              <Link to="/forgot-password" className="text-muted-foreground text-xs underline">
+                Forgot password?
+              </Link>
+            }
           />
 
           <Button

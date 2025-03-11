@@ -1,9 +1,15 @@
-import { Login, Registration } from '@/features/auth'
 import { AuthFormLayout } from '@/features/auth/components/AuthFormLayout'
 import { AuthLayout } from '@/features/auth/components/AuthLayout'
 import { AnonymousRoutes } from '@/features/auth/sessionRoutes'
-import { PasswordCreation } from '@/pages/auth/password-creation'
-import { ValidateEmail } from '@/pages/auth/validate-email'
+import {
+  CheckInbox,
+  CheckInboxPassword,
+  ForgotPassword,
+  Login,
+  Registration,
+  ResetPassword,
+  ValidateEmail,
+} from '@/pages/auth'
 import { RouteObject } from 'react-router-dom'
 
 export const anonymousRoutes: RouteObject = {
@@ -26,12 +32,24 @@ export const anonymousRoutes: RouteObject = {
           ],
         },
         {
+          path: '/check-inbox',
+          element: <CheckInbox />,
+        },
+        {
           path: '/validate-email',
           element: <ValidateEmail />,
         },
         {
-          path: '/password-creation',
-          element: <PasswordCreation />,
+          path: '/forgot-password',
+          element: <ForgotPassword />,
+        },
+        {
+          path: '/check-inbox-password',
+          element: <CheckInboxPassword />,
+        },
+        {
+          path: '/reset-password',
+          element: <ResetPassword />,
         },
       ],
     },
@@ -48,8 +66,20 @@ export const anonymousRoutes: RouteObject = {
       element: <ValidateEmail />,
     },
     {
-      path: '/password-creation',
-      element: <PasswordCreation />,
+      path: '/check-inbox',
+      element: <CheckInbox />,
+    },
+    {
+      path: '/forgot-password',
+      element: <ForgotPassword />,
+    },
+    {
+      path: '/check-inbox-password',
+      element: <CheckInboxPassword />,
+    },
+    {
+      path: '/reset-password',
+      element: <ResetPassword />,
     },
   ],
 }

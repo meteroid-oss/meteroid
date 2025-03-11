@@ -21,6 +21,7 @@ interface InputFieldProps<TFieldValues extends FieldValues, TName extends FieldP
   control: Control<TFieldValues>
   transformer?: Transformer<PathValue<TFieldValues, TName>>
   asString?: boolean
+  rightLabel?: React.ReactNode
 }
 
 const parseNumber = (value?: string) => (Number.isNaN(Number(value)) ? undefined : Number(value))

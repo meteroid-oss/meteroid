@@ -65,7 +65,7 @@ export const AuthLayout = () => {
 
   return (
     <div
-      className="min-h-screen flex flex-col overflow-hidden relative"
+      className="dark min-h-screen flex flex-col overflow-hidden relative"
       style={{
         background:
           'linear-gradient(0deg, #000 0%, #000 100%), linear-gradient(0deg, #0C0C0C 0%, #0C0C0C 100%), #111',

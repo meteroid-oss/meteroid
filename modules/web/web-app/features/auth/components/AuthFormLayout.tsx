@@ -34,9 +34,13 @@ export const AuthFormLayout = () => {
       </Flex>
       <Outlet />
       <div className="text-[11px] text-center p-2 leading-4">
-        <span className="text-muted-foreground mr-1">By proceeding, you agree to our and</span>
+        <span className="text-muted-foreground mr-1">By proceeding, you agree to our </span>
+        <Link to="/privacy" className="underline">
+          Privacy Policy
+        </Link>
+        <span className="text-muted-foreground mx-1">and</span>
         <Link to="/terms" className="underline">
-          Privacy Policy Terms of service
+          Terms of service
         </Link>
       </div>
     </>
