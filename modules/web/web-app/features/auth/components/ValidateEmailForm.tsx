@@ -54,6 +54,7 @@ export const ValidateEmailForm = () => {
             control={methods.control}
             placeholder="Create password"
             showPasswordToggle
+            autoFocus
           />
           <InputFormField
             name="confirmPassword"

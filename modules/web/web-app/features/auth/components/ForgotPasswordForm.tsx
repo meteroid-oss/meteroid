@@ -37,6 +37,7 @@ export const ForgotPasswordForm = () => {
       <form onSubmit={methods.handleSubmit(onSubmit)}>
         <div className="flex flex-col gap-2">
           <InputFormField
+            autoFocus
             name="email"
             label="Email address"
             control={methods.control}

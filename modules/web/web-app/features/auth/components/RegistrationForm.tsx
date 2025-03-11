@@ -50,6 +50,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
       <form onSubmit={methods.handleSubmit(onSubmit)}>
         <div className="flex flex-col gap-6">
           <InputFormField
+            autoFocus
             name="email"
             label="Work email"
             control={methods.control}

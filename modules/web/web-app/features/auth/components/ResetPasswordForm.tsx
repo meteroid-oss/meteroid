@@ -41,6 +41,7 @@ export const ResetPasswordForm = () => {
             control={methods.control}
             placeholder="New password"
             showPasswordToggle
+            autoFocus
           />
           <InputFormField
             name="confirmPassword"

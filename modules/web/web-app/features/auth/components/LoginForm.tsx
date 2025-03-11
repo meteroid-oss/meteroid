@@ -50,6 +50,7 @@ export const LoginForm = () => {
             control={methods.control}
             placeholder="you@company.com"
             id="login-email"
+            autoFocus
           />
 
           <InputFormField
