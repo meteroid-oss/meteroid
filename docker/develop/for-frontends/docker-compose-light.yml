@@ -29,11 +29,14 @@ services:
       - "postgres"
       - "-c"
       - "wal_level=logical"
+      - "-c"
       - "shared_preload_libraries=pg_stat_statements"
     networks:
       - meteroid_net
 
   meteroid-api:
+    depends_on:
+      - meteroid-db
     image: ghcr.io/meteroid-oss/meteroid-api:main
     ports:
       - "8084:8084"
@@ -50,5 +53,22 @@ services:
       - SVIX_JWT_TOKEN=${SVIX_JWT_TOKEN}
       - OAUTH_GOOGLE_CLIENT_ID=${OAUTH_GOOGLE_CLIENT_ID}
       - OAUTH_GOOGLE_CLIENT_SECRET=${OAUTH_GOOGLE_CLIENT_SECRET}
+      - MULTI_ORGANIZATION_ENABLED=${MULTI_ORGANIZATION_ENABLED}
+      - METEROID_PUBLIC_URL=${METEROID_PUBLIC_URL}
+      ### Comment to do without mail
+      - MAILER_SMTP_HOST=mailhog
+      - MAILER_SMTP_USERNAME=
+      - MAILER_SMTP_PASSWORD=
+      - MAILER_SMTP_TLS=false
+    networks:
+      - meteroid_net
+  ### Comment to do without mail
+  mailhog:
+    image: mailhog/mailhog
+    environment:
+      - MH_SMTP_BIND_ADDR=0.0.0.0:25
+    ports:
+      - "25:25" # SMTP server
+      - "8025:8025" # Web UI
     networks:
       - meteroid_net

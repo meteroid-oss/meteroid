@@ -11,6 +11,8 @@ import {
 
 import { cn } from '@ui/lib'
 
+import { Flex } from '@ui/components/ui'
+import { ReactNode } from 'react'
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 
 const formFieldVariants = cva('', {
@@ -69,6 +71,7 @@ export interface GenericFormFieldProps<
   className?: string
   description?: string
   layout?: 'vertical' | 'horizontal' | null
+  rightLabel?: ReactNode
   control: Control<TFieldValues>
   render: ({
     field,
@@ -95,6 +98,7 @@ export const GenericFormField = <
   labelClassName,
   className,
   description,
+  rightLabel,
   ...props
 }: GenericFormFieldProps<TFieldValues, TName>) => {
   return (
@@ -103,10 +107,13 @@ export const GenericFormField = <
       render={fieldProps => (
         <FormItem className={cn(formFieldVariants({ layout }), containerClassName)}>
           {label && (
-            <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
-              {label}
-              {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
-            </FormLabel>
+            <Flex align="center" justify="between" className="my-2">
+              <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
+                {label}
+                {required ? <span className="text-destructive text-xs pl-1">*</span> : null}
+              </FormLabel>
+              {rightLabel}
+            </Flex>
           )}
           <FormControl>
             {render({ ...fieldProps, className: cn(inputVariants({ layout }), className) })}

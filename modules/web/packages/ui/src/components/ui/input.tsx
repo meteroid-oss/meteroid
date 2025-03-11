@@ -17,7 +17,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
       <input
         type={showPassword ? 'text' : type}
         className={cn(
-          'flex h-9 w-full rounded-md border border-border bg-input px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-muted',
+          'flex h-9 w-full rounded-md border border-border bg-input px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground',
+          'focus-visible:outline-none focus-visible:border-transparent focus-visible:shadow-[0px_0px_0px_2px_#000,_0px_0px_0px_4px_#906CEF]',
+          'disabled:cursor-not-allowed disabled:bg-muted',
           rightText && 'rounded-r-none',
           showPasswordToggle && 'pr-10',
           showPasswordToggle && !showPassword && 'password', // chrome has a weird behavior with type=password and will ignore autocomplete=off. This is a workaround

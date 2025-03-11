@@ -54,7 +54,7 @@
       --secondary: 233 11% 17%;
       --secondary-foreground: 0 0% 98%;
       --muted: 0 0% 15%;
-      --muted-foreground: 208 8% 56%;
+      --muted-foreground: 208 1% 50%;
       --accent: 240 4% 19%;
       --accent-foreground: 0 0% 98%;
       --destructive: 0 62.8% 30.6%;
@@ -384,4 +384,3 @@ div[data-radix-portal]:not(.portal--toast) {
 .scrollbar::-webkit-scrollbar-thumb:hover {
     @apply bg-slate-400; 
 }
- 
