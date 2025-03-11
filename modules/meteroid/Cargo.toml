@@ -67,7 +67,7 @@ common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }
 distributed-lock = { workspace = true, features = ["postgres-support"] }
 stripe-client = { path = "crates/stripe-client" }
-object_store = { workspace = true, features = ["aws", "azure", "gcp", "http"] }
+object_store = { workspace = true, features = ["aws", "azure", "gcp", "http", "fs"] }
 bytes.workspace = true
 async-trait.workspace = true
 url.workspace = true
