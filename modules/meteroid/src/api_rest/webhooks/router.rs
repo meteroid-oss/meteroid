@@ -10,7 +10,7 @@ use axum::{
 use crate::api_rest::AppState;
 use crate::services::storage::Prefix;
 use common_domain::ids::{BaseId, TenantId};
-use error_stack::{Result, ResultExt};
+use error_stack::{Result, ResultExt, bail};
 use meteroid_store::domain::connectors::ProviderSensitiveData;
 use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
@@ -93,6 +93,9 @@ async fn handler(
     // - get adapter
     let adapter = match connector.provider {
         ConnectorProviderEnum::Stripe => app_state.stripe_adapter,
+        ConnectorProviderEnum::Hubspot => bail!(errors::AdapterWebhookError::ProviderNotSupported(
+            "hubspot".to_owned(),
+        )),
     };
 
     // - decode body
@@ -114,16 +117,13 @@ async fn handler(
     };
 
     // verify webhook source (signature, origin ip address, bearer ..)
-    match connector.sensitive {
-        Some(ProviderSensitiveData::Stripe(sensitive_data)) => {
-            adapter
-                .verify_webhook(
-                    &parsed_request,
-                    &SecretString::new(sensitive_data.webhook_secret),
-                )
-                .await?;
-        }
-        None => (),
+    if let Some(ProviderSensitiveData::Stripe(sensitive_data)) = connector.sensitive {
+        adapter
+            .verify_webhook(
+                &parsed_request,
+                &SecretString::new(sensitive_data.webhook_secret),
+            )
+            .await?;
     };
 
     // TODO save errors in webhook_events db

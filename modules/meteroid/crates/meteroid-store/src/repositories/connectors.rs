@@ -1,14 +1,17 @@
 use crate::domain::connectors::{
-    Connector, ConnectorMeta, ConnectorNew, ProviderData, ProviderSensitiveData, StripePublicData,
-    StripeSensitiveData,
+    Connector, ConnectorMeta, ConnectorNew, HubspotSensitiveData, ProviderData,
+    ProviderSensitiveData, StripePublicData, StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
+use crate::domain::oauth::{OauthTokens, OauthVerifierData};
 use crate::errors::StoreError;
+use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
 use common_domain::ids::TenantId;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
-use error_stack::Report;
-use secrecy::SecretString;
+use error_stack::{Report, bail};
+use meteroid_oauth::model::OauthProvider;
+use secrecy::{ExposeSecret, SecretString};
 use stripe_client::accounts::AccountsApi;
 use uuid::Uuid;
 
@@ -40,6 +43,12 @@ pub trait ConnectorsInterface {
         alias: String,
         tenant_id: TenantId,
     ) -> StoreResult<Connector>;
+
+    async fn connect_hubspot(
+        &self,
+        oauth_code: SecretString,
+        oauth_state: SecretString,
+    ) -> StoreResult<ConnectorMeta>;
 }
 
 #[async_trait::async_trait]
@@ -139,5 +148,50 @@ impl ConnectorsInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         Connector::from_row(&self.settings.crypt_key, row)
+    }
+
+    async fn connect_hubspot(
+        &self,
+        oauth_code: SecretString,
+        oauth_state: SecretString,
+    ) -> StoreResult<ConnectorMeta> {
+        let OauthTokens {
+            tokens,
+            verifier_data,
+        } = self
+            .oauth_exchange_code(OauthProvider::Hubspot, oauth_code, oauth_state)
+            .await?;
+
+        let tenant_id = match verifier_data {
+            OauthVerifierData::Crm(data) => data.tenant_id,
+            _ => {
+                bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
+            }
+        };
+
+        let refresh_token = tokens
+            .refresh_token
+            .ok_or_else(|| StoreError::OauthError("Missing refresh token".to_string()))?;
+
+        let mut conn = self.get_conn().await?;
+
+        let row: ConnectorRowNew = ConnectorNew {
+            tenant_id,
+            alias: "hubspot".to_owned(),
+            connector_type: ConnectorTypeEnum::Crm,
+            provider: ConnectorProviderEnum::Hubspot,
+            data: None,
+            sensitive: Some(ProviderSensitiveData::Hubspot(HubspotSensitiveData {
+                refresh_token: refresh_token.expose_secret().to_owned(),
+            })),
+        }
+        .to_row(&self.settings.crypt_key)?;
+
+        let res = row
+            .insert(&mut conn)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(res.into())
     }
 }

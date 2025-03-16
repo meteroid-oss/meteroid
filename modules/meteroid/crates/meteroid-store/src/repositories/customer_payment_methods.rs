@@ -87,7 +87,8 @@ impl CustomerPaymentMethodsInterface for Store {
 
         let connector = Connector::from_row(&self.settings.crypt_key, connection.connector)?;
 
-        let provider = initialize_payment_provider(&connector);
+        let provider = initialize_payment_provider(&connector)
+            .change_context(StoreError::PaymentProviderError)?;
 
         // payment methods for that connector are either retrieved from invoicing entity (default) or overridden through the connection
         let payment_methods = match connection.supported_payment_types {
@@ -157,7 +158,8 @@ impl CustomerPaymentMethodsInterface for Store {
 
         let connector = Connector::from_row(&self.settings.crypt_key, connection.connector)?;
 
-        let provider = initialize_payment_provider(&connector);
+        let provider = initialize_payment_provider(&connector)
+            .change_context(StoreError::PaymentProviderError)?;
 
         let payment_intent = provider
             .create_payment_intent_in_provider(

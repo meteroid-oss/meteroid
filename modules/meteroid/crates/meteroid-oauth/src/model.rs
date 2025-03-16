@@ -1,3 +1,5 @@
+use oauth2::TokenResponse;
+use oauth2::basic::BasicTokenResponse;
 use secrecy::SecretString;
 use serde::Deserialize;
 
@@ -5,6 +7,8 @@ use serde::Deserialize;
 pub enum OauthProvider {
     #[serde(rename = "google")]
     Google,
+    #[serde(rename = "hubspot")]
+    Hubspot,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,7 +34,7 @@ pub struct OauthProviderConfig {
     pub token_url: String,
     pub callback_url: String,
     pub scopes: Vec<String>,
-    pub user_info_url: String,
+    pub user_info_url: Option<String>,
 }
 
 #[derive(Clone)]
@@ -38,4 +42,21 @@ pub struct CallbackUrl {
     pub url: SecretString,
     pub csrf_token: SecretString,
     pub pkce_verifier: SecretString,
+}
+
+#[derive(Debug, Clone)]
+pub struct OAuthTokens {
+    pub access_token: SecretString,
+    pub refresh_token: Option<SecretString>,
+}
+
+impl From<BasicTokenResponse> for OAuthTokens {
+    fn from(response: BasicTokenResponse) -> Self {
+        OAuthTokens {
+            access_token: SecretString::new(response.access_token().secret().to_owned()),
+            refresh_token: response
+                .refresh_token()
+                .map(|t| SecretString::new(t.secret().to_owned())),
+        }
+    }
 }

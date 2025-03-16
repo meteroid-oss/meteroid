@@ -43,4 +43,5 @@ pub struct InstanceFlags {
     pub instance_initiated: bool,
     pub skip_email_validation: bool,
     pub google_oauth_client_id: Option<String>,
+    pub hubspot_oauth_client_id: Option<String>,
 }

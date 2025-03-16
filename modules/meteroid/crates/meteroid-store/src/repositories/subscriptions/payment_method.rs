@@ -99,7 +99,8 @@ impl StoreInternal {
             let customer_connection_id = match customer_connector_opt {
                 None => {
                     // Create a new customer in the payment provider
-                    let provider = initialize_payment_provider(config);
+                    let provider = initialize_payment_provider(config)
+                        .change_context(StoreError::PaymentProviderError)?;
                     let external_id = provider
                         .create_customer_in_provider(customer, config)
                         .await

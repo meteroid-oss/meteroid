@@ -98,6 +98,7 @@ pub enum InvoiceType {
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum ConnectorProviderEnum {
     Stripe,
+    Hubspot,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
@@ -105,7 +106,7 @@ pub enum ConnectorProviderEnum {
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum ConnectorTypeEnum {
     PaymentProvider,
-    // CRM etc
+    Crm,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

@@ -9,7 +9,6 @@ pub struct OauthVerifierRow {
     pub id: Uuid,
     pub csrf_token: String,
     pub pkce_verifier: String,
-    pub is_signup: bool,
-    pub invite_key: Option<String>,
     pub created_at: NaiveDateTime,
+    pub data: Option<serde_json::Value>,
 }

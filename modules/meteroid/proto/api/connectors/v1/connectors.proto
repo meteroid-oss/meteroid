@@ -26,10 +26,15 @@ message DisconnectConnectorRequest {
 
 message DisconnectConnectorResponse {}
 
+message ConnectHubspotRequest {}
+message ConnectHubspotResponse {
+  string auth_url = 1;
+}
+
 service ConnectorsService {
   rpc ListConnectors(ListConnectorsRequest) returns (ListConnectorsResponse) {}
   rpc DisconnectConnector(DisconnectConnectorRequest) returns (DisconnectConnectorResponse) {}
 
   rpc ConnectStripe(ConnectStripeRequest) returns (ConnectStripeResponse) {}
-
+  rpc ConnectHubspot(ConnectHubspotRequest) returns (ConnectHubspotResponse) {}
 }

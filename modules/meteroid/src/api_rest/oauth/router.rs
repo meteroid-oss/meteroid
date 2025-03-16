@@ -4,6 +4,8 @@ use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use fang::Deserialize;
 use meteroid_oauth::model::OauthProvider;
+use meteroid_store::domain::oauth::{OauthVerifierData, SignInData};
+use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::users::UserInterface;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -27,10 +29,12 @@ pub async fn redirect_to_identity_provider(
 ) -> Redirect {
     let callback_url_res = app_state
         .store
-        .oauth_signin_callback_url(
+        .oauth_auth_provider_url(
             provider,
-            params.is_signup,
-            params.invite_key.map(|k| k.into()),
+            OauthVerifierData::SignIn(SignInData {
+                is_signup: params.is_signup,
+                invite_key: params.invite_key,
+            }),
         )
         .await;
 
