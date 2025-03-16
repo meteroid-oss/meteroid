@@ -77,7 +77,7 @@ fn error_url(code: u8) -> String {
 
 fn success_url(token: &SecretString) -> String {
     format!(
-        "{}/oauth_success?token{}",
+        "{}/oauth_success?token={}",
         Config::get().public_url.as_str(),
         token.expose_secret()
     )
