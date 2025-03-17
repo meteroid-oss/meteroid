@@ -1,5 +1,5 @@
 use crate::errors::{DatabaseError, DatabaseErrorContainer, IntoDbResult};
-use crate::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
+use crate::tenants::{TenantRow, TenantRowNew, TenantRowPatch, TenantWithOrganizationRow};
 use crate::{DbResult, PgConn};
 
 use common_domain::ids::{OrganizationId, TenantId};
@@ -30,6 +30,28 @@ impl TenantRow {
         use diesel_async::RunQueryDsl;
 
         let query = tenant.filter(id.eq(tenant_id));
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding tenant by id")
+            .into_db_result()
+    }
+
+    pub async fn find_by_id_with_org(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+    ) -> DbResult<TenantWithOrganizationRow> {
+        use crate::schema::organization::dsl as o_dsl;
+        use crate::schema::tenant::dsl as t_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = t_dsl::tenant
+            .inner_join(o_dsl::organization.on(t_dsl::organization_id.eq(o_dsl::id)))
+            .filter(t_dsl::id.eq(tenant_id))
+            .select(TenantWithOrganizationRow::as_select());
+
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
 
         query

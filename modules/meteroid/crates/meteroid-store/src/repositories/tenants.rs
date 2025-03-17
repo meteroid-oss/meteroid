@@ -1,4 +1,7 @@
-use crate::domain::{InvoicingEntityNew, OrganizationWithTenants, Tenant, TenantNew, TenantUpdate};
+use crate::domain::{
+    InvoicingEntityNew, OrganizationWithTenants, Tenant, TenantNew, TenantUpdate,
+    TenantWithOrganization,
+};
 use cached::Cached;
 use cached::proc_macro::cached;
 use diesel_async::scoped_futures::ScopedFutureExt;
@@ -60,6 +63,8 @@ pub trait TenantInterface {
         tenant_id: TenantId,
         currency: String,
     ) -> StoreResult<()>;
+
+    async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization>;
 }
 
 #[async_trait::async_trait]
@@ -211,6 +216,15 @@ impl TenantInterface for Store {
         TenantRow::remove_available_currency(&mut conn, tenant_id, currency)
             .await
             .map_err(Into::into)
+    }
+
+    async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization> {
+        let mut conn = self.get_conn().await?;
+
+        TenantRow::find_by_id_with_org(&mut conn, tenant_id)
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
     }
 }
 

@@ -119,7 +119,14 @@ impl OauthServiceImpl {
                     token_url: "https://api.hubapi.com/oauth/v1/token".to_string(),
                     callback_url: format!("{}/oauth-callback/hubspot", config.public_url.as_str()),
                     user_info_url: None,
-                    scopes: vec![], // fixme
+                    scopes: vec![
+                        "crm.objects.deals.read".to_owned(),
+                        "crm.objects.deals.write".to_owned(),
+                        "crm.objects.contacts.read".to_owned(),
+                        "crm.objects.contacts.write".to_owned(),
+                        "crm.objects.companies.read".to_owned(),
+                        "crm.objects.companies.write".to_owned(),
+                    ],
                 },
                 http_client: Self::http_client(),
             }))

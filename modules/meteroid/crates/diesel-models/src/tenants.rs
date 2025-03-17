@@ -2,6 +2,7 @@ use chrono::NaiveDateTime;
 
 use crate::enums::TenantEnvironmentEnum;
 
+use crate::organizations::OrganizationRow;
 use common_domain::ids::{OrganizationId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
@@ -43,4 +44,13 @@ pub struct TenantRowPatch {
     pub slug: Option<String>,
     pub reporting_currency: Option<String>,
     pub environment: Option<TenantEnvironmentEnum>,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct TenantWithOrganizationRow {
+    #[diesel(embed)]
+    pub tenant: TenantRow,
+    #[diesel(embed)]
+    pub organization: OrganizationRow,
 }
