@@ -1,6 +1,7 @@
-import { cn } from '@ui/lib'
 import { cva, type VariantProps } from 'class-variance-authority'
 import * as React from 'react'
+
+import { cn } from '@ui/lib'
 
 const flexVariants = cva('flex transition-all', {
   variants: {
