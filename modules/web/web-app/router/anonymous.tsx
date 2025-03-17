@@ -1,23 +1,56 @@
 import { RouteObject } from 'react-router-dom'
 
-import { Login, Registration } from '@/features/auth'
-import AuthPageTemplate from '@/features/auth/components/AuthPageTemplate'
+import { AuthFormLayout } from '@/features/auth/components/AuthFormLayout'
+import { AuthLayout } from '@/features/auth/components/AuthLayout'
 import { AnonymousRoutes } from '@/features/auth/sessionRoutes'
-import { Recovery, Verification } from '@/pages'
+import {
+  CheckInbox,
+  CheckInboxPassword,
+  ForgotPassword,
+  Login,
+  Registration,
+  ResetPassword,
+  ValidateEmail,
+} from '@/pages/auth'
 
 export const anonymousRoutes: RouteObject = {
   element: <AnonymousRoutes />,
   children: [
     {
-      element: <AuthPageTemplate />,
+      element: <AuthLayout />,
       children: [
         {
-          path: '/login',
-          element: <Login />,
+          element: <AuthFormLayout />,
+          children: [
+            {
+              path: '/login',
+              element: <Login />,
+            },
+            {
+              path: '/registration',
+              element: <Registration />,
+            },
+          ],
         },
         {
-          path: '/registration',
-          element: <Registration />,
+          path: '/check-inbox',
+          element: <CheckInbox />,
+        },
+        {
+          path: '/validate-email',
+          element: <ValidateEmail />,
+        },
+        {
+          path: '/forgot-password',
+          element: <ForgotPassword />,
+        },
+        {
+          path: '/check-inbox-password',
+          element: <CheckInboxPassword />,
+        },
+        {
+          path: '/reset-password',
+          element: <ResetPassword />,
         },
       ],
     },
@@ -30,12 +63,24 @@ export const anonymousRoutes: RouteObject = {
       element: <Registration />,
     },
     {
-      path: '/recovery',
-      element: <Recovery />,
+      path: '/validate-email',
+      element: <ValidateEmail />,
     },
     {
-      path: '/verification',
-      element: <Verification />,
+      path: '/check-inbox',
+      element: <CheckInbox />,
+    },
+    {
+      path: '/forgot-password',
+      element: <ForgotPassword />,
+    },
+    {
+      path: '/check-inbox-password',
+      element: <CheckInboxPassword />,
+    },
+    {
+      path: '/reset-password',
+      element: <ResetPassword />,
     },
   ],
 }

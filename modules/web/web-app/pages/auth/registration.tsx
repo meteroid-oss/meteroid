@@ -20,8 +20,6 @@ export const Registration: FunctionComponent = () => {
     return <Loader />
   }
 
-  console.log(data)
-
   if (data && data.instanceInitiated && !data.multiOrganizationEnabled && !invite) {
     return (
       <div className="text-center">
