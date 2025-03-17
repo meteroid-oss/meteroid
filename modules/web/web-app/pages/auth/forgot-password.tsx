@@ -1,5 +1,6 @@
-import { ForgotPasswordForm } from '@/features/auth/components/ForgotPasswordForm'
 import { FunctionComponent } from 'react'
+
+import { ForgotPasswordForm } from '@/features/auth/components/ForgotPasswordForm'
 
 export const ForgotPassword: FunctionComponent = () => (
   <>

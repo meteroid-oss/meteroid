@@ -1,8 +1,9 @@
-import { MeteroidTitle } from '@/components/svg'
 import { Flex } from '@ui/components'
-import { useForceTheme } from 'providers/ThemeProvider'
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
+
+import { MeteroidTitle } from '@/components/svg'
+import { useForceTheme } from 'providers/ThemeProvider'
 
 type StarStyle = {
   left: string

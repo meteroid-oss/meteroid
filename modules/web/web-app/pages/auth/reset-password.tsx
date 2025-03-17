@@ -1,4 +1,5 @@
 import { ResetPasswordForm } from '@/features/auth/components/ResetPasswordForm'
+
 import type { FunctionComponent } from 'react'
 
 export const ResetPassword: FunctionComponent = () => {

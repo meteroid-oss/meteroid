@@ -1,3 +1,5 @@
+import { RouteObject } from 'react-router-dom'
+
 import { AuthFormLayout } from '@/features/auth/components/AuthFormLayout'
 import { AuthLayout } from '@/features/auth/components/AuthLayout'
 import { AnonymousRoutes } from '@/features/auth/sessionRoutes'
@@ -10,7 +12,6 @@ import {
   ResetPassword,
   ValidateEmail,
 } from '@/pages/auth'
-import { RouteObject } from 'react-router-dom'
 
 export const anonymousRoutes: RouteObject = {
   element: <AnonymousRoutes />,

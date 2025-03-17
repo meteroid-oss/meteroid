@@ -1,13 +1,15 @@
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { Button, Form, InputFormField } from '@md/ui'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { z } from 'zod'
+
 import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { completeRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Button, Form, InputFormField } from '@md/ui'
 import { queryClient } from 'App'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { z } from 'zod'
+
 
 export const ValidateEmailForm = () => {
   const navigate = useNavigate()

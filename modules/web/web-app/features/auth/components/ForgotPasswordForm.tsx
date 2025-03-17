@@ -1,11 +1,11 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
+import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { initResetPassword } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { useNavigate } from 'react-router-dom'
 
 export const ForgotPasswordForm = () => {
   const navigate = useNavigate()

@@ -1,13 +1,13 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { Button, Form, InputFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { initRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { useNavigate } from 'react-router-dom'
 
 export const RegistrationForm = ({ invite }: { invite?: string }) => {
   const navigate = useNavigate()

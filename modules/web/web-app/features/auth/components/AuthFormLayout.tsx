@@ -1,7 +1,8 @@
-import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { useQuery } from '@connectrpc/connect-query'
 import { Button, Flex, Separator } from '@ui/components'
 import { Link, Outlet, useLocation } from 'react-router-dom'
+
+import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 
 export const AuthFormLayout = () => {
   const location = useLocation()

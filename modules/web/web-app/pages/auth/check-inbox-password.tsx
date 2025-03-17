@@ -1,6 +1,7 @@
 import { Button } from '@ui/components'
-import type { FunctionComponent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+
+import type { FunctionComponent } from 'react'
 
 export const CheckInboxPassword: FunctionComponent = () => {
   const { state } = useLocation()

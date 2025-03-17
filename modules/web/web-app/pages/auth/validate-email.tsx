@@ -1,4 +1,5 @@
 import { ValidateEmailForm } from '@/features/auth/components/ValidateEmailForm'
+
 import type { FunctionComponent } from 'react'
 
 export const ValidateEmail: FunctionComponent = () => {
