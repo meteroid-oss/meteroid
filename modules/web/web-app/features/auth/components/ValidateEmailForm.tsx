@@ -5,11 +5,10 @@ import { z } from 'zod'
 
 import { useSession } from '@/features/auth/session'
 import { useZodForm } from '@/hooks/useZodForm'
+import { queryClient } from '@/lib/react-query'
 import { schemas } from '@/lib/schemas'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { completeRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { queryClient } from 'App'
-
 
 export const ValidateEmailForm = () => {
   const navigate = useNavigate()
