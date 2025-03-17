@@ -15,6 +15,7 @@ export const ValidateEmailForm = () => {
   const [, setSession] = useSession()
 
   const [searchParams] = useSearchParams()
+
   const { state } = useLocation()
 
   const token = searchParams.get('token')
