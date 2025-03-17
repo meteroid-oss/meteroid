@@ -5,10 +5,12 @@ package meteroid.api.connectors.v1;
 
 enum ConnectorProviderEnum {
   STRIPE = 0;
+  HUBSPOT = 2;
 }
 
 enum ConnectorTypeEnum {
   PAYMENT_PROVIDER = 0;
+  CRM = 1;
 }
 
 message Connector {
@@ -25,4 +27,3 @@ message StripeConnector {
   string api_secret_key = 5;
   string webhook_secret = 6;
 }
-

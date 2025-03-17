@@ -1,7 +1,8 @@
+use crate::domain::Organization;
 use crate::domain::enums::TenantEnvironmentEnum;
 use chrono::NaiveDateTime;
 use common_domain::ids::{BaseId, OrganizationId, TenantId};
-use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
+use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch, TenantWithOrganizationRow};
 use o2o::o2o;
 
 #[derive(Clone, Debug, o2o)]
@@ -59,4 +60,13 @@ pub struct TenantUpdate {
     #[map(~.map(| x | x.into()))]
     pub environment: Option<TenantEnvironmentEnum>,
     pub reporting_currency: Option<String>,
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(TenantWithOrganizationRow)]
+pub struct TenantWithOrganization {
+    #[map(~.into())]
+    pub tenant: Tenant,
+    #[map(~.into())]
+    pub organization: Organization,
 }

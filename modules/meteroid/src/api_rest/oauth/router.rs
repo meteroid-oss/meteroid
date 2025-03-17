@@ -4,6 +4,9 @@ use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use fang::Deserialize;
 use meteroid_oauth::model::OauthProvider;
+use meteroid_store::domain::oauth::{OauthVerifierData, SignInData};
+use meteroid_store::repositories::connectors::ConnectorsInterface;
+use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::users::UserInterface;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -27,10 +30,12 @@ pub async fn redirect_to_identity_provider(
 ) -> Redirect {
     let callback_url_res = app_state
         .store
-        .oauth_signin_callback_url(
+        .oauth_auth_provider_url(
             provider,
-            params.is_signup,
-            params.invite_key.map(|k| k.into()),
+            OauthVerifierData::SignIn(SignInData {
+                is_signup: params.is_signup,
+                invite_key: params.invite_key,
+            }),
         )
         .await;
 
@@ -38,7 +43,7 @@ pub async fn redirect_to_identity_provider(
         Ok(url) => Redirect::to(url.expose_secret()),
         Err(e) => {
             log::warn!("Error getting callback URL: {}", e);
-            Redirect::to(error_url(1).as_str())
+            Redirect::to(signin_error_url(1).as_str())
         }
     }
 }
@@ -49,21 +54,50 @@ pub async fn callback(
     Query(params): Query<CallbackParams>,
     State(app_state): State<AppState>,
 ) -> Redirect {
+    match provider {
+        OauthProvider::Google => signin_callback(provider, params, app_state).await,
+        OauthProvider::Hubspot => hubspot_connect_callback(params, app_state).await,
+    }
+}
+
+async fn hubspot_connect_callback(params: CallbackParams, app_state: AppState) -> Redirect {
+    let connector = app_state
+        .store
+        .connect_hubspot(params.code.into(), params.state.into())
+        .await;
+
+    // todo: fix the redirects by storing the referrer in the state
+    match connector {
+        Ok(_) => {
+            Redirect::to(signin_success_url(&SecretString::new("hubspot".to_owned())).as_str())
+        }
+        Err(e) => {
+            log::warn!("Error connecting Hubspot: {}", e);
+            Redirect::to(signin_error_url(3).as_str())
+        }
+    }
+}
+
+async fn signin_callback(
+    provider: OauthProvider,
+    params: CallbackParams,
+    app_state: AppState,
+) -> Redirect {
     let auth_res = app_state
         .store
         .oauth_signin(provider, params.code.into(), params.state.into())
         .await;
 
     match auth_res {
-        Ok(url) => Redirect::to(success_url(&url.token).as_str()),
+        Ok(url) => Redirect::to(signin_success_url(&url.token).as_str()),
         Err(e) => {
             log::warn!("Error executing callback: {}", e);
-            Redirect::to(error_url(2).as_str())
+            Redirect::to(signin_error_url(2).as_str())
         }
     }
 }
 
-fn error_url(code: u8) -> String {
+fn signin_error_url(code: u8) -> String {
     format!(
         "{}/error?oauth_signin={}",
         Config::get().public_url.as_str(),
@@ -71,9 +105,9 @@ fn error_url(code: u8) -> String {
     )
 }
 
-fn success_url(token: &SecretString) -> String {
+fn signin_success_url(token: &SecretString) -> String {
     format!(
-        "{}/oauth_success?token{}",
+        "{}/oauth_success?token={}",
         Config::get().public_url.as_str(),
         token.expose_secret()
     )

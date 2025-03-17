@@ -8,6 +8,7 @@ message GetInstanceResponse {
   bool instance_initiated = 2;
   bool skip_email_validation = 3;
   optional string google_oauth_client_id = 6;
+  optional string hubspot_oauth_client_id = 7;
 }
 
 message GetInviteRequest {}

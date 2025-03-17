@@ -34,5 +34,6 @@ pub mod subscriptions;
 
 pub mod billing;
 pub mod customer_payment_methods;
+pub mod oauth;
 pub mod users;
 pub mod webhooks;

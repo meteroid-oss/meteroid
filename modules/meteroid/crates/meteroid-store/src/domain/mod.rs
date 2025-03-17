@@ -41,6 +41,7 @@ pub mod invoice_lines;
 pub mod invoicing_entities;
 mod macros;
 pub mod misc;
+pub mod oauth;
 pub mod organizations;
 pub mod outbox_event;
 pub mod payment_transactions;

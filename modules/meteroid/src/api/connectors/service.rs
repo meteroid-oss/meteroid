@@ -4,10 +4,15 @@ use crate::{api::utils::parse_uuid, parse_uuid};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
 use meteroid_grpc::meteroid::api::connectors::v1::{
-    ConnectStripeRequest, ConnectStripeResponse, ConnectorTypeEnum, DisconnectConnectorRequest,
-    DisconnectConnectorResponse, ListConnectorsRequest, ListConnectorsResponse,
+    ConnectHubspotRequest, ConnectHubspotResponse, ConnectStripeRequest, ConnectStripeResponse,
+    ConnectorTypeEnum, DisconnectConnectorRequest, DisconnectConnectorResponse,
+    ListConnectorsRequest, ListConnectorsResponse,
 };
+use meteroid_oauth::model::OauthProvider;
+use meteroid_store::domain::oauth::{CrmData, OauthVerifierData};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
+use meteroid_store::repositories::oauth::OauthInterface;
+use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
 
 #[tonic::async_trait]
@@ -91,6 +96,26 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         Ok(Response::new(ConnectStripeResponse {
             connector: Some(mapping::connectors::connector_meta_to_server(&res)),
+        }))
+    }
+
+    async fn connect_hubspot(
+        &self,
+        request: Request<ConnectHubspotRequest>,
+    ) -> Result<Response<ConnectHubspotResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let url = self
+            .store
+            .oauth_auth_provider_url(
+                OauthProvider::Hubspot,
+                OauthVerifierData::Crm(CrmData { tenant_id }),
+            )
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(ConnectHubspotResponse {
+            auth_url: url.expose_secret().to_owned(),
         }))
     }
 }

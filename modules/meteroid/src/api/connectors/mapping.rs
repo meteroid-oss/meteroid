@@ -6,36 +6,40 @@ pub mod connectors {
     pub fn connector_provider_from_server(
         value: &server::ConnectorProviderEnum,
     ) -> domain_enum::ConnectorProviderEnum {
-        match value {
-            &server::ConnectorProviderEnum::Stripe => domain_enum::ConnectorProviderEnum::Stripe,
+        match *value {
+            server::ConnectorProviderEnum::Stripe => domain_enum::ConnectorProviderEnum::Stripe,
+            server::ConnectorProviderEnum::Hubspot => domain_enum::ConnectorProviderEnum::Hubspot,
         }
     }
 
     pub fn connector_provider_to_server(
         value: &domain_enum::ConnectorProviderEnum,
     ) -> server::ConnectorProviderEnum {
-        match value {
-            &domain_enum::ConnectorProviderEnum::Stripe => server::ConnectorProviderEnum::Stripe,
+        match *value {
+            domain_enum::ConnectorProviderEnum::Stripe => server::ConnectorProviderEnum::Stripe,
+            domain_enum::ConnectorProviderEnum::Hubspot => server::ConnectorProviderEnum::Hubspot,
         }
     }
 
     pub fn connector_type_from_server(
         value: &server::ConnectorTypeEnum,
     ) -> domain_enum::ConnectorTypeEnum {
-        match value {
-            &server::ConnectorTypeEnum::PaymentProvider => {
+        match *value {
+            server::ConnectorTypeEnum::PaymentProvider => {
                 domain_enum::ConnectorTypeEnum::PaymentProvider
             }
+            server::ConnectorTypeEnum::Crm => domain_enum::ConnectorTypeEnum::Crm,
         }
     }
 
     pub fn connector_type_to_server(
         value: &domain_enum::ConnectorTypeEnum,
     ) -> server::ConnectorTypeEnum {
-        match value {
-            &domain_enum::ConnectorTypeEnum::PaymentProvider => {
+        match *value {
+            domain_enum::ConnectorTypeEnum::PaymentProvider => {
                 server::ConnectorTypeEnum::PaymentProvider
             }
+            domain_enum::ConnectorTypeEnum::Crm => server::ConnectorTypeEnum::Crm,
         }
     }
 

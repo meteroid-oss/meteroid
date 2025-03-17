@@ -5,7 +5,7 @@ use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum
 use crate::utils::local_id::LocalId;
 use async_trait::async_trait;
 use common_domain::ids::{BaseId, PaymentTransactionId};
-use error_stack::Report;
+use error_stack::{Report, bail};
 use secrecy::SecretString;
 use std::collections::HashMap;
 use stripe_client::client::StripeClient;
@@ -59,9 +59,14 @@ pub trait PaymentProvider: Send + Sync {
     ) -> error_stack::Result<PaymentIntent, PaymentProviderError>;
 }
 
-pub fn initialize_payment_provider(config: &Connector) -> Box<dyn PaymentProvider> {
+pub fn initialize_payment_provider(
+    config: &Connector,
+) -> error_stack::Result<Box<dyn PaymentProvider>, PaymentProviderError> {
     match config.provider {
-        ConnectorProviderEnum::Stripe => Box::new(StripeClient::new()),
+        ConnectorProviderEnum::Stripe => Ok(Box::new(StripeClient::new())),
+        ConnectorProviderEnum::Hubspot => bail!(PaymentProviderError::Configuration(
+            "hubspot is not a payment provider".to_owned()
+        )),
     }
 }
 
@@ -244,6 +249,9 @@ fn extract_stripe_secret_key(
         Some(ProviderSensitiveData::Stripe(data)) => {
             Ok(SecretString::new(data.api_secret_key.clone()))
         }
+        Some(_) => Err(Report::new(PaymentProviderError::Configuration(
+            "Not a stripe connector".to_string(),
+        ))),
         None => Err(Report::new(PaymentProviderError::Configuration(
             "No api_secret_key found".to_string(),
         ))),

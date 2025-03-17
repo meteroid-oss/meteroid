@@ -7,6 +7,8 @@ pub struct OauthConfig {
     pub public_url: String,
     #[envconfig(nested)]
     pub google: GoogleOauthConfig,
+    #[envconfig(nested)]
+    pub hubspot: HubspotOauthConfig,
 }
 
 impl OauthConfig {
@@ -16,6 +18,10 @@ impl OauthConfig {
             google: GoogleOauthConfig {
                 client_id: Some(SecretString::new("google_client_id".to_owned())),
                 client_secret: Some(SecretString::new("google_client_secret".to_owned())),
+            },
+            hubspot: HubspotOauthConfig {
+                client_id: Some(SecretString::new("hubspot_client_id".to_owned())),
+                client_secret: Some(SecretString::new("hubspot_client_secret".to_owned())),
             },
         }
     }
@@ -33,4 +39,12 @@ impl GoogleOauthConfig {
     pub fn is_enabled(&self) -> bool {
         self.client_id.is_some() && self.client_secret.is_some()
     }
+}
+
+#[derive(Envconfig, Debug, Clone)]
+pub struct HubspotOauthConfig {
+    #[envconfig(from = "OAUTH_HUBSPOT_CLIENT_ID")]
+    pub client_id: Option<SecretString>,
+    #[envconfig(from = "OAUTH_HUBSPOT_CLIENT_SECRET")]
+    pub client_secret: Option<SecretString>,
 }

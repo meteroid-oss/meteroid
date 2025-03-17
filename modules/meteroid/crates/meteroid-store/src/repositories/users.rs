@@ -1,11 +1,12 @@
-use crate::crypt::{decrypt, encrypt};
 use crate::domain::Organization;
 use crate::domain::enums::OrganizationUserRole;
+use crate::domain::oauth::{OauthUser, OauthVerifierData};
 use crate::domain::users::{
     InitRegistrationResponse, LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest,
     RegisterUserRequestInternal, RegisterUserResponse, UpdateUser, User, UserWithRole,
 };
 use crate::errors::StoreError;
+use crate::repositories::oauth::OauthInterface;
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use argon2::password_hash::SaltString;
@@ -16,7 +17,6 @@ use common_domain::auth::{Audience, JwtClaims, JwtPayload};
 use common_domain::ids::{OrganizationId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::oauth_verifiers::OauthVerifierRow;
 use diesel_models::organization_members::OrganizationMemberRow;
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::users::{UserRow, UserRowNew, UserRowPatch};
@@ -25,7 +25,6 @@ use jsonwebtoken::{DecodingKey, Validation};
 use meteroid_mailer::model::{EmailRecipient, EmailValidationLink, ResetPasswordLink};
 use meteroid_oauth::model::OauthProvider;
 use secrecy::{ExposeSecret, SecretString};
-use std::ops::Add;
 use tracing::log;
 use uuid::Uuid;
 
@@ -81,13 +80,6 @@ pub trait UserInterface {
         token: SecretString,
         new_password: SecretString,
     ) -> StoreResult<()>;
-
-    async fn oauth_signin_callback_url(
-        &self,
-        provider: OauthProvider,
-        is_signup: bool,
-        invite_key: Option<SecretString>,
-    ) -> StoreResult<SecretString>;
 
     async fn oauth_signin(
         &self,
@@ -450,110 +442,44 @@ impl UserInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)
     }
 
-    async fn oauth_signin_callback_url(
-        &self,
-        provider: OauthProvider,
-        is_signup: bool,
-        invite_key: Option<SecretString>,
-    ) -> StoreResult<SecretString> {
-        let callback_url = self
-            .oauth
-            .for_provider(provider)
-            .ok_or(Report::new(StoreError::OauthError(
-                "Provider not configured".to_string(),
-            )))?
-            .callback_url();
-
-        fn enc(key: &SecretString, raw: &str) -> StoreResult<String> {
-            encrypt(key, raw)
-                .change_context(StoreError::CryptError("connector encryption error".into()))
-        }
-
-        let invite_key = invite_key
-            .map(|x| enc(&self.settings.crypt_key, x.expose_secret()))
-            .transpose()?;
-
-        let row = OauthVerifierRow {
-            id: Uuid::now_v7(),
-            csrf_token: callback_url.csrf_token.expose_secret().to_string(),
-            pkce_verifier: enc(
-                &self.settings.crypt_key,
-                callback_url.pkce_verifier.expose_secret(),
-            )?,
-            is_signup,
-            invite_key,
-            created_at: Utc::now().naive_utc(),
-        };
-
-        let mut conn = self.get_conn().await?;
-
-        row.insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        Ok(callback_url.url)
-    }
-
     async fn oauth_signin(
         &self,
         provider: OauthProvider,
         code: SecretString,
         state: SecretString,
     ) -> StoreResult<LoginUserResponse> {
-        fn dec(key: &SecretString, encoded: &str) -> StoreResult<SecretString> {
-            decrypt(key, encoded)
-                .change_context(StoreError::CryptError("connector decryption error".into()))
-        }
+        let OauthUser {
+            user,
+            verifier_data,
+        } = self.oauth_get_user(provider, code, state).await?;
 
-        let verifier_ttl = chrono::Duration::minutes(10);
+        let signin_data = match verifier_data {
+            OauthVerifierData::SignIn(data) => data,
+            _ => {
+                bail!(StoreError::OauthError(
+                    "invalid oauth verifier data".to_string()
+                ))
+            }
+        };
 
-        // todo: we should probably migrate verifiers storage to Redis
-        let pool = self.pool.clone();
-        tokio::spawn(async move {
-            let mut conn = pool.get().await.expect("failed to get connection");
-
-            OauthVerifierRow::delete_expired(&mut conn, Utc::now().add(verifier_ttl).naive_utc())
-                .await
-                .map_err(Into::<Report<StoreError>>::into)
-        });
+        let email = user.email;
 
         let mut conn = self.get_conn().await?;
-        let verifiers = OauthVerifierRow::delete_by_csrf_token(&mut conn, state.expose_secret())
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
 
-        if verifiers.created_at + verifier_ttl < Utc::now().naive_utc() {
-            return Err(StoreError::OauthError("expired verifier".into()).into());
-        }
-
-        let pkce_verifier = dec(&self.settings.crypt_key, &verifiers.pkce_verifier)?;
-
-        let oauth_user = self
-            .oauth
-            .for_provider(provider)
-            .ok_or(Report::new(StoreError::OauthError(
-                "Provider not configured".to_string(),
-            )))?
-            .get_user_info(code, pkce_verifier)
-            .await
-            .change_context(StoreError::OauthError(
-                "Failed to fetch oauth user".to_owned(),
-            ))?;
-
-        let user = UserRow::find_by_email(&mut conn, oauth_user.email.clone())
+        let user = UserRow::find_by_email(&mut conn, email.to_owned())
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
         match user {
             None => {
-                if !verifiers.is_signup {
+                if !signin_data.is_signup {
                     bail!(StoreError::OauthError("User not found".into()))
                 }
 
                 let user_new = RegisterUserRequestInternal {
-                    email: oauth_user.email.clone(),
+                    email: email.to_owned(),
                     password: None,
-                    invite_key: verifiers.invite_key.map(SecretString::new),
+                    invite_key: signin_data.invite_key.map(SecretString::new),
                 };
 
                 let res = register_user_internal(self, user_new).await?;
@@ -564,7 +490,7 @@ impl UserInterface for Store {
                 })
             }
             Some(user) => {
-                if verifiers.is_signup {
+                if signin_data.is_signup {
                     bail!(StoreError::OauthError("User already exists".into()))
                 }
 

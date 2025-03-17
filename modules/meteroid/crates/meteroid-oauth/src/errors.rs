@@ -4,4 +4,6 @@ pub enum OauthServiceError {
     ProviderApi(String),
     #[error("User email not verified")]
     UserEmailNotVerified,
+    #[error("User info operation not supported")]
+    UserInfoNotSupported,
 }

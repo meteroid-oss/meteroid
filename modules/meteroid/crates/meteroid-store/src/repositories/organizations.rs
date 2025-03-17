@@ -148,6 +148,7 @@ impl OrganizationsInterface for Store {
             instance_initiated,
             skip_email_validation: self.settings.skip_email_validation,
             google_oauth_client_id: self.oauth.client_id(OauthProvider::Google),
+            hubspot_oauth_client_id: self.oauth.client_id(OauthProvider::Hubspot),
         })
     }
 

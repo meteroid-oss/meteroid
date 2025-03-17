@@ -525,9 +525,8 @@ diesel::table! {
         id -> Uuid,
         csrf_token -> Text,
         pkce_verifier -> Text,
-        is_signup -> Bool,
-        invite_key -> Nullable<Text>,
         created_at -> Timestamp,
+        data -> Nullable<Jsonb>,
     }
 }
 

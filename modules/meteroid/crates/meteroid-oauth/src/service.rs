@@ -1,7 +1,7 @@
 /// Inspired by https://github.com/mpiorowski/rusve/service-auth
 use crate::errors::OauthServiceError;
 
-use crate::model::{CallbackUrl, OAuthUser, OauthProvider};
+use crate::model::{CallbackUrl, OAuthTokens, OAuthUser, OauthProvider};
 use async_trait::async_trait;
 use error_stack::{ResultExt, bail};
 use oauth2::basic::{
@@ -10,8 +10,7 @@ use oauth2::basic::{
 };
 use oauth2::{
     AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet,
-    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, Scope, StandardRevocableToken, TokenResponse,
-    TokenUrl,
+    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, Scope, StandardRevocableToken, TokenUrl,
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
@@ -34,6 +33,13 @@ pub trait OauthService: Send + Sync {
     fn client_id(&self) -> String;
 
     fn callback_url(&self) -> CallbackUrl;
+
+    async fn exchange_code(
+        &self,
+        auth_code: SecretString,
+        pkce_code_verifier: SecretString,
+    ) -> error_stack::Result<OAuthTokens, OauthServiceError>;
+
     async fn get_user_info(
         &self,
         auth_code: SecretString,
@@ -44,25 +50,27 @@ pub trait OauthService: Send + Sync {
 #[derive(Clone)]
 pub struct OauthServices {
     google: Option<Arc<dyn OauthService>>,
+    hubspot: Option<Arc<dyn OauthService>>,
 }
 
 impl OauthServices {
     pub fn new(config: crate::config::OauthConfig) -> Self {
         Self {
-            google: OauthServiceImpl::google(config),
+            google: OauthServiceImpl::google(&config),
+            hubspot: OauthServiceImpl::hubspot(&config),
         }
     }
 
     pub fn for_provider(&self, provider: OauthProvider) -> Option<Arc<dyn OauthService>> {
         match provider {
             OauthProvider::Google => self.google.clone(),
+            OauthProvider::Hubspot => self.hubspot.clone(),
         }
     }
 
     pub fn client_id(&self, provider: OauthProvider) -> Option<String> {
-        match provider {
-            OauthProvider::Google => self.google.as_ref().map(|google| google.client_id()),
-        }
+        self.for_provider(provider)
+            .map(|provider| provider.client_id())
     }
 }
 
@@ -72,10 +80,11 @@ struct OauthServiceImpl {
 }
 
 impl OauthServiceImpl {
-    fn google(config: crate::config::OauthConfig) -> Option<Arc<dyn OauthService>> {
-        if let (Some(client_id), Some(client_secret)) =
-            (config.google.client_id, config.google.client_secret)
-        {
+    fn google(config: &crate::config::OauthConfig) -> Option<Arc<dyn OauthService>> {
+        if let (Some(client_id), Some(client_secret)) = (
+            config.google.client_id.as_ref(),
+            config.google.client_secret.as_ref(),
+        ) {
             Some(Arc::new(Self {
                 config: crate::model::OauthProviderConfig {
                     provider: OauthProvider::Google,
@@ -84,18 +93,54 @@ impl OauthServiceImpl {
                     auth_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
                     token_url: "https://www.googleapis.com/oauth2/v3/token".to_string(),
                     callback_url: format!("{}/oauth-callback/google", config.public_url.as_str()),
-                    user_info_url: "https://www.googleapis.com/oauth2/v3/userinfo".to_string(),
+                    user_info_url: Some(
+                        "https://www.googleapis.com/oauth2/v3/userinfo".to_string(),
+                    ),
                     scopes: vec!["email".to_string(), "openid".to_string()],
                 },
-                http_client: reqwest::ClientBuilder::new()
-                    // Following redirects opens the client up to SSRF vulnerabilities.
-                    .redirect(reqwest::redirect::Policy::none())
-                    .build()
-                    .expect("Client should build"),
+                http_client: Self::http_client(),
             }))
         } else {
             None
         }
+    }
+
+    fn hubspot(config: &crate::config::OauthConfig) -> Option<Arc<dyn OauthService>> {
+        if let (Some(client_id), Some(client_secret)) = (
+            config.hubspot.client_id.as_ref(),
+            config.hubspot.client_secret.as_ref(),
+        ) {
+            Some(Arc::new(Self {
+                config: crate::model::OauthProviderConfig {
+                    provider: OauthProvider::Hubspot,
+                    client_id: client_id.expose_secret().to_owned(),
+                    client_secret: client_secret.expose_secret().to_owned(),
+                    auth_url: "https://app.hubspot.com/oauth/authorize".to_owned(),
+                    token_url: "https://api.hubapi.com/oauth/v1/token".to_string(),
+                    callback_url: format!("{}/oauth-callback/hubspot", config.public_url.as_str()),
+                    user_info_url: None,
+                    scopes: vec![
+                        "crm.objects.deals.read".to_owned(),
+                        "crm.objects.deals.write".to_owned(),
+                        "crm.objects.contacts.read".to_owned(),
+                        "crm.objects.contacts.write".to_owned(),
+                        "crm.objects.companies.read".to_owned(),
+                        "crm.objects.companies.write".to_owned(),
+                    ],
+                },
+                http_client: Self::http_client(),
+            }))
+        } else {
+            None
+        }
+    }
+
+    fn http_client() -> reqwest::Client {
+        reqwest::ClientBuilder::new()
+            // Following redirects opens the client up to SSRF vulnerabilities.
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("Client should build")
     }
 
     fn oauth_basic_client(&self) -> Oauth2BasicClient {
@@ -115,14 +160,23 @@ impl OauthServiceImpl {
 
     async fn get_user_info(
         &self,
-        token: &str,
+        token: SecretString,
     ) -> error_stack::Result<OAuthUser, OauthServiceError> {
         match self.config.provider {
             OauthProvider::Google => {
+                let url = self
+                    .config
+                    .user_info_url
+                    .as_ref()
+                    .ok_or(OauthServiceError::UserInfoNotSupported)?;
+
                 let user_profile = self
                     .http_client
-                    .get(&self.config.user_info_url)
-                    .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token))
+                    .get(url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", token.expose_secret()),
+                    )
                     .send()
                     .await
                     .change_context(OauthServiceError::ProviderApi(
@@ -145,6 +199,9 @@ impl OauthServiceImpl {
                     email: user_profile.email,
                     sub: user_profile.sub,
                 })
+            }
+            OauthProvider::Hubspot => {
+                bail!(OauthServiceError::UserInfoNotSupported)
             }
         }
     }
@@ -179,14 +236,14 @@ impl OauthService for OauthServiceImpl {
         }
     }
 
-    async fn get_user_info(
+    async fn exchange_code(
         &self,
         auth_code: SecretString,
         pkce_code_verifier: SecretString,
-    ) -> error_stack::Result<OAuthUser, OauthServiceError> {
+    ) -> error_stack::Result<OAuthTokens, OauthServiceError> {
         let client = self.oauth_basic_client();
 
-        let token = client
+        client
             .exchange_code(AuthorizationCode::new(auth_code.expose_secret().to_owned()))
             .set_pkce_verifier(PkceCodeVerifier::new(
                 pkce_code_verifier.expose_secret().to_owned(),
@@ -195,9 +252,18 @@ impl OauthService for OauthServiceImpl {
             .await
             .change_context(OauthServiceError::ProviderApi(
                 "Failed to exchange code".into(),
-            ))?;
+            ))
+            .map(From::from)
+    }
 
-        self.get_user_info(token.access_token().secret()).await
+    async fn get_user_info(
+        &self,
+        auth_code: SecretString,
+        pkce_code_verifier: SecretString,
+    ) -> error_stack::Result<OAuthUser, OauthServiceError> {
+        let tokens = self.exchange_code(auth_code, pkce_code_verifier).await?;
+
+        self.get_user_info(tokens.access_token).await
     }
 }
 
@@ -214,6 +280,10 @@ mod tests {
         let srv = OauthServices::new(OauthConfig {
             public_url: "http://localhost:8080".to_string(),
             google: crate::config::GoogleOauthConfig {
+                client_id: Some(SecretString::from_str("client_id").unwrap()),
+                client_secret: Some(SecretString::from_str("client_secret").unwrap()),
+            },
+            hubspot: crate::config::HubspotOauthConfig {
                 client_id: Some(SecretString::from_str("client_id").unwrap()),
                 client_secret: Some(SecretString::from_str("client_secret").unwrap()),
             },

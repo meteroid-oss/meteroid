@@ -36,12 +36,18 @@ pub struct StripePublicData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProviderSensitiveData {
     Stripe(StripeSensitiveData),
+    Hubspot(HubspotSensitiveData),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StripeSensitiveData {
     pub api_secret_key: String,
     pub webhook_secret: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HubspotSensitiveData {
+    pub refresh_token: String,
 }
 
 impl Connector {
