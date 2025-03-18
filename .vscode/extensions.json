@@ -1,5 +1,0 @@
-{
-  "recommendations": [
-    "ajmnz.prisma-import", // Plugin allowing the split of prisma schema into multiple files
-  ]
-}

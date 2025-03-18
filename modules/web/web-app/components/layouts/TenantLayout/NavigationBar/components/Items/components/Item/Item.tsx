@@ -11,7 +11,7 @@ const Item: FunctionComponent<NavigationItemType> = ({ to, end, icon, label }) =
     <li className="w-full">
       <Tooltip delayDuration={0}>
         <TooltipTrigger style={{ width: '100%' }}>
-          <ItemLink to={to} end={end} onClick={onClick} unstable_viewTransition>
+          <ItemLink to={to} end={end} onClick={onClick} viewTransition>
             {icon}
           </ItemLink>
         </TooltipTrigger>
