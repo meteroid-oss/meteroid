@@ -179,6 +179,8 @@ export function getPreprocessorByZodType(
     case TypeName.ZodDiscriminatedUnion:
     case TypeName.ZodNaN:
     case TypeName.ZodPipeline:
+    case TypeName.ZodSymbol:
+    case TypeName.ZodReadonly:
       throw new Error(
         `Zod type not supported: ${typeName}. Add the implementation in @md/common/env`
       )

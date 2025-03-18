@@ -1,4 +1,4 @@
-import { cn, Badge } from '@md/ui'
+import { Badge, cn } from '@md/ui'
 import { NavLink } from 'react-router-dom'
 
 import type { FunctionComponent, ReactNode } from 'react'
@@ -49,7 +49,7 @@ const ItemLink = ({
 const Item: FunctionComponent<ItemProps> = ({ label, to, end, disabled, soon = false }) => {
   return (
     <li className={cn('block w-full', disabled && 'pointer-events-none')}>
-      <NavLink to={to} end={end} unstable_viewTransition>
+      <NavLink to={to} end={end} viewTransition>
         {({ isActive }) => (
           <ItemLink isActive={isActive} disabled={disabled} soon={soon}>
             {label}

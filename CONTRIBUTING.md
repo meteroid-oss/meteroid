@@ -108,7 +108,7 @@ missing.
 
 - Start the database and api ;
 
-`docker compose -f docker/develop/for-frontends/docker-compose-light.yml --env-file .env up`
+`docker compose -f docker/develop/for-frontends/docker-compose-lite.yml --env-file .env up`
 
 - Start the frontend
 

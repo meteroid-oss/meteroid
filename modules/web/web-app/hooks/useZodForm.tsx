@@ -29,7 +29,7 @@ export function useZodForm<TSchema extends z.Schema<any, any>>(
 export interface Methods<TSchema extends z.Schema<any, any>>
   extends UseFormReturn<z.TypeOf<TSchema>, any, z.TypeOf<TSchema>> {
   withControl: (name: FieldPath<z.TypeOf<TSchema>>) => {
-    control: Control<z.TypeOf<TSchema>, any, z.TypeOf<TSchema>>
+    control: Control<z.TypeOf<TSchema>, any>
     name: FieldPath<z.TypeOf<TSchema>>
   }
   withError: (name: FieldPath<z.TypeOf<TSchema>>) => { error: string | undefined }

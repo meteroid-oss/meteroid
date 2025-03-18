@@ -8,13 +8,11 @@ spec:
   replicas: {{ .Values.web.replicaCount }}
   selector:
     matchLabels:
-      {{- include "meteroid.selectorLabels" . | nindent 6 }}
-      component: web
+      {{- include "meteroid.webSelectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "meteroid.selectorLabels" . | nindent 8 }}
-        component: web
+        {{- include "meteroid.webSelectorLabels" . | nindent 8 }}
     spec:
       containers:
         - name: {{ .Chart.Name }}-web
