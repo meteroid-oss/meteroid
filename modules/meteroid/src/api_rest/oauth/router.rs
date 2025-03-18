@@ -1,5 +1,6 @@
 use crate::api_rest::AppState;
 use crate::config::Config;
+use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use fang::Deserialize;
@@ -53,27 +54,32 @@ pub async fn callback(
     Path(provider): Path<OauthProvider>,
     Query(params): Query<CallbackParams>,
     State(app_state): State<AppState>,
-) -> Redirect {
+) -> Result<Redirect, RestApiError> {
     match provider {
-        OauthProvider::Google => signin_callback(provider, params, app_state).await,
+        OauthProvider::Google => Ok(signin_callback(provider, params, app_state).await),
         OauthProvider::Hubspot => hubspot_connect_callback(params, app_state).await,
     }
 }
 
-async fn hubspot_connect_callback(params: CallbackParams, app_state: AppState) -> Redirect {
-    let connector = app_state
+async fn hubspot_connect_callback(
+    params: CallbackParams,
+    app_state: AppState,
+) -> Result<Redirect, RestApiError> {
+    let connected = app_state
         .store
         .connect_hubspot(params.code.into(), params.state.into())
         .await;
 
-    // todo: fix the redirects by storing the referrer in the state
-    match connector {
-        Ok(_) => {
-            Redirect::to(signin_success_url(&SecretString::new("hubspot".to_owned())).as_str())
+    match connected {
+        Ok(conn) => {
+            let mut referer = conn.referer;
+            referer.query_pairs_mut().append_pair("success", "true");
+
+            Ok(Redirect::to(referer.as_str()))
         }
         Err(e) => {
             log::warn!("Error connecting Hubspot: {}", e);
-            Redirect::to(signin_error_url(3).as_str())
+            Err(RestApiError::from(e))
         }
     }
 }

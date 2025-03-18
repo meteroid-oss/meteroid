@@ -1,4 +1,5 @@
 use crate::crypt::encrypt;
+use crate::domain::connectors::ConnectorMeta;
 use crate::errors::StoreError;
 use crate::{StoreResult, json_value_serde};
 use chrono::Utc;
@@ -8,6 +9,7 @@ use error_stack::ResultExt;
 use meteroid_oauth::model::{OAuthTokens, OAuthUser};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use url::Url;
 use uuid::Uuid;
 
 pub struct OauthVerifier {
@@ -62,6 +64,7 @@ pub struct SignInData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrmData {
     pub tenant_id: TenantId,
+    pub referer: Url,
 }
 
 json_value_serde!(OauthVerifierData);
@@ -74,4 +77,9 @@ pub struct OauthUser {
 pub struct OauthTokens {
     pub tokens: OAuthTokens,
     pub verifier_data: OauthVerifierData,
+}
+
+pub struct OauthConnected {
+    pub connector: ConnectorMeta,
+    pub referer: Url,
 }

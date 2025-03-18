@@ -3,7 +3,7 @@ use crate::domain::connectors::{
     ProviderSensitiveData, StripePublicData, StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
-use crate::domain::oauth::{OauthTokens, OauthVerifierData};
+use crate::domain::oauth::{OauthConnected, OauthTokens, OauthVerifierData};
 use crate::errors::StoreError;
 use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
@@ -48,7 +48,7 @@ pub trait ConnectorsInterface {
         &self,
         oauth_code: SecretString,
         oauth_state: SecretString,
-    ) -> StoreResult<ConnectorMeta>;
+    ) -> StoreResult<OauthConnected>;
 }
 
 #[async_trait::async_trait]
@@ -154,7 +154,7 @@ impl ConnectorsInterface for Store {
         &self,
         oauth_code: SecretString,
         oauth_state: SecretString,
-    ) -> StoreResult<ConnectorMeta> {
+    ) -> StoreResult<OauthConnected> {
         let OauthTokens {
             tokens,
             verifier_data,
@@ -162,8 +162,8 @@ impl ConnectorsInterface for Store {
             .oauth_exchange_code(OauthProvider::Hubspot, oauth_code, oauth_state)
             .await?;
 
-        let tenant_id = match verifier_data {
-            OauthVerifierData::Crm(data) => data.tenant_id,
+        let crm_data = match verifier_data {
+            OauthVerifierData::Crm(data) => data,
             _ => {
                 bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
             }
@@ -176,7 +176,7 @@ impl ConnectorsInterface for Store {
         let mut conn = self.get_conn().await?;
 
         let row: ConnectorRowNew = ConnectorNew {
-            tenant_id,
+            tenant_id: crm_data.tenant_id,
             alias: "hubspot".to_owned(),
             connector_type: ConnectorTypeEnum::Crm,
             provider: ConnectorProviderEnum::Hubspot,
@@ -192,6 +192,9 @@ impl ConnectorsInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(res.into())
+        Ok(OauthConnected {
+            connector: res.into(),
+            referer: crm_data.referer,
+        })
     }
 }
