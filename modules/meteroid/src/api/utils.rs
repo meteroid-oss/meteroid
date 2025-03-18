@@ -1,6 +1,6 @@
-use tonic::Status;
-
 use common_grpc::meteroid::common::v1::{Pagination, PaginationResponse};
+use tonic::{Request, Status};
+use url::Url;
 
 pub mod uuid_gen {
     pub fn v7() -> uuid::Uuid {
@@ -37,6 +37,17 @@ pub fn parse_uuid_opt(
         }
         _ => Ok(None),
     }
+}
+
+pub fn parse_referer<T>(request: &Request<T>) -> Result<Url, Status> {
+    request
+        .metadata()
+        .get("referer")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| Url::parse(v).ok())
+        .ok_or(Status::invalid_argument(
+            "Referer header is missing or is an invalid url",
+        ))
 }
 
 pub trait PaginationExt {

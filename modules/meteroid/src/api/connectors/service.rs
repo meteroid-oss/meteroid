@@ -1,5 +1,6 @@
 use crate::api::connectors::error::ConnectorApiError;
 use crate::api::connectors::{ConnectorsServiceComponents, mapping};
+use crate::api::utils::parse_referer;
 use crate::{api::utils::parse_uuid, parse_uuid};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
@@ -105,11 +106,13 @@ impl ConnectorsService for ConnectorsServiceComponents {
     ) -> Result<Response<ConnectHubspotResponse>, Status> {
         let tenant_id = request.tenant()?;
 
+        let referer = parse_referer(&request)?;
+
         let url = self
             .store
             .oauth_auth_provider_url(
                 OauthProvider::Hubspot,
-                OauthVerifierData::Crm(CrmData { tenant_id }),
+                OauthVerifierData::Crm(CrmData { tenant_id, referer }),
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
