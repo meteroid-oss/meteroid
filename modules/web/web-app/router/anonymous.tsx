@@ -54,33 +54,5 @@ export const anonymousRoutes: RouteObject = {
         },
       ],
     },
-    {
-      path: '/login',
-      element: <Login />,
-    },
-    {
-      path: '/registration',
-      element: <Registration />,
-    },
-    {
-      path: '/validate-email',
-      element: <ValidateEmail />,
-    },
-    {
-      path: '/check-inbox',
-      element: <CheckInbox />,
-    },
-    {
-      path: '/forgot-password',
-      element: <ForgotPassword />,
-    },
-    {
-      path: '/check-inbox-password',
-      element: <CheckInboxPassword />,
-    },
-    {
-      path: '/reset-password',
-      element: <ResetPassword />,
-    },
   ],
 }
