@@ -38,7 +38,7 @@ pub struct OauthProviderConfig {
 }
 
 #[derive(Clone)]
-pub struct CallbackUrl {
+pub struct AuthorizeUrl {
     pub url: SecretString,
     pub csrf_token: SecretString,
     pub pkce_verifier: SecretString,

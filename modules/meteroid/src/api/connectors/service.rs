@@ -110,7 +110,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         let url = self
             .store
-            .oauth_auth_provider_url(
+            .oauth_auth_url(
                 OauthProvider::Hubspot,
                 OauthVerifierData::Crm(CrmData { tenant_id, referer }),
             )
