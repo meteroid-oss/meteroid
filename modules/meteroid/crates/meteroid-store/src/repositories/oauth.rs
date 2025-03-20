@@ -30,6 +30,12 @@ pub trait OauthInterface {
         code: SecretString,
         state: SecretString,
     ) -> StoreResult<OauthTokens>;
+
+    async fn oauth_exchange_refresh_token(
+        &self,
+        provider: OauthProvider,
+        refresh_token: SecretString,
+    ) -> StoreResult<SecretString>;
 }
 
 #[async_trait]
@@ -112,6 +118,23 @@ impl OauthInterface for Store {
             tokens,
             verifier_data: verifiers.data,
         })
+    }
+
+    async fn oauth_exchange_refresh_token(
+        &self,
+        provider: OauthProvider,
+        refresh_token: SecretString,
+    ) -> StoreResult<SecretString> {
+        self.oauth
+            .for_provider(provider)
+            .ok_or(Report::new(StoreError::OauthError(
+                "Provider not configured".to_string(),
+            )))?
+            .exchange_refresh_token(refresh_token)
+            .await
+            .change_context(StoreError::OauthError(
+                "Failed to exchange refresh token".to_owned(),
+            ))
     }
 }
 

@@ -10,7 +10,8 @@ use oauth2::basic::{
 };
 use oauth2::{
     AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet,
-    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, Scope, StandardRevocableToken, TokenUrl,
+    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, RefreshToken, Scope, StandardRevocableToken,
+    TokenResponse, TokenUrl,
 };
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
@@ -39,6 +40,11 @@ pub trait OauthService: Send + Sync {
         auth_code: SecretString,
         pkce_code_verifier: SecretString,
     ) -> error_stack::Result<OAuthTokens, OauthServiceError>;
+
+    async fn exchange_refresh_token(
+        &self,
+        refresh_token: SecretString,
+    ) -> error_stack::Result<SecretString, OauthServiceError>;
 
     async fn get_user_info(
         &self,
@@ -254,6 +260,25 @@ impl OauthService for OauthServiceImpl {
                 "Failed to exchange code".into(),
             ))
             .map(From::from)
+    }
+
+    async fn exchange_refresh_token(
+        &self,
+        refresh_token: SecretString,
+    ) -> error_stack::Result<SecretString, OauthServiceError> {
+        let client = self.oauth_basic_client();
+
+        let response = client
+            .exchange_refresh_token(&RefreshToken::new(refresh_token.expose_secret().to_owned()))
+            .request_async(&self.http_client)
+            .await
+            .change_context(OauthServiceError::ProviderApi(
+                "Failed to exchange refresh_token".into(),
+            ))?;
+
+        Ok(SecretString::new(
+            response.access_token().secret().to_owned(),
+        ))
     }
 
     async fn get_user_info(

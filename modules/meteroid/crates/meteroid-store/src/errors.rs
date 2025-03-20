@@ -50,10 +50,12 @@ pub enum StoreError {
     MailServiceError,
     #[error("Error received from payment provider")]
     PaymentProviderError,
-    #[error("Failed to signup with OAuth: {0}")]
+    #[error("OAuth failure: {0}")]
     OauthError(String),
     #[error("Checkout could not complete")]
     CheckoutError,
+    #[error("Provider is not connected")]
+    ProviderNotConnected,
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862
