@@ -94,6 +94,7 @@ impl ConnectorRow {
         conn: &mut PgConn,
         tenant_uid: TenantId,
         connector_type_filter: Option<crate::enums::ConnectorTypeEnum>,
+        provider_filter: Option<crate::enums::ConnectorProviderEnum>,
     ) -> DbResult<Vec<ConnectorRow>> {
         use crate::schema::connector::dsl::*;
         use diesel_async::RunQueryDsl;
@@ -102,6 +103,10 @@ impl ConnectorRow {
 
         if let Some(ct) = connector_type_filter {
             query = query.filter(connector_type.eq(ct));
+        }
+
+        if let Some(cp) = provider_filter {
+            query = query.filter(provider.eq(cp));
         }
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());

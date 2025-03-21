@@ -31,7 +31,7 @@ pub async fn redirect_to_identity_provider(
 ) -> Redirect {
     let callback_url_res = app_state
         .store
-        .oauth_auth_provider_url(
+        .oauth_auth_url(
             provider,
             OauthVerifierData::SignIn(SignInData {
                 is_signup: params.is_signup,

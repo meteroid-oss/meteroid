@@ -49,6 +49,8 @@ pub trait ConnectorsInterface {
         oauth_code: SecretString,
         oauth_state: SecretString,
     ) -> StoreResult<OauthConnected>;
+
+    async fn get_hubspot_access_token(&self, tenant_id: TenantId) -> StoreResult<SecretString>;
 }
 
 #[async_trait::async_trait]
@@ -64,6 +66,7 @@ impl ConnectorsInterface for Store {
             &mut conn,
             tenant_id,
             connector_type_filter.map(Into::into),
+            None,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -196,5 +199,39 @@ impl ConnectorsInterface for Store {
             connector: res.into(),
             referer: crm_data.referer,
         })
+    }
+
+    async fn get_hubspot_access_token(&self, tenant_id: TenantId) -> StoreResult<SecretString> {
+        let mut conn = self.get_conn().await?;
+
+        let mut rows = ConnectorRow::list_connectors(
+            &mut conn,
+            tenant_id,
+            Some(ConnectorTypeEnum::Crm.into()),
+            Some(ConnectorProviderEnum::Hubspot.into()),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        if rows.is_empty() {
+            bail!(StoreError::ProviderNotConnected)
+        }
+
+        let connector = Connector::from_row(&self.settings.crypt_key, rows.remove(0))?;
+
+        let refresh_token = match connector.sensitive {
+            None => bail!(StoreError::InvalidArgument(
+                "Misconfigured hubspot connector".to_string(),
+            )),
+            Some(sensitive) => match sensitive {
+                ProviderSensitiveData::Hubspot(data) => SecretString::new(data.refresh_token),
+                _ => bail!(StoreError::InvalidArgument(
+                    "Misconfigured hubspot connector".to_string(),
+                )),
+            },
+        };
+
+        self.oauth_exchange_refresh_token(OauthProvider::Hubspot, refresh_token)
+            .await
     }
 }

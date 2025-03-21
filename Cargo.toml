@@ -94,7 +94,7 @@ maud = "0.27.0"
 moka = { version = "0.12.3", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
 ndarray = "0.16.1"
-ndarray-interp = { git = "https://github.com/jonasBoss/ndarray-interp", rev = "a31b3ea48e478424fee653f86367475bb65afded" }
+ndarray-interp = { version = "0.5.0" }
 nonzero_ext = { version = "0.3.0", default-features = false }
 oauth2 = "5.0.0"
 o2o = "0.5.3"

@@ -11,7 +11,7 @@ use std::ops::Add;
 
 #[async_trait]
 pub trait OauthInterface {
-    async fn oauth_auth_provider_url(
+    async fn oauth_auth_url(
         &self,
         provider: OauthProvider,
         data: OauthVerifierData,
@@ -30,26 +30,32 @@ pub trait OauthInterface {
         code: SecretString,
         state: SecretString,
     ) -> StoreResult<OauthTokens>;
+
+    async fn oauth_exchange_refresh_token(
+        &self,
+        provider: OauthProvider,
+        refresh_token: SecretString,
+    ) -> StoreResult<SecretString>;
 }
 
 #[async_trait]
 impl OauthInterface for Store {
-    async fn oauth_auth_provider_url(
+    async fn oauth_auth_url(
         &self,
         provider: OauthProvider,
         data: OauthVerifierData,
     ) -> StoreResult<SecretString> {
-        let callback_url = self
+        let auth_url = self
             .oauth
             .for_provider(provider)
             .ok_or(Report::new(StoreError::OauthError(
                 "Provider not configured".to_string(),
             )))?
-            .callback_url();
+            .authorize_url();
 
         let verifier = OauthVerifier {
-            csrf_token: callback_url.csrf_token,
-            pkce_verifier: callback_url.pkce_verifier,
+            csrf_token: auth_url.csrf_token,
+            pkce_verifier: auth_url.pkce_verifier,
             data,
         };
 
@@ -61,7 +67,7 @@ impl OauthInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(callback_url.url)
+        Ok(auth_url.url)
     }
 
     async fn oauth_get_user(
@@ -72,13 +78,22 @@ impl OauthInterface for Store {
     ) -> StoreResult<OauthUser> {
         let verifiers = get_verifier(self, state).await?;
 
-        let user = self
+        let srv = self
             .oauth
             .for_provider(provider)
             .ok_or(Report::new(StoreError::OauthError(
                 "Provider not configured".to_string(),
-            )))?
-            .get_user_info(code, verifiers.pkce_verifier)
+            )))?;
+
+        let tokens = srv
+            .exchange_code(code, verifiers.pkce_verifier)
+            .await
+            .change_context(StoreError::OauthError(
+                "Failed to exchange auth code".to_owned(),
+            ))?;
+
+        let user = srv
+            .get_user_info(tokens.access_token)
             .await
             .change_context(StoreError::OauthError(
                 "Failed to fetch oauth user".to_owned(),
@@ -112,6 +127,23 @@ impl OauthInterface for Store {
             tokens,
             verifier_data: verifiers.data,
         })
+    }
+
+    async fn oauth_exchange_refresh_token(
+        &self,
+        provider: OauthProvider,
+        refresh_token: SecretString,
+    ) -> StoreResult<SecretString> {
+        self.oauth
+            .for_provider(provider)
+            .ok_or(Report::new(StoreError::OauthError(
+                "Provider not configured".to_string(),
+            )))?
+            .exchange_refresh_token(refresh_token)
+            .await
+            .change_context(StoreError::OauthError(
+                "Failed to exchange refresh token".to_owned(),
+            ))
     }
 }
 

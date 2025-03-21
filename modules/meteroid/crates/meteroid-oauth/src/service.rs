@@ -1,38 +1,51 @@
 /// Inspired by https://github.com/mpiorowski/rusve/service-auth
 use crate::errors::OauthServiceError;
+use std::fmt::{Display, Formatter};
 
-use crate::model::{CallbackUrl, OAuthTokens, OAuthUser, OauthProvider};
+use crate::model::{AuthorizeUrl, OAuthTokens, OAuthUser, OauthProvider};
 use async_trait::async_trait;
 use error_stack::{ResultExt, bail};
 use oauth2::basic::{
-    BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
+    BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
     BasicTokenResponse,
 };
 use oauth2::{
-    AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet,
-    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, Scope, StandardRevocableToken, TokenUrl,
+    AuthType, AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken,
+    EndpointNotSet, EndpointSet, ErrorResponse, PkceCodeChallenge, PkceCodeVerifier, RefreshToken,
+    Scope, StandardRevocableToken, TokenResponse, TokenUrl,
 };
 use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-type Oauth2BasicClient = Client<
-    BasicErrorResponse,
+pub type BasicClient<
+    BER = BasicErrorResponse,
+    HasAuthUrl = EndpointNotSet,
+    HasDeviceAuthUrl = EndpointNotSet,
+    HasIntrospectionUrl = EndpointNotSet,
+    HasRevocationUrl = EndpointNotSet,
+    HasTokenUrl = EndpointNotSet,
+> = Client<
+    BER,
     BasicTokenResponse,
     BasicTokenIntrospectionResponse,
     StandardRevocableToken,
     BasicRevocationErrorResponse,
-    EndpointSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointSet,
+    HasAuthUrl,
+    HasDeviceAuthUrl,
+    HasIntrospectionUrl,
+    HasRevocationUrl,
+    HasTokenUrl,
 >;
+
+type Oauth2BasicClient<BER> =
+    BasicClient<BER, EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 
 #[async_trait]
 pub trait OauthService: Send + Sync {
     fn client_id(&self) -> String;
 
-    fn callback_url(&self) -> CallbackUrl;
+    fn authorize_url(&self) -> AuthorizeUrl;
 
     async fn exchange_code(
         &self,
@@ -40,10 +53,14 @@ pub trait OauthService: Send + Sync {
         pkce_code_verifier: SecretString,
     ) -> error_stack::Result<OAuthTokens, OauthServiceError>;
 
+    async fn exchange_refresh_token(
+        &self,
+        refresh_token: SecretString,
+    ) -> error_stack::Result<SecretString, OauthServiceError>;
+
     async fn get_user_info(
         &self,
-        auth_code: SecretString,
-        pkce_code_verifier: SecretString,
+        access_token: SecretString,
     ) -> error_stack::Result<OAuthUser, OauthServiceError>;
 }
 
@@ -56,8 +73,8 @@ pub struct OauthServices {
 impl OauthServices {
     pub fn new(config: crate::config::OauthConfig) -> Self {
         Self {
-            google: OauthServiceImpl::google(&config),
-            hubspot: OauthServiceImpl::hubspot(&config),
+            google: Self::google(&config),
+            hubspot: Self::hubspot(&config),
         }
     }
 
@@ -72,33 +89,26 @@ impl OauthServices {
         self.for_provider(provider)
             .map(|provider| provider.client_id())
     }
-}
 
-struct OauthServiceImpl {
-    config: crate::model::OauthProviderConfig,
-    http_client: reqwest::Client,
-}
-
-impl OauthServiceImpl {
     fn google(config: &crate::config::OauthConfig) -> Option<Arc<dyn OauthService>> {
         if let (Some(client_id), Some(client_secret)) = (
             config.google.client_id.as_ref(),
             config.google.client_secret.as_ref(),
         ) {
-            Some(Arc::new(Self {
-                config: crate::model::OauthProviderConfig {
-                    provider: OauthProvider::Google,
-                    client_id: client_id.expose_secret().to_owned(),
-                    client_secret: client_secret.expose_secret().to_owned(),
-                    auth_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
-                    token_url: "https://www.googleapis.com/oauth2/v3/token".to_string(),
-                    callback_url: format!("{}/oauth-callback/google", config.public_url.as_str()),
-                    user_info_url: Some(
-                        "https://www.googleapis.com/oauth2/v3/userinfo".to_string(),
-                    ),
-                    scopes: vec!["email".to_string(), "openid".to_string()],
-                },
-                http_client: Self::http_client(),
+            let cfg = crate::model::OauthProviderConfig {
+                provider: OauthProvider::Google,
+                client_id: client_id.expose_secret().to_owned(),
+                client_secret: client_secret.expose_secret().to_owned(),
+                auth_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
+                token_url: "https://www.googleapis.com/oauth2/v3/token".to_string(),
+                callback_url: format!("{}/oauth-callback/google", config.public_url.as_str()),
+                user_info_url: Some("https://www.googleapis.com/oauth2/v3/userinfo".to_string()),
+                scopes: vec!["email".to_string(), "openid".to_string()],
+            };
+            Some(Arc::new(OauthServiceImpl::<BasicErrorResponse> {
+                oauth_client: OauthServiceImpl::oauth_basic_client(&cfg),
+                http_client: http_client(),
+                config: cfg,
             }))
         } else {
             None
@@ -110,57 +120,130 @@ impl OauthServiceImpl {
             config.hubspot.client_id.as_ref(),
             config.hubspot.client_secret.as_ref(),
         ) {
-            Some(Arc::new(Self {
-                config: crate::model::OauthProviderConfig {
-                    provider: OauthProvider::Hubspot,
-                    client_id: client_id.expose_secret().to_owned(),
-                    client_secret: client_secret.expose_secret().to_owned(),
-                    auth_url: "https://app.hubspot.com/oauth/authorize".to_owned(),
-                    token_url: "https://api.hubapi.com/oauth/v1/token".to_string(),
-                    callback_url: format!("{}/oauth-callback/hubspot", config.public_url.as_str()),
-                    user_info_url: None,
-                    scopes: vec![
-                        "crm.objects.deals.read".to_owned(),
-                        "crm.objects.deals.write".to_owned(),
-                        "crm.objects.contacts.read".to_owned(),
-                        "crm.objects.contacts.write".to_owned(),
-                        "crm.objects.companies.read".to_owned(),
-                        "crm.objects.companies.write".to_owned(),
-                    ],
-                },
-                http_client: Self::http_client(),
+            let cfg = crate::model::OauthProviderConfig {
+                provider: OauthProvider::Hubspot,
+                client_id: client_id.expose_secret().to_owned(),
+                client_secret: client_secret.expose_secret().to_owned(),
+                auth_url: "https://app.hubspot.com/oauth/authorize".to_owned(),
+                token_url: "https://api.hubapi.com/oauth/v1/token".to_string(),
+                callback_url: format!("{}/oauth-callback/hubspot", config.public_url.as_str()),
+                user_info_url: None,
+                scopes: vec![
+                    "oauth".to_owned(),
+                    "crm.objects.deals.read".to_owned(),
+                    "crm.objects.deals.write".to_owned(),
+                    "crm.objects.contacts.read".to_owned(),
+                    "crm.objects.contacts.write".to_owned(),
+                    "crm.objects.companies.read".to_owned(),
+                    "crm.objects.companies.write".to_owned(),
+                ],
+            };
+            Some(Arc::new(OauthServiceImpl::<HubspotErrorResponse> {
+                oauth_client: OauthServiceImpl::oauth_basic_client(&cfg),
+                http_client: http_client(),
+                config: cfg,
             }))
         } else {
             None
         }
     }
+}
 
-    fn http_client() -> reqwest::Client {
-        reqwest::ClientBuilder::new()
-            // Following redirects opens the client up to SSRF vulnerabilities.
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("Client should build")
-    }
+struct OauthServiceImpl<TER: ErrorResponse> {
+    config: crate::model::OauthProviderConfig,
+    http_client: reqwest::Client,
+    oauth_client: Oauth2BasicClient<TER>,
+}
 
-    fn oauth_basic_client(&self) -> Oauth2BasicClient {
-        let auth_url = AuthUrl::new(self.config.auth_url.to_owned())
-            .expect("Invalid authorization endpoint URL");
+impl<BER: ErrorResponse + 'static> OauthServiceImpl<BER> {
+    fn oauth_basic_client(config: &crate::model::OauthProviderConfig) -> Oauth2BasicClient<BER> {
+        let auth_url =
+            AuthUrl::new(config.auth_url.to_owned()).expect("Invalid authorization endpoint URL");
         let token_url =
-            TokenUrl::new(self.config.token_url.to_owned()).expect("Invalid token endpoint URL");
-        let redirect_url = oauth2::RedirectUrl::new(self.config.callback_url.to_owned())
-            .expect("Invalid redirect URL");
+            TokenUrl::new(config.token_url.to_owned()).expect("Invalid token endpoint URL");
+        let redirect_url =
+            oauth2::RedirectUrl::new(config.callback_url.to_owned()).expect("Invalid redirect URL");
 
-        BasicClient::new(ClientId::new(self.config.client_id.to_owned()))
-            .set_client_secret(ClientSecret::new(self.config.client_secret.to_owned()))
+        BasicClient::new(ClientId::new(config.client_id.to_owned()))
+            .set_client_secret(ClientSecret::new(config.client_secret.to_owned()))
             .set_auth_uri(auth_url)
             .set_token_uri(token_url)
             .set_redirect_uri(redirect_url)
+            .set_auth_type(AuthType::RequestBody)
+    }
+}
+
+#[async_trait]
+impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl<T> {
+    fn client_id(&self) -> String {
+        self.config.client_id.to_owned()
+    }
+
+    fn authorize_url(&self) -> AuthorizeUrl {
+        // Generate a PKCE challenge.
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+
+        // Generate the full authorization URL.
+        let client = &self.oauth_client;
+        let mut client = client
+            .authorize_url(CsrfToken::new_random)
+            .set_pkce_challenge(pkce_challenge);
+
+        for scope in &self.config.scopes {
+            client = client.add_scope(Scope::new(scope.to_owned()));
+        }
+
+        let (auth_url, csrf_token) = client.add_extra_param("access_type", "offline").url();
+
+        AuthorizeUrl {
+            url: SecretString::new(auth_url.to_string()),
+            csrf_token: SecretString::new(csrf_token.secret().to_owned()),
+            pkce_verifier: SecretString::new(pkce_verifier.secret().to_owned()),
+        }
+    }
+
+    async fn exchange_code(
+        &self,
+        auth_code: SecretString,
+        pkce_code_verifier: SecretString,
+    ) -> error_stack::Result<OAuthTokens, OauthServiceError> {
+        let client = &self.oauth_client;
+
+        client
+            .exchange_code(AuthorizationCode::new(auth_code.expose_secret().to_owned()))
+            .set_pkce_verifier(PkceCodeVerifier::new(
+                pkce_code_verifier.expose_secret().to_owned(),
+            ))
+            .request_async(&self.http_client)
+            .await
+            .change_context(OauthServiceError::ProviderApi(
+                "Failed to exchange code".into(),
+            ))
+            .map(From::from)
+    }
+
+    async fn exchange_refresh_token(
+        &self,
+        refresh_token: SecretString,
+    ) -> error_stack::Result<SecretString, OauthServiceError> {
+        let client = &self.oauth_client;
+
+        let response = client
+            .exchange_refresh_token(&RefreshToken::new(refresh_token.expose_secret().to_owned()))
+            .request_async(&self.http_client)
+            .await
+            .change_context(OauthServiceError::ProviderApi(
+                "Failed to exchange refresh_token".into(),
+            ))?;
+
+        Ok(SecretString::new(
+            response.access_token().secret().to_owned(),
+        ))
     }
 
     async fn get_user_info(
         &self,
-        token: SecretString,
+        access_token: SecretString,
     ) -> error_stack::Result<OAuthUser, OauthServiceError> {
         match self.config.provider {
             OauthProvider::Google => {
@@ -175,7 +258,7 @@ impl OauthServiceImpl {
                     .get(url)
                     .header(
                         reqwest::header::AUTHORIZATION,
-                        format!("Bearer {}", token.expose_secret()),
+                        format!("Bearer {}", access_token.expose_secret()),
                     )
                     .send()
                     .await
@@ -207,65 +290,29 @@ impl OauthServiceImpl {
     }
 }
 
-#[async_trait]
-impl OauthService for OauthServiceImpl {
-    fn client_id(&self) -> String {
-        self.config.client_id.to_owned()
-    }
+pub(crate) fn http_client() -> reqwest::Client {
+    reqwest::ClientBuilder::new()
+        // Following redirects opens the client up to SSRF vulnerabilities.
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("Client should build")
+}
 
-    fn callback_url(&self) -> CallbackUrl {
-        // Generate a PKCE challenge.
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct HubspotErrorResponse {
+    pub status: String,
+    pub message: String,
+    #[serde(rename = "correlationId")]
+    pub correlation_id: String,
+}
 
-        // Generate the full authorization URL.
-        let client = self.oauth_basic_client();
-        let mut client = client
-            .authorize_url(CsrfToken::new_random)
-            .set_pkce_challenge(pkce_challenge);
-
-        for scope in &self.config.scopes {
-            client = client.add_scope(Scope::new(scope.to_owned()));
-        }
-
-        let (auth_url, csrf_token) = client.add_extra_param("access_type", "offline").url();
-
-        CallbackUrl {
-            url: SecretString::new(auth_url.to_string()),
-            csrf_token: SecretString::new(csrf_token.secret().to_owned()),
-            pkce_verifier: SecretString::new(pkce_verifier.secret().to_owned()),
-        }
-    }
-
-    async fn exchange_code(
-        &self,
-        auth_code: SecretString,
-        pkce_code_verifier: SecretString,
-    ) -> error_stack::Result<OAuthTokens, OauthServiceError> {
-        let client = self.oauth_basic_client();
-
-        client
-            .exchange_code(AuthorizationCode::new(auth_code.expose_secret().to_owned()))
-            .set_pkce_verifier(PkceCodeVerifier::new(
-                pkce_code_verifier.expose_secret().to_owned(),
-            ))
-            .request_async(&self.http_client)
-            .await
-            .change_context(OauthServiceError::ProviderApi(
-                "Failed to exchange code".into(),
-            ))
-            .map(From::from)
-    }
-
-    async fn get_user_info(
-        &self,
-        auth_code: SecretString,
-        pkce_code_verifier: SecretString,
-    ) -> error_stack::Result<OAuthUser, OauthServiceError> {
-        let tokens = self.exchange_code(auth_code, pkce_code_verifier).await?;
-
-        self.get_user_info(tokens.access_token).await
+impl Display for HubspotErrorResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self)
     }
 }
+
+impl ErrorResponse for HubspotErrorResponse {}
 
 #[cfg(test)]
 mod tests {
@@ -276,7 +323,7 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test]
-    async fn test_signup_callback_url() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_authorize_url() -> Result<(), Box<dyn std::error::Error>> {
         let srv = OauthServices::new(OauthConfig {
             public_url: "http://localhost:8080".to_string(),
             google: crate::config::GoogleOauthConfig {
@@ -292,7 +339,8 @@ mod tests {
         let url = srv
             .for_provider(OauthProvider::Google)
             .unwrap()
-            .callback_url();
+            .authorize_url();
+
         let url = url.url.expose_secret();
 
         assert!(url.starts_with("https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=client_id&state="));
