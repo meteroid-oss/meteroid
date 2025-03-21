@@ -10,9 +10,9 @@ use oauth2::basic::{
     BasicTokenResponse,
 };
 use oauth2::{
-    AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet,
-    EndpointSet, ErrorResponse, PkceCodeChallenge, PkceCodeVerifier, RefreshToken, Scope,
-    StandardRevocableToken, TokenResponse, TokenUrl,
+    AuthType, AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken,
+    EndpointNotSet, EndpointSet, ErrorResponse, PkceCodeChallenge, PkceCodeVerifier, RefreshToken,
+    Scope, StandardRevocableToken, TokenResponse, TokenUrl,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -169,6 +169,7 @@ impl<BER: ErrorResponse + 'static> OauthServiceImpl<BER> {
             .set_auth_uri(auth_url)
             .set_token_uri(token_url)
             .set_redirect_uri(redirect_url)
+            .set_auth_type(AuthType::RequestBody)
     }
 }
 
@@ -322,7 +323,7 @@ mod tests {
     use std::str::FromStr;
 
     #[tokio::test]
-    async fn test_signup_callback_url() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_authorize_url() -> Result<(), Box<dyn std::error::Error>> {
         let srv = OauthServices::new(OauthConfig {
             public_url: "http://localhost:8080".to_string(),
             google: crate::config::GoogleOauthConfig {
