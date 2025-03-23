@@ -22,7 +22,7 @@ export const Registration: FunctionComponent = () => {
 
   if (data && data.instanceInitiated && !data.multiOrganizationEnabled && !invite) {
     return (
-      <div className="text-center">
+      <div className="text-center text-sm ">
         To join your organisation, request an invite link from your administrator
       </div>
     )

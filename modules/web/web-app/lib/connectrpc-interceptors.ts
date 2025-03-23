@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { matchRoutes } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -33,11 +34,33 @@ const errorInterceptorSkipError = [
   'ConnectError:',
 ]
 
+
+let isRedirecting = false;
+
 export const errorInterceptor: Interceptor = next => async req => {
   try {
     return await next(req)
   } catch (e) {
     const errorStr = String(e)
+
+    // logout in case of authentication error (wrong url, wrong token, etc)
+    if (e instanceof ConnectError) {
+      if (e.code === 16 && !isRedirecting) {
+        const sessionToken = getSessionToken()
+        if (sessionToken) {
+          toast.error("Authentication failed. Redirecting you to login page.")
+          isRedirecting = true;
+          setTimeout(() => {
+            setTimeout(() => {
+              isRedirecting = false;
+            }, 1000);
+            window.location.href = "/logout"
+          }, 2000)
+        }
+        throw e
+      }
+
+    }
 
     if (!errorInterceptorSkipError.some(s => errorStr.startsWith(s))) {
       toast.error(errorStr)

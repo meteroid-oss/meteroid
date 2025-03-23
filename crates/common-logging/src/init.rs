@@ -16,7 +16,7 @@ pub fn init_telemetry(config: &TelemetryConfig, service_name: &str) {
         log::info!("Tracing is enabled");
     } else {
         init_regular_logging();
-        log::info!("Tracing is disabled");
+        log::warn!("Tracing is disabled");
     }
 
     if config.metrics_enabled {
