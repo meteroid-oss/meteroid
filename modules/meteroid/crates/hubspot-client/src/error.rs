@@ -2,7 +2,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum HubspotError {
-    #[error("error communicating with stripe: {0}")]
+    #[error("error communicating with Hubspot: {0}")]
     ClientError(String),
 }
 
