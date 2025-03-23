@@ -17,8 +17,9 @@ pub struct InvoiceServiceComponents {
 pub fn service(
     store: Store,
     jwt_secret: SecretString,
+    rest_api_external_url: String,
 ) -> InvoicesServiceServer<InvoiceServiceComponents> {
-    let html_rendering = HtmlRenderingService::new(Arc::new(store.clone()));
+    let html_rendering = HtmlRenderingService::new(Arc::new(store.clone()), rest_api_external_url);
 
     let inner = InvoiceServiceComponents {
         store,

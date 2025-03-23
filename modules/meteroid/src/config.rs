@@ -37,6 +37,12 @@ pub struct Config {
     #[envconfig(from = "METEROID_REST_API_LISTEN_ADDRESS", default = "127.0.0.1:8080")]
     pub rest_api_addr: SocketAddr,
 
+    #[envconfig(
+        from = "METEROID_REST_API_EXTERNAL_URL",
+        default = "http://127.0.0.1:8080"
+    )]
+    pub rest_api_external_url: String,
+
     #[envconfig(from = "OPENEXCHANGERATES_API_KEY")]
     pub openexchangerates_api_key: Option<String>,
 

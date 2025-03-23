@@ -79,6 +79,7 @@ pub async fn start_api_server(
         .add_service(api::invoices::service(
             store.clone(),
             config.jwt_secret.clone(),
+            config.rest_api_external_url.clone(),
         ))
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
