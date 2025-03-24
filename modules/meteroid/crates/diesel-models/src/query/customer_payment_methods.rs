@@ -18,7 +18,7 @@ impl CustomerPaymentMethodRow {
         let query = diesel::delete(customer_payment_method)
             .filter(id.eq(id_param))
             .filter(tenant_id.eq(tenant_id_param));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -39,7 +39,7 @@ impl CustomerPaymentMethodRow {
             .filter(cpm_dsl::id.eq(payment_method_id_param))
             .filter(cpm_dsl::tenant_id.eq(tenant_id_param))
             .select(CustomerPaymentMethodRow::as_select());
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -60,7 +60,7 @@ impl CustomerPaymentMethodRow {
             .filter(cpm_dsl::connection_id.eq(connection_id_param))
             .filter(cpm_dsl::tenant_id.eq(tenant_id_param))
             .select(CustomerPaymentMethodRow::as_select());
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -81,7 +81,7 @@ impl CustomerPaymentMethodRow {
             .filter(cpm_dsl::customer_id.eq(customer_id_param))
             .filter(cpm_dsl::tenant_id.eq(tenant_id_param))
             .select(CustomerPaymentMethodRow::as_select());
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -101,7 +101,7 @@ impl CustomerPaymentMethodRowNew {
             .on_conflict((connection_id, external_payment_method_id))
             .do_update()
             .set(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -121,7 +121,7 @@ impl CustomerPaymentMethodRowNew {
             .values(self)
             .on_conflict((connection_id, external_payment_method_id))
             .do_nothing();
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

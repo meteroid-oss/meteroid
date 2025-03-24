@@ -14,7 +14,7 @@ impl ConnectorRowNew {
 
         let query = diesel::insert_into(connector).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -39,7 +39,7 @@ impl ConnectorRow {
                 .filter(tenant_id.eq(tenant_uid)),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -60,7 +60,7 @@ impl ConnectorRow {
             .filter(id.eq(connector_uid))
             .filter(tenant_id.eq(tenant_uid));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -81,7 +81,7 @@ impl ConnectorRow {
             .filter(alias.eq(connector_alias))
             .filter(tenant_id.eq(tenant_uid));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -109,7 +109,7 @@ impl ConnectorRow {
             query = query.filter(provider.eq(cp));
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)

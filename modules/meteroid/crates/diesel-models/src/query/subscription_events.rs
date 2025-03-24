@@ -16,7 +16,7 @@ impl SubscriptionEventRow {
 
         let query = diesel::insert_into(subscription_event).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -34,7 +34,7 @@ impl SubscriptionEventRow {
 
         let query = diesel::insert_into(subscription_event).values(events);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -55,7 +55,7 @@ impl SubscriptionEventRow {
             .filter(subscription_id.eq(subscription_uid))
             .filter(applies_to.eq(date));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)

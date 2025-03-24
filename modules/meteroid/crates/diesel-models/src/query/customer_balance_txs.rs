@@ -15,7 +15,7 @@ impl CustomerBalanceTxRowNew {
         use crate::schema::customer_balance_tx::dsl as cbtx_dsl;
 
         let query = diesel::insert_into(cbtx_dsl::customer_balance_tx).values(&self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -32,7 +32,7 @@ impl CustomerBalancePendingTxRowNew {
         use crate::schema::customer_balance_pending_tx::dsl as cbtx_dsl;
 
         let query = diesel::insert_into(cbtx_dsl::customer_balance_pending_tx).values(&self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -52,7 +52,7 @@ impl CustomerBalancePendingTxRow {
         let query = cbptx::customer_balance_pending_tx
             .filter(cbptx::invoice_id.eq(invoice_id))
             .filter(cbptx::tx_id.is_null());
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -72,7 +72,7 @@ impl CustomerBalancePendingTxRow {
                 cbptx::updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)

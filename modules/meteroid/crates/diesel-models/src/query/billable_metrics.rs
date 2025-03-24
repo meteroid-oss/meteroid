@@ -16,7 +16,7 @@ impl BillableMetricRowNew {
 
         let query = diesel::insert_into(billable_metric).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -38,7 +38,7 @@ impl BillableMetricRow {
         let query = billable_metric
             .filter(id.eq(param_billable_metric_id))
             .filter(tenant_id.eq(param_tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)

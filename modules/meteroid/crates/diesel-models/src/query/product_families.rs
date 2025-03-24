@@ -16,7 +16,7 @@ impl ProductFamilyRowNew {
 
         let query = diesel::insert_into(product_family).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -78,7 +78,7 @@ impl ProductFamilyRow {
             .filter(pf_dsl::id.eq(id))
             .filter(pf_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)

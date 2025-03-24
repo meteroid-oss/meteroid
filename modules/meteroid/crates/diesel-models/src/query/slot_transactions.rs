@@ -16,7 +16,7 @@ impl SlotTransactionRow {
 
         let query = diesel::insert_into(slot_transaction).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

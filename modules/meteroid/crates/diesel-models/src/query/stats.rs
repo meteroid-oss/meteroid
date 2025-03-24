@@ -183,7 +183,7 @@ impl ActiveSubscriptionsCountRow {
             .filter(s_dsl::end_date.is_null().or(s_dsl::end_date.ge(ts.date())))
             .count();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -394,7 +394,7 @@ impl TotalMrrChartRow {
             .bind::<sql_types::Date, _>(end_date)
             .bind::<sql_types::Uuid, _>(tenant_id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results::<TotalMrrChartRow>(conn)
@@ -478,7 +478,7 @@ impl TotalMrrByPlanRow {
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Array<sql_types::Uuid>, _>(plan_ids);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results::<TotalMrrByPlanRow>(conn)
@@ -583,7 +583,7 @@ impl LastMrrMovementsRow {
             .bind::<sql_types::Nullable<sql_types::Uuid>, _>(after)
             .bind::<sql_types::Integer, _>(limit);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results::<LastMrrMovementsRow>(conn)

@@ -21,7 +21,7 @@ impl CustomerRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer).values(&self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -55,7 +55,7 @@ impl CustomerRow {
             }
         }
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -77,7 +77,7 @@ impl CustomerRow {
             .filter(c_dsl::tenant_id.eq(tenant_id_param))
             .filter(c_dsl::archived_at.is_null());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -94,7 +94,7 @@ impl CustomerRow {
             .filter(alias.eq(customer_alias))
             .filter(archived_at.is_null());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -117,7 +117,7 @@ impl CustomerRow {
             .filter(archived_at.is_null())
             .select(CustomerBriefRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -158,10 +158,7 @@ impl CustomerRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!(
-            "{}",
-            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
-        );
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
 
         paginated_query
             .load_and_count_pages(conn)
@@ -182,7 +179,7 @@ impl CustomerRow {
             .filter(archived_at.is_null())
             .select(CustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -204,7 +201,7 @@ impl CustomerRow {
             .filter(id.eq_any(ids))
             .select(CustomerRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -221,7 +218,7 @@ impl CustomerRow {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer).values(&batch);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -243,7 +240,7 @@ impl CustomerRow {
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -267,7 +264,7 @@ impl CustomerRow {
                 c_dsl::updated_at.eq(diesel::dsl::now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -293,7 +290,7 @@ impl CustomerRow {
                 c_dsl::archived_by.eq(archived_by),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -317,7 +314,7 @@ impl CustomerRowPatch {
             .filter(tenant_id.eq(param_tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -343,7 +340,7 @@ impl CustomerRowUpdate {
             .filter(tenant_id.eq(param_tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

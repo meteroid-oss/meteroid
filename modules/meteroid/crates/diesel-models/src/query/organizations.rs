@@ -15,7 +15,7 @@ impl OrganizationRowNew {
 
         let query = diesel::insert_into(organization).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -32,7 +32,7 @@ impl OrganizationRow {
 
         let query = diesel::dsl::select(diesel::dsl::exists(o_dsl::organization.limit(1)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -50,7 +50,7 @@ impl OrganizationRow {
 
         let query = o_dsl::organization.filter(o_dsl::invite_link_hash.eq(invite_link_hash));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -65,7 +65,7 @@ impl OrganizationRow {
 
         let query = o_dsl::organization.filter(o_dsl::id.eq(id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -84,7 +84,7 @@ impl OrganizationRow {
             .filter(t_dsl::id.eq(id))
             .select(OrganizationRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -99,7 +99,7 @@ impl OrganizationRow {
 
         let query = o_dsl::organization.filter(o_dsl::slug.eq(slug));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -120,7 +120,7 @@ impl OrganizationRow {
             .filter(o_dsl::id.eq(param_id))
             .set(o_dsl::invite_link_hash.eq(new_invite_hash_link));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -142,7 +142,7 @@ impl OrganizationRow {
             .filter(o_dsl::id.eq(param_id))
             .set(o_dsl::trade_name.eq(new_trade_name));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -165,7 +165,7 @@ impl OrganizationRow {
             .filter(om_dsl::user_id.eq(user_id))
             .select(OrganizationRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)

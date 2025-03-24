@@ -14,7 +14,7 @@ impl TenantRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(tenant).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -30,7 +30,7 @@ impl TenantRow {
         use diesel_async::RunQueryDsl;
 
         let query = tenant.filter(id.eq(tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -52,7 +52,7 @@ impl TenantRow {
             .filter(t_dsl::id.eq(tenant_id))
             .select(TenantWithOrganizationRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -69,7 +69,7 @@ impl TenantRow {
         use diesel_async::RunQueryDsl;
 
         let query = tenant.filter(id.eq(tenant_id)).select(reporting_currency);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -89,7 +89,7 @@ impl TenantRow {
         let query = t_dsl::tenant
             .filter(t_dsl::id.eq(tenant_id))
             .filter(t_dsl::organization_id.eq(organization_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -113,7 +113,7 @@ impl TenantRow {
             .filter(o_dsl::slug.eq(organization_slug))
             .select(TenantRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -136,7 +136,7 @@ impl TenantRow {
             .filter(t_dsl::archived_at.is_null())
             .select(TenantRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -225,7 +225,7 @@ impl TenantRow {
                 .eq(t_dsl::available_currencies.concat(vec![Some(currency)])),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -270,7 +270,7 @@ impl TenantRow {
             ))),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -290,7 +290,7 @@ impl TenantRowPatch {
             .set(self)
             .returning(TenantRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

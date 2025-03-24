@@ -19,7 +19,7 @@ impl PlanVersionRowNew {
 
         let query = diesel::insert_into(plan_version).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -41,7 +41,7 @@ impl PlanVersionRow {
         let query = pv_dsl::plan_version
             .filter(pv_dsl::id.eq(id))
             .filter(pv_dsl::tenant_id.eq(tenant_id));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -70,7 +70,7 @@ impl PlanVersionRow {
 
         query = query.order_by(pv_dsl::version.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query = query.limit(1);
 
@@ -97,7 +97,7 @@ impl PlanVersionRow {
 
         query = query.order_by(pv_dsl::version.desc());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -150,7 +150,7 @@ impl PlanVersionRow {
                 .filter(pv_dsl::id.ne(excl_plan_version_id)),
         );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -173,7 +173,7 @@ impl PlanVersionRow {
             .set(pv_dsl::is_draft_version.eq(false))
             .returning(PlanVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -195,7 +195,7 @@ impl PlanVersionRow {
             .filter(pv_dsl::tenant_id.eq(tenant_id))
             .filter(pv_dsl::is_draft_version.eq(true));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -228,7 +228,7 @@ impl PlanVersionRowOverview {
             .distinct_on(pv_dsl::plan_id)
             .select(PlanVersionRowOverview::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -249,7 +249,7 @@ impl PlanVersionRowPatch {
             .filter(pv_dsl::is_draft_version.eq(true))
             .set(self);
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -269,7 +269,7 @@ impl PlanVersionTrialRowPatch {
             .filter(pv_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

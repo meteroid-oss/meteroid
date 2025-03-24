@@ -17,7 +17,7 @@ impl AppliedCouponRowNew {
 
         let query = diesel::insert_into(ac::applied_coupon).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -35,7 +35,7 @@ impl AppliedCouponRow {
             .filter(ac::coupon_id.eq(param_coupon_id))
             .count();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -52,7 +52,7 @@ impl AppliedCouponRow {
 
         let query = diesel::insert_into(ac_dsl::applied_coupon).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -79,7 +79,7 @@ impl AppliedCouponRow {
                 ac_dsl::applied_amount.eq(ac_dsl::applied_amount + amount_delta),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -142,7 +142,7 @@ impl AppliedCouponDetailedRow {
             .filter(ac_dsl::subscription_id.eq(param_subscription_id))
             .select(AppliedCouponDetailedRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -164,7 +164,7 @@ impl AppliedCouponDetailedRow {
             .select(AppliedCouponDetailedRow::as_select())
             .for_update();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)

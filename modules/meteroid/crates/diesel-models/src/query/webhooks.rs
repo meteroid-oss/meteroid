@@ -10,7 +10,7 @@ impl WebhookInEventRowNew {
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(wi_dsl::webhook_in_event).values(self);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

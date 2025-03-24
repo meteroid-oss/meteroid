@@ -16,7 +16,7 @@ impl PaymentTransactionRowNew {
 
         let query = diesel::insert_into(payment_transaction).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -39,7 +39,7 @@ impl PaymentTransactionRow {
             .filter(id.eq(tx_id))
             .filter(tenant_id.eq(tenant_uid));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -60,7 +60,7 @@ impl PaymentTransactionRow {
             .filter(invoice_id.eq(inv_uid))
             .filter(tenant_id.eq(tenant_uid));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -77,7 +77,7 @@ impl PaymentTransactionRowPatch {
 
         let query = diesel::update(payment_transaction.filter(id.eq(self.id))).set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
