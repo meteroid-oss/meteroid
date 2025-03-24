@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::errors::SeederError;
 use super::growth::generate_smooth_growth;
-use super::utils::slugify;
+use crate::utils::slugify;
 use meteroid_store::Store;
 
 use fake::faker::address::en as fake_address;

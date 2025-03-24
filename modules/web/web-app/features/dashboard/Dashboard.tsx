@@ -7,9 +7,13 @@ import { DetailsSection } from '@/features/dashboard/sections/DetailsSection'
 import { MrrSection } from '@/features/dashboard/sections/MrrSection'
 import { TopSection } from '@/features/dashboard/sections/TopSection'
 import { useTenant } from '@/hooks/useTenant'
+import { useQuery } from '@/lib/connectrpc'
+import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const Dashboard = () => {
   const { isRefetching } = useTenant()
+
+  const username = useQuery(me)?.data?.user?.firstName
 
   const date = useMemo(() => {
     const today = new Date()
@@ -38,7 +42,7 @@ export const Dashboard = () => {
     <>
       <div className="h-full  xl:mx-auto self-center space-y-6 relative">
         <div>
-          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}, Gaspard</h1>
+          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}{username ? `, ${username}` : null}</h1>
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />

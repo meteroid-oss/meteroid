@@ -80,13 +80,10 @@ image = { workspace = true }
 meteroid-store.workspace = true
 meteroid-invoicing.workspace = true
 meteroid-mailer.workspace = true
-ndarray.workspace = true
-ndarray-interp.workspace = true
-rand_distr.workspace = true
 rand.workspace = true
-fake.workspace = true
-rand_chacha.workspace = true
 rusty-money.workspace = true
+meteroid-seeder = { workspace = true }
+
 
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true

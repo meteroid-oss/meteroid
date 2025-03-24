@@ -1,0 +1,30 @@
+[package]
+name = "meteroid-seeder"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+uuid = { workspace = true }
+common-domain = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+meteroid-store = { workspace = true }
+error-stack.workspace = true
+thiserror.workspace = true
+chrono = { workspace = true, features = ["clock"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+log = { workspace = true }
+rand.workspace = true
+rand_distr.workspace = true
+fake.workspace = true
+rand_chacha.workspace = true
+rusty-money.workspace = true
+ndarray.workspace = true
+ndarray-interp.workspace = true
+educe = { workspace = true, default-features = false, features=["Default"] }
+nanoid = { workspace = true }
+async-trait = { workspace = true }
