@@ -117,7 +117,7 @@ pub async fn run_preset(
             .subscription
             .start_date
             .checked_sub_days(Days::new(1))
-            .unwrap_or_else(|| now);
+            .unwrap_or(now);
 
         customers_to_create.push(store_domain::CustomerNew {
             invoicing_entity_id: Some(invoicing_entity.id),

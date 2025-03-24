@@ -163,7 +163,7 @@ impl PriceComponent {
                 billing_type,
                 cadence,
             } => meteroid_store::domain::FeeType::ExtraRecurring {
-                unit_price: unit_price.clone(),
+                unit_price: *unit_price,
                 quantity: *quantity,
                 billing_type: billing_type.clone(),
                 cadence: cadence.clone(),
@@ -172,7 +172,7 @@ impl PriceComponent {
                 unit_price,
                 quantity,
             } => meteroid_store::domain::FeeType::OneTime {
-                unit_price: unit_price.clone(),
+                unit_price: *unit_price,
                 quantity: *quantity,
             },
         };
