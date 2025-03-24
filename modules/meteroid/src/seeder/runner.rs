@@ -356,7 +356,7 @@ pub async fn run(
 
         log::info!(
             "Created subscription components for plan version '{}'",
-            subscription.plan_version_id.to_string()
+            subscription.plan_version_id
         );
 
         // we get the plan
