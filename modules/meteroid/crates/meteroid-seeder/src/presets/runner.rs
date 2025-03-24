@@ -75,7 +75,6 @@ pub async fn run_preset(
 
     let mut created_plans = vec![];
 
-    // create the plans
     for plan in scenario.plans {
         let created = store
             .insert_plan(store_domain::FullPlanNew {
