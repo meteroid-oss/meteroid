@@ -185,6 +185,8 @@ impl SubscriptionNew {
 
         let now = chrono::Utc::now().naive_utc();
 
+        // TODO subscription trial does not inherit from plan trial
+
         SubscriptionRowNew {
             id: SubscriptionId::new(),
             trial_duration: self.trial_duration.map(|x| x as i32),

@@ -11,6 +11,7 @@ members = [
   "modules/meteroid/crates/meteroid-invoicing",
   "modules/meteroid/crates/meteroid-mailer",
   "modules/meteroid/crates/meteroid-oauth",
+  "modules/meteroid/crates/meteroid-seeder",
   # metering
   "modules/metering",
   "modules/metering/crates/metering-grpc",
@@ -67,6 +68,7 @@ dotenvy = "0.15.7"
 env_logger = "0.11.5"
 envconfig = "0.11.0"
 error-stack = "0.5.0"
+educe = { version = "0.6.0", default-features = false, features=["Default"] }
 fake = "4.0.0"
 fang = { version = "0.10.4", default-features = false }
 fastrand = "2.0.1"
@@ -195,4 +197,5 @@ meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
 meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }
 stripe-client = { path = "modules/meteroid/crates/stripe-client" }
 meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
+meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
 meteroid-hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
