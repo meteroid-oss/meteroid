@@ -204,20 +204,19 @@ impl ConnectorsInterface for Store {
     async fn get_hubspot_access_token(&self, tenant_id: TenantId) -> StoreResult<SecretString> {
         let mut conn = self.get_conn().await?;
 
-        let mut rows = ConnectorRow::list_connectors(
+        let row = ConnectorRow::list_connectors(
             &mut conn,
             tenant_id,
             Some(ConnectorTypeEnum::Crm.into()),
             Some(ConnectorProviderEnum::Hubspot.into()),
         )
         .await
-        .map_err(Into::<Report<StoreError>>::into)?;
+        .map_err(Into::<Report<StoreError>>::into)?
+        .into_iter()
+        .next()
+        .ok_or(StoreError::ProviderNotConnected)?;
 
-        if rows.is_empty() {
-            bail!(StoreError::ProviderNotConnected)
-        }
-
-        let connector = Connector::from_row(&self.settings.crypt_key, rows.remove(0))?;
+        let connector = Connector::from_row(&self.settings.crypt_key, row)?;
 
         let refresh_token = match connector.sensitive {
             None => bail!(StoreError::InvalidArgument(

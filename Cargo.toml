@@ -5,6 +5,7 @@ members = [
   "modules/meteroid",
   "modules/meteroid/crates/meteroid-grpc",
   "modules/meteroid/crates/stripe-client",
+  "modules/meteroid/crates/hubspot-client",
   "modules/meteroid/crates/diesel-models",
   "modules/meteroid/crates/meteroid-store",
   "modules/meteroid/crates/meteroid-invoicing",
@@ -117,6 +118,8 @@ rand_chacha = "0.9.0"
 rand_distr = "0.5.0"
 rdkafka = "0.37.0"
 reqwest = { version = "0.12.5", default-features = false }
+reqwest-retry = { version = "0.7.0", default-features = false }
+reqwest-middleware = { version = "0.4.1", default-features = false }
 rstest = "0.25.0"
 rust_decimal = "1.32.0"
 rust_decimal_macros = "1.32.0"
@@ -192,3 +195,4 @@ meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
 meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }
 stripe-client = { path = "modules/meteroid/crates/stripe-client" }
 meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
+meteroid-hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
