@@ -140,12 +140,12 @@ impl TenantsService for TenantServiceComponents {
 
         let res = if req.environment == TenantEnvironmentEnum::Sandbox {
             self.store
-                .insert_tenant(req, organization_id)
+                .insert_seeded_sandbox_tenant(req.name, organization_id, actor)
                 .await
                 .map_err(Into::<TenantApiError>::into)?
         } else {
             self.store
-                .insert_seeded_sandbox_tenant(req.name, organization_id, actor)
+                .insert_tenant(req, organization_id)
                 .await
                 .map_err(Into::<TenantApiError>::into)?
         };
