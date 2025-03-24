@@ -17,11 +17,15 @@ use uuid::Uuid;
 
 pub struct HtmlRenderingService {
     store: Arc<Store>,
+    rest_api_external_url: String,
 }
 
 impl HtmlRenderingService {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<Store>, rest_api_external_url: String) -> Self {
+        Self {
+            store,
+            rest_api_external_url,
+        }
     }
 
     pub async fn preview_invoice_html(
@@ -60,7 +64,7 @@ impl HtmlRenderingService {
             &invoicing_entity
                 .logo_attachment_id
                 .as_ref()
-                .map(|id| format!("/api/files/v1/logo/{}", id)),
+                .map(|id| format!("{}/files/v1/logo/{}", self.rest_api_external_url, id)),
             rate,
         )?;
 

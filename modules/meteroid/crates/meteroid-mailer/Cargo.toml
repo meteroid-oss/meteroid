@@ -16,5 +16,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 itertools = { workspace = true }
 chrono = { workspace = true }
 sailfish = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]

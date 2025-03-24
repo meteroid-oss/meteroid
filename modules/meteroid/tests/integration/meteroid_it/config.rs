@@ -28,6 +28,9 @@ pub fn mocked_config(
         object_store_uri: "".to_owned(),
         object_store_prefix: None,
         rest_api_addr,
+        rest_api_external_url: format!("http://127.0.0.1:{}", rest_api_addr.port())
+            .parse()
+            .unwrap(),
         common: CommonConfig {
             telemetry: TelemetryConfig::init_from_env().unwrap(),
         },

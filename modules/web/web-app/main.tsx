@@ -11,6 +11,7 @@ import 'react-loading-skeleton/dist/skeleton.css'
 import '@/styles/main.scss'
 import '@md/foundation/styles'
 // import '@md/ui/tailwind'
+import "sonner/dist/styles.css"
 
 globalStyles()
 

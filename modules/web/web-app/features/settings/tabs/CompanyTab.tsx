@@ -31,6 +31,7 @@ import { CreateInvoicingEntityDialog } from '@/features/settings/CreateInvoiceEn
 import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import {
   getInvoicingEntity,
@@ -369,7 +370,7 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
         {entity.logoAttachmentId && (
           <div className="relative w-12 h-12 rounded overflow-hidden group float-end">
             <img
-              src={'/api/files/v1/logo/' + entity.logoAttachmentId}
+              src={env.meteroidRestApiUri + '/files/v1/logo/' + entity.logoAttachmentId}
               alt="Uploaded file"
               className="w-full h-full object-cover"
             />

@@ -3,8 +3,11 @@ use secrecy::SecretString;
 
 #[derive(Envconfig, Debug, Clone)]
 pub struct OauthConfig {
-    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://meteroid.com")]
-    pub public_url: String,
+    #[envconfig(
+        from = "METEROID_REST_API_EXTERNAL_URL",
+        default = "http://127.0.0.1:8080"
+    )]
+    pub rest_api_external_url: String,
     #[envconfig(nested)]
     pub google: GoogleOauthConfig,
     #[envconfig(nested)]
@@ -14,7 +17,7 @@ pub struct OauthConfig {
 impl OauthConfig {
     pub fn dummy() -> Self {
         Self {
-            public_url: "https://meteroid.com".to_owned(),
+            rest_api_external_url: "http://127.0.0.1:8080".to_owned(),
             google: GoogleOauthConfig {
                 client_id: Some(SecretString::new("google_client_id".to_owned())),
                 client_secret: Some(SecretString::new("google_client_secret".to_owned())),

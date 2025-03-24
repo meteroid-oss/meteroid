@@ -20,6 +20,7 @@ import { toast } from 'sonner'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { env } from '@/lib/env'
 import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
 import {
   getInvoice,
@@ -155,7 +156,7 @@ const LeftOverview: React.FC<{
 
   const pdf_url =
     invoice.documentSharingKey &&
-    `/api/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
+    `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
 
   return (
     <div className=" h-full">

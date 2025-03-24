@@ -101,7 +101,10 @@ impl OauthServices {
                 client_secret: client_secret.expose_secret().to_owned(),
                 auth_url: "https://accounts.google.com/o/oauth2/auth".to_owned(),
                 token_url: "https://www.googleapis.com/oauth2/v3/token".to_string(),
-                callback_url: format!("{}/oauth-callback/google", config.public_url.as_str()),
+                callback_url: format!(
+                    "{}/oauth-callback/google",
+                    config.rest_api_external_url.as_str()
+                ),
                 user_info_url: Some("https://www.googleapis.com/oauth2/v3/userinfo".to_string()),
                 scopes: vec!["email".to_string(), "openid".to_string()],
             };
@@ -126,7 +129,10 @@ impl OauthServices {
                 client_secret: client_secret.expose_secret().to_owned(),
                 auth_url: "https://app.hubspot.com/oauth/authorize".to_owned(),
                 token_url: "https://api.hubapi.com/oauth/v1/token".to_string(),
-                callback_url: format!("{}/oauth-callback/hubspot", config.public_url.as_str()),
+                callback_url: format!(
+                    "{}/oauth-callback/hubspot",
+                    config.rest_api_external_url.as_str()
+                ),
                 user_info_url: None,
                 scopes: vec![
                     "oauth".to_owned(),
@@ -325,7 +331,7 @@ mod tests {
     #[tokio::test]
     async fn test_authorize_url() -> Result<(), Box<dyn std::error::Error>> {
         let srv = OauthServices::new(OauthConfig {
-            public_url: "http://localhost:8080".to_string(),
+            rest_api_external_url: "http://localhost:8080".to_string(),
             google: crate::config::GoogleOauthConfig {
                 client_id: Some(SecretString::from_str("client_id").unwrap()),
                 client_secret: Some(SecretString::from_str("client_secret").unwrap()),

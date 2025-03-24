@@ -97,13 +97,18 @@ pub fn mailer_service(cfg: MailerConfig) -> Arc<dyn MailerService> {
         );
 
         let transport = if cfg.smtp_tls {
+            log::info!("Starting mailer service with TLS to host {}", host);
+            // TODO pool ?
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)
                 .unwrap()
                 .credentials(creds)
+                .timeout(Some(std::time::Duration::from_secs(10)))
                 .build()
         } else {
+            log::info!("Starting unsecure mailer service to host {}", host);
             AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host.to_string())
                 .credentials(creds)
+                .timeout(Some(std::time::Duration::from_secs(10)))
                 .build()
         };
 

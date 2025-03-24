@@ -48,7 +48,7 @@ export const ForgotPasswordForm = () => {
             variant="primary"
             type="submit"
             className="mt-3"
-            disabled={!methods.formState.isValid}
+            disabled={!methods.formState.isValid || registerMut.isPending}
           >
             Reset password
           </Button>
