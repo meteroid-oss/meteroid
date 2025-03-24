@@ -12,7 +12,7 @@ impl ApiTokenRowNew {
 
         let query = diesel::insert_into(api_token).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -29,7 +29,7 @@ impl ApiTokenRow {
 
         let query = api_token.filter(id.eq(param_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -47,7 +47,7 @@ impl ApiTokenRow {
 
         let query = api_token.filter(tenant_id.eq(param_tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -71,7 +71,7 @@ impl ApiTokenValidationRow {
             .filter(at_dsl::id.eq(api_token_id))
             .select(ApiTokenValidationRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)

@@ -284,16 +284,13 @@ impl WebhooksInterface for Store {
 
                 if let Err(Error::Http(ref e)) = created {
                     if e.status.as_u16() == 409 {
-                        log::info!(
-                            "Webhook event type {} already exists",
-                            event_type.to_string()
-                        );
+                        log::info!("Webhook event type {} already exists", event_type);
 
                         continue;
                     }
                 }
 
-                log::info!("Webhook event type {} created", event_type.to_string());
+                log::info!("Webhook event type {} created", event_type);
 
                 created.change_context(StoreError::WebhookServiceError(
                     "Failed to create svix event type".into(),

@@ -13,7 +13,7 @@ impl BiMrrMovementLogRowNew {
 
         let query = diesel::insert_into(bi_mrr_movement_log).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -32,7 +32,7 @@ impl BiMrrMovementLogRow {
 
         let query = diesel::insert_into(bi_mrr_movement_log).values(&invoices);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)

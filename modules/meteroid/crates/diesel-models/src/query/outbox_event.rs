@@ -13,7 +13,7 @@ impl OutboxEventRowNew {
 
         let query = diesel::insert_into(oe_dsl::outbox_event).values(events);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)

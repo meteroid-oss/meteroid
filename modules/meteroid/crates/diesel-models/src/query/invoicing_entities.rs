@@ -27,7 +27,7 @@ impl InvoicingEntityRow {
             .filter(dsl::id.eq_any(ids))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -42,7 +42,7 @@ impl InvoicingEntityRow {
 
         let query = diesel::insert_into(invoicing_entity).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -61,7 +61,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -78,7 +78,7 @@ impl InvoicingEntityRow {
             dsl::invoicing_entity.filter(dsl::tenant_id.eq(tenant_id)),
         ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -103,7 +103,7 @@ impl InvoicingEntityRow {
                 .filter(c_dsl::invoicing_entity_id.eq(invoicing_entity_id)),
         ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -124,7 +124,7 @@ impl InvoicingEntityRow {
             .filter(dsl::is_default.eq(true))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -146,7 +146,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -169,7 +169,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .select(InvoicingEntityRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -192,7 +192,7 @@ impl InvoicingEntityRow {
             .filter(dsl::tenant_id.eq(tenant_id))
             .set(dsl::next_invoice_number.eq(new_invoice_number + 1));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -243,7 +243,7 @@ impl InvoicingEntityProvidersRow {
                 Option::<BankAccountRow>::as_select(),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -290,7 +290,7 @@ impl InvoicingEntityProvidersRow {
                 Option::<BankAccountRow>::as_select(),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -314,7 +314,7 @@ impl InvoicingEntityRowPatch {
             .filter(dsl::tenant_id.eq(tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -338,7 +338,7 @@ impl InvoicingEntityRowProvidersPatch {
             .filter(dsl::tenant_id.eq(tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -363,7 +363,7 @@ pub async fn get_invoicing_entity_id_by_invoice_id(
         .filter(i_dsl::id.eq(invoice_id))
         .select(c_dsl::invoicing_entity_id);
 
-    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+    log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
     query
         .get_result(conn)

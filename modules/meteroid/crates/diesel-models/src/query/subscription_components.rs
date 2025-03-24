@@ -18,7 +18,7 @@ impl SubscriptionComponentRowNew {
 
         let query = diesel::insert_into(subscription_component).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -38,7 +38,7 @@ impl SubscriptionComponentRow {
 
         let query = diesel::insert_into(subscription_component).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -61,7 +61,7 @@ impl SubscriptionComponentRow {
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_params))
             .select(SubscriptionComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -84,7 +84,7 @@ impl SubscriptionComponentRow {
             .filter(crate::schema::subscription::tenant_id.eq(tenant_id_param))
             .select(SubscriptionComponentRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         let res: Vec<SubscriptionComponentRow> = query
             .get_results(conn)

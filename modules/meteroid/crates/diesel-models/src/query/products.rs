@@ -18,7 +18,7 @@ impl ProductRowNew {
 
         let query = diesel::insert_into(product).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -41,7 +41,7 @@ impl ProductRow {
             .filter(p_dsl::id.eq(id))
             .filter(p_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -82,10 +82,7 @@ impl ProductRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!(
-            "{}",
-            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
-        );
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
 
         paginated_query
             .load_and_count_pages(conn)
@@ -128,10 +125,7 @@ impl ProductRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!(
-            "{}",
-            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
-        );
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
 
         paginated_query
             .load_and_count_pages(conn)

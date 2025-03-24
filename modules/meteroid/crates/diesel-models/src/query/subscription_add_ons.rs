@@ -16,7 +16,7 @@ impl SubscriptionAddOnRow {
 
         let query = diesel::insert_into(sao_dsl::subscription_add_on).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -39,7 +39,7 @@ impl SubscriptionAddOnRow {
             .filter(s_dsl::tenant_id.eq(tenant_id))
             .select(SubscriptionAddOnRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)

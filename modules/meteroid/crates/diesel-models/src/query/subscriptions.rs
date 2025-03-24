@@ -28,7 +28,7 @@ impl SubscriptionRowNew {
 
         let query = diesel::insert_into(subscription).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -47,7 +47,7 @@ impl SubscriptionRow {
 
         let query = diesel::insert_into(subscription).values(batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -75,7 +75,7 @@ impl SubscriptionRow {
             )
             .select(SubscriptionForDisplayRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result::<SubscriptionForDisplayRow>(conn)
@@ -102,7 +102,7 @@ impl SubscriptionRow {
             )
             .select(SubscriptionForDisplayRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -127,7 +127,7 @@ impl SubscriptionRow {
                 cancellation_reason.eq(params.reason),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -151,7 +151,7 @@ impl SubscriptionRow {
             .filter(s_dsl::activated_at.is_null())
             .set(s_dsl::activated_at.eq(chrono::Utc::now().naive_utc()));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -176,7 +176,7 @@ impl SubscriptionRow {
             .inner_join(s_dsl::subscription.on(s_dsl::id.nullable().eq(i_dsl::subscription_id)))
             .select(s_dsl::id);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result::<SubscriptionId>(conn)
@@ -224,10 +224,7 @@ impl SubscriptionRow {
             .select(SubscriptionForDisplayRow::as_select())
             .paginate(pagination);
 
-        log::debug!(
-            "{}",
-            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
-        );
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
 
         paginated_query
             .load_and_count_pages::<SubscriptionForDisplayRow>(conn)
@@ -278,7 +275,7 @@ impl SubscriptionRow {
             .select(SubscriptionInvoiceCandidateRow::as_select())
             .cursor_paginate(pagination, "id");
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load_and_get_next_cursor(conn, |a| a.subscription.id.as_uuid())
@@ -298,7 +295,7 @@ impl SubscriptionRow {
             .filter(id.eq(subscription_id))
             .set(mrr_cents.eq(mrr_cents + mrr_cents_delta));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -320,7 +317,7 @@ impl SubscriptionRow {
             .select(id)
             .filter(id.eq(subscription_id_param));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         let _res: Uuid = query
             .get_result(conn)

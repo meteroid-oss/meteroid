@@ -27,7 +27,7 @@ impl PlanRowNew {
 
         let query = diesel::insert_into(plan).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -51,7 +51,7 @@ impl PlanRow {
             ))
             .returning(PlanRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -75,7 +75,7 @@ impl PlanRow {
                     .select(diesel::dsl::sql::<diesel::sql_types::Integer>("1")),
             )));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -99,7 +99,7 @@ impl PlanRow {
             .filter(p_dsl::tenant_id.eq(tenant_id))
             .select(PlanWithVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -156,7 +156,7 @@ impl PlanRow {
                 diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>("null"),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -202,7 +202,7 @@ impl PlanRow {
             .order(pv_dsl::version.desc())
             .select(PlanWithVersionRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -303,10 +303,7 @@ impl PlanRowOverview {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!(
-            "{}",
-            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
-        );
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
 
         paginated_query
             .load_and_count_pages(conn)
@@ -326,7 +323,7 @@ impl PlanRowPatch {
             .filter(p_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -355,7 +352,7 @@ impl PlanRowForSubscription {
                 p_dsl::plan_type,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load(conn)

@@ -17,7 +17,7 @@ impl UserRowNew {
 
         let query = diesel::insert_into(dsl::user).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -37,7 +37,7 @@ impl UserRow {
             .filter(u_dsl::id.eq(id))
             .select(UserRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -61,7 +61,7 @@ impl UserRow {
             .filter(om_dsl::organization_id.eq(organization_id))
             .select(UserWithRoleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -87,7 +87,7 @@ impl UserRow {
             .filter(t_dsl::id.eq(tenant_id))
             .select(UserWithRoleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -111,7 +111,7 @@ impl UserRow {
             .filter(om_dsl::organization_id.eq(organization_id))
             .select(UserWithRoleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -128,7 +128,7 @@ impl UserRow {
             .filter(u_dsl::email.eq(email))
             .select(UserRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -151,7 +151,7 @@ impl UserRow {
             .filter(om_dsl::organization_id.eq(organization_id))
             .select(UserWithRoleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -166,7 +166,7 @@ impl UserRow {
 
         let query = diesel::dsl::select(diesel::dsl::exists(u_dsl::user.limit(1)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -187,7 +187,7 @@ impl UserRow {
             .filter(u_dsl::id.eq(user_id))
             .set(u_dsl::password_hash.eq(new_password_hash));
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -207,7 +207,7 @@ impl UserRowPatch {
             .filter(u_dsl::id.eq(self.id))
             .set(self);
 
-        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::info!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

@@ -16,7 +16,7 @@ impl HistoricalRatesFromUsdRowNew {
             .on_conflict(r_dsl::date)
             .do_update()
             .set(r_dsl::rates.eq(&self.rates));
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -38,7 +38,7 @@ impl HistoricalRatesFromUsdRow {
             .filter(r_dsl::date.le(date))
             .order(r_dsl::date.desc())
             .limit(1);
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

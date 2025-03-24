@@ -15,7 +15,7 @@ impl ScheduleRowNew {
 
         let query = diesel::insert_into(schedule).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -42,7 +42,7 @@ impl ScheduleRow {
                 ),
             );
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -60,7 +60,7 @@ impl ScheduleRow {
 
         let query = diesel::insert_into(schedule).values(&batch);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -87,7 +87,7 @@ impl ScheduleRow {
             .filter(subscription::tenant_id.eq(tenant_id_params))
             .select(ScheduleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -112,7 +112,7 @@ impl ScheduleRow {
             .filter(pv_dsl::tenant_id.eq(tenant_id))
             .select(ScheduleRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -151,7 +151,7 @@ impl ScheduleRow {
                 s_dsl::ramps,
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -179,7 +179,7 @@ impl SchedulePatchRow {
             )
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

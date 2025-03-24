@@ -20,7 +20,7 @@ impl CouponRowNew {
 
         let query = diesel::insert_into(c_dsl::coupon).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -42,7 +42,7 @@ impl CouponRow {
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -100,7 +100,7 @@ impl CouponRow {
 
         let query = query.order(c_dsl::created_at.desc()).paginate(pagination);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load_and_count_pages(conn)
@@ -116,7 +116,7 @@ impl CouponRow {
             .filter(c_dsl::id.eq(id))
             .filter(c_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -136,7 +136,7 @@ impl CouponRow {
             .filter(c_dsl::id.eq_any(ids))
             .filter(c_dsl::tenant_id.eq(tenant_id));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -158,7 +158,7 @@ impl CouponRow {
             .filter(c_dsl::tenant_id.eq(tenant_id))
             .for_update();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -178,7 +178,7 @@ impl CouponRow {
             .filter(c_dsl::id.eq(coupon_id))
             .set(c_dsl::redemption_count.eq(c_dsl::redemption_count + delta));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -198,7 +198,7 @@ impl CouponRow {
             .group_by(ac_dsl::coupon_id)
             .select((ac_dsl::coupon_id, diesel::dsl::count(ac_dsl::customer_id)));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load::<(CouponId, i64)>(conn)
@@ -219,7 +219,7 @@ impl CouponRow {
             .filter(c_dsl::id.eq_any(coupon_ids))
             .set(c_dsl::last_redemption_at.eq(last_redemption_at));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -239,7 +239,7 @@ impl CouponRowPatch {
             .filter(c_dsl::tenant_id.eq(self.tenant_id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -257,7 +257,7 @@ impl CouponStatusRowPatch {
             .filter(c_dsl::id.eq(self.id))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)

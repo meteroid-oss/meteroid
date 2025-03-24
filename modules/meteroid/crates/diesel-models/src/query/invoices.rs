@@ -28,7 +28,7 @@ impl InvoiceRowNew {
 
         let query = diesel::insert_into(invoice).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -63,7 +63,7 @@ impl InvoiceRow {
             .filter(i_dsl::id.eq(param_invoice_id))
             .select(DetailedInvoiceRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .first(conn)
@@ -118,10 +118,7 @@ impl InvoiceRow {
 
         let paginated_query = query.paginate(pagination);
 
-        log::debug!(
-            "{}",
-            debug_query::<diesel::pg::Pg, _>(&paginated_query).to_string()
-        );
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&paginated_query));
 
         paginated_query
             .load_and_count_pages(conn)
@@ -141,7 +138,7 @@ impl InvoiceRow {
             .filter(i_dsl::id.eq_any(param_invoice_ids))
             .select(InvoiceRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load(conn)
@@ -159,7 +156,7 @@ impl InvoiceRow {
 
         let query = diesel::insert_into(invoice).values(&invoices);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_results(conn)
@@ -186,7 +183,7 @@ impl InvoiceRow {
                 i_dsl::updated_at.eq(chrono::Utc::now().naive_utc()),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -216,7 +213,7 @@ impl InvoiceRow {
             .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, "id");
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
@@ -256,7 +253,7 @@ impl InvoiceRow {
                 i_dsl::applied_coupon_ids.eq(applied_coupon_ids),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -284,7 +281,7 @@ impl InvoiceRow {
                 i_dsl::amount_due.eq(i_dsl::amount_due - transaction_amount),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -311,7 +308,7 @@ impl InvoiceRow {
                 i_dsl::xml_document_id.eq(xml_document_id),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -338,7 +335,7 @@ impl InvoiceRow {
             .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, "id");
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
@@ -362,7 +359,7 @@ impl InvoiceRow {
             .select(InvoiceRow::as_select())
             .cursor_paginate(pagination, "id");
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
@@ -393,7 +390,7 @@ impl InvoiceRow {
                 i_dsl::last_issue_attempt_at.eq(now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -425,7 +422,7 @@ impl InvoiceRow {
                 i_dsl::last_issue_attempt_at.eq(now),
             ));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -459,7 +456,7 @@ WHERE invoice.customer_id = customer.id
             .bind::<diesel::sql_types::Timestamp, _>(now)
             .bind::<diesel::sql_types::Timestamp, _>(now);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
@@ -483,7 +480,7 @@ impl InvoiceRowLinesPatch {
             .filter(i_dsl::id.eq(id).and(i_dsl::tenant_id.eq(tenant_id)))
             .set(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)

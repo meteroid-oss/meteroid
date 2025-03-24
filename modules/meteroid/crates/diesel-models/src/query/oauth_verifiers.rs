@@ -11,7 +11,7 @@ impl OauthVerifierRow {
 
         let query = diesel::insert_into(ov_dsl::oauth_verifier).values(self);
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -30,7 +30,7 @@ impl OauthVerifierRow {
             .filter(ov_dsl::csrf_token.eq(csrf_token))
             .returning(OauthVerifierRow::as_select());
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .get_result(conn)
@@ -48,7 +48,7 @@ impl OauthVerifierRow {
         let query =
             diesel::delete(ov_dsl::oauth_verifier).filter(ov_dsl::created_at.lt(expiration_time));
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query).to_string());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
             .execute(conn)
