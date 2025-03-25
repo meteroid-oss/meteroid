@@ -114,7 +114,7 @@ backon = { workspace = true }
 
 [build-dependencies]
 # see https://github.com/juhaku/utoipa/issues/1341
-zip = "=2.4.2"
+zip = "=2.5.0"
 
 [[bin]]
 name = "meteroid-api"
