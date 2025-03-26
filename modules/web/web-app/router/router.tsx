@@ -3,7 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
-import { OrganizationOnboarding, UserOnboarding } from '@/pages/onboarding'
+import { InviteOnboarding, OrganizationOnboarding, UserOnboarding } from '@/pages/onboarding'
 import { OrganizationRoot } from '@/pages/organizationRoot'
 import { Root } from '@/pages/root'
 import { TenantNew } from '@/pages/tenants/new'
@@ -36,6 +36,10 @@ const router = createBrowserRouter(
                 {
                   path: 'organization',
                   element: <OrganizationOnboarding />,
+                },
+                {
+                  path: 'invite',
+                  element: <InviteOnboarding />,
                 },
               ],
             },
