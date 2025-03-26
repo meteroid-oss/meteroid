@@ -1,9 +1,10 @@
+import { Button } from '@md/ui'
+import { useNavigate } from 'react-router-dom'
+
 import { OrganizationOnboardingForm } from '@/features/onboarding/organizationOnboardingForm'
 import { useQuery } from '@/lib/connectrpc'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { Button } from '@md/ui'
-import { useNavigate } from 'react-router-dom'
 
 export const OrganizationOnboarding = () => {
   const getInstanceQuery = useQuery(getInstance)

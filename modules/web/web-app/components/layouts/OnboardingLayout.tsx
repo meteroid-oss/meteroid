@@ -1,12 +1,13 @@
+import { useQuery } from '@connectrpc/connect-query'
+import { Flex } from '@ui/components'
 import { Outlet, useLocation } from 'react-router-dom'
+import { match } from 'ts-pattern'
 
 import { MeteroidTitle } from '@/components/svg'
 import { useLogout } from '@/hooks/useLogout'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
-import { useQuery } from '@connectrpc/connect-query'
-import { Flex } from '@ui/components'
 import { useForceTheme } from 'providers/ThemeProvider'
-import { match } from 'ts-pattern'
+
 
 export const OnboardingLayout = () => {
   useForceTheme('dark')

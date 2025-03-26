@@ -1,7 +1,8 @@
-import { useZodForm } from '@/hooks/useZodForm'
-import { schemas } from '@/lib/schemas'
 import { Button, Flex, Form, InputFormField } from '@ui/components'
 import { z } from 'zod'
+
+import { useZodForm } from '@/hooks/useZodForm'
+import { schemas } from '@/lib/schemas'
 
 export const InviteOnboardingForm = () => {
   const methods = useZodForm({
