@@ -27,6 +27,15 @@ const formFieldLabelVariants = cva('', {
   variants: {
     layout: {
       vertical: '',
+      horizontal: 'text-muted-foreground ',
+    },
+  },
+}) satisfies typeof formFieldVariants
+
+const formFieldLabelWrapperVariants = cva('', {
+  variants: {
+    layout: {
+      vertical: '',
       horizontal: 'col-span-4 text-muted-foreground ',
     },
   },
@@ -55,6 +64,7 @@ export const genericFormFieldVariants = {
   label: formFieldLabelVariants,
   input: inputVariants,
   message: formFieldMessageVariants,
+  wrapper: formFieldLabelWrapperVariants,
 }
 
 export type GenericFormFieldVariantProps = VariantProps<typeof genericFormFieldVariants.formField>
@@ -107,7 +117,7 @@ export const GenericFormField = <
       render={fieldProps => (
         <FormItem className={cn(formFieldVariants({ layout }), containerClassName)}>
           {label && (
-            <Flex align="center" justify="between" className="my-2">
+            <Flex align="center" justify="between" className={cn(formFieldLabelWrapperVariants({ layout }), "my-2")}>
               <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
                 {label}
                 {required ? <span className="text-destructive text-xs pl-1">*</span> : null}

@@ -12,7 +12,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Building2, CheckCircle2, CreditCard, ExternalLink, Key, WebhookIcon } from 'lucide-react'
 import { Fragment, KeyboardEvent as ReactKeyboardEvent, createElement, useState } from 'react'
 import { useWatch } from 'react-hook-form'
-import { useNavigate } from 'react-router'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -25,7 +25,9 @@ import {
   connectStripe,
   listConnectors,
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
+import { getInvoicingEntityProviders } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { TenantEnvironmentEnum } from '@/rpc/api/tenants/v1/models_pb'
+
 
 export const StripeIntegrationModal = () => {
   const navigate = useNavigate()
@@ -75,12 +77,14 @@ export const StripeIntegrationModal = () => {
           </span>
           <br />
           <Button variant="link" hasIcon>
-            <ExternalLink size={14} strokeWidth={1.5} />
             <a
+              className='flex items-center gap-1'
               target="_blank"
               href={`https://dashboard.stripe.com/${isProduction ? '' : 'test/'}apikeys`}
               rel="noreferrer"
             >
+              <ExternalLink size={14} strokeWidth={1.5} />
+
               Developers → API keys
             </a>
           </Button>
@@ -98,12 +102,14 @@ export const StripeIntegrationModal = () => {
           <span>Create a webhook endpoint in your Stripe Dashboard under </span>
           <br />
           <Button variant="link" hasIcon>
-            <ExternalLink size={14} strokeWidth={1.5} />
             <a
+              className='flex items-center gap-1'
               target="_blank"
               href={`https://dashboard.stripe.com/${isProduction ? '' : 'test/'}webhooks/create?events=setup_intent.succeeded%2Cpayment_intent.succeeded%2Cpayment_intent.partially_funded%2Cpayment_intent.payment_failed&url=${restApiUrl}/v1/webhooks/${tenant?.id?.toLowerCase()}/${alias}`}
               rel="noreferrer"
             >
+              <ExternalLink size={14} strokeWidth={1.5} />
+
               Developers → Webhooks
             </a>
           </Button>
@@ -170,9 +176,12 @@ export const StripeIntegrationModal = () => {
 
   const queryClient = useQueryClient()
   const connectStripeMutation = useMutation(connectStripe, {
-    onSuccess: () => {
-      queryClient.invalidateQueries({
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
         queryKey: createConnectQueryKey(listConnectors),
+      })
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(getInvoicingEntityProviders),
       })
     },
   })
@@ -229,110 +238,113 @@ export const StripeIntegrationModal = () => {
   }
 
   return (
-    <Modal
-      header={
-        <>
-          <DialogTitle className="flex items-center gap-2 text-md">
-            <CreditCard className="w-6 h-6 text-blue" />
-            <span>Connect Stripe</span>
-          </DialogTitle>
-          <DialogDescription className="text-sm">
-            Let&apos;s get your payments flowing in just a few steps
-          </DialogDescription>
-        </>
-      }
-      visible={true}
-      hideFooter={true}
-      onCancel={() => navigate('..')}
+    <>
+      <div id="9384980">
+        TESTETSTETS
+      </div>
+      <Modal
+        header={
+          <>
+            <DialogTitle className="flex items-center gap-2 text-md">
+              <CreditCard className="w-6 h-6 text-blue" />
+              <span>Connect Stripe</span>
+            </DialogTitle>
+            <DialogDescription className="text-sm">
+              Let&apos;s get your payments flowing in just a few steps
+            </DialogDescription>
+          </>
+        }
+        visible={true}
+        hideFooter={true}
+        onCancel={() => navigate('..')}
       // onConfirm={() => methods.handleSubmit(onSubmit)()}
-    >
-      <Modal.Content>
-        <Form {...methods}>
-          <form autoComplete="off">
-            <div className="flex items-center justify-center gap-2 mb-6 mt-4">
-              {steps.map((_step, idx) => (
-                <Fragment key={idx}>
-                  <div
-                    className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-                      currentStep === idx
+      >
+        <Modal.Content>
+          <Form {...methods}>
+            <form autoComplete="off">
+              <div className="flex items-center justify-center gap-2 mb-6 mt-4">
+                {steps.map((_step, idx) => (
+                  <Fragment key={idx}>
+                    <div
+                      className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${currentStep === idx
                         ? 'bg-brand text-brand-foreground'
                         : currentStep > idx
                           ? 'bg-success text-success-foreground'
                           : 'bg-muted text-muted-foreground'
-                    }`}
-                  >
-                    {currentStep > idx ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
-                  </div>
-                  {idx < steps.length - 1 && (
-                    <div
-                      className={`h-0.5 w-16 transition-colors ${
-                        currentStep > idx ? 'bg-success' : 'bg-gray-200'
-                      }`}
+                        }`}
+                    >
+                      {currentStep > idx ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
+                    </div>
+                    {idx < steps.length - 1 && (
+                      <div
+                        className={`h-0.5 w-16 transition-colors ${currentStep > idx ? 'bg-success' : 'bg-gray-200'
+                          }`}
+                      />
+                    )}
+                  </Fragment>
+                ))}
+              </div>
+
+              {/* Current step icon */}
+              <div className="flex justify-center">
+                {createElement(steps[currentStep].icon, {
+                  className: 'w-12 h-12 text-brand',
+                  strokeWidth: 1.2,
+                })}
+              </div>
+
+              <div className="text-center space-y-2 mb-6 mt-2">
+                <h3 className="text-md font-semibold">{steps[currentStep].title}</h3>
+                <p className="text-muted-foreground text-sm">{steps[currentStep].description}</p>
+              </div>
+
+              <div className="space-y-6">
+                {/* With react-hook-form, you'd use form.register instead of the onChange handler */}
+                {steps[currentStep].fields.map((field, idx) => (
+                  <div key={field} className="space-y-2">
+                    <InputFormField
+                      control={methods.control}
+                      label={fieldInfo[field].label}
+                      name={field}
+                      layout="vertical"
+                      description={fieldInfo[field].help}
+                      placeholder={fieldInfo[field].placeholder}
+                      showPasswordToggle={['apiSecretKey', 'webhookSecret'].includes(field)}
+                      data-form-type="other"
+                      onKeyDown={ev => handleInputKeyDown(ev, idx)}
                     />
-                  )}
-                </Fragment>
-              ))}
-            </div>
+                  </div>
+                ))}
 
-            {/* Current step icon */}
-            <div className="flex justify-center">
-              {createElement(steps[currentStep].icon, {
-                className: 'w-12 h-12 text-brand',
-                strokeWidth: 1.2,
-              })}
-            </div>
-
-            <div className="text-center space-y-2 mb-6 mt-2">
-              <h3 className="text-md font-semibold">{steps[currentStep].title}</h3>
-              <p className="text-muted-foreground text-sm">{steps[currentStep].description}</p>
-            </div>
-
-            <div className="space-y-6">
-              {/* With react-hook-form, you'd use form.register instead of the onChange handler */}
-              {steps[currentStep].fields.map((field, idx) => (
-                <div key={field} className="space-y-2">
-                  <InputFormField
-                    control={methods.control}
-                    label={fieldInfo[field].label}
-                    name={field}
-                    layout="vertical"
-                    description={fieldInfo[field].help}
-                    placeholder={fieldInfo[field].placeholder}
-                    showPasswordToggle={['apiSecretKey', 'webhookSecret'].includes(field)}
-                    data-form-type="other"
-                    onKeyDown={ev => handleInputKeyDown(ev, idx)}
-                  />
-                </div>
-              ))}
-
-              <div className="flex justify-end gap-2 py-3 px-5 border-t ">
-                <div className="flex w-full space-x-2 justify-end">
-                  <Button
-                    variant="secondary"
-                    onClick={() =>
-                      currentStep > 0 ? setCurrentStep(prev => prev - 1) : navigate('..')
-                    }
-                    type="button"
-                    size="sm"
-                  >
-                    {currentStep > 0 ? 'Back' : 'Cancel'}
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    hasIcon={connectStripeMutation.isPending}
-                    size="sm"
-                    disabled={!isCurrentStepValid() || methods.formState.isSubmitting}
-                  >
-                    {connectStripeMutation.isPending && <Spinner />}
-                    {currentStep === steps.length - 1 ? 'Connect Stripe' : 'Continue'}
-                  </Button>
+                <div className="flex justify-end gap-2 py-3 px-5 border-t ">
+                  <div className="flex w-full space-x-2 justify-end">
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        currentStep > 0 ? setCurrentStep(prev => prev - 1) : navigate('..')
+                      }
+                      type="button"
+                      size="sm"
+                    >
+                      {currentStep > 0 ? 'Back' : 'Cancel'}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleNext}
+                      hasIcon={connectStripeMutation.isPending}
+                      size="sm"
+                      disabled={!isCurrentStepValid() || methods.formState.isSubmitting}
+                    >
+                      {connectStripeMutation.isPending && <Spinner />}
+                      {currentStep === steps.length - 1 ? 'Connect Stripe' : 'Continue'}
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </form>
-        </Form>
-      </Modal.Content>
-    </Modal>
+            </form>
+          </Form>
+        </Modal.Content>
+      </Modal>
+    </>
   )
 }

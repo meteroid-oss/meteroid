@@ -139,7 +139,7 @@ export const IntegrationsTab = () => {
   ]
 
   // TODO, also scroll when reload with #hash
-  const handleScroll: React.UIEventHandler<HTMLDivElement> = _e => {}
+  const handleScroll: React.UIEventHandler<HTMLDivElement> = _e => { }
 
   const showConfirmationModal = useConfirmationModal()
 
@@ -208,7 +208,7 @@ export const IntegrationsTab = () => {
                             <span className="text-xs text-muted-foreground pr-4">Coming soon</span>
                           ) : connectorsQuery.isLoading ? (
                             <></>
-                          ) : !integration.data ? (
+                          ) : !integration.data?.length ? (
                             <Button
                               size="sm"
                               variant="brand"
@@ -292,10 +292,9 @@ export const IntegrationsTab = () => {
                   href={`#${section.id}`}
                   className={`
                     flex items-center px-3 py-2 text-sm rounded-md transition-colors
-                    ${
-                      activeSection === section.id
-                        ? 'bg-accent text-accent-foreground'
-                        : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                    ${activeSection === section.id
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                     }
                   `}
                 >

@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use serde::Deserialize;
 use std::collections::BTreeMap;
+use chrono::NaiveTime;
 use strum::{Display, EnumIter, EnumString, IntoEnumIterator};
 use thiserror::Error;
 
@@ -24,6 +25,8 @@ pub enum CurrencyRatesError {
 #[async_trait]
 pub trait CurrencyRatesService: Send + Sync + 'static {
     async fn fetch_latest_exchange_rates(&self) -> Result<ExchangeRates, CurrencyRatesError>;
+    async fn fetch_exchange_rates(&self, date: chrono::NaiveDate) -> Result<ExchangeRates, CurrencyRatesError>;
+    async fn fetch_historical_exchange_rates(&self, from_date: chrono::NaiveDate) -> Result<ExchangeRates, CurrencyRatesError>;
 }
 
 #[derive(Deserialize, Debug)]
@@ -54,7 +57,39 @@ impl OpenexchangeRatesService {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn fetch(&self, base: Currency) -> Result<ExchangeRates, CurrencyRatesError> {
+    async fn fetch_historical(&self, base: Currency, from_date: chrono::NaiveDate) -> Result<Vec<ExchangeRates>, CurrencyRatesError> {
+        let symbols = Currency::iter().filter(|x| *x != base).format(",");
+
+
+        // TODO
+        // let url = match self.api_key.as_ref() {
+        //     None =>
+        //     // This api is provided for testing/development purposes only, with no warranties.
+        //     // In production, use openexchangerates or equivalent.
+        //         {
+        //             format!("{}/rates/historical/{}/{}?symbols={}", OSS_API, from_date.format("%Y-%m-%d"), base, symbols)
+        //         }
+        //     Some(api_key) => format!(
+        //         "https://openexchangerates.org/api/historical/{}.json?app_id={}&base={}&symbols={}",
+        //         from_date.format("%Y-%m-%d"), api_key, base, symbols
+        //     ),
+        // };
+
+        // TODO TEMPORARY
+        let latest = self.fetch_latest(base).await?;
+
+        Ok(vec![ExchangeRates {
+            timestamp: from_date.and_time(NaiveTime::default()).and_utc().timestamp_millis() as u64,
+            base: base.to_string(),
+            rates: latest.rates.iter().map(|(k, v)| (k.clone(), *v)).collect()
+        }])
+
+
+    }
+
+
+    #[tracing::instrument(skip(self))]
+    async fn fetch_latest(&self, base: Currency) -> Result<ExchangeRates, CurrencyRatesError> {
         let symbols = Currency::iter().filter(|x| *x != base).format(",");
 
         let url = match self.api_key.as_ref() {
@@ -89,13 +124,17 @@ impl OpenexchangeRatesService {
 impl CurrencyRatesService for OpenexchangeRatesService {
     #[tracing::instrument(skip_all)]
     async fn fetch_latest_exchange_rates(&self) -> Result<ExchangeRates, CurrencyRatesError> {
-        let rates = self.fetch(Currency::USD).await?;
+        let rates = self.fetch_latest(Currency::USD).await?;
 
         if rates.base != Currency::USD.to_string() {
             return Err(CurrencyRatesError::InvalidBase(rates.base.to_string()));
         }
 
         Ok(rates)
+    }
+
+    async fn fetch_historical_exchange_rates(&self) -> Result<ExchangeRates, CurrencyRatesError> {
+        todo!()
     }
 }
 

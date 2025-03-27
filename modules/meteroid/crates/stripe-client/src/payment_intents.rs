@@ -20,7 +20,7 @@ pub struct PaymentIntentRequest {
     #[serde(flatten)]
     pub setup_mandate_details: Option<StripeMandateRequest>,
     pub capture_method: StripeCaptureMethod,
-    pub setup_future_usage: FutureUsage,
+    // pub setup_future_usage: FutureUsage,
     pub off_session: Option<bool>,
 }
 
