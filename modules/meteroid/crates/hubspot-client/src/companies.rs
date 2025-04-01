@@ -49,6 +49,12 @@ impl From<NewCompany> for BatchUpsertItemRequest {
             properties: json!({
                 "name": value.name,
                 "meteroid_customer_id": value.customer_id.to_string(),
+                "meteroid_customer_email": value.billing_email,
+                "meteroid_customer_country": value.billing_address.as_ref().and_then(|v| v.country.as_ref()),
+                "meteroid_customer_city": value.billing_address.as_ref().and_then(|v| v.city.as_ref()),
+                "meteroid_customer_state": value.billing_address.as_ref().and_then(|v| v.state.as_ref()),
+                "meteroid_customer_street": value.billing_address.as_ref().and_then(|v| v.line1.as_ref()),
+                "meteroid_customer_postal_code": value.billing_address.as_ref().and_then(|v| v.zip_code.as_ref()),
             }),
         }
     }
