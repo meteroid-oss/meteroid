@@ -78,7 +78,7 @@ fluent-static-codegen = "0.6.0"
 futures = "0.3.28"
 futures-lite = "2.3.0"
 futures-util = { version = "0.3.29", features = [] }
-governor = "0.9.0"
+governor = "0.10.0"
 hex = "0.4.3"
 hmac = "0.12.1"
 hmac-sha256 = "1.1.7"
