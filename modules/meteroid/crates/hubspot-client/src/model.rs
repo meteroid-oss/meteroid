@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 
 #[derive(Serialize)]
 pub struct BatchUpsertItemRequest {
@@ -12,15 +13,23 @@ pub struct BatchUpsertItemRequest {
     /// Learn more about [multi-status errors](https://developers.hubspot.com/docs/reference/api/other-resources/error-handling#multi-status-errors).
     #[serde(rename = "objectWriteTraceId")]
     pub object_write_trace_id: Option<String>,
-    pub properties: Vec<(String, Option<String>)>,
+    pub properties: serde_json::Value,
 }
 
 #[derive(Serialize)]
-pub struct BatchUpsertRequest {
-    pub inputs: Vec<BatchUpsertItemRequest>,
+pub struct BatchCreateItemRequest {
+    pub properties: serde_json::Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize)]
+pub struct BatchActionRequest<T: Serialize> {
+    pub inputs: Vec<T>,
+}
+
+pub type BatchCreateRequest = BatchActionRequest<BatchCreateItemRequest>;
+pub type BatchUpsertRequest = BatchActionRequest<BatchUpsertItemRequest>;
+
+#[derive(Debug, Deserialize)]
 pub struct BatchUpsertResponse {
     #[serde(rename = "completedAt")]
     pub completed_at: DateTime<Utc>,
@@ -30,10 +39,10 @@ pub struct BatchUpsertResponse {
     pub results: Vec<BatchUpsertItemResponse>,
     #[serde(rename = "numErrors")]
     pub num_errors: Option<i32>, // for status_207 status responses (multiple statuses)
-    pub errors: Option<StandardErrorResponse>, // for status _207 responses (multiple statuses)
+    pub errors: Vec<StandardErrorResponse>, // for status_207 responses (multiple statuses)
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct BatchUpsertItemResponse {
     pub id: String,
     pub new: bool,
@@ -41,10 +50,10 @@ pub struct BatchUpsertItemResponse {
     pub created_at: DateTime<Utc>,
     #[serde(rename = "updatedAt")]
     pub updated_at: DateTime<Utc>,
-    pub properties: Vec<(String, Option<String>)>,
+    pub properties: serde_json::Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct StandardErrorResponse {
     pub status: String,
     pub category: String,
