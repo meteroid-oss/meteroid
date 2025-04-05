@@ -68,7 +68,7 @@ impl HubspotClient {
         &self,
         path: &str,
         method: Method,
-        access_token: SecretString,
+        access_token: &SecretString,
         body: Option<Req>,
     ) -> Result<Resp, HubspotError> {
         let url = self.api_base.join(path).expect("invalid path");
@@ -83,6 +83,14 @@ impl HubspotClient {
         }
 
         let response = request.send().await.map_err(HubspotError::from)?;
+        let status_code = &response.status();
+
+        if !status_code.is_success() {
+            return Err(HubspotError::ClientError {
+                error: response.text().await.unwrap_or_default(),
+                status_code: Some(status_code.as_u16()),
+            });
+        }
 
         response.json().await.map_err(HubspotError::from)
     }
@@ -91,7 +99,7 @@ impl HubspotClient {
         &self,
         path: &str,
         request: BatchUpsertRequest,
-        access_token: SecretString,
+        access_token: &SecretString,
     ) -> Result<BatchUpsertResponse, HubspotError> {
         self.execute(path, Method::POST, access_token, Some(request))
             .await

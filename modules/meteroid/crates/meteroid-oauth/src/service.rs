@@ -138,10 +138,16 @@ impl OauthServices {
                     "oauth".to_owned(),
                     "crm.objects.deals.read".to_owned(),
                     "crm.objects.deals.write".to_owned(),
+                    "crm.schemas.deals.read".to_owned(),
+                    "crm.schemas.deals.write".to_owned(),
                     "crm.objects.contacts.read".to_owned(),
                     "crm.objects.contacts.write".to_owned(),
+                    "crm.schemas.contacts.read".to_owned(),
+                    "crm.schemas.contacts.write".to_owned(),
                     "crm.objects.companies.read".to_owned(),
                     "crm.objects.companies.write".to_owned(),
+                    "crm.schemas.companies.read".to_owned(),
+                    "crm.schemas.companies.write".to_owned(),
                 ],
             };
             Some(Arc::new(OauthServiceImpl::<HubspotErrorResponse> {
