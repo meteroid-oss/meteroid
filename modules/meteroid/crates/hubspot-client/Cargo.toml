@@ -18,10 +18,4 @@ reqwest-retry = { workspace = true, features = ["default"] }
 reqwest-middleware = { workspace = true, features = ["json"] }
 async-trait = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
-url = { workspace = true }
 log = { workspace = true }
-
-[dev-dependencies]
-dotenvy = { workspace = true }
-meteroid-oauth = { workspace = true }
-envconfig = { workspace = true }

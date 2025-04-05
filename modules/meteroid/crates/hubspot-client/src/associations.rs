@@ -2,7 +2,7 @@ use crate::client::HubspotClient;
 use crate::error::HubspotError;
 use crate::model::{
     Associate, Association, AssociationCategory, AssociationType, AssociationTypeId,
-    BatchActionRequest, CompanyId, DealId, StandardErrorResponse,
+    BatchActionRequest, CompanyId, DealId,
 };
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
@@ -55,7 +55,4 @@ pub struct BatchAssociateResponse {
     pub started_at: DateTime<Utc>,
     pub status: String,
     pub results: Vec<serde_json::Value>,
-    #[serde(rename = "numErrors")]
-    pub num_errors: Option<i32>, // for status_207 status responses (multiple statuses)
-    pub errors: Option<Vec<StandardErrorResponse>>, // for status_207 responses (multiple statuses)
 }

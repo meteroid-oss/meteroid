@@ -63,8 +63,7 @@ impl From<NewDeal> for BatchUpsertItemRequest {
                 "meteroid_subscription_id": value.subscription_id.to_string(),
                 "meteroid_customer_id": value.customer_id.to_string(),
             }),
-            // the associations work occasionally (most of the time are ignored or fail silently in hubspot)
-            // managed by a separate API call
+            // most of the time are ignored or fail silently in hubspot so managed by a separate API call
             associations: None,
         }
     }
