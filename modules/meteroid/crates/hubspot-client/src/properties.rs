@@ -25,35 +25,32 @@ pub trait PropertiesApi {
         &self,
         access_token: &SecretString,
     ) -> Result<(), HubspotError> {
-        self.create_property_group(
-            ObjectType::Companies,
-            NewPropertyGroup {
-                name: PropertyGroup::MeteroidInfo.to_string(),
-                display_order: None,
-                label: "Meteroid Info".to_string(),
-            },
-            access_token,
-        )
-        .await?;
+        let _ = tokio::try_join!(
+            self.create_property_group(
+                ObjectType::Companies,
+                NewPropertyGroup {
+                    name: PropertyGroup::MeteroidInfo.to_string(),
+                    display_order: None,
+                    label: "Meteroid Info".to_string(),
+                },
+                access_token,
+            ),
+            self.create_property_group(
+                ObjectType::Deals,
+                NewPropertyGroup {
+                    name: PropertyGroup::MeteroidInfo.to_string(),
+                    display_order: None,
+                    label: "Meteroid Info".to_string(),
+                },
+                access_token,
+            ),
+        )?;
 
-        self.create_property_group(
-            ObjectType::Deals,
-            NewPropertyGroup {
-                name: PropertyGroup::MeteroidInfo.to_string(),
-                display_order: None,
-                label: "Meteroid Info".to_string(),
-            },
-            access_token,
-        )
-        .await?;
+        let _ = tokio::try_join!(
+            self.batch_create_properties(ObjectType::Companies, company_properties(), access_token),
+            self.batch_create_properties(ObjectType::Deals, deal_properties(), access_token)
+        )?;
 
-        self.batch_create_properties(ObjectType::Companies, company_properties(), access_token)
-            .await?;
-
-        let deal_properties = vec![];
-
-        self.batch_create_properties(ObjectType::Deals, deal_properties, access_token)
-            .await?;
         Ok(())
     }
 }
@@ -182,6 +179,91 @@ fn company_properties() -> Vec<NewProperty> {
     ]
 }
 
+fn deal_properties() -> Vec<NewProperty> {
+    vec![
+        NewProperty {
+            name: DealProperty::MeteroidCustomerId.to_string(),
+            description: Some("Customer ID in Meteroid".to_string()),
+            label: "Meteroid customer ID".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionId.to_string(),
+            description: Some("Subscription ID in Meteroid".to_string()),
+            label: "Meteroid subscription ID".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: true,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionPlan.to_string(),
+            description: Some("Subscription plan in Meteroid".to_string()),
+            label: "Meteroid subscription plan".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionStartDate.to_string(),
+            description: Some("Subscription start date in Meteroid".to_string()),
+            label: "Meteroid subscription start date".to_string(),
+            type_: PropertyType::Date,
+            field_type: PropertyFieldType::Date,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionEndDate.to_string(),
+            description: Some("Subscription end date in Meteroid".to_string()),
+            label: "Meteroid subscription end date".to_string(),
+            type_: PropertyType::Date,
+            field_type: PropertyFieldType::Date,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionStatus.to_string(),
+            description: Some("Subscription status in Meteroid".to_string()),
+            label: "Meteroid subscription status".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionCurrency.to_string(),
+            description: Some("Subscription currency in Meteroid".to_string()),
+            label: "Meteroid subscription currency".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
+            name: DealProperty::MeteroidSubscriptionMrrCents.to_string(),
+            description: Some("Subscription MRR (cents) in Meteroid".to_string()),
+            label: "Meteroid subscription MRR (cents)".to_string(),
+            type_: PropertyType::Number,
+            field_type: PropertyFieldType::Number,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+    ]
+}
+
 #[derive(strum::Display, Serialize, Deserialize)]
 pub enum ObjectType {
     #[strum(to_string = "companies")]
@@ -197,6 +279,12 @@ pub enum PropertyType {
     #[strum(to_string = "string")]
     #[serde(rename = "string")]
     String,
+    #[strum(to_string = "number")]
+    #[serde(rename = "number")]
+    Number,
+    #[strum(to_string = "date")]
+    #[serde(rename = "date")]
+    Date,
 }
 
 #[derive(strum::Display, Serialize, Deserialize)]
@@ -204,6 +292,12 @@ pub enum PropertyFieldType {
     #[strum(to_string = "text")]
     #[serde(rename = "text")]
     Text,
+    #[strum(to_string = "number")]
+    #[serde(rename = "number")]
+    Number,
+    #[strum(to_string = "date")]
+    #[serde(rename = "date")]
+    Date,
 }
 
 #[derive(Serialize)]
@@ -232,7 +326,7 @@ pub struct BatchCreateResponse {
     pub results: Vec<serde_json::Value>,
     #[serde(rename = "numErrors")]
     pub num_errors: Option<i32>, // for status_207 status responses (multiple statuses)
-    pub errors: Option<StandardErrorResponse>, // for status_207 responses (multiple statuses)
+    pub errors: Option<Vec<StandardErrorResponse>>, // for status_207 responses (multiple statuses)
 }
 
 #[derive(Serialize)]
@@ -276,4 +370,25 @@ enum CompanyProperty {
     MeteroidCustomerStreet,
     #[strum(to_string = "meteroid_customer_postal_code")]
     MeteroidCustomerPostalCode,
+}
+
+#[derive(strum::Display)]
+#[allow(clippy::enum_variant_names)]
+enum DealProperty {
+    #[strum(to_string = "meteroid_customer_id")]
+    MeteroidCustomerId,
+    #[strum(to_string = "meteroid_subscription_id")]
+    MeteroidSubscriptionId,
+    #[strum(to_string = "meteroid_subscription_plan")]
+    MeteroidSubscriptionPlan,
+    #[strum(to_string = "meteroid_subscription_start_date")]
+    MeteroidSubscriptionStartDate,
+    #[strum(to_string = "meteroid_subscription_end_date")]
+    MeteroidSubscriptionEndDate,
+    #[strum(to_string = "meteroid_subscription_status")]
+    MeteroidSubscriptionStatus,
+    #[strum(to_string = "meteroid_subscription_currency")]
+    MeteroidSubscriptionCurrency,
+    #[strum(to_string = "meteroid_subscription_mrr_cents")]
+    MeteroidSubscriptionMrrCents,
 }

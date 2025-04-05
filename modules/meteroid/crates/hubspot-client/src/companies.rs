@@ -7,7 +7,7 @@ use serde_json::json;
 
 #[async_trait::async_trait]
 pub trait CompaniesApi {
-    async fn batch_upsert_companies(
+    async fn upsert_companies(
         &self,
         companies: Vec<NewCompany>,
         access_token: &SecretString,
@@ -17,7 +17,7 @@ pub trait CompaniesApi {
 #[async_trait::async_trait]
 impl CompaniesApi for HubspotClient {
     /// https://developers.hubspot.com/docs/reference/api/crm/objects/companies#post-%2Fcrm%2Fv3%2Fobjects%2Fcompanies%2Fbatch%2Fupsert
-    async fn batch_upsert_companies(
+    async fn upsert_companies(
         &self,
         companies: Vec<NewCompany>,
         access_token: &SecretString,
@@ -56,6 +56,7 @@ impl From<NewCompany> for BatchUpsertItemRequest {
                 "meteroid_customer_street": value.billing_address.as_ref().and_then(|v| v.line1.as_ref()),
                 "meteroid_customer_postal_code": value.billing_address.as_ref().and_then(|v| v.zip_code.as_ref()),
             }),
+            associations: None,
         }
     }
 }

@@ -80,6 +80,25 @@ pub struct Subscription {
     pub pending_checkout: bool,
 }
 
+impl Subscription {
+    pub fn status(&self) -> SubscriptionStatus {
+        if self.canceled_at.is_some() {
+            SubscriptionStatus::Canceled
+        } else if self.activated_at.is_some() {
+            SubscriptionStatus::Active
+        } else {
+            SubscriptionStatus::Pending
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum SubscriptionStatus {
+    Pending,
+    Active,
+    Canceled,
+}
+
 impl From<SubscriptionForDisplayRow> for Subscription {
     fn from(val: SubscriptionForDisplayRow) -> Self {
         Subscription {

@@ -1,3 +1,4 @@
+pub mod associations;
 pub mod client;
 pub mod companies;
 pub mod deals;
