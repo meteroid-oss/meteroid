@@ -23,7 +23,7 @@ const formFieldVariants = cva('', {
     },
   },
 })
-const formFieldLabelVariants = cva('', {
+const formFieldLabelVariants = cva('dark:text-muted-foreground', {
   variants: {
     layout: {
       vertical: '',

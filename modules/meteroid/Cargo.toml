@@ -112,10 +112,6 @@ clickhouse-rs = { workspace = true }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
 backon = { workspace = true }
 
-[build-dependencies]
-# see https://github.com/juhaku/utoipa/issues/1341
-zip = "=2.4.2"
-
 [[bin]]
 name = "meteroid-api"
 path = "src/bin/server.rs"

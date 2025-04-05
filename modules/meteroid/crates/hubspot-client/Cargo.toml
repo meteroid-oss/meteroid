@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 common-domain = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
@@ -16,4 +17,5 @@ reqwest = { workspace = true, features = ["default"] }
 reqwest-retry = { workspace = true, features = ["default"] }
 reqwest-middleware = { workspace = true, features = ["json"] }
 async-trait = { workspace = true }
-url = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+log = { workspace = true }
