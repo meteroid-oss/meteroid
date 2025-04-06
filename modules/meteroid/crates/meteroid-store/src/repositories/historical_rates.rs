@@ -11,10 +11,10 @@ use diesel_models::historical_rates_from_usd::{
 
 #[async_trait::async_trait]
 pub trait HistoricalRatesInterface {
-    async fn create_historical_rate_from_usd(
+    async fn create_historical_rates_from_usd(
         &self,
-        rate: HistoricalRatesFromUsdNew,
-    ) -> StoreResult<HistoricalRatesFromUsd>;
+        rates: Vec<HistoricalRatesFromUsdNew>,
+    ) -> StoreResult<()>;
 
     async fn get_historical_rate_from_usd_by_date(
         &self,
@@ -31,19 +31,22 @@ pub trait HistoricalRatesInterface {
 
 #[async_trait::async_trait]
 impl HistoricalRatesInterface for Store {
-    async fn create_historical_rate_from_usd(
+    async fn create_historical_rates_from_usd(
         &self,
-        rate: HistoricalRatesFromUsdNew,
-    ) -> StoreResult<HistoricalRatesFromUsd> {
+        rates: Vec<HistoricalRatesFromUsdNew>,
+    ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
-        let insertable: HistoricalRatesFromUsdRowNew = rate.try_into()?;
+        let batch = rates
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
 
-        insertable
-            .insert(&mut conn)
+        HistoricalRatesFromUsdRowNew
+            ::insert_batch(&mut conn, batch)
             .await
             .map_err(Into::into)
-            .and_then(TryInto::try_into)
+
     }
 
     async fn get_historical_rate_from_usd_by_date(

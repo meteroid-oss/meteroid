@@ -51,6 +51,8 @@ uuid = { workspace = true, features = ["v7"] }
 base64.workspace = true
 http = { workspace = true }
 hmac-sha256 = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true, features = ["snap", "arrow"] }
 
 secrecy.workspace = true
 anyhow.workspace = true

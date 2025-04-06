@@ -6,32 +6,21 @@ use common_grpc::middleware::client::build_layered_client_service;
 use common_logging::init::init_telemetry;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
-use meteroid::adapters::stripe::Stripe;
-use meteroid::clients::usage::MeteringUsageClient;
-use meteroid::config::Config;
-use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use meteroid::migrations;
-use meteroid::bootstrap;
-use meteroid::services::storage::S3Storage;
-use meteroid::svix::new_svix;
+use crate::adapters::stripe::Stripe;
+use crate::clients::usage::MeteringUsageClient;
+use crate::config::Config;
+use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
+use crate::migrations;
+use crate::bootstrap;
+use crate::services::storage::S3Storage;
+use crate::svix::new_svix;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::store::StoreConfig;
 use stripe_client::client::StripeClient;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    match dotenvy::dotenv() {
-        Err(error) if error.not_found() => Ok(()),
-        Err(error) => Err(error),
-        Ok(_) => Ok(()),
-    }?;
 
-    let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
-    println!("Starting {}", build_info);
 
-    let config = Config::get();
-
-    init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
+async fn bootstrap_server_app(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let metering_channel = tonic::transport::Channel::from_shared(config.metering_endpoint.clone())
         .expect("Invalid metering_endpoint")

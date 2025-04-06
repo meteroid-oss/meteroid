@@ -15,3 +15,4 @@ pub mod singletons;
 pub mod svix;
 pub mod webhook;
 pub mod workers;
+pub mod bootstrap;
