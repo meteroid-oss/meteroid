@@ -3,7 +3,7 @@ use crate::model::*;
 
 // Function to attach Factur-X XML to a PDF
 #[allow(unused)]
-pub fn generate_facturx_pdf(_pdf_data: &Vec<u8>, _invoice: &Invoice) -> InvoicingResult<Vec<u8>> {
+pub fn generate_facturx_pdf(_pdf_data: &[u8], _invoice: &Invoice) -> InvoicingResult<Vec<u8>> {
     todo!()
 }
 

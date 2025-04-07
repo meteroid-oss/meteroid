@@ -84,7 +84,7 @@ pub fn read_parquet_bytes_to_exchange_rates(
 
             // Extract rates for each currency
             for (idx, currency_name) in currency_indexes.iter().zip(&currency_names) {
-                if let Some(rate) = row.get_double(*idx).ok() {
+                if let Ok(rate) = row.get_double(*idx) {
                     rates.insert(currency_name.clone(), rate as f32);
                 }
             }

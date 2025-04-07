@@ -32,6 +32,19 @@ mod l10n {
     pub struct InvoiceL10n;
 
     include!(concat!(env!("OUT_DIR"), "/i18n_data.rs"));
+
+    pub fn get_country_local_name<'a>(lang: &str, country_code: &str) -> Option<&'a str> {
+        let primary = LOCALES
+            .get(lang)
+            .and_then(|locale| locale.get(country_code).map(|v| v.as_str()));
+        let fallback = || {
+            LOCALES
+                .get("en-US")
+                .and_then(|locale| locale.get(country_code).map(|v| v.as_str()))
+        };
+
+        primary.or_else(fallback)
+    }
 }
 
 #[derive(Debug, Clone, IntoValue, IntoDict)]
@@ -44,13 +57,18 @@ pub struct TypstAddress {
     pub zipcode: Option<String>,
 }
 
-impl From<&Address> for TypstAddress {
-    fn from(address: &Address) -> Self {
+impl TypstAddress {
+    pub fn from_address(address: &Address, lang: &str) -> Self {
+        let country_name = address
+            .country
+            .as_ref()
+            .and_then(|code| l10n::get_country_local_name(lang, code).map(|name| name.to_string()));
+
         TypstAddress {
             line1: address.line1.clone().unwrap_or_default(),
             line2: address.line2.clone(),
             city: address.city.clone(),
-            country: address.country.clone(),
+            country: country_name, // Use the resolved name instead of code
             state: address.state.clone(),
             zipcode: address.zip_code.clone(),
         }
@@ -72,15 +90,15 @@ pub struct TypstOrganization {
     pub accounting_currency_code: Option<String>,
 }
 
-impl From<&Organization> for TypstOrganization {
-    fn from(org: &Organization) -> Self {
+impl TypstOrganization {
+    pub fn from_org_with_lang(org: &Organization, lang: &str) -> Self {
         let currency_code = org.accounting_currency.code().to_string();
 
         TypstOrganization {
             name: org.name.clone(),
             logo_src: org.logo_src.clone(),
             legal_number: org.legal_number.clone(),
-            address: TypstAddress::from(&org.address),
+            address: TypstAddress::from_address(&org.address, lang),
             email: org.email.clone(),
             tax_id: org.tax_id.clone(),
             footer_info: org.footer_info.clone(),
@@ -101,12 +119,12 @@ pub struct TypstCustomer {
     pub tax_id: Option<String>,
 }
 
-impl From<&Customer> for TypstCustomer {
-    fn from(customer: &Customer) -> Self {
+impl TypstCustomer {
+    pub fn from_customer_with_lang(customer: &Customer, lang: &str) -> Self {
         TypstCustomer {
             name: customer.name.clone(),
             legal_number: customer.legal_number.clone(),
-            address: TypstAddress::from(&customer.address),
+            address: TypstAddress::from_address(&customer.address, lang),
             email: customer.email.clone(),
             tax_id: customer.tax_id.clone(),
         }
@@ -262,9 +280,9 @@ impl From<&Invoice> for TypstInvoiceContent {
             "no_transactions" => invoice_l10n.no_transactions().into_value(),
             "payment_info_title" => invoice_l10n.payment_info_title().into_value(),
             "payment_terms_title" => invoice_l10n.payment_terms_title().into_value(),
-            "payment_terms_text" => invoice_l10n.payment_terms_text(&invoice.metadata.payment_term.to_string()).into_value(),
+            "payment_terms_text" => invoice_l10n.payment_terms_text(invoice.metadata.payment_term.to_string()).into_value(),
             "tax_info_title" => invoice_l10n.tax_info_title().into_value(),
-            "tax_included_text" => invoice_l10n.tax_included_text( invoice.metadata.currency.code(), &invoice.metadata.tax_rate.to_string()).into_value(),
+            "tax_included_text" => invoice_l10n.tax_included_text( invoice.metadata.currency.code(), invoice.metadata.tax_rate.to_string()).into_value(),
             "tax_reverse_charge" => invoice_l10n.tax_reverse_charge().into_value(),
             "pay_online" => invoice_l10n.pay_online().into_value(),
             "vat_id" => invoice_l10n.vat_id().into_value(),
@@ -340,8 +358,9 @@ impl From<&Invoice> for TypstInvoiceContent {
 
         TypstInvoiceContent {
             lang: invoice.lang.clone(),
-            organization: TypstOrganization::from(&invoice.organization),
-            customer: TypstCustomer::from(&invoice.customer),
+            // Use the new methods with language parameter
+            organization: TypstOrganization::from_org_with_lang(&invoice.organization, lang),
+            customer: TypstCustomer::from_customer_with_lang(&invoice.customer, lang),
             number: invoice.metadata.number.clone(),
             issue_date: formatted_issue_date,
             due_date: formatted_due_date,

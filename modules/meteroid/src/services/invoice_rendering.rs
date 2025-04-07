@@ -3,7 +3,7 @@ use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as Base64Engine;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
-use error_stack::{FutureExt, ResultExt};
+use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
