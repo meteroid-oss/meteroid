@@ -2,25 +2,19 @@ use crate::errors::{InvoicingError, InvoicingResult};
 use crate::model::*;
 use chrono::prelude::*;
 use derive_typst_intoval::{IntoDict, IntoValue};
-use fluent_static::{LanguageAware, MessageBundle};
+use fluent_static::MessageBundle;
 use rust_decimal::Decimal;
-use rusty_money::{FormattableCurrency, iso};
-use std::fs::File;
-use std::io::Write;
-use std::path::Path;
 use rust_decimal::prelude::ToPrimitive;
+use rusty_money::{FormattableCurrency, iso};
 use typst::foundations::{Bytes, Dict, IntoValue};
-use typst::foundations::Smart;
+use typst::layout::PagedDocument;
 use typst::text::Font;
 use typst_as_lib::TypstEngine;
-use typst_pdf::{self, PdfOptions, PdfStandard, PdfStandards};
 
-// Include the Typst template
 static INVOICE_CORE: &str = include_str!("../templates/invoice.typ");
 static TEMPLATE_CORE: &str = include_str!("../templates/template.typ");
 static MAIN_TEMPLATE: &str = include_str!("../templates/main.typ");
 
-// Include font (variable font version)
 static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
 static WORDMARK_LOGO: &[u8] = include_bytes!("../assets/wordmark.svg");
 
@@ -40,7 +34,6 @@ mod l10n {
     include!(concat!(env!("OUT_DIR"), "/i18n_data.rs"));
 }
 
-// Performance optimized converter: avoid allocations where possible
 #[derive(Debug, Clone, IntoValue, IntoDict)]
 pub struct TypstAddress {
     pub line1: String,
@@ -81,7 +74,6 @@ pub struct TypstOrganization {
 
 impl From<&Organization> for TypstOrganization {
     fn from(org: &Organization) -> Self {
-        // Pre-compute currency code once
         let currency_code = org.accounting_currency.code().to_string();
 
         TypstOrganization {
@@ -94,7 +86,6 @@ impl From<&Organization> for TypstOrganization {
             footer_info: org.footer_info.clone(),
             footer_legal: org.footer_legal.clone(),
             currency_code: currency_code.clone(),
-            // Avoid potential repeated decimal-to-float conversions
             exchange_rate: org.exchange_rate.and_then(|d| d.to_f64()),
             accounting_currency_code: Some(currency_code),
         }
@@ -138,23 +129,19 @@ pub struct TypstInvoiceLine {
 
 impl From<&InvoiceLine> for TypstInvoiceLine {
     fn from(line: &InvoiceLine) -> Self {
-        // Precompute date formats once
         let start_date = line.start_date.format("%Y-%m-%d").to_string();
         let end_date = line.end_date.format("%Y-%m-%d").to_string();
 
         TypstInvoiceLine {
             name: line.name.clone(),
             description: line.description.clone(),
-            // Use and_then to avoid unwrap_or calls for each conversion
             quantity: line.quantity.and_then(|d| d.to_f64()),
             unit_price: line.unit_price.and_then(|d| d.to_f64()),
             vat_rate: line.vat_rate.and_then(|d| d.to_f64()),
-            // Division by 100.0 is cheaper than creating Decimals
             subtotal: (line.subtotal as f64) / 100.0,
             total: (line.total as f64) / 100.0,
             start_date,
             end_date,
-            // Pre-allocate vector with capacity when we know the size
             sub_lines: {
                 let mut sub_lines = Vec::with_capacity(line.sub_lines.len());
                 for sub_line in &line.sub_lines {
@@ -176,7 +163,6 @@ pub struct TypstInvoiceSubLine {
 
 impl From<&InvoiceSubLine> for TypstInvoiceSubLine {
     fn from(sub_line: &InvoiceSubLine) -> Self {
-        // Use expect for performance in hot paths where we don't expect failures
         let quantity = sub_line.quantity.to_f64().unwrap_or(0.0);
         let unit_price = sub_line.unit_price.to_f64().unwrap_or(0.0);
 
@@ -200,7 +186,6 @@ impl From<&Transaction> for TypstTransaction {
     fn from(transaction: &Transaction) -> Self {
         TypstTransaction {
             method: transaction.method.clone(),
-            // Pre-format date once
             date: transaction.date.format("%Y-%m-%d").to_string(),
             amount: (transaction.amount as f64) / 100.0,
         }
@@ -241,7 +226,6 @@ pub struct TypstInvoiceContent {
 
 impl From<&Invoice> for TypstInvoiceContent {
     fn from(invoice: &Invoice) -> Self {
-        // Normalize language code once
         let lang = match invoice.lang.as_str() {
             "fr" | "fr-FR" => "fr-FR",
             _ => "en-US",
@@ -249,7 +233,7 @@ impl From<&Invoice> for TypstInvoiceContent {
 
         let invoice_l10n = &l10n::InvoiceL10N::get(lang).unwrap_or(l10n::InvoiceL10N::default());
 
-        let mut translations =  typst::foundations::dict! {
+        let mut translations = typst::foundations::dict! {
             "invoice_title" => invoice_l10n.invoice_title().into_value(),
             "invoice_number" => invoice_l10n.invoice_number().into_value(),
             "issue_date" => invoice_l10n.issue_date().into_value(),
@@ -286,15 +270,10 @@ impl From<&Invoice> for TypstInvoiceContent {
             "vat_id" => invoice_l10n.vat_id().into_value(),
         };
 
-
-        // Add exchange rate info translation - only compute if needed
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
-            // Cache the formatted date
-            let date = format_date(lang, &invoice.metadata.issue_date).unwrap_or_else(|_|
-                invoice.metadata.issue_date.format("%Y-%m-%d").to_string()
-            );
+            let date = format_date(lang, &invoice.metadata.issue_date)
+                .unwrap_or_else(|_| invoice.metadata.issue_date.format("%Y-%m-%d").to_string());
 
-            // Pre-format the strings
             let equality = format!(
                 "1 {} = {} {}",
                 invoice.metadata.currency.code(),
@@ -309,27 +288,23 @@ impl From<&Invoice> for TypstInvoiceContent {
 
             translations.insert(
                 "exchange_rate_info".into(),
-                invoice_l10n.exchange_rate_info(&date, &equality, &amount_converted).into_value()
+                invoice_l10n
+                    .exchange_rate_info(&date, &equality, &amount_converted)
+                    .into_value(),
             );
         }
 
-        // Format currency values - pre-allocate capacity
         let mut formatted_currency = Dict::new();
 
-        // Get currency symbol directly
         let currency_symbol = invoice.metadata.currency.symbol();
         formatted_currency.insert("symbol".into(), currency_symbol.into_value());
 
-        // Format dates once
-        let formatted_issue_date = format_date(lang, &invoice.metadata.issue_date).unwrap_or_else(|_|
-            invoice.metadata.issue_date.format("%Y-%m-%d").to_string()
-        );
+        let formatted_issue_date = format_date(lang, &invoice.metadata.issue_date)
+            .unwrap_or_else(|_| invoice.metadata.issue_date.format("%Y-%m-%d").to_string());
 
-        let formatted_due_date = format_date(lang, &invoice.metadata.due_date).unwrap_or_else(|_|
-            invoice.metadata.due_date.format("%Y-%m-%d").to_string()
-        );
+        let formatted_due_date = format_date(lang, &invoice.metadata.due_date)
+            .unwrap_or_else(|_| invoice.metadata.due_date.format("%Y-%m-%d").to_string());
 
-        // Pre-allocate payment info capacity
         let payment_info = if let Some(info) = &invoice.bank_details {
             let mut info_dict = Dict::new();
             for (key, value) in info {
@@ -340,25 +315,24 @@ impl From<&Invoice> for TypstInvoiceContent {
             None
         };
 
-        // Pre-allocate lines vector capacity
         let mut lines = Vec::with_capacity(invoice.lines.len());
         for line in &invoice.lines {
             lines.push(TypstInvoiceLine::from(line));
         }
 
-        // Pre-allocate transactions vector capacity
         let mut transactions = Vec::with_capacity(invoice.transactions.len());
         for transaction in &invoice.transactions {
             transactions.push(TypstTransaction::from(transaction));
         }
 
-        // Cache currency code
         let currency_code = invoice.metadata.currency.code().to_string();
 
-        // Cache payment status with default
-        let payment_status = invoice.payment_status.clone().unwrap_or_else(|| "unpaid".to_string());
+        let payment_status = invoice
+            .payment_status
+            .clone()
+            .unwrap_or(PaymentStatus::Unpaid)
+            .as_template_string();
 
-        // Precompute float divisions
         let subtotal = (invoice.metadata.subtotal as f64) / 100.0;
         let tax_amount = (invoice.metadata.tax_amount as f64) / 100.0;
         let tax_rate = (invoice.metadata.tax_rate as f64) / 100.0;
@@ -398,7 +372,6 @@ impl From<&Invoice> for TypstInvoiceContent {
     }
 }
 
-// Optimized helper function to format dates
 #[inline]
 fn format_date(lang: &str, date: &NaiveDate) -> Result<String, InvoicingError> {
     match lang {
@@ -407,7 +380,6 @@ fn format_date(lang: &str, date: &NaiveDate) -> Result<String, InvoicingError> {
     }
 }
 
-// Optimized helper function to format currency with decimal
 #[inline]
 fn format_currency_dec(amount: Decimal, currency: &iso::Currency) -> String {
     rusty_money::Money::from_decimal(amount, currency).to_string()
@@ -419,58 +391,37 @@ pub struct TypstInvoiceRenderer {
 
 impl TypstInvoiceRenderer {
     pub fn new() -> Result<Self, InvoicingError> {
-        // Load font (variable font)
-        let font = Font::new(Bytes::new(INTER_VARIABLE_FONT), 0)
-            .ok_or(InvoicingError::I18nError("Failed to load Inter variable font".to_string()))?;
+        let font = Font::new(Bytes::new(INTER_VARIABLE_FONT), 0).ok_or(
+            InvoicingError::I18nError("Failed to load Inter variable font".to_string()),
+        )?;
 
-        // Create Typst Engine with font
         let engine = TypstEngine::builder()
             .with_static_source_file_resolver([
                 ("invoice.typ", INVOICE_CORE),
                 ("template.typ", TEMPLATE_CORE),
                 ("main.typ", MAIN_TEMPLATE),
             ])
-            .with_static_file_resolver(
-                [
-                    ("wordmark.svg", WORDMARK_LOGO),
-                ]
-            )
+            .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
             .fonts([font])
             .build();
 
         Ok(TypstInvoiceRenderer { engine })
     }
 
-    pub fn render_invoice(&self, invoice: &Invoice) -> InvoicingResult<Vec<u8>> {
-        // Convert invoice to Typst format - this is now more optimized
+    pub fn render_invoice(&self, invoice: &Invoice) -> InvoicingResult<PagedDocument> {
         let invoice_content = TypstInvoiceContent::from(invoice);
 
-        // Compile the Typst document
-        let result = self.engine
+        let result = self
+            .engine
             .compile_with_input("main.typ", invoice_content.into_dict())
             .output
             .map_err(|e| {
-                // Avoid multiple string formatting operations when logging errors
-                InvoicingError::PdfGenerationError(format!("Failed to compile Typst document: {}", e))
+                InvoicingError::InvoiceGenerationError(format!(
+                    "Failed to compile Typst document: {}",
+                    e
+                ))
             })?;
 
-        // Generate PDF with proper standards - reuse PDF standards when possible
-        let pdf_standard = [PdfStandard::A_3b]; // PDF/A-3b is required for e-invoicing
-        let pdf_standards = PdfStandards::new(&pdf_standard)
-            .map_err(|_| InvoicingError::PdfGenerationError("Failed to create PDF standards".to_string()))?;
-
-        let pdf_options = PdfOptions {
-            standards: pdf_standards,
-            page_ranges: None,
-            timestamp: None,
-            ident: Smart::Auto,
-        };
-
-        let pdf = typst_pdf::pdf(&result, &pdf_options)
-            .map_err(|e| InvoicingError::PdfGenerationError(format!("Failed to generate PDF: {:?}", e)))?;
-
-        Ok(pdf)
+        Ok(result)
     }
-
-
 }

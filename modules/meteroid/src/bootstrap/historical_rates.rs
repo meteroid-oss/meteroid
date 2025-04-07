@@ -1,16 +1,13 @@
-use std::collections::BTreeMap;
-use std::io::Cursor;
-use parquet::file::reader::{FileReader, SerializedFileReader};
-use anyhow::{bail, Context, Result};
-use diesel::ExpressionMethods;
-use parquet::record::RowAccessor;
+use anyhow::{Context, Result, bail};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
-use crate::errors;
-use crate::services::currency_rates::ExchangeRates;
+use parquet::file::reader::{FileReader, SerializedFileReader};
+use parquet::record::RowAccessor;
+use std::collections::BTreeMap;
 
 pub async fn fetch_parquet_file(url: &str) -> Result<Vec<u8>> {
     let client = reqwest::Client::new();
-    let response = client.get(url)
+    let response = client
+        .get(url)
         .send()
         .await
         .context("Failed to send request")?;
@@ -22,38 +19,46 @@ pub async fn fetch_parquet_file(url: &str) -> Result<Vec<u8>> {
         ));
     }
 
-    let bytes = response.bytes()
+    let bytes = response
+        .bytes()
         .await
         .context("Failed to read response body")?;
 
     Ok(bytes.to_vec())
 }
-pub fn read_parquet_bytes_to_exchange_rates(parquet_bytes: &[u8]) -> Result<Vec<HistoricalRatesFromUsdNew>> {
+pub fn read_parquet_bytes_to_exchange_rates(
+    parquet_bytes: &[u8],
+) -> Result<Vec<HistoricalRatesFromUsdNew>> {
+    // Convert &[u8] to bytes::Bytes which implements ChunkReader
+    let bytes = bytes::Bytes::copy_from_slice(parquet_bytes);
+
     // Create a reader from the bytes
-    let cursor = Cursor::new(parquet_bytes);
-    let reader = SerializedFileReader::new(cursor)
-        .context("Failed to create Parquet reader")?;
+    let reader = SerializedFileReader::new(bytes).context("Failed to create Parquet reader")?;
 
     let metadata = reader.metadata();
     let schema = metadata.file_metadata().schema();
+    let fields = schema.get_fields();
 
-    // Get column indexes for the fields we need
-    let base_idx = schema.get_field_index("base_currency")
-        .context("Missing 'base_currency' column")?;
-    let timestamp_idx = schema.get_field_index("timestamp")
-        .context("Missing 'timestamp' column")?;
-
-    // Get all currency column indexes
+    // Find field indexes manually
+    let mut base_idx = None;
+    let mut timestamp_idx = None;
     let mut currency_indexes = Vec::new();
     let mut currency_names = Vec::new();
 
-    for (i, field) in schema.get_fields().iter().enumerate() {
+    for (i, field) in fields.iter().enumerate() {
         let name = field.name();
-        if name != "date" && name != "timestamp" && name != "base_currency" {
+        if name == "base_currency" {
+            base_idx = Some(i);
+        } else if name == "timestamp" {
+            timestamp_idx = Some(i);
+        } else if name != "date" {
             currency_indexes.push(i);
-            currency_names.push(name.clone());
+            currency_names.push(name.to_string()); // Use to_string() instead of clone() for &str -> String
         }
     }
+
+    let base_idx = base_idx.context("Missing 'base_currency' column")?;
+    let timestamp_idx = timestamp_idx.context("Missing 'timestamp' column")?;
 
     let mut exchange_rates_vec = Vec::new();
 
@@ -62,10 +67,10 @@ pub fn read_parquet_bytes_to_exchange_rates(parquet_bytes: &[u8]) -> Result<Vec<
         let row_group = reader.get_row_group(row_group_idx)?;
 
         // Process rows
-        for row in row_group.get_row_iter(None)? {
-            let row = row.context("Failed to parse row")?;
+        for row_result in row_group.get_row_iter(None)? {
+            let row = row_result.context("Failed to parse row")?;
             let base = row.get_string(base_idx)?.to_string();
-            let timestamp = row?.get_long(timestamp_idx)? as u64;
+            let timestamp = row.get_long(timestamp_idx)? as u64;
 
             if base != "USD" {
                 bail!("Invalid base currency: {}. Expected USD", base);
@@ -79,16 +84,12 @@ pub fn read_parquet_bytes_to_exchange_rates(parquet_bytes: &[u8]) -> Result<Vec<
 
             // Extract rates for each currency
             for (idx, currency_name) in currency_indexes.iter().zip(&currency_names) {
-                if !row.is_null(*idx)? {
-                    let rate = row.get_double(*idx)? as f32;
-                    rates.insert(currency_name.clone(), rate);
+                if let Some(rate) = row.get_double(*idx).ok() {
+                    rates.insert(currency_name.clone(), rate as f32);
                 }
             }
 
-            exchange_rates_vec.push(HistoricalRatesFromUsdNew {
-                rates,
-                date,
-            });
+            exchange_rates_vec.push(HistoricalRatesFromUsdNew { rates, date });
         }
     }
 

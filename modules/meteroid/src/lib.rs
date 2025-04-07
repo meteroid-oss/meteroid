@@ -1,6 +1,7 @@
 pub mod adapters;
 pub mod api;
 pub mod api_rest;
+pub mod bootstrap;
 pub mod clients;
 pub mod config;
 pub mod constants;
@@ -15,4 +16,3 @@ pub mod singletons;
 pub mod svix;
 pub mod webhook;
 pub mod workers;
-pub mod bootstrap;

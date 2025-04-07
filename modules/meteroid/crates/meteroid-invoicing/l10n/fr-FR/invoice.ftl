@@ -1,5 +1,5 @@
 invoice-title = Facture
-invoice-number = Facture n°{$invoice_number}
+invoice-number = Facture n°
 company-logo-alt = Logo de l'entreprise
 issue-date = Date d'émission
 amount-due = Montant dû
@@ -19,3 +19,19 @@ legal-info = Informations légales
 vat-exempt-legal = TVA non applicable - art. 259-1 du CGI
 exchange-rate-info = Taux de change au {$date}:  {$equality} | Montant total converti = {$amount_converted}
 
+payment-status = Statut de paiement
+payment-status-paid = Payé
+payment-status-partially-paid = Partiellement Payé
+payment-status-unpaid = Non Payé
+payment-method = Méthode
+payment-date = Date
+payment-amount = Montant
+no-transactions = Aucun paiement reçu
+payment-info-title = Informations de paiement
+payment-terms-title = Conditions de paiement
+payment-terms-text = Paiement à effectuer dans les {$days} jours
+tax-info-title = Informations fiscales
+tax-included-text = Tous les prix sont en {$currency} et incluent {$rate}% de TVA
+tax-reverse-charge = TVA due selon le régime de l'autoliquidation
+pay-online = Payer en ligne
+vat-id = VAT ID

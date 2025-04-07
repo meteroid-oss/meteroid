@@ -7,14 +7,13 @@ use common_logging::init::init_telemetry;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use meteroid::adapters::stripe::Stripe;
+use meteroid::bootstrap;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
-use meteroid::bootstrap;
 use meteroid::services::storage::S3Storage;
 use meteroid::svix::new_svix;
-use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::store::StoreConfig;
 use stripe_client::client::StripeClient;
 
@@ -67,10 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     migrations::run(&store.pool).await?;
 
-    bootstrap::bootstrap_once(store).await?;
+    bootstrap::bootstrap_once(store.clone()).await?;
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
-
 
     let object_store_service = Arc::new(S3Storage::try_new(
         &config.object_store_uri,
@@ -84,8 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let exit = signal::ctrl_c();
-
-
 
     let stripe_adapter = Arc::new(Stripe { client: stripe });
 

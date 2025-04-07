@@ -9,7 +9,6 @@ members = [
   "modules/meteroid/crates/diesel-models",
   "modules/meteroid/crates/meteroid-store",
   "modules/meteroid/crates/meteroid-invoicing",
-  "modules/meteroid/crates/meteroid-invoicing-typst",
   "modules/meteroid/crates/meteroid-mailer",
   "modules/meteroid/crates/meteroid-oauth",
   "modules/meteroid/crates/meteroid-seeder",
@@ -168,6 +167,11 @@ tracing = { version = "0.1.39", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
+typst = { version = "0.13.1" }
+typst-pdf = { version = "0.13.1" }
+typst-svg = { version = "0.13.1" }
+typst-as-lib = { version = "0.14.1", features = [] }
+derive_typst_intoval = { version = "0.3.0", features = [] }
 unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
@@ -197,7 +201,6 @@ metering = { path = "modules/metering" }
 diesel-models = { path = "modules/meteroid/crates/diesel-models" }
 meteroid-store = { path = "modules/meteroid/crates/meteroid-store" }
 meteroid-invoicing = { path = "modules/meteroid/crates/meteroid-invoicing" }
-meteroid-invoicing-typst = { path = "modules/meteroid/crates/meteroid-invoicing-typst" }
 meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }
 stripe-client = { path = "modules/meteroid/crates/stripe-client" }
 meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }

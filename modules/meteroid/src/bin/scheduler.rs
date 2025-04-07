@@ -54,11 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.object_store_prefix,
     )?);
 
-    let pdf_service = PdfRenderingService::try_new(
-        config.gotenberg_url.clone(),
-        object_store_service,
-        store.clone(),
-    )?;
+    let pdf_service = PdfRenderingService::try_new(object_store_service, store.clone())?;
 
     let store_pgmq1 = store.clone();
     let store_pgmq2 = store.clone();

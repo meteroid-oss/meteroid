@@ -1,15 +1,19 @@
-use meteroid_invoicing_typst::{
-    model::{Address, Customer, Invoice, InvoiceLine, InvoiceMetadata, InvoiceSubLine, Organization, Transaction},
+use chrono::NaiveDate;
+use meteroid_invoicing::model::{Flags, PaymentStatus};
+use meteroid_invoicing::pdf::PdfGenerator;
+use meteroid_invoicing::{
+    model::{
+        Address, Customer, Invoice, InvoiceLine, InvoiceMetadata, InvoiceSubLine, Organization,
+        Transaction,
+    },
     pdf::TypstPdfGenerator,
 };
-use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rusty_money::iso;
+use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use meteroid_invoicing_typst::model::Flags;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let start = Instant::now();
 
         // Generate the PDF
-        let _pdf_data = generator.generate_pdf_from_invoice(&invoice).await?;
+        let _pdf_data = generator.generate_pdf(&invoice).await?;
 
         // Record the elapsed time
         let elapsed = start.elapsed();
@@ -58,10 +62,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Maximum generation time: {:.2?}", *max_time);
 
         // Optional: Save the last generated PDF
-        let pdf_data = generator.generate_pdf_from_invoice(&invoice).await?;
+        let pdf_data = generator.generate_pdf(&invoice).await?;
         let output_path = Path::new("benchmark_invoice.pdf");
         std::fs::write(output_path, pdf_data)?;
-        println!("\nExample invoice saved at: {:?}", output_path.canonicalize()?);
+        println!(
+            "\nExample invoice saved at: {:?}",
+            output_path.canonicalize()?
+        );
     }
 
     Ok(())
@@ -84,7 +91,10 @@ fn create_test_invoice() -> Invoice {
     let mut payment_info = HashMap::new();
     payment_info.insert("Bank Name".to_string(), "International Bank".to_string());
     payment_info.insert("Account Holder".to_string(), "Acme Inc.".to_string());
-    payment_info.insert("IBAN".to_string(), "FR76 1234 5678 9012 3456 7890 123".to_string());
+    payment_info.insert(
+        "IBAN".to_string(),
+        "FR76 1234 5678 9012 3456 7890 123".to_string(),
+    );
     payment_info.insert("BIC/SWIFT".to_string(), "INTLFRPP".to_string());
     payment_info.insert("Reference".to_string(), "INV-2025-001".to_string());
 
@@ -106,7 +116,7 @@ fn create_test_invoice() -> Invoice {
         lang: "fr-FR".to_string(), // Try with French language
         organization: Organization {
             name: "Acme Inc.".to_string(),
-            logo_url: None,
+            logo_src: None,
             legal_number: Some("123456789".to_string()),
             address: Address {
                 line1: Some("123 Main St".to_string()),
@@ -199,7 +209,7 @@ fn create_test_invoice() -> Invoice {
             },
         ],
         // New fields
-        payment_status: Some("paid".to_string()),
+        payment_status: Some(PaymentStatus::Paid),
         transactions,
         bank_details: Some(payment_info),
     }

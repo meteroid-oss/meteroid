@@ -42,11 +42,9 @@ impl HistoricalRatesInterface for Store {
             .map(|s| s.try_into())
             .collect::<Result<Vec<_>, _>>()?;
 
-        HistoricalRatesFromUsdRowNew
-            ::insert_batch(&mut conn, batch)
+        HistoricalRatesFromUsdRowNew::insert_batch(&mut conn, batch)
             .await
             .map_err(Into::into)
-
     }
 
     async fn get_historical_rate_from_usd_by_date(

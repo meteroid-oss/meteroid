@@ -1,8 +1,7 @@
-use crate::services::invoice_rendering::HtmlRenderingService;
+use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use meteroid_grpc::meteroid::api::invoices::v1::invoices_service_server::InvoicesServiceServer;
 use meteroid_store::Store;
 use secrecy::SecretString;
-use std::sync::Arc;
 
 mod error;
 pub mod mapping;
@@ -10,20 +9,18 @@ mod service;
 
 pub struct InvoiceServiceComponents {
     pub store: Store,
-    pub html_rendering: HtmlRenderingService,
+    pub preview_rendering: InvoicePreviewRenderingService,
     pub jwt_secret: SecretString,
 }
 
 pub fn service(
     store: Store,
     jwt_secret: SecretString,
-    rest_api_external_url: String,
+    preview_rendering: InvoicePreviewRenderingService,
 ) -> InvoicesServiceServer<InvoiceServiceComponents> {
-    let html_rendering = HtmlRenderingService::new(Arc::new(store.clone()), rest_api_external_url);
-
     let inner = InvoiceServiceComponents {
         store,
-        html_rendering,
+        preview_rendering,
         jwt_secret,
     };
 

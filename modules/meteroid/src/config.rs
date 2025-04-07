@@ -73,9 +73,6 @@ pub struct Config {
     #[envconfig(nested)]
     pub fang_ext: FangExtConfig,
 
-    #[envconfig(from = "GOTENBERG_URL", default = "http://localhost:3000")]
-    pub gotenberg_url: String,
-
     #[envconfig(from = "SVIX_SERVER_URL")]
     pub svix_server_url: Option<String>,
 

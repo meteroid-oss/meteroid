@@ -9,6 +9,7 @@ use meteroid_store::Store;
 
 use crate::api;
 use crate::api::cors::cors;
+use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
 
 use super::super::config::Config;
@@ -22,6 +23,9 @@ pub async fn start_api_server(
         "Starting Billing API grpc server on port {}",
         config.grpc_listen_addr.port()
     );
+
+    let preview_rendering =
+        InvoicePreviewRenderingService::try_new(Arc::new(store.clone()), object_store.clone())?;
 
     let (_, health_service) = tonic_health::server::health_reporter();
 
@@ -79,7 +83,7 @@ pub async fn start_api_server(
         .add_service(api::invoices::service(
             store.clone(),
             config.jwt_secret.clone(),
-            config.rest_api_external_url.clone(),
+            preview_rendering,
         ))
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
