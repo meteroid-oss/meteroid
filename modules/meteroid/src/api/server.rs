@@ -19,10 +19,7 @@ pub async fn start_api_server(
     store: Store,
     object_store: Arc<dyn ObjectStoreService>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    log::info!(
-        "Starting Billing API grpc server on port {}",
-        config.grpc_listen_addr.port()
-    );
+    log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
 
     let preview_rendering =
         InvoicePreviewRenderingService::try_new(Arc::new(store.clone()), object_store.clone())?;

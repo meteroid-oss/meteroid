@@ -1,10 +1,12 @@
 use meteroid_grpc::meteroid::api;
 
-use tonic::Code;
-
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, TenantId};
+use meteroid_store::domain::ConnectorProviderEnum;
+use meteroid_store::repositories::CustomersInterface;
+use tonic::Code;
 
 #[tokio::test]
 async fn test_customers_basic() {
@@ -51,6 +53,28 @@ async fn test_customers_basic() {
         .into_inner()
         .customer
         .unwrap();
+
+    setup
+        .store
+        .patch_customer_conn_meta(
+            CustomerId::from_proto(created.id.as_str()).unwrap(),
+            ConnectorId::new(),
+            ConnectorProviderEnum::Hubspot,
+            "idk",
+        )
+        .await
+        .unwrap();
+
+    let patched_conn_meta = setup
+        .store
+        .find_customer_by_id(
+            CustomerId::from_proto(created.id.as_str()).unwrap(),
+            TenantId::from_proto("018c2c82-3df1-7e84-9e05-6e141d0e751a").unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_ne!(patched_conn_meta.conn_meta, None);
 
     let created_manual = clients
         .customers

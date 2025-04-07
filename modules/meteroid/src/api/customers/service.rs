@@ -7,7 +7,8 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
+    PatchCustomerResponse, SyncToHubspotRequest, SyncToHubspotResponse,
+    TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
     customers_service_server::CustomersService,
 };
 use meteroid_store::domain;
@@ -288,6 +289,7 @@ impl CustomersService for CustomerServiceComponents {
         }))
     }
 
+    #[tracing::instrument(skip_all)]
     async fn archive_customer(
         &self,
         request: Request<ArchiveCustomerRequest>,
@@ -304,5 +306,29 @@ impl CustomersService for CustomerServiceComponents {
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(ArchiveCustomerResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn sync_to_hubspot(
+        &self,
+        request: Request<SyncToHubspotRequest>,
+    ) -> Result<Response<SyncToHubspotResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let ids = req
+            .customer_ids
+            .iter()
+            .map(CustomerId::from_proto)
+            .map(|id| id.map(AliasOr::Id))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.store
+            .sync_customers_to_hubspot(ids, tenant_id)
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(SyncToHubspotResponse {}))
     }
 }

@@ -263,6 +263,9 @@ fn extract_stripe_public_key(
 ) -> error_stack::Result<SecretString, PaymentProviderError> {
     match &connector.data {
         Some(ProviderData::Stripe(data)) => Ok(SecretString::new(data.api_publishable_key.clone())),
+        Some(_) => Err(Report::new(PaymentProviderError::Configuration(
+            "not a stripe connection".to_string(),
+        ))),
         None => Err(Report::new(PaymentProviderError::Configuration(
             "No api_publishable_key found".to_string(),
         ))),

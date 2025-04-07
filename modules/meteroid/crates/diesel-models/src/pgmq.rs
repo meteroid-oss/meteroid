@@ -7,8 +7,8 @@ use diesel::sql_types;
 
 #[derive(Debug, Clone)]
 pub struct PgmqMessageRowNew {
-    pub message: Message,
-    pub headers: Headers,
+    pub message: Option<Message>,
+    pub headers: Option<Headers>,
 }
 
 #[derive(Debug, Clone, QueryableByName)]
@@ -18,7 +18,7 @@ pub struct PgmqMessageRow {
     #[diesel(sql_type = sql_types::Integer)]
     pub read_ct: ReadCt,
     #[diesel(sql_type = sql_types::Nullable<sql_types::Jsonb>)]
-    pub message: Message,
+    pub message: Option<Message>,
     #[diesel(sql_type = sql_types::Nullable<sql_types::Jsonb>)]
-    pub headers: Headers,
+    pub headers: Option<Headers>,
 }

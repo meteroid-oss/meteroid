@@ -8,8 +8,8 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest,
     CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse,
     GetSlotsValueRequest, GetSlotsValueResponse, ListSubscriptionsRequest,
-    ListSubscriptionsResponse, PaginationResponse, SubscriptionDetails, UpdateSlotsRequest,
-    UpdateSlotsResponse,
+    ListSubscriptionsResponse, PaginationResponse, SubscriptionDetails, SyncToHubspotRequest,
+    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
 use crate::api::subscriptions::error::SubscriptionApiError;
@@ -231,5 +231,28 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 subscription: Some(s),
             })
         })
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn sync_to_hubspot(
+        &self,
+        request: Request<SyncToHubspotRequest>,
+    ) -> Result<Response<SyncToHubspotResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let subscription_ids = req
+            .subscription_ids
+            .into_iter()
+            .map(SubscriptionId::from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.store
+            .sync_subscriptions_to_hubspot(tenant_id, subscription_ids)
+            .await
+            .map_err(Into::<SubscriptionApiError>::into)?;
+
+        Ok(Response::new(SyncToHubspotResponse {}))
     }
 }

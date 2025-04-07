@@ -89,6 +89,13 @@ message GetSlotsValueResponse {
   // uint32 next_period_value = 2; // TODO
 }
 
+message SyncToHubspotRequest {
+  repeated string subscription_ids = 1;
+}
+
+message SyncToHubspotResponse {
+}
+
 
 // Service definition
 service SubscriptionsService {
@@ -99,4 +106,5 @@ service SubscriptionsService {
   rpc UpdateSlots(UpdateSlotsRequest) returns (UpdateSlotsResponse);
   rpc GetSlotsValue(GetSlotsValueRequest) returns (GetSlotsValueResponse);
   rpc CancelSubscription(CancelSubscriptionRequest) returns (CancelSubscriptionResponse);
+  rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse);
 }

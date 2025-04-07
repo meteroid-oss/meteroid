@@ -13,12 +13,13 @@ use diesel::{
 };
 use diesel_async::RunQueryDsl;
 
-use crate::enums::InvoiceType;
+use crate::enums::{ConnectorProviderEnum, InvoiceType};
+use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -96,6 +97,58 @@ impl SubscriptionRow {
         let query = subscription
             .filter(id.eq_any(subscription_ids))
             .filter(tenant_id.eq(tenant_id_param))
+            .inner_join(crate::schema::customer::table)
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
+            .select(SubscriptionForDisplayRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while fetching subscriptions by IDs")
+            .into_db_result()
+    }
+
+    pub async fn list_by_customer_ids(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        customer_ids: &[CustomerId],
+    ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = s_dsl::subscription
+            .filter(s_dsl::tenant_id.eq(tenant_id))
+            .filter(s_dsl::customer_id.eq_any(customer_ids))
+            .inner_join(crate::schema::customer::table)
+            .inner_join(
+                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
+            )
+            .select(SubscriptionForDisplayRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while fetching subscriptions by customer IDs")
+            .into_db_result()
+    }
+
+    pub async fn list_by_ids(
+        conn: &mut PgConn,
+        ids: &[SubscriptionId],
+    ) -> DbResult<Vec<SubscriptionForDisplayRow>> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use crate::schema::subscription::dsl as s_dsl;
+
+        let query = s_dsl::subscription
+            .filter(s_dsl::id.eq_any(ids))
             .inner_join(crate::schema::customer::table)
             .inner_join(
                 pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
@@ -326,5 +379,24 @@ impl SubscriptionRow {
             .into_db_result()?;
 
         Ok(())
+    }
+
+    pub async fn upsert_conn_meta(
+        conn: &mut PgConn,
+        provider: ConnectorProviderEnum,
+        subscription_id: SubscriptionId,
+        connector_id: ConnectorId,
+        external_id: &str,
+    ) -> DbResult<()> {
+        connection_metadata::upsert(
+            conn,
+            "subscription",
+            provider.as_meta_key(),
+            subscription_id.as_uuid(),
+            connector_id,
+            external_id,
+        )
+        .await
+        .map(|_| ())
     }
 }

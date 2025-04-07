@@ -21,7 +21,7 @@ pub trait PropertiesApi {
         access_token: &SecretString,
     ) -> Result<(), HubspotError>;
 
-    async fn init_meteroid_properties(
+    async fn create_meteroid_properties(
         &self,
         access_token: &SecretString,
     ) -> Result<(), HubspotError> {
@@ -31,7 +31,7 @@ pub trait PropertiesApi {
                 NewPropertyGroup {
                     name: PropertyGroup::MeteroidInfo.to_string(),
                     display_order: None,
-                    label: "Meteroid Info".to_string(),
+                    label: "Meteroid information".to_string(),
                 },
                 access_token,
             ),
@@ -40,7 +40,7 @@ pub trait PropertiesApi {
                 NewPropertyGroup {
                     name: PropertyGroup::MeteroidInfo.to_string(),
                     display_order: None,
-                    label: "Meteroid Info".to_string(),
+                    label: "Meteroid information".to_string(),
                 },
                 access_token,
             ),
@@ -96,7 +96,7 @@ impl PropertiesApi for HubspotClient {
                 status_code: Some(409),
                 ..
             }) => {
-                log::warn!("Property group {} already exists", group_name);
+                log::warn!("Property group {group_name} already exists");
                 Ok(())
             }
             Err(e) => Err(e),
@@ -227,16 +227,6 @@ fn deal_properties() -> Vec<NewProperty> {
             label: "Meteroid subscription end date".to_string(),
             type_: PropertyType::Date,
             field_type: PropertyFieldType::Date,
-            group_name: PropertyGroup::MeteroidInfo.to_string(),
-            has_unique_value: false,
-            hidden: false,
-        },
-        NewProperty {
-            name: DealProperty::MeteroidSubscriptionStatus.to_string(),
-            description: Some("Subscription status in Meteroid".to_string()),
-            label: "Meteroid subscription status".to_string(),
-            type_: PropertyType::String,
-            field_type: PropertyFieldType::Text,
             group_name: PropertyGroup::MeteroidInfo.to_string(),
             has_unique_value: false,
             hidden: false,
@@ -385,8 +375,6 @@ enum DealProperty {
     MeteroidSubscriptionStartDate,
     #[strum(to_string = "meteroid_subscription_end_date")]
     MeteroidSubscriptionEndDate,
-    #[strum(to_string = "meteroid_subscription_status")]
-    MeteroidSubscriptionStatus,
     #[strum(to_string = "meteroid_subscription_currency")]
     MeteroidSubscriptionCurrency,
     #[strum(to_string = "meteroid_subscription_mrr_cents")]

@@ -1,16 +1,19 @@
 use crate::customers::{
     CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
 };
+use crate::enums::ConnectorProviderEnum;
 use crate::errors::IntoDbResult;
+use crate::extend::connection_metadata;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AliasOr, CustomerId, TenantId};
+use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
     SelectableHelper, debug_query,
 };
 use error_stack::ResultExt;
+use itertools::Itertools;
 use std::ops::Add;
 use tap::TapFallible;
 use uuid::Uuid;
@@ -32,6 +35,36 @@ impl CustomerRowNew {
 }
 
 impl CustomerRow {
+    pub async fn find_by_ids_or_aliases(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        ids_or_aliases: Vec<AliasOr<CustomerId>>,
+    ) -> DbResult<Vec<CustomerRow>> {
+        use crate::schema::customer::dsl as c_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let (ids, aliases): (Vec<CustomerId>, Vec<String>) = ids_or_aliases
+            .into_iter()
+            .partition_map(|id_or_alias| match id_or_alias {
+                AliasOr::Id(id) => itertools::Either::Left(id),
+                AliasOr::Alias(alias) => itertools::Either::Right(alias),
+            });
+
+        let query = c_dsl::customer
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::archived_at.is_null())
+            .filter(c_dsl::id.eq_any(ids).or(c_dsl::alias.eq_any(aliases)))
+            .select(CustomerRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_results(conn)
+            .await
+            .attach_printable("Error while finding customers by ids or aliases")
+            .into_db_result()
+    }
+
     pub async fn find_by_id_or_alias(
         conn: &mut PgConn,
         tenant_id: TenantId,
@@ -323,6 +356,25 @@ impl CustomerRowPatch {
             .tap_err(|e| log::error!("Error while patching customer: {:?}", e))
             .attach_printable("Error while patching customer")
             .into_db_result()
+    }
+
+    pub async fn upsert_conn_meta(
+        conn: &mut PgConn,
+        provider: ConnectorProviderEnum,
+        customer_id: CustomerId,
+        connector_id: ConnectorId,
+        external_id: &str,
+    ) -> DbResult<()> {
+        connection_metadata::upsert(
+            conn,
+            "customer",
+            provider.as_meta_key(),
+            customer_id.as_uuid(),
+            connector_id,
+            external_id,
+        )
+        .await
+        .map(|_| ())
     }
 }
 

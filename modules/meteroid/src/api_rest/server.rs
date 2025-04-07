@@ -82,7 +82,7 @@ pub async fn start_rest_server(
         .layer(auth_layer)
         .layer(DefaultBodyLimit::max(4096));
 
-    tracing::info!("listening on {}", config.rest_api_addr.clone());
+    tracing::info!("Starting REST API on {}", config.rest_api_addr.clone());
 
     let listener = TcpListener::bind(&config.rest_api_addr)
         .await

@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
+use common_domain::ids::{CustomerId, SubscriptionId};
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt::Debug;
+use std::str::FromStr;
 
 pub struct CompanyId(pub String);
 pub struct DealId(pub String);
@@ -90,6 +92,22 @@ pub struct BatchUpsertResponse {
     pub errors: Option<Vec<StandardErrorResponse>>, // for status_207 responses (multiple statuses)
 }
 
+impl BatchUpsertResponse {
+    pub fn get_company_id(&self, meteroid_id: CustomerId) -> Option<CompanyId> {
+        self.results
+            .iter()
+            .find(|r| r.get_meteroid_customer_id() == Some(meteroid_id))
+            .map(|r| CompanyId(r.id.clone()))
+    }
+
+    pub fn get_deal_id(&self, meteroid_id: SubscriptionId) -> Option<DealId> {
+        self.results
+            .iter()
+            .find(|r| r.get_meteroid_subscription_id() == Some(meteroid_id))
+            .map(|r| DealId(r.id.clone()))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BatchUpsertItemResponse {
     pub id: String,
@@ -99,6 +117,22 @@ pub struct BatchUpsertItemResponse {
     #[serde(rename = "updatedAt")]
     pub updated_at: DateTime<Utc>,
     pub properties: serde_json::Value,
+}
+
+impl BatchUpsertItemResponse {
+    pub fn get_meteroid_customer_id(&self) -> Option<CustomerId> {
+        self.properties
+            .get("meteroid_customer_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| CustomerId::from_str(s).ok())
+    }
+
+    pub fn get_meteroid_subscription_id(&self) -> Option<SubscriptionId> {
+        self.properties
+            .get("meteroid_subscription_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| SubscriptionId::from_str(s).ok())
+    }
 }
 
 #[derive(Debug, Deserialize)]

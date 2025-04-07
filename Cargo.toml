@@ -205,4 +205,4 @@ meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }
 stripe-client = { path = "modules/meteroid/crates/stripe-client" }
 meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
 meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
-meteroid-hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
+hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
