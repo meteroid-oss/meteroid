@@ -31,7 +31,7 @@ pub trait PropertiesApi {
                 NewPropertyGroup {
                     name: PropertyGroup::MeteroidInfo.to_string(),
                     display_order: None,
-                    label: "Meteroid Info".to_string(),
+                    label: "Meteroid information".to_string(),
                 },
                 access_token,
             ),
@@ -40,7 +40,7 @@ pub trait PropertiesApi {
                 NewPropertyGroup {
                     name: PropertyGroup::MeteroidInfo.to_string(),
                     display_order: None,
-                    label: "Meteroid Info".to_string(),
+                    label: "Meteroid information".to_string(),
                 },
                 access_token,
             ),

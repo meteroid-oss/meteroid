@@ -53,7 +53,7 @@ impl From<NewDeal> for BatchUpsertItemRequest {
             id_property: Some("meteroid_subscription_id".to_owned()),
             object_write_trace_id: None,
             properties: json!({
-               "dealname": value.customer_name,
+               "dealname": value.plan_name,
                 "meteroid_subscription_plan": value.plan_name,
                 "meteroid_subscription_start_date": value.subscription_start_date.to_string(),
                 "meteroid_subscription_end_date": value.subscription_end_date.map(|d| d.to_string()),
