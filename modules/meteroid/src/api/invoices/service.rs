@@ -107,8 +107,8 @@ impl InvoicesService for InvoiceServiceComponents {
         let req = request.into_inner();
 
         let html = self
-            .html_rendering
-            .preview_invoice_html(InvoiceId::from_proto(&req.id)?, tenant_id)
+            .preview_rendering
+            .preview_invoice(InvoiceId::from_proto(&req.id)?, tenant_id)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 

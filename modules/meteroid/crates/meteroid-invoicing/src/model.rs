@@ -1,5 +1,24 @@
+use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rusty_money::iso;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone)]
+pub enum PaymentStatus {
+    Paid,
+    PartiallyPaid,
+    Unpaid,
+}
+
+impl PaymentStatus {
+    pub(crate) fn as_template_string(&self) -> String {
+        match self {
+            PaymentStatus::Paid => "paid".to_string(),
+            PaymentStatus::PartiallyPaid => "partially_paid".to_string(),
+            PaymentStatus::Unpaid => "unpaid".to_string(),
+        }
+    }
+}
 
 pub struct Invoice {
     pub lang: String,
@@ -7,6 +26,11 @@ pub struct Invoice {
     pub customer: Customer,
     pub metadata: InvoiceMetadata,
     pub lines: Vec<InvoiceLine>,
+
+    //
+    pub payment_status: Option<PaymentStatus>, // "paid", "partially_paid", or "unpaid"
+    pub transactions: Vec<Transaction>,
+    pub bank_details: Option<HashMap<String, String>>, // TODO here we need the BankAccount format, and we mak to kv in the Typst types
 }
 
 #[derive(Default)]
@@ -20,7 +44,7 @@ pub struct Address {
 }
 
 pub struct Organization {
-    pub logo_url: Option<String>,
+    pub logo_src: Option<String>,
     pub name: String,
     pub legal_number: Option<String>,
     pub address: Address,
@@ -51,6 +75,18 @@ pub struct InvoiceMetadata {
     pub currency: iso::Currency,
     pub due_date: chrono::NaiveDate,
     pub memo: Option<String>,
+    pub payment_url: Option<String>,
+    pub flags: Flags,
+}
+
+#[derive(Default)]
+pub struct Flags {
+    pub show_payment_status: Option<bool>,
+    pub show_payment_info: Option<bool>,
+    pub show_terms: Option<bool>,
+    pub show_tax_info: Option<bool>,
+    pub show_legal_info: Option<bool>,
+    pub whitelabel: Option<bool>,
 }
 
 pub struct InvoiceLine {
@@ -72,4 +108,11 @@ pub struct InvoiceSubLine {
     pub quantity: Decimal,
     pub unit_price: Decimal,
     // pub attributes: Option<SubLineAttributes>,
+}
+
+pub struct Transaction {
+    /// ex: "Card •••• 7726" or "Bank Transfer"
+    pub method: String,
+    pub date: NaiveDate,
+    pub amount: i64,
 }

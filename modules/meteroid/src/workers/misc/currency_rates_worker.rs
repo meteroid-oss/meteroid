@@ -61,10 +61,10 @@ async fn currency_rates_worker(
 
     // we insert or update the rates. bi table usd values are updated via a trigger
     store
-        .create_historical_rate_from_usd(HistoricalRatesFromUsdNew {
+        .create_historical_rates_from_usd(vec![HistoricalRatesFromUsdNew {
             date,
             rates: rates.rates,
-        })
+        }])
         .await
         .change_context(errors::WorkerError::CurrencyRatesUpdateError)?;
 

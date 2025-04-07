@@ -67,13 +67,13 @@ async fn main() -> error_stack::Result<(), SeederError> {
     let now = chrono::Utc::now().naive_utc();
 
     store
-        .create_historical_rate_from_usd(HistoricalRatesFromUsdNew {
+        .create_historical_rates_from_usd(vec![HistoricalRatesFromUsdNew {
             date: now
                 .date()
                 .checked_sub_months(chrono::Months::new(5 * 12))
                 .unwrap(),
             rates: BTreeMap::from([(tenant_currency.clone(), 0.92)]),
-        })
+        }])
         .await
         .change_context(SeederError::InitializationError)?;
 

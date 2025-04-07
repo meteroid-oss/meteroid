@@ -7,13 +7,13 @@ use common_logging::init::init_telemetry;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use meteroid::adapters::stripe::Stripe;
+use meteroid::bootstrap;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::S3Storage;
 use meteroid::svix::new_svix;
-use meteroid_store::repositories::webhooks::WebhooksInterface;
 use meteroid_store::store::StoreConfig;
 use stripe_client::client::StripeClient;
 
@@ -63,10 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stripe: stripe.clone(),
         oauth,
     })?;
-    // todo this is a hack to register the event types in svix, should be managed by an api
-    if let Err(err) = store.insert_webhook_out_event_types().await {
-        log::error!("Failed to insert webhook out event types: {}", err)
-    }
+
+    migrations::run(&store.pool).await?;
+
+    bootstrap::bootstrap_once(store.clone()).await?;
 
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
@@ -82,8 +82,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let exit = signal::ctrl_c();
-
-    migrations::run(&store.pool).await?;
 
     let stripe_adapter = Arc::new(Stripe { client: stripe });
 

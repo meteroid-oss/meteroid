@@ -1,85 +1,49 @@
 use crate::errors::{InvoicingError, InvoicingResult};
+use crate::model::Invoice;
+use crate::typst_render::TypstInvoiceRenderer;
 use async_trait::async_trait;
 use bytes::Bytes;
-use reqwest::Client;
+use typst::foundations::Smart;
+use typst_pdf::{self, PdfOptions, PdfStandard, PdfStandards};
 
 #[async_trait]
 pub trait PdfGenerator: Send + Sync {
-    async fn generate_pdf(&self, invoice_html: &str) -> InvoicingResult<Bytes>;
+    async fn generate_pdf(&self, invoice: &Invoice) -> InvoicingResult<Bytes>;
 }
 
-pub struct GotenbergPdfGenerator {
-    gotenberg_url: String,
-    client: Client,
+pub struct TypstPdfGenerator {
+    renderer: TypstInvoiceRenderer,
 }
 
-impl GotenbergPdfGenerator {
-    pub fn new(gotenberg_url: String) -> Self {
-        let client = reqwest::Client::new();
-        GotenbergPdfGenerator {
-            gotenberg_url,
-            client,
-        }
+impl TypstPdfGenerator {
+    pub fn new() -> InvoicingResult<Self> {
+        let renderer = TypstInvoiceRenderer::new()?;
+        Ok(TypstPdfGenerator { renderer })
     }
 }
-
 #[async_trait]
-impl PdfGenerator for GotenbergPdfGenerator {
-    async fn generate_pdf(&self, invoice_html: &str) -> InvoicingResult<Bytes> {
-        let html_part = reqwest::multipart::Part::text(invoice_html.to_owned())
-            .file_name("index.html")
-            .mime_str("text/html")
-            .map_err(|_| {
-                InvoicingError::PdfGenerationError(
-                    "Failed to create HTML part for Gotenberg".to_string(),
-                )
-            })?;
+impl PdfGenerator for TypstPdfGenerator {
+    // Direct method to generate PDF from an Invoice object
+    async fn generate_pdf(&self, invoice: &Invoice) -> InvoicingResult<Bytes> {
+        let result = self.renderer.render_invoice(invoice)?;
 
-        let footer_part =
-            reqwest::multipart::Part::text(crate::footer_render::render_footer().into_string())
-                .file_name("footer.html")
-                .mime_str("text/html")
-                .map_err(|_| {
-                    InvoicingError::PdfGenerationError(
-                        "Failed to create footer part for Gotenberg".to_string(),
-                    )
-                })?;
+        // Generate PDF with proper standards - reuse PDF standards when possible
+        let pdf_standard = [PdfStandard::A_3b]; // PDF/A-3b is required for e-invoicing
+        let pdf_standards = PdfStandards::new(&pdf_standard).map_err(|_| {
+            InvoicingError::PdfGenerationError("Failed to create PDF standards".to_string())
+        })?;
 
-        let form = reqwest::multipart::Form::new()
-            .part("files", html_part)
-            .part("files", footer_part)
-            .text("scale", "1")
-            .text("marginTop", "0.2")
-            .text("marginBottom", "0.2")
-            .text("marginLeft", "0.2")
-            .text("marginRight", "0.2")
-            .text("pdfa", "PDF/A-3b");
+        let pdf_options = PdfOptions {
+            standards: pdf_standards,
+            page_ranges: None,
+            timestamp: None,
+            ident: Smart::Auto,
+        };
 
-        let response = self
-            .client
-            .post(format!(
-                "{}/forms/chromium/convert/html",
-                self.gotenberg_url
-            ))
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|_| {
-                InvoicingError::PdfGenerationError(
-                    "Failed to send request to gotenberg".to_string(),
-                )
-            })?;
+        let pdf = typst_pdf::pdf(&result, &pdf_options).map_err(|e| {
+            InvoicingError::PdfGenerationError(format!("Failed to generate PDF: {:?}", e))
+        })?;
 
-        if response.status().is_success() {
-            Ok(response.bytes().await.map_err(|_| {
-                InvoicingError::PdfGenerationError("Failed to read Gotenberg response".to_string())
-            })?)
-        } else {
-            Err(InvoicingError::PdfGenerationError(format!(
-                "Gotenberg returned status code {} and body {}",
-                response.status(),
-                response.text().await.unwrap()
-            )))
-        }
+        Ok(Bytes::from(pdf))
     }
 }
