@@ -2,7 +2,7 @@ use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
 use cached::proc_macro::cached;
-use common_domain::ids::TenantId;
+use common_domain::ids::{ConnectorId, TenantId};
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
 use hubspot_client::client::HubspotClient;
@@ -21,12 +21,6 @@ use std::sync::Arc;
 pub(crate) struct HubspotSync {
     pub(crate) store: Arc<Store>,
     pub(crate) client: Arc<HubspotClient>,
-}
-
-struct ConnectedTenant {
-    tenant_id: TenantId,
-    access_token: SecretString,
-    events: Vec<(HubspotSyncRequestEvent, MessageId)>,
 }
 
 impl HubspotSync {
@@ -49,8 +43,9 @@ impl HubspotSync {
         let mut connected_tenants = vec![];
         for task in tasks {
             match task.await {
-                Ok(Ok((tenant_id, Some(access_token)))) => {
+                Ok(Ok((tenant_id, Some((connector_id, access_token))))) => {
                     connected_tenants.push(ConnectedTenant {
+                        connector_id,
                         tenant_id,
                         access_token,
                         events: by_tenant
@@ -176,6 +171,14 @@ impl PgmqHandler for HubspotSync {
     }
 }
 
+#[allow(dead_code)]
+struct ConnectedTenant {
+    connector_id: ConnectorId,
+    tenant_id: TenantId,
+    access_token: SecretString,
+    events: Vec<(HubspotSyncRequestEvent, MessageId)>,
+}
+
 // todo we should use moka cache with per item ttl instead (the ttl should be expires_in)
 #[cached(
     result = true,
@@ -188,33 +191,26 @@ impl PgmqHandler for HubspotSync {
 async fn get_hubspot_access_token_cached(
     store: &Store,
     tenant_id: TenantId,
-) -> PgmqResult<Option<SecretString>> {
+) -> PgmqResult<Option<(ConnectorId, SecretString)>> {
     let connector = store
         .get_hubspot_connector(tenant_id)
         .await
         .change_context(PgmqError::HandleMessages)?;
 
     if let Some(connector) = connector {
-        if let Some(sensitive) = connector.sensitive {
-            if let ProviderSensitiveData::Hubspot(data) = sensitive {
-                let access_token = store
-                    .oauth_exchange_refresh_token(
-                        OauthProvider::Hubspot,
-                        SecretString::new(data.refresh_token),
-                    )
-                    .await
-                    .change_context(PgmqError::HandleMessages)?;
+        if let Some(ProviderSensitiveData::Hubspot(data)) = connector.sensitive {
+            let access_token = store
+                .oauth_exchange_refresh_token(
+                    OauthProvider::Hubspot,
+                    SecretString::new(data.refresh_token),
+                )
+                .await
+                .change_context(PgmqError::HandleMessages)?;
 
-                return Ok(Some(access_token));
-            } else {
-                log::warn!(
-                    "Invalid sensitive data for hubspot connector {}",
-                    connector.id
-                );
-            }
+            return Ok(Some((connector.id, access_token)));
         } else {
             log::warn!(
-                "Missing sensitive data for hubspot connector {}",
+                "Missing or invalid sensitive data for hubspot connector {}",
                 connector.id
             );
         }

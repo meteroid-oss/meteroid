@@ -34,6 +34,7 @@ pub struct CustomerRow {
     pub vat_number: Option<String>,
     pub custom_vat_rate: Option<i32>,
     pub invoicing_emails: Vec<Option<String>>,
+    pub conn_meta: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]

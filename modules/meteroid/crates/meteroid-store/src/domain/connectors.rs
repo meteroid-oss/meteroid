@@ -1,7 +1,7 @@
-use crate::StoreResult;
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::errors::StoreError;
-use chrono::NaiveDateTime;
+use crate::{StoreResult, json_value_serde};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{BaseId, ConnectorId, TenantId};
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::ResultExt;
@@ -151,3 +151,20 @@ impl ConnectorNew {
         })
     }
 }
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ConnectionMeta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hubspot: Option<Vec<ConnectionMetaItem>>,
+}
+
+json_value_serde!(ConnectionMeta);
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct ConnectionMetaItem {
+    pub connector_id: ConnectorId,
+    pub external_id: String,
+    pub sync_at: DateTime<Utc>,
+}
+
+json_value_serde!(ConnectionMetaItem);

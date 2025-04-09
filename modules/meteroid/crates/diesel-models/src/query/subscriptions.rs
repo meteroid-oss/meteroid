@@ -13,12 +13,13 @@ use diesel::{
 };
 use diesel_async::RunQueryDsl;
 
-use crate::enums::InvoiceType;
+use crate::enums::{ConnectorProviderEnum, InvoiceType};
+use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
@@ -326,5 +327,24 @@ impl SubscriptionRow {
             .into_db_result()?;
 
         Ok(())
+    }
+
+    pub async fn upsert_conn_meta(
+        conn: &mut PgConn,
+        provider: ConnectorProviderEnum,
+        subscription_id: SubscriptionId,
+        connector_id: ConnectorId,
+        external_id: &str,
+    ) -> DbResult<()> {
+        connection_metadata::upsert(
+            conn,
+            "subscription",
+            provider.as_meta_key(),
+            subscription_id.as_uuid(),
+            connector_id,
+            external_id,
+        )
+        .await
+        .map(|_| ())
     }
 }

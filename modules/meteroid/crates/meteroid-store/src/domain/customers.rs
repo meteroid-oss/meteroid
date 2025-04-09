@@ -1,3 +1,4 @@
+use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::PaymentMethodTypeEnum;
 use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
@@ -45,6 +46,8 @@ pub struct Customer {
     pub custom_vat_rate: Option<i32>,
     #[map(~.into_iter().flatten().collect())]
     pub invoicing_emails: Vec<String>,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
+    pub conn_meta: Option<ConnectionMeta>,
 }
 
 #[derive(Clone, Debug, o2o)]

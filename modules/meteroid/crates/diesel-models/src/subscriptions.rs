@@ -45,6 +45,7 @@ pub struct SubscriptionRow {
     pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
+    pub conn_meta: Option<serde_json::Value>,
 }
 
 #[derive(Insertable, Debug)]

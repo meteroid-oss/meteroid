@@ -2,10 +2,10 @@ use crate::StoreResult;
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
-    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
-    CustomerTopUpBalance, CustomerUpdate, DetailedInvoice, InlineCustomer, InlineInvoicingEntity,
-    InvoiceNew, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest,
-    PaginatedVec, PaginationRequest,
+    ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
+    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams,
+    InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
@@ -14,7 +14,7 @@ use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
-use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
+use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
@@ -94,6 +94,14 @@ pub trait CustomersInterface {
         actor: Uuid,
         tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
+    ) -> StoreResult<()>;
+
+    async fn patch_customer_conn_meta(
+        &self,
+        customer_id: CustomerId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
     ) -> StoreResult<()>;
 }
 
@@ -611,5 +619,25 @@ impl CustomersInterface for Store {
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn patch_customer_conn_meta(
+        &self,
+        customer_id: CustomerId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerRowPatch::upsert_conn_meta(
+            &mut conn,
+            provider.into(),
+            customer_id,
+            connector_id,
+            external_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
     }
 }
