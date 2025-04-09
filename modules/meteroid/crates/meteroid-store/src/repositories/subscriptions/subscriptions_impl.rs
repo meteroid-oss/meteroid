@@ -1,8 +1,8 @@
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::{
-    BillableMetric, CreateSubscription, CreatedSubscription, CursorPaginatedVec,
-    CursorPaginationRequest, PaginatedVec, PaginationRequest, Schedule, Subscription,
-    SubscriptionComponent, SubscriptionComponentNew, SubscriptionDetails,
+    BillableMetric, ConnectorProviderEnum, CreateSubscription, CreatedSubscription,
+    CursorPaginatedVec, CursorPaginationRequest, PaginatedVec, PaginationRequest, Schedule,
+    Subscription, SubscriptionComponent, SubscriptionComponentNew, SubscriptionDetails,
     SubscriptionInvoiceCandidate,
 };
 use crate::errors::StoreError;
@@ -30,7 +30,7 @@ use diesel_models::subscriptions::SubscriptionRow;
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::jwt_claims::{PortalJwtClaims, ResourceAccess};
-use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::Result;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -106,7 +106,7 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(db_subscription.into())
+        db_subscription.try_into()
     }
 
     /// todo optimize db calls
@@ -122,7 +122,7 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        let subscription: Subscription = db_subscription.into();
+        let subscription: Subscription = db_subscription.try_into()?;
 
         let schedules: Vec<Schedule> =
             ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription.id)
@@ -296,7 +296,7 @@ impl SubscriptionInterface for Store {
             })
             .await?;
 
-        let subscription: Subscription = db_subscription.into();
+        let subscription: Subscription = db_subscription.try_into()?;
 
         let _ = self
             .eventbus
@@ -333,8 +333,8 @@ impl SubscriptionInterface for Store {
             items: db_subscriptions
                 .items
                 .into_iter()
-                .map(|s| s.into())
-                .collect(),
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
             total_pages: db_subscriptions.total_pages,
             total_results: db_subscriptions.total_results,
         };
@@ -367,6 +367,26 @@ impl SubscriptionInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn patch_subscription_conn_meta(
+        &self,
+        subscription_id: SubscriptionId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        SubscriptionRow::upsert_conn_meta(
+            &mut conn,
+            provider.into(),
+            subscription_id,
+            connector_id,
+            external_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
     }
 }
 

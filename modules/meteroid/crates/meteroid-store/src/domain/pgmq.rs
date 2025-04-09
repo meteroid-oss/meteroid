@@ -1,6 +1,6 @@
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use common_domain::ids::InvoiceId;
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
 use o2o::o2o;
@@ -12,6 +12,7 @@ pub enum PgmqQueue {
     OutboxEvent,
     InvoicePdfRequest,
     WebhookOut,
+    HubspotSync,
 }
 
 impl PgmqQueue {
@@ -20,6 +21,7 @@ impl PgmqQueue {
             PgmqQueue::OutboxEvent => "outbox_event",
             PgmqQueue::InvoicePdfRequest => "invoice_pdf_request",
             PgmqQueue::WebhookOut => "webhook_out",
+            PgmqQueue::HubspotSync => "hubspot_sync",
         }
     }
 }
@@ -68,6 +70,58 @@ impl TryInto<InvoicePdfRequestEvent> for &PgmqMessage {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<InvoicePdfRequestEvent, Self::Error> {
+        let payload = self
+            .message
+            .0
+            .as_ref()
+            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?;
+
+        payload.try_into()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum HubspotSyncRequestEvent {
+    Customer {
+        id: CustomerId,
+        tenant_id: TenantId,
+    },
+    Subscription {
+        id: SubscriptionId,
+        tenant_id: TenantId,
+    },
+    InitProperties {
+        tenant_id: TenantId,
+    },
+}
+
+impl HubspotSyncRequestEvent {
+    pub fn tenant_id(&self) -> TenantId {
+        match self {
+            HubspotSyncRequestEvent::Customer { tenant_id, .. } => *tenant_id,
+            HubspotSyncRequestEvent::Subscription { tenant_id, .. } => *tenant_id,
+            HubspotSyncRequestEvent::InitProperties { tenant_id } => *tenant_id,
+        }
+    }
+}
+
+json_value_serde!(HubspotSyncRequestEvent);
+
+impl TryInto<PgmqMessageNew> for HubspotSyncRequestEvent {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+        let headers = Headers::none();
+        let message = Message::some(self.try_into()?);
+
+        Ok(PgmqMessageNew { message, headers })
+    }
+}
+
+impl TryInto<HubspotSyncRequestEvent> for &PgmqMessage {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<HubspotSyncRequestEvent, Self::Error> {
         let payload = self
             .message
             .0

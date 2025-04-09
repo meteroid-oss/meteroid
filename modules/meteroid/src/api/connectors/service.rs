@@ -1,7 +1,7 @@
 use crate::api::connectors::error::ConnectorApiError;
 use crate::api::connectors::{ConnectorsServiceComponents, mapping};
 use crate::api::utils::parse_referer;
-use crate::{api::utils::parse_uuid, parse_uuid};
+use common_domain::ids::ConnectorId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
 use meteroid_grpc::meteroid::api::connectors::v1::{
@@ -61,7 +61,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let connector_id = parse_uuid!(&req.id)?;
+        let connector_id: ConnectorId = ConnectorId::from_proto(&req.id)?;
 
         self.store
             .delete_connector(connector_id, tenant_id)

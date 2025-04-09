@@ -327,6 +327,7 @@ diesel::table! {
         vat_number -> Nullable<Text>,
         custom_vat_rate -> Nullable<Int4>,
         invoicing_emails -> Array<Nullable<Text>>,
+        conn_meta -> Nullable<Jsonb>,
     }
 }
 
@@ -727,6 +728,7 @@ diesel::table! {
         trial_duration -> Nullable<Int4>,
         activation_condition -> SubscriptionActivationConditionEnum,
         billing_start_date -> Nullable<Date>,
+        conn_meta -> Nullable<Jsonb>,
     }
 }
 

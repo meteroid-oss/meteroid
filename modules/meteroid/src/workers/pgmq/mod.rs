@@ -1,4 +1,5 @@
 mod error;
+mod hubspot_sync;
 mod outbox;
 mod pdf_render;
 mod processor;

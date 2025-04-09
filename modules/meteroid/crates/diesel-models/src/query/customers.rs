@@ -1,11 +1,13 @@
 use crate::customers::{
     CustomerBriefRow, CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate,
 };
+use crate::enums::ConnectorProviderEnum;
 use crate::errors::IntoDbResult;
+use crate::extend::connection_metadata;
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{AliasOr, CustomerId, TenantId};
+use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, OptionalExtension, PgTextExpressionMethods, QueryDsl,
     SelectableHelper, debug_query,
@@ -323,6 +325,25 @@ impl CustomerRowPatch {
             .tap_err(|e| log::error!("Error while patching customer: {:?}", e))
             .attach_printable("Error while patching customer")
             .into_db_result()
+    }
+
+    pub async fn upsert_conn_meta(
+        conn: &mut PgConn,
+        provider: ConnectorProviderEnum,
+        customer_id: CustomerId,
+        connector_id: ConnectorId,
+        external_id: &str,
+    ) -> DbResult<()> {
+        connection_metadata::upsert(
+            conn,
+            "customer",
+            provider.as_meta_key(),
+            customer_id.as_uuid(),
+            connector_id,
+            external_id,
+        )
+        .await
+        .map(|_| ())
     }
 }
 

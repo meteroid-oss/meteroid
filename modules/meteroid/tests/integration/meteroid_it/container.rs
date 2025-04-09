@@ -140,7 +140,7 @@ pub async fn terminate_meteroid(token: CancellationToken, join_handle: JoinHandl
 
 pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
     let container = (|| async {
-        let postgres = GenericImage::new("quay.io/tembo/pg17-pgmq", "v1.5.0")
+        let postgres = GenericImage::new("ghcr.io/meteroid-oss/meteroid-postgres", "17.4")
             .with_wait_for(WaitFor::log(LogWaitStrategy::stdout(
                 "database system is ready to accept connections",
             )))

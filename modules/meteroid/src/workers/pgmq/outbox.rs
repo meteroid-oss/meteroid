@@ -6,7 +6,7 @@ use common_domain::pgmq::{Headers, Message, MessageId};
 use error_stack::{Report, ResultExt, report};
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -75,6 +75,46 @@ impl PgmqOutboxDispatch {
 
         Ok(())
     }
+
+    pub(crate) async fn handle_hubspot_out(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut new_messages = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<OutboxPgmqHeaders> = (&msg.headers).try_into();
+            if let Ok(out_headers) = out_headers {
+                if let EventType::CustomerCreated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::CustomerCreated(evt)) = msg.try_into() {
+                        HubspotSyncRequestEvent::Customer {
+                            id: evt.customer_id,
+                            tenant_id: evt.tenant_id,
+                        }
+                        .try_into()
+                        .map(|msg_new| new_messages.push(msg_new))
+                        .change_context(PgmqError::HandleMessages)?;
+                    }
+                } else if let EventType::SubscriptionCreated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::SubscriptionCreated(evt)) = msg.try_into() {
+                        HubspotSyncRequestEvent::Subscription {
+                            id: evt.subscription_id,
+                            tenant_id: evt.tenant_id,
+                        }
+                        .try_into()
+                        .map(|msg_new| new_messages.push(msg_new))
+                        .change_context(PgmqError::HandleMessages)?;
+                    }
+                }
+            }
+        }
+
+        if !new_messages.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::HubspotSync, new_messages)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -83,14 +123,16 @@ impl PgmqHandler for PgmqOutboxDispatch {
         let ids = msgs.iter().map(|x| x.msg_id).collect::<Vec<_>>();
 
         // Run the functions in parallel
-        let (webhook_result, pdf_result) = tokio::join!(
+        let (webhook_result, pdf_result, hubspot_result) = tokio::join!(
             self.handle_webhook_out(msgs),
-            self.handle_invoice_pdf_requests(msgs)
+            self.handle_invoice_pdf_requests(msgs),
+            self.handle_hubspot_out(msgs),
         );
 
         // Check results
         webhook_result?;
         pdf_result?;
+        hubspot_result?;
 
         Ok(ids)
     }

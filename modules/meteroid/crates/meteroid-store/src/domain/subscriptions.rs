@@ -1,11 +1,13 @@
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 
+use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
     PlanForSubscription, Schedule, SubscriptionComponent,
 };
+use crate::errors::StoreErrorReport;
 use crate::repositories::subscriptions::PaymentSetupResult;
 use common_domain::ids::{
     BankAccountId, BaseId, CustomerConnectionId, CustomerId, PlanId, SubscriptionId, TenantId,
@@ -78,6 +80,7 @@ pub struct Subscription {
     pub mrr_cents: u64,
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
+    pub conn_meta: Option<ConnectionMeta>,
 }
 
 impl Subscription {
@@ -99,9 +102,11 @@ pub enum SubscriptionStatus {
     Canceled,
 }
 
-impl From<SubscriptionForDisplayRow> for Subscription {
-    fn from(val: SubscriptionForDisplayRow) -> Self {
-        Subscription {
+impl TryFrom<SubscriptionForDisplayRow> for Subscription {
+    type Error = StoreErrorReport;
+
+    fn try_from(val: SubscriptionForDisplayRow) -> Result<Self, Self::Error> {
+        Ok(Subscription {
             id: val.subscription.id,
             customer_id: val.subscription.customer_id,
             customer_name: val.customer_name,
@@ -131,7 +136,12 @@ impl From<SubscriptionForDisplayRow> for Subscription {
             mrr_cents: val.subscription.mrr_cents as u64,
             period: val.subscription.period.into(),
             pending_checkout: val.subscription.pending_checkout,
-        }
+            conn_meta: val
+                .subscription
+                .conn_meta
+                .map(TryInto::try_into)
+                .transpose()?,
+        })
     }
 }
 
