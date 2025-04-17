@@ -13,11 +13,18 @@ enum ConnectorTypeEnum {
   CRM = 1;
 }
 
+message ConnectorData {
+  oneof data {
+    HubspotConnectorData hubspot = 1;
+  }
+}
+
 message Connector {
   string id = 1;
   string alias = 2;
   ConnectorProviderEnum provider = 3;
   ConnectorTypeEnum connector_type = 4;
+  optional ConnectorData data = 5;
 }
 
 // we could add some Stripe Connect to simplify cloud onboarding later
@@ -26,4 +33,8 @@ message StripeConnector {
   string api_publishable_key = 4;
   string api_secret_key = 5;
   string webhook_secret = 6;
+}
+
+message HubspotConnectorData {
+  bool auto_sync = 1;
 }

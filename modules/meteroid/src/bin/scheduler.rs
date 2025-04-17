@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
+use hubspot_client::client::HubspotClient;
 use meteroid::config::Config;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
@@ -56,9 +57,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pdf_service = PdfRenderingService::try_new(object_store_service, store.clone())?;
 
+    // todo: create properties right after hubspot connector creation
+    let hubspot_client = Arc::new(HubspotClient::default());
+
     let store_pgmq1 = store.clone();
     let store_pgmq2 = store.clone();
     let store_pgmq3 = store.clone();
+    let store_pgmq4 = store.clone();
 
     tokio::try_join!(
         // to run several processors concurrently, just copy the tokio::spawn
@@ -70,6 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         tokio::spawn(async move {
             pgmq::processors::run_webhook_out(store_pgmq3).await;
+        }),
+        tokio::spawn(async move {
+            pgmq::processors::run_hubspot_sync(store_pgmq4, hubspot_client).await;
         }),
         // tokio::spawn(async move {
         //     processors::run_pdf_renderer_outbox_processor(&config.kafka, pdf_service).await;

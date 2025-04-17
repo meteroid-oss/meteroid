@@ -1,11 +1,11 @@
 use crate::domain::{
-    CreateSubscription, CreatedSubscription, CursorPaginatedVec, CursorPaginationRequest,
-    PaginatedVec, PaginationRequest, Subscription, SubscriptionComponent, SubscriptionComponentNew,
-    SubscriptionDetails, SubscriptionInvoiceCandidate,
+    ConnectorProviderEnum, CreateSubscription, CreatedSubscription, CursorPaginatedVec,
+    CursorPaginationRequest, PaginatedVec, PaginationRequest, Subscription, SubscriptionComponent,
+    SubscriptionComponentNew, SubscriptionDetails, SubscriptionInvoiceCandidate,
 };
 use crate::{StoreResult, domain};
 use chrono::NaiveDate;
-use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 
 pub mod internal;
 mod slots;
@@ -76,4 +76,29 @@ pub trait SubscriptionInterface {
         date: NaiveDate,
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>>;
+
+    async fn patch_subscription_conn_meta(
+        &self,
+        subscription_id: SubscriptionId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()>;
+
+    async fn sync_subscriptions_to_hubspot(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: Vec<SubscriptionId>,
+    ) -> StoreResult<()>;
+
+    async fn sync_customer_subscriptions_to_hubspot(
+        &self,
+        tenant_id: TenantId,
+        customer_ids: Vec<CustomerId>,
+    ) -> StoreResult<()>;
+
+    async fn list_subscription_by_ids_global(
+        &self,
+        subscription_ids: Vec<SubscriptionId>,
+    ) -> StoreResult<Vec<Subscription>>;
 }

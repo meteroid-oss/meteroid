@@ -85,6 +85,7 @@ meteroid-mailer.workspace = true
 rand.workspace = true
 rusty-money.workspace = true
 meteroid-seeder = { workspace = true }
+hubspot-client = { workspace = true }
 
 
 utoipa.workspace = true

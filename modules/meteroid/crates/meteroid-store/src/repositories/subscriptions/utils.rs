@@ -571,8 +571,8 @@ impl StoreInternal {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|s| s.into())
-                .collect();
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
         let outbox_events: Vec<OutboxEvent> = subscriptions
             .into_iter()
             .map(|s| OutboxEvent::subscription_created(s.into()))

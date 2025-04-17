@@ -1,6 +1,8 @@
 pub mod connectors {
     use meteroid_grpc::meteroid::api::connectors::v1 as server;
+    use meteroid_grpc::meteroid::api::connectors::v1::HubspotConnectorData;
     use meteroid_store::domain::connectors as domain;
+    use meteroid_store::domain::connectors::ProviderData;
     use meteroid_store::domain::enums as domain_enum;
 
     pub fn connector_provider_from_server(
@@ -49,6 +51,26 @@ pub mod connectors {
             alias: value.alias.clone(),
             connector_type: connector_type_to_server(&value.connector_type) as i32,
             provider: connector_provider_to_server(&value.provider) as i32,
+            data: None,
+        }
+    }
+
+    pub fn connector_to_server(value: &domain::Connector) -> server::Connector {
+        server::Connector {
+            id: value.id.as_proto(),
+            alias: value.alias.clone(),
+            connector_type: connector_type_to_server(&value.connector_type) as i32,
+            provider: connector_provider_to_server(&value.provider) as i32,
+            data: value.data.as_ref().and_then(|data| match data {
+                ProviderData::Stripe(_) => None,
+                ProviderData::Hubspot(d) => Some(server::ConnectorData {
+                    data: Some(server::connector_data::Data::Hubspot(
+                        HubspotConnectorData {
+                            auto_sync: d.auto_sync,
+                        },
+                    )),
+                }),
+            }),
         }
     }
 

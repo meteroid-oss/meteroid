@@ -77,6 +77,13 @@ message ArchiveCustomerRequest {
 
 message ArchiveCustomerResponse {}
 
+message SyncToHubspotRequest {
+  repeated string customer_ids = 1;
+}
+
+message SyncToHubspotResponse {
+}
+
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc PatchCustomer(PatchCustomerRequest) returns (PatchCustomerResponse) {}
@@ -86,4 +93,5 @@ service CustomersService {
   rpc TopUpCustomerBalance(TopUpCustomerBalanceRequest) returns (TopUpCustomerBalanceResponse) {}
   rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
   rpc ArchiveCustomer(ArchiveCustomerRequest) returns (ArchiveCustomerResponse) {}
+  rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
 }

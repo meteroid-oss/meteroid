@@ -26,9 +26,21 @@ message DisconnectConnectorRequest {
 
 message DisconnectConnectorResponse {}
 
-message ConnectHubspotRequest {}
+message ConnectHubspotRequest {
+  HubspotConnectorData data = 1;
+}
+
 message ConnectHubspotResponse {
   string auth_url = 1;
+}
+
+message UpdateHubspotConnectorRequest {
+  string id = 1;
+  HubspotConnectorData data = 2;
+}
+
+message UpdateHubspotConnectorResponse {
+  Connector connector = 1;
 }
 
 service ConnectorsService {
@@ -37,4 +49,5 @@ service ConnectorsService {
 
   rpc ConnectStripe(ConnectStripeRequest) returns (ConnectStripeResponse) {}
   rpc ConnectHubspot(ConnectHubspotRequest) returns (ConnectHubspotResponse) {}
+  rpc UpdateHubspotConnector(UpdateHubspotConnectorRequest) returns (UpdateHubspotConnectorResponse) {}
 }
