@@ -1,9 +1,11 @@
 use crate::services::invoice_rendering::PdfRenderingService;
+use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::outbox::{PgmqOutboxDispatch, PgmqOutboxProxy};
 use crate::workers::pgmq::pdf_render::PdfRender;
 use crate::workers::pgmq::processor::{ProcessorConfig, run};
 use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
+use hubspot_client::client::HubspotClient;
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::PgmqQueue;
 use rand::Rng;
@@ -60,6 +62,27 @@ pub async fn run_webhook_out(store: Arc<Store>) {
         qty: MessageReadQty(10),
         vt: MessageReadVtSec(20),
         delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(1500),
+        max_read_count: ReadCt(10),
+    })
+    .await;
+}
+
+pub async fn run_hubspot_sync(store: Arc<Store>, hubspot_client: Arc<HubspotClient>) {
+    let queue = PgmqQueue::HubspotSync;
+    let processor = Arc::new(HubspotSync {
+        store: store.clone(),
+        client: hubspot_client,
+    });
+
+    run(ProcessorConfig {
+        name: processor_name("HubspotSync"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(10),
+        vt: MessageReadVtSec(20),
+        delete_succeeded: false,
         sleep_duration: std::time::Duration::from_millis(1500),
         max_read_count: ReadCt(10),
     })

@@ -51,7 +51,6 @@ pub fn mocked_config(
         secrets_crypt_key: "00000000000000000000000000000000".to_string().into(),
         fang_ext: FangExtConfig::init_from_env().unwrap(),
         openexchangerates_api_key: None,
-        gotenberg_url: "http://localhost:3000".to_owned(),
         svix_server_url: Some("http://localhost:8071".to_owned()),
         svix_jwt_token: "fake".to_owned().into(),
         kafka: KafkaConnectionConfig::none(),

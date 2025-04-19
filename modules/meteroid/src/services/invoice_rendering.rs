@@ -5,7 +5,7 @@ use base64::engine::general_purpose::STANDARD as Base64Engine;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
-use meteroid_invoicing::{html_render, pdf};
+use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::repositories::InvoiceInterface;
@@ -15,20 +15,29 @@ use std::io::Cursor;
 use std::sync::Arc;
 use uuid::Uuid;
 
-pub struct HtmlRenderingService {
+pub struct InvoicePreviewRenderingService {
     store: Arc<Store>,
-    rest_api_external_url: String,
+    generator: Arc<dyn svg::SvgGenerator>,
+    storage: Arc<dyn ObjectStoreService>,
 }
 
-impl HtmlRenderingService {
-    pub fn new(store: Arc<Store>, rest_api_external_url: String) -> Self {
-        Self {
+impl InvoicePreviewRenderingService {
+    pub fn try_new(
+        store: Arc<Store>,
+        storage: Arc<dyn ObjectStoreService>,
+    ) -> error_stack::Result<Self, InvoicingRenderError> {
+        let generator = svg::TypstSvgGenerator::new()
+            .change_context(InvoicingRenderError::InitializationError)
+            .attach_printable("Typst SVG generator failed to initialize")?;
+
+        Ok(Self {
             store,
-            rest_api_external_url,
-        }
+            generator: Arc::new(generator),
+            storage,
+        })
     }
 
-    pub async fn preview_invoice_html(
+    pub async fn preview_invoice(
         &self,
         invoice_id: InvoiceId,
         tenant_id: TenantId,
@@ -44,6 +53,15 @@ impl HtmlRenderingService {
             .get_invoicing_entity(tenant_id, Some(invoice.invoice.seller_details.id))
             .await
             .change_context(InvoicingRenderError::StoreError)?;
+
+        let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
+            Some(logo_id) => {
+                let res = get_logo_as_base64_for_invoice(&self.storage, logo_id).await?;
+
+                Some(res)
+            }
+            None => None,
+        };
 
         let mut rate = None;
         if invoice.invoice.currency != invoicing_entity.accounting_currency {
@@ -61,18 +79,17 @@ impl HtmlRenderingService {
         let mapped = mapper::map_invoice_to_invoicing(
             invoice.invoice,
             &invoicing_entity,
-            &invoicing_entity
-                .logo_attachment_id
-                .as_ref()
-                .map(|id| format!("{}/files/v1/logo/{}", self.rest_api_external_url, id)),
+            &organization_logo,
             rate,
         )?;
 
-        let html_string = html_render::render_invoice(&mapped)
-            .change_context(InvoicingRenderError::RenderError)?
-            .into_string();
+        let svg_string = self
+            .generator
+            .generate_svg(&mapped)
+            .await
+            .change_context(InvoicingRenderError::RenderError)?;
 
-        Ok(html_string)
+        Ok(svg_string)
     }
 }
 
@@ -95,11 +112,14 @@ pub struct PdfRenderingService {
 
 impl PdfRenderingService {
     pub fn try_new(
-        gotenberg_url: String,
         storage: Arc<dyn ObjectStoreService>,
         store: Arc<Store>,
     ) -> error_stack::Result<Self, InvoicingRenderError> {
-        let pdf_generator = Arc::new(pdf::GotenbergPdfGenerator::new(gotenberg_url.clone()));
+        let pdf_generator = Arc::new(
+            pdf::TypstPdfGenerator::new()
+                .change_context(InvoicingRenderError::InitializationError)
+                .attach_printable("Typst PDF generator failed to initialize")?,
+        );
 
         Ok(Self {
             storage,
@@ -168,26 +188,9 @@ impl PdfRenderingService {
         // let's resolve the logo and encode it to a base64 url
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let logo_uuid =
-                    Uuid::parse_str(logo_id).change_context(InvoicingRenderError::StorageError)?;
+                let res = get_logo_as_base64_for_invoice(&self.storage, logo_id).await?;
 
-                let logo = self
-                    .storage
-                    .retrieve(logo_uuid, Prefix::ImageLogo)
-                    .await
-                    .change_context(InvoicingRenderError::StorageError)?;
-
-                let mut img = image::load_from_memory(&logo)
-                    .change_context(InvoicingRenderError::RenderError)?;
-                img = img.resize(350, 20, image::imageops::FilterType::Nearest);
-                let mut buffer = Vec::new();
-                img.write_to(&mut Cursor::new(&mut buffer), Png)
-                    .change_context(InvoicingRenderError::RenderError)?;
-
-                Some(format!(
-                    "data:image/png;base64,{}",
-                    Base64Engine.encode(&buffer)
-                ))
+                Some(res)
             }
             None => None,
         };
@@ -208,13 +211,9 @@ impl PdfRenderingService {
         let mapped_invoice =
             mapper::map_invoice_to_invoicing(invoice, invoicing_entity, &organization_logo, rate)?;
 
-        let html = html_render::render_invoice(&mapped_invoice)
-            .change_context(InvoicingRenderError::RenderError)?
-            .into_string();
-
         let pdf = self
             .pdf
-            .generate_pdf(&html)
+            .generate_pdf(&mapped_invoice)
             .await
             .change_context(InvoicingRenderError::PdfError)?;
 
@@ -240,6 +239,7 @@ mod mapper {
     use meteroid_invoicing::model as invoicing_model;
     use meteroid_store::constants::Countries;
 
+    use meteroid_invoicing::model::Flags;
     use meteroid_store::domain as store_model;
     use meteroid_store::domain::historical_rates::HistoricalRate;
     use rust_decimal::Decimal;
@@ -248,8 +248,7 @@ mod mapper {
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,
         invoicing_entity: &store_model::InvoicingEntity,
-        // either link for preview or base64 for pdf
-        organization_logo: &Option<String>,
+        organization_logo_base64: &Option<String>,
         accounting_rate: Option<HistoricalRate>,
     ) -> error_stack::Result<invoicing_model::Invoice, InvoicingRenderError> {
         let finalized_date = invoice
@@ -284,6 +283,8 @@ mod mapper {
             tax_rate: invoice.tax_rate,
             subtotal: invoice.subtotal,
             memo: invoice.memo.clone(),
+            payment_url: None, // TODO
+            flags: Flags::default(),
         };
 
         fn map_address(address: store_model::Address) -> invoicing_model::Address {
@@ -301,7 +302,7 @@ mod mapper {
             address: map_address(invoice.seller_details.address),
             email: None,        // TODO
             legal_number: None, // TODO
-            logo_url: organization_logo.clone(),
+            logo_src: organization_logo_base64.clone(),
             name: invoice.seller_details.legal_name,
             tax_id: invoice.seller_details.vat_number,
             footer_info: invoicing_entity.invoice_footer_info.clone(),
@@ -358,6 +359,33 @@ mod mapper {
             lines,
             metadata,
             organization,
+            bank_details: None,       // TODO
+            transactions: Vec::new(), // TODO
+            payment_status: None,     // TODO
         })
     }
+}
+
+async fn get_logo_as_base64_for_invoice(
+    storage: &Arc<dyn ObjectStoreService>,
+    logo_id: &str,
+) -> error_stack::Result<String, InvoicingRenderError> {
+    let logo_uuid = Uuid::parse_str(logo_id).change_context(InvoicingRenderError::StorageError)?;
+
+    let logo = storage
+        .retrieve(logo_uuid, Prefix::ImageLogo)
+        .await
+        .change_context(InvoicingRenderError::StorageError)?;
+
+    let mut img =
+        image::load_from_memory(&logo).change_context(InvoicingRenderError::RenderError)?;
+    img = img.resize(350, 20, image::imageops::FilterType::Nearest);
+    let mut buffer = Vec::new();
+    img.write_to(&mut Cursor::new(&mut buffer), Png)
+        .change_context(InvoicingRenderError::RenderError)?;
+
+    Ok(format!(
+        "data:image/png;base64,{}",
+        Base64Engine.encode(&buffer)
+    ))
 }

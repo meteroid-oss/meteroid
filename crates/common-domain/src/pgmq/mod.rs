@@ -10,31 +10,11 @@ pub struct ReadCt(pub i32);
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]
-pub struct Message(pub Option<serde_json::Value>);
-
-impl Message {
-    pub fn none() -> Self {
-        Self(None)
-    }
-
-    pub fn some(value: serde_json::Value) -> Self {
-        Self(Some(value))
-    }
-}
+pub struct Message(pub serde_json::Value);
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]
-pub struct Headers(pub Option<serde_json::Value>);
-
-impl Headers {
-    pub fn none() -> Self {
-        Self(None)
-    }
-
-    pub fn some(value: serde_json::Value) -> Self {
-        Self(Some(value))
-    }
-}
+pub struct Headers(pub serde_json::Value);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]

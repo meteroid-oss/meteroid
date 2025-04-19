@@ -1,19 +1,21 @@
 use crate::domain::connectors::{
-    Connector, ConnectorMeta, ConnectorNew, HubspotSensitiveData, ProviderData,
+    Connector, ConnectorMeta, ConnectorNew, HubspotPublicData, HubspotSensitiveData, ProviderData,
     ProviderSensitiveData, StripePublicData, StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::domain::oauth::{OauthConnected, OauthTokens, OauthVerifierData};
+use crate::domain::pgmq::{HubspotSyncRequestEvent, PgmqMessageNew, PgmqQueue};
 use crate::errors::StoreError;
 use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
-use common_domain::ids::TenantId;
-use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
+use common_domain::ids::{ConnectorId, TenantId};
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::connectors::{ConnectorRow, ConnectorRowNew, ConnectorRowPatch};
+use diesel_models::query::pgmq;
 use error_stack::{Report, bail};
 use meteroid_oauth::model::OauthProvider;
 use secrecy::{ExposeSecret, SecretString};
 use stripe_client::accounts::AccountsApi;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait ConnectorsInterface {
@@ -23,7 +25,7 @@ pub trait ConnectorsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Vec<ConnectorMeta>>;
 
-    async fn delete_connector(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()>;
+    async fn delete_connector(&self, id: ConnectorId, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn connect_stripe(
         &self,
@@ -35,7 +37,7 @@ pub trait ConnectorsInterface {
 
     async fn get_connector_with_data(
         &self,
-        id: Uuid,
+        id: ConnectorId,
         tenant_id: TenantId,
     ) -> StoreResult<Connector>;
     async fn get_connector_with_data_by_alias(
@@ -50,7 +52,14 @@ pub trait ConnectorsInterface {
         oauth_state: SecretString,
     ) -> StoreResult<OauthConnected>;
 
-    async fn get_hubspot_access_token(&self, tenant_id: TenantId) -> StoreResult<SecretString>;
+    async fn get_hubspot_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>>;
+
+    async fn update_hubspot_connector(
+        &self,
+        connector_id: ConnectorId,
+        tenant_id: TenantId,
+        data: HubspotPublicData,
+    ) -> StoreResult<Connector>;
 }
 
 #[async_trait::async_trait]
@@ -76,7 +85,7 @@ impl ConnectorsInterface for Store {
         Ok(connectors)
     }
 
-    async fn delete_connector(&self, id: Uuid, tenant_id: TenantId) -> StoreResult<()> {
+    async fn delete_connector(&self, id: ConnectorId, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
         ConnectorRow::delete_by_id(&mut conn, id, tenant_id)
@@ -127,7 +136,7 @@ impl ConnectorsInterface for Store {
 
     async fn get_connector_with_data(
         &self,
-        id: Uuid,
+        id: ConnectorId,
         tenant_id: TenantId,
     ) -> StoreResult<Connector> {
         let mut conn = self.get_conn().await?;
@@ -190,10 +199,26 @@ impl ConnectorsInterface for Store {
         }
         .to_row(&self.settings.crypt_key)?;
 
-        let res = row
-            .insert(&mut conn)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let res = self
+            .transaction(|tx| {
+                async move {
+                    let inserted = row
+                        .insert(&mut conn)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    let msg: PgmqMessageNew =
+                        HubspotSyncRequestEvent::CustomProperties(inserted.tenant_id).try_into()?;
+
+                    pgmq::send_batch(tx, PgmqQueue::HubspotSync.as_str(), &[msg.into()])
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    Ok(inserted)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         Ok(OauthConnected {
             connector: res.into(),
@@ -201,9 +226,8 @@ impl ConnectorsInterface for Store {
         })
     }
 
-    async fn get_hubspot_access_token(&self, tenant_id: TenantId) -> StoreResult<SecretString> {
+    async fn get_hubspot_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>> {
         let mut conn = self.get_conn().await?;
-
         let row = ConnectorRow::list_connectors(
             &mut conn,
             tenant_id,
@@ -213,24 +237,30 @@ impl ConnectorsInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?
         .into_iter()
-        .next()
-        .ok_or(StoreError::ProviderNotConnected)?;
+        .next();
 
-        let connector = Connector::from_row(&self.settings.crypt_key, row)?;
+        row.map(|row| Connector::from_row(&self.settings.crypt_key, row))
+            .transpose()
+    }
 
-        let refresh_token = match connector.sensitive {
-            None => bail!(StoreError::InvalidArgument(
-                "Misconfigured hubspot connector".to_string(),
-            )),
-            Some(sensitive) => match sensitive {
-                ProviderSensitiveData::Hubspot(data) => SecretString::new(data.refresh_token),
-                _ => bail!(StoreError::InvalidArgument(
-                    "Misconfigured hubspot connector".to_string(),
-                )),
-            },
+    async fn update_hubspot_connector(
+        &self,
+        connector_id: ConnectorId,
+        tenant_id: TenantId,
+        data: HubspotPublicData,
+    ) -> StoreResult<Connector> {
+        let mut conn = self.get_conn().await?;
+
+        let patch = ConnectorRowPatch {
+            id: connector_id,
+            data: Some(Some(data.try_into()?)),
         };
 
-        self.oauth_exchange_refresh_token(OauthProvider::Hubspot, refresh_token)
+        let row = patch
+            .patch(&mut conn, tenant_id)
             .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Connector::from_row(&self.settings.crypt_key, row)
     }
 }

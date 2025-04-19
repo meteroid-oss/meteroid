@@ -27,6 +27,7 @@ pub(crate) struct ProcessorConfig {
 }
 
 pub(crate) async fn run(cfg: ProcessorConfig) {
+    log::info!("Starting pgmq dequeuer {}...", cfg.name.as_str());
     loop {
         match run_once(
             cfg.queue,

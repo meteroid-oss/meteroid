@@ -1,27 +1,30 @@
 use crate::StoreResult;
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
+use crate::domain::pgmq::{HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PgmqQueue};
 use crate::domain::{
-    Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch,
-    CustomerTopUpBalance, CustomerUpdate, DetailedInvoice, InlineCustomer, InlineInvoicingEntity,
-    InvoiceNew, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest,
-    PaginatedVec, PaginationRequest,
+    ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
+    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams,
+    InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
+use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
+use crate::repositories::pgmq::PgmqInterface;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
-use common_domain::ids::{AliasOr, BaseId, CustomerId, TenantId};
+use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::subscriptions::SubscriptionRow;
-use error_stack::Report;
+use error_stack::{Report, bail};
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -94,6 +97,20 @@ pub trait CustomersInterface {
         actor: Uuid,
         tenant_id: TenantId,
         id_or_alias: AliasOr<CustomerId>,
+    ) -> StoreResult<()>;
+
+    async fn patch_customer_conn_meta(
+        &self,
+        customer_id: CustomerId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()>;
+
+    async fn sync_customers_to_hubspot(
+        &self,
+        ids_or_aliases: Vec<AliasOr<CustomerId>>,
+        tenant_id: TenantId,
     ) -> StoreResult<()>;
 }
 
@@ -611,5 +628,60 @@ impl CustomersInterface for Store {
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn patch_customer_conn_meta(
+        &self,
+        customer_id: CustomerId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        CustomerRowPatch::upsert_conn_meta(
+            &mut conn,
+            provider.into(),
+            customer_id,
+            connector_id,
+            external_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn sync_customers_to_hubspot(
+        &self,
+        ids_or_aliases: Vec<AliasOr<CustomerId>>,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let connector = self.get_hubspot_connector(tenant_id).await?;
+
+        if connector.is_none() {
+            bail!(StoreError::InvalidArgument(
+                "No Hubspot connector found".to_string()
+            ));
+        }
+
+        let mut conn = self.get_conn().await?;
+
+        let customers = CustomerRow::find_by_ids_or_aliases(&mut conn, tenant_id, ids_or_aliases)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.pgmq_send_batch(
+            PgmqQueue::HubspotSync,
+            customers
+                .into_iter()
+                .map(|customer| {
+                    HubspotSyncRequestEvent::CustomerDomain(Box::new(HubspotSyncCustomerDomain {
+                        id: customer.id,
+                        tenant_id,
+                    }))
+                    .try_into()
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+        .await
     }
 }

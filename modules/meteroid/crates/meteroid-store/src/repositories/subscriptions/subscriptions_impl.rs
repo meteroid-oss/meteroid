@@ -1,8 +1,8 @@
 use crate::domain::enums::SubscriptionEventType;
 use crate::domain::{
-    BillableMetric, CreateSubscription, CreatedSubscription, CursorPaginatedVec,
-    CursorPaginationRequest, PaginatedVec, PaginationRequest, Schedule, Subscription,
-    SubscriptionComponent, SubscriptionComponentNew, SubscriptionDetails,
+    BillableMetric, ConnectorProviderEnum, CreateSubscription, CreatedSubscription,
+    CursorPaginatedVec, CursorPaginationRequest, PaginatedVec, PaginationRequest, Schedule,
+    Subscription, SubscriptionComponent, SubscriptionComponentNew, SubscriptionDetails,
     SubscriptionInvoiceCandidate,
 };
 use crate::errors::StoreError;
@@ -10,7 +10,7 @@ use crate::store::Store;
 use crate::{StoreResult, domain};
 use chrono::NaiveDate;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use error_stack::Report;
+use error_stack::{Report, bail};
 use itertools::Itertools;
 use uuid::Uuid;
 
@@ -29,8 +29,11 @@ use diesel_models::subscription_events::SubscriptionEventRow;
 use diesel_models::subscriptions::SubscriptionRow;
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
+use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
 use crate::jwt_claims::{PortalJwtClaims, ResourceAccess};
-use common_domain::ids::{BaseId, CustomerId, PlanId, SubscriptionId, TenantId};
+use crate::repositories::connectors::ConnectorsInterface;
+use crate::repositories::pgmq::PgmqInterface;
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 use error_stack::Result;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -106,7 +109,7 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        Ok(db_subscription.into())
+        db_subscription.try_into()
     }
 
     /// todo optimize db calls
@@ -122,7 +125,7 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?;
 
-        let subscription: Subscription = db_subscription.into();
+        let subscription: Subscription = db_subscription.try_into()?;
 
         let schedules: Vec<Schedule> =
             ScheduleRow::list_schedules_by_subscription(&mut conn, &tenant_id, &subscription.id)
@@ -296,7 +299,7 @@ impl SubscriptionInterface for Store {
             })
             .await?;
 
-        let subscription: Subscription = db_subscription.into();
+        let subscription: Subscription = db_subscription.try_into()?;
 
         let _ = self
             .eventbus
@@ -333,8 +336,8 @@ impl SubscriptionInterface for Store {
             items: db_subscriptions
                 .items
                 .into_iter()
-                .map(|s| s.into())
-                .collect(),
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
             total_pages: db_subscriptions.total_pages,
             total_results: db_subscriptions.total_results,
         };
@@ -367,6 +370,99 @@ impl SubscriptionInterface for Store {
         };
 
         Ok(res)
+    }
+
+    async fn patch_subscription_conn_meta(
+        &self,
+        subscription_id: SubscriptionId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        SubscriptionRow::upsert_conn_meta(
+            &mut conn,
+            provider.into(),
+            subscription_id,
+            connector_id,
+            external_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn sync_subscriptions_to_hubspot(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: Vec<SubscriptionId>,
+    ) -> StoreResult<()> {
+        let connector = self.get_hubspot_connector(tenant_id).await?;
+
+        if connector.is_none() {
+            bail!(StoreError::InvalidArgument(
+                "No Hubspot connector found".to_string()
+            ));
+        }
+
+        let mut conn = self.get_conn().await?;
+
+        let db_subscriptions =
+            SubscriptionRow::list_subscriptions_by_ids(&mut conn, &tenant_id, &subscription_ids)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.pgmq_send_batch(
+            PgmqQueue::HubspotSync,
+            db_subscriptions
+                .into_iter()
+                .map(|subscription| {
+                    HubspotSyncRequestEvent::Subscription(Box::new(HubspotSyncSubscription {
+                        id: subscription.subscription.id,
+                        tenant_id,
+                    }))
+                    .try_into()
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+        .await
+    }
+
+    async fn list_subscription_by_ids_global(
+        &self,
+        subscription_ids: Vec<SubscriptionId>,
+    ) -> StoreResult<Vec<Subscription>> {
+        let mut conn = self.get_conn().await?;
+
+        SubscriptionRow::list_by_ids(&mut conn, &subscription_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn sync_customer_subscriptions_to_hubspot(
+        &self,
+        tenant_id: TenantId,
+        customer_ids: Vec<CustomerId>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let req = SubscriptionRow::list_by_customer_ids(&mut conn, tenant_id, &customer_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|subscription| {
+                HubspotSyncRequestEvent::Subscription(Box::new(HubspotSyncSubscription {
+                    id: subscription.subscription.id,
+                    tenant_id: subscription.subscription.tenant_id,
+                }))
+                .try_into()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.pgmq_send_batch(PgmqQueue::HubspotSync, req).await
     }
 }
 

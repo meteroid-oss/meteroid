@@ -23,6 +23,15 @@ serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 unic-langid.workspace = true
 serde_json.workspace = true
+typst = { workspace = true}
+typst-pdf = { workspace = true }
+typst-svg = { workspace = true }
+typst-as-lib = { workspace = true }
+derive_typst_intoval = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+#minijinja = { version = "2.9.0", features = ["serde"] }
+#lopdf = "0.36.0"
+
 
 [build-dependencies]
 fluent-static-codegen.workspace = true

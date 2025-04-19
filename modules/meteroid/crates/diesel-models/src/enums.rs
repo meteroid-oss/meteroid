@@ -101,6 +101,15 @@ pub enum ConnectorProviderEnum {
     Hubspot,
 }
 
+impl ConnectorProviderEnum {
+    pub fn as_meta_key(&self) -> &str {
+        match self {
+            ConnectorProviderEnum::Stripe => "stripe",
+            ConnectorProviderEnum::Hubspot => "hubspot",
+        }
+    }
+}
+
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::ConnectorTypeEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

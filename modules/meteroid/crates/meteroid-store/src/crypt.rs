@@ -50,7 +50,7 @@ pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Encrypti
 }
 
 fn generate_nonce(key: &SecretString) -> &Nonce {
-    Nonce::from_slice(key.expose_secret()[0..NONCE_SIZE].as_bytes())
+    Nonce::from_slice(&key.expose_secret().as_bytes()[0..NONCE_SIZE])
 }
 
 #[cfg(test)]

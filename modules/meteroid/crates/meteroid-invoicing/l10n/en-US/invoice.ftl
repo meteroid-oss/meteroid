@@ -1,5 +1,5 @@
 invoice-title = Invoice
-invoice-number = Invoice n°{$invoice_number}
+invoice-number = Invoice n°
 company-logo-alt = Company Logo
 issue-date = Issue Date:
 amount-due = Amount Due
@@ -18,3 +18,20 @@ total-due = Total Due
 legal-info = Legal Information
 vat-exempt-legal = Tax not applicable
 exchange-rate-info = Exchange rate on {$date}:  {$equality} | Total amount converted = {$amount_converted}
+payment-status = payment Status
+payment-status-paid = Paid
+payment-status-partially-paid = Partially Paid
+payment-status-unpaid = Unpaid
+payment-method = Method
+payment-date = Date
+payment-amount = Amount
+no-transactions = No payments received
+payment-info-title = Payment Information
+payment-terms-title = payment Terms
+payment-terms-text = Payment to be made within {$days} days
+tax-info-title = Tax Information
+tax-included-text = All prices are in {$currency} and include {$rate}% VAT
+tax-reverse-charge = Tax to be paid on reverse charge basis
+pay-online = Pay online
+vat-id = VAT ID
+

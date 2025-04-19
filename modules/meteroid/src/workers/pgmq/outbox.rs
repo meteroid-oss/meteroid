@@ -2,11 +2,11 @@ use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
 use async_trait::async_trait;
-use common_domain::pgmq::{Headers, Message, MessageId};
+use common_domain::pgmq::{Headers, MessageId};
 use error_stack::{Report, ResultExt, report};
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -37,8 +37,8 @@ impl PgmqOutboxDispatch {
                 .ok()?;
 
                 Some(PgmqMessageNew {
-                    message: Message(None),
-                    headers,
+                    message: None,
+                    headers: Some(headers),
                 })
             })
             .collect();
@@ -53,8 +53,9 @@ impl PgmqOutboxDispatch {
         let mut pdf_requests = vec![];
 
         for msg in msgs {
-            let out_headers: StoreResult<OutboxPgmqHeaders> = (&msg.headers).try_into();
-            if let Ok(out_headers) = out_headers {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
                 if let EventType::InvoiceFinalized = &out_headers.event_type {
                     if let Ok(OutboxEvent::InvoiceFinalized(evt)) = msg.try_into() {
                         if let Ok(msg_new) = InvoicePdfRequestEvent::new(evt.invoice_id).try_into()
@@ -75,6 +76,41 @@ impl PgmqOutboxDispatch {
 
         Ok(())
     }
+
+    pub(crate) async fn handle_hubspot_out(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut new_messages = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
+                if let EventType::CustomerCreated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::CustomerCreated(evt)) = msg.try_into() {
+                        HubspotSyncRequestEvent::CustomerOutbox(evt)
+                            .try_into()
+                            .map(|msg_new| new_messages.push(msg_new))
+                            .change_context(PgmqError::HandleMessages)?;
+                    }
+                } else if let EventType::SubscriptionCreated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::SubscriptionCreated(evt)) = msg.try_into() {
+                        HubspotSyncRequestEvent::SubscriptionOutbox(evt)
+                            .try_into()
+                            .map(|msg_new| new_messages.push(msg_new))
+                            .change_context(PgmqError::HandleMessages)?;
+                    }
+                }
+            }
+        }
+
+        if !new_messages.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::HubspotSync, new_messages)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -83,14 +119,16 @@ impl PgmqHandler for PgmqOutboxDispatch {
         let ids = msgs.iter().map(|x| x.msg_id).collect::<Vec<_>>();
 
         // Run the functions in parallel
-        let (webhook_result, pdf_result) = tokio::join!(
+        let (webhook_result, pdf_result, hubspot_result) = tokio::join!(
             self.handle_webhook_out(msgs),
-            self.handle_invoice_pdf_requests(msgs)
+            self.handle_invoice_pdf_requests(msgs),
+            self.handle_hubspot_out(msgs),
         );
 
         // Check results
         webhook_result?;
         pdf_result?;
+        hubspot_result?;
 
         Ok(ids)
     }
@@ -106,7 +144,7 @@ impl TryInto<Headers> for DispatchHeaders {
 
     fn try_into(self) -> Result<Headers, Self::Error> {
         serde_json::to_value(&self)
-            .map(Headers::some)
+            .map(Headers)
             .change_context(PgmqError::HandleMessages)
     }
 }
@@ -115,7 +153,7 @@ impl TryInto<DispatchHeaders> for &PgmqMessage {
     type Error = Report<PgmqError>;
 
     fn try_into(self) -> Result<DispatchHeaders, Self::Error> {
-        let headers = self.headers.0.as_ref().ok_or(PgmqError::EmptyHeaders)?;
+        let headers = &self.headers.as_ref().ok_or(PgmqError::EmptyHeaders)?.0;
 
         DispatchHeaders::deserialize(headers.clone()).map_err(|e| report!(PgmqError::Serde(e)))
     }

@@ -3,6 +3,7 @@ use crate::historical_rates_from_usd::{HistoricalRatesFromUsdRow, HistoricalRate
 
 use crate::{DbResult, PgConn};
 use diesel::query_dsl::methods::{FilterDsl, LimitDsl, OrderDsl};
+use diesel::upsert::excluded;
 use diesel::{ExpressionMethods, OptionalExtension, debug_query};
 use error_stack::ResultExt;
 
@@ -22,6 +23,29 @@ impl HistoricalRatesFromUsdRowNew {
             .get_result(conn)
             .await
             .attach_printable("Error while inserting historical_rates_from_usd")
+            .into_db_result()
+    }
+
+    pub async fn insert_batch(
+        conn: &mut PgConn,
+        values: Vec<HistoricalRatesFromUsdRowNew>,
+    ) -> DbResult<()> {
+        use crate::schema::historical_rates_from_usd::dsl as r_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::insert_into(r_dsl::historical_rates_from_usd)
+            .values(values)
+            .on_conflict(r_dsl::date)
+            .do_update()
+            .set(r_dsl::rates.eq(excluded(r_dsl::rates)));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .map(drop)
+            .attach_printable("Error while inserting batch historical_rates_from_usd")
             .into_db_result()
     }
 }

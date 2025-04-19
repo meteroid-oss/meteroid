@@ -37,7 +37,7 @@ members = [
 [workspace.package]
 license = "AGPL-3.0-only"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.86"
 repository = "https://github.com/meteroid-oss/meteroid"
 
 [workspace.dependencies]
@@ -46,6 +46,8 @@ argon2 = "0.5.2"
 async-trait = "0.1.74"
 axum = { version = "0.8.1", features = ["json", "query", "tower-log", "http1"] }
 axum-valid = "0.23.0"
+arrow = { version = "55.0.0", default-features = false }
+parquet = { version = "55.0.0", default-features = false }
 base62 = "2.0.2"
 base64 = "0.22.0"
 backon = "1.3.0"
@@ -165,6 +167,11 @@ tracing = { version = "0.1.39", features = ["log"] }
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["registry", "tracing-log", "fmt", "env-filter", "json"] }
 typetag = "0.2.13"
+typst = { version = "0.13.1" }
+typst-pdf = { version = "0.13.1" }
+typst-svg = { version = "0.13.1" }
+typst-as-lib = { version = "0.14.1", features = [] }
+derive_typst_intoval = { version = "0.3.0", features = [] }
 unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
@@ -198,4 +205,4 @@ meteroid-mailer = { path = "modules/meteroid/crates/meteroid-mailer" }
 stripe-client = { path = "modules/meteroid/crates/stripe-client" }
 meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
 meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
-meteroid-hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
+hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }

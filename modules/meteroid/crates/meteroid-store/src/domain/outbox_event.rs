@@ -134,7 +134,7 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, o2o)]
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(Customer)]
 pub struct CustomerEvent {
     #[map(EventId::new())]
@@ -158,7 +158,7 @@ pub struct CustomerEvent {
     pub shipping_address: Option<ShippingAddress>,
 }
 
-#[derive(Debug, Serialize, Deserialize, o2o)]
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(Subscription)]
 pub struct SubscriptionEvent {
     #[map(EventId::new())]
@@ -236,11 +236,7 @@ json_value_serde!(OutboxPgmqHeaders);
 impl TryInto<OutboxPgmqHeaders> for &common_domain::pgmq::Headers {
     type Error = StoreErrorReport;
     fn try_into(self) -> Result<OutboxPgmqHeaders, Self::Error> {
-        let headers = self
-            .0
-            .as_ref()
-            .ok_or(StoreError::ValueNotFound("Pgmq Headers".to_string()))?;
-
+        let headers = &self.0;
         headers.try_into()
     }
 }
@@ -250,8 +246,8 @@ impl TryInto<OutboxEvent> for PgmqMessage {
     fn try_into(self) -> Result<OutboxEvent, Self::Error> {
         let payload = self
             .message
-            .0
-            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?;
+            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
+            .0;
 
         payload.try_into()
     }
@@ -260,11 +256,11 @@ impl TryInto<OutboxEvent> for PgmqMessage {
 impl TryInto<OutboxEvent> for &PgmqMessage {
     type Error = StoreErrorReport;
     fn try_into(self) -> Result<OutboxEvent, Self::Error> {
-        let payload = self
+        let payload = &self
             .message
-            .0
             .as_ref()
-            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?;
+            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
+            .0;
 
         payload.try_into()
     }
@@ -277,7 +273,7 @@ impl TryInto<common_domain::pgmq::Headers> for OutboxEvent {
             event_type: self.event_type(),
         };
 
-        Ok(common_domain::pgmq::Headers(Some(headers.try_into()?)))
+        Ok(common_domain::pgmq::Headers(headers.try_into()?))
     }
 }
 
@@ -285,8 +281,8 @@ impl TryInto<PgmqMessageRowNew> for OutboxEvent {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<PgmqMessageRowNew, Self::Error> {
-        let message = common_domain::pgmq::Message(self.payload_json()?);
-        let headers = self.try_into()?;
+        let message = self.payload_json()?.map(common_domain::pgmq::Message);
+        let headers = Some(self.try_into()?);
         Ok(PgmqMessageRowNew { message, headers })
     }
 }
