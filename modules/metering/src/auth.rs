@@ -5,14 +5,13 @@ use cached::proc_macro::cached;
 use common_grpc::middleware::client::LayeredClientService;
 use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
 use futures::TryFutureExt;
+use futures::future::BoxFuture;
 use hyper::{HeaderMap, Request, Response, StatusCode};
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tonic::Status;
 use tonic::body::{BoxBody, empty_body};
-use tower::Service;
+use tower::{BoxError, Service};
 use tower_layer::Layer;
 use tracing::{error, log};
 
@@ -67,8 +66,6 @@ impl<S> Layer<S> for ExternalApiAuthLayer {
     }
 }
 
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
 where
     S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
@@ -80,7 +77,7 @@ where
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)

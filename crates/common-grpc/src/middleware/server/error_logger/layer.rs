@@ -9,7 +9,7 @@ use http::{Request, Response};
 use pin_project::pin_project;
 use tonic::metadata::MetadataMap;
 use tonic::{Code, Status};
-use tower::{Layer, Service};
+use tower::{BoxError, Layer, Service};
 use tracing::log::{Level, MetadataBuilder, Record, logger};
 
 use common_grpc_error_as_tonic_macros::{HEADER_SOURCE_DETAILS, SourceDetails};
@@ -33,8 +33,6 @@ impl<S> Layer<S> for ErrorLoggerLayer {
         ErrorLoggerService { inner: service }
     }
 }
-
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for ErrorLoggerService<S>
 where

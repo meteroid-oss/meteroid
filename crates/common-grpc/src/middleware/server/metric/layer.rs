@@ -9,7 +9,7 @@ use futures::ready;
 use http::{Request, Response};
 use pin_project::pin_project;
 use tonic::{Code, Status};
-use tower::{Layer, Service};
+use tower::{BoxError, Layer, Service};
 
 use crate::{GrpcKind, GrpcServiceMethod};
 
@@ -30,8 +30,6 @@ impl<S> Layer<S> for MetricLayer {
         MetricService { inner: service }
     }
 }
-
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for MetricService<S>
 where

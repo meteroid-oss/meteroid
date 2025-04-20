@@ -4,9 +4,8 @@ use axum::http::StatusCode;
 use axum::response::Response;
 use cached::proc_macro::cached;
 use common_grpc::middleware::server::auth::api_token_validator::ApiTokenValidator;
+use futures::future::BoxFuture;
 use http::{HeaderMap, Request};
-use std::future::Future;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 use tower::Service;
 use tower_layer::Layer;
@@ -77,7 +76,7 @@ where
 {
     type Response = S::Response;
     type Error = S::Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
