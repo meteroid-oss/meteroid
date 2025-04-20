@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use tonic::Status;
-use tonic::body::{BoxBody, empty_body};
+use tonic::body::Body;
 use tower::Service;
 use tower_layer::Layer;
 use tracing::{error, log};
@@ -71,7 +71,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
+    S: Service<Request<ReqBody>, Response = Response<Body>, Error = BoxError>
         + Clone
         + Send
         + 'static,
@@ -137,7 +137,7 @@ where
             // TODO grpc_status + message ? ex of current behavior: Could not ingest events: Status { code: Unauthenticated, message: "grpc-status header missing, mapped from HTTP status code 401",
             let response = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
-                .body(empty_body())
+                .body(Body::empty())
                 .unwrap();
             Ok(response)
         });
