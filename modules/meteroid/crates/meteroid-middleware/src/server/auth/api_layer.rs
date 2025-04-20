@@ -19,7 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tonic::Status;
-use tonic::body::{BoxBody, empty_body};
+use tonic::body::Body;
 use tower::Service;
 use tower_layer::Layer;
 use tracing::log;
@@ -92,7 +92,7 @@ const UNAUTHORIZED_SERVICES: [&str; 5] = [
 
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
+    S: Service<Request<ReqBody>, Response = Response<Body>, Error = BoxError>
         + Clone
         + Send
         + 'static,
@@ -179,7 +179,7 @@ where
             log::warn!("Error in auth middleware: {:?}", e);
             let response = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
-                .body(empty_body())
+                .body(Body::empty())
                 .unwrap();
             Ok(response)
         });

@@ -4,7 +4,7 @@ use crate::middleware::common::auth::API_KEY_HEADER;
 
 use http::{HeaderValue, Request};
 
-use tonic::body::BoxBody;
+use tonic::body::Body;
 
 use tower::{Layer, Service};
 use tracing::log;
@@ -38,9 +38,9 @@ pub struct ApiAuthService<S> {
     api_key: String,
 }
 
-impl<S> Service<Request<BoxBody>> for ApiAuthService<S>
+impl<S> Service<Request<Body>> for ApiAuthService<S>
 where
-    S: Service<Request<BoxBody>> + Send + 'static,
+    S: Service<Request<Body>> + Send + 'static,
     S::Future: Send + 'static,
 {
     type Response = S::Response;
@@ -51,7 +51,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Request<BoxBody>) -> Self::Future {
+    fn call(&mut self, request: Request<Body>) -> Self::Future {
         let mut request = request;
         let headers = request.headers_mut();
 
