@@ -242,6 +242,16 @@ fn deal_properties() -> Vec<NewProperty> {
             hidden: false,
         },
         NewProperty {
+            name: DealProperty::MeteroidSubscriptionStatus.to_string(),
+            description: Some("Subscription status in Meteroid".to_string()),
+            label: "Meteroid subscription status".to_string(),
+            type_: PropertyType::String,
+            field_type: PropertyFieldType::Text,
+            group_name: PropertyGroup::MeteroidInfo.to_string(),
+            has_unique_value: false,
+            hidden: false,
+        },
+        NewProperty {
             name: DealProperty::MeteroidSubscriptionMrrCents.to_string(),
             description: Some("Subscription MRR (cents) in Meteroid".to_string()),
             label: "Meteroid subscription MRR (cents)".to_string(),
@@ -377,6 +387,8 @@ enum DealProperty {
     MeteroidSubscriptionEndDate,
     #[strum(to_string = "meteroid_subscription_currency")]
     MeteroidSubscriptionCurrency,
+    #[strum(to_string = "meteroid_subscription_status")]
+    MeteroidSubscriptionStatus,
     #[strum(to_string = "meteroid_subscription_mrr_cents")]
     MeteroidSubscriptionMrrCents,
 }

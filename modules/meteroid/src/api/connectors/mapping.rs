@@ -1,8 +1,10 @@
 pub mod connectors {
+    use crate::api::shared::conversions::ProtoConv;
+    use itertools::Itertools;
     use meteroid_grpc::meteroid::api::connectors::v1 as server;
     use meteroid_grpc::meteroid::api::connectors::v1::HubspotConnectorData;
     use meteroid_store::domain::connectors as domain;
-    use meteroid_store::domain::connectors::ProviderData;
+    use meteroid_store::domain::connectors::{ConnectionMeta, ProviderData};
     use meteroid_store::domain::enums as domain_enum;
 
     pub fn connector_provider_from_server(
@@ -78,6 +80,22 @@ pub mod connectors {
         domain::StripeSensitiveData {
             api_secret_key: value.api_secret_key.clone(),
             webhook_secret: value.webhook_secret.clone(),
+        }
+    }
+
+    pub fn connection_metadata_to_server(value: &ConnectionMeta) -> server::ConnectionMetadata {
+        server::ConnectionMetadata {
+            hubspot: value
+                .hubspot
+                .as_ref()
+                .unwrap_or(vec![].as_ref())
+                .iter()
+                .map(|item| server::ConnectionMetadataItem {
+                    connector_id: item.connector_id.as_proto(),
+                    external_id: item.external_id.clone(),
+                    sync_at: item.sync_at.naive_utc().as_proto(),
+                })
+                .collect_vec(),
         }
     }
 }

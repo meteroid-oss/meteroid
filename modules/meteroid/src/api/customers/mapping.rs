@@ -1,13 +1,13 @@
 pub mod customer {
     use error_stack::Report;
 
-    use meteroid_grpc::meteroid::api::customers::v1 as server;
-    use meteroid_store::domain;
-    use meteroid_store::errors::StoreError;
-
+    use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::error::CustomerApiError;
     use crate::api::shared::conversions::ProtoConv;
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use meteroid_grpc::meteroid::api::customers::v1 as server;
+    use meteroid_store::domain;
+    use meteroid_store::errors::StoreError;
 
     pub struct ServerAddressWrapper(pub server::Address);
 
@@ -108,6 +108,7 @@ pub mod customer {
                     .map(ServerShippingAddressWrapper::try_from)
                     .transpose()?
                     .map(|v| v.0),
+                connection_metadata: value.conn_meta.as_ref().map(connection_metadata_to_server),
             }))
         }
     }

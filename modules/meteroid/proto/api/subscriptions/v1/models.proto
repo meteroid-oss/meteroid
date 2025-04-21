@@ -5,6 +5,7 @@ import "api/shared/v1/shared.proto";
 import "api/schedules/v1/models.proto";
 import "api/pricecomponents/v1/models.proto";
 import "api/coupons/v1/models.proto";
+import "api/connectors/v1/models.proto";
 
 package meteroid.api.subscriptions.v1;
 
@@ -50,6 +51,7 @@ message Subscription {
 
   optional string card_connection_id = 30;
   optional string direct_debit_connection_id = 31;
+  optional api.connectors.v1.ConnectionMetadata connection_metadata = 32;
 }
 
 message SubscriptionDetails {

@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.customers.v1;
 
 import "google/protobuf/timestamp.proto";
+import "api/connectors/v1/models.proto";
 
 
 message CustomerBrief {
@@ -46,7 +47,7 @@ message Customer {
   string local_id = 15;
   optional string vat_number = 16;
   optional string current_payment_method_id = 17;
-
+  optional api.connectors.v1.ConnectionMetadata connection_metadata = 18;
 }
 
 message CustomerNew {

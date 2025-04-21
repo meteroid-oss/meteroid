@@ -8,6 +8,7 @@ pub mod subscriptions {
     use tonic::Status;
     use uuid::Uuid;
 
+    use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
     use meteroid_store::domain::enums::SubscriptionActivationCondition;
 
@@ -22,7 +23,7 @@ pub mod subscriptions {
     }
 
     pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
-        let status = s.status_proto()? as i32;
+        let status = s.status_proto() as i32;
 
         Ok(proto2::Subscription {
             id: s.id.as_proto(),
@@ -54,6 +55,7 @@ pub mod subscriptions {
             checkout_token: None,
             card_connection_id: s.card_connection_id.map(|id| id.as_proto()),
             direct_debit_connection_id: s.direct_debit_connection_id.map(|id| id.as_proto()),
+            connection_metadata: s.conn_meta.as_ref().map(connection_metadata_to_server),
         })
     }
 
@@ -131,7 +133,7 @@ pub mod subscriptions {
         details: domain::SubscriptionDetails,
     ) -> Result<proto2::SubscriptionDetails, Status> {
         let sub = details.subscription;
-        let status = sub.status_proto()? as i32;
+        let status = sub.status_proto() as i32;
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
                 id: sub.id.as_proto(),
@@ -163,6 +165,7 @@ pub mod subscriptions {
                 checkout_token: details.checkout_token,
                 card_connection_id: sub.card_connection_id.map(|id| id.as_proto()),
                 direct_debit_connection_id: sub.direct_debit_connection_id.map(|id| id.as_proto()),
+                connection_metadata: sub.conn_meta.as_ref().map(connection_metadata_to_server),
             }),
             schedules: vec![], // TODO
             price_components: details

@@ -1,13 +1,26 @@
-use crate::mapping::MappingError;
 use chrono::{Days, NaiveDateTime, NaiveTime};
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
+use meteroid_store::domain::outbox_event::SubscriptionEvent;
 
 pub trait DbSubscriptionExt {
-    fn status_proto(&self) -> Result<SubscriptionStatus, MappingError>;
+    fn status_proto(&self) -> SubscriptionStatus;
 }
 
 impl DbSubscriptionExt for meteroid_store::domain::Subscription {
-    fn status_proto(&self) -> Result<SubscriptionStatus, MappingError> {
+    fn status_proto(&self) -> SubscriptionStatus {
+        derive_subscription_status_chrono(
+            chrono::Utc::now().naive_utc(),
+            self.trial_duration,
+            self.activated_at,
+            self.canceled_at,
+            self.start_date,
+            self.end_date,
+        )
+    }
+}
+
+impl DbSubscriptionExt for SubscriptionEvent {
+    fn status_proto(&self) -> SubscriptionStatus {
         derive_subscription_status_chrono(
             chrono::Utc::now().naive_utc(),
             self.trial_duration,
@@ -22,11 +35,11 @@ impl DbSubscriptionExt for meteroid_store::domain::Subscription {
 fn derive_subscription_status_chrono(
     timestamp: NaiveDateTime,
     trial_duration: Option<u32>,
-    activated_at: Option<chrono::NaiveDateTime>,
-    canceled_at: Option<chrono::NaiveDateTime>,
+    activated_at: Option<NaiveDateTime>,
+    canceled_at: Option<NaiveDateTime>,
     start_date: chrono::NaiveDate,
     end_date: Option<chrono::NaiveDate>,
-) -> Result<SubscriptionStatus, MappingError> {
+) -> SubscriptionStatus {
     let start_date = start_date.and_time(NaiveTime::MIN);
     let end_date = end_date
         .and_then(|x| NaiveTime::from_hms_milli_opt(23, 59, 59, 999).map(|y| x.and_time(y)));
@@ -38,16 +51,16 @@ fn derive_subscription_status_chrono(
     // trial
 
     if start_date > timestamp {
-        return Ok(SubscriptionStatus::Pending);
+        return SubscriptionStatus::Pending;
     }
     if canceled_at.is_some() {
-        return Ok(SubscriptionStatus::Canceled);
+        return SubscriptionStatus::Canceled;
     }
     if end_date.is_some() && timestamp > end_date.unwrap() {
-        return Ok(SubscriptionStatus::Ended);
+        return SubscriptionStatus::Ended;
     }
 
-    let status = match trial_end_date {
+    match trial_end_date {
         // no trial, so it's either pending or active
         None => match activated_at {
             Some(activated_at) if activated_at <= timestamp => SubscriptionStatus::Active,
@@ -64,8 +77,7 @@ fn derive_subscription_status_chrono(
                 SubscriptionStatus::Trialing
             }
         }
-    };
-    Ok(status)
+    }
 }
 
 #[cfg(test)]
@@ -201,8 +213,7 @@ mod tests {
             canceled_at,
             start_date,
             billing_end_date,
-        )
-        .unwrap();
+        );
 
         assert_eq!(status, expected_status);
     }
