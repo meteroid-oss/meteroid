@@ -1,3 +1,4 @@
+use crate::services::subscription::ext::DbSubscriptionExt;
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
@@ -390,6 +391,7 @@ impl HubspotSync {
                             subscription_end_date: event.end_date,
                             subscription_currency: event.currency.clone(),
                             subscription_mrr_cents: event.mrr_cents,
+                            subscription_status: event.status_proto().as_str_name().to_string(),
                         },
                         ext_id,
                         *msg_id,
