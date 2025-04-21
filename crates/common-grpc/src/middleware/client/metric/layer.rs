@@ -1,18 +1,12 @@
-use std::future::Future;
-use std::pin::Pin;
-use std::time::Instant;
-use std::{
-    error::Error,
-    task::{Context, Poll},
-};
-
 use futures::ready;
 use hyper::Request;
 use hyper::Response;
 use pin_project::pin_project;
-use tonic::client::GrpcService;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Instant;
 use tonic::{Code, Status};
-use tower::Layer;
+use tower::{BoxError, Layer, Service};
 
 use crate::{GrpcKind, GrpcServiceMethod};
 
@@ -39,15 +33,15 @@ pub struct MetricService<S> {
     inner: S,
 }
 
-impl<S, ReqBody, ResBody> GrpcService<ReqBody> for MetricService<S>
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for MetricService<S>
 where
-    S: GrpcService<ReqBody, ResponseBody = ResBody> + Clone + Send + 'static,
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Future: Send + 'static,
-    S::Error: Error + 'static,
+    S::Error: Into<BoxError> + 'static,
     ReqBody: Send + 'static,
     ResBody: http_body::Body + 'static,
 {
-    type ResponseBody = ResBody;
+    type Response = Response<ResBody>;
     type Error = S::Error;
     type Future = ResponseFuture<S::Future>;
 
@@ -62,7 +56,7 @@ where
         let clone = self.inner.clone();
         let mut inner = std::mem::replace(&mut self.inner, clone);
 
-        let started_at = std::time::Instant::now();
+        let started_at = Instant::now();
         let sm = GrpcServiceMethod::extract(request.uri());
 
         let future = inner.call(request);
@@ -86,7 +80,7 @@ pub struct ResponseFuture<F> {
 impl<Fut, ResBody, E> Future for ResponseFuture<Fut>
 where
     Fut: Future<Output = Result<Response<ResBody>, E>>,
-    E: Error + 'static,
+    E: Into<BoxError> + 'static,
 {
     type Output = Result<Response<ResBody>, E>;
 

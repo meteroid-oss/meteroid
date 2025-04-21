@@ -13,14 +13,13 @@ use common_grpc::middleware::common::filters::Filter;
 use common_grpc::middleware::server::AuthorizedState;
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use futures_util::TryFutureExt;
+use futures_util::future::BoxFuture;
 use http::StatusCode;
 use meteroid_store::Store;
-use std::future::Future;
-use std::pin::Pin;
 use std::task::{Context, Poll};
 use tonic::Status;
 use tonic::body::{BoxBody, empty_body};
-use tower::Service;
+use tower::{BoxError, Service};
 use tower_layer::Layer;
 use tracing::log;
 
@@ -69,8 +68,6 @@ impl<S> Layer<S> for ApiAuthLayer {
     }
 }
 
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
 // services that don't require authentication
 const ANONYMOUS_SERVICES: [&str; 6] = [
     "/meteroid.api.instance.v1.InstanceService/GetInstance",
@@ -101,7 +98,7 @@ where
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)

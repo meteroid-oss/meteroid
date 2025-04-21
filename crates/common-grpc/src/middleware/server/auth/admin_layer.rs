@@ -7,7 +7,7 @@ use hyper::{Request, Response};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
 use tonic::Status;
-use tower::{Layer, Service};
+use tower::{BoxError, Layer, Service};
 
 use common_config::auth::InternalAuthConfig;
 
@@ -55,7 +55,6 @@ pub struct AdminAuthService<S> {
     filter: Option<Filter>,
 }
 
-type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for AdminAuthService<S>
 where
     S: Service<Request<ReqBody>, Response = Response<ResBody>, Error = BoxError>

@@ -4,11 +4,8 @@ use common_config::auth::InternalAuthConfig;
 use hmac::{Hmac, Mac};
 use secrecy::{ExposeSecret, SecretString};
 use sha2::Sha256;
-use std::{
-    error::Error,
-    task::{Context, Poll},
-};
-use tower::Service;
+use std::task::{Context, Poll};
+use tower::{BoxError, Service};
 
 use http::HeaderValue;
 use hyper::Request;
@@ -47,8 +44,6 @@ pub struct AdminAuthService<S> {
     inner: S,
     hmac_secret: SecretString,
 }
-
-type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
 impl<S> Service<Request<BoxBody>> for AdminAuthService<S>
 where
