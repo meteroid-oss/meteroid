@@ -60,7 +60,7 @@ fn derive_subscription_status_chrono(
         return SubscriptionStatus::Ended;
     }
 
-    let status = match trial_end_date {
+    match trial_end_date {
         // no trial, so it's either pending or active
         None => match activated_at {
             Some(activated_at) if activated_at <= timestamp => SubscriptionStatus::Active,
@@ -77,8 +77,7 @@ fn derive_subscription_status_chrono(
                 SubscriptionStatus::Trialing
             }
         }
-    };
-    status
+    }
 }
 
 #[cfg(test)]
