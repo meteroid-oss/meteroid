@@ -12,7 +12,7 @@ use meteroid_grpc::meteroid::api::connectors::v1::{
 };
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::connectors::HubspotPublicData;
-use meteroid_store::domain::oauth::{ConnectData, OauthVerifierData};
+use meteroid_store::domain::oauth::{ConnectHubspotData, ConnectPennylaneData, OauthVerifierData};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use secrecy::ExposeSecret;
@@ -110,11 +110,21 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         let referer = parse_referer(&request)?;
 
+        let auto_sync = request
+            .into_inner()
+            .data
+            .map(|x| x.auto_sync)
+            .unwrap_or(false);
+
         let url = self
             .store
             .oauth_auth_url(
                 OauthProvider::Hubspot,
-                OauthVerifierData::Connect(ConnectData { tenant_id, referer }),
+                OauthVerifierData::ConnectHubspot(ConnectHubspotData {
+                    tenant_id,
+                    referer,
+                    auto_sync,
+                }),
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
@@ -166,7 +176,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
             .store
             .oauth_auth_url(
                 OauthProvider::Pennylane,
-                OauthVerifierData::Connect(ConnectData { tenant_id, referer }),
+                OauthVerifierData::ConnectPennylane(ConnectPennylaneData { tenant_id, referer }),
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;

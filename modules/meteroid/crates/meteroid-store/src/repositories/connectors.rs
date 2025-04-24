@@ -233,7 +233,7 @@ async fn connect_hubspot(
         .await?;
 
     let crm_data = match verifier_data {
-        OauthVerifierData::Connect(data) => data,
+        OauthVerifierData::ConnectHubspot(data) => data,
         _ => {
             bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
         }
@@ -250,7 +250,9 @@ async fn connect_hubspot(
         alias: "hubspot".to_owned(),
         connector_type: ConnectorTypeEnum::Crm,
         provider: ConnectorProviderEnum::Hubspot,
-        data: None,
+        data: Some(ProviderData::Hubspot(HubspotPublicData {
+            auto_sync: crm_data.auto_sync,
+        })),
         sensitive: Some(ProviderSensitiveData::Hubspot(HubspotSensitiveData {
             refresh_token: refresh_token.expose_secret().to_owned(),
         })),
@@ -297,7 +299,7 @@ async fn connect_pennylane(
         .await?;
 
     let crm_data = match verifier_data {
-        OauthVerifierData::Connect(data) => data,
+        OauthVerifierData::ConnectPennylane(data) => data,
         _ => {
             bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
         }

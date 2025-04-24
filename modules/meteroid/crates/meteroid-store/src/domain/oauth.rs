@@ -52,7 +52,8 @@ impl OauthVerifier {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OauthVerifierData {
     SignIn(SignInData),
-    Connect(ConnectData),
+    ConnectHubspot(ConnectHubspotData),
+    ConnectPennylane(ConnectPennylaneData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +63,14 @@ pub struct SignInData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectData {
+pub struct ConnectHubspotData {
+    pub tenant_id: TenantId,
+    pub referer: Url,
+    pub auto_sync: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectPennylaneData {
     pub tenant_id: TenantId,
     pub referer: Url,
 }
