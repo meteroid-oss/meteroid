@@ -52,7 +52,7 @@ impl OauthVerifier {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OauthVerifierData {
     SignIn(SignInData),
-    Crm(CrmData),
+    Connect(ConnectData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +62,7 @@ pub struct SignInData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CrmData {
+pub struct ConnectData {
     pub tenant_id: TenantId,
     pub referer: Url,
 }

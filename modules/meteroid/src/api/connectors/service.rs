@@ -5,14 +5,14 @@ use common_domain::ids::ConnectorId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
 use meteroid_grpc::meteroid::api::connectors::v1::{
-    ConnectHubspotRequest, ConnectHubspotResponse, ConnectStripeRequest, ConnectStripeResponse,
-    ConnectorTypeEnum, DisconnectConnectorRequest, DisconnectConnectorResponse,
-    ListConnectorsRequest, ListConnectorsResponse, UpdateHubspotConnectorRequest,
-    UpdateHubspotConnectorResponse,
+    ConnectHubspotRequest, ConnectHubspotResponse, ConnectPennylaneRequest,
+    ConnectPennylaneResponse, ConnectStripeRequest, ConnectStripeResponse, ConnectorTypeEnum,
+    DisconnectConnectorRequest, DisconnectConnectorResponse, ListConnectorsRequest,
+    ListConnectorsResponse, UpdateHubspotConnectorRequest, UpdateHubspotConnectorResponse,
 };
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::connectors::HubspotPublicData;
-use meteroid_store::domain::oauth::{CrmData, OauthVerifierData};
+use meteroid_store::domain::oauth::{ConnectData, OauthVerifierData};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use secrecy::ExposeSecret;
@@ -114,7 +114,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
             .store
             .oauth_auth_url(
                 OauthProvider::Hubspot,
-                OauthVerifierData::Crm(CrmData { tenant_id, referer }),
+                OauthVerifierData::Connect(ConnectData { tenant_id, referer }),
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
@@ -151,6 +151,28 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         Ok(Response::new(UpdateHubspotConnectorResponse {
             connector: Some(mapping::connectors::connector_to_server(&connector)),
+        }))
+    }
+
+    async fn connect_pennylane(
+        &self,
+        request: Request<ConnectPennylaneRequest>,
+    ) -> Result<Response<ConnectPennylaneResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let referer = parse_referer(&request)?;
+
+        let url = self
+            .store
+            .oauth_auth_url(
+                OauthProvider::Pennylane,
+                OauthVerifierData::Connect(ConnectData { tenant_id, referer }),
+            )
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        Ok(Response::new(ConnectPennylaneResponse {
+            auth_url: url.expose_secret().to_owned(),
         }))
     }
 }

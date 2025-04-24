@@ -44,4 +44,5 @@ pub struct InstanceFlags {
     pub skip_email_validation: bool,
     pub google_oauth_client_id: Option<String>,
     pub hubspot_oauth_client_id: Option<String>,
+    pub pennylane_oauth_client_id: Option<String>,
 }

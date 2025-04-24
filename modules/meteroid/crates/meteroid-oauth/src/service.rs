@@ -68,6 +68,7 @@ pub trait OauthService: Send + Sync {
 pub struct OauthServices {
     google: Option<Arc<dyn OauthService>>,
     hubspot: Option<Arc<dyn OauthService>>,
+    pennylane: Option<Arc<dyn OauthService>>,
 }
 
 impl OauthServices {
@@ -75,6 +76,7 @@ impl OauthServices {
         Self {
             google: Self::google(&config),
             hubspot: Self::hubspot(&config),
+            pennylane: Self::pennylane(&config),
         }
     }
 
@@ -82,6 +84,7 @@ impl OauthServices {
         match provider {
             OauthProvider::Google => self.google.clone(),
             OauthProvider::Hubspot => self.hubspot.clone(),
+            OauthProvider::Pennylane => self.pennylane.clone(),
         }
     }
 
@@ -151,6 +154,39 @@ impl OauthServices {
                 ],
             };
             Some(Arc::new(OauthServiceImpl::<HubspotErrorResponse> {
+                oauth_client: OauthServiceImpl::oauth_basic_client(&cfg),
+                http_client: http_client(),
+                config: cfg,
+            }))
+        } else {
+            None
+        }
+    }
+
+    fn pennylane(config: &crate::config::OauthConfig) -> Option<Arc<dyn OauthService>> {
+        if let (Some(client_id), Some(client_secret)) = (
+            config.pennylane.client_id.as_ref(),
+            config.pennylane.client_secret.as_ref(),
+        ) {
+            let cfg = crate::model::OauthProviderConfig {
+                provider: OauthProvider::Pennylane,
+                client_id: client_id.expose_secret().to_owned(),
+                client_secret: client_secret.expose_secret().to_owned(),
+                auth_url: "https://app.pennylane.com/oauth/authorize".to_owned(),
+                token_url: "https://app.pennylane.com/oauth/token".to_string(),
+                callback_url: format!(
+                    "{}/oauth-callback/pennylane",
+                    config.rest_api_external_url.as_str()
+                ),
+                user_info_url: None,
+                scopes: vec![
+                    "customers:all".to_owned(),
+                    "customer_invoices:all".to_owned(),
+                    "credit_notes:all".to_owned(), // todo confirm me
+                    "transactions:readonly".to_owned(), // todo confirm me
+                ],
+            };
+            Some(Arc::new(OauthServiceImpl::<PennylaneErrorResponse> {
                 oauth_client: OauthServiceImpl::oauth_basic_client(&cfg),
                 http_client: http_client(),
                 config: cfg,
@@ -298,6 +334,9 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
             OauthProvider::Hubspot => {
                 bail!(OauthServiceError::UserInfoNotSupported)
             }
+            OauthProvider::Pennylane => {
+                bail!(OauthServiceError::UserInfoNotSupported)
+            }
         }
     }
 }
@@ -326,6 +365,17 @@ impl Display for HubspotErrorResponse {
 
 impl ErrorResponse for HubspotErrorResponse {}
 
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct PennylaneErrorResponse {}
+
+impl Display for PennylaneErrorResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self)
+    }
+}
+
+impl ErrorResponse for PennylaneErrorResponse {}
+
 #[cfg(test)]
 mod tests {
     use crate::config::OauthConfig;
@@ -343,6 +393,10 @@ mod tests {
                 client_secret: Some(SecretString::from_str("client_secret").unwrap()),
             },
             hubspot: crate::config::HubspotOauthConfig {
+                client_id: Some(SecretString::from_str("client_id").unwrap()),
+                client_secret: Some(SecretString::from_str("client_secret").unwrap()),
+            },
+            pennylane: crate::config::PennylaneOauthConfig {
                 client_id: Some(SecretString::from_str("client_id").unwrap()),
                 client_secret: Some(SecretString::from_str("client_secret").unwrap()),
             },

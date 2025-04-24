@@ -1,0 +1,2 @@
+ALTER TYPE "ConnectorProviderEnum" ADD VALUE 'PENNYLANE';
+ALTER TYPE "ConnectorTypeEnum" ADD VALUE 'ACCOUNTING';

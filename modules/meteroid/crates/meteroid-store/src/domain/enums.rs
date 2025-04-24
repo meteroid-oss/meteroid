@@ -128,15 +128,17 @@ pub enum InvoiceType {
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::ConnectorTypeEnum)]
 pub enum ConnectorTypeEnum {
-    PaymentProvider,
+    Accounting,
     Crm,
+    PaymentProvider,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::ConnectorProviderEnum)]
 pub enum ConnectorProviderEnum {
-    Stripe,
     Hubspot,
+    Stripe,
+    Pennylane,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

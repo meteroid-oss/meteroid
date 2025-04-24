@@ -2,13 +2,16 @@ use oauth2::TokenResponse;
 use oauth2::basic::BasicTokenResponse;
 use secrecy::SecretString;
 use serde::Deserialize;
+use strum::Display;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Copy, Clone, Display)]
 pub enum OauthProvider {
     #[serde(rename = "google")]
     Google,
     #[serde(rename = "hubspot")]
     Hubspot,
+    #[serde(rename = "pennylane")]
+    Pennylane,
 }
 
 #[derive(Debug, Deserialize)]

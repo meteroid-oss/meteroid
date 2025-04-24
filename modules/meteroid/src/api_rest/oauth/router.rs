@@ -57,17 +57,23 @@ pub async fn callback(
 ) -> Result<Redirect, RestApiError> {
     match provider {
         OauthProvider::Google => Ok(signin_callback(provider, params, app_state).await),
-        OauthProvider::Hubspot => hubspot_connect_callback(params, app_state).await,
+        OauthProvider::Hubspot => {
+            oauth_connect_callback(OauthProvider::Hubspot, params, app_state).await
+        }
+        OauthProvider::Pennylane => {
+            oauth_connect_callback(OauthProvider::Pennylane, params, app_state).await
+        }
     }
 }
 
-async fn hubspot_connect_callback(
+async fn oauth_connect_callback(
+    oauth_provider: OauthProvider,
     params: CallbackParams,
     app_state: AppState,
 ) -> Result<Redirect, RestApiError> {
     let connected = app_state
         .store
-        .connect_hubspot(params.code.into(), params.state.into())
+        .connect_oauth(oauth_provider, params.code.into(), params.state.into())
         .await;
 
     match connected {
@@ -78,7 +84,7 @@ async fn hubspot_connect_callback(
             Ok(Redirect::to(referer.as_str()))
         }
         Err(e) => {
-            log::warn!("Error connecting Hubspot: {}", e);
+            log::warn!("Error connecting {}: {}", oauth_provider, e);
             Err(RestApiError::from(e))
         }
     }

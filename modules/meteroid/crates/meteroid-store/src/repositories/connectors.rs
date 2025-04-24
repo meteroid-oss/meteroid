@@ -1,6 +1,7 @@
 use crate::domain::connectors::{
-    Connector, ConnectorMeta, ConnectorNew, HubspotPublicData, HubspotSensitiveData, ProviderData,
-    ProviderSensitiveData, StripePublicData, StripeSensitiveData,
+    Connector, ConnectorMeta, ConnectorNew, HubspotPublicData, HubspotSensitiveData,
+    PennylaneSensitiveData, ProviderData, ProviderSensitiveData, StripePublicData,
+    StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::domain::oauth::{OauthConnected, OauthTokens, OauthVerifierData};
@@ -46,8 +47,9 @@ pub trait ConnectorsInterface {
         tenant_id: TenantId,
     ) -> StoreResult<Connector>;
 
-    async fn connect_hubspot(
+    async fn connect_oauth(
         &self,
+        provider: OauthProvider,
         oauth_code: SecretString,
         oauth_state: SecretString,
     ) -> StoreResult<OauthConnected>;
@@ -162,68 +164,21 @@ impl ConnectorsInterface for Store {
         Connector::from_row(&self.settings.crypt_key, row)
     }
 
-    async fn connect_hubspot(
+    async fn connect_oauth(
         &self,
+        provider: OauthProvider,
         oauth_code: SecretString,
         oauth_state: SecretString,
     ) -> StoreResult<OauthConnected> {
-        let OauthTokens {
-            tokens,
-            verifier_data,
-        } = self
-            .oauth_exchange_code(OauthProvider::Hubspot, oauth_code, oauth_state)
-            .await?;
-
-        let crm_data = match verifier_data {
-            OauthVerifierData::Crm(data) => data,
-            _ => {
-                bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
+        match provider {
+            OauthProvider::Hubspot => connect_hubspot(self, oauth_code, oauth_state).await,
+            OauthProvider::Pennylane => connect_pennylane(self, oauth_code, oauth_state).await,
+            OauthProvider::Google => {
+                bail!(StoreError::OauthError(
+                    "google not supported as a connector".to_string()
+                ));
             }
-        };
-
-        let refresh_token = tokens
-            .refresh_token
-            .ok_or_else(|| StoreError::OauthError("Missing refresh token".to_string()))?;
-
-        let mut conn = self.get_conn().await?;
-
-        let row: ConnectorRowNew = ConnectorNew {
-            tenant_id: crm_data.tenant_id,
-            alias: "hubspot".to_owned(),
-            connector_type: ConnectorTypeEnum::Crm,
-            provider: ConnectorProviderEnum::Hubspot,
-            data: None,
-            sensitive: Some(ProviderSensitiveData::Hubspot(HubspotSensitiveData {
-                refresh_token: refresh_token.expose_secret().to_owned(),
-            })),
         }
-        .to_row(&self.settings.crypt_key)?;
-
-        let res = self
-            .transaction(|tx| {
-                async move {
-                    let inserted = row
-                        .insert(&mut conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let msg: PgmqMessageNew =
-                        HubspotSyncRequestEvent::CustomProperties(inserted.tenant_id).try_into()?;
-
-                    pgmq::send_batch(tx, PgmqQueue::HubspotSync.as_str(), &[msg.into()])
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    Ok(inserted)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        Ok(OauthConnected {
-            connector: res.into(),
-            referer: crm_data.referer,
-        })
     }
 
     async fn get_hubspot_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>> {
@@ -263,4 +218,116 @@ impl ConnectorsInterface for Store {
 
         Connector::from_row(&self.settings.crypt_key, row)
     }
+}
+
+async fn connect_hubspot(
+    store: &Store,
+    oauth_code: SecretString,
+    oauth_state: SecretString,
+) -> StoreResult<OauthConnected> {
+    let OauthTokens {
+        tokens,
+        verifier_data,
+    } = store
+        .oauth_exchange_code(OauthProvider::Hubspot, oauth_code, oauth_state)
+        .await?;
+
+    let crm_data = match verifier_data {
+        OauthVerifierData::Connect(data) => data,
+        _ => {
+            bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
+        }
+    };
+
+    let refresh_token = tokens
+        .refresh_token
+        .ok_or_else(|| StoreError::OauthError("Missing refresh token".to_string()))?;
+
+    let mut conn = store.get_conn().await?;
+
+    let row: ConnectorRowNew = ConnectorNew {
+        tenant_id: crm_data.tenant_id,
+        alias: "hubspot".to_owned(),
+        connector_type: ConnectorTypeEnum::Crm,
+        provider: ConnectorProviderEnum::Hubspot,
+        data: None,
+        sensitive: Some(ProviderSensitiveData::Hubspot(HubspotSensitiveData {
+            refresh_token: refresh_token.expose_secret().to_owned(),
+        })),
+    }
+    .to_row(&store.settings.crypt_key)?;
+
+    let res = store
+        .transaction(|tx| {
+            async move {
+                let inserted = row
+                    .insert(&mut conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let msg: PgmqMessageNew =
+                    HubspotSyncRequestEvent::CustomProperties(inserted.tenant_id).try_into()?;
+
+                pgmq::send_batch(tx, PgmqQueue::HubspotSync.as_str(), &[msg.into()])
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(inserted)
+            }
+            .scope_boxed()
+        })
+        .await?;
+
+    Ok(OauthConnected {
+        connector: res.into(),
+        referer: crm_data.referer,
+    })
+}
+
+async fn connect_pennylane(
+    store: &Store,
+    oauth_code: SecretString,
+    oauth_state: SecretString,
+) -> StoreResult<OauthConnected> {
+    let OauthTokens {
+        tokens,
+        verifier_data,
+    } = store
+        .oauth_exchange_code(OauthProvider::Pennylane, oauth_code, oauth_state)
+        .await?;
+
+    let crm_data = match verifier_data {
+        OauthVerifierData::Connect(data) => data,
+        _ => {
+            bail!(StoreError::OauthError("Invalid verifier data".to_string(),))
+        }
+    };
+
+    let refresh_token = tokens
+        .refresh_token
+        .ok_or_else(|| StoreError::OauthError("Missing refresh token".to_string()))?;
+
+    let mut conn = store.get_conn().await?;
+
+    let row: ConnectorRowNew = ConnectorNew {
+        tenant_id: crm_data.tenant_id,
+        alias: "pennylane".to_owned(),
+        connector_type: ConnectorTypeEnum::Accounting,
+        provider: ConnectorProviderEnum::Pennylane,
+        data: None,
+        sensitive: Some(ProviderSensitiveData::Pennylane(PennylaneSensitiveData {
+            refresh_token: refresh_token.expose_secret().to_owned(),
+        })),
+    }
+    .to_row(&store.settings.crypt_key)?;
+
+    let inserted = row
+        .insert(&mut conn)
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+    Ok(OauthConnected {
+        connector: inserted.into(),
+        referer: crm_data.referer,
+    })
 }

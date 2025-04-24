@@ -12,6 +12,8 @@ pub struct OauthConfig {
     pub google: GoogleOauthConfig,
     #[envconfig(nested)]
     pub hubspot: HubspotOauthConfig,
+    #[envconfig(nested)]
+    pub pennylane: PennylaneOauthConfig,
 }
 
 impl OauthConfig {
@@ -25,6 +27,10 @@ impl OauthConfig {
             hubspot: HubspotOauthConfig {
                 client_id: Some(SecretString::new("hubspot_client_id".to_owned())),
                 client_secret: Some(SecretString::new("hubspot_client_secret".to_owned())),
+            },
+            pennylane: PennylaneOauthConfig {
+                client_id: Some(SecretString::new("pennylane_client_id".to_owned())),
+                client_secret: Some(SecretString::new("pennylane_client_secret".to_owned())),
             },
         }
     }
@@ -49,5 +55,13 @@ pub struct HubspotOauthConfig {
     #[envconfig(from = "OAUTH_HUBSPOT_CLIENT_ID")]
     pub client_id: Option<SecretString>,
     #[envconfig(from = "OAUTH_HUBSPOT_CLIENT_SECRET")]
+    pub client_secret: Option<SecretString>,
+}
+
+#[derive(Envconfig, Debug, Clone)]
+pub struct PennylaneOauthConfig {
+    #[envconfig(from = "OAUTH_PENNYLANE_CLIENT_ID")]
+    pub client_id: Option<SecretString>,
+    #[envconfig(from = "OAUTH_PENNYLANE_CLIENT_SECRET")]
     pub client_secret: Option<SecretString>,
 }
