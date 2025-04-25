@@ -45,6 +45,7 @@ json_value_ser!(HubspotPublicData);
 pub enum ProviderSensitiveData {
     Stripe(StripeSensitiveData),
     Hubspot(HubspotSensitiveData),
+    Pennylane(PennylaneSensitiveData),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -55,6 +56,11 @@ pub struct StripeSensitiveData {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HubspotSensitiveData {
+    pub refresh_token: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PennylaneSensitiveData {
     pub refresh_token: String,
 }
 

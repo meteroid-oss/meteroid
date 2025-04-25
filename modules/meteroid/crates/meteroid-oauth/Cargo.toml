@@ -15,5 +15,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 oauth2 = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
+strum = { workspace = true }
 
 [dev-dependencies]

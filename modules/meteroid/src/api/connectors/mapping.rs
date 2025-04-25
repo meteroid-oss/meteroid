@@ -13,6 +13,9 @@ pub mod connectors {
         match *value {
             server::ConnectorProviderEnum::Stripe => domain_enum::ConnectorProviderEnum::Stripe,
             server::ConnectorProviderEnum::Hubspot => domain_enum::ConnectorProviderEnum::Hubspot,
+            server::ConnectorProviderEnum::Pennylane => {
+                domain_enum::ConnectorProviderEnum::Pennylane
+            }
         }
     }
 
@@ -22,6 +25,9 @@ pub mod connectors {
         match *value {
             domain_enum::ConnectorProviderEnum::Stripe => server::ConnectorProviderEnum::Stripe,
             domain_enum::ConnectorProviderEnum::Hubspot => server::ConnectorProviderEnum::Hubspot,
+            domain_enum::ConnectorProviderEnum::Pennylane => {
+                server::ConnectorProviderEnum::Pennylane
+            }
         }
     }
 
@@ -33,6 +39,7 @@ pub mod connectors {
                 domain_enum::ConnectorTypeEnum::PaymentProvider
             }
             server::ConnectorTypeEnum::Crm => domain_enum::ConnectorTypeEnum::Crm,
+            server::ConnectorTypeEnum::Accounting => domain_enum::ConnectorTypeEnum::Accounting,
         }
     }
 
@@ -44,6 +51,7 @@ pub mod connectors {
                 server::ConnectorTypeEnum::PaymentProvider
             }
             domain_enum::ConnectorTypeEnum::Crm => server::ConnectorTypeEnum::Crm,
+            domain_enum::ConnectorTypeEnum::Accounting => server::ConnectorTypeEnum::Accounting,
         }
     }
 

@@ -5,17 +5,20 @@ package meteroid.api.connectors.v1;
 
 enum ConnectorProviderEnum {
   STRIPE = 0;
-  HUBSPOT = 2;
+  HUBSPOT = 1;
+  PENNYLANE = 2;
 }
 
 enum ConnectorTypeEnum {
   PAYMENT_PROVIDER = 0;
   CRM = 1;
+  ACCOUNTING = 2;
 }
 
 message ConnectorData {
   oneof data {
     HubspotConnectorData hubspot = 1;
+    PennylaneConnectorData pennylane = 2;
   }
 }
 
@@ -37,6 +40,9 @@ message StripeConnector {
 
 message HubspotConnectorData {
   bool auto_sync = 1;
+}
+
+message PennylaneConnectorData {
 }
 
 message ConnectionMetadata {

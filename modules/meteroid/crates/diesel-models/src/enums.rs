@@ -99,6 +99,7 @@ pub enum InvoiceType {
 pub enum ConnectorProviderEnum {
     Stripe,
     Hubspot,
+    Pennylane,
 }
 
 impl ConnectorProviderEnum {
@@ -106,6 +107,7 @@ impl ConnectorProviderEnum {
         match self {
             ConnectorProviderEnum::Stripe => "stripe",
             ConnectorProviderEnum::Hubspot => "hubspot",
+            ConnectorProviderEnum::Pennylane => "pennylane",
         }
     }
 }
@@ -116,6 +118,7 @@ impl ConnectorProviderEnum {
 pub enum ConnectorTypeEnum {
     PaymentProvider,
     Crm,
+    Accounting,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

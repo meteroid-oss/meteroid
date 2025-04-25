@@ -64,8 +64,8 @@ pub fn initialize_payment_provider(
 ) -> error_stack::Result<Box<dyn PaymentProvider>, PaymentProviderError> {
     match config.provider {
         ConnectorProviderEnum::Stripe => Ok(Box::new(StripeClient::new())),
-        ConnectorProviderEnum::Hubspot => bail!(PaymentProviderError::Configuration(
-            "hubspot is not a payment provider".to_owned()
+        _ => bail!(PaymentProviderError::Configuration(
+            "unknown payment provider".to_owned()
         )),
     }
 }

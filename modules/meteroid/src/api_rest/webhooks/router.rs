@@ -96,6 +96,9 @@ async fn handler(
         ConnectorProviderEnum::Hubspot => bail!(errors::AdapterWebhookError::ProviderNotSupported(
             "hubspot".to_owned(),
         )),
+        ConnectorProviderEnum::Pennylane => bail!(
+            errors::AdapterWebhookError::ProviderNotSupported("pennylane".to_owned(),)
+        ),
     };
 
     // - decode body
