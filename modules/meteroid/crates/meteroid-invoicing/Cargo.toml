@@ -25,6 +25,7 @@ typst-pdf = { workspace = true }
 typst-svg = { workspace = true }
 typst-as-lib = { workspace = true }
 derive_typst_intoval = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 
 [build-dependencies]
 serde.workspace = true
