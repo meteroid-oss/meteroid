@@ -29,7 +29,6 @@ secrecy = { workspace = true }
 
 governor = { workspace = true, optional = true }
 reqwest = { workspace = true, features = ["default"], optional = true }
-reqwest-retry = { workspace = true, features = ["default"], optional = true }
 reqwest-middleware = { workspace = true, features = ["json"], optional = true }
 
 
@@ -50,7 +49,6 @@ server = [
 ]
 client = [
   "dep:reqwest",
-  "dep:reqwest-retry",
   "dep:reqwest-middleware",
   "dep:governor",
 ]

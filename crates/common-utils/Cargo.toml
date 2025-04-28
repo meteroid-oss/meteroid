@@ -9,10 +9,8 @@ license.workspace = true
 thiserror = { workspace = true, optional = true }
 error-stack = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
-rust_decimal = { workspace = true, optional = true }
 pin-project = { workspace = true }
 chrono = { workspace = true }
 
 [features]
 error-stack-conv = ["dep:error-stack", "dep:anyhow", "dep:thiserror"]
-decimal = ["dep:rust_decimal"]
