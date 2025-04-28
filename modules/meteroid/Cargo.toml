@@ -100,6 +100,7 @@ strum = { workspace = true, features = ["derive"] }
 
 rdkafka = { workspace = true }
 kafka = { workspace = true }
+env_logger = { workspace = true }
 o2o.workspace = true
 itertools = { workspace = true }
 validator = { workspace = true, features = ["derive"] }
