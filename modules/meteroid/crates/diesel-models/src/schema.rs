@@ -487,6 +487,7 @@ diesel::table! {
         xml_document_id -> Nullable<Text>,
         pdf_document_id -> Nullable<Text>,
         applied_coupon_ids -> Array<Nullable<Uuid>>,
+        conn_meta -> Nullable<Jsonb>,
     }
 }
 

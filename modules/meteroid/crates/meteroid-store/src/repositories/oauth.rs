@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use diesel_models::oauth_verifiers::OauthVerifierRow;
 use error_stack::{Report, ResultExt};
-use meteroid_oauth::model::OauthProvider;
+use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
 use secrecy::{ExposeSecret, SecretString};
 use std::ops::Add;
 
@@ -35,7 +35,7 @@ pub trait OauthInterface {
         &self,
         provider: OauthProvider,
         refresh_token: SecretString,
-    ) -> StoreResult<SecretString>;
+    ) -> StoreResult<OauthAccessToken>;
 }
 
 #[async_trait]
@@ -93,7 +93,7 @@ impl OauthInterface for Store {
             ))?;
 
         let user = srv
-            .get_user_info(tokens.access_token)
+            .get_user_info(tokens.access_token.value)
             .await
             .change_context(StoreError::OauthError(
                 "Failed to fetch oauth user".to_owned(),
@@ -133,7 +133,7 @@ impl OauthInterface for Store {
         &self,
         provider: OauthProvider,
         refresh_token: SecretString,
-    ) -> StoreResult<SecretString> {
+    ) -> StoreResult<OauthAccessToken> {
         self.oauth
             .for_provider(provider)
             .ok_or(Report::new(StoreError::OauthError(

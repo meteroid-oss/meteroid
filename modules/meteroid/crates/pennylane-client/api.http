@@ -1,0 +1,44 @@
+### List customers/compamies https://pennylane.readme.io/v2.0/reference/getcustomers
+GET https://app.pennylane.com/api/external/v2/customers
+Accept: application/json
+Authorization: Bearer {{api_token}}
+
+### Create a company customer https://pennylane.readme.io/v2.0/reference/postcompanycustomer
+POST https://app.pennylane.com/api/external/v2/company_customers
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer {{api_token}}
+
+{
+  "name": "first_test_company",
+  "billing_address": {
+    "address": "Gates 50",
+    "postal_code": "50-001",
+    "city": "Wroclaw",
+    "country_alpha2": "PL"
+  },
+  "external_reference": "cus_123456789"
+}
+
+### Update a company customer https://pennylane.readme.io/v2.0/reference/putcompanycustomer
+PUT https://app.pennylane.com/api/external/v2/company_customers/157896015
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer {{api_token}}
+
+{
+  "name": "first_test_company",
+  "billing_address": {
+    "address": "Gates 50",
+    "postal_code": "50-001",
+    "city": "Wroclaw",
+    "country_alpha2": "PL"
+  },
+  "external_reference": "cus_123456789"
+}
+
+### customer invoices changelog https://pennylane.readme.io/v2.0/docs/tracking-data-changes-with-pennylane-api#available-changelog-endpoints
+GET https://app.pennylane.com/api/external/v2/changelogs/customer_invoices
+Accept: application/json
+Authorization: Bearer {{api_token}}
+

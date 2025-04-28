@@ -1,17 +1,20 @@
+use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::pgmq::PgmqMessage;
-use crate::domain::{Address, Customer, DetailedInvoice, ShippingAddress, Subscription};
+use crate::domain::{Address, Customer, DetailedInvoice, Invoice, ShippingAddress, Subscription};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    BaseId, CustomerId, EventId, InvoiceId, PlanId, SubscriptionId, TenantId,
+    BankAccountId, BaseId, ConnectorId, CustomerId, EventId, InvoiceId, PlanId, SubscriptionId,
+    TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use strum::Display;
 use uuid::Uuid;
 
@@ -156,6 +159,30 @@ pub struct CustomerEvent {
     pub billing_address: Option<Address>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub shipping_address: Option<ShippingAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vat_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bank_account_id: Option<BankAccountId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conn_meta: Option<ConnectionMeta>,
+}
+
+impl CustomerEvent {
+    pub fn get_pennylane_id(&self, connector_id: ConnectorId) -> Option<i64> {
+        self.conn_meta.as_ref().and_then(|meta| {
+            meta.pennylane
+                .as_ref()
+                .unwrap_or(&vec![])
+                .iter()
+                .find_map(|x| {
+                    if x.connector_id == connector_id {
+                        i64::from_str(&x.external_id).ok()
+                    } else {
+                        None
+                    }
+                })
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
@@ -200,29 +227,31 @@ pub struct SubscriptionEvent {
     pub period: BillingPeriodEnum,
 }
 
-#[derive(Debug, Serialize, Deserialize, o2o)]
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(DetailedInvoice)]
+#[from_owned(Invoice)]
 pub struct InvoiceEvent {
     #[map(EventId::new())]
     pub id: EventId,
-    #[map(@.invoice.id)]
+    #[from(DetailedInvoice| @.invoice.id)]
+    #[from(Invoice| @.id)]
     pub invoice_id: InvoiceId,
-    #[map(@.invoice.status)]
+    #[from(DetailedInvoice| @.invoice.status)]
     pub status: InvoiceStatusEnum,
-    #[map(@.invoice.tenant_id)]
+    #[from(DetailedInvoice| @.invoice.tenant_id)]
     pub tenant_id: TenantId,
-    #[map(@.invoice.customer_id)]
+    #[from(DetailedInvoice| @.invoice.customer_id)]
     pub customer_id: CustomerId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[map(@.invoice.subscription_id)]
+    #[from(DetailedInvoice| @.invoice.subscription_id)]
     pub subscription_id: Option<SubscriptionId>,
-    #[map(@.invoice.currency)]
+    #[from(DetailedInvoice| @.invoice.currency)]
     pub currency: String,
-    #[map(@.invoice.tax_amount)]
+    #[from(DetailedInvoice| @.invoice.tax_amount)]
     pub tax_amount: i64,
-    #[map(@.invoice.total)]
+    #[from(DetailedInvoice| @.invoice.total)]
     pub total: i64,
-    #[map(@.invoice.created_at)]
+    #[from(DetailedInvoice| @.invoice.created_at)]
     pub created_at: NaiveDateTime,
 }
 

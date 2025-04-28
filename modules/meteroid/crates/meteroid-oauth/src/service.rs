@@ -2,7 +2,7 @@
 use crate::errors::OauthServiceError;
 use std::fmt::{Display, Formatter};
 
-use crate::model::{AuthorizeUrl, OAuthTokens, OAuthUser, OauthProvider};
+use crate::model::{AuthorizeUrl, OAuthTokens, OAuthUser, OauthAccessToken, OauthProvider};
 use async_trait::async_trait;
 use error_stack::{ResultExt, bail};
 use oauth2::basic::{
@@ -56,7 +56,7 @@ pub trait OauthService: Send + Sync {
     async fn exchange_refresh_token(
         &self,
         refresh_token: SecretString,
-    ) -> error_stack::Result<SecretString, OauthServiceError>;
+    ) -> error_stack::Result<OauthAccessToken, OauthServiceError>;
 
     async fn get_user_info(
         &self,
@@ -273,7 +273,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
     async fn exchange_refresh_token(
         &self,
         refresh_token: SecretString,
-    ) -> error_stack::Result<SecretString, OauthServiceError> {
+    ) -> error_stack::Result<OauthAccessToken, OauthServiceError> {
         let client = &self.oauth_client;
 
         let response = client
@@ -284,9 +284,10 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
                 "Failed to exchange refresh_token".into(),
             ))?;
 
-        Ok(SecretString::new(
-            response.access_token().secret().to_owned(),
-        ))
+        Ok(OauthAccessToken {
+            value: SecretString::new(response.access_token().secret().to_owned()),
+            expires_in: response.expires_in(),
+        })
     }
 
     async fn get_user_info(

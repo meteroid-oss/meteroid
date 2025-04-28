@@ -7,8 +7,8 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
     GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse, SyncToHubspotRequest, SyncToHubspotResponse,
-    TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
+    PatchCustomerResponse, SyncToHubspotRequest, SyncToHubspotResponse, SyncToPennylaneRequest,
+    SyncToPennylaneResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
     customers_service_server::CustomersService,
 };
 use meteroid_store::domain;
@@ -330,5 +330,29 @@ impl CustomersService for CustomerServiceComponents {
             .map_err(Into::<CustomerApiError>::into)?;
 
         Ok(Response::new(SyncToHubspotResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn sync_to_pennylane(
+        &self,
+        request: Request<SyncToPennylaneRequest>,
+    ) -> Result<Response<SyncToPennylaneResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let ids = req
+            .customer_ids
+            .iter()
+            .map(CustomerId::from_proto)
+            .map(|id| id.map(AliasOr::Id))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.store
+            .sync_customers_to_pennylane(ids, tenant_id)
+            .await
+            .map_err(Into::<CustomerApiError>::into)?;
+
+        Ok(Response::new(SyncToPennylaneResponse {}))
     }
 }

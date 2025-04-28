@@ -1,7 +1,10 @@
 use crate::StoreResult;
 use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
-use crate::domain::pgmq::{HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PgmqQueue};
+use crate::domain::pgmq::{
+    HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PennylaneSyncCustomer,
+    PennylaneSyncRequestEvent, PgmqQueue,
+};
 use crate::domain::{
     ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew,
     CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
@@ -108,6 +111,12 @@ pub trait CustomersInterface {
     ) -> StoreResult<()>;
 
     async fn sync_customers_to_hubspot(
+        &self,
+        ids_or_aliases: Vec<AliasOr<CustomerId>>,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
+
+    async fn sync_customers_to_pennylane(
         &self,
         ids_or_aliases: Vec<AliasOr<CustomerId>>,
         tenant_id: TenantId,
@@ -675,6 +684,41 @@ impl CustomersInterface for Store {
                 .into_iter()
                 .map(|customer| {
                     HubspotSyncRequestEvent::CustomerDomain(Box::new(HubspotSyncCustomerDomain {
+                        id: customer.id,
+                        tenant_id,
+                    }))
+                    .try_into()
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+        .await
+    }
+
+    async fn sync_customers_to_pennylane(
+        &self,
+        ids_or_aliases: Vec<AliasOr<CustomerId>>,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let connector = self.get_pennylane_connector(tenant_id).await?;
+
+        if connector.is_none() {
+            bail!(StoreError::InvalidArgument(
+                "No Pennylane connector found".to_string()
+            ));
+        }
+
+        let mut conn = self.get_conn().await?;
+
+        let customers = CustomerRow::find_by_ids_or_aliases(&mut conn, tenant_id, ids_or_aliases)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.pgmq_send_batch(
+            PgmqQueue::PennylaneSync,
+            customers
+                .into_iter()
+                .map(|customer| {
+                    PennylaneSyncRequestEvent::Customer(Box::new(PennylaneSyncCustomer {
                         id: customer.id,
                         tenant_id,
                     }))

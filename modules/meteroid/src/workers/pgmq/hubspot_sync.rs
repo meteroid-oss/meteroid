@@ -6,7 +6,7 @@ use cached::proc_macro::cached;
 use common_domain::ids::{ConnectorId, CustomerId, TenantId};
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
-use error_stack::ResultExt;
+use error_stack::{ResultExt, report};
 use hubspot_client::associations::AssociationsApi;
 use hubspot_client::client::HubspotClient;
 use hubspot_client::companies::{CompaniesApi, CompanyAddress, NewCompany};
@@ -14,9 +14,11 @@ use hubspot_client::deals::{DealsApi, NewDeal};
 use hubspot_client::model::CompanyId;
 use hubspot_client::properties::PropertiesApi;
 use itertools::Itertools;
-use meteroid_oauth::model::OauthProvider;
+use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
 use meteroid_store::domain::ConnectorProviderEnum;
-use meteroid_store::domain::connectors::{HubspotPublicData, ProviderData, ProviderSensitiveData};
+use meteroid_store::domain::connectors::{
+    Connector, HubspotPublicData, ProviderData, ProviderSensitiveData,
+};
 use meteroid_store::domain::outbox_event::{CustomerEvent, SubscriptionEvent};
 use meteroid_store::domain::pgmq::{
     HubspotSyncCustomerDomain, HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqMessage,
@@ -25,16 +27,33 @@ use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::{CustomersInterface, SubscriptionInterface};
 use meteroid_store::{Store, StoreResult};
+use moka::Expiry;
+use moka::future::Cache;
 use secrecy::SecretString;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 #[derive(Clone)]
 pub(crate) struct HubspotSync {
     pub(crate) store: Arc<Store>,
     pub(crate) client: Arc<HubspotClient>,
+    pub(crate) token_cache: Cache<ConnectorId, OauthAccessToken>,
 }
 
 impl HubspotSync {
+    pub(crate) fn new(store: Arc<Store>, client: Arc<HubspotClient>) -> Self {
+        let token_cache = Cache::builder()
+            .expire_after(OauthAccessTokenExpiry)
+            .max_capacity(500)
+            .build();
+
+        Self {
+            store,
+            client,
+            token_cache,
+        }
+    }
+
     async fn get_connected_tenants(
         &self,
         events: Vec<(HubspotSyncRequestEvent, MessageId)>,
@@ -45,13 +64,14 @@ impl HubspotSync {
 
         for (tenant_id, chunk) in &by_tenant {
             let store = self.store.clone();
+            let cache = self.token_cache.clone();
             let events: Vec<(HubspotSyncRequestEvent, MessageId)> = chunk.collect_vec();
 
             tasks.push((
                 tenant_id,
                 events,
                 tokio::spawn(async move {
-                    get_hubspot_access_token_cached(store.as_ref(), tenant_id).await
+                    get_hubspot_connector(store.as_ref(), cache, tenant_id).await
                 }),
             ));
         }
@@ -489,7 +509,7 @@ impl PgmqHandler for HubspotSync {
                     success_msg_ids.extend(ids);
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to sync connected token: {:?}", e);
+                    log::warn!("Failed to sync connected tenant: {:?}", e);
                 }
                 Err(e) => {
                     log::warn!("Sync task failed: {:?}", e);
@@ -507,23 +527,12 @@ struct ConnectedTenant {
     events: Vec<(HubspotSyncRequestEvent, MessageId)>,
 }
 
-// todo we should use moka cache with per item ttl instead (the ttl should be expires_in)
-#[cached(
-    result = true,
-    size = 100,
-    time = 300, // 5 min, hubspot access token currently expires_in 30 mins
-    key = "TenantId",
-    convert = r#"{ tenant_id }"#,
-    sync_writes = "default"
-)]
-async fn get_hubspot_access_token_cached(
+async fn get_hubspot_connector(
     store: &Store,
+    cache: Cache<ConnectorId, OauthAccessToken>,
     tenant_id: TenantId,
 ) -> PgmqResult<Option<HubspotConnector>> {
-    let connector = store
-        .get_hubspot_connector(tenant_id)
-        .await
-        .change_context(PgmqError::HandleMessages)?;
+    let connector = get_connector_cached(store, tenant_id).await?;
 
     if let Some(connector) = connector {
         if let (
@@ -531,19 +540,27 @@ async fn get_hubspot_access_token_cached(
             Some(ProviderData::Hubspot(public_data)),
         ) = (connector.sensitive, connector.data)
         {
-            let access_token = store
-                .oauth_exchange_refresh_token(
-                    OauthProvider::Hubspot,
-                    SecretString::new(data.refresh_token),
+            let refresh_token = SecretString::new(data.refresh_token.clone());
+
+            let token = cache
+                .try_get_with(
+                    connector.id,
+                    store.oauth_exchange_refresh_token(OauthProvider::Hubspot, refresh_token),
                 )
                 .await
-                .change_context(PgmqError::HandleMessages)?;
+                .map_err(|x| {
+                    if let Some(e) = Arc::into_inner(x) {
+                        e.change_context(PgmqError::HandleMessages)
+                    } else {
+                        report!(PgmqError::HandleMessages)
+                    }
+                })?;
 
             return Ok(Some(HubspotConnector {
                 id: connector.id,
                 tenant_id: connector.tenant_id,
                 data: public_data,
-                access_token,
+                access_token: token.value,
             }));
         } else {
             log::warn!("Misconfigured hubspot connector {}", connector.id);
@@ -555,10 +572,44 @@ async fn get_hubspot_access_token_cached(
     Ok(None)
 }
 
+#[cached(
+    result = true,
+    size = 100,
+    time = 60,
+    key = "TenantId",
+    convert = r#"{ tenant_id }"#,
+    sync_writes = "default"
+)]
+pub(crate) async fn get_connector_cached(
+    store: &Store,
+    tenant_id: TenantId,
+) -> PgmqResult<Option<Connector>> {
+    store
+        .get_hubspot_connector(tenant_id)
+        .await
+        .change_context(PgmqError::HandleMessages)
+}
+
 #[derive(Clone)]
 struct HubspotConnector {
     id: ConnectorId,
     tenant_id: TenantId,
     data: HubspotPublicData,
     access_token: SecretString,
+}
+
+struct OauthAccessTokenExpiry;
+
+impl Expiry<ConnectorId, OauthAccessToken> for OauthAccessTokenExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &ConnectorId,
+        value: &OauthAccessToken,
+        _created_at: Instant,
+    ) -> Option<Duration> {
+        value
+            .expires_in
+            .or(Some(Duration::from_secs(86400))) // 1 day by default
+            .map(|x| x - Duration::from_secs(60)) // expire 1 minute earlier
+    }
 }

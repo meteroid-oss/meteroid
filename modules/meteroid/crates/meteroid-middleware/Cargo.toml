@@ -6,22 +6,52 @@ edition = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-common-grpc = { workspace = true, features = ["server"] }
-common-domain = { workspace = true }
-meteroid-store = { workspace = true }
+common-grpc = { workspace = true, features = ["server"], optional = true }
+common-domain = { workspace = true, optional = true }
+meteroid-store = { workspace = true, optional = true }
 
-cached = { workspace = true, features = ["async", "tokio"] }
+cached = { workspace = true, features = ["async", "tokio"], optional = true }
 http = { workspace = true }
-tonic = { workspace = true }
-tower = { workspace = true }
-tower-layer = { workspace = true }
-hyper = { workspace = true }
+tonic = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-layer = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
 tracing = { workspace = true }
-futures = { workspace = true }
-futures-util = { workspace = true }
+futures = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
 
-uuid = { workspace = true, features = ["serde"] }
-secrecy = { workspace = true }
-jsonwebtoken = { workspace = true }
+uuid = { workspace = true, features = ["serde"], optional = true }
+jsonwebtoken = { workspace = true, optional = true }
 chrono = { workspace = true }
 tap = { workspace = true }
+async-trait = { workspace = true }
+secrecy = { workspace = true }
+
+governor = { workspace = true, optional = true }
+reqwest = { workspace = true, features = ["default"], optional = true }
+reqwest-retry = { workspace = true, features = ["default"], optional = true }
+reqwest-middleware = { workspace = true, features = ["json"], optional = true }
+
+
+[features]
+server = [
+  "dep:common-grpc",
+  "dep:common-domain",
+  "dep:meteroid-store",
+  "dep:cached",
+  "dep:tonic",
+  "dep:tower",
+  "dep:tower-layer",
+  "dep:hyper",
+  "dep:futures",
+  "dep:futures-util",
+  "dep:uuid",
+  "dep:jsonwebtoken",
+]
+client = [
+  "dep:reqwest",
+  "dep:reqwest-retry",
+  "dep:reqwest-middleware",
+  "dep:governor",
+]
+default = []
