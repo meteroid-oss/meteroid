@@ -62,6 +62,8 @@ pub trait ConnectorsInterface {
         tenant_id: TenantId,
         data: HubspotPublicData,
     ) -> StoreResult<Connector>;
+
+    async fn get_pennylane_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>>;
 }
 
 #[async_trait::async_trait]
@@ -182,20 +184,13 @@ impl ConnectorsInterface for Store {
     }
 
     async fn get_hubspot_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>> {
-        let mut conn = self.get_conn().await?;
-        let row = ConnectorRow::list_connectors(
-            &mut conn,
+        get_connector(
+            self,
             tenant_id,
-            Some(ConnectorTypeEnum::Crm.into()),
-            Some(ConnectorProviderEnum::Hubspot.into()),
+            ConnectorTypeEnum::Crm,
+            ConnectorProviderEnum::Hubspot,
         )
         .await
-        .map_err(Into::<Report<StoreError>>::into)?
-        .into_iter()
-        .next();
-
-        row.map(|row| Connector::from_row(&self.settings.crypt_key, row))
-            .transpose()
     }
 
     async fn update_hubspot_connector(
@@ -217,6 +212,16 @@ impl ConnectorsInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         Connector::from_row(&self.settings.crypt_key, row)
+    }
+
+    async fn get_pennylane_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>> {
+        get_connector(
+            self,
+            tenant_id,
+            ConnectorTypeEnum::Accounting,
+            ConnectorProviderEnum::Pennylane,
+        )
+        .await
     }
 }
 
@@ -332,4 +337,26 @@ async fn connect_pennylane(
         connector: inserted.into(),
         referer: crm_data.referer,
     })
+}
+
+async fn get_connector(
+    store: &Store,
+    tenant_id: TenantId,
+    connector_type: ConnectorTypeEnum,
+    connector_provider: ConnectorProviderEnum,
+) -> StoreResult<Option<Connector>> {
+    let mut conn = store.get_conn().await?;
+    let row = ConnectorRow::list_connectors(
+        &mut conn,
+        tenant_id,
+        Some(connector_type.into()),
+        Some(connector_provider.into()),
+    )
+    .await
+    .map_err(Into::<Report<StoreError>>::into)?
+    .into_iter()
+    .next();
+
+    row.map(|row| Connector::from_row(&store.settings.crypt_key, row))
+        .transpose()
 }

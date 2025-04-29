@@ -2,6 +2,7 @@ use oauth2::TokenResponse;
 use oauth2::basic::BasicTokenResponse;
 use secrecy::SecretString;
 use serde::Deserialize;
+use std::time::Duration;
 use strum::Display;
 
 #[derive(Debug, Deserialize, Copy, Clone, Display)]
@@ -48,15 +49,24 @@ pub struct AuthorizeUrl {
 }
 
 #[derive(Debug, Clone)]
+pub struct OauthAccessToken {
+    pub value: SecretString,
+    pub expires_in: Option<Duration>,
+}
+
+#[derive(Debug, Clone)]
 pub struct OAuthTokens {
-    pub access_token: SecretString,
+    pub access_token: OauthAccessToken,
     pub refresh_token: Option<SecretString>,
 }
 
 impl From<BasicTokenResponse> for OAuthTokens {
     fn from(response: BasicTokenResponse) -> Self {
         OAuthTokens {
-            access_token: SecretString::new(response.access_token().secret().to_owned()),
+            access_token: OauthAccessToken {
+                value: SecretString::new(response.access_token().secret().to_owned()),
+                expires_in: response.expires_in(),
+            },
             refresh_token: response
                 .refresh_token()
                 .map(|t| SecretString::new(t.secret().to_owned())),

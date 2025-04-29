@@ -84,6 +84,13 @@ message SyncToHubspotRequest {
 message SyncToHubspotResponse {
 }
 
+message SyncToPennylaneRequest {
+  repeated string customer_ids = 1;
+}
+
+message SyncToPennylaneResponse {
+}
+
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
   rpc PatchCustomer(PatchCustomerRequest) returns (PatchCustomerResponse) {}
@@ -94,4 +101,5 @@ service CustomersService {
   rpc BuyCustomerCredits(BuyCustomerCreditsRequest) returns (BuyCustomerCreditsResponse) {}
   rpc ArchiveCustomer(ArchiveCustomerRequest) returns (ArchiveCustomerResponse) {}
   rpc SyncToHubspot(SyncToHubspotRequest) returns (SyncToHubspotResponse) {}
+  rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
 }

@@ -170,6 +170,8 @@ impl ConnectorNew {
 pub struct ConnectionMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hubspot: Option<Vec<ConnectionMetaItem>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pennylane: Option<Vec<ConnectionMetaItem>>,
 }
 
 json_value_serde!(ConnectionMeta);

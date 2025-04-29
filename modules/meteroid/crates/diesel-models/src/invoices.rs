@@ -50,6 +50,7 @@ pub struct InvoiceRow {
     pub xml_document_id: Option<String>,
     pub pdf_document_id: Option<String>,
     pub applied_coupon_ids: Vec<Option<Uuid>>,
+    pub conn_meta: Option<serde_json::Value>,
 }
 
 #[derive(Debug, AsChangeset)]

@@ -4,9 +4,11 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use async_trait::async_trait;
 use common_domain::pgmq::{Headers, MessageId};
 use error_stack::{Report, ResultExt, report};
+use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PennylaneSyncRequestEvent, PgmqMessage,
+    PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -111,6 +113,41 @@ impl PgmqOutboxDispatch {
 
         Ok(())
     }
+
+    pub(crate) async fn handle_pennylane_out(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut new_messages = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
+                if let EventType::CustomerCreated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::CustomerCreated(evt)) = msg.try_into() {
+                        PennylaneSyncRequestEvent::CustomerOutbox(evt)
+                            .try_into()
+                            .map(|msg_new| new_messages.push(msg_new))
+                            .change_context(PgmqError::HandleMessages)?;
+                    }
+                } else if let EventType::InvoiceFinalized = &out_headers.event_type {
+                    if let Ok(OutboxEvent::InvoiceFinalized(evt)) = msg.try_into() {
+                        PennylaneSyncRequestEvent::InvoiceOutbox(evt)
+                            .try_into()
+                            .map(|msg_new| new_messages.push(msg_new))
+                            .change_context(PgmqError::HandleMessages)?;
+                    }
+                }
+            }
+        }
+
+        if !new_messages.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::PennylaneSync, new_messages)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -118,17 +155,20 @@ impl PgmqHandler for PgmqOutboxDispatch {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
         let ids = msgs.iter().map(|x| x.msg_id).collect::<Vec<_>>();
 
-        // Run the functions in parallel
-        let (webhook_result, pdf_result, hubspot_result) = tokio::join!(
-            self.handle_webhook_out(msgs),
-            self.handle_invoice_pdf_requests(msgs),
-            self.handle_hubspot_out(msgs),
-        );
+        let handlers = vec![
+            self.handle_webhook_out(msgs).boxed(),
+            self.handle_invoice_pdf_requests(msgs).boxed(),
+            self.handle_hubspot_out(msgs).boxed(),
+            self.handle_pennylane_out(msgs).boxed(),
+        ];
 
-        // Check results
-        webhook_result?;
-        pdf_result?;
-        hubspot_result?;
+        // Run the functions concurrently
+        let joined = futures::future::join_all(handlers).await;
+
+        // Check for errors
+        for result in joined {
+            result?
+        }
 
         Ok(ids)
     }

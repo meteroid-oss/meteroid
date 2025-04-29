@@ -17,7 +17,7 @@ pub enum ActionAfterTrialEnum {
     Downgrade,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[map_owned(diesel_enums::BankAccountFormat)]
 pub enum BankAccountFormat {
     IbanBicSwift,

@@ -17,7 +17,7 @@ common-grpc = { workspace = true, features = ["server"] }
 common-grpc-error-as-tonic-macros = { workspace = true }
 common-grpc-error-as-tonic-macros-impl = { workspace = true }
 meteroid-grpc = { path = "crates/meteroid-grpc", features = ["server"] }
-meteroid-middleware = { path = "crates/meteroid-middleware" }
+meteroid-middleware = { path = "crates/meteroid-middleware", features = ["server"] }
 deadpool-postgres.workspace = true
 dotenvy.workspace = true
 diesel = { workspace = true, features = ["postgres"] }
@@ -51,7 +51,6 @@ uuid = { workspace = true, features = ["v7"] }
 base64.workspace = true
 http = { workspace = true }
 hmac-sha256 = { workspace = true }
-arrow = { workspace = true }
 parquet = { workspace = true, features = ["snap", "arrow"] }
 
 secrecy.workspace = true
@@ -86,7 +85,8 @@ rand.workspace = true
 rusty-money.workspace = true
 meteroid-seeder = { workspace = true }
 hubspot-client = { workspace = true }
-
+pennylane-client = { workspace = true }
+moka = { workspace = true, features = ["future"] }
 
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true

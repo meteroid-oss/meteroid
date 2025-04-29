@@ -15,6 +15,7 @@ use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
 use meteroid::workers::{fang as mfang, pgmq};
+use pennylane_client::client::PennylaneClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,13 +58,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let pdf_service = PdfRenderingService::try_new(object_store_service, store.clone())?;
 
-    // todo: create properties right after hubspot connector creation
     let hubspot_client = Arc::new(HubspotClient::default());
+    let pennylane_client = Arc::new(PennylaneClient::default());
 
     let store_pgmq1 = store.clone();
     let store_pgmq2 = store.clone();
     let store_pgmq3 = store.clone();
     let store_pgmq4 = store.clone();
+    let store_pgmq5 = store.clone();
 
     tokio::try_join!(
         // to run several processors concurrently, just copy the tokio::spawn
@@ -78,6 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         tokio::spawn(async move {
             pgmq::processors::run_hubspot_sync(store_pgmq4, hubspot_client).await;
+        }),
+        tokio::spawn(async move {
+            pgmq::processors::run_pennylane_sync(store_pgmq5, pennylane_client).await;
         }),
         // tokio::spawn(async move {
         //     processors::run_pdf_renderer_outbox_processor(&config.kafka, pdf_service).await;

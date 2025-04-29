@@ -32,7 +32,7 @@ async-trait.workspace = true
 rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
 rusty-money = { workspace = true }
-common-utils = { workspace = true, features = ["decimal"] }
+common-utils = { workspace = true }
 itertools.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
 svix = { workspace = true, features = ["http2", "rustls-tls"] }

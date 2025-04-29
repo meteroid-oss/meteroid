@@ -1,4 +1,5 @@
 use super::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType};
+use crate::domain::connectors::ConnectionMeta;
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
@@ -77,6 +78,8 @@ pub struct Invoice {
     pub seller_details: InlineInvoicingEntity,
     pub pdf_document_id: Option<String>,
     pub xml_document_id: Option<String>,
+    #[map(~.map(|v| v.try_into()).transpose()?)]
+    pub conn_meta: Option<ConnectionMeta>,
 }
 
 #[derive(Debug, o2o)]
