@@ -2,7 +2,7 @@ use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
 use cached::proc_macro::cached;
-use common_domain::ids::{BankAccountId, ConnectorId, TenantId};
+use common_domain::ids::{ConnectorId, TenantId};
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
 use error_stack::{ResultExt, report};
@@ -13,8 +13,7 @@ use meteroid_store::domain::outbox_event::{CustomerEvent, InvoiceEvent};
 use meteroid_store::domain::pgmq::{
     PennylaneSyncCustomer, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
 };
-use meteroid_store::domain::{Address, BankAccountFormat, ConnectorProviderEnum};
-use meteroid_store::repositories::bank_accounts::BankAccountsInterface;
+use meteroid_store::domain::{Address, ConnectorProviderEnum};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
@@ -256,25 +255,17 @@ impl PennylaneSync {
 
         for (event, msg_id) in outboxes {
             let customer_id = event.customer_id;
-            let billing_iban = if let Some(id) = event.bank_account_id {
-                self.get_billing_iban(id, conn.tenant_id)
-                    .await
-                    .ok()
-                    .flatten()
-            } else {
-                None
-            };
 
             let res = match event.get_pennylane_id(conn.id) {
                 Some(pennylane_id) => {
-                    let company = Self::convert_to_update_company(*event, billing_iban);
+                    let company = Self::convert_to_update_company(*event);
 
                     self.client
                         .update_company_customer(pennylane_id, company, &conn.access_token)
                         .await
                 }
                 None => {
-                    let company = Self::convert_to_new_company(*event, billing_iban);
+                    let company = Self::convert_to_new_company(*event);
 
                     self.client
                         .create_company_customer(company, &conn.access_token)
@@ -342,7 +333,7 @@ impl PennylaneSync {
         }
     }
 
-    fn convert_to_new_company(event: CustomerEvent, billing_iban: Option<String>) -> NewCompany {
+    fn convert_to_new_company(event: CustomerEvent) -> NewCompany {
         let billing_address = Self::convert_to_billing_address(event.billing_address.as_ref());
 
         NewCompany {
@@ -353,14 +344,11 @@ impl PennylaneSync {
             external_reference: event.customer_id.as_proto(),
             vat_number: event.vat_number,
             emails: event.invoicing_emails,
-            billing_iban,
+            billing_iban: None,
         }
     }
 
-    fn convert_to_update_company(
-        event: CustomerEvent,
-        billing_iban: Option<String>,
-    ) -> UpdateCompany {
+    fn convert_to_update_company(event: CustomerEvent) -> UpdateCompany {
         let billing_address = Self::convert_to_billing_address(event.billing_address.as_ref());
 
         UpdateCompany {
@@ -371,25 +359,7 @@ impl PennylaneSync {
             external_reference: event.customer_id.as_proto(),
             vat_number: event.vat_number.clone(),
             emails: event.invoicing_emails,
-            billing_iban,
-        }
-    }
-
-    async fn get_billing_iban(
-        &self,
-        bank_account_id: BankAccountId,
-        tenant_id: TenantId,
-    ) -> PgmqResult<Option<String>> {
-        let bank_account = self
-            .store
-            .get_bank_account_by_id(bank_account_id, tenant_id)
-            .await
-            .change_context(PgmqError::HandleMessages)?;
-
-        if bank_account.format == BankAccountFormat::IbanBicSwift {
-            Ok(Some(bank_account.account_numbers))
-        } else {
-            Ok(None)
+            billing_iban: None,
         }
     }
 }
@@ -462,7 +432,6 @@ async fn get_pennylane_connector(
 
             return Ok(Some(PennylaneConnector {
                 id: connector.id,
-                tenant_id: connector.tenant_id,
                 access_token: token.value,
             }));
         } else {
@@ -493,7 +462,6 @@ pub(crate) async fn get_connector_cached(
 
 struct PennylaneConnector {
     id: ConnectorId,
-    tenant_id: TenantId,
     access_token: SecretString,
 }
 
