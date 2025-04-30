@@ -5,7 +5,7 @@ import type { FunctionComponent } from 'react'
 
 export const DashboardPage: FunctionComponent = () => {
   return (
-    <TenantPageLayout title="Home">
+    <TenantPageLayout>
       <Dashboard />
     </TenantPageLayout>
   )

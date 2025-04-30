@@ -6,7 +6,7 @@ import { TenantPageLayout } from '@/components/layouts'
 import { MrrReport } from '@/features/reports/charts/MrrReport'
 export const Reports = () => {
   return (
-    <TenantPageLayout title="Reports " displayTitle={true}>
+    <TenantPageLayout>
       <div className="flex">
         <ReportsNavigation />
 

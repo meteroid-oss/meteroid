@@ -9,7 +9,7 @@ export const Growth: FunctionComponent = () => {
 
 export const GrowthOutlet: FunctionComponent = () => {
   return (
-    <TenantPageLayout title="Growth">
+    <TenantPageLayout>
       <Outlet />
     </TenantPageLayout>
   )

@@ -5,7 +5,7 @@ import { TenantPageLayout } from '@/components/layouts'
 
 export const CatalogOutlet: FunctionComponent = () => {
   return (
-    <TenantPageLayout title="Offering">
+    <TenantPageLayout>
       <Outlet />
     </TenantPageLayout>
   )

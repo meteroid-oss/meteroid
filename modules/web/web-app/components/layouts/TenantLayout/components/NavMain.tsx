@@ -1,5 +1,3 @@
-import { ChevronRight, type LucideIcon } from 'lucide-react'
-
 import {
   Collapsible,
   CollapsibleContent,
@@ -12,6 +10,7 @@ import {
   cn,
   useSidebar,
 } from '@ui/index'
+import { ChevronRight, type LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { NavLink, To, useLocation } from 'react-router-dom'
 
@@ -87,7 +86,10 @@ function Tree({
               const isSubActive = pathname.includes((subItem.url as string) ?? '')
 
               return (
-                <li className={cn('block w-full', item.disabled && 'pointer-events-none')}>
+                <li
+                  key={index}
+                  className={cn('block w-full', item.disabled && 'pointer-events-none')}
+                >
                   <NavLink to={subItem.url} viewTransition>
                     <SidebarMenuButton key={index} isActive={isSubActive} className="pl-10">
                       {subItem.title}

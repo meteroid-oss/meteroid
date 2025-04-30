@@ -16,7 +16,7 @@ export const Billing: FunctionComponent = () => {
 
 export const BillingOutlet: FunctionComponent = () => {
   return (
-    <TenantPageLayout title="Billing">
+    <TenantPageLayout>
       <Outlet />
     </TenantPageLayout>
   )
@@ -34,7 +34,7 @@ export const FamilyCreationModalPage = () => {
   const createDefault = () => createDefaultMutation.mutateAsync({ name: 'Default' })
 
   return (
-    <TenantPageLayout title="Product Billing">
+    <TenantPageLayout>
       <div className="storage-container flex flex-grow">
         <ProductEmptyState
           title="Product Families"

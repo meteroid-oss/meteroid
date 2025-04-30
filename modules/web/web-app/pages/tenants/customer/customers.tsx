@@ -45,7 +45,7 @@ export const Customers: FunctionComponent = () => {
 
   return (
     <Fragment>
-      <TenantPageLayout title="Customers">
+      <TenantPageLayout>
         <Flex direction="column" gap={spaces.space9}>
           <CustomersHeader
             count={count}

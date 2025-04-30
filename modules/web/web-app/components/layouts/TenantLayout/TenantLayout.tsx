@@ -1,9 +1,3 @@
-import { PropsWithChildren } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
-
-import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
-import { sidebarItems } from '@/components/layouts/TenantLayout/utils'
-import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,15 +18,14 @@ import {
   useSidebar,
 } from '@ui/index'
 import { ChevronDown, Plus } from 'lucide-react'
+import { PropsWithChildren } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
-interface TenantLayoutProps {
-  displayTitle?: boolean
-}
+import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
+import { sidebarItems } from '@/components/layouts/TenantLayout/utils'
+import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
 
-export const TenantPageLayout = ({
-  children,
-  displayTitle = false,
-}: PropsWithChildren<TenantLayoutProps>) => {
+export const TenantPageLayout = ({ children }: PropsWithChildren) => {
   return (
     <>
       <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">

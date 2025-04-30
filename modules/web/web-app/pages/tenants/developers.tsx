@@ -5,7 +5,7 @@ import type { FunctionComponent } from 'react'
 
 export const DeveloperSettings: FunctionComponent = () => {
   return (
-    <TenantPageLayout title="Developer settings" displayTitle>
+    <TenantPageLayout>
       <DeveloperSettingsTemplate />
     </TenantPageLayout>
   )
