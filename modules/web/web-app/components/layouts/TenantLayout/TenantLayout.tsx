@@ -28,8 +28,8 @@ import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantD
 export const TenantPageLayout = ({ children }: PropsWithChildren) => {
   return (
     <>
-      <main className="flex  flex-col flex-1 w-full max-w-screen-2xl pl-8 pr-2 mx-auto h-full overflow-x-hidden ">
-        <div className="scrollbar relative py-4 px-4 h-full overflow-y-auto flex flex-col gap-5">
+      <main className="flex  flex-col flex-1 w-full max-w-screen-2xl mx-auto h-full overflow-x-hidden ">
+        <div className="scrollbar relative pt-4 px-4 h-full overflow-y-auto flex flex-col gap-5">
           {children}
         </div>
       </main>
