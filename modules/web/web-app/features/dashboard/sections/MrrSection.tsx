@@ -60,7 +60,7 @@ export const MrrSection = () => {
   return (
     <>
       <div className="pt-2 pb-2">
-        <div className="flex justify-between items-end flex-wrap">
+        <div className="flex justify-between items-center flex-wrap gap-2">
           <h3 className=" text-lg text-muted-foreground font-medium">Your overview</h3>
           <div className="flex flex-row   gap-1">
             <DatePickerWithRange range={range} setRange={setRange} />

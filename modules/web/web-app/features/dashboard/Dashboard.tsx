@@ -1,4 +1,4 @@
-import { Card, Checkbox, Separator } from '@md/ui'
+import { Card, Checkbox, Flex, Separator } from '@md/ui'
 import { Heart } from 'lucide-react'
 import { useMemo } from 'react'
 
@@ -42,28 +42,31 @@ export const Dashboard = () => {
     <>
       <div className="h-full  xl:mx-auto self-center space-y-6 relative">
         <div>
-          <h1 className="text-2xl text-acc font-semibold">Good {timeOfDay}{username ? `, ${username}` : null}</h1>
+          <h1 className="text-2xl text-acc font-semibold">
+            Good {timeOfDay}
+            {username ? `, ${username}` : null}
+          </h1>
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />
         <Card variant="accent2">
           <div className="px-6 py-4">
             <div className="text-sm font-semibold pb-4">Complete your onboarding</div>
-            <div>
-              <div>
+            <Flex direction="column" className="gap-2">
+              <Flex align="center" className="gap-2">
                 <Checkbox disabled className="rounded-full border-none bg-success" checked />{' '}
-                <span className="text-sm">Configure your pricing</span>
-              </div>
-              <div>
+                <div className="text-sm mt-[0.5px]">Configure your pricing</div>
+              </Flex>
+              <Flex align="center" className="gap-2">
                 <Checkbox disabled className="rounded-full" />{' '}
-                <span className="text-sm">Integrate with your product</span>
-              </div>
+                <div className="text-sm mt-[0.5px]">Integrate with your product</div>
+              </Flex>
 
-              <div>
+              <Flex align="center" className="gap-2">
                 <Checkbox disabled className="rounded-full" />{' '}
-                <span className="text-sm">Setup your first growth opportunities</span>
-              </div>
-            </div>
+                <div className="text-sm mt-[0.5px]">Setup your first growth opportunities</div>
+              </Flex>
+            </Flex>
           </div>
         </Card>
         <TopSection />

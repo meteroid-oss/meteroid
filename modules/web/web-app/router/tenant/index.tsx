@@ -1,3 +1,4 @@
+import { SidebarProvider } from '@ui/components'
 import { RouteObject } from 'react-router-dom'
 
 import { TenantLayoutOutlet } from '@/components/layouts'
@@ -14,7 +15,11 @@ import { growthRoutes } from 'router/tenant/growth'
 
 export const tenantRoutes: RouteObject = {
   path: ':tenantSlug',
-  element: <TenantLayoutOutlet />,
+  element: (
+    <SidebarProvider>
+      <TenantLayoutOutlet />
+    </SidebarProvider>
+  ),
   children: [
     {
       index: true,

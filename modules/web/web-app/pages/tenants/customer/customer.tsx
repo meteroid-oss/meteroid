@@ -31,7 +31,7 @@ export const Customer = () => {
 
   return (
     <Fragment>
-      <TenantPageLayout title="Customer">
+      <TenantPageLayout>
         <Flex direction="column" gap={spaces.space9} fullHeight>
           {isLoading || !data ? (
             <>

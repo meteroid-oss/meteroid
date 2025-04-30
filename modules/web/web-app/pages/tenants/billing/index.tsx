@@ -1,10 +1,8 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { Dot } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
 import { Navigate, Outlet } from 'react-router-dom'
 
-import SidebarMenu from '@/components/SidebarMenu'
 import { TenantPageLayout } from '@/components/layouts'
 import ProductEmptyState from '@/features/productCatalog/ProductEmptyState'
 import {
@@ -18,87 +16,7 @@ export const Billing: FunctionComponent = () => {
 
 export const BillingOutlet: FunctionComponent = () => {
   return (
-    <TenantPageLayout
-      title="Billing"
-      innerMenu={
-        <SidebarMenu
-          items={[
-            {
-              label: 'Subscriptions',
-              items: [
-                {
-                  label: 'Active',
-                  to: 'subscriptions',
-                },
-                {
-                  label: (
-                    <span className="flex  items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-success h-2" />
-                      <>Trials</>
-                    </span>
-                  ),
-                  to: 'subscriptions/trialing',
-                },
-                {
-                  label: (
-                    <span className="flex items-center gap-2 pl-2 my-[-2px]">
-                      <Dot className="text-destructive h-2" />
-                      <>At risk</>
-                    </span>
-                  ),
-                  to: 'subscriptions/past-due',
-                },
-                {
-                  label: 'Expired',
-                  to: 'subscriptions/expired',
-                },
-                {
-                  label: 'Cancelled',
-                  to: 'subscriptions/cancelled',
-                },
-              ],
-            },
-            {
-              label: 'Documents',
-              items: [
-                {
-                  label: 'Invoices',
-                  to: 'invoices',
-                },
-
-                {
-                  label: 'Credit notes',
-                  to: 'credit-notes',
-                },
-                {
-                  label: 'Quotes',
-                  to: 'quotes',
-                },
-              ],
-            },
-            {
-              label: 'Cost center',
-              items: [
-                {
-                  label: 'Alerts',
-                  to: 'cost-alerts',
-                  soon: true,
-                },
-              ],
-            },
-            {
-              label: 'Configuration',
-              items: [
-                {
-                  label: 'Invoice configuration',
-                  to: '../settings?tab=invoices',
-                },
-              ],
-            },
-          ]}
-        />
-      }
-    >
+    <TenantPageLayout>
       <Outlet />
     </TenantPageLayout>
   )
@@ -116,7 +34,7 @@ export const FamilyCreationModalPage = () => {
   const createDefault = () => createDefaultMutation.mutateAsync({ name: 'Default' })
 
   return (
-    <TenantPageLayout title="Product Billing">
+    <TenantPageLayout>
       <div className="storage-container flex flex-grow">
         <ProductEmptyState
           title="Product Families"

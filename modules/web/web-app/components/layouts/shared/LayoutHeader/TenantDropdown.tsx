@@ -3,9 +3,11 @@ import {
   Command,
   CommandEmpty,
   CommandItem,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  Flex,
+  useSidebar,
 } from '@md/ui'
 import { CommandList } from 'cmdk'
 import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
@@ -28,10 +30,11 @@ const getColor = (environment: TenantEnvironmentEnum | undefined) => {
 }
 
 export const TenantDropdown = () => {
-  const tenants = useQuery(listTenants).data?.tenants ?? []
-
   const { tenant } = useTenant()
   const org = useOrganizationSlug()
+  const { state } = useSidebar()
+
+  const tenants = useQuery(listTenants).data?.tenants ?? []
 
   const [open, setOpen] = useState(false)
 
@@ -39,19 +42,30 @@ export const TenantDropdown = () => {
     setOpen(false)
   }, [tenant])
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger className="h-9 px-4 py-2 rounded-full border border-border bg-background dark:border-0 dark:bg-secondary hover:bg-accent dark:hover:bg-accent ">
-        <div className="flex flex-row space-x-2 items-center ">
-          <span className="text-xs text-muted-foreground">Tenant: </span>
-          <span className={`rounded-full p-1 ${getColor(tenant?.environment)}`} />
-          <span className="max-w-36 overflow-hidden text-nowrap text-xs" title={tenant?.name}>
-            {tenant?.name}
-          </span>
-          <ChevronsUpDownIcon size="10" />
-        </div>
-      </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0">
+  const tenantColor = (
+    <span className={`rounded-full p-1 h-4 w-4 ${getColor(tenant?.environment)}`} />
+  )
+
+  return state === 'collapsed' ? (
+    <div className={`h-4 w-4 rounded-full ${getColor(tenant?.environment)} text-center`} />
+  ) : (
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger className="w-full">
+        <Flex
+          align="center"
+          justify="between"
+          className="h-8 px-4 py-2 rounded-full border border-[#FFFFFF15] tenant-popover-bg w-full hover:bg-sidebar-accent"
+        >
+          <Flex align="center" className="gap-2">
+            {tenantColor}
+            <span className="max-w-36 overflow-hidden text-nowrap text-xs" title={tenant?.name}>
+              {tenant?.name}
+            </span>
+          </Flex>
+          <ChevronsUpDownIcon size="13" className="text-muted-foreground" />
+        </Flex>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[246px] p-0">
         <Command>
           <CommandEmpty>No tenant found.</CommandEmpty>
           <CommandList>
@@ -74,7 +88,7 @@ export const TenantDropdown = () => {
             </Link>
           </CommandItem>
         </Command>
-      </PopoverContent>
-    </Popover>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
