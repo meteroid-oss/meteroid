@@ -7,6 +7,7 @@ import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
 import { ReportsPage } from '@/pages/tenants/reports'
 import { TenantSettings } from '@/pages/tenants/settings'
+import { SidebarProvider } from '@ui/components'
 import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
@@ -14,7 +15,11 @@ import { growthRoutes } from 'router/tenant/growth'
 
 export const tenantRoutes: RouteObject = {
   path: ':tenantSlug',
-  element: <TenantLayoutOutlet />,
+  element: (
+    <SidebarProvider>
+      <TenantLayoutOutlet />
+    </SidebarProvider>
+  ),
   children: [
     {
       index: true,
