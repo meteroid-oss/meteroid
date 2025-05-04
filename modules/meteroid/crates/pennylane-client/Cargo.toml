@@ -9,9 +9,12 @@ license.workspace = true
 serde = { workspace = true, features = ["derive"] }
 secrecy = { workspace = true }
 thiserror = { workspace = true }
-reqwest = { workspace = true, features = ["default"] }
+reqwest = { workspace = true, features = ["default", "multipart"] }
 reqwest-retry = { workspace = true, features = ["default"] }
-reqwest-middleware = { workspace = true, features = ["json"] }
+reqwest-middleware = { workspace = true, features = ["json", "multipart"] }
 async-trait = { workspace = true }
 nonzero_ext = { workspace = true }
 meteroid-middleware = { workspace = true, features = ["client"] }
+bytes = { workspace = true }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }

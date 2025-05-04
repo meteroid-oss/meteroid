@@ -42,3 +42,54 @@ GET https://app.pennylane.com/api/external/v2/changelogs/customer_invoices
 Accept: application/json
 Authorization: Bearer {{api_token}}
 
+### Upload file https://pennylane.readme.io/v2.0/reference/postfileattachments
+POST https://app.pennylane.com/api/external/v2/file_attachments
+Accept: application/json
+Content-Type: multipart/form-data; boundary=MyBoundary
+Authorization: Bearer {{api_token}}
+
+--MyBoundary
+Content-Disposition: form-data; name="file"; filename="custom_name.pdf"
+Content-Type: application/pdf
+
+< ./inv_sample.pdf
+--MyBoundary--
+
+
+### Import customer invoice https://pennylane.readme.io/v2.0/reference/importcustomerinvoices
+POST https://app.pennylane.com/api/external/v2/customer_invoices/import
+Content-Type: application/json
+Accept: application/json
+Authorization: Bearer {{api_token}}
+
+{
+  "file_attachment_id": 1141709,
+  "external_reference": "inv_123456789",
+  "invoice_number": "PL00001",
+  "date": "2025-05-01",
+  "deadline": "2025-05-01",
+  "customer_id": 157896015,
+  "currency": "EUR",
+  "currency_amount_before_tax": "200.1",
+  "currency_amount": "220.1",
+  "amount": "220.1",
+  "currency_tax": "20",
+  "invoice_lines": [
+    {
+      "currency_amount": "220.1",
+      "amount": "220.1",
+      "currency_tax": "20",
+      "label": "Test line",
+      "quantity": 1.5,
+      "raw_currency_unit_price": "20.01",
+      "unit": "units",
+      "vat_rate": "PL_230"
+    }
+  ]
+}
+
+### List customer invoices https://pennylane.readme.io/v2.0/reference/getcustomerinvoices
+GET https://app.pennylane.com/api/external/v2/customer_invoices
+Accept: application/json
+Authorization: Bearer {{api_token}}
+

@@ -7,7 +7,8 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     GetInvoiceRequest, GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse,
     PreviewInvoiceRequest, PreviewInvoiceResponse, RefreshInvoiceDataRequest,
     RefreshInvoiceDataResponse, RequestPdfGenerationRequest, RequestPdfGenerationResponse,
-    invoices_service_server::InvoicesService, list_invoices_request::SortBy,
+    SyncToPennylaneRequest, SyncToPennylaneResponse, invoices_service_server::InvoicesService,
+    list_invoices_request::SortBy,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
@@ -173,5 +174,28 @@ impl InvoicesService for InvoiceServiceComponents {
         };
 
         Ok(Response::new(response))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn sync_to_pennylane(
+        &self,
+        request: Request<SyncToPennylaneRequest>,
+    ) -> Result<Response<SyncToPennylaneResponse>, Status> {
+        let tenant_id = request.tenant()?;
+
+        let req = request.into_inner();
+
+        let ids = req
+            .invoice_ids
+            .iter()
+            .map(InvoiceId::from_proto)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.store
+            .sync_invoices_to_pennylane(ids, tenant_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(SyncToPennylaneResponse {}))
     }
 }

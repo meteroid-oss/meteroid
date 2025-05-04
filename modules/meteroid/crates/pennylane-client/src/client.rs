@@ -21,8 +21,8 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct PennylaneClient {
-    client: ClientWithMiddleware,
-    api_base: Url,
+    pub(crate) client: ClientWithMiddleware,
+    pub(crate) api_base: Url,
 }
 
 impl Default for PennylaneClient {

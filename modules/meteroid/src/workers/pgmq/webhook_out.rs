@@ -34,26 +34,28 @@ impl PgmqHandler for WebhookOut {
                 let tenant_id = event.tenant_id();
                 let webhook_out = to_webhook_out(event).change_context(PgmqError::HandleMessages)?;
 
-                let res = store
-                    .insert_webhook_message_out(tenant_id, webhook_out)
-                    .await
-                    .change_context(PgmqError::HandleMessages)?;
+                if let Some(webhook_out) = webhook_out {
+                    let res = store
+                        .insert_webhook_message_out(tenant_id, webhook_out)
+                        .await
+                        .change_context(PgmqError::HandleMessages)?;
 
-                match res {
-                    WebhookOutCreateMessageResult::Created(msg) => {
-                        log::info!("Sent {} webhook {}", msg.event_type, msg.id);
-                    }
-                    WebhookOutCreateMessageResult::Conflict => {
-                        log::warn!("Skipped webhook {} as it already exists", event_id);
-                    }
-                    WebhookOutCreateMessageResult::NotFound => {
-                        log::warn!(
+                    match res {
+                        WebhookOutCreateMessageResult::Created(msg) => {
+                            log::info!("Sent {} webhook {}", msg.event_type, msg.id);
+                        }
+                        WebhookOutCreateMessageResult::Conflict => {
+                            log::warn!("Skipped webhook {} as it already exists", event_id);
+                        }
+                        WebhookOutCreateMessageResult::NotFound => {
+                            log::warn!(
                             "Skipped webhook {} as the webhooks seem to not be configured for tenant {}",
                             event_id, tenant_id
                         );
-                    }
-                    WebhookOutCreateMessageResult::SvixNotConfigured => {
-                        log::warn!("Skipped webhook {} as svix client not configured", event_id);
+                        }
+                        WebhookOutCreateMessageResult::SvixNotConfigured => {
+                            log::warn!("Skipped webhook {} as svix client not configured", event_id);
+                        }
                     }
                 }
 

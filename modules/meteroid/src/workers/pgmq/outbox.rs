@@ -7,18 +7,18 @@ use error_stack::{Report, ResultExt, report};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PennylaneSyncRequestEvent, PgmqMessage,
-    PgmqMessageNew, PgmqQueue,
+    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PennylaneSyncInvoice,
+    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// Dispatches to consumer queues. This allows to mimic kafka consumer groups.
+/// Dispatches to consumer queues. This allows mimicking kafka consumer groups.
 /// Note:
 /// The message column is not copied to the consumer queue.
-/// The original message id is set in the headers so consumer queue reader can fetch the messages from the archived outbox queue by ids.
+/// The original message id is set in the headers so the consumer queue reader can fetch the messages from the archived outbox queue by ids.
 pub struct PgmqOutboxDispatch {
     pub(crate) store: Arc<Store>,
 }
@@ -128,12 +128,15 @@ impl PgmqOutboxDispatch {
                             .map(|msg_new| new_messages.push(msg_new))
                             .change_context(PgmqError::HandleMessages)?;
                     }
-                } else if let EventType::InvoiceFinalized = &out_headers.event_type {
-                    if let Ok(OutboxEvent::InvoiceFinalized(evt)) = msg.try_into() {
-                        PennylaneSyncRequestEvent::InvoiceOutbox(evt)
-                            .try_into()
-                            .map(|msg_new| new_messages.push(msg_new))
-                            .change_context(PgmqError::HandleMessages)?;
+                } else if let EventType::InvoicePdfGenerated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::InvoicePdfGenerated(evt)) = msg.try_into() {
+                        PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
+                            id: evt.invoice_id,
+                            tenant_id: evt.tenant_id,
+                        }))
+                        .try_into()
+                        .map(|msg_new| new_messages.push(msg_new))
+                        .change_context(PgmqError::HandleMessages)?;
                     }
                 }
             }
@@ -255,7 +258,7 @@ pub(crate) async fn to_outbox_events(
 ) -> PgmqResult<Vec<(MessageId, OutboxEvent)>> {
     msgs.iter().try_fold(vec![], |mut acc, msg| {
         let outbox_event: StoreResult<OutboxEvent> = msg.try_into();
-        let outbox_event = outbox_event.change_context(PgmqError::ListArchived)?;
+        let outbox_event = outbox_event.change_context(PgmqError::HandleMessages)?;
 
         acc.push((msg.msg_id, outbox_event));
 
