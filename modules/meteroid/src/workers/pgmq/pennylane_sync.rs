@@ -429,10 +429,14 @@ impl PennylaneSync {
                     .into_iter()
                     .map(|x| {
                         let total_amount = x.total.to_unit(currency.exponent as u8);
+                        let tax_rate =
+                            (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
+
+                        let tax_amount = total_amount * tax_rate / Decimal::from(100);
 
                         CustomerInvoiceLine {
                             currency_amount: total_amount.to_string(),
-                            currency_tax: "0".to_string(), // todo fix me
+                            currency_tax: tax_amount.to_string(),
                             label: x.name,
                             quantity: x.quantity.unwrap_or(Decimal::ZERO), // todo check if this is correct
                             raw_currency_unit_price: x
