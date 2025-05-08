@@ -406,6 +406,7 @@ impl PennylaneSync {
             let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
             let total_amount = invoice.invoice.total.to_unit(currency.exponent as u8);
             let total_before_tax = total_amount - tax_amount;
+            let tax_rate = (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
 
             let to_sync = NewCustomerInvoiceImport {
                 file_attachment_id: created.id,
@@ -429,22 +430,20 @@ impl PennylaneSync {
                     .into_iter()
                     .map(|x| {
                         let total_amount = x.total.to_unit(currency.exponent as u8);
-                        let tax_rate =
-                            (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
-
+                        // todo revisit the calculation of this field and have a dedicated field in the invoice line for tax amount
                         let tax_amount = total_amount * tax_rate / Decimal::from(100);
 
                         CustomerInvoiceLine {
                             currency_amount: total_amount.to_string(),
                             currency_tax: tax_amount.to_string(),
                             label: x.name,
-                            quantity: x.quantity.unwrap_or(Decimal::ZERO), // todo check if this is correct
+                            quantity: x.quantity.unwrap_or(Decimal::ONE),
                             raw_currency_unit_price: x
                                 .unit_price
-                                .unwrap_or(Decimal::ZERO)
-                                .to_string(), // todo check if this is correct
+                                .unwrap_or(x.subtotal.to_unit(currency.exponent as u8))
+                                .to_string(),
                             unit: "".to_string(),
-                            vat_rate: "FR_200".to_string(), // todo this needs to be mapped correctly
+                            vat_rate: "exempt".to_string(), // todo update me after we have tax implemented
                             description: None,
                         }
                     })
