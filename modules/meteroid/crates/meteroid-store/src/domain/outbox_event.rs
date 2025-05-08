@@ -23,6 +23,7 @@ pub enum OutboxEvent {
     CustomerCreated(Box<CustomerEvent>),
     InvoiceCreated(Box<InvoiceEvent>),
     InvoiceFinalized(Box<InvoiceEvent>),
+    InvoicePaid(Box<InvoiceEvent>),
     InvoicePdfGenerated(Box<InvoicePdfGeneratedEvent>),
     SubscriptionCreated(Box<SubscriptionEvent>),
 }
@@ -32,6 +33,7 @@ pub enum EventType {
     CustomerCreated,
     InvoiceCreated,
     InvoiceFinalized,
+    InvoicePaid,
     InvoicePdfGenerated,
     SubscriptionCreated,
 }
@@ -44,6 +46,7 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => event.id,
             OutboxEvent::InvoiceCreated(event) => event.id,
             OutboxEvent::InvoiceFinalized(event) => event.id,
+            OutboxEvent::InvoicePaid(event) => event.id,
             OutboxEvent::InvoicePdfGenerated(event) => event.id,
             OutboxEvent::SubscriptionCreated(event) => event.id,
         }
@@ -54,6 +57,7 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
+            OutboxEvent::InvoicePaid(event) => event.tenant_id,
             OutboxEvent::InvoicePdfGenerated(event) => event.tenant_id,
             OutboxEvent::SubscriptionCreated(event) => event.tenant_id,
         }
@@ -64,6 +68,7 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => event.customer_id.as_uuid(),
             OutboxEvent::InvoiceCreated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::InvoicePaid(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoicePdfGenerated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::SubscriptionCreated(event) => event.subscription_id.as_uuid(),
         }
@@ -74,6 +79,7 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(_) => "Customer".to_string(),
             OutboxEvent::InvoiceCreated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
+            OutboxEvent::InvoicePaid(_) => "Invoice".to_string(),
             OutboxEvent::InvoicePdfGenerated(_) => "Invoice".to_string(),
             OutboxEvent::SubscriptionCreated(_) => "Subscription".to_string(),
         }
@@ -84,6 +90,7 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(_) => EventType::CustomerCreated,
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
+            OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
             OutboxEvent::InvoicePdfGenerated(_) => EventType::InvoicePdfGenerated,
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
         }
@@ -114,6 +121,7 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoiceCreated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoiceFinalized(event) => Ok(Some(Self::event_json(event)?)),
+            OutboxEvent::InvoicePaid(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoicePdfGenerated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::SubscriptionCreated(event) => Ok(Some(Self::event_json(event)?)),
         }
@@ -252,6 +260,10 @@ pub struct InvoiceEvent {
     pub total: i64,
     #[from(DetailedInvoice| @.invoice.created_at)]
     pub created_at: NaiveDateTime,
+    #[from(DetailedInvoice| @.invoice.conn_meta)]
+    pub conn_meta: Option<ConnectionMeta>,
+    #[from(DetailedInvoice| @.invoice.amount_due)]
+    pub amount_due: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

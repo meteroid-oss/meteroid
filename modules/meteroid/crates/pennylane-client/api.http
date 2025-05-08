@@ -88,6 +88,10 @@ Authorization: Bearer {{api_token}}
   ]
 }
 
+### Mark customer invoice as paid https://pennylane.readme.io/v2.0/reference/markaspaidcustomerinvoice
+PUT https://app.pennylane.com/api/external/v2/customer_invoices/1974109344/mark_as_paid
+Authorization: Bearer {{api_token}}
+
 ### List customer invoices https://pennylane.readme.io/v2.0/reference/getcustomerinvoices
 GET https://app.pennylane.com/api/external/v2/customer_invoices
 Accept: application/json

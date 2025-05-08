@@ -139,6 +139,7 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<Option<WebhookOutM
             ))
         }
         OutboxEvent::InvoicePdfGenerated(_) => None,
+        OutboxEvent::InvoicePaid(_) => None,
     };
 
     if let Some((event_type, payload)) = out {

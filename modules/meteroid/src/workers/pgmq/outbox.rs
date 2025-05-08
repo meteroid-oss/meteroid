@@ -138,6 +138,16 @@ impl PgmqOutboxDispatch {
                         .map(|msg_new| new_messages.push(msg_new))
                         .change_context(PgmqError::HandleMessages)?;
                     }
+                } else if let EventType::InvoicePaid = &out_headers.event_type {
+                    if let Ok(OutboxEvent::InvoicePaid(evt)) = msg.try_into() {
+                        PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
+                            id: evt.invoice_id,
+                            tenant_id: evt.tenant_id,
+                        }))
+                        .try_into()
+                        .map(|msg_new| new_messages.push(msg_new))
+                        .change_context(PgmqError::HandleMessages)?;
+                    }
                 }
             }
         }

@@ -331,6 +331,29 @@ impl PennylaneSync {
         Ok(succeeded_msgs)
     }
 
+    async fn mark_invoice_as_paid(
+        &self,
+        conn: &PennylaneConnector,
+        pennylane_id: i64,
+    ) -> PgmqResult<()> {
+        let res = self
+            .client
+            .mark_customer_invoice_as_paid(pennylane_id, &conn.access_token)
+            .await;
+
+        if res.is_err() {
+            log::warn!(
+                "Failed to mark invoice {} as paid in pennylane: {:?}",
+                pennylane_id,
+                res
+            );
+        } else {
+            log::info!("Invoice {} marked as paid in pennylane", pennylane_id);
+        }
+
+        Ok(())
+    }
+
     async fn sync_detailed_invoice(
         &self,
         conn: &PennylaneConnector,
@@ -348,6 +371,11 @@ impl PennylaneSync {
                 invoice.invoice.id,
                 id
             );
+
+            if invoice.invoice.amount_due == 0 {
+                self.mark_invoice_as_paid(conn, id).await?;
+            }
+
             return Ok(msg_id);
         }
 
@@ -466,6 +494,10 @@ impl PennylaneSync {
                         )
                         .await
                         .change_context(PgmqError::HandleMessages)?;
+
+                    if invoice.invoice.amount_due == 0 {
+                        self.mark_invoice_as_paid(conn, res.id).await?;
+                    }
 
                     log::info!(
                         "Invoice {} synced to pennylane [id={}]",
