@@ -86,7 +86,7 @@ function Tree({
               const isSubActive = pathname.includes((subItem.url as string) ?? '')
 
               return (
-                <li
+                <div
                   key={index}
                   className={cn('block w-full', item.disabled && 'pointer-events-none')}
                 >
@@ -95,7 +95,7 @@ function Tree({
                       {subItem.title}
                     </SidebarMenuButton>
                   </NavLink>
-                </li>
+                </div>
               )
             })}
           </CollapsibleContent>
@@ -109,14 +109,14 @@ function Tree({
 
   return (
     <SidebarMenuItem>
-      <li className={cn('block w-full', item.disabled && 'pointer-events-none')}>
+      <div className={cn('block w-full', item.disabled && 'pointer-events-none')}>
         <NavLink to={item.url ?? ''} viewTransition>
           <SidebarMenuButton isActive={isActive}>
             {Icon && <Icon className="mr-2 h-4 w-4" />}
             {item.title}
           </SidebarMenuButton>
         </NavLink>
-      </li>
+      </div>
     </SidebarMenuItem>
   )
 }
