@@ -1,9 +1,10 @@
+import { CustomersExportModal } from '@/features/customers/CustomersExportModal'
 import { spaces } from '@md/foundation'
 import { SearchIcon } from '@md/icons'
 import { Button, ButtonProps, InputWithIcon, Flex as NewFlex, Separator, cn } from '@md/ui'
 import { Flex } from '@ui/components/legacy'
 import { ListFilter } from 'lucide-react'
-import { FunctionComponent, PropsWithChildren } from 'react'
+import { FunctionComponent, PropsWithChildren, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 interface CustomersProps {
@@ -20,6 +21,8 @@ export const CustomersHeader: FunctionComponent<CustomersProps> = ({
   const [searchParams, setSearchParams] = useSearchParams()
   const currentTab = searchParams.get('tab') || 'all'
 
+  const [visible, setVisible] = useState(false)
+
   const updateTab = (tab: string) => {
     const newSearchParams = new URLSearchParams(searchParams)
 
@@ -31,59 +34,59 @@ export const CustomersHeader: FunctionComponent<CustomersProps> = ({
   }
 
   return (
-    <Flex direction="column" gap={spaces.space3}>
-      <Flex direction="row" align="center" justify="space-between">
-        <NewFlex align="center" className="gap-2">
-          <img src="/header/customer.svg" alt="customer logo" />
-          <div className="text-[15px] font-medium">Customers</div>
-          <NewFlex align="center" className="gap-2 ml-2 mt-[0.5px]">
-            <ButtonTabs active={currentTab === 'all'} onClick={() => updateTab('all')}>
-              All
-            </ButtonTabs>
-            <ButtonTabs active={currentTab === 'active'} onClick={() => updateTab('active')}>
-              Active
-            </ButtonTabs>
-            <ButtonTabs active={currentTab === 'inactive'} onClick={() => updateTab('inactive')}>
-              Inactive
-            </ButtonTabs>
-            <ButtonTabs active={currentTab === 'archived'} onClick={() => updateTab('archived')}>
-              Archived
-            </ButtonTabs>
+    <>
+      <Flex direction="column" gap={spaces.space4}>
+        <Flex direction="row" align="center" justify="space-between">
+          <NewFlex align="center" className="gap-2">
+            <img src="/header/customer.svg" alt="customer logo" />
+            <div className="text-[15px] font-medium">Customers</div>
+            <NewFlex align="center" className="gap-2 ml-2 mt-[0.5px]">
+              <ButtonTabs active={currentTab === 'all'} onClick={() => updateTab('all')}>
+                All
+              </ButtonTabs>
+              <ButtonTabs active={currentTab === 'active'} onClick={() => updateTab('active')}>
+                Active
+              </ButtonTabs>
+              <ButtonTabs active={currentTab === 'inactive'} onClick={() => updateTab('inactive')}>
+                Inactive
+              </ButtonTabs>
+              <ButtonTabs active={currentTab === 'archived'} onClick={() => updateTab('archived')}>
+                Archived
+              </ButtonTabs>
+            </NewFlex>
           </NewFlex>
-        </NewFlex>
-        <Flex direction="row" gap={spaces.space4}>
-          <Button size="sm" disabled variant="secondary">
-            Export
-          </Button>
-          <Button size="sm" variant="default" onClick={() => setEditPanelVisible(true)}>
-            New customer
+          <Flex direction="row" gap={spaces.space4}>
+            <Button size="sm" onClick={() => setVisible(true)} variant="secondary">
+              Export
+            </Button>
+            <Button size="sm" variant="default" onClick={() => setEditPanelVisible(true)}>
+              New customer
+            </Button>
+          </Flex>
+        </Flex>
+        <div className="mx-[-22px]">
+          <Separator />
+        </div>
+        <Flex direction="row" align="center" gap={spaces.space4}>
+          <InputWithIcon
+            className="h-[30px]"
+            placeholder="Search..."
+            icon={<SearchIcon size={16} className="text-[#898784]" />}
+            width="fit-content"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <Button
+            hasIcon
+            className="h-[30px] bg-accent text-accent-foreground hover:opacity-90"
+            variant="outline"
+          >
+            <ListFilter size={16} className="text-[#898784]" /> Filter
           </Button>
         </Flex>
       </Flex>
-      <div className="mx-[-22px]">
-        <Separator />
-      </div>
-      <Flex direction="row" align="center" gap={spaces.space4}>
-        <InputWithIcon
-          className="h-[30px]"
-          placeholder="Search..."
-          icon={<SearchIcon size={16} className="text-[#898784]" />}
-          width="fit-content"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-        <Button
-          hasIcon
-          className="h-[30px] bg-accent text-accent-foreground hover:opacity-90"
-          variant="outline"
-        >
-          <ListFilter size={16} className="text-[#898784]" /> Filter
-        </Button>
-      </Flex>
-      <div className="mx-[-22px]">
-        <Separator />
-      </div>
-    </Flex>
+      <CustomersExportModal openState={[visible, setVisible]} />
+    </>
   )
 }
 

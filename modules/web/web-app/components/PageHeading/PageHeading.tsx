@@ -11,7 +11,7 @@ const PageHeading: FunctionComponent<PageHeadingProps> = ({ children, count }) =
   return (
     <StyledPageHeading>
       {children}
-      {count !== undefined && count >= 0 && <Count>yo({count})</Count>}
+      {count !== undefined && count >= 0 && <Count>({count})</Count>}
     </StyledPageHeading>
   )
 }
