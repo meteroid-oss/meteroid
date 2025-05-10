@@ -3,17 +3,23 @@ use http::Extensions;
 use reqwest::{Request, Response};
 use reqwest_middleware::{Middleware, Next};
 use std::num::NonZeroU32;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub struct RateLimitMiddleware {
-    rate_limiter: DefaultKeyedRateLimiter<String>,
+    rate_limiter: Arc<DefaultKeyedRateLimiter<String>>,
     jitter: Jitter,
 }
 
 impl RateLimitMiddleware {
     pub fn new(rps: NonZeroU32) -> Self {
         let quota = Quota::per_second(rps);
-        let rate_limiter = RateLimiter::keyed(quota);
+        let rate_limiter: Arc<DefaultKeyedRateLimiter<String>> =
+            Arc::new(RateLimiter::keyed(quota));
+        Self::from_rate_limiter(rate_limiter)
+    }
+
+    pub fn from_rate_limiter(rate_limiter: Arc<DefaultKeyedRateLimiter<String>>) -> Self {
         let jitter = Jitter::up_to(Duration::from_secs(1));
         Self {
             rate_limiter,

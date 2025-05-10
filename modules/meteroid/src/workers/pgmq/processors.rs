@@ -1,4 +1,5 @@
 use crate::services::invoice_rendering::PdfRenderingService;
+use crate::services::storage::ObjectStoreService;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::outbox::{PgmqOutboxDispatch, PgmqOutboxProxy};
 use crate::workers::pgmq::pdf_render::PdfRender;
@@ -31,7 +32,7 @@ pub async fn run_outbox_dispatch(store: Arc<Store>) {
     .await;
 }
 
-pub async fn run_pdf_render(store: Arc<Store>, pdf_service: PdfRenderingService) {
+pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingService>) {
     let queue = PgmqQueue::InvoicePdfRequest;
     let processor = Arc::new(PdfRender::new(pdf_service));
 
@@ -88,9 +89,13 @@ pub async fn run_hubspot_sync(store: Arc<Store>, hubspot_client: Arc<HubspotClie
     .await;
 }
 
-pub async fn run_pennylane_sync(store: Arc<Store>, pennylane_client: Arc<PennylaneClient>) {
+pub async fn run_pennylane_sync(
+    store: Arc<Store>,
+    pennylane_client: Arc<PennylaneClient>,
+    storage: Arc<dyn ObjectStoreService>,
+) {
     let queue = PgmqQueue::PennylaneSync;
-    let processor = Arc::new(PennylaneSync::new(store.clone(), pennylane_client));
+    let processor = Arc::new(PennylaneSync::new(store.clone(), pennylane_client, storage));
 
     run(ProcessorConfig {
         name: processor_name("PennylaneSync"),

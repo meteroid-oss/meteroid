@@ -3,7 +3,7 @@ use crate::workers::kafka::processor::MessageHandler;
 use crate::workers::webhook_out::to_webhook_out;
 use async_trait::async_trait;
 use meteroid_store::Store;
-use meteroid_store::domain::webhooks::{WebhookOutCreateMessageResult, WebhookOutMessageNew};
+use meteroid_store::domain::webhooks::WebhookOutCreateMessageResult;
 use meteroid_store::repositories::webhooks::WebhooksInterface;
 use std::sync::Arc;
 
@@ -28,38 +28,38 @@ impl MessageHandler for WebhookHandler {
 
             let tenant_id = event.tenant_id();
 
-            let wh: WebhookOutMessageNew = to_webhook_out(event)?;
+            if let Some(wh) = to_webhook_out(event)? {
+                let webhook_type = wh.event_type.to_string();
+                let event_id = wh.id.clone();
 
-            let webhook_type = wh.event_type.to_string();
-            let event_id = wh.id.clone();
+                let result = self.store.insert_webhook_message_out(tenant_id, wh).await?;
 
-            let result = self.store.insert_webhook_message_out(tenant_id, wh).await?;
-
-            match result {
-                WebhookOutCreateMessageResult::Created(_) => {
-                    log::info!("Sent {} webhook with id {}", webhook_type, event_id)
-                }
-                WebhookOutCreateMessageResult::Conflict => {
-                    log::warn!(
-                        "Skipped {} webhook with id {} as it already exists",
-                        webhook_type,
-                        event_id
-                    )
-                }
-                WebhookOutCreateMessageResult::NotFound => {
-                    log::warn!(
-                        "Skipped {} webhook with id {} as the webhooks seem to not be configured for tenant {}",
-                        webhook_type,
-                        event_id,
-                        tenant_id
-                    )
-                }
-                WebhookOutCreateMessageResult::SvixNotConfigured => {
-                    log::warn!(
-                        "Skipped {} webhook with id {} as svix client not configured",
-                        webhook_type,
-                        event_id
-                    )
+                match result {
+                    WebhookOutCreateMessageResult::Created(_) => {
+                        log::info!("Sent {} webhook with id {}", webhook_type, event_id)
+                    }
+                    WebhookOutCreateMessageResult::Conflict => {
+                        log::warn!(
+                            "Skipped {} webhook with id {} as it already exists",
+                            webhook_type,
+                            event_id
+                        )
+                    }
+                    WebhookOutCreateMessageResult::NotFound => {
+                        log::warn!(
+                            "Skipped {} webhook with id {} as the webhooks seem to not be configured for tenant {}",
+                            webhook_type,
+                            event_id,
+                            tenant_id
+                        )
+                    }
+                    WebhookOutCreateMessageResult::SvixNotConfigured => {
+                        log::warn!(
+                            "Skipped {} webhook with id {} as svix client not configured",
+                            webhook_type,
+                            event_id
+                        )
+                    }
                 }
             }
         } else {

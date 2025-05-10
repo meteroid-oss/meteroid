@@ -8,6 +8,7 @@ use error_stack::ResultExt;
 use o2o::o2o;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Clone, Debug)]
 pub struct Connector {
@@ -172,6 +173,22 @@ pub struct ConnectionMeta {
     pub hubspot: Option<Vec<ConnectionMetaItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pennylane: Option<Vec<ConnectionMetaItem>>,
+}
+
+impl ConnectionMeta {
+    pub fn get_pennylane_id(&self, connector_id: ConnectorId) -> Option<i64> {
+        self.pennylane
+            .as_ref()
+            .unwrap_or(&vec![])
+            .iter()
+            .find_map(|x| {
+                if x.connector_id == connector_id {
+                    i64::from_str(&x.external_id).ok()
+                } else {
+                    None
+                }
+            })
+    }
 }
 
 json_value_serde!(ConnectionMeta);

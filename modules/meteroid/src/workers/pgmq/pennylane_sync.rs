@@ -1,3 +1,4 @@
+use crate::services::storage::{ObjectStoreService, Prefix};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
@@ -9,22 +10,29 @@ use error_stack::{ResultExt, report};
 use itertools::Itertools;
 use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
 use meteroid_store::domain::connectors::{Connector, ProviderSensitiveData};
-use meteroid_store::domain::outbox_event::{CustomerEvent, InvoiceEvent};
+use meteroid_store::domain::outbox_event::CustomerEvent;
 use meteroid_store::domain::pgmq::{
     PennylaneSyncCustomer, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
 };
-use meteroid_store::domain::{Address, ConnectorProviderEnum};
+use meteroid_store::domain::{Address, ConnectorProviderEnum, DetailedInvoice};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
+use meteroid_store::utils::decimals::ToUnit;
 use meteroid_store::{Store, StoreResult};
 use moka::Expiry;
 use moka::future::Cache;
 use pennylane_client::client::PennylaneClient;
+use pennylane_client::customer_invoices::{
+    CustomerInvoiceLine, CustomerInvoicesApi, NewCustomerInvoiceImport,
+};
 use pennylane_client::customers::{BillingAddress, CustomersApi, NewCompany, UpdateCompany};
+use pennylane_client::file_attachments::{FileAttachmentsApi, MediaType, NewAttachment};
+use rust_decimal::Decimal;
 use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 /// todo extract out common and reuse in hubspot and pennylane
 
@@ -33,10 +41,15 @@ pub(crate) struct PennylaneSync {
     pub(crate) store: Arc<Store>,
     pub(crate) client: Arc<PennylaneClient>,
     pub(crate) token_cache: Cache<ConnectorId, OauthAccessToken>,
+    pub(crate) storage: Arc<dyn ObjectStoreService>,
 }
 
 impl PennylaneSync {
-    pub(crate) fn new(store: Arc<Store>, client: Arc<PennylaneClient>) -> Self {
+    pub(crate) fn new(
+        store: Arc<Store>,
+        client: Arc<PennylaneClient>,
+        storage: Arc<dyn ObjectStoreService>,
+    ) -> Self {
         let token_cache = Cache::builder()
             .expire_after(OauthAccessTokenExpiry)
             .max_capacity(500)
@@ -46,6 +59,7 @@ impl PennylaneSync {
             store,
             client,
             token_cache,
+            storage,
         }
     }
 
@@ -114,7 +128,6 @@ impl PennylaneSync {
         let mut customers_to_sync = vec![];
         let mut invoices_to_sync = vec![];
         let mut customer_outbox_to_sync = vec![];
-        let mut invoice_outbox_to_sync = vec![];
 
         for (evt, msg) in conn.events {
             match evt {
@@ -126,9 +139,6 @@ impl PennylaneSync {
                 }
                 PennylaneSyncRequestEvent::CustomerOutbox(data) => {
                     customer_outbox_to_sync.push((data, msg));
-                }
-                PennylaneSyncRequestEvent::InvoiceOutbox(data) => {
-                    invoice_outbox_to_sync.push((data, msg));
                 }
             }
         }
@@ -147,16 +157,11 @@ impl PennylaneSync {
             .sync_customer_outbox(&conn, customer_outbox_to_sync)
             .await
             .unwrap_to_default_warn(|e| format!("Failed to sync customer outbox events: {:?}", e));
-        let succeeded_inv_outbox = self
-            .sync_invoice_outbox(&conn, invoice_outbox_to_sync)
-            .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync invoice outbox events: {:?}", e));
 
         Ok(succeeded_customers
             .into_iter()
             .chain(succeeded_invoices)
             .chain(succeeded_cus_outbox)
-            .chain(succeeded_inv_outbox)
             .collect_vec())
     }
 
@@ -218,18 +223,17 @@ impl PennylaneSync {
 
         let invoices = self
             .store
-            .list_invoices_by_ids(ids)
+            .list_detailed_invoices_by_ids(ids)
             .await
             .change_context(PgmqError::HandleMessages)?;
 
         let invoice_events = invoices
             .into_iter()
             .flat_map(|invoice| {
-                let inv_id = invoice.id;
-                let event: InvoiceEvent = invoice.into();
+                let inv_id = invoice.invoice.id;
                 invoice_reqs.iter().filter_map(move |(sync_inv, msg_id)| {
                     if sync_inv.id == inv_id {
-                        Some((Box::new(event.clone()), *msg_id))
+                        Some((invoice.clone(), *msg_id))
                     } else {
                         None
                     }
@@ -237,7 +241,7 @@ impl PennylaneSync {
             })
             .collect_vec();
 
-        let succeeded = self.sync_invoice_outbox(conn, invoice_events).await?;
+        let succeeded = self.sync_detailed_invoices(conn, invoice_events).await?;
 
         Ok(succeeded)
     }
@@ -303,17 +307,231 @@ impl PennylaneSync {
         Ok(succeeded_msgs)
     }
 
-    async fn sync_invoice_outbox(
+    async fn sync_detailed_invoices(
         &self,
-        _conn: &PennylaneConnector,
-        outboxes: Vec<(Box<InvoiceEvent>, MessageId)>,
+        conn: &PennylaneConnector,
+        invoices: Vec<(DetailedInvoice, MessageId)>,
     ) -> PgmqResult<Vec<MessageId>> {
-        if outboxes.is_empty() {
+        if invoices.is_empty() {
             return Ok(Vec::new());
         }
 
-        // todo implement me
-        Ok(outboxes.into_iter().map(|(_, msg_id)| msg_id).collect_vec())
+        let mut succeeded_msgs = vec![];
+        for (invoice, msg_id) in invoices {
+            let res = self.sync_detailed_invoice(conn, invoice, msg_id).await;
+
+            match res {
+                Ok(succeeded_msg_id) => {
+                    succeeded_msgs.push(succeeded_msg_id);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to sync detailed invoice with MessageId: {:?}, error: {:?}",
+                        msg_id,
+                        e
+                    );
+                }
+            }
+        }
+
+        Ok(succeeded_msgs)
+    }
+
+    async fn mark_invoice_as_paid(
+        &self,
+        conn: &PennylaneConnector,
+        pennylane_id: i64,
+    ) -> PgmqResult<()> {
+        let res = self
+            .client
+            .mark_customer_invoice_as_paid(pennylane_id, &conn.access_token)
+            .await;
+
+        if res.is_err() {
+            log::warn!(
+                "Failed to mark invoice {} as paid in pennylane: {:?}",
+                pennylane_id,
+                res
+            );
+        } else {
+            log::info!("Invoice {} marked as paid in pennylane", pennylane_id);
+        }
+
+        Ok(())
+    }
+
+    async fn sync_detailed_invoice(
+        &self,
+        conn: &PennylaneConnector,
+        invoice: DetailedInvoice,
+        msg_id: MessageId,
+    ) -> PgmqResult<MessageId> {
+        let pennylane_inv_id = invoice
+            .invoice
+            .conn_meta
+            .and_then(|x| x.get_pennylane_id(conn.id));
+
+        if let Some(id) = pennylane_inv_id {
+            log::info!(
+                "Invoice {} was already synced to pennylane {}",
+                invoice.invoice.id,
+                id
+            );
+
+            if invoice.invoice.amount_due == 0 {
+                self.mark_invoice_as_paid(conn, id).await?;
+            }
+
+            return Ok(msg_id);
+        }
+
+        let pennylane_cus_id = invoice
+            .customer
+            .conn_meta
+            .and_then(|x| x.get_pennylane_id(conn.id));
+
+        let pennylane_cus_id = match pennylane_cus_id {
+            Some(id) => id,
+            None => {
+                log::warn!(
+                    "Customer {} has no pennylane id, skipping invoice {}",
+                    invoice.customer.id,
+                    invoice.invoice.id
+                );
+                return Ok(msg_id);
+            }
+        };
+
+        if let Some(pdf_id) = invoice
+            .invoice
+            .pdf_document_id
+            .and_then(|x| Uuid::parse_str(&x).ok())
+        {
+            let currency = match rusty_money::iso::find(&invoice.invoice.currency) {
+                Some(currency) => currency,
+                None => {
+                    log::warn!(
+                        "Currency {} not found in rusty_money, skipping invoice {}",
+                        invoice.invoice.currency,
+                        invoice.invoice.id
+                    );
+                    return Ok(msg_id);
+                }
+            };
+
+            let pdf_bytes = self
+                .storage
+                .retrieve(pdf_id, Prefix::InvoicePdf)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+
+            let attachment = NewAttachment {
+                filename: format!("{}.pdf", invoice.invoice.id),
+                file: pdf_bytes,
+                media_type: MediaType::ApplicationPdf,
+            };
+
+            let created = self
+                .client
+                .create_attachment(attachment, &conn.access_token)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+
+            // let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
+            // todo revisit me
+            let tax_amount = Decimal::ZERO;
+            let total_amount = invoice.invoice.total.to_unit(currency.exponent as u8);
+            let total_before_tax = total_amount - tax_amount;
+            //let tax_rate = (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
+
+            let to_sync = NewCustomerInvoiceImport {
+                file_attachment_id: created.id,
+                customer_id: pennylane_cus_id,
+                external_reference: Some(invoice.invoice.id.as_proto()),
+                invoice_number: Some(invoice.invoice.invoice_number),
+                date: invoice.invoice.invoice_date,
+                deadline: invoice
+                    .invoice
+                    .due_at
+                    .as_ref()
+                    .map(|x| x.date())
+                    .unwrap_or(invoice.invoice.invoice_date),
+                currency: invoice.invoice.currency,
+                currency_amount_before_tax: total_before_tax.to_string(),
+                currency_amount: total_amount.to_string(),
+                currency_tax: tax_amount.to_string(),
+                invoice_lines: invoice
+                    .invoice
+                    .line_items
+                    .into_iter()
+                    .map(|x| {
+                        let total_amount = x.total.to_unit(currency.exponent as u8);
+                        // todo revisit this field and have a dedicated field in the invoice line for tax amount
+                        let tax_amount = 0;
+
+                        CustomerInvoiceLine {
+                            currency_amount: total_amount.to_string(),
+                            currency_tax: tax_amount.to_string(),
+                            label: x.name,
+                            quantity: x.quantity.unwrap_or(Decimal::ONE),
+                            raw_currency_unit_price: x
+                                .unit_price
+                                .unwrap_or(x.subtotal.to_unit(currency.exponent as u8))
+                                .to_string(),
+                            unit: "".to_string(),
+                            vat_rate: "exempt".to_string(), // todo update me after we have tax implemented
+                            description: None,
+                        }
+                    })
+                    .collect_vec(),
+            };
+
+            let res = self
+                .client
+                .import_customer_invoice(to_sync, &conn.access_token)
+                .await;
+
+            match res {
+                Ok(res) => {
+                    self.store
+                        .patch_invoice_conn_meta(
+                            invoice.invoice.id,
+                            conn.id,
+                            ConnectorProviderEnum::Pennylane,
+                            res.id.to_string().as_str(),
+                        )
+                        .await
+                        .change_context(PgmqError::HandleMessages)?;
+
+                    if invoice.invoice.amount_due == 0 {
+                        self.mark_invoice_as_paid(conn, res.id).await?;
+                    }
+
+                    log::info!(
+                        "Invoice {} synced to pennylane [id={}]",
+                        invoice.invoice.id,
+                        res.id
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to sync invoice {} to pennylane: {:?}",
+                        invoice.invoice.id,
+                        e
+                    );
+
+                    let status_code = e.status_code();
+
+                    if status_code.is_some_and(|x| x < 500 && x != 429 && x != 409) {
+                        return Ok(msg_id);
+                    }
+
+                    return Err(report!(PgmqError::HandleMessages).attach(e));
+                }
+            }
+        }
+
+        Ok(msg_id)
     }
 
     fn convert_to_billing_address(ba: Option<&Address>) -> BillingAddress {

@@ -79,9 +79,9 @@ pub struct Invoice {
     pub created_at: NaiveDateTime,
 }
 
-pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<WebhookOutMessageNew> {
+pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<Option<WebhookOutMessageNew>> {
     let event_id = evt.event_id().to_string();
-    let (event_type, payload) = match evt {
+    let out = match evt {
         OutboxEvent::CustomerCreated(event) => {
             let event = Customer::from(*event);
             let payload = serde_json::to_value(event).map_err(|e| {
@@ -91,10 +91,10 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<WebhookOutMessageN
                 ))
             })?;
 
-            (
+            Some((
                 WebhookOutEventTypeEnum::CustomerCreated,
                 WebhookOutMessagePayload::Customer(payload),
-            )
+            ))
         }
         OutboxEvent::InvoiceCreated(event) => {
             let event = Invoice::from(*event);
@@ -105,10 +105,10 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<WebhookOutMessageN
                 ))
             })?;
 
-            (
+            Some((
                 WebhookOutEventTypeEnum::InvoiceCreated,
                 WebhookOutMessagePayload::Invoice(payload),
-            )
+            ))
         }
         OutboxEvent::InvoiceFinalized(event) => {
             let event = Invoice::from(*event);
@@ -119,10 +119,10 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<WebhookOutMessageN
                 ))
             })?;
 
-            (
+            Some((
                 WebhookOutEventTypeEnum::InvoiceFinalized,
                 WebhookOutMessagePayload::Invoice(payload),
-            )
+            ))
         }
         OutboxEvent::SubscriptionCreated(event) => {
             let event = Subscription::from(*event);
@@ -133,20 +133,25 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<WebhookOutMessageN
                 ))
             })?;
 
-            (
+            Some((
                 WebhookOutEventTypeEnum::SubscriptionCreated,
                 WebhookOutMessagePayload::Subscription(payload),
-            )
+            ))
         }
+        OutboxEvent::InvoicePdfGenerated(_) => None,
+        OutboxEvent::InvoicePaid(_) => None,
     };
 
-    let webhook = WebhookOutMessageNew {
-        id: event_id,
-        event_type,
-        payload,
-    };
-
-    Ok(webhook)
+    if let Some((event_type, payload)) = out {
+        let webhook = WebhookOutMessageNew {
+            id: event_id,
+            event_type,
+            payload,
+        };
+        Ok(Some(webhook))
+    } else {
+        Ok(None)
+    }
 }
 
 fn ser_naive_dt<S>(datetime: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>

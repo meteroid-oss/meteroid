@@ -6,18 +6,22 @@ use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use diesel_models::{DbResult, PgConn};
-use error_stack::{Report, ResultExt};
+use error_stack::{Report, ResultExt, bail};
 
 use crate::compute::InvoiceLineInterface;
 use crate::domain::outbox_event::OutboxEvent;
+use crate::domain::pgmq::{PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqQueue};
 use crate::domain::{
-    CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice, InvoiceLinesPatch,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
+    ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
+    InvoiceLinesPatch, InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec,
+    PaginationRequest,
 };
 use crate::repositories::SubscriptionInterface;
+use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
+use crate::repositories::pgmq::PgmqInterface;
 use crate::utils::decimals::ToUnit;
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, ConnectorId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use common_eventbus::Event;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
@@ -78,6 +82,11 @@ pub trait InvoiceInterface {
 
     async fn list_invoices_by_ids(&self, ids: Vec<InvoiceId>) -> StoreResult<Vec<Invoice>>;
 
+    async fn list_detailed_invoices_by_ids(
+        &self,
+        ids: Vec<InvoiceId>,
+    ) -> StoreResult<Vec<DetailedInvoice>>;
+
     async fn invoice_issue_success(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn invoice_issue_error(
@@ -101,6 +110,20 @@ pub trait InvoiceInterface {
         tenant_id: TenantId,
         pdf_id: String,
         xml_id: Option<String>,
+    ) -> StoreResult<()>;
+
+    async fn sync_invoices_to_pennylane(
+        &self,
+        ids: Vec<InvoiceId>,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
+
+    async fn patch_invoice_conn_meta(
+        &self,
+        invoice_id: InvoiceId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
     ) -> StoreResult<()>;
 }
 
@@ -374,6 +397,22 @@ impl InvoiceInterface for Store {
             .collect::<Result<Vec<_>, _>>()
     }
 
+    async fn list_detailed_invoices_by_ids(
+        &self,
+        ids: Vec<InvoiceId>,
+    ) -> StoreResult<Vec<DetailedInvoice>> {
+        let mut conn = self.get_conn().await?;
+
+        let invoices = InvoiceRow::list_detailed_by_ids(&mut conn, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        invoices
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()
+    }
+
     async fn invoice_issue_success(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
@@ -431,6 +470,61 @@ impl InvoiceInterface for Store {
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn sync_invoices_to_pennylane(
+        &self,
+        ids: Vec<InvoiceId>,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let connector = self.get_pennylane_connector(tenant_id).await?;
+
+        if connector.is_none() {
+            bail!(StoreError::InvalidArgument(
+                "No Pennylane connector found".to_string()
+            ));
+        }
+
+        let mut conn = self.get_conn().await?;
+
+        let invoices = InvoiceRow::list_by_ids(&mut conn, ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.pgmq_send_batch(
+            PgmqQueue::PennylaneSync,
+            invoices
+                .into_iter()
+                .map(|invoice| {
+                    PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
+                        id: invoice.id,
+                        tenant_id,
+                    }))
+                    .try_into()
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+        .await
+    }
+
+    async fn patch_invoice_conn_meta(
+        &self,
+        invoice_id: InvoiceId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::upsert_conn_meta(
+            &mut conn,
+            provider.into(),
+            invoice_id,
+            connector_id,
+            external_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
     }
 }
 

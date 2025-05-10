@@ -1,4 +1,5 @@
 use crate::error::PennylaneError;
+use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use meteroid_middleware::client::rate_limit::RateLimitMiddleware;
 use nonzero_ext::nonzero;
 use reqwest::{Client, Method, Url};
@@ -9,6 +10,7 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::num::NonZeroU32;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Note: we might want to generate the client from the openapi spec in the future,
@@ -21,8 +23,11 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct PennylaneClient {
-    client: ClientWithMiddleware,
-    api_base: Url,
+    /// multipart does not work with the middleware
+    pub(crate) raw_client: Client,
+    pub(crate) rate_limiter: Arc<DefaultKeyedRateLimiter<String>>,
+    pub(crate) client: ClientWithMiddleware,
+    pub(crate) api_base: Url,
 }
 
 impl Default for PennylaneClient {
@@ -50,20 +55,26 @@ impl PennylaneClient {
         max_retries: u32,
         rps: NonZeroU32,
     ) -> Self {
-        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(max_retries);
-
-        let client = Client::builder()
+        let raw_client = Client::builder()
             .connect_timeout(connect_timeout)
             .timeout(timeout)
             .build()
             .expect("invalid client config");
 
-        let client = ClientBuilder::new(client)
-            .with(RateLimitMiddleware::new(rps))
+        let quota = Quota::per_second(rps);
+        let rate_limiter: Arc<DefaultKeyedRateLimiter<String>> =
+            Arc::new(RateLimiter::keyed(quota));
+
+        let retry_policy = ExponentialBackoff::builder().build_with_max_retries(max_retries);
+
+        let client = ClientBuilder::new(raw_client.clone())
+            .with(RateLimitMiddleware::from_rate_limiter(rate_limiter.clone()))
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build();
 
         Self {
+            raw_client,
+            rate_limiter,
             client,
             api_base: Url::parse(url.into()).expect("invalid url"),
         }
