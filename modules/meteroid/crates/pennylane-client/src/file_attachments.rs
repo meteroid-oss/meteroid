@@ -1,7 +1,9 @@
 use crate::client::PennylaneClient;
 use crate::error::PennylaneError;
+use governor::Jitter;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
+use std::time::Duration;
 
 #[async_trait::async_trait]
 pub trait FileAttachmentsApi {
@@ -33,7 +35,15 @@ impl FileAttachmentsApi for PennylaneClient {
             .join("/api/external/v2/file_attachments")
             .expect("invalid path");
 
+        self.rate_limiter
+            .until_key_ready_with_jitter(
+                access_token.expose_secret(),
+                Jitter::up_to(Duration::from_secs(1)),
+            )
+            .await;
+
         let request = self
+            // multipart does not work with middleware
             .raw_client
             .post(url)
             .bearer_auth(access_token.expose_secret())

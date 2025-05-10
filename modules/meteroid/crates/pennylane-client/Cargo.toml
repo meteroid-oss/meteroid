@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+governor = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 secrecy = { workspace = true }
 thiserror = { workspace = true }

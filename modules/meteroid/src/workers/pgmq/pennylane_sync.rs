@@ -525,6 +525,8 @@ impl PennylaneSync {
                     if status_code.is_some_and(|x| x < 500 && x != 429 && x != 409) {
                         return Ok(msg_id);
                     }
+
+                    return Err(report!(PgmqError::HandleMessages).attach(e));
                 }
             }
         }
