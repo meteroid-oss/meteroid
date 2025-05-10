@@ -318,13 +318,19 @@ impl PennylaneSync {
 
         let mut succeeded_msgs = vec![];
         for (invoice, msg_id) in invoices {
-            if let Ok(succeeded_msg_id) = self.sync_detailed_invoice(conn, invoice, msg_id).await {
-                succeeded_msgs.push(succeeded_msg_id);
-            } else {
-                log::warn!(
-                    "Failed to sync detailed invoice with MessageId: {:?}",
-                    msg_id
-                );
+            let res = self.sync_detailed_invoice(conn, invoice, msg_id).await;
+
+            match res {
+                Ok(succeeded_msg_id) => {
+                    succeeded_msgs.push(succeeded_msg_id);
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to sync detailed invoice with MessageId: {:?}, error: {:?}",
+                        msg_id,
+                        e
+                    );
+                }
             }
         }
 
@@ -431,10 +437,12 @@ impl PennylaneSync {
                 .await
                 .change_context(PgmqError::HandleMessages)?;
 
-            let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
+            // let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
+            // todo revisit me
+            let tax_amount = Decimal::ZERO;
             let total_amount = invoice.invoice.total.to_unit(currency.exponent as u8);
             let total_before_tax = total_amount - tax_amount;
-            let tax_rate = (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
+            //let tax_rate = (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
 
             let to_sync = NewCustomerInvoiceImport {
                 file_attachment_id: created.id,
@@ -458,8 +466,8 @@ impl PennylaneSync {
                     .into_iter()
                     .map(|x| {
                         let total_amount = x.total.to_unit(currency.exponent as u8);
-                        // todo revisit the calculation of this field and have a dedicated field in the invoice line for tax amount
-                        let tax_amount = total_amount * tax_rate / Decimal::from(100);
+                        // todo revisit this field and have a dedicated field in the invoice line for tax amount
+                        let tax_amount = 0;
 
                         CustomerInvoiceLine {
                             currency_amount: total_amount.to_string(),

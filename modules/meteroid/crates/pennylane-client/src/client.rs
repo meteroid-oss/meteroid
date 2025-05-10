@@ -21,6 +21,8 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct PennylaneClient {
+    /// multipart does not work with the middleware
+    pub(crate) raw_client: Client,
     pub(crate) client: ClientWithMiddleware,
     pub(crate) api_base: Url,
 }
@@ -58,12 +60,15 @@ impl PennylaneClient {
             .build()
             .expect("invalid client config");
 
+        let raw_client = client.clone();
+
         let client = ClientBuilder::new(client)
             .with(RateLimitMiddleware::new(rps))
             .with(RetryTransientMiddleware::new_with_policy(retry_policy))
             .build();
 
         Self {
+            raw_client,
             client,
             api_base: Url::parse(url.into()).expect("invalid url"),
         }

@@ -34,7 +34,7 @@ impl FileAttachmentsApi for PennylaneClient {
             .expect("invalid path");
 
         let request = self
-            .client
+            .raw_client
             .post(url)
             .bearer_auth(access_token.expose_secret())
             .multipart(form);
