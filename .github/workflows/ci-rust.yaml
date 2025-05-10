@@ -57,8 +57,6 @@ jobs:
         uses: taiki-e/cache-cargo-install-action@v2
         with:
           tool: cargo-nextest
-      - name: Compile
-        run: cargo check
       - name: Test
         run: cargo nextest run
 
