@@ -182,8 +182,7 @@ impl OauthServices {
                 scopes: vec![
                     "customers:all".to_owned(),
                     "customer_invoices:all".to_owned(),
-                    "credit_notes:all".to_owned(), // todo confirm me
-                    "transactions:readonly".to_owned(), // todo confirm me
+                    "file_attachments:all".to_owned(),
                 ],
             };
             Some(Arc::new(OauthServiceImpl::<PennylaneErrorResponse> {

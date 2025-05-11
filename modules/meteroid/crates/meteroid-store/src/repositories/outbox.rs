@@ -1,5 +1,6 @@
 use crate::StoreResult;
 use crate::domain::outbox_event;
+use crate::domain::pgmq::PgmqQueue;
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
 use diesel_models::query::pgmq;
@@ -31,7 +32,7 @@ impl StoreInternal {
             .map(TryInto::try_into)
             .collect::<Result<Vec<_>, Report<StoreError>>>()?;
 
-        pgmq::send_batch(conn, outbox_event::OutboxEvent::QUEUE_NAME, &batch)
+        pgmq::send_batch(conn, PgmqQueue::OutboxEvent.as_str(), &batch)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }

@@ -56,7 +56,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.object_store_prefix,
     )?);
 
-    let pdf_service = PdfRenderingService::try_new(object_store_service, store.clone())?;
+    let object_store_service1 = object_store_service.clone();
+
+    let pdf_service = Arc::new(PdfRenderingService::try_new(
+        object_store_service,
+        store.clone(),
+    )?);
 
     let hubspot_client = Arc::new(HubspotClient::default());
     let pennylane_client = Arc::new(PennylaneClient::default());
@@ -82,7 +87,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pgmq::processors::run_hubspot_sync(store_pgmq4, hubspot_client).await;
         }),
         tokio::spawn(async move {
-            pgmq::processors::run_pennylane_sync(store_pgmq5, pennylane_client).await;
+            pgmq::processors::run_pennylane_sync(
+                store_pgmq5,
+                pennylane_client,
+                object_store_service1,
+            )
+            .await;
         }),
         // tokio::spawn(async move {
         //     processors::run_pdf_renderer_outbox_processor(&config.kafka, pdf_service).await;

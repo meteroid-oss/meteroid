@@ -34,7 +34,7 @@ impl Prefix {
             Prefix::WebhookArchive {
                 connection_alias,
                 tenant_id,
-            } => format!("webhook_archive/{}/{}", tenant_id, connection_alias),
+            } => format!("webhook_archive/{tenant_id}/{connection_alias}"),
         }
     }
 }

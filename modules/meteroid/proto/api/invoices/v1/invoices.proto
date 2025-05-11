@@ -56,10 +56,18 @@ message RequestPdfGenerationRequest {
 
 message RequestPdfGenerationResponse {}
 
+message SyncToPennylaneRequest {
+  repeated string invoice_ids = 1;
+}
+
+message SyncToPennylaneResponse {
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
   rpc PreviewInvoiceHtml(PreviewInvoiceRequest) returns (PreviewInvoiceResponse) {}
   rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
+  rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
 }

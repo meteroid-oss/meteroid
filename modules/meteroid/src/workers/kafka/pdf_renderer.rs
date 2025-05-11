@@ -33,13 +33,12 @@ impl MessageHandler for PdfRendererHandler {
                     Ok(results) => {
                         results.into_iter().for_each(|x| match x {
                             GenerateResult::Success {
-                                invoice_id,
-                                pdf_url,
+                                invoice_id, pdf_id, ..
                             } => {
                                 log::info!(
-                                    "Generated pdf for invoice {} at url {}",
+                                    "Generated pdf for invoice {} with id {}",
                                     invoice_id,
-                                    pdf_url
+                                    pdf_id
                                 )
                             }
                             GenerateResult::Failure { invoice_id, error } => {

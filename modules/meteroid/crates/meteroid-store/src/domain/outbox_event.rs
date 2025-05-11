@@ -1,6 +1,6 @@
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
-use crate::domain::pgmq::PgmqMessage;
+use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
 use crate::domain::{Address, Customer, DetailedInvoice, Invoice, ShippingAddress, Subscription};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
@@ -14,7 +14,6 @@ use diesel_models::pgmq::PgmqMessageRowNew;
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 use strum::Display;
 use uuid::Uuid;
 
@@ -24,6 +23,8 @@ pub enum OutboxEvent {
     CustomerCreated(Box<CustomerEvent>),
     InvoiceCreated(Box<InvoiceEvent>),
     InvoiceFinalized(Box<InvoiceEvent>),
+    InvoicePaid(Box<InvoiceEvent>),
+    InvoicePdfGenerated(Box<InvoicePdfGeneratedEvent>),
     SubscriptionCreated(Box<SubscriptionEvent>),
 }
 
@@ -32,6 +33,8 @@ pub enum EventType {
     CustomerCreated,
     InvoiceCreated,
     InvoiceFinalized,
+    InvoicePaid,
+    InvoicePdfGenerated,
     SubscriptionCreated,
 }
 
@@ -43,6 +46,8 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => event.id,
             OutboxEvent::InvoiceCreated(event) => event.id,
             OutboxEvent::InvoiceFinalized(event) => event.id,
+            OutboxEvent::InvoicePaid(event) => event.id,
+            OutboxEvent::InvoicePdfGenerated(event) => event.id,
             OutboxEvent::SubscriptionCreated(event) => event.id,
         }
     }
@@ -52,6 +57,8 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
+            OutboxEvent::InvoicePaid(event) => event.tenant_id,
+            OutboxEvent::InvoicePdfGenerated(event) => event.tenant_id,
             OutboxEvent::SubscriptionCreated(event) => event.tenant_id,
         }
     }
@@ -61,6 +68,8 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => event.customer_id.as_uuid(),
             OutboxEvent::InvoiceCreated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::InvoicePaid(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::InvoicePdfGenerated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::SubscriptionCreated(event) => event.subscription_id.as_uuid(),
         }
     }
@@ -70,6 +79,8 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(_) => "Customer".to_string(),
             OutboxEvent::InvoiceCreated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
+            OutboxEvent::InvoicePaid(_) => "Invoice".to_string(),
+            OutboxEvent::InvoicePdfGenerated(_) => "Invoice".to_string(),
             OutboxEvent::SubscriptionCreated(_) => "Subscription".to_string(),
         }
     }
@@ -79,11 +90,11 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(_) => EventType::CustomerCreated,
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
+            OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
+            OutboxEvent::InvoicePdfGenerated(_) => EventType::InvoicePdfGenerated,
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
         }
     }
-
-    pub const QUEUE_NAME: &'static str = "outbox_event";
 
     pub fn customer_created(event: CustomerEvent) -> OutboxEvent {
         OutboxEvent::CustomerCreated(Box::new(event))
@@ -97,6 +108,10 @@ impl OutboxEvent {
         OutboxEvent::InvoiceFinalized(Box::new(event))
     }
 
+    pub fn invoice_pdf_generated(event: InvoicePdfGeneratedEvent) -> OutboxEvent {
+        OutboxEvent::InvoicePdfGenerated(Box::new(event))
+    }
+
     pub fn subscription_created(event: SubscriptionEvent) -> OutboxEvent {
         OutboxEvent::SubscriptionCreated(Box::new(event))
     }
@@ -106,6 +121,8 @@ impl OutboxEvent {
             OutboxEvent::CustomerCreated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoiceCreated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoiceFinalized(event) => Ok(Some(Self::event_json(event)?)),
+            OutboxEvent::InvoicePaid(event) => Ok(Some(Self::event_json(event)?)),
+            OutboxEvent::InvoicePdfGenerated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::SubscriptionCreated(event) => Ok(Some(Self::event_json(event)?)),
         }
     }
@@ -169,19 +186,9 @@ pub struct CustomerEvent {
 
 impl CustomerEvent {
     pub fn get_pennylane_id(&self, connector_id: ConnectorId) -> Option<i64> {
-        self.conn_meta.as_ref().and_then(|meta| {
-            meta.pennylane
-                .as_ref()
-                .unwrap_or(&vec![])
-                .iter()
-                .find_map(|x| {
-                    if x.connector_id == connector_id {
-                        i64::from_str(&x.external_id).ok()
-                    } else {
-                        None
-                    }
-                })
-        })
+        self.conn_meta
+            .as_ref()
+            .and_then(|meta| meta.get_pennylane_id(connector_id))
     }
 }
 
@@ -253,6 +260,19 @@ pub struct InvoiceEvent {
     pub total: i64,
     #[from(DetailedInvoice| @.invoice.created_at)]
     pub created_at: NaiveDateTime,
+    #[from(DetailedInvoice| @.invoice.conn_meta)]
+    pub conn_meta: Option<ConnectionMeta>,
+    #[from(DetailedInvoice| @.invoice.amount_due)]
+    pub amount_due: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvoicePdfGeneratedEvent {
+    pub id: EventId,
+    pub invoice_id: InvoiceId,
+    pub tenant_id: TenantId,
+    pub customer_id: CustomerId,
+    pub pdf_id: Uuid,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -313,5 +333,15 @@ impl TryInto<PgmqMessageRowNew> for OutboxEvent {
         let message = self.payload_json()?.map(common_domain::pgmq::Message);
         let headers = Some(self.try_into()?);
         Ok(PgmqMessageRowNew { message, headers })
+    }
+}
+
+impl TryInto<PgmqMessageNew> for OutboxEvent {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+        let message = self.payload_json()?.map(common_domain::pgmq::Message);
+        let headers = Some(self.try_into()?);
+        Ok(PgmqMessageNew { message, headers })
     }
 }
