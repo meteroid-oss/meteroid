@@ -1,7 +1,7 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
 import {
   Button,
+  Flex,
   Form,
   FormControl,
   FormField,
@@ -17,7 +17,6 @@ import {
   SheetTitle,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -31,6 +30,7 @@ import {
   createCustomer,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { ChevronRight } from 'lucide-react'
 
 interface CustomersEditPanelProps {
   visible: boolean
@@ -38,11 +38,12 @@ interface CustomersEditPanelProps {
 }
 
 export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelProps) => {
-  const [isClosingPanel, setIsClosingPanel] = useState(false)
-
   const queryClient = useQueryClient()
 
   const navigate = useNavigate()
+
+  const [integrationsVisible, setIntegrationsVisible] = useState(false)
+  const [isClosingPanel, setIsClosingPanel] = useState(false)
 
   const createCustomerMut = useMutation(createCustomer, {
     onSuccess: async () => {
@@ -102,27 +103,40 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                   <CustomersInvoice />
 
                   {/* Integrations Section */}
-                  <Flex direction="column" gap={spaces.space4}>
-                    <h2 className="font-medium">Integrations</h2>
-
-                    <FormField
-                      control={methods.control}
-                      name="connectorCustomerId"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Connector Customer ID</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="text"
-                              placeholder="Integration ID"
-                              {...field}
-                              autoComplete="off"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  <Flex direction="column" className="gap-2">
+                    <Flex
+                      align="center"
+                      className="gap-2 cursor-pointer group"
+                      onClick={() => setIntegrationsVisible(!integrationsVisible)}
+                    >
+                      <h2 className="font-medium">Integrations</h2>
+                      <ChevronRight
+                        size={14}
+                        className={`text-muted-foreground transition-transform duration-200 ease-in-out ${
+                          integrationsVisible ? 'rotate-90' : ''
+                        }`}
+                      />
+                    </Flex>
+                    {integrationsVisible && (
+                      <FormField
+                        control={methods.control}
+                        name="connectorCustomerId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Connector Customer ID</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="text"
+                                placeholder="Integration ID"
+                                {...field}
+                                autoComplete="off"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                   </Flex>
                 </div>
               </div>
