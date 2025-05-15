@@ -3,11 +3,11 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@md/icons'
 import {
   Button,
   Select,
-  SelectItem,
-  Skeleton,
-  SelectTrigger,
   SelectContent,
+  SelectItem,
+  SelectTrigger,
   SelectValue,
+  Skeleton,
 } from '@md/ui'
 import { Flex } from '@ui/components/legacy'
 import { Fragment, FunctionComponent } from 'react'

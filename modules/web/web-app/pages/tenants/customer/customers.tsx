@@ -12,7 +12,7 @@ import type { PaginationState } from '@tanstack/react-table'
 import { Button, Flex } from '@ui/index'
 
 export const Customers: FunctionComponent = () => {
-  const [editPanelVisible, setEditPanelVisible] = useState(false)
+  const [createPanelVisible, setCreatePanelVisible] = useState(false)
   const [search, setSearch] = useState('')
 
   const debouncedSearch = useDebounceValue(search, 400)
@@ -46,7 +46,7 @@ export const Customers: FunctionComponent = () => {
       <TenantPageLayout>
         <Flex direction="column" className="gap-2 h-full">
           <CustomersHeader
-            setEditPanelVisible={setEditPanelVisible}
+            setEditPanelVisible={setCreatePanelVisible}
             setSearch={setSearch}
             search={search}
           />
@@ -56,7 +56,7 @@ export const Customers: FunctionComponent = () => {
               description="Create your first customers and assign a subscription"
               imageName="customers"
               actions={
-                <Button size="sm" variant="default" onClick={() => setEditPanelVisible(true)}>
+                <Button size="sm" variant="default" onClick={() => setCreatePanelVisible(true)}>
                   New customer
                 </Button>
               }
@@ -73,8 +73,8 @@ export const Customers: FunctionComponent = () => {
         </Flex>
       </TenantPageLayout>
       <CustomersEditPanel
-        visible={editPanelVisible}
-        closePanel={() => setEditPanelVisible(false)}
+        visible={createPanelVisible}
+        closePanel={() => setCreatePanelVisible(false)}
       />
     </Fragment>
   )

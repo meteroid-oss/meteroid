@@ -1,4 +1,4 @@
-import { CustomersExportModal } from '@/features/customers/CustomersExportModal'
+import { CustomersExportModal } from '@/features/customers/modals/CustomersExportModal'
 import { spaces } from '@md/foundation'
 import { SearchIcon } from '@md/icons'
 import { Button, ButtonProps, InputWithIcon, Flex as NewFlex, Separator, cn } from '@md/ui'
@@ -7,13 +7,13 @@ import { ListFilter } from 'lucide-react'
 import { FunctionComponent, PropsWithChildren, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-interface CustomersProps {
+interface CustomersHeaderProps {
   setEditPanelVisible: (visible: boolean) => void
   setSearch: (search: string) => void
   search: string
 }
 
-export const CustomersHeader: FunctionComponent<CustomersProps> = ({
+export const CustomersHeader: FunctionComponent<CustomersHeaderProps> = ({
   setEditPanelVisible,
   setSearch,
   search,
@@ -64,7 +64,7 @@ export const CustomersHeader: FunctionComponent<CustomersProps> = ({
             </Button>
           </Flex>
         </Flex>
-        <div className="mx-[-22px]">
+        <div className="mx-[-16px]">
           <Separator />
         </div>
         <Flex direction="row" align="center" gap={spaces.space4}>

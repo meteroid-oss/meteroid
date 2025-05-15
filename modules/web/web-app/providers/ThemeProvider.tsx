@@ -43,15 +43,15 @@ export const ThemeProvider = ({ children }: ThemeProviderProps) => {
   const [isInitialized, setIsInitialized] = useState(false)
 
   useEffect(() => {
-    const key = localStorage.getItem(LSK)
+    // const key = localStorage.getItem(LSK)
 
-    const prefersDarkMode =
-      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-    // Default to dark mode if no preference config
-    const darkMode = key === 'true' || (!key && prefersDarkMode)
+    // const prefersDarkMode =
+    //   window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+    // // Default to dark mode if no preference config
+    // const darkMode = key === 'true' || (!key && prefersDarkMode)
 
-    console.log('userpreferences_DarkMode', darkMode)
-    setDarkMode(darkMode)
+    // console.log('userpreferences_DarkMode', darkMode)
+    setDarkMode(true)
     setIsInitialized(true)
   }, [])
 
