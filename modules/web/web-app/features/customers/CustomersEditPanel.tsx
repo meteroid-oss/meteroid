@@ -1,36 +1,29 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
-  Flex,
   Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-  Input,
   Modal,
   Sheet,
   SheetContent,
   SheetFooter,
   SheetHeader,
-  SheetTitle,
+  SheetTitle
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
-import { CustomersBilling } from '@/features/customers/form/CustomersBilling'
+import { Loading } from '@/components/Loading'
 import { CustomersGeneral } from '@/features/customers/form/CustomersGeneral'
-import { CustomersInvoice } from '@/features/customers/form/CustomersInvoice'
 import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
 import {
   createCustomer,
   listCustomers,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { ChevronRight } from 'lucide-react'
+import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 interface CustomersEditPanelProps {
   visible: boolean
@@ -42,7 +35,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
 
   const navigate = useNavigate()
 
-  const [integrationsVisible, setIntegrationsVisible] = useState(false)
+  // const [integrationsVisible, setIntegrationsVisible] = useState(false)
   const [isClosingPanel, setIsClosingPanel] = useState(false)
 
   const createCustomerMut = useMutation(createCustomer, {
@@ -50,6 +43,10 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
       await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listCustomers) })
     },
   })
+
+  const activeCurrenciesQuery = useQuery(listTenantCurrencies)
+  const activeCurrencies = activeCurrenciesQuery.data?.currencies ?? []
+
 
   const methods = useZodForm({
     schema: schemas.customers.createCustomerSchema,
@@ -82,8 +79,9 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                   data: {
                     name: values.companyName,
                     alias: values.alias,
-                    // Add more fields to the API call as needed
-                    // You'll need to update your API to accept all these new fields
+                    billingEmail: values.primaryEmail,
+                    currency: values.currency,
+                     
                   },
                 })
                 if (res.customer?.id) {
@@ -98,12 +96,16 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
 
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-8 p-6">
-                  <CustomersGeneral />
-                  <CustomersBilling />
-                  <CustomersInvoice />
+
+                  {
+                    activeCurrenciesQuery.isLoading ? <Loading/> : <CustomersGeneral activeCurrencies={activeCurrencies}/>
+                  }
+                  
+                  {/* <CustomersBilling />
+                  <CustomersInvoice /> */}
 
                   {/* Integrations Section */}
-                  <Flex direction="column" className="gap-2">
+                  {/* <Flex direction="column" className="gap-2">
                     <Flex
                       align="center"
                       className="gap-2 cursor-pointer group"
@@ -137,7 +139,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                         )}
                       />
                     )}
-                  </Flex>
+                  </Flex> */}
                 </div>
               </div>
 

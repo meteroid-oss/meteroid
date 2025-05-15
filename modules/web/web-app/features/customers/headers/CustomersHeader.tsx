@@ -1,4 +1,3 @@
-import { CustomersExportModal } from '@/features/customers/modals/CustomersExportModal'
 import { spaces } from '@md/foundation'
 import { SearchIcon } from '@md/icons'
 import { Button, ButtonProps, InputWithIcon, Flex as NewFlex, Separator, cn } from '@md/ui'
@@ -6,6 +5,8 @@ import { Flex } from '@ui/components/legacy'
 import { ListFilter } from 'lucide-react'
 import { FunctionComponent, PropsWithChildren, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+
+import { CustomersExportModal } from '@/features/customers/modals/CustomersExportModal'
 
 interface CustomersHeaderProps {
   setEditPanelVisible: (visible: boolean) => void

@@ -12,7 +12,7 @@ export const sidebarItems = {
       icon: Box,
       items: [
         {
-          title: 'Plan',
+          title: 'Plans',
           url: 'plans',
         },
         {

@@ -3,9 +3,8 @@ use crate::tenants::{TenantRow, TenantRowNew, TenantRowPatch, TenantWithOrganiza
 use crate::{DbResult, PgConn};
 
 use common_domain::ids::{OrganizationId, TenantId};
-use diesel::dsl::not;
 use diesel::prelude::{ExpressionMethods, QueryDsl};
-use diesel::{IntoSql, JoinOnDsl, PgArrayExpressionMethods, SelectableHelper, debug_query};
+use diesel::{IntoSql, JoinOnDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
 impl TenantRowNew {
@@ -209,75 +208,53 @@ impl TenantRow {
         Ok(result.into_iter().flatten().collect())
     }
 
-    pub async fn add_available_currency(
+    pub async fn update_available_currencies(
         conn: &mut PgConn,
         tenant_id: TenantId,
-        currency: String,
-    ) -> DbResult<()> {
-        use crate::schema::tenant::dsl as t_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(t_dsl::tenant.filter(t_dsl::id.eq(tenant_id)).filter(not(
-            t_dsl::available_currencies.contains(vec![Some(currency.clone())]),
-        )))
-        .set(
-            t_dsl::available_currencies
-                .eq(t_dsl::available_currencies.concat(vec![Some(currency)])),
-        );
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while updating tenant currency")
-            .into_db_result()
-            .map(|_| ())
-    }
-
-    pub async fn remove_available_currency(
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        currency: String,
-    ) -> DbResult<()> {
+        new_currencies: Vec<String>,
+    ) -> DbResult<Vec<String>> {
         use crate::schema::customer::dsl as c_dsl;
         use crate::schema::tenant::dsl as t_dsl;
         use diesel_async::RunQueryDsl;
 
-        let customers_using_currency = c_dsl::customer
+        // Get current currencies and their usage counts in a single query
+        let currency_stats: Vec<(String, i64)> = c_dsl::customer
             .filter(c_dsl::tenant_id.eq(tenant_id))
-            .filter(c_dsl::currency.eq(&currency))
-            .count()
-            .get_result::<i64>(conn)
-            .await?;
+            .group_by(c_dsl::currency)
+            .select((
+                c_dsl::currency,
+                diesel::dsl::count_star().into_sql::<diesel::sql_types::BigInt>(),
+            ))
+            .get_results(conn)
+            .await
+            .attach_printable("Error while fetching tenant currency usage")
+            .into_db_result()?;
 
-        if customers_using_currency > 0 {
-            return Err(DatabaseErrorContainer::from(DatabaseError::CheckViolation(
-                format!(
-                    "Cannot remove currency {} as it is being used by {} customers",
-                    currency, customers_using_currency
-                ),
-            )));
+        // Check if any currency in use is being removed
+        for (currency, count) in &currency_stats {
+            if !new_currencies.contains(currency) {
+                return Err(DatabaseErrorContainer::from(DatabaseError::CheckViolation(
+                    format!(
+                        "Cannot remove currency {} as it is being used by {} customers",
+                        currency, count
+                    ),
+                )));
+            }
         }
 
-        // simplify when https://github.com/diesel-rs/diesel/issues/4153
-        let query = diesel::update(t_dsl::tenant.filter(t_dsl::id.eq(tenant_id))).set(
-            t_dsl::available_currencies.eq(diesel::dsl::sql::<
-                diesel::sql_types::Array<diesel::sql_types::Nullable<diesel::sql_types::Text>>,
-            >(&format!(
-                "array_remove(available_currencies, '{}')",
-                currency
-            ))),
-        );
+        // Convert to expected format for available_currencies field
+        let new_currencies_option: Vec<Option<String>> =
+            new_currencies.clone().into_iter().map(Some).collect();
 
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
+        // Update tenant record
+        diesel::update(t_dsl::tenant.filter(t_dsl::id.eq(tenant_id)))
+            .set(t_dsl::available_currencies.eq(&new_currencies_option))
             .execute(conn)
             .await
-            .attach_printable("Error while updating tenant currency")
-            .into_db_result()
-            .map(|_| ())
+            .attach_printable("Error while updating tenant currencies")
+            .into_db_result()?;
+
+        Ok(new_currencies)
     }
 }
 

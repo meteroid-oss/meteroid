@@ -45,8 +45,7 @@ module.exports = {
     './components/**/*.{js,ts,jsx,tsx}',
     './router/**/*.{js,ts,jsx,tsx}',
     './lib/**/*.{js,ts,jsx,tsx}',
-    '../packages/ui/src/**/**/*.{ts,tsx}',
-    '../packages/ui2/src/**/**/*.{ts,tsx}',
+    '../packages/ui/src/**/**/*.{ts,tsx}', 
   ],
   prefix: '',
   theme: {

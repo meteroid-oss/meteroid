@@ -1,4 +1,3 @@
-import { CreateCustomerSchema } from '@/lib/schemas/customers'
 import {
   Flex,
   FormControl,
@@ -17,6 +16,8 @@ import {
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { useFormContext } from 'react-hook-form'
+
+import { CreateCustomerSchema } from '@/lib/schemas/customers'
 
 export const CustomersInvoice = () => {
   const { control } = useFormContext<CreateCustomerSchema>()

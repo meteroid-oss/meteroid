@@ -1,9 +1,3 @@
-import { Loader } from '@/features/auth/components/Loader'
-import { useBasePath } from '@/hooks/useBasePath'
-import { useDebounceValue } from '@/hooks/useDebounce'
-import { useQuery } from '@/lib/connectrpc'
-import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import { spaces } from '@md/foundation'
 import {
   Button,
@@ -21,6 +15,13 @@ import { Flex } from '@ui/components/legacy'
 import { Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { FunctionComponent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+import { Loader } from '@/features/auth/components/Loader'
+import { useBasePath } from '@/hooks/useBasePath'
+import { useDebounceValue } from '@/hooks/useDebounce'
+import { useQuery } from '@/lib/connectrpc'
+import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
+import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 
 interface CustomerHeaderProps {
   name?: string

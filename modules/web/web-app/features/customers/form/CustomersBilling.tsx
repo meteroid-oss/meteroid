@@ -1,4 +1,3 @@
-import { CreateCustomerSchema } from '@/lib/schemas/customers'
 import {
   Checkbox,
   Flex,
@@ -17,6 +16,8 @@ import {
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { useFormContext } from 'react-hook-form'
+
+import { CreateCustomerSchema } from '@/lib/schemas/customers'
 
 export const CustomersBilling = () => {
   const { control } = useFormContext<CreateCustomerSchema>()
@@ -40,13 +41,6 @@ export const CustomersBilling = () => {
       </Flex>
       {visible && (
         <>
-          <InputFormField
-            name="legalName"
-            label="Legal Name"
-            control={control}
-            type="text"
-            autoComplete="off"
-          />
 
           <FormField
             control={control}
@@ -73,14 +67,14 @@ export const CustomersBilling = () => {
           />
           <Flex direction="column" className="gap-1.5">
             <InputFormField
-              name="adress"
+              name="addressLine1"
               control={control}
               type="text"
               autoComplete="off"
               placeholder="Address line 1, Example street 42"
             />
             <InputFormField
-              name="adressType"
+              name="addressLine2"
               control={control}
               type="text"
               autoComplete="off"

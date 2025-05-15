@@ -1,4 +1,3 @@
-import { CreateCustomerSchema } from '@/lib/schemas/customers'
 import { spaces } from '@md/foundation'
 import {
   FormControl,
@@ -16,8 +15,11 @@ import {
 import { Flex } from '@ui/components/legacy'
 import { useFormContext } from 'react-hook-form'
 
-export const CustomersGeneral = () => {
+import { CreateCustomerSchema } from '@/lib/schemas/customers'
+
+export const CustomersGeneral = ({ activeCurrencies }: {activeCurrencies: string[]}) => {
   const { control } = useFormContext<CreateCustomerSchema>()
+
 
   return (
     <Flex direction="column" gap={spaces.space4}>
@@ -81,9 +83,9 @@ export const CustomersGeneral = () => {
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
-                <SelectItem value="usd">USD - US Dollar</SelectItem>
-                <SelectItem value="eur">EUR - Euro</SelectItem>
-                <SelectItem value="my">My currency</SelectItem>
+                {
+                  activeCurrencies.map( (a, i) =>  <SelectItem value={a} key={`item`+i}>{a}</SelectItem> )
+                }
               </SelectContent>
             </Select>
             <FormMessage />

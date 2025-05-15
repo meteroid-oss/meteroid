@@ -1,4 +1,5 @@
 import { Flex } from '@ui/index'
+
 import type { ReactNode } from 'react'
 
 type EmptyStateSVGName = 'customers'

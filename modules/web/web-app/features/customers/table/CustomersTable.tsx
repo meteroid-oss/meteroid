@@ -1,10 +1,10 @@
 import { OnChangeFn, PaginationState } from '@tanstack/react-table'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { useCustomersColumns } from '@/features/customers/table/customersColumns'
+import { useBasePath } from '@/hooks/useBasePath'
 import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 
-import { customersColumns } from '@/features/customers/table/customersColumns'
-import { useBasePath } from '@/hooks/useBasePath'
 import type { FunctionComponent } from 'react'
 
 interface CustomersTableProps {
@@ -24,10 +24,10 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
 }) => {
   const basePath = useBasePath()
 
-  const columns = customersColumns()
+  const columns = useCustomersColumns()
 
   return (
-    <div className="-mx-4">
+    <div className="">
       <StandardTable
         columns={columns}
         data={data}

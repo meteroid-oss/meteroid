@@ -1,5 +1,7 @@
+import { Button, Flex } from '@ui/index'
 import { Fragment, FunctionComponent, useState } from 'react'
 
+import { EmptyState } from '@/components/empty-state/EmptyState'
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomersEditPanel, CustomersHeader, CustomersTable } from '@/features/customers'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -7,9 +9,7 @@ import { useQuery } from '@/lib/connectrpc'
 import { listCustomers } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 
-import { EmptyState } from '@/components/empty-state/EmptyState'
 import type { PaginationState } from '@tanstack/react-table'
-import { Button, Flex } from '@ui/index'
 
 export const Customers: FunctionComponent = () => {
   const [createPanelVisible, setCreatePanelVisible] = useState(false)

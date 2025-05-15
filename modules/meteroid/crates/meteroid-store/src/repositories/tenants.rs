@@ -56,13 +56,11 @@ pub trait TenantInterface {
 
     async fn list_tenant_currencies(&self, tenant_id: TenantId) -> StoreResult<Vec<String>>;
 
-    async fn add_tenant_currency(&self, tenant_id: TenantId, currency: String) -> StoreResult<()>;
-
-    async fn remove_tenant_currency(
+    async fn update_tenant_available_currencies(
         &self,
         tenant_id: TenantId,
-        currency: String,
-    ) -> StoreResult<()>;
+        currencies: Vec<String>,
+    ) -> StoreResult<Vec<String>>;
 
     async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization>;
 }
@@ -200,20 +198,13 @@ impl TenantInterface for Store {
             .map_err(Into::into)
     }
 
-    async fn add_tenant_currency(&self, tenant_id: TenantId, currency: String) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-        TenantRow::add_available_currency(&mut conn, tenant_id, currency)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn remove_tenant_currency(
+    async fn update_tenant_available_currencies(
         &self,
         tenant_id: TenantId,
-        currency: String,
-    ) -> StoreResult<()> {
+        currencies: Vec<String>,
+    ) -> StoreResult<Vec<String>> {
         let mut conn = self.get_conn().await?;
-        TenantRow::remove_available_currency(&mut conn, tenant_id, currency)
+        TenantRow::update_available_currencies(&mut conn, tenant_id, currencies)
             .await
             .map_err(Into::into)
     }

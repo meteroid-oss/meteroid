@@ -9,21 +9,20 @@ export const createCustomerSchema = z.object({
   currency: z.string(),
 
   //Billing infos
-  legalName: z.string(),
-  country: z.string(),
-  adress: z.string(),
-  adressType: z.string().optional(),
-  postalCode: z.string(),
-  city: z.string(),
-  taxId: z.string(),
-  shipping: z.boolean(),
+  country: z.string().optional(),
+  addressLine1: z.string().optional(),
+  addressLine2: z.string().optional(),
+  postalCode: z.string().optional(),
+  city: z.string().optional(),
+  taxId: z.string().optional(),
+  shipping: z.boolean().optional(),
 
   //invoicing
-  paymentMethod: z.string(),
+  paymentMethod: z.string().optional(),
   stripeCustomerId: z.string().optional(),
-  paymentTerm: z.number(),
-  gracePeriod: z.number(),
-  taxRate: z.number(),
+  paymentTerm: z.number().optional(),
+  gracePeriod: z.number().optional(),
+  taxRate: z.number().optional(),
 
   //integrations
   connectorCustomerId: z.string(),

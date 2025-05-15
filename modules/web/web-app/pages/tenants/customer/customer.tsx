@@ -1,4 +1,5 @@
 import { Card, Flex, Separator, Skeleton } from '@md/ui'
+import { ChevronDown, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
 
 import { TenantPageLayout } from '@/components/layouts'
@@ -9,7 +10,6 @@ import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoic
 import { useQuery } from '@/lib/connectrpc'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
-import { ChevronDown, Plus } from 'lucide-react'
 
 export const Customer = () => {
   const { customerId } = useTypedParams<{ customerId: string }>()
@@ -47,7 +47,7 @@ export const Customer = () => {
               <Flex direction="column" className="gap-4 w-2/3 border-r border-border px-12 py-6">
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
-                  <OverviewCard title="MRR" value={52.3} />
+                  <OverviewCard title="MRR" value={0} />
                   <OverviewCard title="Balance" value={data?.balanceValueCents} />
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
@@ -77,33 +77,30 @@ export const Customer = () => {
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-lg font-medium">{data.name}</div>
                   <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
-                  {/* TODO: legal name need to be changed */}
                   <FlexDetails title="Legal name" value={data.name} />
-                  {/* TODO: Which email should i choose ? */}
                   <FlexDetails title="Email" value={data.billingEmail} />
                   <FlexDetails title="Currency" value={data.currency} />
-                  {/* TODO: I need the country */}
-                  <FlexDetails title="Country" value="Netherlands" />
-                  {/* TODO: Which address should i choose ? */}
+                  <FlexDetails title="Country" value={data.billingAddress?.country ?? ''} />
                   <Flex align="center" justify="between">
-                    <div className="text-[13px] text-muted-foreground">Adress</div>
+                    <div className="text-[13px] text-muted-foreground">Address</div>
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
                   </Flex>
-                  <FlexDetails title="Tax rate" value="No tax rate" />
-                  <FlexDetails title="Tax ID" value="No tax id" />
+                  <FlexDetails title="Tax rate" value="Standard" />
+                  <FlexDetails title="Tax ID" value="None" />
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Integrations</div>
                   <FlexDetails title="Alias (External ID)" value={data.alias} />
-                  <FlexDetails title="Connector ID" value="No connector ID" />
+                  {/* TODO <FlexDetails title="Hubspot ID" value={data.connectionMetadata?.hubspot?.0?.externalId} /> */}
+                  <FlexDetails title="Stripe ID" value="N/A" />
                 </Flex>
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Payment</div>
-                  <FlexDetails title="Payment method" value={data.currentPaymentMethodId} />
-                  <FlexDetails title="Payment term" value="No payment term" />
-                  <FlexDetails title="Grace period" value="No grace period" />
+                  <FlexDetails title="Payment method" value={data.currentPaymentMethodId ?? "None"} />
+                  <FlexDetails title="Payment term" value="N/A" />
+                  <FlexDetails title="Grace period" value="None" />
                 </Flex>
               </Flex>
             </Flex>

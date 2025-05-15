@@ -1,11 +1,12 @@
-import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 import { ColumnDef } from '@tanstack/react-table'
 import { CountryFlag } from '@ui/components'
 import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
-export const customersColumns = () =>
+import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
+
+export const useCustomersColumns = () =>
   useMemo<ColumnDef<CustomerBrief>[]>(
     () => [
       {
