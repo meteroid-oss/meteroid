@@ -1,7 +1,7 @@
-import { spaces } from '@md/foundation'
-import { Flex } from '@ui/components/legacy'
+import { Button, Flex } from '@ui/index'
 import { Fragment, FunctionComponent, useState } from 'react'
 
+import { EmptyState } from '@/components/empty-state/EmptyState'
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomersEditPanel, CustomersHeader, CustomersTable } from '@/features/customers'
 import { useDebounceValue } from '@/hooks/useDebounce'
@@ -12,7 +12,7 @@ import { ListCustomerRequest_SortBy } from '@/rpc/api/customers/v1/customers_pb'
 import type { PaginationState } from '@tanstack/react-table'
 
 export const Customers: FunctionComponent = () => {
-  const [editPanelVisible, setEditPanelVisible] = useState(false)
+  const [createPanelVisible, setCreatePanelVisible] = useState(false)
   const [search, setSearch] = useState('')
 
   const debouncedSearch = useDebounceValue(search, 400)
@@ -39,34 +39,42 @@ export const Customers: FunctionComponent = () => {
   const count = customersQuery.data?.paginationMeta?.total ?? 0
   const isLoading = customersQuery.isLoading
 
-  const refetch = () => {
-    customersQuery.refetch()
-  }
+  const isEmpty = data.length === 0
 
   return (
     <Fragment>
       <TenantPageLayout>
-        <Flex direction="column" gap={spaces.space9}>
+        <Flex direction="column" className="gap-2 h-full">
           <CustomersHeader
-            count={count}
-            setEditPanelVisible={setEditPanelVisible}
-            isLoading={isLoading}
-            refetch={refetch}
+            setEditPanelVisible={setCreatePanelVisible}
             setSearch={setSearch}
             search={search}
           />
-          <CustomersTable
-            data={data}
-            totalCount={count}
-            pagination={pagination}
-            setPagination={setPagination}
-            isLoading={isLoading}
-          />
+          {isEmpty ? (
+            <EmptyState
+              title="No customers yet"
+              description="Create your first customers and assign a subscription"
+              imageName="customers"
+              actions={
+                <Button size="sm" variant="default" onClick={() => setCreatePanelVisible(true)}>
+                  New customer
+                </Button>
+              }
+            />
+          ) : (
+            <CustomersTable
+              data={data}
+              totalCount={count}
+              pagination={pagination}
+              setPagination={setPagination}
+              isLoading={isLoading}
+            />
+          )}
         </Flex>
       </TenantPageLayout>
       <CustomersEditPanel
-        visible={editPanelVisible}
-        closePanel={() => setEditPanelVisible(false)}
+        visible={createPanelVisible}
+        closePanel={() => setCreatePanelVisible(false)}
       />
     </Fragment>
   )

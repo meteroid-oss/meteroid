@@ -208,7 +208,7 @@ export const IntegrationsTab = () => {
                             <span className="text-xs text-muted-foreground pr-4">Coming soon</span>
                           ) : connectorsQuery.isLoading ? (
                             <></>
-                          ) : !integration.data ? (
+                          ) : !integration.data?.length ? (
                             <Button
                               size="sm"
                               variant="brand"

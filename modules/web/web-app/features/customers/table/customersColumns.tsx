@@ -1,29 +1,13 @@
-import { ColumnDef, OnChangeFn, PaginationState } from '@tanstack/react-table'
+import { ColumnDef } from '@tanstack/react-table'
+import { CountryFlag } from '@ui/components'
 import { MoreVerticalIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
-import { StandardTable } from '@/components/table/StandardTable'
 import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 
-import type { FunctionComponent } from 'react'
-
-interface CustomersTableProps {
-  data: CustomerBrief[]
-  pagination: PaginationState
-  setPagination: OnChangeFn<PaginationState>
-  totalCount: number
-  isLoading?: boolean
-}
-
-export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
-  data,
-  pagination,
-  setPagination,
-  totalCount,
-  isLoading,
-}) => {
-  const columns = useMemo<ColumnDef<CustomerBrief>[]>(
+export const useCustomersColumns = () =>
+  useMemo<ColumnDef<CustomerBrief>[]>(
     () => [
       {
         header: 'Name',
@@ -31,9 +15,7 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
       },
       {
         header: 'Country',
-        cell: ({ row }) => {
-          row.original.country
-        },
+        cell: ({ row }) => <CountryFlag name={row.original.country} />,
       },
       {
         header: 'Email',
@@ -58,16 +40,3 @@ export const CustomersTable: FunctionComponent<CustomersTableProps> = ({
     ],
     []
   )
-
-  return (
-    <StandardTable
-      columns={columns}
-      data={data}
-      sortable={true}
-      pagination={pagination}
-      setPagination={setPagination}
-      totalCount={totalCount}
-      isLoading={isLoading}
-    />
-  )
-}

@@ -36,7 +36,7 @@ export const EntityHeader = ({
   const hasSecondaryActions = !!secondaryActions?.length
   return (
     <div className="flex justify-between items-center">
-      <h1 className="text-4xl font-bold">
+      <h1 className="text-2xl font-bold">
         {title}{' '}
         {count !== undefined && (
           <span className="text-xs font-medium text-muted-foreground">({count})</span>

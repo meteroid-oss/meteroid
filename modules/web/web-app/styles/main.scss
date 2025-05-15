@@ -51,7 +51,7 @@
     .dark  {
       --background: 0, 0%, 7%, 1;
       --foreground: 0 0% 100%;
-      --card: 230 14% 9%;
+      --card: 0 0% 10%;
       --card-foreground: 0 0% 95%;
       --popover: 240 15% 5%;
       --popover-foreground: 0 0% 95%;
@@ -401,4 +401,17 @@ div[data-radix-portal]:not(.portal--toast) {
 
 .scrollbar::-webkit-scrollbar-thumb:hover {
     @apply bg-slate-400; 
+}
+
+::-webkit-scrollbar {
+    @apply w-2.5 h-2.5;
+   
+}
+
+::-webkit-scrollbar-track {
+    @apply bg-transparent
+}
+ 
+::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border border-[1px] border-transparent border-solid bg-clip-padding;
 }

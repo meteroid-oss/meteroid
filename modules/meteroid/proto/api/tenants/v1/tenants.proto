@@ -62,17 +62,14 @@ message ListTenantsCurrenciesWithCustomerCountResponse {
   }
 }
 
-message AddTenantCurrencyRequest {
-  string currency = 1;
+message UpdateTenantAvailableCurrenciesRequest {
+  repeated string currencies = 1;
 }
 
-message AddTenantCurrencyResponse {}
-
-message RemoveTenantCurrencyRequest {
-  string currency = 1;
+message UpdateTenantAvailableCurrenciesResponse {
+  repeated string currencies = 1;
 }
 
-message RemoveTenantCurrencyResponse {}
 
 service TenantsService {
   rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse) {}
@@ -83,6 +80,5 @@ service TenantsService {
 
   rpc ListTenantCurrencies(ListTenantsCurrenciesRequest) returns (ListTenantsCurrenciesResponse) {}
   rpc ListTenantCurrenciesWithCustomerCount(ListTenantsCurrenciesWithCustomerCountRequest) returns (ListTenantsCurrenciesWithCustomerCountResponse) {}
-  rpc AddTenantCurrency(AddTenantCurrencyRequest) returns (AddTenantCurrencyResponse) {}
-  rpc RemoveTenantCurrency(RemoveTenantCurrencyRequest) returns (RemoveTenantCurrencyResponse) {}
+  rpc UpdateTenantAvailableCurrencies(UpdateTenantAvailableCurrenciesRequest) returns (UpdateTenantAvailableCurrenciesResponse) {}
 }

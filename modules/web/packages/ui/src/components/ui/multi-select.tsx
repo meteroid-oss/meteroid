@@ -72,7 +72,7 @@ const useMultiSelect = () => {
   return context
 }
 
-type MultiSelectProps = ComponentPropsWithoutRef<typeof PopoverPrimitive.Root> & {
+export type MultiSelectProps = ComponentPropsWithoutRef<typeof PopoverPrimitive.Root> & {
   value?: string[]
   onValueChange?(value: string[], items: MultiSelectOptionItem[]): void
   onSelect?(value: string, item: MultiSelectOptionItem): void
@@ -522,5 +522,6 @@ export {
   MultiSelectSeparator,
   MultiSelectTrigger,
   MultiSelectValue,
-  renderMultiSelectOptions,
+  renderMultiSelectOptions
 }
+

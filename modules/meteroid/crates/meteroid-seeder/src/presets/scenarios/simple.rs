@@ -1,6 +1,6 @@
 use super::domain::*;
 use chrono::NaiveDate;
-use meteroid_store::domain::{BillingPeriodEnum, TermRate};
+use meteroid_store::domain::{BillingPeriodEnum, PlanTypeEnum, TermRate};
 
 use rust_decimal_macros::dec;
 
@@ -15,7 +15,7 @@ pub fn basic_scenario_1() -> Scenario {
             Plan {
                 name: STANDARD_20_PLAN.to_string(),
                 currency: "EUR".to_string(),
-                plan_type: Default::default(),
+                plan_type: PlanTypeEnum::Standard,
                 components: vec![PriceComponent {
                     name: "Base Price".to_string(),
                     fee: FeeType::Rate {
@@ -29,7 +29,7 @@ pub fn basic_scenario_1() -> Scenario {
             Plan {
                 name: STANDARD_80_PLAN.to_string(),
                 currency: "EUR".to_string(),
-                plan_type: Default::default(),
+                plan_type: PlanTypeEnum::Standard,
                 components: vec![PriceComponent {
                     name: "Base Price".to_string(),
                     fee: FeeType::Rate {

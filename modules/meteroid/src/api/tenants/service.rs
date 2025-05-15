@@ -2,12 +2,12 @@ use crate::api::tenants::error::TenantApiError;
 use common_domain::ids::TenantId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::tenants::v1::{
-    ActiveTenantRequest, ActiveTenantResponse, AddTenantCurrencyRequest, AddTenantCurrencyResponse,
-    CreateTenantRequest, CreateTenantResponse, GetTenantByIdRequest, GetTenantByIdResponse,
-    ListTenantsCurrenciesRequest, ListTenantsCurrenciesResponse,
-    ListTenantsCurrenciesWithCustomerCountRequest, ListTenantsCurrenciesWithCustomerCountResponse,
-    ListTenantsRequest, ListTenantsResponse, RemoveTenantCurrencyRequest,
-    RemoveTenantCurrencyResponse, UpdateTenantRequest, UpdateTenantResponse,
+    ActiveTenantRequest, ActiveTenantResponse, CreateTenantRequest, CreateTenantResponse,
+    GetTenantByIdRequest, GetTenantByIdResponse, ListTenantsCurrenciesRequest,
+    ListTenantsCurrenciesResponse, ListTenantsCurrenciesWithCustomerCountRequest,
+    ListTenantsCurrenciesWithCustomerCountResponse, ListTenantsRequest, ListTenantsResponse,
+    UpdateTenantAvailableCurrenciesRequest, UpdateTenantAvailableCurrenciesResponse,
+    UpdateTenantRequest, UpdateTenantResponse,
     list_tenants_currencies_with_customer_count_response::ListCurrency,
     tenants_service_server::TenantsService,
 };
@@ -197,29 +197,19 @@ impl TenantsService for TenantServiceComponents {
         ))
     }
 
-    async fn add_tenant_currency(
+    async fn update_tenant_available_currencies(
         &self,
-        request: Request<AddTenantCurrencyRequest>,
-    ) -> Result<Response<AddTenantCurrencyResponse>, Status> {
+        request: Request<UpdateTenantAvailableCurrenciesRequest>,
+    ) -> Result<Response<UpdateTenantAvailableCurrenciesResponse>, Status> {
         let tenant = request.tenant()?;
-        self.store
-            .add_tenant_currency(tenant, request.into_inner().currency)
+        let res = self
+            .store
+            .update_tenant_available_currencies(tenant, request.into_inner().currencies)
             .await
             .map_err(Into::<TenantApiError>::into)?;
 
-        Ok(Response::new(AddTenantCurrencyResponse {}))
-    }
-
-    async fn remove_tenant_currency(
-        &self,
-        request: Request<RemoveTenantCurrencyRequest>,
-    ) -> Result<Response<RemoveTenantCurrencyResponse>, Status> {
-        let tenant = request.tenant()?;
-        self.store
-            .remove_tenant_currency(tenant, request.into_inner().currency)
-            .await
-            .map_err(Into::<TenantApiError>::into)?;
-
-        Ok(Response::new(RemoveTenantCurrencyResponse {}))
+        Ok(Response::new(UpdateTenantAvailableCurrenciesResponse {
+            currencies: res,
+        }))
     }
 }
