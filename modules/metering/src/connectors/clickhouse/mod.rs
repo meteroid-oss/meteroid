@@ -3,24 +3,23 @@ use crate::connectors::Connector;
 use crate::connectors::errors::ConnectorError;
 use crate::domain::{Meter, QueryMeterParams, Usage};
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use clickhouse_rs::{Options, Pool};
 use std::collections::HashMap;
 
 use error_stack::{Result, ResultExt};
 
-use std::str::FromStr;
 use std::sync::Arc;
 
 pub mod extensions;
 pub mod sql;
 
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
-use chrono_tz::Tz;
+use crate::connectors::json::JsonFieldExtractor;
+use clickhouse::Client;
+use tokio::io::AsyncBufReadExt;
 
 #[derive(Clone)]
 pub struct ClickhouseConnector {
-    pool: Pool,
+    client: Arc<Client>,
     extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
 }
 
@@ -30,18 +29,6 @@ impl ClickhouseConnector {
         kafka_config: &KafkaConfig,
         extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
     ) -> Result<Self, ConnectorError> {
-        let options = Options::from_str(&clickhouse_config.address.clone())
-            .map_err(|_| {
-                ConnectorError::ConfigurationError(
-                    "Failed to parse clickhouse address to Url".to_string(),
-                )
-            })?
-            .database(&clickhouse_config.database)
-            .username(&clickhouse_config.username)
-            .password(&clickhouse_config.password);
-
-        let pool = Pool::new(options);
-
         let event_table_ddl = sql::init::create_events_table_sql();
         // TODO replace with custom integration (with dedupe) or kafka connect, as this puts the constraints on CH
         let kafka_table_ddl = sql::init::create_kafka_event_table_sql(
@@ -52,49 +39,43 @@ impl ClickhouseConnector {
         );
         let kafka_mv_ddl = sql::init::create_kafka_mv_sql();
 
-        let mut client = pool.get_handle().await.map_err(|err| {
-            ConnectorError::ConnectionError(format!("Failed to connect to Clickhouse : {}", err))
-        })?;
+        let client = Client::default()
+            .with_url(&clickhouse_config.address)
+            .with_user(&clickhouse_config.username)
+            .with_password(&clickhouse_config.password)
+            .with_database(&clickhouse_config.database);
+
+        let client = Arc::new(client);
 
         client
-            .execute(event_table_ddl)
+            .query(event_table_ddl.as_str())
+            .execute()
             .await
-            .change_context(ConnectorError::InitError(
-                "Could not create event table".to_string(),
-            ))?;
+            .map_err(|err| {
+                ConnectorError::InitError(format!("Could not create event table: {}", err))
+            })?;
+
         client
-            .execute(kafka_table_ddl)
+            .query(kafka_table_ddl.as_str())
+            .execute()
             .await
-            .change_context(ConnectorError::InitError(
-                "Could not create kafka engine table".to_string(),
-            ))?;
+            .map_err(|err| {
+                ConnectorError::InitError(format!("Could not create kafka engine table: {}", err))
+            })?;
+
         client
-            .execute(kafka_mv_ddl)
+            .query(kafka_mv_ddl.as_str())
+            .execute()
             .await
-            .change_context(ConnectorError::InitError(
-                "Could not create kafka MV".to_string(),
-            ))?;
+            .map_err(|err| {
+                ConnectorError::InitError(format!("Could not create kafka MV: {}", err))
+            })?;
 
         for ext in &extensions {
-            ext.init(&pool).await?;
+            ext.init(client.clone()).await?;
         }
 
-        Ok(ClickhouseConnector { pool, extensions })
-    }
-
-    pub async fn execute_ddl(&self, ddl: String) -> Result<(), ConnectorError> {
-        let mut client = self
-            .pool
-            .get_handle()
-            .await
-            .change_context(ConnectorError::ResourceUnavailable)?;
-
-        client
-            .execute(ddl)
-            .await
-            .change_context(ConnectorError::RegisterError)?;
-
-        Ok(())
+        Ok(ClickhouseConnector { extensions, client })
     }
 
     fn match_extension(
@@ -112,18 +93,12 @@ impl ClickhouseConnector {
 impl Connector for ClickhouseConnector {
     #[tracing::instrument(skip_all)]
     async fn register_meter(&self, meter: Meter) -> Result<(), ConnectorError> {
-        let mut client = self
-            .pool
-            .get_handle()
-            .await
-            .change_context(ConnectorError::ResourceUnavailable)?;
-
         let ddl = sql::create_meter::create_meter_view(
             meter, true, // TODO consider making this configurable
         );
-
-        client
-            .execute(ddl)
+        self.client
+            .query(ddl.as_str())
+            .execute()
             .await
             .change_context(ConnectorError::RegisterError)?;
 
@@ -132,12 +107,6 @@ impl Connector for ClickhouseConnector {
 
     #[tracing::instrument(skip_all)]
     async fn query_meter(&self, params: QueryMeterParams) -> Result<Vec<Usage>, ConnectorError> {
-        let mut client = self
-            .pool
-            .get_handle()
-            .await
-            .change_context(ConnectorError::ResourceUnavailable)?;
-
         let query = match self
             .match_extension(&params)
             .and_then(|ext| ext.build_query(&params))
@@ -147,62 +116,54 @@ impl Connector for ClickhouseConnector {
                 .map_err(ConnectorError::InvalidQuery)?,
         };
 
-        let block = client
-            .query(&query)
-            .fetch_all()
+        let mut lines = self
+            .client
+            .query(query.as_str())
+            .fetch_bytes("JSONEachRow")
+            .change_context(ConnectorError::QueryError)?
+            .lines();
+
+        let mut parsed = Vec::new();
+
+        while let Some(line) = lines
+            .next_line()
             .await
-            .map_err(|e| {
-                log::error!("Query error: '{:?}' for sql '{}'", e, &query);
-                e
+            .change_context(ConnectorError::QueryError)?
+        {
+            let row: serde_json::Value =
+                serde_json::from_str(&line).change_context(ConnectorError::QueryError)?;
+
+            let window_start = row
+                .get_timestamp_utc("windowstart")
+                .ok_or(ConnectorError::QueryError)?;
+
+            let window_end = row
+                .get_timestamp_utc("windowend")
+                .ok_or(ConnectorError::QueryError)?;
+            let value = row.get_f64("value").ok_or(ConnectorError::QueryError)?;
+
+            let customer_id = row
+                .get_string("customer_id")
+                .ok_or(ConnectorError::QueryError)?;
+
+            let mut group_by: HashMap<String, Option<String>> = HashMap::new();
+
+            // TODO test
+            for by in params.group_by.iter() {
+                let column_name = by.to_string();
+                let column_value: Option<String> = row.get_string(column_name.as_str());
+                group_by.insert(column_name, column_value);
+            }
+
+            parsed.push(Usage {
+                window_start,
+                window_end,
+                value,
+                customer_id,
+                group_by,
             })
-            .change_context(ConnectorError::QueryError)?;
+        }
 
-        // TODO get from param instead if !window_size ?
-        let (window_start_col, window_end_col) = match params.window_size {
-            Some(_) => ("windowstart", "windowend"),
-            None => ("min(windowstart)", "max(windowend)"),
-        };
-
-        let parsed = block
-            .rows()
-            .map(|row| {
-                let window_start: DateTime<Tz> = row
-                    .get(window_start_col)
-                    .change_context(ConnectorError::QueryError)?;
-                let window_end: DateTime<Tz> = row
-                    .get(window_end_col)
-                    .change_context(ConnectorError::QueryError)?;
-                let value: f64 = row
-                    .get("value")
-                    .change_context(ConnectorError::QueryError)?;
-                let customer_id: String = row
-                    .get("customer_id")
-                    .change_context(ConnectorError::QueryError)?;
-
-                let window_start = window_start.with_timezone(&Utc);
-                let window_end = window_end.with_timezone(&Utc);
-
-                let mut group_by: HashMap<String, Option<String>> = HashMap::new();
-
-                // TODO test
-                for c in params.group_by.iter() {
-                    let column_name = c.to_string();
-                    let column_value: Option<String> = row
-                        .get(column_name.as_str())
-                        .change_context(ConnectorError::QueryError)?;
-                    group_by.insert(column_name, column_value);
-                }
-
-                Ok(Usage {
-                    window_start,
-                    window_end,
-                    value,
-                    customer_id,
-                    group_by,
-                })
-            })
-            .collect::<Result<Vec<Usage>, ConnectorError>>();
-
-        parsed
+        Ok(parsed)
     }
 }

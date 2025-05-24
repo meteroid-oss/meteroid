@@ -48,7 +48,7 @@ kafka = { workspace = true, optional = true }
 rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
 
 # clickhosue connector deps
-clickhouse-rs = { workspace = true, optional = true }
+clickhouse = { workspace = true, features = ["chrono"], optional = true }
 
 [[bin]]
 name = "metering-api"
@@ -57,5 +57,5 @@ path = "src/bin/server.rs"
 [features]
 default = ["clickhouse", "kafka"]
 kafka = ["dep:kafka", "dep:rdkafka"]
-clickhouse = ["dep:clickhouse-rs"]
+clickhouse = ["dep:clickhouse"]
 openstack = []

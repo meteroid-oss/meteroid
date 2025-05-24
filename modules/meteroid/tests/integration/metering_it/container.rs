@@ -73,10 +73,11 @@ pub async fn terminate_metering(token: CancellationToken, join_handle: JoinHandl
 
 pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, u16) {
     let local = free_local_port().expect("Could not get free port");
+    let internal_port = 8123;
 
     let container = GenericImage::new(clickhouse::CONTAINER_NAME, clickhouse::CONTAINER_VERSION)
         .with_exposed_port(local.tcp())
-        .with_mapped_port(9000, local.tcp())
+        .with_mapped_port(internal_port, local.tcp())
         .with_env_var("CLICKHOUSE_DB", "meteroid")
         .with_env_var("CLICKHOUSE_USER", "default")
         .with_env_var("CLICKHOUSE_PASSWORD", "default")
@@ -86,7 +87,7 @@ pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, u16) {
         .await
         .unwrap();
 
-    let port = container.get_host_port_ipv4(9000).await.unwrap();
+    let port = container.get_host_port_ipv4(internal_port).await.unwrap();
 
     clickhouse::wait_for_ok(port)
         .await

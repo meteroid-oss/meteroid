@@ -111,7 +111,7 @@ axum-valid = { workspace = true }
 rstest = { workspace = true }
 testcontainers = { workspace = true }
 tokio-util = { workspace = true }
-clickhouse-rs = { workspace = true }
+clickhouse = { workspace = true, features = ["chrono"] }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
 backon = { workspace = true }
 

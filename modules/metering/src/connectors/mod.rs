@@ -1,6 +1,7 @@
 mod errors;
 
 pub mod clickhouse;
+pub mod json;
 
 use crate::connectors::errors::ConnectorError;
 use crate::domain::{Meter, QueryMeterParams, Usage};
