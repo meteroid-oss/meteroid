@@ -5,10 +5,8 @@ pub(crate) const CONTAINER_NAME: &str = "clickhouse/clickhouse-server";
 pub(crate) const CONTAINER_VERSION: &str = "23.12.1-alpine";
 
 use anyhow::{Result, bail};
-use clickhouse_rs::{ClientHandle, Options, Pool};
-use futures::FutureExt;
+use clickhouse::Client;
 use log::error;
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 pub(super) async fn wait_for_ok(port: u16) -> anyhow::Result<()> {
@@ -29,31 +27,22 @@ pub(super) async fn wait_for_ok(port: u16) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_options(port: u16) -> Result<Options> {
-    Ok(Options::from_str(&format!("tcp://127.0.0.1:{}", port))?
-        .database("meteroid")
-        .username("default")
-        .password("default")
-        .retry_timeout(Duration::from_secs(1))
-        .ping_timeout(Duration::from_millis(100))
-        .connection_timeout(Duration::from_millis(100))
-        .send_retries(1))
-}
-
-pub(crate) async fn get_handle(port: u16) -> anyhow::Result<ClientHandle> {
-    Pool::new(get_options(port)?)
-        .get_handle()
-        .await
-        .map_err(|err| anyhow::anyhow!("Failed to connect to ClickHouse: {}", err))
+pub(crate) fn get_client(port: u16) -> Client {
+    Client::default()
+        .with_url(format!("http://localhost:{port}"))
+        .with_user("default")
+        .with_password("default")
+        .with_database("meteroid")
 }
 
 pub(super) async fn test_status_endpoint(port: u16) -> Result<()> {
-    let options = get_options(port)?;
+    let client = get_client(port);
 
-    Pool::new(options)
-        .get_handle()
-        .catch_unwind()
+    let _ = client
+        .query("SELECT 1")
+        .fetch_one::<i32>()
         .await
-        .map(drop)
-        .map_err(|err| anyhow::anyhow!("Failed to connect to ClickHouse: {:?}", err))
+        .map_err(|err| anyhow::anyhow!("Failed to query ClickHouse: {:?}", err))?;
+
+    Ok(())
 }

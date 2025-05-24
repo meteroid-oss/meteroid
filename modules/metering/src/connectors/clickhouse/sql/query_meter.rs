@@ -51,8 +51,8 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         group_by_columns.push("windowstart".to_string());
         group_by_columns.push("windowend".to_string());
     } else {
-        select_columns.push("min(windowstart)".to_string());
-        select_columns.push("max(windowend)".to_string());
+        select_columns.push("min(windowstart) AS windowstart".to_string());
+        select_columns.push("max(windowend) AS windowend".to_string());
     }
 
     let aggregation_column = match &params.aggregation {

@@ -8,7 +8,7 @@ use crate::connectors::errors::ConnectorError;
 use crate::domain::WindowSize;
 use crate::domain::{QueryMeterParams, Usage};
 use chrono::{DateTime, Utc};
-use clickhouse_rs::Pool;
+use clickhouse::Client;
 
 /**
  * OpenstackClickhouseExtension is a Clickhouse extension that provides
@@ -23,7 +23,7 @@ impl ConnectorClickhouseExtension for OpenstackClickhouseExtension {
         "openstack".to_string()
     }
 
-    async fn init(&self, _pool: &Pool) -> error_stack::Result<(), ConnectorError> {
+    async fn init(&self, _client: Arc<Client>) -> error_stack::Result<(), ConnectorError> {
         // let instance_mv_dll = get_instance_mv_dll();
         // self.clickhouse_connector.execute_ddl(instance_mv_dll).await?;
         log::info!("Openstack extension enabled");
