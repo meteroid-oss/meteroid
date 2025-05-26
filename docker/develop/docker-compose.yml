@@ -9,6 +9,7 @@ volumes:
   pg_data:
   minio_data:
   redpanda_data:
+  clickhouse_data:
 
 networks:
   meteroid_net:
@@ -156,8 +157,12 @@ services:
       - meteroid_net
     ports:
       - 9092:9092
+    profiles:
+      - metering
 
   redpanda-console:
+    container_name: redpanda-console
+    hostname: redpanda-console
     image: docker.redpanda.com/redpandadata/console:v2.3.1
     entrypoint: /bin/sh
     command: -c "echo \"$$CONSOLE_CONFIG_FILE\" > /tmp/config.yml; /app/console"
@@ -181,6 +186,8 @@ services:
       - metering
 
   redpanda-topic-create:
+    container_name: redpanda-topic-create
+    hostname: redpanda-topic-create
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
     depends_on:
       - redpanda

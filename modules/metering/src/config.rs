@@ -83,7 +83,7 @@ pub struct ClickhouseConfig {
     #[envconfig(from = "CLICKHOUSE_DATABASE", default = "meteroid")]
     pub database: String,
 
-    #[envconfig(from = "CLICKHOUSE_ADDRESS", default = "tcp://127.0.0.1:9000")]
+    #[envconfig(from = "CLICKHOUSE_ADDRESS", default = "http://127.0.0.1:8123")]
     pub address: String,
 
     #[envconfig(from = "CLICKHOUSE_USERNAME", default = "default")]

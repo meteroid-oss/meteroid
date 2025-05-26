@@ -6,6 +6,7 @@ use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
 use common_domain::ids::{BaseId, InvoicingEntityId, TenantId};
+use metering::ingest::domain::ProcessedEventRow;
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event::CustomerId};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
@@ -30,7 +31,6 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tonic::Request;
 use uuid::{Uuid, uuid};
-
 /*
 Plan with Capacity
 (aka fixed advance fee + usage fee)
@@ -305,16 +305,15 @@ async fn test_metering_e2e() {
 
     // we validate that it was created in clickhouse
 
-    let mut clickhouse_client = metering_it::clickhouse::get_handle(clickhouse_port)
-        .await
-        .expect("Could not get clickhouse handle");
+    let clickhouse_client = metering_it::clickhouse::get_client(clickhouse_port);
 
     // list all tables in db meteroid
     let tables = clickhouse_client
         .query("SHOW TABLES")
-        .fetch_all()
+        .fetch_all::<String>()
         .await
-        .expect("Could not list tables");
+        .unwrap();
+
     let expected_table_name = metering::connectors::clickhouse::sql::get_meter_view_name(
         &tenant_id,
         &created_metric.billable_metric.unwrap().id,
@@ -323,31 +322,27 @@ async fn test_metering_e2e() {
     .collect::<Vec<&str>>()[1]
         .to_string();
 
-    //sleep
-
     tables
-        .rows()
-        .find(|row| row.get::<String, _>(0).unwrap() == expected_table_name)
+        .into_iter()
+        .find(|x| x == &expected_table_name)
         .expect("Could not find meter table");
 
     // check that events were ingested
     let _events = clickhouse_client
         .query("SELECT * FROM raw_events")
-        .fetch_all()
+        .fetch_all::<ProcessedEventRow>()
         .await
         .expect("Could not query events");
 
     // we create a plan
     let plan = meteroid_clients
         .plans
-        .create_draft_plan(Request::new(
-            meteroid_grpc::meteroid::api::plans::v1::CreateDraftPlanRequest {
-                name: "Meteroid AI".to_string(),
-                description: None,
-                product_family_local_id: "default".to_string(),
-                plan_type: PlanType::Standard as i32,
-            },
-        ))
+        .create_draft_plan(Request::new(api::plans::v1::CreateDraftPlanRequest {
+            name: "Meteroid AI".to_string(),
+            description: None,
+            product_family_local_id: "default".to_string(),
+            plan_type: PlanType::Standard as i32,
+        }))
         .await
         .unwrap();
 
