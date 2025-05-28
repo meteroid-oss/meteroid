@@ -23,7 +23,7 @@ pub struct GoldenTest<T> {
 impl<T> Default for GoldenTest<T>
 where
     T: TestInstances + serde::Serialize + serde::de::DeserializeOwned,
- {
+{
     fn default() -> Self {
         Self::new()
     }
