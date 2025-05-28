@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-#        TODO try https://github.com/orgs/community/discussions/25678
+#        if no space left on device, try https://github.com/orgs/community/discussions/25678
 #      - name: Delete huge unnecessary tools folder
 #        run: rm -rf /opt/hostedtoolcache
 

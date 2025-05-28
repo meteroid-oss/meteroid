@@ -3,7 +3,7 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Attribute, FnArg, ItemTrait, Meta, PatType, Path, TraitItem, parse::Parse, parse_macro_input,
+    FnArg, ItemTrait, PatType, TraitItem, parse_macro_input,
     parse_quote,
 };
 
@@ -14,7 +14,7 @@ pub fn delegated(_attr: TokenStream, _item: TokenStream) -> TokenStream {
     _item
 }
 
-/// A proc macro applied to a trait that transforms methods with #[generate] to their with_conn versions
+/// A proc macro applied to a trait that transforms methods with #[delegated] to their with_conn versions
 /// and auto-generates a separate trait that implements the original versions.
 #[proc_macro_attribute]
 pub fn with_conn_delegate(attr: TokenStream, input: TokenStream) -> TokenStream {
