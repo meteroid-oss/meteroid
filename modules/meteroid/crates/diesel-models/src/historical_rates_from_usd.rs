@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use diesel::{Identifiable, Insertable, Queryable};
 use uuid::Uuid;
 
@@ -9,6 +9,7 @@ pub struct HistoricalRatesFromUsdRowNew {
     pub id: Uuid,
     pub date: NaiveDate,
     pub rates: serde_json::Value,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Queryable, Identifiable)]
@@ -18,4 +19,5 @@ pub struct HistoricalRatesFromUsdRow {
     pub id: Uuid,
     pub date: NaiveDate,
     pub rates: serde_json::Value,
+    pub updated_at: NaiveDateTime,
 }

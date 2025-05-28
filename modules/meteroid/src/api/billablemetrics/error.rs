@@ -5,7 +5,6 @@ use thiserror::Error;
 
 use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use errors::StoreError;
-use meteroid_store::compute::ComputeError;
 use meteroid_store::errors;
 
 #[derive(Debug, Error, ErrorAsTonic)]
@@ -18,10 +17,6 @@ pub enum BillableMetricApiError {
     #[error("Store error: {0}")]
     #[code(Internal)]
     StoreError(String, #[source] Box<dyn Error>),
-
-    #[error("Metering Service error: {0}")]
-    #[code(Internal)]
-    MeteringServiceError(String, #[source] ComputeError),
 }
 
 impl From<Report<StoreError>> for BillableMetricApiError {

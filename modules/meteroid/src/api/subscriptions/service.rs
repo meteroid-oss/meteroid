@@ -1,5 +1,6 @@
 use common_domain::ids::{CustomerId, PlanId, PriceComponentId, SubscriptionId};
 use common_grpc::middleware::server::auth::RequestExt;
+use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 use tonic::{Request, Response, Status};
 
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsService;
@@ -17,7 +18,7 @@ use crate::api::subscriptions::{SubscriptionServiceComponents, mapping};
 use meteroid_store::domain;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::{
-    CancellationEffectiveAt, SubscriptionSlotsInterface,
+    CancellationEffectiveAt, SubscriptionInterfaceAuto, SubscriptionSlotsInterface,
 };
 
 #[tonic::async_trait]
@@ -40,7 +41,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let subscription = mapping::subscriptions::create_proto_to_domain(subscription, &actor)?;
 
         let created = self
-            .store
+            .services
             .insert_subscription(subscription, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
@@ -70,7 +71,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
             .collect::<Result<Vec<_>, _>>()?;
 
         let inserted = self
-            .store
+            .services
             .insert_subscription_batch(subscriptions, tenant_id)
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
@@ -211,12 +212,13 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription = self
-            .store
+            .services
             .cancel_subscription(
                 SubscriptionId::from_proto(inner.subscription_id)?,
+                tenant_id,
                 inner.reason,
                 CancellationEffectiveAt::EndOfBillingPeriod,
-                domain::TenantContext { tenant_id, actor },
+                actor,
             )
             .await
             .map_err(|err| {

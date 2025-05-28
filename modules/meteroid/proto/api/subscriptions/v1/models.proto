@@ -9,6 +9,20 @@ import "api/connectors/v1/models.proto";
 
 package meteroid.api.subscriptions.v1;
 
+
+/*
+PendingActivation, // before trial
+    PendingCharge,     // after billing start date, while awaiting payment
+    TrialActive,
+    Active,
+    TrialExpired,
+    Paused,
+    Suspended, // due to non-payment
+    Cancelled,
+    Completed,
+    Superseded, // upgrade/
+ */
+
 enum SubscriptionStatus {
   PENDING = 0;
   TRIALING = 1;
@@ -16,7 +30,6 @@ enum SubscriptionStatus {
   CANCELED = 3;
   ENDED = 4;
   TRIAL_EXPIRED = 5;
-  // PENDING_CHECKOUT
 }
 
 message Subscription {
@@ -40,8 +53,6 @@ message Subscription {
   optional string invoice_memo = 18;
   optional string invoice_threshold = 19;
   optional string activated_at = 20;
-  optional string canceled_at = 21;
-  optional string cancellation_reason = 22;
   uint64 mrr_cents = 23;
   SubscriptionStatus status = 24;
   // TODO accrued (total up until now ? ) , due (next billing cycle) , last X months of revenue for a graph ?

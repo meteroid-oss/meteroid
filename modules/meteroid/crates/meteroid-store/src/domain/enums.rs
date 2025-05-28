@@ -218,6 +218,9 @@ pub enum UnitConversionRoundingEnum {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Display, EnumIter, EnumString, Serialize)]
 pub enum WebhookOutEventTypeEnum {
+    #[strum(serialize = "metric.created")]
+    #[serde(rename = "metric.created")]
+    BillableMetricCreated,
     #[strum(serialize = "customer.created")]
     #[serde(rename = "customer.created")]
     CustomerCreated,
@@ -251,11 +254,12 @@ impl WebhookOutEventTypeEnum {
             WebhookOutEventTypeEnum::SubscriptionCreated => "subscription".to_string(),
             WebhookOutEventTypeEnum::InvoiceCreated => "invoice".to_string(),
             WebhookOutEventTypeEnum::InvoiceFinalized => "invoice".to_string(),
+            WebhookOutEventTypeEnum::BillableMetricCreated => "metric".to_string(),
         }
     }
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[map_owned(diesel_enums::SubscriptionActivationConditionEnum)]
 pub enum SubscriptionActivationCondition {
     OnStart,
@@ -331,4 +335,56 @@ impl TenantEnvironmentEnum {
             TenantEnvironmentEnum::Demo => "demo".to_string(),
         }
     }
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::SubscriptionStatusEnum)]
+pub enum SubscriptionStatusEnum {
+    PendingActivation, // before trial
+    PendingCharge,     // after billing start date, while awaiting payment
+    TrialActive,
+    Active,
+    TrialExpired,
+    Paused,
+    Suspended, // due to non-payment
+    Cancelled,
+    Completed,
+    Superseded, // upgrade/downgrade
+}
+impl SubscriptionStatusEnum {
+    pub fn as_screaming_snake_case(&self) -> String {
+        match self {
+            SubscriptionStatusEnum::PendingActivation => "PENDING_ACTIVATION",
+            SubscriptionStatusEnum::PendingCharge => "PENDING_CHARGE",
+            SubscriptionStatusEnum::TrialActive => "TRIAL_ACTIVE",
+            SubscriptionStatusEnum::Active => "ACTIVE",
+            SubscriptionStatusEnum::TrialExpired => "TRIAL_EXPIRED",
+            SubscriptionStatusEnum::Paused => "PAUSED",
+            SubscriptionStatusEnum::Suspended => "SUSPENDED",
+            SubscriptionStatusEnum::Cancelled => "CANCELLED",
+            SubscriptionStatusEnum::Completed => "COMPLETED",
+            SubscriptionStatusEnum::Superseded => "SUPERSEDED",
+        }
+        .to_string()
+    }
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::ScheduledEventTypeEnum)]
+pub enum ScheduledEventTypeEnum {
+    FinalizeInvoice,
+    RetryPayment,
+    ApplyPlanChange,
+    CancelSubscription,
+    PauseSubscription,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[map_owned(diesel_enums::ScheduledEventStatus)]
+pub enum ScheduledEventStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Cancelled,
 }

@@ -40,7 +40,7 @@ export const Dashboard = () => {
 
   return (
     <>
-      <div className="h-full  xl:mx-auto self-center space-y-6 relative">
+      <div className="h-full  w-full self-center space-y-6 relative">
         <div>
           <h1 className="text-2xl text-acc font-semibold">
             Good {timeOfDay}

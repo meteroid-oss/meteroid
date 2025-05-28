@@ -7,7 +7,7 @@ use crate::domain::{
     PlanVersionNew, PlanWithVersion, PriceComponent, PriceComponentNew, TrialPatch,
 };
 use crate::errors::StoreError;
-use common_domain::ids::{BaseId, PlanId, ProductFamilyId, TenantId};
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::plan_versions::{
@@ -61,7 +61,7 @@ pub trait PlansInterface {
 
     async fn get_plan_version_by_id(
         &self,
-        id: Uuid,
+        id: PlanVersionId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion>;
 
@@ -74,21 +74,21 @@ pub trait PlansInterface {
 
     async fn copy_plan_version_to_draft(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion>;
 
     async fn publish_plan_version(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion>;
 
     async fn discard_draft_plan_version(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<()>;
@@ -201,7 +201,7 @@ impl PlansInterface for Store {
             .eventbus
             .publish(Event::plan_created_draft(
                 res.plan.created_by,
-                res.version.id,
+                res.version.id.as_uuid(),
                 res.plan.tenant_id.as_uuid(),
             ))
             .await;
@@ -308,7 +308,7 @@ impl PlansInterface for Store {
 
     async fn get_plan_version_by_id(
         &self,
-        id: Uuid,
+        id: PlanVersionId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<PlanVersion> {
         let mut conn = self.get_conn().await?;
@@ -346,7 +346,7 @@ impl PlansInterface for Store {
 
     async fn copy_plan_version_to_draft(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion> {
@@ -367,7 +367,7 @@ impl PlansInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)?;
 
                 let new = PlanVersionRowNew {
-                    id: Uuid::now_v7(),
+                    id: PlanVersionId::new(),
                     is_draft_version: true,
                     plan_id: original.plan_id,
                     version: original.version + 1,
@@ -416,7 +416,7 @@ impl PlansInterface for Store {
 
     async fn publish_plan_version(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<PlanVersion> {
@@ -455,7 +455,7 @@ impl PlansInterface for Store {
             .eventbus
             .publish(Event::plan_published_version(
                 auth_actor,
-                plan_version_id,
+                plan_version_id.as_uuid(),
                 auth_tenant_id.as_uuid(),
             ))
             .await;
@@ -465,7 +465,7 @@ impl PlansInterface for Store {
 
     async fn discard_draft_plan_version(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
         auth_actor: Uuid,
     ) -> StoreResult<()> {
@@ -511,7 +511,7 @@ impl PlansInterface for Store {
             .eventbus
             .publish(Event::plan_discarded_version(
                 auth_actor,
-                plan_version_id,
+                plan_version_id.as_uuid(),
                 auth_tenant_id.as_uuid(),
             ))
             .await;

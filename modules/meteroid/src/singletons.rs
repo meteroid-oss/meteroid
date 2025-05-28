@@ -1,4 +1,3 @@
-use crate::clients::usage::MeteringUsageClient;
 use crate::config::Config;
 use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use crate::svix::new_svix;
@@ -27,7 +26,6 @@ pub async fn get_store() -> &'static Store {
                 skip_email_validation: !config.mailer_enabled(),
                 public_url: config.public_url.clone(),
                 eventbus: create_eventbus_memory(),
-                usage_client: Arc::new(MeteringUsageClient::get().clone()),
                 svix,
                 mailer,
                 stripe,

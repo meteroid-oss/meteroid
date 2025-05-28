@@ -20,7 +20,7 @@ services:
 
   ### Meteroid Dependencies
   meteroid-db:
-    image: quay.io/tembo/pg17-pgmq:v1.5.0
+    image: ghcr.io/meteroid-oss/meteroid-postgres:17.4
     container_name: meteroid-db
     ports:
       - '5432:5432'
@@ -31,7 +31,6 @@ services:
       - POSTGRES_DB=${DATABASE_NAME:-meteroid}
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./init-db:/docker-entrypoint-initdb.d
     healthcheck:
       test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
       interval: 10s

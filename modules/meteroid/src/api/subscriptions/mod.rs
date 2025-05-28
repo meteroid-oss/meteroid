@@ -1,6 +1,6 @@
 use meteroid_grpc::meteroid::api::subscriptions::v1::subscriptions_service_server::SubscriptionsServiceServer;
 
-use meteroid_store::Store;
+use meteroid_store::{Services, Store};
 use std::error::Error;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -14,10 +14,14 @@ mod service;
 
 pub struct SubscriptionServiceComponents {
     pub store: Store,
+    pub services: Services,
 }
 
-pub fn service(store: Store) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
-    let inner = SubscriptionServiceComponents { store };
+pub fn service(
+    store: Store,
+    services: Services,
+) -> SubscriptionsServiceServer<SubscriptionServiceComponents> {
+    let inner = SubscriptionServiceComponents { store, services };
     SubscriptionsServiceServer::new(inner)
 }
 

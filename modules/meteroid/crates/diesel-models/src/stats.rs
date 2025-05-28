@@ -1,6 +1,6 @@
 use crate::enums::MrrMovementType;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{CustomerId, InvoiceId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, PlanId, PlanVersionId, SubscriptionId, TenantId};
 use diesel::QueryableByName;
 use rust_decimal::Decimal;
 use uuid::Uuid;
@@ -168,7 +168,7 @@ pub struct LastMrrMovementsRow {
     #[diesel(sql_type = diesel::sql_types::Uuid)]
     pub tenant_id: TenantId,
     #[diesel(sql_type = diesel::sql_types::Uuid)]
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     #[diesel(sql_type = diesel::sql_types::Uuid)]
     pub customer_id: CustomerId,
     #[diesel(sql_type = diesel::sql_types::Text)]

@@ -17,12 +17,12 @@ export const UserOnboarding = () => {
 
   return (
     <>
-      <div className="w-full lg:w-2/5 bg-[#111] rounded-lg lg:rounded-l-lg lg:rounded-r-none">
+      <div className="w-full lg:w-1/2 xl:w-2/5 bg-[#111] rounded-lg lg:rounded-l-lg lg:rounded-r-none">
         <UserOnboardingForm />
       </div>
-      <div className="hidden lg:block lg:w-3/5 bg-[#313131] rounded-r-lg h-full">
+      <div className="hidden lg:block lg:w-1/2 xl:w-3/5 bg-[#313131] rounded-r-lg h-full">
         <div className="h-full pl-16 py-16 flex justify-end">
-          <img src="/img/onboarding/user.svg" alt="user onboarding" className="h-full" />
+          <img src="/img/onboarding/user.svg" alt="user onboarding" className="h-full object-cover object-left " />
         </div>
       </div>
     </>

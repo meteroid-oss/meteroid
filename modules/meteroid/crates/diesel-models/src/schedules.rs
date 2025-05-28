@@ -2,6 +2,7 @@ use uuid::Uuid;
 
 use super::plan_versions::PlanVersionRow;
 use crate::enums::BillingPeriodEnum;
+use common_domain::ids::PlanVersionId;
 use diesel::{AsChangeset, Associations, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Associations, Selectable, Debug)]
@@ -11,7 +12,7 @@ use diesel::{AsChangeset, Associations, Insertable, Queryable, Selectable};
 pub struct ScheduleRow {
     pub id: Uuid,
     pub billing_period: BillingPeriodEnum,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub ramps: serde_json::Value,
 }
 
@@ -21,7 +22,7 @@ pub struct ScheduleRow {
 pub struct ScheduleRowNew {
     pub id: Uuid,
     pub billing_period: BillingPeriodEnum,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub ramps: serde_json::Value,
 }
 

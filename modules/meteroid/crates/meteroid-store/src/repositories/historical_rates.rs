@@ -4,6 +4,7 @@ use crate::domain::historical_rates::{
 use crate::store::PgConn;
 use crate::{Store, StoreResult};
 use cached::proc_macro::cached;
+use cached::proc_macro::once;
 use chrono::NaiveDate;
 use diesel_models::historical_rates_from_usd::{
     HistoricalRatesFromUsdRow, HistoricalRatesFromUsdRowNew,
@@ -26,6 +27,12 @@ pub trait HistoricalRatesInterface {
         from_currency: &str,
         to_currency: &str,
         date: chrono::NaiveDate,
+    ) -> StoreResult<Option<HistoricalRate>>;
+
+    async fn latest_rate(
+        &self,
+        from_currency: &str,
+        to_currency: &str,
     ) -> StoreResult<Option<HistoricalRate>>;
 }
 
@@ -64,19 +71,19 @@ impl HistoricalRatesInterface for Store {
     ) -> StoreResult<Option<HistoricalRate>> {
         self.get_historical_rate_from_usd_by_date(date)
             .await
-            .map(|rate| {
-                rate.and_then(|rate| {
-                    rate.rates.get(from_currency).and_then(|from_rate| {
-                        rate.rates.get(to_currency).map(|to_rate| HistoricalRate {
-                            id: rate.id,
-                            date: rate.date,
-                            from_currency: from_currency.to_string(),
-                            to_currency: to_currency.to_string(),
-                            rate: to_rate / from_rate,
-                        })
-                    })
-                })
-            })
+            .map(|rate| get_mapped_rates_for_currency(from_currency, to_currency, rate))
+    }
+
+    async fn latest_rate(
+        &self,
+        from_currency: &str,
+        to_currency: &str,
+    ) -> StoreResult<Option<HistoricalRate>> {
+        let mut conn = self.get_conn().await?;
+
+        get_latest_rate_from_usd_cached(&mut conn)
+            .await
+            .map(|rate| get_mapped_rates_for_currency(from_currency, to_currency, rate))
     }
 }
 
@@ -95,4 +102,36 @@ async fn get_historical_rate_from_usd_by_date_cached(
         .await
         .map_err(Into::into)
         .and_then(|row| row.map(TryInto::try_into).transpose())
+}
+
+#[once(
+    result = true,
+    time = 300, // 5min
+)]
+async fn get_latest_rate_from_usd_cached(
+    conn: &mut PgConn,
+) -> StoreResult<Option<HistoricalRatesFromUsd>> {
+    HistoricalRatesFromUsdRow::latest(conn)
+        .await
+        .map_err(Into::into)
+        .and_then(|row| row.map(TryInto::try_into).transpose())
+}
+
+fn get_mapped_rates_for_currency(
+    from_currency: &str,
+    to_currency: &str,
+    rate: Option<HistoricalRatesFromUsd>,
+) -> Option<HistoricalRate> {
+    rate.and_then(|rate| {
+        rate.rates.get(from_currency).and_then(|from_rate| {
+            rate.rates.get(to_currency).map(|to_rate| HistoricalRate {
+                id: rate.id,
+                date: rate.date,
+                updated_at: rate.updated_at,
+                from_currency: from_currency.to_string(),
+                to_currency: to_currency.to_string(),
+                rate: to_rate / from_rate,
+            })
+        })
+    })
 }

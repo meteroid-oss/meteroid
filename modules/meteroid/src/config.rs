@@ -8,7 +8,6 @@ use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
-use kafka::config::KafkaConnectionConfig;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
 
@@ -80,9 +79,6 @@ pub struct Config {
     pub svix_jwt_token: SecretString,
 
     #[envconfig(nested)]
-    pub kafka: KafkaConnectionConfig,
-
-    #[envconfig(nested)]
     pub mailer: MailerConfig,
 
     #[envconfig(nested)]
@@ -107,6 +103,9 @@ impl Config {
     }
 
     pub fn mailer_enabled(&self) -> bool {
-        self.mailer.smtp_host.is_some()
+        self.mailer
+            .smtp_host
+            .as_ref()
+            .is_some_and(|s| !s.is_empty())
     }
 }

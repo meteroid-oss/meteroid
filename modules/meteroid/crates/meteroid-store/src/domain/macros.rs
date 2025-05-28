@@ -1,3 +1,12 @@
+/*
+    TODO
+    Force all impls to also specifiy a golden test
+    const _: fn() = || {
+       fn assert_impl<T: golden::TestInstances>() {}
+       assert_impl::<$t>()
+    };
+*/
+
 #[macro_export]
 macro_rules! json_value_serde {
     ($t:ty) => {

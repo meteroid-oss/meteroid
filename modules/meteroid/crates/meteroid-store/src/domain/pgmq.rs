@@ -1,4 +1,4 @@
-use crate::domain::outbox_event::{CustomerEvent, SubscriptionEvent};
+use crate::domain::outbox_event::{BillableMetricEvent, CustomerEvent, SubscriptionEvent};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
@@ -13,6 +13,7 @@ pub enum PgmqQueue {
     OutboxEvent,
     InvoicePdfRequest,
     WebhookOut,
+    BillableMetricSync,
     HubspotSync,
     PennylaneSync,
 }
@@ -23,6 +24,7 @@ impl PgmqQueue {
             PgmqQueue::OutboxEvent => "outbox_event",
             PgmqQueue::InvoicePdfRequest => "invoice_pdf_request",
             PgmqQueue::WebhookOut => "webhook_out",
+            PgmqQueue::BillableMetricSync => "billable_metric_sync",
             PgmqQueue::HubspotSync => "hubspot_sync",
             PgmqQueue::PennylaneSync => "pennylane_sync",
         }
@@ -211,4 +213,32 @@ pub struct PennylaneSyncCustomer {
 pub struct PennylaneSyncInvoice {
     pub id: InvoiceId,
     pub tenant_id: TenantId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BillableMetricSyncRequestEvent {
+    BillableMetricCreated(Box<BillableMetricEvent>),
+}
+
+impl BillableMetricSyncRequestEvent {
+    pub fn tenant_id(&self) -> TenantId {
+        match self {
+            BillableMetricSyncRequestEvent::BillableMetricCreated(event) => event.tenant_id,
+        }
+    }
+}
+
+json_value_serde!(BillableMetricSyncRequestEvent);
+
+impl TryInto<PgmqMessageNew> for BillableMetricSyncRequestEvent {
+    type Error = StoreErrorReport;
+
+    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+        let message = Some(Message(self.try_into()?));
+
+        Ok(PgmqMessageNew {
+            message,
+            headers: None,
+        })
+    }
 }

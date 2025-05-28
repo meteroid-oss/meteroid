@@ -10,11 +10,10 @@ pub mod components {
 
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
 
-    use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
+    use common_domain::ids::{BillableMetricId, PlanVersionId, PriceComponentId, ProductId};
     use meteroid_store::domain::price_components as domain;
     use rust_decimal::Decimal;
     use tonic::Status;
-    use uuid::Uuid;
 
     // TODO dedicated mapping error instead of status
     pub fn create_api_to_domain(
@@ -24,7 +23,7 @@ pub mod components {
             name: comp.name,
             fee: map_fee_to_domain(comp.fee)?,
             product_id: ProductId::from_proto_opt(comp.product_id)?,
-            plan_version_id: Uuid::from_proto_ref(&comp.plan_version_id)?,
+            plan_version_id: PlanVersionId::from_proto(&comp.plan_version_id)?,
         })
     }
 

@@ -58,20 +58,6 @@ impl IntoResponse for AdapterWebhookError {
 
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum WorkerError {
-    #[error("Grpc Error")]
-    GrpcError,
-    #[error("Invalid input")]
-    InvalidInput,
-    #[error("Grpc Missing Field")]
-    GrpcMissingField,
-    #[error("Unknown pricing model")]
-    UnknownPricingModel,
-    #[error("Database error")]
-    DatabaseError,
-    #[error("Provider error")]
-    ProviderError,
-    #[error("Metering error")]
-    MeteringError,
     #[error("Failed to update currency rates")]
     CurrencyRatesUpdateError,
 }

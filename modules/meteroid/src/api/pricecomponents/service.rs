@@ -1,4 +1,4 @@
-use common_domain::ids::{BaseId, PriceComponentId};
+use common_domain::ids::{BaseId, PlanVersionId, PriceComponentId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::components::v1::{
     CreatePriceComponentRequest, CreatePriceComponentResponse, EditPriceComponentRequest,
@@ -7,13 +7,10 @@ use meteroid_grpc::meteroid::api::components::v1::{
     price_components_service_server::PriceComponentsService,
 };
 use tonic::{Request, Response, Status};
-use uuid::Uuid;
 
 use meteroid_store::repositories::price_components::PriceComponentInterface;
 
 use crate::api::pricecomponents::error::PriceComponentApiError;
-use crate::api::shared::conversions::ProtoConv;
-use crate::{api::utils::parse_uuid, parse_uuid};
 use common_eventbus::Event;
 
 use super::{PriceComponentServiceComponents, mapping};
@@ -28,10 +25,11 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let tenant_id = request.tenant()?;
 
         let req = request.into_inner();
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let domain_components = self
             .store
-            .list_price_components(parse_uuid!(&req.plan_version_id)?, tenant_id)
+            .list_price_components(plan_version_id, tenant_id)
             .await
             .map_err(|err| {
                 PriceComponentApiError::StoreError(
@@ -98,10 +96,11 @@ impl PriceComponentsService for PriceComponentServiceComponents {
         let req = request.into_inner();
 
         let component = mapping::components::edit_api_to_domain(req.clone())?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let component = self
             .store
-            .update_price_component(component, tenant_id, Uuid::from_proto(req.plan_version_id)?)
+            .update_price_component(component, tenant_id, plan_version_id)
             .await
             .map_err(|err| {
                 PriceComponentApiError::StoreError(

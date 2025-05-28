@@ -53,7 +53,7 @@ message GetCustomerByAliasResponse {
 
 message TopUpCustomerBalanceRequest {
   string customer_id = 1;
-  int32 cents = 2;
+  int64 cents = 2;
   optional string notes = 3;
 }
 
@@ -63,7 +63,7 @@ message TopUpCustomerBalanceResponse {
 
 message BuyCustomerCreditsRequest {
   string customer_id = 1;
-  int32 cents = 2;
+  int64 cents = 2;
   optional string notes = 3;
 }
 

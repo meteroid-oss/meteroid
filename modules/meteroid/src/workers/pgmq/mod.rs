@@ -7,4 +7,6 @@ mod processor;
 pub mod processors;
 mod webhook_out;
 
+mod billable_metric_sync;
+
 type PgmqResult<T> = error_stack::Result<T, error::PgmqError>;

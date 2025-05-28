@@ -47,7 +47,7 @@ impl InvoicePreviewRenderingService {
     ) -> error_stack::Result<String, InvoicingRenderError> {
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id, invoice_id)
+            .get_detailed_invoice_by_id(tenant_id, invoice_id)
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
@@ -108,6 +108,7 @@ pub enum GenerateResult {
     },
 }
 
+#[derive(Clone)]
 pub struct PdfRenderingService {
     storage: Arc<dyn ObjectStoreService>,
     pdf: Arc<dyn pdf::PdfGenerator>,

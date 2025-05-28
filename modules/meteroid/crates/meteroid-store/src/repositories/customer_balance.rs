@@ -21,7 +21,7 @@ impl CustomerBalance {
         conn: &mut PgConn,
         customer_id: CustomerId,
         tenant_id: TenantId,
-        cents: i32,
+        cents: i64,
         invoice_id: Option<InvoiceId>,
     ) -> StoreResult<CustomerBalanceUpdate> {
         let _ = CustomerRow::select_for_update(conn, customer_id, tenant_id)

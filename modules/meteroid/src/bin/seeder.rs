@@ -15,13 +15,13 @@ use meteroid_seeder::random::domain;
 use meteroid_seeder::random::errors::SeederError;
 use meteroid_seeder::random::runner;
 use meteroid_seeder::utils::slugify;
-use meteroid_store::Store;
-use meteroid_store::compute::clients::usage::MockUsageClient;
+use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::{BillingPeriodEnum, PlanTypeEnum};
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::domain::{DowngradePolicy, UpgradePolicy};
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::store::StoreConfig;
+use meteroid_store::{Services, Store};
 use rust_decimal_macros::dec;
 use secrecy::SecretString;
 use stripe_client::client::StripeClient;
@@ -46,15 +46,21 @@ async fn main() -> error_stack::Result<(), SeederError> {
         skip_email_validation: true,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_noop().await,
-        usage_client: Arc::new(MockUsageClient {
-            data: HashMap::new(),
-        }),
+
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         stripe: Arc::new(StripeClient::new()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .change_context(SeederError::InitializationError)?;
+    let store_arc = Arc::new(store.clone());
+
+    let services = Services::new(
+        store_arc.clone(),
+        Arc::new(MockUsageClient {
+            data: HashMap::new(),
+        }),
+    );
 
     let organization_id: OrganizationId = env::var("SEEDER_ORGANIZATION_ID")
         .map(|s| OrganizationId::parse_uuid(&s))
@@ -191,7 +197,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
         },
     };
 
-    let service = runner::run(store, scenario, organization_id, user_id);
+    let service = runner::run(store.clone(), services, scenario, organization_id, user_id);
 
     service
         .await

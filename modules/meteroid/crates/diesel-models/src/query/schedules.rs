@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use error_stack::ResultExt;
 
-use common_domain::ids::{SubscriptionId, TenantId};
+use common_domain::ids::{PlanVersionId, SubscriptionId, TenantId};
 use diesel::{ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 
 impl ScheduleRowNew {
@@ -98,7 +98,7 @@ impl ScheduleRow {
 
     pub async fn list(
         conn: &mut PgConn,
-        plan_version_id: uuid::Uuid,
+        plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> DbResult<Vec<ScheduleRow>> {
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -123,8 +123,8 @@ impl ScheduleRow {
 
     pub async fn clone_all(
         conn: &mut PgConn,
-        src_plan_version_id: uuid::Uuid,
-        dst_plan_version_id: uuid::Uuid,
+        src_plan_version_id: PlanVersionId,
+        dst_plan_version_id: PlanVersionId,
     ) -> DbResult<usize> {
         use crate::schema::schedule::dsl as s_dsl;
         use diesel_async::RunQueryDsl;

@@ -5,12 +5,15 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::{BillingPeriodEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum};
-use common_domain::ids::{
-    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, PlanId,
-    SubscriptionId, TenantId,
+use crate::enums::{
+    BillingPeriodEnum, CycleActionEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum,
+    SubscriptionStatusEnum,
 };
-use diesel::{Identifiable, Insertable, Queryable, Selectable};
+use common_domain::ids::{
+    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
+    PlanId, PlanVersionId, SubscriptionId, TenantId,
+};
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -22,15 +25,13 @@ pub struct SubscriptionRow {
     pub billing_day_anchor: i16,
     pub tenant_id: TenantId,
     pub start_date: NaiveDate,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub net_terms: i32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<Decimal>,
     pub activated_at: Option<NaiveDateTime>,
-    pub canceled_at: Option<NaiveDateTime>,
-    pub cancellation_reason: Option<String>,
     pub currency: String,
     pub mrr_cents: i64,
     pub period: BillingPeriodEnum,
@@ -46,6 +47,14 @@ pub struct SubscriptionRow {
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
     pub conn_meta: Option<serde_json::Value>,
+    pub cycle_index: Option<i32>,
+    pub status: SubscriptionStatusEnum,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
+    pub next_cycle_action: Option<CycleActionEnum>,
+    pub last_error: Option<String>,
+    pub error_count: i32,
+    pub next_retry: Option<NaiveDateTime>,
 }
 
 #[derive(Insertable, Debug)]
@@ -56,7 +65,7 @@ pub struct SubscriptionRowNew {
     pub billing_day_anchor: i16,
     pub tenant_id: TenantId,
     pub start_date: NaiveDate,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub net_terms: i32,
@@ -76,6 +85,11 @@ pub struct SubscriptionRowNew {
     pub trial_duration: Option<i32>,
     pub activation_condition: SubscriptionActivationConditionEnum,
     pub billing_start_date: Option<NaiveDate>,
+    pub cycle_index: Option<i32>,
+    pub status: SubscriptionStatusEnum,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
+    pub next_cycle_action: Option<CycleActionEnum>,
 }
 
 pub struct CancelSubscriptionParams {
@@ -100,6 +114,9 @@ pub struct SubscriptionForDisplayRow {
     #[diesel(select_expression = customer::name)]
     #[diesel(select_expression_type = customer::name)]
     pub customer_name: String,
+    #[diesel(select_expression = customer::invoicing_entity_id)]
+    #[diesel(select_expression_type = customer::invoicing_entity_id)]
+    pub invoicing_entity_id: InvoicingEntityId,
     #[diesel(select_expression = plan_version::version)]
     #[diesel(select_expression_type = plan_version::version)]
     pub version: i32,
@@ -125,9 +142,8 @@ mod subscription_invoice_candidate {
 
     use chrono::{NaiveDate, NaiveDateTime};
 
-    use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
+    use common_domain::ids::{CustomerId, PlanId, PlanVersionId, SubscriptionId, TenantId};
     use diesel::{Queryable, Selectable};
-    use uuid::Uuid;
 
     #[derive(Debug, Queryable, Selectable)]
     #[diesel(table_name = crate::schema::subscription)]
@@ -136,14 +152,13 @@ mod subscription_invoice_candidate {
         pub id: SubscriptionId,
         pub tenant_id: TenantId,
         pub customer_id: CustomerId,
-        pub plan_version_id: Uuid,
+        pub plan_version_id: PlanVersionId,
         pub start_date: NaiveDate,
         pub end_date: Option<NaiveDate>,
         pub billing_start_date: Option<NaiveDate>,
         pub billing_day_anchor: i16,
         pub net_terms: i32,
         pub activated_at: Option<NaiveDateTime>,
-        pub canceled_at: Option<NaiveDateTime>,
         pub period: BillingPeriodEnum,
     }
 
@@ -159,4 +174,28 @@ mod subscription_invoice_candidate {
         #[diesel(select_expression_type = crate::schema::plan::name)]
         pub plan_name: String,
     }
+}
+
+#[derive(AsChangeset)]
+#[diesel(table_name = crate::schema::subscription)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct SubscriptionCycleRowPatch {
+    pub id: SubscriptionId,
+    pub tenant_id: TenantId,
+    pub cycle_index: Option<i32>,
+    pub status: Option<SubscriptionStatusEnum>,
+    pub next_cycle_action: Option<Option<CycleActionEnum>>,
+    pub current_period_start: Option<NaiveDate>,
+    pub current_period_end: Option<Option<NaiveDate>>,
+}
+
+#[derive(AsChangeset)]
+#[diesel(table_name = crate::schema::subscription)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct SubscriptionCycleErrorRowPatch {
+    pub id: SubscriptionId,
+    pub tenant_id: TenantId,
+    pub last_error: Option<Option<String>>,
+    pub next_retry: Option<Option<NaiveDateTime>>,
+    pub error_count: Option<i32>,
 }

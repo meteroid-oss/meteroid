@@ -4,7 +4,9 @@ use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
 use crate::plan_versions::PlanVersionRowOverview;
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, SubscriptionId, TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
 
@@ -30,7 +32,7 @@ pub struct InvoiceRow {
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub total: i64,
-    pub plan_version_id: Option<Uuid>,
+    pub plan_version_id: Option<PlanVersionId>,
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
     pub net_terms: i32,
@@ -85,7 +87,7 @@ pub struct InvoiceRowNew {
     pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
-    pub plan_version_id: Option<Uuid>,
+    pub plan_version_id: Option<PlanVersionId>,
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
@@ -110,6 +112,19 @@ pub struct InvoiceWithCustomerRow {
     pub invoice: InvoiceRow,
     #[diesel(embed)]
     pub customer: CustomerRow,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct InvoiceLockRow {
+    #[diesel(embed)]
+    pub invoice: InvoiceRow,
+    #[diesel(select_expression = crate::schema::customer::balance_value_cents)]
+    #[diesel(select_expression_type = crate::schema::customer::balance_value_cents)]
+    pub customer_balance: i64,
+    #[diesel(select_expression = crate::schema::customer::invoicing_entity_id)]
+    #[diesel(select_expression_type = crate::schema::customer::invoicing_entity_id)]
+    pub customer_invoicing_entity_id: InvoicingEntityId,
 }
 
 #[derive(Debug, Queryable, Selectable)]

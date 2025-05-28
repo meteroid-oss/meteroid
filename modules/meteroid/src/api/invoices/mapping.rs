@@ -168,7 +168,7 @@ pub mod invoices {
             last_issue_error: invoice.last_issue_error,
             data_updated_at: invoice.data_updated_at.as_proto(),
             invoice_date: invoice.invoice_date.as_proto(),
-            plan_version_id: invoice.plan_version_id.as_proto(),
+            plan_version_id: invoice.plan_version_id.map(|x| x.as_proto()),
             invoice_type: invoicing_type_domain_to_server(invoice.invoice_type).into(),
             finalized_at: invoice.finalized_at.as_proto(),
             subtotal: invoice.subtotal,

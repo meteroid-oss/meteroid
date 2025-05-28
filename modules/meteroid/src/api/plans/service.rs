@@ -5,8 +5,7 @@ use crate::api::plans::mapping::plans::{
     PlanTypeWrapper, PlanVersionWrapper, PlanWithVersionWrapper,
 };
 use crate::api::utils::PaginationExt;
-use crate::{api::utils::parse_uuid, parse_uuid};
-use common_domain::ids::{PlanId, ProductFamilyId};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::plans::v1::get_plan_with_version_request::Filter;
 use meteroid_grpc::meteroid::api::plans::v1::{
@@ -193,7 +192,7 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let res = self
             .store
@@ -216,7 +215,7 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let res = self
             .store
@@ -239,7 +238,7 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         self.store
             .discard_draft_plan_version(plan_version_id, tenant_id, actor)
@@ -257,7 +256,7 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let res = self
             .store
@@ -323,7 +322,7 @@ impl PlansService for PlanServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let plan_version_id = parse_uuid!(&req.plan_version_id)?;
+        let plan_version_id = PlanVersionId::from_proto(&req.plan_version_id)?;
 
         let res = self
             .store

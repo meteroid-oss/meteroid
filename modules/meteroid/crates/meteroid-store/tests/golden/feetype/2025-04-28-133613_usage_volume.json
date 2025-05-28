@@ -1,0 +1,18 @@
+{
+  "Usage": {
+    "metric_id": "00000000-0000-0000-0000-000000000000",
+    "pricing": {
+      "Volume": {
+        "tiers": [
+          {
+            "first_unit": 1,
+            "rate": "1.00",
+            "flat_fee": null,
+            "flat_cap": null
+          }
+        ],
+        "block_size": 10
+      }
+    }
+  }
+}

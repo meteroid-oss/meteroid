@@ -18,6 +18,7 @@ use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::pgmq::PgmqInterface;
+use crate::services::utils::format_invoice_number;
 use crate::store::Store;
 use crate::utils::local_id::{IdType, LocalId};
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
@@ -377,7 +378,7 @@ impl CustomersInterface for Store {
         })
         .await
     }
-
+    // TODO use services.bill
     async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
         let mut conn = self.get_conn().await?;
 
@@ -451,7 +452,7 @@ impl CustomersInterface for Store {
                         due_at,
                         plan_name: None,
                         external_invoice_id: None, // todo check later if we want it sync (instead of issue_worker)
-                        invoice_number: self.internal.format_invoice_number(
+                        invoice_number: format_invoice_number(
                             invoicing_entity.next_invoice_number,
                             invoicing_entity.invoice_number_pattern,
                             now.date(),
@@ -525,7 +526,8 @@ impl CustomersInterface for Store {
             })
             .await?;
 
-        self.find_invoice_by_id(req.tenant_id, invoice.id).await
+        self.get_detailed_invoice_by_id(req.tenant_id, invoice.id)
+            .await
     }
 
     async fn find_customer_by_id_or_alias(

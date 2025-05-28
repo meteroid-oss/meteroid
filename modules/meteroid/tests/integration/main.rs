@@ -16,6 +16,7 @@ mod test_idempotency_cache;
 mod test_instance;
 mod test_internal;
 // mod test_payment;
+mod test_billing;
 mod test_plan;
 mod test_product;
 mod test_product_family;
@@ -27,3 +28,5 @@ mod test_tenant;
 mod test_user;
 mod test_webhooks_out;
 mod test_workers;
+
+mod data;

@@ -212,7 +212,7 @@ const HelpPopover: FC = () => {
               >
                 <img
                   className="absolute left-0 top-0 opacity-50"
-                  src="/img/support/github-bg.jpg?v-1"
+                  src="/img/support/github-bg.png?v-1"
                   style={{
                     objectFit: 'cover',
                   }}

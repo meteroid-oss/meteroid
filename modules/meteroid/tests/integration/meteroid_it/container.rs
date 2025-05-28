@@ -1,5 +1,4 @@
 use backon::{ConstantBuilder, Retryable};
-use diesel_async::SimpleAsyncConnection;
 use std::sync::Arc;
 use std::time::Duration;
 use testcontainers::core::WaitFor;
@@ -17,7 +16,8 @@ use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
-use meteroid_store::compute::clients::usage::{MockUsageClient, UsageClient};
+use meteroid_store::Services;
+use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
 use stripe_client::client::StripeClient;
 
@@ -27,6 +27,7 @@ pub struct MeteroidSetup {
     pub channel: Channel,
     pub config: Config,
     pub store: meteroid_store::Store,
+    pub services: meteroid_store::Services,
 }
 
 pub async fn start_meteroid_with_port(
@@ -57,13 +58,14 @@ pub async fn start_meteroid_with_port(
         skip_email_validation: !config.mailer_enabled(),
         public_url: config.public_url.clone(),
         eventbus: create_eventbus_memory(),
-        usage_client,
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         stripe,
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .expect("Could not create store");
+
+    let services = Services::new(Arc::new(store.clone()), usage_client);
 
     populate_postgres(&store.pool, seed_level).await;
 
@@ -73,6 +75,7 @@ pub async fn start_meteroid_with_port(
     let private_server = meteroid::api::server::start_api_server(
         config.clone(),
         store.clone(),
+        services.clone(),
         in_memory_object_store(),
     );
 
@@ -101,6 +104,7 @@ pub async fn start_meteroid_with_port(
         channel,
         config: config.clone(),
         store,
+        services,
     }
 }
 
@@ -176,16 +180,26 @@ pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
 pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
     migrations::run(pool).await.unwrap();
 
-    let mut conn = pool.get().await.unwrap();
+    // let mut conn = pool.get().await.unwrap();
 
     for seed in seed_level.seeds() {
-        let contents = std::fs::read_to_string(seed.path()).expect("Can't access seed file");
-        conn.batch_execute(contents.as_str())
-            .await
-            .inspect_err(|_err| {
-                eprintln!("Seed failed to apply : {}", seed.path());
-            })
-            .unwrap();
+        match seed {
+            Seed::MINIMAL => {
+                crate::data::minimal::run_minimal_seed(pool).await;
+            }
+            Seed::CUSTOMERS => {
+                crate::data::customers::run_customers_seed(pool).await;
+            }
+            Seed::METERS => {
+                crate::data::meters::run_meters_seed(pool).await;
+            }
+            Seed::PLANS => {
+                crate::data::plans::run_plans_seed(pool).await;
+            }
+            Seed::SUBSCRIPTIONS => {
+                unimplemented!("Subscription seed level is not implemented")
+            }
+        }
     }
 }
 
@@ -221,16 +235,4 @@ pub enum Seed {
     METERS,
     PLANS,
     SUBSCRIPTIONS,
-}
-
-impl Seed {
-    fn path(&self) -> &str {
-        match *self {
-            Seed::MINIMAL => "tests/data/0_minimal.sql",
-            Seed::CUSTOMERS => "tests/data/1_customers.sql",
-            Seed::METERS => "tests/data/1_meters.sql",
-            Seed::PLANS => "tests/data/2_plans.sql",
-            Seed::SUBSCRIPTIONS => "tests/data/3_subscriptions.sql",
-        }
-    }
 }

@@ -7,8 +7,9 @@ use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod}
 use crate::domain::SubscriptionFee;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use common_domain::ids::{BaseId, BillableMetricId, PriceComponentId, ProductId};
+use common_domain::ids::{BaseId, BillableMetricId, PlanVersionId, PriceComponentId, ProductId};
 use diesel_models::price_components::{PriceComponentRow, PriceComponentRowNew};
+use golden::golden;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
@@ -40,7 +41,7 @@ pub struct PriceComponentNew {
     pub name: String,
     pub fee: FeeType,
     pub product_id: Option<ProductId>,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
 }
 
 #[derive(Debug, Clone)]
@@ -54,7 +55,9 @@ impl TryInto<PriceComponentRowNew> for PriceComponentNew {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<PriceComponentRowNew, Self::Error> {
-        let json_fee = (&self.fee).try_into()?;
+        let metric = self.fee.metric_id();
+
+        let json_fee: serde_json::Value = self.fee.try_into()?;
 
         Ok(PriceComponentRowNew {
             id: PriceComponentId::new(),
@@ -62,7 +65,7 @@ impl TryInto<PriceComponentRowNew> for PriceComponentNew {
             name: self.name,
             fee: json_fee,
             product_id: self.product_id,
-            billable_metric_id: self.fee.metric_id(),
+            billable_metric_id: metric,
         })
     }
 }
@@ -403,3 +406,92 @@ pub enum UpgradePolicy {
 pub enum DowngradePolicy {
     RemoveAtEndOfPeriod,
 }
+
+golden!(FeeType, {
+    "rate" => FeeType::Rate {
+        rates: vec![TermRate {
+            term: BillingPeriodEnum::Monthly,
+            price: rust_decimal::Decimal::new(100, 2),
+        }],
+    },
+    "slot" => FeeType::Slot {
+        rates: vec![TermRate {
+            term: BillingPeriodEnum::Monthly,
+            price: rust_decimal::Decimal::new(100, 2),
+        }],
+        slot_unit_name: "slot".to_string(),
+        upgrade_policy: UpgradePolicy::Prorated,
+        downgrade_policy: DowngradePolicy::RemoveAtEndOfPeriod,
+        minimum_count: Some(1),
+        quota: Some(10),
+    },
+    "capacity" => FeeType::Capacity {
+        metric_id: Uuid::nil().into(),
+        thresholds: vec![CapacityThreshold {
+            included_amount: 100,
+            price: rust_decimal::Decimal::new(100, 2),
+            per_unit_overage: rust_decimal::Decimal::new(10, 2),
+        }],
+    },
+    "usage_per_unit" => FeeType::Usage {
+        metric_id: Uuid::nil().into(),
+        pricing: UsagePricingModel::PerUnit {
+            rate: rust_decimal::Decimal::new(100, 2),
+        },
+    },
+    "usage_tiered" => FeeType::Usage {
+        metric_id: Uuid::nil().into(),
+        pricing: UsagePricingModel::Tiered {
+            tiers: vec![TierRow {
+                first_unit: 1,
+                rate: rust_decimal::Decimal::new(100, 2),
+                flat_fee: None,
+                flat_cap: None,
+            }],
+            block_size: Some(10),
+        },
+    },
+    "usage_volume" => FeeType::Usage {
+        metric_id: Uuid::nil().into(),
+        pricing: UsagePricingModel::Volume {
+            tiers: vec![TierRow {
+                first_unit: 1,
+                rate: rust_decimal::Decimal::new(100, 2),
+                flat_fee: None,
+                flat_cap: None,
+            }],
+            block_size: Some(10),
+        },
+    },
+    "usage_package" => FeeType::Usage {
+        metric_id: Uuid::nil().into(),
+        pricing: UsagePricingModel::Package {
+            block_size: 10,
+            rate: rust_decimal::Decimal::new(100, 2),
+        },
+    },
+    "usage_matrix" => FeeType::Usage {
+        metric_id: Uuid::nil().into(),
+        pricing: UsagePricingModel::Matrix {
+            rates: vec![MatrixRow {
+                dimension1: MatrixDimension {
+                    key: "key".to_string(),
+                    value: "value".to_string(),
+                },
+                dimension2: None,
+                per_unit_price: rust_decimal::Decimal::new(100, 2),
+            }],
+        },
+    },
+    "extra_recurring" => FeeType::ExtraRecurring {
+        unit_price: rust_decimal::Decimal::new(100, 2),
+        quantity: 1,
+        billing_type: BillingType::Advance,
+        cadence: BillingPeriodEnum::Monthly,
+    },
+    "one_time" => FeeType::OneTime {
+        unit_price: rust_decimal::Decimal::new(100, 2),
+        quantity: 1,
+    },
+
+});

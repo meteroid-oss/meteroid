@@ -32,7 +32,7 @@ pub struct Customer {
     pub alias: Option<String>,
     pub billing_email: Option<String>,
     pub phone: Option<String>,
-    pub balance_value_cents: i32,
+    pub balance_value_cents: i64,
     pub currency: String,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub billing_address: Option<Address>,
@@ -66,7 +66,7 @@ pub struct CustomerNew {
     pub billing_email: Option<String>,
     pub invoicing_emails: Vec<String>,
     pub phone: Option<String>,
-    pub balance_value_cents: i32,
+    pub balance_value_cents: i64,
     pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
@@ -133,7 +133,7 @@ pub struct CustomerPatch {
     #[map(~.map(|v| v.into_iter().map(|t| Some(t.into())).collect()))]
     pub invoicing_emails: Option<Vec<String>>,
     pub phone: Option<String>,
-    pub balance_value_cents: Option<i32>,
+    pub balance_value_cents: Option<i64>,
     pub currency: Option<String>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub billing_address: Option<Address>,
@@ -188,7 +188,7 @@ pub struct CustomerTopUpBalance {
     pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub cents: i32,
+    pub cents: i64,
     pub notes: Option<String>,
 }
 
@@ -197,7 +197,7 @@ pub struct CustomerBuyCredits {
     pub created_by: Uuid,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub cents: i32,
+    pub cents: i64,
     pub notes: Option<String>,
 }
 

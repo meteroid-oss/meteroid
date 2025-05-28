@@ -81,7 +81,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
+            .get_detailed_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
             .await
             .and_then(|inv| {
                 mapping::invoices::domain_invoice_with_plan_details_to_server(
@@ -129,7 +129,7 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let invoice = self
             .store
-            .find_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
+            .get_detailed_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
@@ -158,7 +158,7 @@ impl InvoicesService for InvoiceServiceComponents {
         let req = request.into_inner();
 
         let invoice = self
-            .store
+            .services
             .refresh_invoice_data(InvoiceId::from_proto(&req.id)?, tenant_id)
             .await
             .and_then(|inv| {

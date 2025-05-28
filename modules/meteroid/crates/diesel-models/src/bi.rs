@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use uuid::Uuid;
 
 use super::enums::MrrMovementType;
-use common_domain::ids::{CustomerId, InvoiceId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, PlanVersionId, TenantId};
 use diesel::{Identifiable, Insertable, Queryable};
 
 #[derive(Queryable, Debug, Identifiable, Insertable)]
@@ -21,7 +21,7 @@ pub struct BiCustomerYtdSummaryRow {
 #[diesel(table_name = crate::schema::bi_delta_mrr_daily, primary_key(tenant_id, plan_version_id, currency, date))]
 pub struct BiDeltaMrrDailyRow {
     pub tenant_id: TenantId,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub date: NaiveDate,
     pub currency: String,
     pub net_mrr_cents: i64,
@@ -56,7 +56,7 @@ pub struct BiMrrMovementLogRow {
     pub applies_to: NaiveDate,
     pub invoice_id: InvoiceId,
     pub credit_note_id: Option<Uuid>,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub tenant_id: TenantId,
 }
 
@@ -71,7 +71,7 @@ pub struct BiMrrMovementLogRowNew {
     pub applies_to: NaiveDate,
     pub invoice_id: InvoiceId,
     pub credit_note_id: Option<Uuid>,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub tenant_id: TenantId,
 }
 

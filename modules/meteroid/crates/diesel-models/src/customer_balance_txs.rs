@@ -10,8 +10,8 @@ use diesel::{Identifiable, Insertable, Queryable, Selectable};
 pub struct CustomerBalanceTxRow {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
-    pub amount_cents: i32,
-    pub balance_cents_after: i32,
+    pub amount_cents: i64,
+    pub balance_cents_after: i64,
     pub note: Option<String>,
     pub invoice_id: Option<InvoiceId>,
     pub tenant_id: TenantId,
@@ -24,8 +24,8 @@ pub struct CustomerBalanceTxRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerBalanceTxRowNew {
     pub id: Uuid,
-    pub amount_cents: i32,
-    pub balance_cents_after: i32,
+    pub amount_cents: i64,
+    pub balance_cents_after: i64,
     pub note: Option<String>,
     pub invoice_id: Option<InvoiceId>,
     pub tenant_id: TenantId,
@@ -40,7 +40,7 @@ pub struct CustomerBalancePendingTxRow {
     pub id: Uuid,
     pub created_at: NaiveDateTime,
     pub updated_at: NaiveDateTime,
-    pub amount_cents: i32,
+    pub amount_cents: i64,
     pub note: Option<String>,
     pub invoice_id: InvoiceId,
     pub tenant_id: TenantId,
@@ -54,7 +54,7 @@ pub struct CustomerBalancePendingTxRow {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CustomerBalancePendingTxRowNew {
     pub id: Uuid,
-    pub amount_cents: i32,
+    pub amount_cents: i64,
     pub note: Option<String>,
     pub invoice_id: InvoiceId,
     pub tenant_id: TenantId,

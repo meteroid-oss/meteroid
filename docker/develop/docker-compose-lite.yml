@@ -1,44 +1,87 @@
-x-default-logging: &logging
-  driver: "json-file"
-  options:
-    max-size: "5m"
-    max-file: "2"
-    tag: "{{.Name}}"
+name: meteroid-lite
 
 volumes:
   pg_data:
+  minio_data:
+  redpanda_data:
 
 networks:
   meteroid_net:
 
-name: meteroid-lite
-
 services:
 
-  ### Meteroid Dependencies
+  # The database is all you need to start Meteroid in degraded mode for development.
   meteroid-db:
-    image: ghcr.io/meteroid-oss/meteroid-postgres:17.4
-    container_name: meteroid-db
-    ports:
-      - '5432:5432'
-    user: postgres
-    environment:
-      - POSTGRES_USER=${DATABASE_USER:-meteroid}
-      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
-      - POSTGRES_DB=${DATABASE_NAME:-meteroid}
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: [ 'CMD-SHELL', 'pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}' ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    command:
-      - "postgres"
-      - "-c"
-      - "wal_level=logical"
-      - "-c"
-      - "shared_preload_libraries=pg_stat_statements"
-    networks:
-      - meteroid_net
+    extends:
+      file: docker-compose.yml
+      service: meteroid-db
+
+  # All other services are disabled by default
+  # and can be enabled using profiles ex: --profile full
+
+  svix-server:
+    extends:
+      file: docker-compose.yml
+      service: svix-server
+    profiles:
+      - webhook
+      - full
+
+  pgbouncer:
+    extends:
+      file: docker-compose.yml
+      service: pgbouncer
+    profiles:
+      - webhook
+      - full
+
+  minio:
+    extends:
+      file: docker-compose.yml
+      service: minio
+    profiles:
+      - storage
+      - full
+
+  createbuckets:
+    extends:
+      file: docker-compose.yml
+      service: createbuckets
+    profiles:
+      - storage
+      - full
+
+  clickhouse:
+    extends:
+      file: docker-compose.yml
+      service: clickhouse
+    profiles:
+      - metering
+      - full
+
+  redpanda:
+    extends:
+      file: docker-compose.yml
+      service: redpanda
+    profiles:
+      - metering
+      - full
+
+  redpanda-console:
+    extends:
+      file: docker-compose.yml
+      service: redpanda-console
+    profiles:
+      - metering
+      - full
+
+  redpanda-topic-create:
+    extends:
+      file: docker-compose.yml
+      service: redpanda-topic-create
+    profiles:
+      - metering
+      - full
+
+
 

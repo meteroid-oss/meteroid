@@ -98,14 +98,13 @@ utoipa-scalar.workspace = true
 svix = { workspace = true, features = ["http2", "rustls-tls"] }
 strum = { workspace = true, features = ["derive"] }
 
-rdkafka = { workspace = true }
-kafka = { workspace = true }
+
 env_logger = { workspace = true }
 o2o.workspace = true
 itertools = { workspace = true }
 validator = { workspace = true, features = ["derive"] }
 axum-valid = { workspace = true }
-
+metering = { workspace = true, features = ["clickhouse", "kafka"], optional = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
@@ -114,6 +113,12 @@ tokio-util = { workspace = true }
 clickhouse = { workspace = true, features = ["chrono"] }
 metering = { workspace = true, features = ["clickhouse", "kafka"] }
 backon = { workspace = true }
+diesel-models.workspace = true
+rdkafka = { workspace = true }
+kafka = { workspace = true }
+
+[features]
+metering-server = ["metering"]
 
 [[bin]]
 name = "meteroid-api"
@@ -123,7 +128,10 @@ path = "src/bin/server.rs"
 name = "openapi-generate"
 path = "src/bin/openapi.rs"
 
-# local / staging. For production workload, prefer running each worker as a pod and use k8s scheduler
 [[bin]]
 name = "meteroid-scheduler"
 path = "src/bin/scheduler.rs"
+
+[[bin]]
+name = "standalone"
+path = "src/bin/standalone.rs"

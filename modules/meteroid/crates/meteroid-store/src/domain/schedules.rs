@@ -1,27 +1,27 @@
-use error_stack::Report;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use crate::domain::adjustments::discount::{Amount, StandardDiscount};
 use crate::domain::enums::BillingPeriodEnum;
 use crate::errors::StoreError;
 use crate::json_value_serde;
+use common_domain::ids::PlanVersionId;
 use diesel_models::schedules::SchedulePatchRow;
 use diesel_models::schedules::ScheduleRow;
 use diesel_models::schedules::ScheduleRowNew;
+use error_stack::Report;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 pub struct Schedule {
     pub id: Uuid,
     pub billing_period: BillingPeriodEnum,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub ramps: PlanRamps,
 }
 
 #[derive(Clone, Debug)]
 pub struct ScheduleNew {
     pub billing_period: BillingPeriodEnum,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub ramps: PlanRamps,
 }
 

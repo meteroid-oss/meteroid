@@ -1,12 +1,12 @@
+use crate::data::ids::{SUB_UBER_LEETCODE_ID, TENANT_ID};
 use crate::helpers;
 use crate::meteroid_it;
-use crate::meteroid_it::db::seed::*;
 use chrono::NaiveDateTime;
+use common_domain::ids::SubscriptionId;
 use meteroid::eventbus::create_eventbus_memory;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
 use meteroid_store::Store;
-use meteroid_store::compute::clients::usage::MockUsageClient;
 use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::store::StoreConfig;
 use secrecy::SecretString;
@@ -15,7 +15,7 @@ use std::sync::Arc;
 use stripe_client::client::StripeClient;
 use uuid::{Uuid, uuid};
 
-const SLOT_SUBSCRIPTION_ID: Uuid = SUBSCRIPTION_UBER_ID1;
+const SLOT_SUBSCRIPTION_ID: SubscriptionId = SUB_UBER_LEETCODE_ID;
 const SLOT_PRICE_COMPONENT_ID: Uuid = uuid!("018c344c-9ec9-7608-b115-1537b6985e73");
 
 #[tokio::test]
@@ -32,7 +32,6 @@ async fn test_slot_transaction_active_slots() {
         multi_organization_enabled: false,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_memory(),
-        usage_client: Arc::new(MockUsageClient::noop()),
         svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         stripe: Arc::new(StripeClient::new()),
@@ -121,16 +120,17 @@ async fn create_slot_transaction(
         .unwrap();
 }
 
-async fn get_active_slots(store: &Store, timestamp: NaiveDateTime) -> u32 {
-    store
-        .get_current_slots_value(
-            TENANT_ID.into(),
-            SLOT_SUBSCRIPTION_ID.into(),
-            SLOT_PRICE_COMPONENT_ID.into(),
-            Some(timestamp),
-        )
-        .await
-        .unwrap()
+async fn get_active_slots(_store: &Store, _timestamp: NaiveDateTime) -> u32 {
+    // store
+    //     .get_current_slots_value(
+    //         TENANT_ID.into(),
+    //         SLOT_SUBSCRIPTION_ID.into(),
+    //         SLOT_PRICE_COMPONENT_ID.into(),
+    //         Some(timestamp),
+    //     )
+    //     .await
+    //     .unwrap()
+    todo!()
 }
 
 fn datetime(str: &str) -> NaiveDateTime {

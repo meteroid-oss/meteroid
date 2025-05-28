@@ -1,0 +1,15 @@
+{
+  "Slot": {
+    "rates": [
+      {
+        "term": "Monthly",
+        "price": "1.00"
+      }
+    ],
+    "slot_unit_name": "slot",
+    "upgrade_policy": "Prorated",
+    "downgrade_policy": "RemoveAtEndOfPeriod",
+    "minimum_count": 1,
+    "quota": 10
+  }
+}

@@ -16,10 +16,6 @@ pub enum SubscriptionApiError {
     #[code(InvalidArgument)]
     MissingArgument(String),
 
-    #[error("Calculation error: {0}")]
-    #[code(Internal)]
-    CalculationError(String, #[source] meteroid_store::compute::ComputeError),
-
     #[error("Failed to retrieve the subscription details: {0}")]
     #[code(Internal)]
     SubscriptionDetailsError(String, #[source] anyhow::Error),

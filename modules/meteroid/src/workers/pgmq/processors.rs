@@ -1,5 +1,6 @@
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::ObjectStoreService;
+use crate::workers::pgmq::billable_metric_sync::BillableMetricSync;
 use crate::workers::pgmq::hubspot_sync::HubspotSync;
 use crate::workers::pgmq::outbox::{PgmqOutboxDispatch, PgmqOutboxProxy};
 use crate::workers::pgmq::pdf_render::PdfRender;
@@ -9,6 +10,7 @@ use crate::workers::pgmq::webhook_out::WebhookOut;
 use common_domain::pgmq::{MessageReadQty, MessageReadVtSec, ReadCt};
 use hubspot_client::client::HubspotClient;
 use meteroid_store::Store;
+use meteroid_store::clients::usage::UsageClient;
 use meteroid_store::domain::pgmq::PgmqQueue;
 use pennylane_client::client::PennylaneClient;
 use rand::Rng;
@@ -106,6 +108,27 @@ pub async fn run_pennylane_sync(
         vt: MessageReadVtSec(20),
         delete_succeeded: false,
         sleep_duration: std::time::Duration::from_millis(2000),
+        max_read_count: ReadCt(10),
+    })
+    .await;
+}
+
+pub async fn run_metric_sync(store: Arc<Store>, usage_client: Arc<dyn UsageClient>) {
+    let queue = PgmqQueue::BillableMetricSync;
+    let processor = Arc::new(PgmqOutboxProxy::new(
+        store.clone(),
+        Arc::new(BillableMetricSync::new(usage_client.clone())),
+    ));
+
+    run(ProcessorConfig {
+        name: processor_name("BillableMetricSync"),
+        queue,
+        handler: processor,
+        store,
+        qty: MessageReadQty(10),
+        vt: MessageReadVtSec(20),
+        delete_succeeded: true,
+        sleep_duration: std::time::Duration::from_millis(1500),
         max_read_count: ReadCt(10),
     })
     .await;

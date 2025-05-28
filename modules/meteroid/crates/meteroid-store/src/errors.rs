@@ -1,6 +1,5 @@
 use diesel::result::Error;
 
-use crate::compute::ComputeError;
 use diesel_models::errors::DatabaseError;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +29,8 @@ pub enum StoreError {
     TransactionStoreError(error_stack::Report<StoreError>),
     #[error("Failed to compute invoice lines")]
     InvoiceComputationError,
+    #[error("Failed to bill subscription")]
+    BillingError,
     #[error("Failed to process price components: {0}")]
     InvalidPriceComponents(String),
     #[error("Failed to serialize/deserialize data: {0}")]
@@ -42,8 +43,8 @@ pub enum StoreError {
     UserRegistrationClosed(String),
     #[error("Negative customer balance: {0:?}")]
     NegativeCustomerBalanceError(error_stack::Report<DatabaseError>),
-    #[error("Metering Service error: {0}")]
-    MeteringServiceError(String, #[source] ComputeError),
+    #[error("Error in metering client")]
+    MeteringServiceError,
     #[error("Webhook Service error: {0}")]
     WebhookServiceError(String),
     #[error("Failed to send email")]
@@ -56,6 +57,8 @@ pub enum StoreError {
     CheckoutError,
     #[error("Provider is not connected")]
     ProviderNotConnected,
+    #[error("Invalid date value")]
+    InvalidDate,
 }
 
 // used in some o2o macros failing to compile, https://github.com/meteroid-oss/meteroid/actions/runs/10921372280/job/30313299862

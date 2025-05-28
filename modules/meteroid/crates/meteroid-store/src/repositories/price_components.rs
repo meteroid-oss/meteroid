@@ -4,15 +4,14 @@ use error_stack::Report;
 
 use crate::domain::price_components::{PriceComponent, PriceComponentNew};
 use crate::errors::StoreError;
-use common_domain::ids::{PriceComponentId, TenantId};
+use common_domain::ids::{PlanVersionId, PriceComponentId, TenantId};
 use diesel_models::price_components::PriceComponentRow;
-use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait PriceComponentInterface {
     async fn list_price_components(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>>;
 
@@ -36,7 +35,7 @@ pub trait PriceComponentInterface {
         &self,
         price_component: PriceComponent,
         tenant_id: TenantId,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
     ) -> StoreResult<Option<PriceComponent>>;
 
     async fn delete_price_component(
@@ -50,7 +49,7 @@ pub trait PriceComponentInterface {
 impl PriceComponentInterface for Store {
     async fn list_price_components(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<PriceComponent>> {
         let mut conn = self.get_conn().await?;
@@ -114,7 +113,7 @@ impl PriceComponentInterface for Store {
         &self,
         price_component: PriceComponent,
         tenant_id: TenantId,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
     ) -> StoreResult<Option<PriceComponent>> {
         let json_fee = serde_json::to_value(&price_component.fee).map_err(|e| {
             StoreError::SerdeError("Failed to serialize price component fee".to_string(), e)

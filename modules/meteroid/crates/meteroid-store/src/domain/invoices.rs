@@ -8,7 +8,7 @@ use crate::errors::{StoreError, StoreErrorReport};
 use crate::utils::decimals::ToSubunit;
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    BaseId, CustomerId, InvoiceId, InvoicingEntityId, SubscriptionId, TenantId,
+    BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, SubscriptionId, TenantId,
 };
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
@@ -51,7 +51,7 @@ pub struct Invoice {
     pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
-    pub plan_version_id: Option<Uuid>,
+    pub plan_version_id: Option<PlanVersionId>,
     #[from(~.into())]
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
@@ -82,6 +82,12 @@ pub struct Invoice {
     pub conn_meta: Option<ConnectionMeta>,
 }
 
+impl Invoice {
+    pub fn can_edit(&self) -> bool {
+        self.status == InvoiceStatusEnum::Draft || self.status == InvoiceStatusEnum::Pending
+    }
+}
+
 #[derive(Debug, o2o)]
 #[owned_try_into(InvoiceRowNew, StoreErrorReport)]
 #[ghosts(id: {InvoiceId::new()})]
@@ -106,7 +112,7 @@ pub struct InvoiceNew {
     pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
-    pub plan_version_id: Option<Uuid>,
+    pub plan_version_id: Option<PlanVersionId>,
     #[into(~.into())]
     pub invoice_type: InvoiceType,
     pub finalized_at: Option<NaiveDateTime>,
@@ -146,35 +152,6 @@ pub struct InvoiceLinesPatch {
     pub applied_credits: i64,
     #[ghost({vec![]})]
     pub applied_coupons: Vec<(Uuid, i64)>,
-}
-
-impl InvoiceLinesPatch {
-    pub fn new(
-        detailed_invoice: &DetailedInvoice,
-        line_items: Vec<LineItem>,
-        applied_coupons: &[AppliedCouponDetailed],
-    ) -> Self {
-        let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
-            line_items: &line_items,
-            total: detailed_invoice.invoice.total,
-            amount_due: detailed_invoice.invoice.amount_due,
-            tax_rate: detailed_invoice.invoice.tax_rate,
-            customer_balance_cents: detailed_invoice.customer.balance_value_cents,
-            subscription_applied_coupons: &applied_coupons.to_vec(),
-            invoice_currency: detailed_invoice.invoice.currency.as_str(),
-        });
-
-        InvoiceLinesPatch {
-            line_items,
-            amount_due: totals.amount_due,
-            subtotal: totals.subtotal,
-            subtotal_recurring: totals.subtotal_recurring,
-            total: totals.total,
-            tax_amount: totals.tax_amount,
-            applied_credits: totals.applied_credits,
-            applied_coupons: totals.applied_coupons,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -248,7 +225,7 @@ pub struct InvoiceTotalsParams<'a> {
     pub total: i64,
     pub amount_due: i64,
     pub tax_rate: i32,
-    pub customer_balance_cents: i32,
+    pub customer_balance_cents: i64,
     pub invoice_currency: &'a str,
 }
 
