@@ -204,7 +204,7 @@ pub struct SubscriptionNewEnriched<'a> {
     pub cycle_index: Option<u32>,
 }
 
-impl<'a> SubscriptionNewEnriched<'a> {
+impl SubscriptionNewEnriched<'_> {
     pub fn map_to_row(&self) -> SubscriptionRowNew {
         let sub = &self.subscription;
         SubscriptionRowNew {
@@ -213,7 +213,7 @@ impl<'a> SubscriptionNewEnriched<'a> {
             customer_id: sub.customer_id,
             billing_day_anchor: self.billing_day_anchor as i16,
             tenant_id: self.tenant_id,
-            currency: (&self.plan.currency).clone(),
+            currency: self.plan.currency.clone(),
             billing_start_date: Some(self.billing_start_date),
             end_date: sub.end_date,
             plan_version_id: sub.plan_version_id,
@@ -225,9 +225,9 @@ impl<'a> SubscriptionNewEnriched<'a> {
             net_terms: self.net_terms as i32,
             invoice_memo: sub.invoice_memo.clone(),
             invoice_threshold: sub.invoice_threshold,
-            activated_at: self.activated_at.clone(),
+            activated_at: self.activated_at,
             mrr_cents: 0,
-            period: (&self.period).clone().into(),
+            period: self.period.clone().into(),
             start_date: sub.start_date,
             activation_condition: sub.activation_condition.clone().into(),
             payment_method: self.payment_setup_result.payment_method,

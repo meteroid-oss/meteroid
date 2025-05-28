@@ -15,33 +15,6 @@ use error_stack::ResultExt;
 use uuid::Uuid;
 
 impl SubscriptionRow {
-    // pub async fn cancel_subscription(
-    //     conn: &mut PgConn,
-    //     params: CancelSubscriptionParams,
-    // ) -> DbResult<()> {
-    //     use crate::schema::subscription::dsl::*;
-    //
-    //     let query = diesel::update(subscription)
-    //         .filter(id.eq(params.subscription_id))
-    //         .filter(tenant_id.eq(params.tenant_id))
-    //         .filter(canceled_at.is_null())
-    //         .set((
-    //             end_date.eq(params.billing_end_date),
-    //             canceled_at.eq(params.canceled_at), // TODO drop
-    //             cancellation_reason.eq(params.reason),
-    //         ));
-    //
-    //     log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-    //
-    //     query
-    //         .execute(conn)
-    //         .await
-    //         .attach_printable("Error while canceling subscription")
-    //         .into_db_result()?;
-    //
-    //     Ok(())
-    // }
-
     pub async fn activate_subscription(
         conn: &mut PgConn,
         id: &SubscriptionId,

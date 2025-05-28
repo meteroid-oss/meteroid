@@ -109,7 +109,7 @@ impl Services {
         })?;
 
         // Process based on event type
-        let result = match event.event_type {
+        match event.event_type {
             ScheduledEventTypeEnum::FinalizeInvoice => {
                 self.process_finalize_invoice(conn, &event).await
             }
@@ -123,9 +123,7 @@ impl Services {
             ScheduledEventTypeEnum::PauseSubscription => {
                 self.process_pause_subscription(conn, &event).await
             }
-        };
-
-        result
+        }
     }
     /// Determine if event should be retried
     fn should_retry_event(&self, retries: i32, _error: &StoreError) -> bool {

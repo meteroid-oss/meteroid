@@ -548,7 +548,7 @@ fn calculate_period_end_dates(
     loop {
         let period = calculate_advance_period_range(
             billing_start_date,
-            billing_day as u32,
+            billing_day,
             period_index == 0,
             billing_period,
         );

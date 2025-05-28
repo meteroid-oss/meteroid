@@ -396,8 +396,8 @@ impl CustomersInterface for Store {
                     let line_items = vec![LineItem {
                         local_id: LocalId::generate_for(IdType::Other),
                         name: "Purchase credits".into(),
-                        total: req.cents as i64,
-                        subtotal: req.cents as i64,
+                        total: req.cents,
+                        subtotal: req.cents,
                         quantity: Some(req.cents.into()),
                         unit_price: Some(1.into()),
                         start_date: now.date(),

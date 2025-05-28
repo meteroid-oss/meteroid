@@ -19,7 +19,7 @@ pub use subscriptions::insert::payment_method::PaymentSetupResult;
 
 // INTERNAL. Share connections
 #[derive(Clone)]
-pub(self) struct Services {
+struct Services {
     store: Arc<Store>,
     usage_client: Arc<dyn UsageClient>,
 }

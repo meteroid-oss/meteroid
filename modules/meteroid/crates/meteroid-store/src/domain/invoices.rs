@@ -256,7 +256,7 @@ impl InvoiceTotals {
         let tax_amount = subtotal_with_discounts * params.tax_rate as i64 / 100;
 
         let total = subtotal_with_discounts + tax_amount;
-        let applied_credits = min(total, params.customer_balance_cents as i64);
+        let applied_credits = min(total, params.customer_balance_cents);
         let already_paid = params.total - params.amount_due;
         let amount_due = total - already_paid - applied_credits;
         let subtotal_recurring = params

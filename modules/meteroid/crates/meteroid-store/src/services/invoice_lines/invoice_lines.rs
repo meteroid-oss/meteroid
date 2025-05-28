@@ -45,24 +45,24 @@ impl Services {
         let price_components_lines = self
             .process_fee_records(
                 conn,
-                &subscription_details,
+                subscription_details,
                 &subscription_details.price_components,
                 invoice_date,
                 billing_start_date,
                 cycle_index,
-                &currency,
+                currency,
             )
             .await?;
 
         let add_ons_lines = self
             .process_fee_records(
                 conn,
-                &subscription_details,
+                subscription_details,
                 &subscription_details.add_ons,
                 invoice_date,
                 billing_start_date,
                 cycle_index,
-                &currency,
+                currency,
             )
             .await?;
 
@@ -74,6 +74,7 @@ impl Services {
         Ok(invoice_lines)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_fee_records<T: SubscriptionFeeInterface>(
         &self,
         conn: &mut PgConn,
@@ -120,7 +121,7 @@ impl Services {
                 let lines = self
                     .compute_component(
                         conn,
-                        &subscription_details,
+                        subscription_details,
                         component,
                         period.clone(),
                         &invoice_date,

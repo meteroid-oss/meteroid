@@ -111,8 +111,8 @@ async fn create_slot_transaction(
     // store.add_slot_transaction is not implemented yet
     store
         .add_slot_transaction(
-            TENANT_ID.into(),
-            SLOT_SUBSCRIPTION_ID.into(),
+            TENANT_ID,
+            SLOT_SUBSCRIPTION_ID,
             SLOT_PRICE_COMPONENT_ID.into(),
             delta,
         )

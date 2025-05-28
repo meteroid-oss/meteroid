@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 
 use error_stack::ResultExt;
 
-use common_domain::ids::{PlanVersionId, SubscriptionId, TenantId};
+use common_domain::ids::{BaseId, PlanVersionId, SubscriptionId, TenantId};
 use diesel::{ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 
 impl ScheduleRowNew {
@@ -139,7 +139,7 @@ impl ScheduleRow {
                 gen_random_uuid(),
                 s_dsl::billing_period,
                 diesel::dsl::sql::<diesel::sql_types::Uuid>(
-                    format!("'{}'", dst_plan_version_id).as_str(),
+                    format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
                 ),
                 s_dsl::ramps,
             ))

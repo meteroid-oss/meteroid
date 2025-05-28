@@ -103,7 +103,7 @@ impl Services {
                                 "no price component id".to_string(),
                             )))
                             .attach_printable("Failed to fetch slot data")?,
-                        &subscription_details,
+                        subscription_details,
                     ) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
                     .await?
                     .max(min_slots.unwrap_or(0) as u64)
@@ -136,7 +136,7 @@ impl Services {
                 if let Some(arrear_period) = periods.arrear {
                     if overage_rate > &Decimal::ZERO {
                         let usage = self
-                            .fetch_usage(arrear_period.clone(), *metric_id, &subscription_details)
+                            .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
                             .await?
                             .single()?;
 
@@ -174,7 +174,7 @@ impl Services {
             SubscriptionFee::Usage { metric_id, model } => {
                 if let Some(arrear_period) = periods.arrear {
                     let usage = self
-                        .fetch_usage(arrear_period.clone(), *metric_id, &subscription_details)
+                        .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
                         .await?;
 
                     match model {

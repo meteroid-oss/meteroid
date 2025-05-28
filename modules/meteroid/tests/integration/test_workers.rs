@@ -57,12 +57,12 @@ async fn test_draft_worker() {
     assert_eq!(invoices.len(), 6);
 
     let expected_sub_ids: HashSet<SubscriptionId> = HashSet::from_iter(vec![
-        SUB_SPOTIFY_NOTION_ID.into(),
-        SUB_SPOTIFY_SUPABASE_ID.into(),
-        SUB_UBER_NOTION_ID.into(),
-        SUB_UBER_LEETCODE_ID.into(),
-        SUB_COMODO_SUPABASE_ID.into(),
-        SUB_COMODO_LEETCODE_ID.into(),
+        SUB_SPOTIFY_NOTION_ID,
+        SUB_SPOTIFY_SUPABASE_ID,
+        SUB_UBER_NOTION_ID,
+        SUB_UBER_LEETCODE_ID,
+        SUB_COMODO_SUPABASE_ID,
+        SUB_COMODO_LEETCODE_ID,
     ]);
 
     let actual_sub_ids: HashSet<SubscriptionId> =
@@ -75,22 +75,20 @@ async fn test_draft_worker() {
 
         let subscription_id = invoice.subscription_id.unwrap();
 
-        if subscription_id == SUB_SPOTIFY_NOTION_ID.into()
-            || subscription_id == SUB_SPOTIFY_SUPABASE_ID.into()
-        {
-            assert_eq!(invoice.customer_id, CUST_SPOTIFY_ID.into());
+        if subscription_id == SUB_SPOTIFY_NOTION_ID || subscription_id == SUB_SPOTIFY_SUPABASE_ID {
+            assert_eq!(invoice.customer_id, CUST_SPOTIFY_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if subscription_id == SUB_UBER_NOTION_ID.into() {
-            assert_eq!(invoice.customer_id, CUST_UBER_ID.into());
+        } else if subscription_id == SUB_UBER_NOTION_ID {
+            assert_eq!(invoice.customer_id, CUST_UBER_ID);
             assert_eq!(invoice.invoice_date, date("2024-11-01"));
-        } else if subscription_id == SUB_UBER_LEETCODE_ID.into() {
-            assert_eq!(invoice.customer_id, CUST_UBER_ID.into());
+        } else if subscription_id == SUB_UBER_LEETCODE_ID {
+            assert_eq!(invoice.customer_id, CUST_UBER_ID);
             assert_eq!(invoice.invoice_date, date("2023-11-15"));
-        } else if subscription_id == SUB_COMODO_SUPABASE_ID.into() {
-            assert_eq!(invoice.customer_id, CUST_COMODO_ID.into());
+        } else if subscription_id == SUB_COMODO_SUPABASE_ID {
+            assert_eq!(invoice.customer_id, CUST_COMODO_ID);
             assert_eq!(invoice.invoice_date, date("2023-12-01"));
-        } else if subscription_id == SUB_COMODO_LEETCODE_ID.into() {
-            assert_eq!(invoice.customer_id, CUST_COMODO_ID.into());
+        } else if subscription_id == SUB_COMODO_LEETCODE_ID {
+            assert_eq!(invoice.customer_id, CUST_COMODO_ID);
             assert_eq!(invoice.invoice_date, date("2023-11-30"));
         } else {
             panic!("Unexpected invoice: {:?}", invoice);
@@ -119,7 +117,7 @@ fn date(date_str: &str) -> NaiveDate {
 async fn list_invoices(store: &Store) -> Vec<InvoiceWithCustomer> {
     store
         .list_invoices(
-            TENANT_ID.into(),
+            TENANT_ID,
             None,
             None,
             None,

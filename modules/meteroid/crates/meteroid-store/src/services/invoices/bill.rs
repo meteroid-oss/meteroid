@@ -159,7 +159,7 @@ impl Services {
         let updated_invoice =
             InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
 
-        Ok(DetailedInvoice::try_from(updated_invoice)?).map(Some)
+        Ok(Some(DetailedInvoice::try_from(updated_invoice)?))
     }
 
     fn as_detailed_invoice(

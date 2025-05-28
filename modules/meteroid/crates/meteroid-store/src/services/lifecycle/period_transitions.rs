@@ -40,7 +40,7 @@ impl Services {
                             // should we have a failure / errored terminal state ?
                             SubscriptionCycleErrorRowPatch {
                                 id: subscription.id,
-                                tenant_id: subscription.tenant_id.clone(),
+                                tenant_id: subscription.tenant_id,
                                 last_error: Some(Some(err.to_string())),
                                 next_retry: Some(Some(calculate_retry_time(
                                     subscription.error_count,
@@ -53,7 +53,7 @@ impl Services {
                             // TODO mark as processed / detect unchanged (avoid the risk of loops)
                             SubscriptionCycleErrorRowPatch {
                                 id: subscription.id,
-                                tenant_id: subscription.tenant_id.clone(),
+                                tenant_id: subscription.tenant_id,
                                 last_error: Some(None),
                                 next_retry: Some(None),
                                 error_count: Some(0),
@@ -136,7 +136,7 @@ impl Services {
                                 subscription.id,
                                 event
                             );
-                            ScheduledEventRow::mark_as_processing(conn, &vec![event.id]).await?;
+                            ScheduledEventRow::mark_as_processing(conn, &[event.id]).await?;
                             self.process_event_batch(conn, vec![event]).await?;
                             return Ok(());
                         }
