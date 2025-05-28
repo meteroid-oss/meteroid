@@ -40,6 +40,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+#        if no space left on device, try https://github.com/orgs/community/discussions/25678
+#      - name: Delete huge unnecessary tools folder
+#        run: rm -rf /opt/hostedtoolcache
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -48,6 +53,8 @@ jobs:
           unzip protoc*.zip
           sudo mv bin/protoc /usr/local/bin
           sudo mv include/google /usr/local/include
+      - name: Setup mold linker
+        uses: rui314/setup-mold@v1
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@1.86.0
       - uses: Swatinem/rust-cache@v2
