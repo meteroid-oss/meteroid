@@ -48,7 +48,7 @@ export const Customer = () => {
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
                   <OverviewCard title="MRR" value={0} />
-                  <OverviewCard title="Balance" value={data?.balanceValueCents} />
+                  <OverviewCard title="Balance" value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined} />
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Subscriptions</div>

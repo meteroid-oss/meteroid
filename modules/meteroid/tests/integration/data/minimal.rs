@@ -8,7 +8,7 @@ use diesel_models::errors::DatabaseErrorContainer;
 use diesel_models::historical_rates_from_usd::HistoricalRatesFromUsdRowNew;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::organization_members::OrganizationMemberRow;
-use diesel_models::organizations::OrganizationRowNew;
+use diesel_models::organizations::{OrganizationRow, OrganizationRowNew};
 use diesel_models::tenants::TenantRowNew;
 use diesel_models::users::UserRowNew;
 use meteroid_store::store::PgPool;
@@ -30,6 +30,12 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             slug: "TESTORG".to_string(),
             default_country: "FR".to_string(),
         }.insert(tx).await?;
+
+        OrganizationRow::update_invite_link(
+            tx,
+            ids::ORGANIZATION_ID,
+            &"fake-invite-link".to_string(),
+        ).await?;
 
         // create user
         UserRowNew {

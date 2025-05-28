@@ -99,3 +99,6 @@ ALTER TABLE customer_balance_tx
 
 ALTER TABLE customer_balance_pending_tx
   ALTER COLUMN amount_cents TYPE BIGINT;
+
+
+SELECT pgmq.create('billable_metric_sync');

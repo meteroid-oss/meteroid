@@ -38,3 +38,4 @@ ALTER TABLE customer_balance_tx
 ALTER TABLE customer_balance_pending_tx
   ALTER COLUMN amount_cents TYPE integer;
 
+SELECT pgmq.drop_queue('billable_metric_sync');
