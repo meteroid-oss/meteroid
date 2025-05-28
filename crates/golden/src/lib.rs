@@ -62,7 +62,7 @@ where
             // Skip if content already exists
             if existing_content
                 .get(&name)
-                .map_or(false, |contents| contents.contains(&json))
+                .is_some_and(|contents| contents.contains(&json))
             {
                 println!(
                     "Golden file for '{}' already exists with identical content",
@@ -102,7 +102,7 @@ where
             let path = entry.path();
 
             // Skip non-JSON files
-            if !path.extension().map_or(false, |ext| ext == "json") {
+            if !path.extension().is_some_and(|ext| ext == "json") {
                 continue;
             }
 
@@ -145,7 +145,7 @@ where
         for entry in fs::read_dir(test_folder).expect("Failed to read golden test directory") {
             let path = entry.expect("Failed to read directory entry").path();
 
-            if !path.extension().map_or(false, |ext| ext == "json") {
+            if !path.extension().is_some_and(|ext| ext == "json") {
                 continue;
             }
 
@@ -176,7 +176,7 @@ where
 
     #[inline]
     fn is_update_mode() -> bool {
-        env::var("UPDATE_GOLDEN").map_or(false, |v| v == "1")
+        env::var("UPDATE_GOLDEN").is_ok_and(|v| v == "1")
     }
 
     /// Get a timestamp-based version tag to avoid collisions
