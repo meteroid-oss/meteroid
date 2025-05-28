@@ -20,6 +20,15 @@ pub struct GoldenTest<T> {
     _phantom: PhantomData<T>,
 }
 
+impl<T> Default for GoldenTest<T>
+where
+    T: TestInstances + serde::Serialize + serde::de::DeserializeOwned,
+ {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> GoldenTest<T>
 where
     T: TestInstances + serde::Serialize + serde::de::DeserializeOwned,
@@ -102,7 +111,7 @@ where
             let path = entry.path();
 
             // Skip non-JSON files
-            if !path.extension().is_some_and(|ext| ext == "json") {
+            if path.extension().is_none_or(|ext| ext != "json") {
                 continue;
             }
 
@@ -145,7 +154,7 @@ where
         for entry in fs::read_dir(test_folder).expect("Failed to read golden test directory") {
             let path = entry.expect("Failed to read directory entry").path();
 
-            if !path.extension().is_some_and(|ext| ext == "json") {
+            if path.extension().is_none_or(|ext| ext != "json") {
                 continue;
             }
 
