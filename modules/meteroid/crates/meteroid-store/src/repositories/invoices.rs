@@ -1,43 +1,42 @@
-use crate::domain::enums::{InvoiceExternalStatusEnum, InvoiceType};
+use crate::domain::enums::InvoiceType;
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{StoreResult, domain};
 use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::PgConn;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
-use diesel_models::{DbResult, PgConn};
-use error_stack::{Report, ResultExt, bail};
+use error_stack::{Report, bail};
 
-use crate::compute::InvoiceLineInterface;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::pgmq::{PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqQueue};
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
-    InvoiceLinesPatch, InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec,
-    PaginationRequest,
+    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
 };
-use crate::repositories::SubscriptionInterface;
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::pgmq::PgmqInterface;
-use crate::utils::decimals::ToUnit;
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, InvoiceId, SubscriptionId, TenantId};
-use common_eventbus::Event;
-use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
+use common_domain::ids::{ConnectorId, CustomerId, InvoiceId, SubscriptionId, TenantId};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
-use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew};
-use diesel_models::invoicing_entities::InvoicingEntityRow;
+use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
 use tracing_log::log;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait InvoiceInterface {
-    async fn find_invoice_by_id(
+    async fn get_detailed_invoice_by_id(
         &self,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
     ) -> StoreResult<DetailedInvoice>;
+
+    async fn get_invoice_by_id(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Invoice>;
 
     #[allow(clippy::too_many_arguments)]
     async fn list_invoices(
@@ -55,19 +54,10 @@ pub trait InvoiceInterface {
 
     async fn insert_invoice_batch(&self, invoice: Vec<InvoiceNew>) -> StoreResult<Vec<Invoice>>;
 
-    async fn update_invoice_external_status(
-        &self,
-        invoice_id: InvoiceId,
-        tenant_id: TenantId,
-        external_status: InvoiceExternalStatusEnum,
-    ) -> StoreResult<()>;
-
     async fn list_invoices_to_finalize(
         &self,
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
-
-    async fn finalize_invoice(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()>;
 
     async fn list_outdated_invoices(
         &self,
@@ -98,12 +88,6 @@ pub trait InvoiceInterface {
 
     async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()>;
 
-    async fn refresh_invoice_data(
-        &self,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> StoreResult<DetailedInvoice>;
-
     async fn save_invoice_documents(
         &self,
         id: InvoiceId,
@@ -129,11 +113,24 @@ pub trait InvoiceInterface {
 
 #[async_trait::async_trait]
 impl InvoiceInterface for Store {
-    async fn find_invoice_by_id(
+    async fn get_detailed_invoice_by_id(
         &self,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
     ) -> StoreResult<DetailedInvoice> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, invoice_id)
+            .await
+            .map_err(Into::into)
+            .and_then(|row| row.try_into())
+    }
+
+    async fn get_invoice_by_id(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Invoice> {
         let mut conn = self.get_conn().await?;
 
         InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
@@ -194,48 +191,6 @@ impl InvoiceInterface for Store {
         .await
     }
 
-    async fn update_invoice_external_status(
-        &self,
-        invoice_id: InvoiceId,
-        tenant_id: TenantId,
-        external_status: InvoiceExternalStatusEnum,
-    ) -> StoreResult<()> {
-        self.transaction(|conn| {
-            async move {
-                InvoiceRow::update_external_status(
-                    conn,
-                    invoice_id,
-                    tenant_id,
-                    external_status.clone().into(),
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                if external_status == InvoiceExternalStatusEnum::Paid {
-                    let subscription_id = SubscriptionRow::get_subscription_id_by_invoice_id(
-                        conn,
-                        &tenant_id,
-                        &invoice_id,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                    if let Some(subscription_id) = subscription_id {
-                        SubscriptionRow::activate_subscription(conn, &subscription_id, &tenant_id)
-                            .await
-                            .map_err(Into::<Report<StoreError>>::into)?;
-                    }
-
-                    process_pending_tx(conn, invoice_id).await?;
-                }
-
-                Ok(())
-            }
-            .scope_boxed()
-        })
-        .await
-    }
-
     async fn list_invoices_to_finalize(
         &self,
         pagination: CursorPaginationRequest,
@@ -256,87 +211,6 @@ impl InvoiceInterface for Store {
         };
 
         Ok(res)
-    }
-
-    async fn finalize_invoice(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()> {
-        let patch = compute_invoice_patch(self, id, tenant_id).await?;
-        let applied_coupons_amounts = patch.applied_coupons.clone();
-        let row_patch = patch.try_into()?;
-
-        self.transaction(|conn| {
-            async move {
-                let refreshed = refresh_invoice_data(conn, id, tenant_id, &row_patch).await?;
-                if refreshed.invoice.applied_credits > 0 {
-                    CustomerBalance::update(
-                        conn,
-                        refreshed.customer.id,
-                        tenant_id,
-                        -refreshed.invoice.applied_credits as i32,
-                        Some(refreshed.invoice.id),
-                    )
-                    .await?;
-                }
-
-                let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
-                    conn,
-                    refreshed.customer.invoicing_entity_id,
-                    tenant_id,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                let new_invoice_number = self.internal.format_invoice_number(
-                    invoicing_entity.next_invoice_number,
-                    invoicing_entity.invoice_number_pattern,
-                    refreshed.invoice.invoice_date,
-                );
-
-                let applied_coupons_ids =
-                    refresh_applied_coupons(conn, &refreshed, &applied_coupons_amounts).await?;
-
-                let res = InvoiceRow::finalize(
-                    conn,
-                    id,
-                    tenant_id,
-                    new_invoice_number,
-                    &applied_coupons_ids,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                InvoicingEntityRow::update_invoicing_entity_number(
-                    conn,
-                    refreshed.customer.invoicing_entity_id,
-                    tenant_id,
-                    invoicing_entity.next_invoice_number,
-                )
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
-
-                let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(conn, tenant_id, id)
-                    .await
-                    .map_err(Into::into)
-                    .and_then(|row| row.try_into())?;
-
-                self.internal
-                    .insert_outbox_events_tx(
-                        conn,
-                        vec![OutboxEvent::invoice_finalized(final_invoice.into())],
-                    )
-                    .await?;
-
-                Ok(res)
-            }
-            .scope_boxed()
-        })
-        .await?;
-
-        let _ = self
-            .eventbus
-            .publish(Event::invoice_finalized(id.as_uuid(), tenant_id.as_uuid()))
-            .await;
-
-        Ok(())
     }
 
     async fn list_outdated_invoices(
@@ -443,18 +317,6 @@ impl InvoiceInterface for Store {
             .await
             .map(|_| ())
             .map_err(Into::<Report<StoreError>>::into)
-    }
-
-    async fn refresh_invoice_data(
-        &self,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> StoreResult<DetailedInvoice> {
-        let patch = compute_invoice_patch(self, id, tenant_id)
-            .await?
-            .try_into()?;
-        let mut conn = self.get_conn().await?;
-        refresh_invoice_data(&mut conn, id, tenant_id, &patch).await
     }
 
     async fn save_invoice_documents(
@@ -593,20 +455,22 @@ async fn process_mrr(inserted: &Invoice, conn: &mut PgConn) -> StoreResult<()> {
                 SubscriptionEventType::Updated => "Subscription updated",
             };
 
-            let new_log = diesel_models::bi::BiMrrMovementLogRowNew {
-                id: Uuid::now_v7(),
-                description: description.to_string(),
-                movement_type,
-                net_mrr_change: mrr_delta,
-                currency: inserted.currency.clone(),
-                applies_to: inserted.invoice_date,
-                invoice_id: inserted.id,
-                credit_note_id: None,
-                plan_version_id: inserted.plan_version_id.unwrap(), // TODO
-                tenant_id: inserted.tenant_id,
-            };
+            if let Some(plan_version_id) = inserted.plan_version_id {
+                let new_log = diesel_models::bi::BiMrrMovementLogRowNew {
+                    id: Uuid::now_v7(),
+                    description: description.to_string(),
+                    movement_type,
+                    net_mrr_change: mrr_delta,
+                    currency: inserted.currency.clone(),
+                    applies_to: inserted.invoice_date,
+                    invoice_id: inserted.id,
+                    credit_note_id: None,
+                    plan_version_id,
+                    tenant_id: inserted.tenant_id,
+                };
 
-            mrr_logs.push(new_log);
+                mrr_logs.push(new_log);
+            }
         }
 
         let mrr_delta_cents: i64 = mrr_logs.iter().map(|l| l.net_mrr_change).sum();
@@ -620,54 +484,6 @@ async fn process_mrr(inserted: &Invoice, conn: &mut PgConn) -> StoreResult<()> {
             .map_err(Into::<Report<StoreError>>::into)?;
     }
     Ok(())
-}
-
-async fn refresh_invoice_data(
-    conn: &mut PgConn,
-    id: InvoiceId,
-    tenant_id: TenantId,
-    row_patch: &InvoiceRowLinesPatch,
-) -> StoreResult<DetailedInvoice> {
-    row_patch
-        .update_lines(id, tenant_id, conn)
-        .await
-        .map(|_| ())
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    InvoiceRow::find_by_id(conn, tenant_id, id)
-        .await
-        .map_err(Into::into)
-        .and_then(|row| row.try_into())
-}
-
-async fn compute_invoice_patch(
-    store: &Store,
-    invoice_id: InvoiceId,
-    tenant_id: TenantId,
-) -> StoreResult<InvoiceLinesPatch> {
-    let invoice = store.find_invoice_by_id(tenant_id, invoice_id).await?;
-
-    match invoice.invoice.subscription_id {
-        None => Err(StoreError::InvalidArgument(
-            "Cannot refresh invoice without subscription_id".into(),
-        )
-        .into()),
-        Some(subscription_id) => {
-            let subscription_details = store
-                .get_subscription_details(tenant_id, subscription_id)
-                .await?;
-            let lines = store
-                .compute_dated_invoice_lines(&invoice.invoice.invoice_date, &subscription_details)
-                .await
-                .change_context(StoreError::InvoiceComputationError)?;
-
-            Ok(InvoiceLinesPatch::new(
-                &invoice,
-                lines,
-                &subscription_details.applied_coupons,
-            ))
-        }
-    }
 }
 
 pub async fn insert_invoice_tx(
@@ -702,22 +518,26 @@ async fn insert_invoice_batch_tx(
 
     // TODO batch
     for inv in inserted.iter() {
-        process_mrr(inv, tx).await?;
-        let final_invoice: DetailedInvoice = InvoiceRow::find_by_id(tx, inv.tenant_id, inv.id)
+        process_mrr(inv, tx).await?; // TODO
+        let final_invoice: Invoice = InvoiceRow::find_by_id(tx, inv.tenant_id, inv.id)
             .await
             .map_err(Into::into)
             .and_then(|row| row.try_into())?;
 
         store
             .internal
-            .insert_outbox_events_tx(tx, vec![OutboxEvent::invoice_created(final_invoice.into())])
+            .insert_outbox_events_tx(
+                tx,
+                vec![OutboxEvent::invoice_created((&final_invoice).into())],
+            )
             .await?;
     }
 
     Ok(inserted)
 }
 
-async fn process_pending_tx(conn: &mut PgConn, invoice_id: InvoiceId) -> StoreResult<()> {
+// TODO unused (was in update_invoice_external_status)
+async fn _process_pending_tx(conn: &mut PgConn, invoice_id: InvoiceId) -> StoreResult<()> {
     let pending_tx = CustomerBalancePendingTxRow::find_unprocessed_by_invoice_id(conn, invoice_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -739,41 +559,4 @@ async fn process_pending_tx(conn: &mut PgConn, invoice_id: InvoiceId) -> StoreRe
     }
 
     Ok(())
-}
-
-async fn refresh_applied_coupons(
-    tx_conn: &mut PgConn,
-    invoice: &DetailedInvoice,
-    applied_coupons_amounts: &[(Uuid, i64)],
-) -> DbResult<Vec<Uuid>> {
-    let applied_coupons_ids: Vec<Uuid> = applied_coupons_amounts.iter().map(|(k, _)| *k).collect();
-
-    let applied_coupons_detailed =
-        AppliedCouponDetailedRow::list_by_ids_for_update(tx_conn, &applied_coupons_ids).await?;
-
-    for applied_coupon_detailed in applied_coupons_detailed {
-        let amount_delta = if applied_coupon_detailed
-            .coupon
-            .recurring_value
-            .is_some_and(|x| x == 1)
-        {
-            let cur = rusty_money::iso::find(&invoice.invoice.currency).unwrap();
-
-            applied_coupons_amounts
-                .iter()
-                .find(|x| x.0 == applied_coupon_detailed.applied_coupon.id)
-                .map(|x| x.1.to_unit(cur.exponent as u8))
-        } else {
-            None
-        };
-
-        AppliedCouponRow::refresh_state(
-            tx_conn,
-            applied_coupon_detailed.applied_coupon.id,
-            amount_delta,
-        )
-        .await?;
-    }
-
-    Ok(applied_coupons_ids)
 }

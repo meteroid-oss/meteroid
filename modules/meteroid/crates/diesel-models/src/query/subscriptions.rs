@@ -2,8 +2,7 @@ use crate::errors::IntoDbResult;
 use chrono::NaiveDate;
 
 use crate::subscriptions::{
-    CancelSubscriptionParams, SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow,
-    SubscriptionRow, SubscriptionRowNew,
+    SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow, SubscriptionRowNew,
 };
 use crate::{DbResult, PgConn};
 
@@ -19,9 +18,10 @@ use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, ConnectorId, CustomerId, CustomerPaymentMethodId, PlanId, SubscriptionId, TenantId,
+};
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl SubscriptionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionRow> {
@@ -80,6 +80,27 @@ impl SubscriptionRow {
 
         query
             .get_result::<SubscriptionForDisplayRow>(conn)
+            .await
+            .attach_printable("Error while fetching subscription by ID")
+            .into_db_result()
+    }
+
+    pub async fn get_subscription_payment_method_by_id(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        subscription_id_param: SubscriptionId,
+    ) -> DbResult<Option<CustomerPaymentMethodId>> {
+        use crate::schema::subscription::dsl::*;
+
+        let query = subscription
+            .filter(id.eq(subscription_id_param))
+            .filter(tenant_id.eq(tenant_id_param))
+            .select(payment_method);
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result::<Option<CustomerPaymentMethodId>>(conn)
             .await
             .attach_printable("Error while fetching subscription by ID")
             .into_db_result()
@@ -162,57 +183,6 @@ impl SubscriptionRow {
             .await
             .attach_printable("Error while fetching subscriptions by IDs")
             .into_db_result()
-    }
-
-    pub async fn cancel_subscription(
-        conn: &mut PgConn,
-        params: CancelSubscriptionParams,
-    ) -> DbResult<()> {
-        use crate::schema::subscription::dsl::*;
-
-        let query = diesel::update(subscription)
-            .filter(id.eq(params.subscription_id))
-            .filter(tenant_id.eq(params.tenant_id))
-            .filter(canceled_at.is_null())
-            .set((
-                end_date.eq(params.billing_end_date),
-                canceled_at.eq(params.canceled_at),
-                cancellation_reason.eq(params.reason),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while canceling subscription")
-            .into_db_result()?;
-
-        Ok(())
-    }
-
-    pub async fn activate_subscription(
-        conn: &mut PgConn,
-        id: &SubscriptionId,
-        tenant_id: &TenantId,
-    ) -> DbResult<()> {
-        use crate::schema::subscription::dsl as s_dsl;
-
-        let query = diesel::update(s_dsl::subscription)
-            .filter(s_dsl::id.eq(id))
-            .filter(s_dsl::tenant_id.eq(tenant_id))
-            .filter(s_dsl::activated_at.is_null())
-            .set(s_dsl::activated_at.eq(chrono::Utc::now().naive_utc()));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while activating subscription")
-            .into_db_result()?;
-
-        Ok(())
     }
 
     pub async fn get_subscription_id_by_invoice_id(
@@ -335,50 +305,6 @@ impl SubscriptionRow {
             .await
             .attach_printable("Error while fetching subscriptions to invoice")
             .into_db_result()
-    }
-
-    pub async fn update_subscription_mrr_delta(
-        conn: &mut PgConn,
-        subscription_id: SubscriptionId,
-        mrr_cents_delta: i64,
-    ) -> DbResult<()> {
-        use crate::schema::subscription::dsl::*;
-
-        let query = diesel::update(subscription)
-            .filter(id.eq(subscription_id))
-            .set(mrr_cents.eq(mrr_cents + mrr_cents_delta));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while updating subscription MRR")
-            .into_db_result()?;
-
-        Ok(())
-    }
-
-    pub async fn lock_subscription_for_update(
-        conn: &mut PgConn,
-        subscription_id_param: SubscriptionId,
-    ) -> DbResult<()> {
-        use crate::schema::subscription::dsl::*;
-
-        let query = subscription
-            .for_update()
-            .select(id)
-            .filter(id.eq(subscription_id_param));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        let _res: Uuid = query
-            .get_result(conn)
-            .await
-            .attach_printable("Error while locking subscription for update")
-            .into_db_result()?;
-
-        Ok(())
     }
 
     pub async fn upsert_conn_meta(

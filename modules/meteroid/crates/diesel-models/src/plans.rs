@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::plan_versions::PlanVersionRow;
-use common_domain::ids::{PlanId, ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
@@ -21,8 +21,8 @@ pub struct PlanRow {
     pub product_family_id: ProductFamilyId,
     pub plan_type: PlanTypeEnum,
     pub status: PlanStatusEnum,
-    pub active_version_id: Option<Uuid>,
-    pub draft_version_id: Option<Uuid>,
+    pub active_version_id: Option<PlanVersionId>,
+    pub draft_version_id: Option<PlanVersionId>,
 }
 
 #[derive(Debug, Default, Insertable)]
@@ -50,13 +50,13 @@ pub struct PlanRowOverview {
     pub product_family_name: String,
     pub product_family_id: ProductFamilyId,
     pub active_version: Option<PlanVersionRowInfo>,
-    pub draft_version: Option<Uuid>,
+    pub draft_version: Option<PlanVersionId>,
     pub subscription_count: Option<i64>,
 }
 
 #[derive(Debug, Queryable)]
 pub struct PlanRowForSubscription {
-    pub version_id: Uuid,
+    pub version_id: PlanVersionId,
     pub net_terms: i32,
     pub name: String,
     pub currency: String,
@@ -65,7 +65,7 @@ pub struct PlanRowForSubscription {
 
 #[derive(Debug, Queryable)]
 pub struct PlanVersionRowInfo {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
 }
@@ -88,8 +88,8 @@ pub struct PlanRowPatch {
     pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
-    pub active_version_id: Option<Option<Uuid>>,
-    pub draft_version_id: Option<Option<Uuid>>,
+    pub active_version_id: Option<Option<PlanVersionId>>,
+    pub draft_version_id: Option<Option<PlanVersionId>>,
 }
 
 pub struct PlanFilters {

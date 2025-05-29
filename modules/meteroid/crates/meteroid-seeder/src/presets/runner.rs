@@ -4,8 +4,8 @@ use meteroid_store::domain::enums::{
 };
 use std::collections::HashMap;
 
-use meteroid_store::domain as store_domain;
 use meteroid_store::repositories::*;
+use meteroid_store::{Services, domain as store_domain};
 
 use meteroid_store::Store;
 
@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 pub async fn run_preset(
     store: &Store,
+    services: &Services,
     scenario: scenarios::domain::Scenario,
     organization_id: OrganizationId,
     user_id: Uuid,
@@ -190,7 +191,7 @@ pub async fn run_preset(
         });
     }
 
-    store
+    services
         .insert_subscription_batch(subscriptions_to_create, tenant.id)
         .await?;
 

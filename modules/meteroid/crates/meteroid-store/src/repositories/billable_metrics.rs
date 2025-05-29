@@ -5,6 +5,7 @@ use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
 use diesel_models::product_families::ProductFamilyRow;
 use error_stack::Report;
 
+use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
 };
@@ -121,16 +122,12 @@ impl BillableMetricInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)
                         .and_then(TryInto::try_into)?;
 
-                    let _ = &self
-                        .usage_client
-                        .register_meter(res.tenant_id, &res)
-                        .await
-                        .map_err(|x| {
-                            StoreError::MeteringServiceError(
-                                "Failed to register meter".to_string(),
-                                x,
-                            )
-                        })?;
+                    self.internal
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![OutboxEvent::billable_metric_created(res.clone().into())],
+                        )
+                        .await?;
 
                     Ok(res)
                 }

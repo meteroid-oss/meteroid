@@ -1,12 +1,13 @@
 use crate::errors::IntoDbResult;
 use crate::invoices::{
-    DetailedInvoiceRow, InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew, InvoiceWithCustomerRow,
+    DetailedInvoiceRow, InvoiceLockRow, InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew,
+    InvoiceWithCustomerRow,
 };
 use chrono::NaiveDateTime;
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::{ConnectorProviderEnum, InvoiceExternalStatusEnum, InvoiceStatusEnum};
+use crate::enums::{ConnectorProviderEnum, InvoiceStatusEnum};
 use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
@@ -40,7 +41,58 @@ impl InvoiceRowNew {
 }
 
 impl InvoiceRow {
+    /// locks the invoice, the customer (for the balance) and the subscription
+    pub async fn select_for_update_by_id(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_invoice_id: InvoiceId,
+    ) -> DbResult<InvoiceLockRow> {
+        use crate::schema::customer::dsl as c_dsl;
+        use crate::schema::invoice::dsl as i_dsl;
+
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .inner_join(c_dsl::customer.on(i_dsl::customer_id.eq(c_dsl::id)))
+            .select((
+                InvoiceRow::as_select(),
+                c_dsl::balance_value_cents,
+                c_dsl::invoicing_entity_id,
+            ))
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::id.eq(param_invoice_id))
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while locking invoice by id")
+            .into_db_result()
+    }
+
     pub async fn find_by_id(
+        conn: &mut PgConn,
+        param_tenant_id: TenantId,
+        param_invoice_id: InvoiceId,
+    ) -> DbResult<InvoiceRow> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = i_dsl::invoice
+            .filter(i_dsl::tenant_id.eq(param_tenant_id))
+            .filter(i_dsl::id.eq(param_invoice_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding invoice by id")
+            .into_db_result()
+    }
+    pub async fn find_detailed_by_id(
         conn: &mut PgConn,
         param_tenant_id: TenantId,
         param_invoice_id: InvoiceId,
@@ -194,33 +246,6 @@ impl InvoiceRow {
             .get_results(conn)
             .await
             .attach_printable("Error while inserting invoice")
-            .into_db_result()
-    }
-
-    pub async fn update_external_status(
-        // TODO delete
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-        external_status: InvoiceExternalStatusEnum,
-    ) -> DbResult<usize> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let query = diesel::update(i_dsl::invoice)
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .set((
-                i_dsl::external_status.eq(external_status),
-                i_dsl::updated_at.eq(chrono::Utc::now().naive_utc()),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while update invoice external_status")
             .into_db_result()
     }
 

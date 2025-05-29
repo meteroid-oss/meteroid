@@ -36,6 +36,7 @@ pub mod connectors;
 pub mod coupons;
 pub mod customer_payment_methods;
 pub mod enums;
+
 pub mod historical_rates;
 pub mod invoice_lines;
 pub mod invoicing_entities;
@@ -48,6 +49,7 @@ pub mod payment_transactions;
 pub mod pgmq;
 pub mod product_families;
 pub mod products;
+pub mod scheduled_events;
 pub mod schedules;
 pub mod stats;
 pub mod subscription_add_ons;

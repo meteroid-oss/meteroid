@@ -31,7 +31,7 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
     mode: 'onChange',
     schema: balanceSchema,
     defaultValues: {
-      balanceValueCents: customer.balanceValueCents,
+      balanceValueCents: Number(customer.balanceValueCents),
     },
   })
 
@@ -40,7 +40,7 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
     await patchCustomerMutation.mutateAsync({
       customer: {
         id: customer.id,
-        balanceValueCents: data.balanceValueCents,
+        balanceValueCents: BigInt(data.balanceValueCents),
       },
     })
     toast.success('Balance updated')

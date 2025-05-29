@@ -41,7 +41,7 @@ export const OnboardingLayout = () => {
             </span>
           </div>
         </Flex>
-        <Flex justify="center" align="center" className="px-44 py-24 w-full flex-grow">
+        <Flex justify="center" align="center" className="px-2 xl:px-12 2xl:px-44 py-24 w-full flex-grow max-w-[2200px] mx-auto">
           <Flex className="w-full h-full">
             <Outlet />
           </Flex>

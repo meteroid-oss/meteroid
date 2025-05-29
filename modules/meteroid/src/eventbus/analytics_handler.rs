@@ -19,9 +19,8 @@ use meteroid_store::domain::DetailedInvoice;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::price_components::PriceComponentInterface;
-use meteroid_store::repositories::{
-    CustomersInterface, InvoiceInterface, PlansInterface, SubscriptionInterface,
-};
+use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, PlansInterface};
 
 pub struct AnalyticsHandler {
     store: Store,
@@ -248,7 +247,7 @@ impl AnalyticsHandler {
             invoice, customer, ..
         } = self
             .store
-            .find_invoice_by_id(
+            .get_detailed_invoice_by_id(
                 event_data_details.tenant_id.into(),
                 event_data_details.entity_id.into(),
             )
@@ -280,7 +279,7 @@ impl AnalyticsHandler {
             invoice, customer, ..
         } = self
             .store
-            .find_invoice_by_id(
+            .get_detailed_invoice_by_id(
                 event_data_details.tenant_id.into(),
                 event_data_details.entity_id.into(),
             )
@@ -311,7 +310,7 @@ impl AnalyticsHandler {
         let plan_version = self
             .store
             .get_plan_version_by_id(
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
                 event_data_details.tenant_id.into(),
             )
             .await
@@ -341,7 +340,7 @@ impl AnalyticsHandler {
         let plan_version = self
             .store
             .get_plan_version_by_id(
-                event_data_details.entity_id,
+                event_data_details.entity_id.into(),
                 event_data_details.tenant_id.into(),
             )
             .await
@@ -523,18 +522,6 @@ impl AnalyticsHandler {
             .map_err(|e| EventBusError::EventHandlerFailed(e.to_string()))?
             .subscription;
 
-        let canceled_at = subscription
-            .canceled_at
-            .map(|canceled_at| {
-                format!(
-                    "{}-{}-{}",
-                    canceled_at.year(),
-                    canceled_at.month(),
-                    canceled_at.day()
-                )
-            })
-            .unwrap_or("unknown".to_string());
-
         let billing_end_date = subscription
             .end_date
             .map(|ended_at| {
@@ -556,7 +543,6 @@ impl AnalyticsHandler {
                 "customer_id": subscription.customer_id,
                 "currency": subscription.currency,
                 "version": subscription.version,
-                "canceled_at": canceled_at,
                 "billing_end_date": billing_end_date,
             }),
         )

@@ -247,3 +247,55 @@ pub enum UnitConversionRoundingEnum {
     NearestDecile,
     None,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::SubscriptionStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum SubscriptionStatusEnum {
+    // Planned,
+    PendingActivation, // before trial
+    PendingCharge,     // after billing start date, while awaiting payment
+    TrialActive,
+    Active,
+    // PastDue,
+    // Delinquent,
+    TrialExpired,
+    Paused,
+    Suspended, // due to non-payment
+    Cancelled,
+    Completed,
+    Superseded, // upgrade/downgrade
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::CycleActionEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum CycleActionEnum {
+    // GenerateInvoice,
+    ActivateSubscription,
+    RenewSubscription,
+    EndTrial,
+    EndSubscription,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::ScheduledEventTypeEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ScheduledEventTypeEnum {
+    FinalizeInvoice,
+    RetryPayment,
+    ApplyPlanChange,
+    CancelSubscription,
+    PauseSubscription,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::ScheduledEventStatus"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum ScheduledEventStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Cancelled,
+}

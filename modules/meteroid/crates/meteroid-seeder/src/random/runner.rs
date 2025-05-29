@@ -6,8 +6,8 @@ use meteroid_store::domain::enums::{
     PlanTypeEnum, SubscriptionActivationCondition, TenantEnvironmentEnum,
 };
 
-use meteroid_store::domain as store_domain;
 use meteroid_store::repositories::*;
+use meteroid_store::{Services, domain as store_domain};
 use uuid::Uuid;
 
 use super::errors::SeederError;
@@ -22,23 +22,23 @@ use fake::faker::internet::en::SafeEmail;
 use rand::prelude::*;
 use rand_chacha::ChaCha8Rng;
 
-use meteroid_store::compute::InvoiceLineInterface;
-
 use chrono::Utc;
 
 use common_domain::ids::OrganizationId;
 use meteroid_store::domain::{
     Address, InlineCustomer, InlineInvoicingEntity, OrderByRequest, PaginationRequest,
-    TenantContext,
 };
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
-use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
-use meteroid_store::utils::periods::calculate_period_range;
+use meteroid_store::repositories::subscriptions::{
+    CancellationEffectiveAt, SubscriptionInterfaceAuto,
+};
+use meteroid_store::utils::periods::calculate_advance_period_range;
 use nanoid::nanoid;
 
 pub async fn run(
     store: Store,
+    service: Services,
     scenario: super::domain::Scenario,
     organization_id: OrganizationId,
     user_id: Uuid,
@@ -341,7 +341,7 @@ pub async fn run(
         subscriptions_to_create.push(params);
     }
 
-    let created_subscriptions = store
+    let created_subscriptions = service
         .insert_subscription_batch(subscriptions_to_create, tenant.id)
         .await
         .change_context(SeederError::TempError)?;
@@ -399,15 +399,13 @@ pub async fn run(
                         billing_start_date + chrono::Duration::days(end_month as i64 * 30);
 
                     if end_date < now {
-                        store
+                        service
                             .cancel_subscription(
                                 subscription.id,
+                                tenant.id,
                                 Some("Not used anymore".to_string()),
                                 CancellationEffectiveAt::Date(end_date),
-                                TenantContext {
-                                    tenant_id: tenant.id,
-                                    actor: user_id,
-                                },
+                                user_id,
                             )
                             .await
                             .change_context(SeederError::TempError)?;
@@ -449,8 +447,8 @@ pub async fn run(
         for invoice_date in invoice_dates {
             i += 1;
             // we get all components that need to be invoiced for this date
-            let invoice_lines = store
-                .compute_dated_invoice_lines(&invoice_date, &subscription_details)
+            let invoice_lines = service
+                .compute_invoice_lines(&invoice_date, &subscription_details)
                 .await
                 .change_context(SeederError::TempError)?;
 
@@ -548,10 +546,10 @@ fn calculate_period_end_dates(
     // TODO check that. We add the billing_start_date, but that's maybe just if there is an advance fee
     end_dates.push(billing_start_date);
     loop {
-        let period = calculate_period_range(
+        let period = calculate_advance_period_range(
             billing_start_date,
-            billing_day as u16,
-            period_index,
+            billing_day,
+            period_index == 0,
             billing_period,
         );
         end_dates.push(period.end);

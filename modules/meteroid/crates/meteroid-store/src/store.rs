@@ -1,5 +1,4 @@
 use crate::StoreResult;
-use crate::compute::clients::usage::UsageClient;
 use crate::errors::StoreError;
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
@@ -39,7 +38,6 @@ pub struct Settings {
 pub struct Store {
     pub pool: PgPool,
     pub eventbus: Arc<dyn EventBus<Event>>,
-    pub(crate) usage_client: Arc<dyn UsageClient>,
     pub(crate) settings: Settings,
     pub(crate) internal: StoreInternal,
     pub(crate) svix: Option<Arc<Svix>>,
@@ -56,7 +54,6 @@ pub struct StoreConfig {
     pub skip_email_validation: bool,
     pub public_url: String,
     pub eventbus: Arc<dyn EventBus<Event>>,
-    pub usage_client: Arc<dyn UsageClient>,
     pub svix: Option<Arc<Svix>>,
     pub mailer: Arc<dyn MailerService>,
     pub stripe: Arc<StripeClient>,
@@ -127,7 +124,6 @@ impl Store {
         Ok(Store {
             pool,
             eventbus: config.eventbus,
-            usage_client: config.usage_client,
             settings: Settings {
                 crypt_key: config.crypt_key,
                 jwt_secret: config.jwt_secret,

@@ -14,17 +14,16 @@ use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::*;
-use meteroid_store::compute::InvoiceLineInterface;
 use meteroid_store::domain::{
     CustomerPatch, CustomerPaymentMethodNew, InvoiceTotals, InvoiceTotalsParams,
     PaymentMethodTypeEnum,
 };
 use meteroid_store::errors::StoreError;
-use meteroid_store::repositories::billing::BillingService;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
+use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{OrganizationsInterface, SubscriptionInterface};
 use secrecy::ExposeSecret;
 use std::time::Duration;
@@ -40,8 +39,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         let tenant = request.tenant()?;
         let subscription = request.portal_resource()?.subscription()?;
 
-        // TODO single query
-
         let subscription = self
             .store
             .get_subscription_details(tenant, subscription)
@@ -49,8 +46,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
         let invoice_lines = self
-            .store
-            .compute_dated_invoice_lines(&subscription.subscription.start_date, &subscription)
+            .services
+            .compute_invoice_lines(&subscription.subscription.start_date, &subscription)
             .await
             .change_context(StoreError::InvoiceComputationError)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
@@ -72,6 +69,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .list_payment_methods_by_customer(&tenant, &customer.id)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
+
         let payment_methods = customer_methods
             .into_iter()
             .map(crate::api::customers::mapping::customer_payment_method::domain_to_server)
@@ -232,7 +230,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         }
 
         let intent = self
-            .store
+            .services
             .create_setup_intent(&tenant, &customer_connection_id)
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
@@ -261,7 +259,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
         let payment_method_id = CustomerPaymentMethodId::from_proto(inner.payment_method_id)?;
 
         let transaction = self
-            .store
+            .services
             .complete_subscription_checkout(
                 tenant,
                 subscription,

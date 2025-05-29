@@ -285,7 +285,7 @@ impl CustomerRow {
     pub async fn update_balance(
         conn: &mut PgConn,
         id: CustomerId,
-        delta_cents: i32,
+        delta_cents: i64,
     ) -> DbResult<usize> {
         use crate::schema::customer::dsl as c_dsl;
         use diesel_async::RunQueryDsl;

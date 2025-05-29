@@ -1,5 +1,5 @@
 pub mod plans {
-    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
+    use crate::api::shared::conversions::ProtoConv;
     use meteroid_grpc::meteroid::api::plans::v1::plan_overview::ActiveVersionInfo;
     use meteroid_grpc::meteroid::api::plans::v1::{
         ListPlanVersion, PlanOverview, plan_billing_configuration as billing_config_grpc,
@@ -28,7 +28,7 @@ pub mod plans {
     impl From<domain::PlanVersion> for ListPlanVersionWrapper {
         fn from(value: domain::PlanVersion) -> Self {
             Self(ListPlanVersion {
-                id: value.id.to_string(),
+                id: value.id.as_proto(),
                 is_draft: value.is_draft_version,
                 version: value.version as u32,
                 currency: value.currency,
@@ -83,7 +83,7 @@ pub mod plans {
                 })
             }
             Self(PlanVersion {
-                id: value.id.to_string(),
+                id: value.id.as_proto(),
                 version: value.version as u32,
                 is_draft: value.is_draft_version,
                 trial_config: trial_config(&value),
@@ -105,8 +105,8 @@ pub mod plans {
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
-                    active_version_id: value.plan.active_version_id.as_proto(),
-                    draft_version_id: value.plan.draft_version_id.as_proto(),
+                    active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
+                    draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
                 }),
                 version: Some(PlanVersionWrapper::from(value.version).0),
             })
@@ -123,8 +123,8 @@ pub mod plans {
                     description: value.plan.description,
                     plan_type: PlanTypeWrapper::from(value.plan.plan_type).0 as i32,
                     plan_status: PlanStatusWrapper::from(value.plan.status).0 as i32,
-                    active_version_id: value.plan.active_version_id.as_proto(),
-                    draft_version_id: value.plan.draft_version_id.as_proto(),
+                    active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
+                    draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
                 }),
                 version: value.version.map(|v| (PlanVersionWrapper::from(v).0)),
             })

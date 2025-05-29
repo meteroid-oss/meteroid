@@ -3,14 +3,14 @@ use uuid::Uuid;
 
 use crate::enums::ActionAfterTrialEnum;
 
-use common_domain::ids::{PlanId, ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PlanVersionRow {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub is_draft_version: bool,
     pub plan_id: PlanId,
     pub version: i32,
@@ -33,7 +33,7 @@ pub struct PlanVersionRow {
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PlanVersionRowNew {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub is_draft_version: bool,
     pub plan_id: PlanId,
     pub version: i32,
@@ -54,7 +54,7 @@ pub struct PlanVersionRowNew {
 #[diesel(table_name = crate::schema::plan_version)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PlanVersionRowOverview {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub plan_id: PlanId,
     #[diesel(select_expression = crate::schema::plan::name)]
     #[diesel(select_expression_type = crate::schema::plan::name)]
@@ -82,7 +82,7 @@ pub struct PlanVersionRowOverview {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
 pub struct PlanVersionRowPatch {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
@@ -93,7 +93,7 @@ pub struct PlanVersionRowPatch {
 #[diesel(check_for_backend(diesel::pg::Pg))]
 #[diesel(primary_key(id, tenant_id))]
 pub struct PlanVersionTrialRowPatch {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub tenant_id: TenantId,
     pub trialing_plan_id: Option<Option<PlanId>>,
     pub action_after_trial: Option<Option<ActionAfterTrialEnum>>,

@@ -71,4 +71,19 @@ impl HistoricalRatesFromUsdRow {
             .attach_printable("Error while getting historical_rates_from_usd by date")
             .into_db_result()
     }
+
+    pub async fn latest(conn: &mut PgConn) -> DbResult<Option<HistoricalRatesFromUsdRow>> {
+        use crate::schema::historical_rates_from_usd::dsl as r_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = r_dsl::historical_rates_from_usd.order(r_dsl::date.desc());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach_printable("Error while getting latest historical_rates_from_usd ")
+            .into_db_result()
+    }
 }

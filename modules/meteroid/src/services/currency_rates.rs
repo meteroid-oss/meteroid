@@ -39,7 +39,7 @@ pub struct OpenexchangeRatesService {
 }
 
 impl OpenexchangeRatesService {
-    fn new(client: reqwest::Client, api_key: Option<String>) -> Self {
+    pub fn new(client: reqwest::Client, api_key: Option<String>) -> Self {
         Self { api_key, client }
     }
 

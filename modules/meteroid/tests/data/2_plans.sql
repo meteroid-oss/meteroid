@@ -56,25 +56,17 @@ $$
 
     INSERT INTO public.price_component
     VALUES (var_comp_leetcode_rate_id, 'Subscription Rate', '{
-      "rate": {
-        "pricing": {
-          "term_based": {
-            "rates": [
-              {
-                "term": 0,
-                "price": {
-                  "value": "35.00"
-                }
-              },
-              {
-                "term": 2,
-                "price": {
-                  "value": "159.00"
-                }
-              }
-            ]
+      "Rate": {
+        "rates": [
+          {
+            "price": "35.00",
+            "term": 0
+          },
+          {
+            "price": "159.00",
+            "term": 2
           }
-        }
+        ]
       }
     }', var_plan_version_1_leetcode_id, NULL);
 
@@ -101,30 +93,19 @@ $$
 
     INSERT INTO public.price_component
     VALUES (var_comp_notion_seats_id, 'Seats', '{
-      "slot_based": {
+      "Slot": {
         "quota": null,
-        "pricing": {
-          "term_based": {
-            "rates": [
-              {
-                "term": 0,
-                "price": {
-                  "value": "10.00"
-                }
-              },
-              {
-                "term": 2,
-                "price": {
-                  "value": "96.00"
-                }
-              }
-            ]
+        "rates": [
+          {
+            "term": "Monthly",
+            "price": "10.00"
+          },
+          {
+            "term": "Annual",
+            "price": "96.00"
           }
-        },
-        "slot_unit": {
-          "id": null,
-          "name": "Seats"
-        },
+        ],
+        "slot_unit_name": "Seats",
         "minimum_count": 1,
         "upgrade_policy": 0,
         "downgrade_policy": 0
@@ -153,20 +134,15 @@ $$
 
     INSERT INTO public.price_component
     VALUES (var_comp_supabase_org_slots_id, 'Organization Slots', '{
-      "slot_based": {
+      "Slot": {
         "quota": null,
-        "pricing": {
-          "single": {
-            "price": {
-              "value": "25.00"
-            },
-            "cadence": 0
+        "rates": [
+          {
+            "term": "Monthly",
+            "price": "25.00"
           }
-        },
-        "slot_unit": {
-          "id": null,
-          "name": "Organization"
-        },
+        ],
+        "slot_unit_name": "Organization",
         "minimum_count": 1,
         "upgrade_policy": 0,
         "downgrade_policy": 0

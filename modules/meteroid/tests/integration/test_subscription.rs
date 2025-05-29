@@ -20,7 +20,7 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request
 
 use meteroid_store::domain::{CursorPaginationRequest, LineItem};
 use meteroid_store::repositories::InvoiceInterface;
-use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
+use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 
 struct TestContext {
     setup: MeteroidSetup,
@@ -269,7 +269,6 @@ async fn test_subscription_cancel() {
 
     // check DB state
     assert_eq!(result_subscription.status(), SubscriptionStatus::Pending);
-    assert!(result_subscription.canceled_at.is_some());
 
     // teardown
     meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await

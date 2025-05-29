@@ -30,6 +30,10 @@ macro_rules! id_type {
             ) -> Result<Option<$id_name>, tonic::Status> {
                 value.map($id_name::from_proto).transpose()
             }
+
+            pub const fn from_const(uuid: uuid::Uuid) -> Self {
+                $id_name(uuid)
+            }
         }
 
         impl<'de> serde::Deserialize<'de> for $id_name {

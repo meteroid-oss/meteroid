@@ -22,7 +22,7 @@ export const BalanceCard = ({ customer, className }: Props) => {
     >
       <div className="flex text-sm">
         <div className="basis-2/4 flex flex-col gap-2">
-          <Property label="Balance" value={customer.balanceValueCents} />
+          <Property label="Balance" value={Number(customer.balanceValueCents)} />
         </div>
       </div>
 

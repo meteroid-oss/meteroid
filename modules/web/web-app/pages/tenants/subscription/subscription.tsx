@@ -480,8 +480,8 @@ export const Subscription = () => {
             <DetailRow label="Activated At" value={formatDate(data.activatedAt)} />
           )}
           {data.endDate && <DetailRow label="End Date" value={formatDate(data.endDate)} />}
-          {data.canceledAt && <DetailRow label="Canceled At" value={formatDate(data.canceledAt)} />}
-          {data.cancellationReason && <DetailRow label="Reason" value={data.cancellationReason} />}
+          {/* {data.canceledAt && <DetailRow label="Canceled At" value={formatDate(data.canceledAt)} />}
+          {data.cancellationReason && <DetailRow label="Reason" value={data.cancellationReason} />} */}
         </DetailSection>
 
         {data.trialDuration && (

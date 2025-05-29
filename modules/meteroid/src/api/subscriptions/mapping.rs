@@ -2,15 +2,14 @@ pub mod subscriptions {
     use chrono::NaiveDate;
     use meteroid_store::domain;
 
+    use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::shared::conversions::*;
-    use crate::services::subscription::ext::DbSubscriptionExt;
-    use common_domain::ids::CustomerId;
+    use common_domain::ids::{CustomerId, PlanVersionId};
+    use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
+    use meteroid_store::domain::SubscriptionStatusEnum;
+    use meteroid_store::domain::enums::SubscriptionActivationCondition;
     use tonic::Status;
     use uuid::Uuid;
-
-    use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
-    use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
-    use meteroid_store::domain::enums::SubscriptionActivationCondition;
 
     fn map_activation_condition_proto(
         e: proto2::ActivationCondition,
@@ -22,8 +21,24 @@ pub mod subscriptions {
         }
     }
 
+    // TODO update subscription statuses
+    fn map_subscription_status(e: SubscriptionStatusEnum) -> proto2::SubscriptionStatus {
+        match e {
+            SubscriptionStatusEnum::PendingActivation => proto2::SubscriptionStatus::Pending,
+            SubscriptionStatusEnum::PendingCharge => proto2::SubscriptionStatus::Pending,
+            SubscriptionStatusEnum::TrialActive => proto2::SubscriptionStatus::Trialing,
+            SubscriptionStatusEnum::Active => proto2::SubscriptionStatus::Active,
+            SubscriptionStatusEnum::TrialExpired => proto2::SubscriptionStatus::TrialExpired,
+            SubscriptionStatusEnum::Paused => proto2::SubscriptionStatus::Ended,
+            SubscriptionStatusEnum::Suspended => proto2::SubscriptionStatus::Ended,
+            SubscriptionStatusEnum::Cancelled => proto2::SubscriptionStatus::Canceled,
+            SubscriptionStatusEnum::Completed => proto2::SubscriptionStatus::Ended,
+            SubscriptionStatusEnum::Superseded => proto2::SubscriptionStatus::Ended,
+        }
+    }
+
     pub(crate) fn domain_to_proto(s: domain::Subscription) -> Result<proto2::Subscription, Status> {
-        let status = s.status_proto() as i32;
+        let status = map_subscription_status(s.status) as i32;
 
         Ok(proto2::Subscription {
             id: s.id.as_proto(),
@@ -44,8 +59,6 @@ pub mod subscriptions {
             billing_start_date: s.billing_start_date.as_proto(),
             customer_name: s.customer_name,
             customer_alias: s.customer_alias,
-            canceled_at: s.canceled_at.as_proto(),
-            cancellation_reason: s.cancellation_reason,
             billing_day_anchor: s.billing_day_anchor as u32,
             trial_duration: s.trial_duration,
             created_by: s.created_by.as_proto(),
@@ -72,7 +85,7 @@ pub mod subscriptions {
                     |_| Status::invalid_argument("Invalid activation condition".to_string()),
                 )?,
             ),
-            plan_version_id: Uuid::from_proto(param.plan_version_id)?,
+            plan_version_id: PlanVersionId::from_proto(param.plan_version_id)?,
             created_by: *actor,
             net_terms: param.net_terms,
             invoice_memo: param.invoice_memo,
@@ -133,7 +146,7 @@ pub mod subscriptions {
         details: domain::SubscriptionDetails,
     ) -> Result<proto2::SubscriptionDetails, Status> {
         let sub = details.subscription;
-        let status = sub.status_proto() as i32;
+        let status = map_subscription_status(sub.status) as i32;
         Ok(proto2::SubscriptionDetails {
             subscription: Some(proto2::Subscription {
                 id: sub.id.as_proto(),
@@ -154,8 +167,6 @@ pub mod subscriptions {
                 billing_start_date: sub.billing_start_date.as_proto(),
                 customer_name: sub.customer_name,
                 customer_alias: sub.customer_alias,
-                canceled_at: sub.canceled_at.as_proto(),
-                cancellation_reason: sub.cancellation_reason,
                 billing_day_anchor: sub.billing_day_anchor as u32,
                 trial_duration: sub.trial_duration,
                 created_by: sub.created_by.as_proto(),

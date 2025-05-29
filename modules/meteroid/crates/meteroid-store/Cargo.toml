@@ -29,6 +29,7 @@ error-stack.workspace = true
 thiserror.workspace = true
 diesel-models.workspace = true
 async-trait.workspace = true
+rand.workspace = true
 rust_decimal.workspace = true
 rust_decimal_macros.workspace = true
 rusty-money = { workspace = true }
@@ -55,6 +56,10 @@ meteroid-mailer = { workspace = true }
 meteroid-oauth = { workspace = true }
 stripe-client = { workspace = true }
 common-domain = { workspace = true }
+log.workspace = true
+golden.workspace = true
+paste.workspace = true
+meteroid-store-macros = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

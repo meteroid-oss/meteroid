@@ -104,6 +104,9 @@ pub mod event_type {
             }
             WebhookEventTypeProto::InvoiceCreated => WebhookOutEventTypeEnum::InvoiceCreated,
             WebhookEventTypeProto::InvoiceFinalized => WebhookOutEventTypeEnum::InvoiceFinalized,
+            WebhookEventTypeProto::BillableMetricCreated => {
+                WebhookOutEventTypeEnum::BillableMetricCreated
+            }
         }
     }
 
@@ -115,6 +118,9 @@ pub mod event_type {
             }
             WebhookOutEventTypeEnum::InvoiceCreated => WebhookEventTypeProto::InvoiceCreated,
             WebhookOutEventTypeEnum::InvoiceFinalized => WebhookEventTypeProto::InvoiceFinalized,
+            WebhookOutEventTypeEnum::BillableMetricCreated => {
+                WebhookEventTypeProto::BillableMetricCreated
+            }
         }
     }
 }

@@ -12,7 +12,7 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
     tenants_service_server::TenantsService,
 };
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
-use meteroid_seeder::SeederInterface;
+use meteroid_seeder::presets;
 use meteroid_store::domain::TenantEnvironmentEnum;
 use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
@@ -139,10 +139,16 @@ impl TenantsService for TenantServiceComponents {
         let req = mapping::tenants::create_req_to_domain(request.into_inner());
 
         let res = if req.environment == TenantEnvironmentEnum::Sandbox {
-            self.store
-                .insert_seeded_sandbox_tenant(req.name, organization_id, actor)
-                .await
-                .map_err(Into::<TenantApiError>::into)?
+            presets::run_preset(
+                &self.store,
+                &self.services,
+                presets::simple::basic_scenario_1(),
+                organization_id,
+                actor,
+                Some(req.name),
+            )
+            .await
+            .map_err(Into::<TenantApiError>::into)?
         } else {
             self.store
                 .insert_tenant(req, organization_id)

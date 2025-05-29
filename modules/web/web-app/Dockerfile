@@ -41,7 +41,7 @@ RUN cd modules/web && pnpm install --filter=@md/web
 RUN cd modules/web/web-app && pnpm run build:js
 
 # nginx state for serving content
-FROM nginx:stable-alpine as production
+FROM nginx:stable-alpine AS production
 # Copy from build stage
 COPY --from=installer /app/modules/web/web-app/dist /usr/share/nginx/html
 COPY --from=installer /app/nginx.conf /etc/nginx/conf.d/default.conf

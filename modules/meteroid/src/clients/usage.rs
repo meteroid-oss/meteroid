@@ -2,6 +2,7 @@ use crate::api::billablemetrics::mapping;
 use chrono::{NaiveDate, Timelike};
 use common_domain::ids::{CustomerId, TenantId};
 use common_grpc::middleware::client::LayeredClientService;
+use error_stack::{ResultExt, bail};
 use metering_grpc::meteroid::metering::v1::meter::AggregationType;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
@@ -9,10 +10,10 @@ use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQuer
 use metering_grpc::meteroid::metering::v1::{
     CustomerIdentifier, Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest,
 };
-use meteroid_store::compute::ComputeError;
-use meteroid_store::compute::clients::usage::*;
-use meteroid_store::domain;
+use meteroid_store::clients::usage::{GroupedUsageData, Metadata, UsageClient, UsageData};
 use meteroid_store::domain::{BillableMetric, Period};
+use meteroid_store::errors::StoreError;
+use meteroid_store::{StoreResult, domain};
 use rust_decimal::Decimal;
 use tonic::Request;
 
@@ -40,7 +41,7 @@ impl UsageClient for MeteringUsageClient {
         &self,
         tenant_id: TenantId,
         metric: &BillableMetric,
-    ) -> Result<Vec<Metadata>, ComputeError> {
+    ) -> StoreResult<Vec<Metadata>> {
         let metering_meter = mapping::metric::domain_to_metering(metric.clone());
 
         let response = self
@@ -53,10 +54,8 @@ impl UsageClient for MeteringUsageClient {
             // TODO add in db/response the register , error and allow retrying
             .await
             .map(|r| r.into_inner())
-            .map_err(|status| {
-                log::error!("Failed to register meter: {:?}", status);
-                ComputeError::MeteringGrpcError
-            })?;
+            .change_context(StoreError::MeteringServiceError)
+            .attach_printable("Failed to register meter")?;
 
         let metadata = response
             .metadata
@@ -77,9 +76,9 @@ impl UsageClient for MeteringUsageClient {
         customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
-    ) -> Result<UsageData, ComputeError> {
+    ) -> StoreResult<UsageData> {
         if period.start >= period.end {
-            return Err(ComputeError::InvalidPeriod);
+            bail!(StoreError::InvalidArgument("invalid period".to_string()));
         }
 
         let aggregation_type = match metric.aggregation_type {
@@ -160,10 +159,8 @@ impl UsageClient for MeteringUsageClient {
         let response: QueryMeterResponse = metering_client_mut
             .query_meter(request)
             .await
-            .map_err(|status| {
-                log::error!("Failed to query meter: {:?}", status);
-                ComputeError::MeteringGrpcError
-            })?
+            .change_context(StoreError::MeteringServiceError)
+            .attach_printable("Failed to query meter")?
             .into_inner();
 
         let data: Vec<GroupedUsageData> = response

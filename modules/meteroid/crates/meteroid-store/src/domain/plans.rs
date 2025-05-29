@@ -12,7 +12,7 @@ use diesel_models::plans::PlanRowPatch;
 use diesel_models::plans::PlanVersionRowInfo;
 use diesel_models::plans::PlanWithVersionRow;
 
-use common_domain::ids::{BaseId, PlanId, ProductFamilyId, TenantId};
+use common_domain::ids::{BaseId, PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use o2o::o2o;
 use uuid::Uuid;
 // TODO duplicate as well
@@ -103,7 +103,7 @@ pub struct PlanVersionNew {
 impl PlanVersionNew {
     pub fn into_raw(self, tenant_currency: String) -> PlanVersionRowNew {
         PlanVersionRowNew {
-            id: Uuid::now_v7(),
+            id: PlanVersionId::new(),
             plan_id: self.plan_id,
             created_by: self.created_by,
             version: self.version,
@@ -154,14 +154,14 @@ pub struct Plan {
     pub plan_type: PlanTypeEnum,
     #[from(~.into())]
     pub status: PlanStatusEnum,
-    pub active_version_id: Option<Uuid>,
-    pub draft_version_id: Option<Uuid>,
+    pub active_version_id: Option<PlanVersionId>,
+    pub draft_version_id: Option<PlanVersionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
 #[from_owned(PlanVersionRow)]
 pub struct PlanVersion {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub is_draft_version: bool,
     pub plan_id: PlanId,
     pub version: i32,
@@ -210,7 +210,7 @@ pub struct PlanOverview {
 #[derive(Debug, Clone, PartialEq, Eq, o2o)]
 #[from_owned(PlanVersionRowOverview)]
 pub struct PlanVersionOverview {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub plan_id: PlanId,
     pub plan_name: String,
     pub version: i32,
@@ -231,7 +231,7 @@ pub struct PlanVersionOverview {
 #[derive(Clone, Debug, o2o)]
 #[from_owned(PlanVersionRowInfo)]
 pub struct PlanVersionInfo {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub version: i32,
     pub trial_duration_days: Option<i32>,
     // add currency(-ies) ?
@@ -240,7 +240,7 @@ pub struct PlanVersionInfo {
 #[derive(Clone, Debug, o2o)]
 #[from_owned(PlanRowForSubscription)]
 pub struct PlanForSubscription {
-    pub version_id: Uuid,
+    pub version_id: PlanVersionId,
     pub net_terms: i32,
     pub name: String,
     pub currency: String,
@@ -251,7 +251,7 @@ pub struct PlanForSubscription {
 #[derive(Clone, Debug, o2o)]
 #[owned_into(PlanVersionRowPatch)]
 pub struct PlanVersionPatch {
-    pub id: Uuid,
+    pub id: PlanVersionId,
     pub tenant_id: TenantId,
     pub currency: Option<String>,
     pub net_terms: Option<i32>,
@@ -271,7 +271,7 @@ pub struct PlanPatch {
     pub tenant_id: TenantId,
     pub name: Option<String>,
     pub description: Option<Option<String>>,
-    pub active_version_id: Option<Option<Uuid>>,
+    pub active_version_id: Option<Option<PlanVersionId>>,
 }
 
 #[derive(Debug, Clone, PartialEq, o2o)]
@@ -284,7 +284,7 @@ pub struct PlanWithVersion {
 }
 
 pub struct TrialPatch {
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub tenant_id: TenantId,
     pub trial: Option<PlanTrial>,
 }

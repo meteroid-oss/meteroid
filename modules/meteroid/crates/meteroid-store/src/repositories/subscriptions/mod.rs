@@ -1,42 +1,50 @@
+use crate::StoreResult;
 use crate::domain::{
-    ConnectorProviderEnum, CreateSubscription, CreatedSubscription, CursorPaginatedVec,
-    CursorPaginationRequest, PaginatedVec, PaginationRequest, Subscription, SubscriptionComponent,
+    BillableMetric, ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest,
+    PaginatedVec, PaginationRequest, Schedule, Subscription, SubscriptionComponent,
     SubscriptionComponentNew, SubscriptionDetails, SubscriptionInvoiceCandidate,
 };
-use crate::{StoreResult, domain};
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
 
-pub mod internal;
-mod slots;
-pub use payment_method::PaymentSetupResult;
-pub use slots::SubscriptionSlotsInterface;
-mod context;
-mod payment_method;
-mod subscriptions_impl;
-mod utils;
+use crate::errors::StoreError;
+use crate::store::Store;
+use error_stack::{Report, bail};
+use itertools::Itertools;
 
-pub use utils::subscription_to_draft;
+use crate::domain::subscription_add_ons::SubscriptionAddOn;
+use diesel_models::applied_coupons::AppliedCouponDetailedRow;
+use diesel_models::billable_metrics::BillableMetricRow;
+use diesel_models::schedules::ScheduleRow;
+use diesel_models::subscription_add_ons::SubscriptionAddOnRow;
+use diesel_models::subscription_components::{
+    SubscriptionComponentRow, SubscriptionComponentRowNew,
+};
+use diesel_models::subscriptions::SubscriptionRow;
+// TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
+// and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
+use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
+use crate::jwt_claims::{PortalJwtClaims, ResourceAccess};
+use crate::repositories::connectors::ConnectorsInterface;
+use crate::repositories::pgmq::PgmqInterface;
+use diesel_models::PgConn;
+use diesel_models::scheduled_events::ScheduledEventRowNew;
+use error_stack::Result;
+use meteroid_store_macros::with_conn_delegate;
+use secrecy::{ExposeSecret, SecretString};
+
+pub mod slots;
+use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventNew};
+pub use slots::SubscriptionSlotsInterface;
 
 pub enum CancellationEffectiveAt {
     EndOfBillingPeriod,
     Date(NaiveDate),
 }
 
-#[async_trait::async_trait]
+#[with_conn_delegate]
 pub trait SubscriptionInterface {
-    async fn insert_subscription(
-        &self,
-        subscription: CreateSubscription,
-        tenant_id: TenantId,
-    ) -> StoreResult<CreatedSubscription>;
-
-    async fn insert_subscription_batch(
-        &self,
-        batch: Vec<CreateSubscription>,
-        tenant_id: TenantId,
-    ) -> StoreResult<Vec<CreatedSubscription>>;
-
+    #[delegated]
     async fn get_subscription_details(
         &self,
         tenant_id: TenantId,
@@ -54,14 +62,6 @@ pub trait SubscriptionInterface {
         tenant_id: TenantId,
         batch: Vec<SubscriptionComponentNew>,
     ) -> StoreResult<Vec<SubscriptionComponent>>;
-
-    async fn cancel_subscription(
-        &self,
-        subscription_id: SubscriptionId,
-        reason: Option<String>,
-        effective_at: CancellationEffectiveAt,
-        context: domain::TenantContext,
-    ) -> StoreResult<Subscription>;
 
     async fn list_subscriptions(
         &self,
@@ -101,4 +101,363 @@ pub trait SubscriptionInterface {
         &self,
         subscription_ids: Vec<SubscriptionId>,
     ) -> StoreResult<Vec<Subscription>>;
+
+    async fn schedule_events(
+        &self,
+        conn: &mut PgConn,
+        events: Vec<ScheduledEventNew>,
+    ) -> StoreResult<Vec<ScheduledEvent>>;
 }
+
+#[async_trait::async_trait]
+impl SubscriptionInterface for Store {
+    async fn get_subscription(
+        &self,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<Subscription> {
+        let mut conn = self.get_conn().await?;
+
+        let db_subscription =
+            SubscriptionRow::get_subscription_by_id(&mut conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        db_subscription.try_into()
+    }
+
+    /// todo optimize db calls
+    async fn get_subscription_details_with_conn(
+        &self,
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        subscription_id: SubscriptionId,
+    ) -> StoreResult<SubscriptionDetails> {
+        let db_subscription =
+            SubscriptionRow::get_subscription_by_id(conn, &tenant_id, subscription_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        let subscription: Subscription = db_subscription.try_into()?;
+
+        let schedules: Vec<Schedule> =
+            ScheduleRow::list_schedules_by_subscription(conn, &tenant_id, &subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let subscription_components: Vec<SubscriptionComponent> =
+            SubscriptionComponentRow::list_subscription_components_by_subscription(
+                conn,
+                &tenant_id,
+                &subscription.id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let subscription_add_ons: Vec<SubscriptionAddOn> =
+            SubscriptionAddOnRow::list_by_subscription_id(conn, &tenant_id, &subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let mut metric_ids = subscription_components
+            .iter()
+            .filter_map(|sc| sc.metric_id())
+            .collect::<Vec<_>>();
+
+        metric_ids.extend(
+            subscription_add_ons
+                .iter()
+                .filter_map(|sa| sa.fee.metric_id())
+                .collect::<Vec<_>>(),
+        );
+
+        metric_ids = metric_ids.into_iter().unique().collect::<Vec<_>>();
+
+        let applied_coupons =
+            AppliedCouponDetailedRow::list_by_subscription_id(conn, &subscription.id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let billable_metrics: Vec<BillableMetric> =
+            BillableMetricRow::get_by_ids(conn, &metric_ids, &subscription.tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .into_iter()
+                .map(|m| m.try_into())
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let checkout_token = if subscription.pending_checkout {
+            let jwt =
+                generate_checkout_token(&self.settings.jwt_secret, tenant_id, subscription.id)?;
+            Some(jwt)
+        } else {
+            None
+        };
+
+        Ok(SubscriptionDetails {
+            subscription,
+            price_components: subscription_components,
+            add_ons: subscription_add_ons,
+            applied_coupons,
+            metrics: billable_metrics,
+            schedules,
+            checkout_token,
+        })
+    }
+
+    async fn insert_subscription_components(
+        &self,
+        _tenant_id: TenantId,
+        batch: Vec<SubscriptionComponentNew>,
+    ) -> StoreResult<Vec<SubscriptionComponent>> {
+        let mut conn = self.get_conn().await?;
+
+        // TODO update mrr
+
+        let insertable_batch: Vec<SubscriptionComponentRowNew> = batch
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        SubscriptionComponentRow::insert_subscription_component_batch(
+            &mut conn,
+            insertable_batch.iter().collect(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+        .map(|v| {
+            v.into_iter()
+                .map(|e| e.try_into())
+                .collect::<Result<Vec<_>, _>>()
+        })?
+    }
+
+    async fn list_subscriptions(
+        &self,
+        tenant_id: TenantId,
+        customer_id: Option<CustomerId>,
+        plan_id: Option<PlanId>,
+        pagination: PaginationRequest,
+    ) -> StoreResult<PaginatedVec<Subscription>> {
+        let mut conn = self.get_conn().await?;
+
+        let db_subscriptions = SubscriptionRow::list_subscriptions(
+            &mut conn,
+            &tenant_id,
+            customer_id,
+            plan_id,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: PaginatedVec<Subscription> = PaginatedVec {
+            items: db_subscriptions
+                .items
+                .into_iter()
+                .map(|s| s.try_into())
+                .collect::<Result<Vec<_>, _>>()?,
+            total_pages: db_subscriptions.total_pages,
+            total_results: db_subscriptions.total_results,
+        };
+
+        Ok(res)
+    }
+
+    async fn list_subscription_invoice_candidates(
+        &self,
+        date: NaiveDate,
+        pagination: CursorPaginationRequest,
+    ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>> {
+        let mut conn = self.get_conn().await?;
+
+        let db_subscriptions = SubscriptionRow::list_subscription_to_invoice_candidates(
+            &mut conn,
+            date,
+            pagination.into(),
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
+
+        let res: CursorPaginatedVec<SubscriptionInvoiceCandidate> = CursorPaginatedVec {
+            items: db_subscriptions
+                .items
+                .into_iter()
+                .map(|s| s.into())
+                .collect(),
+            next_cursor: db_subscriptions.next_cursor,
+        };
+
+        Ok(res)
+    }
+
+    async fn patch_subscription_conn_meta(
+        &self,
+        subscription_id: SubscriptionId,
+        connector_id: ConnectorId,
+        provider: ConnectorProviderEnum,
+        external_id: &str,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        SubscriptionRow::upsert_conn_meta(
+            &mut conn,
+            provider.into(),
+            subscription_id,
+            connector_id,
+            external_id,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn sync_subscriptions_to_hubspot(
+        &self,
+        tenant_id: TenantId,
+        subscription_ids: Vec<SubscriptionId>,
+    ) -> StoreResult<()> {
+        let connector = self.get_hubspot_connector(tenant_id).await?;
+
+        if connector.is_none() {
+            bail!(StoreError::InvalidArgument(
+                "No Hubspot connector found".to_string()
+            ));
+        }
+
+        let mut conn = self.get_conn().await?;
+
+        let db_subscriptions =
+            SubscriptionRow::list_subscriptions_by_ids(&mut conn, &tenant_id, &subscription_ids)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?;
+
+        self.pgmq_send_batch(
+            PgmqQueue::HubspotSync,
+            db_subscriptions
+                .into_iter()
+                .map(|subscription| {
+                    HubspotSyncRequestEvent::Subscription(Box::new(HubspotSyncSubscription {
+                        id: subscription.subscription.id,
+                        tenant_id,
+                    }))
+                    .try_into()
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+        .await
+    }
+
+    async fn list_subscription_by_ids_global(
+        &self,
+        subscription_ids: Vec<SubscriptionId>,
+    ) -> StoreResult<Vec<Subscription>> {
+        let mut conn = self.get_conn().await?;
+
+        SubscriptionRow::list_by_ids(&mut conn, &subscription_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()
+    }
+
+    async fn sync_customer_subscriptions_to_hubspot(
+        &self,
+        tenant_id: TenantId,
+        customer_ids: Vec<CustomerId>,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        let req = SubscriptionRow::list_by_customer_ids(&mut conn, tenant_id, &customer_ids)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|subscription| {
+                HubspotSyncRequestEvent::Subscription(Box::new(HubspotSyncSubscription {
+                    id: subscription.subscription.id,
+                    tenant_id: subscription.subscription.tenant_id,
+                }))
+                .try_into()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.pgmq_send_batch(PgmqQueue::HubspotSync, req).await
+    }
+
+    async fn schedule_events(
+        &self,
+        conn: &mut PgConn,
+        events: Vec<ScheduledEventNew>,
+    ) -> StoreResult<Vec<ScheduledEvent>> {
+        let insertable_batch: Vec<ScheduledEventRowNew> = events
+            .into_iter()
+            .map(|c| c.try_into())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        ScheduledEventRowNew::insert_batch(conn, &insertable_batch)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(|s| s.try_into())
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+pub fn generate_checkout_token(
+    jwt_secret: &SecretString,
+    tenant_id: TenantId,
+    subscription_id: SubscriptionId,
+) -> StoreResult<String> {
+    let claims = serde_json::to_value(PortalJwtClaims::new(
+        tenant_id,
+        ResourceAccess::SubscriptionCheckout(subscription_id),
+    ))
+    .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
+
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
+    )
+    .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
+    Ok(token)
+}
+
+// fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {
+//     match event_type {
+//         // Highest priority - must happen before other events
+//         ScheduledEventTypeEnum::CancelSubscription => 100,
+//         ScheduledEventTypeEnum::SuspendForNonPayment => 90,
+//
+//         // Payment events - high priority
+//         ScheduledEventTypeEnum::AttemptPayment => 80,
+//         ScheduledEventTypeEnum::RetryPayment => 75,
+//         ScheduledEventTypeEnum::FinalizeInvoice => 70,
+//
+//         // Plan changes - medium priority
+//         ScheduledEventTypeEnum::ApplyUpgrade => 60, // equal priority => arbitration
+//         ScheduledEventTypeEnum::ApplyDowngrade => 60,
+//
+//         // Subscription management - medium priority
+//         ScheduledEventTypeEnum::PauseSubscription => 50,
+//         ScheduledEventTypeEnum::ResumeSubscription => 50,
+//
+//         // Notifications and other low-impact events
+//         ScheduledEventTypeEnum::SendPaymentReminder => 20,
+//         ScheduledEventTypeEnum::ApplyLatePaymentFee => 30,
+//         ScheduledEventTypeEnum::MoveToDelinquent => 40,
+//
+//     }
+// }

@@ -5,7 +5,7 @@ use tonic_web::GrpcWebLayer;
 
 use common_grpc::middleware::common::filters as common_filters;
 use common_grpc::middleware::server as common_middleware;
-use meteroid_store::Store;
+use meteroid_store::{Services, Store};
 
 use crate::api;
 use crate::api::cors::cors;
@@ -17,6 +17,7 @@ use super::super::config::Config;
 pub async fn start_api_server(
     config: Config,
     store: Store,
+    services: Services,
     object_store: Arc<dyn ObjectStoreService>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting GRPC API on {}", config.grpc_listen_addr);
@@ -69,7 +70,7 @@ pub async fn start_api_server(
             store.clone(),
             config.jwt_secret.clone(),
         ))
-        .add_service(api::tenants::service(store.clone()))
+        .add_service(api::tenants::service(store.clone(), services.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(store.clone()))
         .add_service(api::plans::service(store.clone()))
@@ -79,16 +80,18 @@ pub async fn start_api_server(
         .add_service(api::instance::service(store.clone()))
         .add_service(api::invoices::service(
             store.clone(),
+            services.clone(),
             config.jwt_secret.clone(),
             preview_rendering,
         ))
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
-        .add_service(api::subscriptions::service(store.clone()))
+        .add_service(api::subscriptions::service(store.clone(), services.clone()))
         .add_service(api::webhooksout::service(store.clone()))
         .add_service(api::internal::service(store.clone()))
         .add_service(api::portal::checkout::service(
             store.clone(),
+            services.clone(),
             object_store.clone(),
         ))
         .serve(config.grpc_listen_addr)

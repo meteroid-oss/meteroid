@@ -7,8 +7,8 @@ use error_stack::{Report, ResultExt, report};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    HubspotSyncRequestEvent, InvoicePdfRequestEvent, PennylaneSyncInvoice,
-    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, InvoicePdfRequestEvent,
+    PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -161,6 +161,35 @@ impl PgmqOutboxDispatch {
 
         Ok(())
     }
+
+    pub(crate) async fn handle_billable_metric_sync(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
+        let mut events = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
+                if let EventType::BillableMetricCreated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::BillableMetricCreated(evt)) = msg.try_into() {
+                        if let Ok(msg_new) =
+                            BillableMetricSyncRequestEvent::BillableMetricCreated(evt).try_into()
+                        {
+                            events.push(msg_new);
+                        }
+                    }
+                }
+            }
+        }
+
+        if !events.is_empty() {
+            self.store
+                .pgmq_send_batch(PgmqQueue::BillableMetricSync, events)
+                .await
+                .change_context(PgmqError::HandleMessages)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -173,6 +202,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
             self.handle_invoice_pdf_requests(msgs).boxed(),
             self.handle_hubspot_out(msgs).boxed(),
             self.handle_pennylane_out(msgs).boxed(),
+            self.handle_billable_metric_sync(msgs).boxed(),
         ];
 
         // Run the functions concurrently

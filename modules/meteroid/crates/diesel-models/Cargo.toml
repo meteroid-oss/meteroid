@@ -10,7 +10,7 @@ repository.workspace = true
 
 [dependencies]
 chrono.workspace = true
-diesel = { workspace = true, features = ["64-column-tables"] }
+diesel = { workspace = true, features = ["64-column-tables", "chrono"] }
 diesel-derive-enum.workspace = true
 diesel-async.workspace = true
 diesel-derive-newtype.workspace = true

@@ -2,6 +2,7 @@ use crate::DbResult;
 use diesel::result::Error as DieselError;
 use error_stack::Report;
 
+#[derive(Debug)]
 pub struct DatabaseErrorContainer {
     pub error: error_stack::Report<DatabaseError>,
 }

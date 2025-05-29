@@ -1,0 +1,19 @@
+{
+  "Usage": {
+    "metric_id": "00000000-0000-0000-0000-000000000000",
+    "pricing": {
+      "Matrix": {
+        "rates": [
+          {
+            "dimension1": {
+              "key": "key",
+              "value": "value"
+            },
+            "dimension2": null,
+            "per_unit_price": "1.00"
+          }
+        ]
+      }
+    }
+  }
+}

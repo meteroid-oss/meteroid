@@ -1,0 +1,12 @@
+{
+  "Capacity": {
+    "metric_id": "00000000-0000-0000-0000-000000000000",
+    "thresholds": [
+      {
+        "included_amount": 100,
+        "price": "1.00",
+        "per_unit_overage": "0.10"
+      }
+    ]
+  }
+}

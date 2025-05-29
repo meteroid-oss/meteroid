@@ -4,7 +4,8 @@ use std::collections::HashMap;
 
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::{PriceComponentId, TenantId};
+use common_domain::ids::BaseId;
+use common_domain::ids::{PlanVersionId, PriceComponentId, TenantId};
 use diesel::{
     ExpressionMethods, Insertable, OptionalExtension, QueryDsl, SelectableHelper, debug_query,
 };
@@ -97,7 +98,7 @@ impl PriceComponentRow {
     pub async fn list_by_plan_version_id(
         conn: &mut PgConn,
         tenant_id_param: TenantId,
-        plan_version_id_param: uuid::Uuid,
+        plan_version_id_param: PlanVersionId,
     ) -> DbResult<Vec<PriceComponentRow>> {
         use crate::schema::plan_version::dsl as plan_version_dsl;
         use crate::schema::price_component::dsl::*;
@@ -119,10 +120,10 @@ impl PriceComponentRow {
             .into_db_result()
     }
 
-    pub async fn get_by_plan_ids(
+    pub async fn get_by_plan_version_ids(
         conn: &mut PgConn,
-        plan_version_ids: &[uuid::Uuid],
-    ) -> DbResult<HashMap<uuid::Uuid, Vec<PriceComponentRow>>> {
+        plan_version_ids: &[PlanVersionId],
+    ) -> DbResult<HashMap<PlanVersionId, Vec<PriceComponentRow>>> {
         use crate::schema::price_component::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -205,8 +206,8 @@ impl PriceComponentRow {
 
     pub async fn clone_all(
         conn: &mut PgConn,
-        src_plan_version_id: uuid::Uuid,
-        dst_plan_version_id: uuid::Uuid,
+        src_plan_version_id: PlanVersionId,
+        dst_plan_version_id: PlanVersionId,
     ) -> DbResult<usize> {
         use crate::schema::price_component::dsl as pc_dsl;
         use diesel_async::RunQueryDsl;
@@ -222,7 +223,7 @@ impl PriceComponentRow {
                 pc_dsl::name,
                 pc_dsl::fee,
                 diesel::dsl::sql::<diesel::sql_types::Uuid>(
-                    format!("'{}'", dst_plan_version_id).as_str(),
+                    format!("'{}'", dst_plan_version_id.as_uuid()).as_str(),
                 ),
                 pc_dsl::product_id,
                 pc_dsl::billable_metric_id,

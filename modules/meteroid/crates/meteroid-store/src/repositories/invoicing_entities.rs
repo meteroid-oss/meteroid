@@ -1,4 +1,3 @@
-use chrono::{Datelike, NaiveDate};
 use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
@@ -269,13 +268,5 @@ impl StoreInternal {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         Ok(invoicing_entity_row.into())
-    }
-
-    pub fn format_invoice_number(&self, number: i64, format: String, date: NaiveDate) -> String {
-        format
-            .replace("{number}", &number.to_string())
-            .replace("{YYYY}", &date.year().to_string())
-            .replace("{MM}", &date.month().to_string())
-            .replace("{DD}", &date.day().to_string())
     }
 }

@@ -1,5 +1,4 @@
-use tonic::{Request, Response, Status};
-
+use common_domain::ids::PlanVersionId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::schedules::v1::{
     CreateScheduleRequest, CreateScheduleResponse, EditScheduleRequest, EditScheduleResponse,
@@ -8,6 +7,7 @@ use meteroid_grpc::meteroid::api::schedules::v1::{
 };
 use meteroid_store::domain;
 use meteroid_store::repositories::schedules::ScheduleInterface;
+use tonic::{Request, Response, Status};
 
 use crate::api::domain_mapping::billing_period;
 use crate::api::schedules::error::ScheduleApiError;
@@ -28,7 +28,7 @@ impl SchedulesService for ScheduleServiceComponents {
 
         let schedules = self
             .store
-            .list_schedules(parse_uuid!(&req.plan_version_id)?, tenant_id)
+            .list_schedules(PlanVersionId::from_proto(&req.plan_version_id)?, tenant_id)
             .await
             .map_err(Into::<ScheduleApiError>::into)?
             .into_iter()
@@ -49,7 +49,7 @@ impl SchedulesService for ScheduleServiceComponents {
         let req = request.into_inner();
 
         let schedule_new = domain::ScheduleNew {
-            plan_version_id: parse_uuid!(&req.plan_version_id)?,
+            plan_version_id: PlanVersionId::from_proto(&req.plan_version_id)?,
             billing_period: billing_period::from_proto(req.billing_period()),
             ramps: PlanRampsWrapper(
                 req.ramps

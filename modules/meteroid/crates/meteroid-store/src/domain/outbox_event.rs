@@ -1,13 +1,16 @@
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
-use crate::domain::{Address, Customer, DetailedInvoice, Invoice, ShippingAddress, Subscription};
+use crate::domain::{
+    Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, SegmentationMatrix,
+    ShippingAddress, Subscription, SubscriptionStatusEnum, UnitConversionRoundingEnum,
+};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
-    BankAccountId, BaseId, ConnectorId, CustomerId, EventId, InvoiceId, PlanId, SubscriptionId,
-    TenantId,
+    BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, EventId, InvoiceId, PlanId,
+    PlanVersionId, ProductFamilyId, ProductId, SubscriptionId, TenantId,
 };
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
@@ -21,6 +24,7 @@ use uuid::Uuid;
 #[serde(tag = "event_type")]
 pub enum OutboxEvent {
     CustomerCreated(Box<CustomerEvent>),
+    BillableMetricCreated(Box<BillableMetricEvent>),
     InvoiceCreated(Box<InvoiceEvent>),
     InvoiceFinalized(Box<InvoiceEvent>),
     InvoicePaid(Box<InvoiceEvent>),
@@ -31,6 +35,7 @@ pub enum OutboxEvent {
 #[derive(Display, Debug, Serialize, Deserialize)]
 pub enum EventType {
     CustomerCreated,
+    BillableMetricCreated,
     InvoiceCreated,
     InvoiceFinalized,
     InvoicePaid,
@@ -44,6 +49,7 @@ impl OutboxEvent {
     pub fn event_id(&self) -> EventId {
         match self {
             OutboxEvent::CustomerCreated(event) => event.id,
+            OutboxEvent::BillableMetricCreated(event) => event.id,
             OutboxEvent::InvoiceCreated(event) => event.id,
             OutboxEvent::InvoiceFinalized(event) => event.id,
             OutboxEvent::InvoicePaid(event) => event.id,
@@ -55,6 +61,7 @@ impl OutboxEvent {
     pub fn tenant_id(&self) -> TenantId {
         match self {
             OutboxEvent::CustomerCreated(event) => event.tenant_id,
+            OutboxEvent::BillableMetricCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
             OutboxEvent::InvoicePaid(event) => event.tenant_id,
@@ -66,6 +73,7 @@ impl OutboxEvent {
     pub fn aggregate_id(&self) -> Uuid {
         match self {
             OutboxEvent::CustomerCreated(event) => event.customer_id.as_uuid(),
+            OutboxEvent::BillableMetricCreated(event) => event.metric_id.as_uuid(),
             OutboxEvent::InvoiceCreated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoicePaid(event) => event.invoice_id.as_uuid(),
@@ -77,6 +85,7 @@ impl OutboxEvent {
     pub fn aggregate_type(&self) -> String {
         match self {
             OutboxEvent::CustomerCreated(_) => "Customer".to_string(),
+            OutboxEvent::BillableMetricCreated(_) => "BillableMetric".to_string(),
             OutboxEvent::InvoiceCreated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
             OutboxEvent::InvoicePaid(_) => "Invoice".to_string(),
@@ -88,6 +97,7 @@ impl OutboxEvent {
     pub fn event_type(&self) -> EventType {
         match self {
             OutboxEvent::CustomerCreated(_) => EventType::CustomerCreated,
+            OutboxEvent::BillableMetricCreated(_) => EventType::BillableMetricCreated,
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
             OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
@@ -98,6 +108,10 @@ impl OutboxEvent {
 
     pub fn customer_created(event: CustomerEvent) -> OutboxEvent {
         OutboxEvent::CustomerCreated(Box::new(event))
+    }
+
+    pub fn billable_metric_created(event: BillableMetricEvent) -> OutboxEvent {
+        OutboxEvent::BillableMetricCreated(Box::new(event))
     }
 
     pub fn invoice_created(event: InvoiceEvent) -> OutboxEvent {
@@ -119,6 +133,7 @@ impl OutboxEvent {
     fn payload_json(&self) -> StoreResult<Option<serde_json::Value>> {
         match self {
             OutboxEvent::CustomerCreated(event) => Ok(Some(Self::event_json(event)?)),
+            OutboxEvent::BillableMetricCreated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoiceCreated(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoiceFinalized(event) => Ok(Some(Self::event_json(event)?)),
             OutboxEvent::InvoicePaid(event) => Ok(Some(Self::event_json(event)?)),
@@ -192,6 +207,38 @@ impl CustomerEvent {
     }
 }
 
+// TODO golden tests
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
+#[map_owned(BillableMetric)]
+#[ghosts(archived_at: None, updated_at: None)]
+pub struct BillableMetricEvent {
+    #[ghost(EventId::new())]
+    pub id: EventId,
+    #[map(id)]
+    pub metric_id: BillableMetricId,
+    pub tenant_id: TenantId,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub code: String,
+    pub aggregation_type: BillingMetricAggregateEnum,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aggregation_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_conversion_factor: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segmentation_matrix: Option<SegmentationMatrix>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage_group_key: Option<String>,
+    pub created_at: NaiveDateTime,
+    pub created_by: Uuid,
+    pub product_family_id: ProductFamilyId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_id: Option<ProductId>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(Subscription)]
 pub struct SubscriptionEvent {
@@ -215,7 +262,7 @@ pub struct SubscriptionEvent {
     pub billing_start_date: Option<NaiveDate>,
     pub plan_id: PlanId,
     pub plan_name: String,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub version: u32,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -226,43 +273,32 @@ pub struct SubscriptionEvent {
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activated_at: Option<NaiveDateTime>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_at: Option<NaiveDateTime>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cancellation_reason: Option<String>,
     pub mrr_cents: u64,
     pub period: BillingPeriodEnum,
+    pub status: SubscriptionStatusEnum,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
-#[from_owned(DetailedInvoice)]
-#[from_owned(Invoice)]
+#[from_ref(Invoice)]
 pub struct InvoiceEvent {
     #[map(EventId::new())]
     pub id: EventId,
-    #[from(DetailedInvoice| @.invoice.id)]
-    #[from(Invoice| @.id)]
+    #[map(@.id)]
     pub invoice_id: InvoiceId,
-    #[from(DetailedInvoice| @.invoice.status)]
+    #[map(@.status.clone())]
     pub status: InvoiceStatusEnum,
-    #[from(DetailedInvoice| @.invoice.tenant_id)]
     pub tenant_id: TenantId,
-    #[from(DetailedInvoice| @.invoice.customer_id)]
     pub customer_id: CustomerId,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[from(DetailedInvoice| @.invoice.subscription_id)]
     pub subscription_id: Option<SubscriptionId>,
-    #[from(DetailedInvoice| @.invoice.currency)]
+    #[map(@.currency.clone())]
     pub currency: String,
-    #[from(DetailedInvoice| @.invoice.tax_amount)]
     pub tax_amount: i64,
-    #[from(DetailedInvoice| @.invoice.total)]
     pub total: i64,
-    #[from(DetailedInvoice| @.invoice.created_at)]
+    #[map(@.created_at.clone())]
     pub created_at: NaiveDateTime,
-    #[from(DetailedInvoice| @.invoice.conn_meta)]
+    #[map(@.conn_meta.clone())]
     pub conn_meta: Option<ConnectionMeta>,
-    #[from(DetailedInvoice| @.invoice.amount_due)]
     pub amount_due: i64,
 }
 

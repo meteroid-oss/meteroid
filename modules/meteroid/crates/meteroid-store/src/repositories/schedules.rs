@@ -1,6 +1,6 @@
 use crate::errors::StoreError;
 use crate::{Store, StoreResult, domain};
-use common_domain::ids::TenantId;
+use common_domain::ids::{PlanVersionId, TenantId};
 use diesel_models::plan_versions::PlanVersionRow;
 use diesel_models::schedules::{SchedulePatchRow, ScheduleRow, ScheduleRowNew};
 use error_stack::Report;
@@ -11,7 +11,7 @@ pub trait ScheduleInterface {
     async fn delete_schedule(&self, id: Uuid, auth_tenant_id: TenantId) -> StoreResult<()>;
     async fn list_schedules(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> StoreResult<Vec<domain::Schedule>>;
 
@@ -41,7 +41,7 @@ impl ScheduleInterface for Store {
 
     async fn list_schedules(
         &self,
-        plan_version_id: Uuid,
+        plan_version_id: PlanVersionId,
         auth_tenant_id: TenantId,
     ) -> StoreResult<Vec<domain::Schedule>> {
         let mut conn = self.get_conn().await?;

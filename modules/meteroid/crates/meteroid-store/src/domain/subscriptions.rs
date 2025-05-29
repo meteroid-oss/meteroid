@@ -1,17 +1,19 @@
-use chrono::{Datelike, NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime};
 
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
-    PlanForSubscription, Schedule, SubscriptionComponent,
+    PlanForSubscription, Schedule, SubscriptionComponent, SubscriptionStatusEnum,
 };
 use crate::errors::StoreErrorReport;
-use crate::repositories::subscriptions::PaymentSetupResult;
+use crate::services::PaymentSetupResult;
 use common_domain::ids::{
-    BankAccountId, BaseId, CustomerConnectionId, CustomerId, PlanId, SubscriptionId, TenantId,
+    BankAccountId, CustomerConnectionId, CustomerId, InvoicingEntityId, PlanId, PlanVersionId,
+    SubscriptionId, TenantId,
 };
+use diesel_models::enums::CycleActionEnum;
 use diesel_models::subscriptions::SubscriptionRowNew;
 use diesel_models::subscriptions::{
     SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow,
@@ -31,21 +33,21 @@ pub struct CreatedSubscription {
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
     pub billing_start_date: Option<NaiveDate>,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub net_terms: i32,
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub activated_at: Option<NaiveDateTime>,
-    pub canceled_at: Option<NaiveDateTime>,
-    pub cancellation_reason: Option<String>,
     pub mrr_cents: i64,
     #[from(~.into())]
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
     #[ghost({None})]
     pub checkout_token: Option<String>,
+    #[from(~.into())]
+    pub status: SubscriptionStatusEnum,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +68,7 @@ pub struct Subscription {
     pub bank_account_id: Option<BankAccountId>,
     pub plan_id: PlanId,
     pub plan_name: String,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub version: u32,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
@@ -75,12 +77,21 @@ pub struct Subscription {
     pub invoice_memo: Option<String>,
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub activated_at: Option<NaiveDateTime>,
-    pub canceled_at: Option<NaiveDateTime>,
-    pub cancellation_reason: Option<String>,
+    pub activation_condition: SubscriptionActivationCondition,
     pub mrr_cents: u64,
     pub period: BillingPeriodEnum,
     pub pending_checkout: bool,
     pub conn_meta: Option<ConnectionMeta>,
+    pub invoicing_entity_id: InvoicingEntityId,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
+    pub cycle_index: Option<u32>,
+    pub status: SubscriptionStatusEnum,
+}
+
+pub enum CyclePosition {
+    Start,
+    End,
 }
 
 impl TryFrom<SubscriptionForDisplayRow> for Subscription {
@@ -92,6 +103,7 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             customer_id: val.subscription.customer_id,
             customer_name: val.customer_name,
             customer_alias: val.customer_alias,
+            invoicing_entity_id: val.invoicing_entity_id,
             billing_day_anchor: val.subscription.billing_day_anchor as u16,
             tenant_id: val.subscription.tenant_id,
             currency: val.subscription.currency,
@@ -112,16 +124,19 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
             invoice_memo: val.subscription.invoice_memo,
             invoice_threshold: val.subscription.invoice_threshold,
             activated_at: val.subscription.activated_at,
-            canceled_at: val.subscription.canceled_at,
-            cancellation_reason: val.subscription.cancellation_reason,
             mrr_cents: val.subscription.mrr_cents as u64,
             period: val.subscription.period.into(),
             pending_checkout: val.subscription.pending_checkout,
+            activation_condition: val.subscription.activation_condition.into(),
+            current_period_start: val.subscription.current_period_start,
+            current_period_end: val.subscription.current_period_end,
             conn_meta: val
                 .subscription
                 .conn_meta
                 .map(TryInto::try_into)
                 .transpose()?,
+            cycle_index: val.subscription.cycle_index.map(|x| x as u32),
+            status: val.subscription.status.into(),
         })
     }
 }
@@ -143,7 +158,7 @@ pub enum SubscriptionPaymentStrategy {
 #[derive(Debug, Clone)]
 pub struct SubscriptionNew {
     pub customer_id: CustomerId,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub created_by: Uuid,
 
     pub net_terms: Option<u32>, // 0 = due on issue, null = default to plan.net_terms TODO overrides
@@ -171,57 +186,57 @@ pub struct SubscriptionNew {
     pub payment_strategy: Option<SubscriptionPaymentStrategy>,
 }
 
-impl SubscriptionNew {
-    pub fn map_to_row(
-        &self,
-        period: BillingPeriodEnum,
-        tenant_id: TenantId,
-        plan: &PlanForSubscription,
-        payment_setup_result: &PaymentSetupResult,
-    ) -> SubscriptionRowNew {
-        // in the current state we set billing_date/day even if free.
-        // That is because a free plan could still have included usage
-        // TODO : => decide to make it mandatory or not in db
-        let billing_start_date = self.billing_start_date.unwrap_or(self.start_date);
-        let billing_day_anchor = self
-            .billing_day_anchor
-            .unwrap_or_else(|| self.billing_start_date.unwrap_or(self.start_date).day() as u16);
-        let net_terms = self.net_terms.unwrap_or(plan.net_terms as u32);
+pub struct SubscriptionNewEnriched<'a> {
+    pub subscription: &'a SubscriptionNew,
+    pub subscription_id: SubscriptionId,
+    pub tenant_id: TenantId,
+    pub period: BillingPeriodEnum,
+    pub plan: &'a PlanForSubscription,
+    pub payment_setup_result: &'a PaymentSetupResult,
+    pub billing_day_anchor: u16,
+    pub billing_start_date: NaiveDate,
+    pub status: SubscriptionStatusEnum,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
+    pub next_cycle_action: Option<CycleActionEnum>,
+    pub activated_at: Option<NaiveDateTime>,
+    pub net_terms: u32,
+    pub cycle_index: Option<u32>,
+}
 
-        let activated_at = match self.activation_condition {
-            SubscriptionActivationCondition::OnStart => self.start_date.and_hms_opt(0, 0, 0),
-            _ => None,
-        };
-
-        let now = chrono::Utc::now().naive_utc();
-
-        // TODO subscription trial does not inherit from plan trial
-
+impl SubscriptionNewEnriched<'_> {
+    pub fn map_to_row(&self) -> SubscriptionRowNew {
+        let sub = &self.subscription;
         SubscriptionRowNew {
-            id: SubscriptionId::new(),
-            trial_duration: self.trial_duration.map(|x| x as i32),
-            customer_id: self.customer_id,
-            billing_day_anchor: billing_day_anchor as i16,
-            tenant_id,
-            currency: plan.currency.clone(),
-            billing_start_date: Some(billing_start_date),
-            end_date: self.end_date,
-            plan_version_id: self.plan_version_id,
-            created_at: now,
-            card_connection_id: payment_setup_result.card_connection_id,
-            direct_debit_connection_id: payment_setup_result.direct_debit_connection_id,
-            bank_account_id: payment_setup_result.bank,
-            created_by: self.created_by,
-            net_terms: net_terms as i32,
-            invoice_memo: self.invoice_memo.clone(),
-            invoice_threshold: self.invoice_threshold,
-            activated_at,
+            id: self.subscription_id,
+            trial_duration: sub.trial_duration.map(|x| x as i32),
+            customer_id: sub.customer_id,
+            billing_day_anchor: self.billing_day_anchor as i16,
+            tenant_id: self.tenant_id,
+            currency: self.plan.currency.clone(),
+            billing_start_date: Some(self.billing_start_date),
+            end_date: sub.end_date,
+            plan_version_id: sub.plan_version_id,
+            created_at: chrono::Utc::now().naive_utc(),
+            card_connection_id: self.payment_setup_result.card_connection_id,
+            direct_debit_connection_id: self.payment_setup_result.direct_debit_connection_id,
+            bank_account_id: self.payment_setup_result.bank,
+            created_by: sub.created_by,
+            net_terms: self.net_terms as i32,
+            invoice_memo: sub.invoice_memo.clone(),
+            invoice_threshold: sub.invoice_threshold,
+            activated_at: self.activated_at,
             mrr_cents: 0,
-            period: period.into(),
-            start_date: self.start_date,
-            activation_condition: self.activation_condition.clone().into(),
-            payment_method: payment_setup_result.payment_method,
-            pending_checkout: payment_setup_result.checkout,
+            period: self.period.clone().into(),
+            start_date: sub.start_date,
+            activation_condition: sub.activation_condition.clone().into(),
+            payment_method: self.payment_setup_result.payment_method,
+            pending_checkout: self.payment_setup_result.checkout,
+            status: self.status.clone().into(),
+            current_period_start: self.current_period_start,
+            current_period_end: self.current_period_end,
+            next_cycle_action: self.next_cycle_action.clone(),
+            cycle_index: self.cycle_index.map(|i| i as i32),
         }
     }
 }
@@ -250,7 +265,7 @@ pub struct SubscriptionInvoiceCandidate {
     pub id: SubscriptionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub plan_version_id: Uuid,
+    pub plan_version_id: PlanVersionId,
     pub plan_name: String,
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
@@ -258,7 +273,6 @@ pub struct SubscriptionInvoiceCandidate {
     pub billing_day_anchor: i16,
     pub net_terms: i32,
     pub activated_at: Option<NaiveDateTime>,
-    pub canceled_at: Option<NaiveDateTime>,
     pub currency: String,
     pub period: BillingPeriodEnum,
 }
@@ -275,7 +289,6 @@ impl From<SubscriptionInvoiceCandidateRow> for SubscriptionInvoiceCandidate {
             end_date: val.subscription.end_date,
             billing_day_anchor: val.subscription.billing_day_anchor,
             activated_at: val.subscription.activated_at,
-            canceled_at: val.subscription.canceled_at,
             // plan_id: self.plan_version.plan_id,
             plan_name: val.plan_version.plan_name,
             currency: val.plan_version.currency,

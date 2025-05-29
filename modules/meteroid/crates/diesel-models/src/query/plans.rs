@@ -11,14 +11,13 @@ use crate::enums::{PlanStatusEnum, PlanTypeEnum};
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 
-use common_domain::ids::{PlanId, ProductFamilyId, TenantId};
+use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId, TenantId};
 use diesel::NullableExpressionMethods;
 use diesel::{
     BoolExpressionMethods, ExpressionMethods, JoinOnDsl, PgTextExpressionMethods, QueryDsl,
     SelectableHelper, alias, debug_query,
 };
 use error_stack::ResultExt;
-use uuid::Uuid;
 
 impl PlanRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PlanRow> {
@@ -86,7 +85,7 @@ impl PlanRow {
 
     pub async fn get_with_version(
         conn: &mut PgConn,
-        version_id: Uuid,
+        version_id: PlanVersionId,
         tenant_id: TenantId,
     ) -> DbResult<PlanWithVersionRow> {
         use crate::schema::plan::dsl as p_dsl;
@@ -335,7 +334,7 @@ impl PlanRowPatch {
 impl PlanRowForSubscription {
     pub async fn get_plans_for_subscription_by_version_ids(
         conn: &mut PgConn,
-        version_ids: Vec<Uuid>,
+        version_ids: Vec<PlanVersionId>,
     ) -> DbResult<Vec<PlanRowForSubscription>> {
         use crate::schema::plan::dsl as p_dsl;
         use crate::schema::plan_version::dsl as pv_dsl;
@@ -359,18 +358,20 @@ impl PlanRowForSubscription {
             .await
             .attach_printable("Error while getting plan names by version ids")
             .into_db_result()
-            .map(|rows: Vec<(Uuid, i32, String, String, PlanTypeEnum)>| {
-                rows.into_iter()
-                    .map(|(version_id, net_terms, name, currency, plan_type)| {
-                        PlanRowForSubscription {
-                            version_id,
-                            net_terms,
-                            name,
-                            currency,
-                            plan_type,
-                        }
-                    })
-                    .collect()
-            })
+            .map(
+                |rows: Vec<(PlanVersionId, i32, String, String, PlanTypeEnum)>| {
+                    rows.into_iter()
+                        .map(|(version_id, net_terms, name, currency, plan_type)| {
+                            PlanRowForSubscription {
+                                version_id,
+                                net_terms,
+                                name,
+                                currency,
+                                plan_type,
+                            }
+                        })
+                        .collect()
+                },
+            )
     }
 }

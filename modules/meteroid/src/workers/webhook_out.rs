@@ -1,5 +1,7 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
-use common_domain::ids::string_serde;
+use common_domain::ids::{
+    BillableMetricId, ProductFamilyId, ProductId, string_serde, string_serde_opt,
+};
 use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId};
 use error_stack::Report;
 use meteroid_store::StoreResult;
@@ -7,10 +9,13 @@ use meteroid_store::domain::enums::{
     BillingPeriodEnum, InvoiceStatusEnum, WebhookOutEventTypeEnum,
 };
 use meteroid_store::domain::outbox_event::{
-    CustomerEvent, InvoiceEvent, OutboxEvent, SubscriptionEvent,
+    BillableMetricEvent, CustomerEvent, InvoiceEvent, OutboxEvent, SubscriptionEvent,
 };
 use meteroid_store::domain::webhooks::{WebhookOutMessageNew, WebhookOutMessagePayload};
-use meteroid_store::domain::{Address, ShippingAddress};
+use meteroid_store::domain::{
+    Address, BillingMetricAggregateEnum, SegmentationMatrix, ShippingAddress,
+    SubscriptionStatusEnum, UnitConversionRoundingEnum,
+};
 use meteroid_store::errors::StoreError;
 use o2o::o2o;
 use serde::{Serialize, Serializer};
@@ -29,6 +34,29 @@ pub struct Customer {
     pub currency: String,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
+}
+
+#[derive(Debug, Serialize, o2o)]
+#[from_owned(BillableMetricEvent)]
+pub struct BillableMetric {
+    #[serde(serialize_with = "string_serde::serialize")]
+    #[map(metric_id)]
+    pub id: BillableMetricId,
+    pub name: String,
+    pub description: Option<String>,
+    pub code: String,
+    pub aggregation_type: BillingMetricAggregateEnum,
+    pub aggregation_key: Option<String>,
+    pub unit_conversion_factor: Option<i32>,
+    pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
+    pub segmentation_matrix: Option<SegmentationMatrix>,
+    pub usage_group_key: Option<String>,
+    pub created_at: NaiveDateTime,
+    #[serde(serialize_with = "string_serde::serialize")]
+    pub product_family_id: ProductFamilyId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(serialize_with = "string_serde_opt::serialize")]
+    pub product_id: Option<ProductId>,
 }
 
 #[derive(Debug, Serialize, o2o)]
@@ -56,11 +84,9 @@ pub struct Subscription {
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     #[serde(serialize_with = "ser_naive_dt_opt")]
     pub activated_at: Option<NaiveDateTime>,
-    #[serde(serialize_with = "ser_naive_dt_opt")]
-    pub canceled_at: Option<NaiveDateTime>,
-    pub cancellation_reason: Option<String>,
     pub mrr_cents: u64,
     pub period: BillingPeriodEnum,
+    pub status: SubscriptionStatusEnum,
 }
 
 #[derive(Debug, Serialize, o2o)]
@@ -94,6 +120,20 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<Option<WebhookOutM
             Some((
                 WebhookOutEventTypeEnum::CustomerCreated,
                 WebhookOutMessagePayload::Customer(payload),
+            ))
+        }
+        OutboxEvent::BillableMetricCreated(event) => {
+            let event = BillableMetric::from(*event);
+            let payload = serde_json::to_value(event).map_err(|e| {
+                Report::from(StoreError::SerdeError(
+                    "Failed to serialize payload".to_string(),
+                    e,
+                ))
+            })?;
+
+            Some((
+                WebhookOutEventTypeEnum::BillableMetricCreated,
+                WebhookOutMessagePayload::BillableMetric(payload),
             ))
         }
         OutboxEvent::InvoiceCreated(event) => {

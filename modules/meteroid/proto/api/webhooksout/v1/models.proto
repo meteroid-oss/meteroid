@@ -7,6 +7,7 @@ enum WebhookEventType {
   SUBSCRIPTION_CREATED = 1;
   INVOICE_CREATED = 2;
   INVOICE_FINALIZED = 3;
+  BILLABLE_METRIC_CREATED = 4;
 }
 
 message WebhookEndpoint {

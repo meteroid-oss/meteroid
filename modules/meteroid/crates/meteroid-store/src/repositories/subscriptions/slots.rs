@@ -1,10 +1,11 @@
 use crate::StoreResult;
-use crate::store::Store;
+use crate::store::{PgConn, Store};
 use common_domain::ids::{PriceComponentId, SubscriptionId, TenantId};
 use diesel_models::slot_transactions::SlotTransactionRow;
-
-#[async_trait::async_trait]
+use meteroid_store_macros::with_conn_delegate;
+#[with_conn_delegate]
 pub trait SubscriptionSlotsInterface {
+    #[delegated]
     async fn get_current_slots_value(
         &self,
         tenant_id: TenantId,
@@ -24,17 +25,16 @@ pub trait SubscriptionSlotsInterface {
 
 #[async_trait::async_trait]
 impl SubscriptionSlotsInterface for Store {
-    async fn get_current_slots_value(
+    async fn get_current_slots_value_with_conn(
         &self,
+        conn: &mut PgConn,
         _tenant_id: TenantId,
         subscription_id: SubscriptionId,
         price_component_id: PriceComponentId,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32> {
-        let mut conn = self.get_conn().await?;
-
         SlotTransactionRow::fetch_by_subscription_id_and_price_component_id(
-            &mut conn,
+            conn,
             subscription_id,
             price_component_id,
             ts,

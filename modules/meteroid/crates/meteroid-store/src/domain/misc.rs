@@ -100,7 +100,7 @@ pub struct Period {
 #[derive(Debug, Clone)]
 pub struct ComponentPeriods {
     pub arrear: Option<Period>,
-    pub advance: Period,
+    pub advance: Option<Period>,
     pub proration_factor: Option<f64>,
 }
 
