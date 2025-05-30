@@ -14,11 +14,11 @@ pub struct PaginatedRequest {
     pub per_page: Option<u32>,
 }
 
-impl Into<domain::PaginationRequest> for PaginatedRequest {
-    fn into(self) -> domain::PaginationRequest {
+impl From<PaginatedRequest> for domain::PaginationRequest {
+    fn from(val: PaginatedRequest) -> domain::PaginationRequest {
         domain::PaginationRequest {
-            page: self.page.unwrap_or(0),
-            per_page: self.per_page,
+            page: val.page.unwrap_or(0),
+            per_page: val.per_page,
         }
     }
 }

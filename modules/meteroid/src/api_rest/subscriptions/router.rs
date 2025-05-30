@@ -13,9 +13,9 @@ use axum::Extension;
 use axum_valid::Valid;
 use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use meteroid_store::Store;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
-use meteroid_store::Store;
 
 #[utoipa::path(
     get,

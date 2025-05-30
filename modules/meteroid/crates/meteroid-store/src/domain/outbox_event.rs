@@ -130,7 +130,7 @@ impl OutboxEvent {
     }
 
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
-        serde_json::to_value(&self).map_err(|e| {
+        serde_json::to_value(self).map_err(|e| {
             Report::from(StoreError::SerdeError(
                 "Failed to serialize payload".to_string(),
                 e,
