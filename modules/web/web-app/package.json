@@ -58,7 +58,6 @@
     "styled-components": "^6.1.16",
     "superjson": "2.2.1",
     "ts-pattern": "^5.6.2",
-    "vite-plugin-checker": "^0.9.3",
     "zod": "^3.24.2",
     "zustand": "^4.5.6"
   },
@@ -88,6 +87,7 @@
     "tailwindcss-radix": "^2.9.0",
     "typescript": "^5.8.2",
     "vite": "^5.4.14",
+    "vite-plugin-checker": "^0.8.0",
     "vite-plugin-svgr": "^4.3.0",
     "vite-tsconfig-paths": "^4.3.2"
   },

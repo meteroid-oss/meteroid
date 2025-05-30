@@ -1,14 +1,14 @@
-import { RouteObject } from 'react-router-dom'
+import { Outlet, RouteObject } from 'react-router-dom'
 
 import { NotImplemented } from '@/features/NotImplemented'
-import { Billing, BillingOutlet } from '@/pages/tenants/billing'
+import { Billing } from '@/pages/tenants/billing'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
 import { Subscriptions } from '@/pages/tenants/subscription'
 import { Subscription } from '@/pages/tenants/subscription/subscription'
 import { SubscriptionCreate } from '@/pages/tenants/subscription/subscriptionCreate'
 
 export const billingRoutes: RouteObject = {
-  element: <BillingOutlet />,
+  element: <Outlet />,
   children: [
     {
       index: true,

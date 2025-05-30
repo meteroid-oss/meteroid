@@ -1,7 +1,7 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import { FunctionComponent } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
 import ProductEmptyState from '@/features/productCatalog/ProductEmptyState'
@@ -12,14 +12,6 @@ import {
 
 export const Billing: FunctionComponent = () => {
   return <Navigate to="subscriptions" />
-}
-
-export const BillingOutlet: FunctionComponent = () => {
-  return (
-    <TenantPageLayout>
-      <Outlet />
-    </TenantPageLayout>
-  )
 }
 
 export const FamilyCreationModalPage = () => {

@@ -1,2 +1,2 @@
-export { SubscriptionsHeader } from './SubscriptionsHeader'
-export { SubscriptionsTable } from './SubscriptionsTable'
+export { SubscriptionsTable } from './SubscriptionsTable';
+
