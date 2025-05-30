@@ -85,10 +85,7 @@ impl BillableMetricsService for BillableMetricsComponents {
         let tenant_id = request.tenant()?;
         let inner = request.into_inner();
 
-        let pagination_req = domain::PaginationRequest {
-            page: inner.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: inner.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = inner.pagination.into_domain();
 
         let res = self
             .store
@@ -101,7 +98,9 @@ impl BillableMetricsService for BillableMetricsComponents {
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
 
         let response = ListBillableMetricsResponse {
-            pagination_meta: inner.pagination.into_response(res.total_results as u32),
+            pagination_meta: inner
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             billable_metrics: res
                 .items
                 .into_iter()

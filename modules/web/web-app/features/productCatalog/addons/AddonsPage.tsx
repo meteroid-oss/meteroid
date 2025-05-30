@@ -21,8 +21,8 @@ export const AddonsPage: FunctionComponent = () => {
   const addonsQuery = useQuery(listAddOns, {
     search: debouncedSearch,
     pagination: {
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex,
+      page: pagination.pageIndex,
+      perPage: pagination.pageSize,
     },
   })
 

@@ -9,7 +9,6 @@ use meteroid_grpc::meteroid::api::addons::v1::{
     CreateAddOnRequest, CreateAddOnResponse, EditAddOnRequest, EditAddOnResponse, ListAddOnRequest,
     ListAddOnResponse, RemoveAddOnRequest, RemoveAddOnResponse,
 };
-use meteroid_store::domain;
 use meteroid_store::domain::add_ons::{AddOnNew, AddOnPatch};
 use meteroid_store::repositories::add_ons::AddOnInterface;
 use tonic::{Request, Response, Status};
@@ -25,10 +24,7 @@ impl AddOnsService for AddOnsServiceComponents {
 
         let req = request.into_inner();
 
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let add_ons = self
             .store
@@ -37,7 +33,9 @@ impl AddOnsService for AddOnsServiceComponents {
             .map_err(Into::<AddOnApiError>::into)?;
 
         let response = ListAddOnResponse {
-            pagination_meta: req.pagination.into_response(add_ons.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(add_ons.total_pages, add_ons.total_results),
             add_ons: add_ons
                 .items
                 .into_iter()

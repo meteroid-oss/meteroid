@@ -227,9 +227,12 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
   })
 
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
+  const canRefresh = invoice && invoice.status === InvoiceStatus.PENDING || invoice.status === InvoiceStatus.DRAFT
+    const pdf_url =
+    invoice.documentSharingKey && `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
 
   useEffect(() => {
-    if (invoice) {
+    if (canRefresh) {
       doRefresh()
     }
   }, [])
@@ -246,7 +249,7 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
             variant="ghost"
             hasIcon
             onClick={doRefresh}
-            disabled={refresh.isPending}
+            disabled={!canRefresh || refresh.isPending}
           >
             Refresh <RefreshCcw size="16" className={cn(refresh.isPending && 'animate-spin')} />
           </Button>
@@ -274,9 +277,16 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button size="sm" variant="primary">
-            <Download size="16" />
-          </Button>
+           <a
+              href={invoice.pdfDocumentId ? pdf_url : "#"}
+              download={`invoice_${invoice.invoiceNumber}.pdf`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Button size="sm" disabled={!invoice.pdfDocumentId} variant="primary">
+                <Download size="16" />
+              </Button>
+            </a>
         </div>
         <InvoiceMeta invoice={invoice} />
         {invoice.invoiceType === InvoiceType.RECURRING ? (

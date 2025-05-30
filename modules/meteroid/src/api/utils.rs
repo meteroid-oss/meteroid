@@ -51,34 +51,27 @@ pub fn parse_referer<T>(request: &Request<T>) -> Result<Url, Status> {
 }
 
 pub trait PaginationExt {
-    fn limit(&self) -> i64;
-    fn limit_or(&self, default: u32) -> i64;
-
-    fn offset(&self) -> i64;
-    fn offset_or(&self, default: u32) -> i64;
     #[allow(clippy::wrong_self_convention)]
-    fn into_response(&self, total: u32) -> Option<PaginationResponse>;
+    fn into_response(&self, total_pages: u32, total_items: u64) -> Option<PaginationResponse>;
+
+    #[allow(clippy::wrong_self_convention)]
+    fn into_domain(&self) -> meteroid_store::domain::PaginationRequest;
 }
 
 impl PaginationExt for Option<Pagination> {
-    fn limit(&self) -> i64 {
-        self.limit_or(100)
-    }
-    fn limit_or(&self, default: u32) -> i64 {
-        self.as_ref().map(|p| p.limit).unwrap_or(default) as i64
-    }
-    fn offset(&self) -> i64 {
-        self.offset_or(0)
-    }
-    fn offset_or(&self, default: u32) -> i64 {
-        self.as_ref().map(|p| p.offset).unwrap_or(default) as i64
+    fn into_response(&self, total_pages: u32, total_items: u64) -> Option<PaginationResponse> {
+        self.as_ref().map(|p| PaginationResponse {
+            page: p.page,
+            per_page: p.per_page.unwrap_or(10),
+            total_items: total_items as u32,
+            total_pages,
+        })
     }
 
-    fn into_response(&self, total: u32) -> Option<PaginationResponse> {
-        self.as_ref().map(|p| PaginationResponse {
-            total,
-            limit: p.limit,
-            offset: p.offset,
-        })
+    fn into_domain(&self) -> meteroid_store::domain::PaginationRequest {
+        meteroid_store::domain::PaginationRequest {
+            page: self.as_ref().map(|p| p.page).unwrap_or(0),
+            per_page: self.as_ref().and_then(|p| p.per_page),
+        }
     }
 }

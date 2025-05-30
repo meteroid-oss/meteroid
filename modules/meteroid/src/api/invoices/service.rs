@@ -10,7 +10,6 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
     SyncToPennylaneRequest, SyncToPennylaneResponse, invoices_service_server::InvoicesService,
     list_invoices_request::SortBy,
 };
-use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
 use meteroid_store::repositories::InvoiceInterface;
@@ -31,10 +30,7 @@ impl InvoicesService for InvoiceServiceComponents {
         let customer_id = CustomerId::from_proto_opt(inner.customer_id)?;
         let subscription_id = SubscriptionId::from_proto_opt(inner.subscription_id)?;
 
-        let pagination_req = domain::PaginationRequest {
-            page: inner.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: inner.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = inner.pagination.into_domain();
 
         let order_by = match inner.sort_by.try_into() {
             Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
@@ -59,7 +55,9 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?;
 
         let response = ListInvoicesResponse {
-            pagination_meta: inner.pagination.into_response(res.total_results as u32),
+            pagination_meta: inner
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             invoices: res
                 .items
                 .into_iter()

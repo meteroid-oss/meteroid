@@ -51,10 +51,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let filter = mapping::coupons::filter::from_server(req.filter());
 
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let coupons = self
             .store
@@ -63,7 +60,9 @@ impl CouponsService for CouponsServiceComponents {
             .map_err(Into::<CouponApiError>::into)?;
 
         let response = ListCouponResponse {
-            pagination_meta: req.pagination.into_response(coupons.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(coupons.total_pages, coupons.total_results),
             coupons: coupons
                 .items
                 .into_iter()
@@ -82,10 +81,7 @@ impl CouponsService for CouponsServiceComponents {
 
         let req = request.into_inner();
 
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let coupons = self
             .store
@@ -98,7 +94,9 @@ impl CouponsService for CouponsServiceComponents {
             .map_err(Into::<CouponApiError>::into)?;
 
         let response = ListAppliedCouponResponse {
-            pagination_meta: req.pagination.into_response(coupons.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(coupons.total_pages, coupons.total_results),
             applied_coupons: coupons
                 .items
                 .into_iter()

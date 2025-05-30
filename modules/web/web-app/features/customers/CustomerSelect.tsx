@@ -56,8 +56,8 @@ const CustomerItems = ({ search }: { search: string }) => {
     listCustomers,
     {
       pagination: {
-        limit: 20,
-        offset: 0,
+        perPage: 20,
+        page: 0,
       },
       search: search.length > 0 ? search : undefined,
       sortBy: ListCustomerRequest_SortBy.NAME_ASC,

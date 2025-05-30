@@ -2,6 +2,7 @@ use crate::constants::OSS_API;
 
 use async_trait::async_trait;
 
+use error_stack::{Report, ResultExt};
 use itertools::Itertools;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -23,7 +24,9 @@ pub enum CurrencyRatesError {
 
 #[async_trait]
 pub trait CurrencyRatesService: Send + Sync + 'static {
-    async fn fetch_latest_exchange_rates(&self) -> Result<ExchangeRates, CurrencyRatesError>;
+    async fn fetch_latest_exchange_rates(
+        &self,
+    ) -> error_stack::Result<ExchangeRates, CurrencyRatesError>;
 }
 
 #[derive(Deserialize, Debug)]
@@ -40,6 +43,14 @@ pub struct OpenexchangeRatesService {
 
 impl OpenexchangeRatesService {
     pub fn new(client: reqwest::Client, api_key: Option<String>) -> Self {
+        let api_key = api_key.filter(|s| !s.is_empty());
+
+        if api_key.is_none() {
+            log::warn!(
+                "OpenExchangeRates API key is not set. Using public OSS API for testing purposes."
+            );
+        }
+
         Self { api_key, client }
     }
 
@@ -54,7 +65,10 @@ impl OpenexchangeRatesService {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn fetch(&self, base: Currency) -> Result<ExchangeRates, CurrencyRatesError> {
+    async fn fetch(
+        &self,
+        base: Currency,
+    ) -> error_stack::Result<ExchangeRates, CurrencyRatesError> {
         let symbols = Currency::iter().filter(|x| *x != base).format(",");
 
         let url = match self.api_key.as_ref() {
@@ -69,17 +83,18 @@ impl OpenexchangeRatesService {
                 api_key, base, symbols
             ),
         };
+
         let response = self
             .client
             .get(url)
             .send()
             .await
-            .map_err(|_| CurrencyRatesError::FetchFailed)?;
+            .change_context(CurrencyRatesError::FetchFailed)?;
 
         let rates = response
             .json::<ExchangeRates>()
             .await
-            .map_err(|_| CurrencyRatesError::ParseFailed)?;
+            .change_context(CurrencyRatesError::ParseFailed)?;
 
         Ok(rates)
     }
@@ -88,11 +103,15 @@ impl OpenexchangeRatesService {
 #[async_trait]
 impl CurrencyRatesService for OpenexchangeRatesService {
     #[tracing::instrument(skip_all)]
-    async fn fetch_latest_exchange_rates(&self) -> Result<ExchangeRates, CurrencyRatesError> {
+    async fn fetch_latest_exchange_rates(
+        &self,
+    ) -> error_stack::Result<ExchangeRates, CurrencyRatesError> {
         let rates = self.fetch(Currency::USD).await?;
 
         if rates.base != Currency::USD.to_string() {
-            return Err(CurrencyRatesError::InvalidBase(rates.base.to_string()));
+            return Err(Report::new(CurrencyRatesError::InvalidBase(
+                rates.base.to_string(),
+            )));
         }
 
         Ok(rates)

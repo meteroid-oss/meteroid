@@ -52,10 +52,7 @@ impl ProductsService for ProductServiceComponents {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
 
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let order_by = OrderByRequest::IdAsc;
 
@@ -71,7 +68,9 @@ impl ProductsService for ProductServiceComponents {
             .map_err(Into::<ProductApiError>::into)?;
 
         let response = ListProductsResponse {
-            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             products: res
                 .items
                 .into_iter()
@@ -89,10 +88,7 @@ impl ProductsService for ProductServiceComponents {
     ) -> Result<Response<SearchProductsResponse>, Status> {
         let tenant_id = request.tenant()?;
         let req = request.into_inner();
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let order_by = OrderByRequest::IdAsc;
 
@@ -109,7 +105,9 @@ impl ProductsService for ProductServiceComponents {
             .map_err(Into::<ProductApiError>::into)?;
 
         let response = SearchProductsResponse {
-            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             products: res
                 .items
                 .into_iter()

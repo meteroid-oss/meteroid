@@ -22,15 +22,15 @@ export const ListPlanVersionTab = () => {
       ? {
           planId: overview.id,
           pagination: {
-            limit: pagination.pageSize,
-            offset: pagination.pageIndex * pagination.pageSize,
+            perPage: pagination.pageSize,
+            page: pagination.pageIndex,
           },
         }
       : disableQuery
   )
 
   const data = planVersions.data?.planVersions ?? []
-  const count = Number(planVersions.data?.paginationMeta?.total ?? 0)
+  const count = Number(planVersions.data?.paginationMeta?.totalItems ?? 0)
   const isLoading = planVersions.isLoading
 
   const columns = useMemo<ColumnDef<ListPlanVersion>[]>(

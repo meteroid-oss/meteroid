@@ -40,8 +40,8 @@ export const Plans: FunctionComponent = () => {
   const plansQuery = useQuery(listPlans, {
     productFamilyLocalId: line,
     pagination: {
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex,
+      page: pagination.pageIndex,
+      perPage: pagination.pageSize,
     },
     sortBy: ListPlansRequest_SortBy.DATE_DESC,
     filters: {
@@ -53,7 +53,7 @@ export const Plans: FunctionComponent = () => {
 
   return (
     <>
-      <PlansHeader count={plansQuery.data?.paginationMeta?.total}>
+      <PlansHeader count={plansQuery.data?.paginationMeta?.totalItems}>
         <MultiFilter
           emptyLabel="All statuses"
           entries={['active', 'draft', 'inactive', 'archived']}
