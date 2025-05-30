@@ -58,6 +58,7 @@
     "styled-components": "^6.1.16",
     "superjson": "2.2.1",
     "ts-pattern": "^5.6.2",
+    "vite-plugin-checker": "^0.9.3",
     "zod": "^3.24.2",
     "zustand": "^4.5.6"
   },
