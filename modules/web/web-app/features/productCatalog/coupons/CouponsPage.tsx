@@ -41,8 +41,8 @@ export const CouponsPage: FunctionComponent = () => {
 
   const couponsQuery = useQuery(listCoupons, {
     pagination: {
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex,
+      page: pagination.pageIndex,
+      perPage: pagination.pageSize,
     },
     search: debouncedSearch,
     filter: filter,

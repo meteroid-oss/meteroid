@@ -35,7 +35,7 @@ export const SubscriptionsCard = ({ customer }: Props) => {
   ) : (
     <SubscriptionsTable
       data={invoicesQuery.data?.subscriptions || []}
-      totalCount={Number(invoicesQuery.data?.pagination?.totalItems || 0)}
+      totalCount={Number(invoicesQuery.data?.paginationMeta?.totalItems || 0)}
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}

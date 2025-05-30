@@ -71,10 +71,7 @@ async fn list_plans_handler(
                 filter_status: Vec::new(),
                 filter_type: Vec::new(),
             },
-            domain::PaginationRequest {
-                page: pagination.offset.unwrap_or(0),
-                per_page: pagination.limit,
-            },
+            pagination.into(),
             OrderByRequest::IdAsc,
         )
         .await
@@ -92,6 +89,5 @@ async fn list_plans_handler(
     Ok(PaginatedResponse {
         data: rest_models,
         total: res.total_results,
-        offset: res.total_pages,
     })
 }

@@ -11,7 +11,6 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     SyncToPennylaneResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
     customers_service_server::CustomersService,
 };
-use meteroid_store::domain;
 use meteroid_store::domain::{
     CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
 };
@@ -148,10 +147,7 @@ impl CustomersService for CustomerServiceComponents {
 
         let inner = request.into_inner();
 
-        let pagination_req = domain::PaginationRequest {
-            page: inner.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: inner.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = inner.pagination.into_domain();
 
         let order_by = match inner.sort_by.try_into() {
             Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
@@ -168,7 +164,9 @@ impl CustomersService for CustomerServiceComponents {
             .map_err(Into::<CustomerApiError>::into)?;
 
         let response = ListCustomerResponse {
-            pagination_meta: inner.pagination.into_response(res.total_results as u32),
+            pagination_meta: inner
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             customers: res
                 .items
                 .into_iter()

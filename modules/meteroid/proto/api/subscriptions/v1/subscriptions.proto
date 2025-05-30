@@ -4,7 +4,7 @@ package meteroid.api.subscriptions.v1;
 
 
 import "api/subscriptions/v1/models.proto";
-
+import "common/v1/pagination.proto";
 
 message CreateSubscriptionsRequest {
   repeated CreateSubscription subscriptions = 1;
@@ -47,25 +47,16 @@ message CancelSubscriptionResponse {
 }
 
 
-message PaginationRequest {
-  uint32 page = 1;
-  uint32 per_page = 2;
-}
-
-message PaginationResponse {
-  uint32 total_pages = 1;
-  uint64 total_items = 2;
-}
 
 message ListSubscriptionsRequest {
   optional string customer_id = 1;
   optional string plan_id = 2;
-  PaginationRequest pagination = 3;
+  meteroid.common.v1.Pagination pagination = 3;
 }
 
 message ListSubscriptionsResponse {
   repeated Subscription subscriptions = 1;
-  PaginationResponse pagination = 2;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
 }
 
 

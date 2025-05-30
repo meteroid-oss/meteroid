@@ -110,8 +110,8 @@ async fn test_customers_basic() {
             search: Some("fake".to_string()),
             sort_by: api::customers::v1::list_customer_request::SortBy::NameAsc as i32,
             pagination: Some(common_grpc::meteroid::common::v1::Pagination {
-                limit: 10,
-                offset: 0,
+                per_page: Some(10),
+                page: 0,
             }),
         })
         .await
@@ -129,8 +129,8 @@ async fn test_customers_basic() {
             search: Some("iiieeennn".to_string()), // part of alias
             sort_by: api::customers::v1::list_customer_request::SortBy::NameAsc as i32,
             pagination: Some(common_grpc::meteroid::common::v1::Pagination {
-                limit: 10,
-                offset: 0,
+                per_page: Some(10),
+                page: 0,
             }),
         })
         .await

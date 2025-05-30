@@ -81,7 +81,7 @@ export const PlansTable: FunctionComponent<PlansTableProps> = ({
       sortable={true}
       pagination={pagination}
       setPagination={setPagination}
-      totalCount={plansQuery.data?.paginationMeta?.total ?? 0}
+      totalCount={plansQuery.data?.paginationMeta?.totalItems ?? 0}
       isLoading={plansQuery.isLoading}
       rowLink={row => `${row.original.localId}`}
     />

@@ -10,5 +10,5 @@ pub struct OutboxEventRowNew {
     pub aggregate_id: String,
     pub aggregate_type: String,
     pub event_type: String,
-    pub payload: Option<serde_json::Value>,
+    pub payload: serde_json::Value,
 }

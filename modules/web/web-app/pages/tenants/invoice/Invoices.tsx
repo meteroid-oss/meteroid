@@ -29,8 +29,8 @@ export const Invoices = () => {
       search: debouncedSearch.text || '',
       status: debouncedSearch.status,
       pagination: {
-        limit: pagination.pageSize,
-        offset: pagination.pageIndex * pagination.pageSize,
+        perPage: pagination.pageSize,
+        page: pagination.pageIndex,
       },
     },
     {}

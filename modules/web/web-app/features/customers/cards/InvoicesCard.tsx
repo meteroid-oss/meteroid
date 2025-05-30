@@ -17,13 +17,13 @@ type Props = {
 export const InvoicesCard = ({ customer }: Props) => {
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 20,
+    pageSize: 5,
   })
 
   const invoicesQuery = useQuery(listInvoices, {
     pagination: {
-      limit: pagination.pageSize,
-      offset: pagination.pageIndex * pagination.pageSize,
+      perPage: pagination.pageSize,
+      page: pagination.pageIndex,
     },
     customerId: customer.id,
     sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
@@ -37,7 +37,7 @@ export const InvoicesCard = ({ customer }: Props) => {
   ) : (
     <InvoicesTable
       data={invoicesQuery.data?.invoices || []}
-      totalCount={invoicesQuery.data?.paginationMeta?.total || 0}
+      totalCount={invoicesQuery.data?.paginationMeta?.totalItems || 0}
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}

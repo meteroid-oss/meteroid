@@ -14,7 +14,6 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, CustomerId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
-use meteroid_store::domain;
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::repositories::CustomersInterface;
 
@@ -46,10 +45,7 @@ pub(crate) async fn list_customers(
         .store
         .list_customers(
             authorized_state.tenant_id,
-            domain::PaginationRequest {
-                page: request.pagination.offset.unwrap_or(0),
-                per_page: request.pagination.limit,
-            },
+            request.pagination.into(),
             OrderByRequest::IdAsc,
             request.customer_filters.search,
         )
@@ -68,7 +64,6 @@ pub(crate) async fn list_customers(
     Ok(Json(PaginatedResponse {
         data: items,
         total: res.total_results,
-        offset: res.total_pages,
     }))
 }
 

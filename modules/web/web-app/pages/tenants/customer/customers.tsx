@@ -26,8 +26,8 @@ export const Customers: FunctionComponent = () => {
     listCustomers,
     {
       pagination: {
-        limit: pagination.pageSize,
-        offset: pagination.pageIndex * pagination.pageSize,
+        perPage: pagination.pageSize,
+        page: pagination.pageIndex,
       },
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
       sortBy: ListCustomerRequest_SortBy.NAME_ASC,
@@ -36,7 +36,7 @@ export const Customers: FunctionComponent = () => {
   )
 
   const data = customersQuery.data?.customers ?? []
-  const count = customersQuery.data?.paginationMeta?.total ?? 0
+  const count = customersQuery.data?.paginationMeta?.totalItems ?? 0
   const isLoading = customersQuery.isLoading
 
   const isEmpty = data.length === 0

@@ -33,14 +33,13 @@ Make sure to install them before proceeding, and that **your docker daemon is ru
 - Start the database with :
   `docker compose -f docker/develop/docker-compose.yml --env-file .env up`.
   If you intend to run the Metering app as well, you will need to use the "metering"
-  profile instead :
+  profile :
   `docker compose -f docker/develop/docker-compose.yml --env-file .env --profile metering up`
 
 - Start the Rust backend
   `cargo run -p meteroid --bin meteroid-api`
 
-It will automatically run migrations. You can then apply the seed data (in docker/develop/data/seed.sql) through psql or
-the tool of your choice.
+It will automatically run migrations.
 
 - Optionally start the Metering Rust backend
   `cargo run -p metering --bin metering-api`

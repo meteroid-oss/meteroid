@@ -48,8 +48,8 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
     listCustomers,
     {
       pagination: {
-        limit: pageSize,
-        offset: pageIndex * pageSize,
+        perPage: pageSize,
+        page: pageIndex,
       },
       search: debouncedSearch.length > 0 ? debouncedSearch : undefined,
       sortBy: ListCustomerRequest_SortBy.NAME_ASC,

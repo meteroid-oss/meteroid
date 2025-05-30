@@ -69,15 +69,11 @@ impl Services {
             let retries = event.retries;
             match self.process_event(conn, event).await {
                 Ok(()) => {
-                    log::info!(">>>> Event complete");
-
                     // Mark as completed
                     ScheduledEventRow::mark_as_completed(conn, &[event_id]) // TODO batch
                         .await?;
                 }
                 Err(err) => {
-                    log::info!(">>>> Event failed");
-
                     let inner = err.current_context();
                     // Handle error
                     if self.should_retry_event(retries, inner) {

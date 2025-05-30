@@ -21,7 +21,6 @@ use strum::Display;
 use uuid::Uuid;
 
 #[derive(Display, Debug, Serialize, Deserialize)]
-#[serde(tag = "event_type")]
 pub enum OutboxEvent {
     CustomerCreated(Box<CustomerEvent>),
     BillableMetricCreated(Box<BillableMetricEvent>),
@@ -130,23 +129,8 @@ impl OutboxEvent {
         OutboxEvent::SubscriptionCreated(Box::new(event))
     }
 
-    fn payload_json(&self) -> StoreResult<Option<serde_json::Value>> {
-        match self {
-            OutboxEvent::CustomerCreated(event) => Ok(Some(Self::event_json(event)?)),
-            OutboxEvent::BillableMetricCreated(event) => Ok(Some(Self::event_json(event)?)),
-            OutboxEvent::InvoiceCreated(event) => Ok(Some(Self::event_json(event)?)),
-            OutboxEvent::InvoiceFinalized(event) => Ok(Some(Self::event_json(event)?)),
-            OutboxEvent::InvoicePaid(event) => Ok(Some(Self::event_json(event)?)),
-            OutboxEvent::InvoicePdfGenerated(event) => Ok(Some(Self::event_json(event)?)),
-            OutboxEvent::SubscriptionCreated(event) => Ok(Some(Self::event_json(event)?)),
-        }
-    }
-
-    fn event_json<T>(event: &T) -> StoreResult<serde_json::Value>
-    where
-        T: Serialize,
-    {
-        serde_json::to_value(event).map_err(|e| {
+    fn payload_json(&self) -> StoreResult<serde_json::Value> {
+        serde_json::to_value(self).map_err(|e| {
             Report::from(StoreError::SerdeError(
                 "Failed to serialize payload".to_string(),
                 e,
@@ -182,7 +166,7 @@ pub struct CustomerEvent {
     pub alias: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_email: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invoicing_emails: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
@@ -366,7 +350,7 @@ impl TryInto<PgmqMessageRowNew> for OutboxEvent {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<PgmqMessageRowNew, Self::Error> {
-        let message = self.payload_json()?.map(common_domain::pgmq::Message);
+        let message = Some(common_domain::pgmq::Message(self.payload_json()?));
         let headers = Some(self.try_into()?);
         Ok(PgmqMessageRowNew { message, headers })
     }
@@ -376,7 +360,7 @@ impl TryInto<PgmqMessageNew> for OutboxEvent {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
-        let message = self.payload_json()?.map(common_domain::pgmq::Message);
+        let message = Some(common_domain::pgmq::Message(self.payload_json()?));
         let headers = Some(self.try_into()?);
         Ok(PgmqMessageNew { message, headers })
     }

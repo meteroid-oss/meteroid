@@ -28,6 +28,10 @@ export const sidebarItems = {
           url: 'features',
           isActive: false,
         },
+          {
+          title: 'Coupons',
+          url: 'coupons',
+        },
       ],
     },
     {

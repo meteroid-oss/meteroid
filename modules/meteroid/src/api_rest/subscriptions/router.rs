@@ -13,9 +13,9 @@ use axum::Extension;
 use axum_valid::Valid;
 use common_domain::ids::{CustomerId, PlanId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
+use meteroid_store::Store;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
-use meteroid_store::{Store, domain};
 
 #[utoipa::path(
     get,
@@ -63,15 +63,7 @@ async fn list_subscriptions_handler(
     plan_id: Option<PlanId>,
 ) -> Result<PaginatedResponse<Subscription>, RestApiError> {
     let res = store
-        .list_subscriptions(
-            tenant_id,
-            customer_id,
-            plan_id,
-            domain::PaginationRequest {
-                page: pagination.offset.unwrap_or(0),
-                per_page: pagination.limit,
-            },
-        )
+        .list_subscriptions(tenant_id, customer_id, plan_id, pagination.into())
         .await
         .map_err(|e| {
             log::error!("Error handling list_subscriptions: {}", e);
@@ -87,7 +79,6 @@ async fn list_subscriptions_handler(
     Ok(PaginatedResponse {
         data: subscriptions,
         total: res.total_results,
-        offset: res.total_pages,
     })
 }
 

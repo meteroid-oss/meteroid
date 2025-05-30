@@ -94,10 +94,7 @@ impl PlansService for PlanServiceComponents {
 
         let req = request.into_inner();
 
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let order_by = match req.sort_by.try_into() {
             Ok(SortBy::DateAsc) => OrderByRequest::DateAsc,
@@ -139,7 +136,9 @@ impl PlansService for PlanServiceComponents {
             .map_err(Into::<PlanApiError>::into)?;
 
         let response = ListPlansResponse {
-            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             plans: res
                 .items
                 .into_iter()
@@ -160,10 +159,7 @@ impl PlansService for PlanServiceComponents {
         let req = request.into_inner();
         let plan_id = PlanId::from_proto(&req.plan_id)?;
 
-        let pagination_req = domain::PaginationRequest {
-            page: req.pagination.as_ref().map(|p| p.offset).unwrap_or(0),
-            per_page: req.pagination.as_ref().map(|p| p.limit),
-        };
+        let pagination_req = req.pagination.into_domain();
 
         let res = self
             .store
@@ -172,7 +168,9 @@ impl PlansService for PlanServiceComponents {
             .map_err(Into::<PlanApiError>::into)?;
 
         let response = ListPlanVersionByIdResponse {
-            pagination_meta: req.pagination.into_response(res.total_results as u32),
+            pagination_meta: req
+                .pagination
+                .into_response(res.total_pages, res.total_results),
             plan_versions: res
                 .items
                 .into_iter()

@@ -9,13 +9,13 @@ use meteroid_grpc::meteroid::api::subscriptions::v1::{
     CancelSubscriptionRequest, CancelSubscriptionResponse, CreateSubscriptionRequest,
     CreateSubscriptionResponse, CreateSubscriptionsRequest, CreateSubscriptionsResponse,
     GetSlotsValueRequest, GetSlotsValueResponse, ListSubscriptionsRequest,
-    ListSubscriptionsResponse, PaginationResponse, SubscriptionDetails, SyncToHubspotRequest,
-    SyncToHubspotResponse, UpdateSlotsRequest, UpdateSlotsResponse,
+    ListSubscriptionsResponse, SubscriptionDetails, SyncToHubspotRequest, SyncToHubspotResponse,
+    UpdateSlotsRequest, UpdateSlotsResponse,
 };
 
 use crate::api::subscriptions::error::SubscriptionApiError;
 use crate::api::subscriptions::{SubscriptionServiceComponents, mapping};
-use meteroid_store::domain;
+use crate::api::utils::PaginationExt;
 use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::{
     CancellationEffectiveAt, SubscriptionInterfaceAuto, SubscriptionSlotsInterface,
@@ -128,10 +128,7 @@ impl SubscriptionsService for SubscriptionServiceComponents {
                 tenant_id,
                 customer_id,
                 plan_id,
-                domain::PaginationRequest {
-                    page: inner.pagination.as_ref().map(|p| p.page).unwrap_or(0),
-                    per_page: inner.pagination.as_ref().map(|p| p.per_page),
-                },
+                inner.pagination.into_domain(),
             )
             .await
             .map_err(Into::<SubscriptionApiError>::into)?;
@@ -144,10 +141,9 @@ impl SubscriptionsService for SubscriptionServiceComponents {
 
         Ok(Response::new(ListSubscriptionsResponse {
             subscriptions,
-            pagination: Some(PaginationResponse {
-                total_pages: res.total_pages,
-                total_items: res.total_results,
-            }),
+            pagination_meta: inner
+                .pagination
+                .into_response(res.total_pages, res.total_results),
         }))
     }
 

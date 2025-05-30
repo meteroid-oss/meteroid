@@ -24,6 +24,11 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { NavMain } from '@/components/layouts/TenantLayout/components/NavMain'
 import { sidebarItems } from '@/components/layouts/TenantLayout/utils'
 import { TenantDropdown } from '@/components/layouts/shared/LayoutHeader/TenantDropdown'
+import { useLogout } from '@/hooks/useLogout'
+import { useQuery } from '@/lib/connectrpc'
+import { getCurrentOrganizations } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
+import { OrganizationUserRole } from '@/rpc/api/users/v1/models_pb'
+import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const TenantPageLayout = ({ children }: PropsWithChildren) => {
   return (
@@ -40,9 +45,25 @@ export const TenantPageLayout = ({ children }: PropsWithChildren) => {
 export const TenantLayoutOutlet = () => {
   const { pathname } = useLocation()
 
+  const logout = useLogout()
+  const meData = useQuery(me)?.data
+  const organizationData = useQuery(getCurrentOrganizations)?.data?.organization
+
   const { toggleSidebar, state } = useSidebar()
 
   const isCollapsed = state === 'collapsed'
+
+  function mapRole(currentOrganizationRole: OrganizationUserRole | undefined): string {
+    switch (currentOrganizationRole) {
+      case OrganizationUserRole.ADMIN:
+        return 'Admin'
+      case OrganizationUserRole.MEMBER:
+        return 'Member'
+      case undefined:
+      default:
+        return ''
+    }
+  }
 
   return (
     <>
@@ -70,13 +91,15 @@ export const TenantLayoutOutlet = () => {
                       linear-gradient(0deg, #B69EF0, #B69EF0)`,
                           }}
                         />
-                        <span className="font-semibold ml-1 text-foreground">Acme</span>
+                        <span className="font-semibold ml-1 text-foreground">
+                          {organizationData?.tradeName ?? ''}
+                        </span>
                         <ChevronDown className="text-muted-foreground" />
                       </Flex>
                     </SidebarMenuButton>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="p-0 w-56">
-                    <DropdownMenuItem>
+                  <DropdownMenuContent align="start" className="p-0 w-56 ">
+                    <DropdownMenuItem className="pointer-events-none">
                       <div
                         className="flex aspect-square h-8 w-8 rounded-md"
                         style={{
@@ -85,8 +108,10 @@ export const TenantLayoutOutlet = () => {
                         }}
                       />
                       <Flex direction="column" className="ml-2">
-                        <div>Acme studios</div>
-                        <div className="text-xs text-secondary-foreground">Admin</div>
+                        <div>{organizationData?.tradeName ?? ''}</div>
+                        <div className="text-xs text-secondary-foreground">
+                          {mapRole(meData?.currentOrganizationRole)}
+                        </div>
                       </Flex>
                     </DropdownMenuItem>
                     <DropdownMenuItem>
@@ -94,10 +119,14 @@ export const TenantLayoutOutlet = () => {
                       New organization
                     </DropdownMenuItem>
                     <Separator />
-                    <DropdownMenuItem>Settings</DropdownMenuItem>
-                    <DropdownMenuItem>Theme</DropdownMenuItem>
+
+                    <DropdownMenuItem className="pointer-events-none text-xs text-muted-foreground flex">
+                      {meData?.user?.email}
+                    </DropdownMenuItem>
                     <Separator />
-                    <DropdownMenuItem>Log out</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => logout('User clicked on logout')}>
+                      Log out
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}

@@ -1101,8 +1101,7 @@
         "type": "object",
         "required": [
           "data",
-          "total",
-          "offset"
+          "total"
         ],
         "properties": {
           "data": {
@@ -1176,11 +1175,6 @@
               }
             }
           },
-          "offset": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
           "total": {
             "type": "integer",
             "format": "int64",
@@ -1192,8 +1186,7 @@
         "type": "object",
         "required": [
           "data",
-          "total",
-          "offset"
+          "total"
         ],
         "properties": {
           "data": {
@@ -1252,11 +1245,6 @@
               }
             }
           },
-          "offset": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
           "total": {
             "type": "integer",
             "format": "int64",
@@ -1268,8 +1256,7 @@
         "type": "object",
         "required": [
           "data",
-          "total",
-          "offset"
+          "total"
         ],
         "properties": {
           "data": {
@@ -1290,11 +1277,6 @@
               }
             }
           },
-          "offset": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
           "total": {
             "type": "integer",
             "format": "int64",
@@ -1306,8 +1288,7 @@
         "type": "object",
         "required": [
           "data",
-          "total",
-          "offset"
+          "total"
         ],
         "properties": {
           "data": {
@@ -1346,11 +1327,6 @@
                 }
               }
             }
-          },
-          "offset": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
           },
           "total": {
             "type": "integer",
