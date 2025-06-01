@@ -8,7 +8,7 @@ use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceC
 use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
-    CustomerIdentifier, Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest,
+    Filter, QueryMeterRequest, QueryMeterResponse, RegisterMeterRequest,
 };
 use meteroid_store::clients::usage::{GroupedUsageData, Metadata, UsageClient, UsageData};
 use meteroid_store::domain::{BillableMetric, Period};
@@ -73,7 +73,6 @@ impl UsageClient for MeteringUsageClient {
         &self,
         tenant_id: &TenantId,
         customer_id: &CustomerId,
-        customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
     ) -> StoreResult<UsageData> {
@@ -121,14 +120,14 @@ impl UsageClient for MeteringUsageClient {
                 values,
             }) => {
                 let mut filter_properties = vec![];
-                for (key, values) in values.iter() {
+                for (key, values) in values.into_iter() {
                     filter_properties.push(Filter {
                         property_name: dimension1_key.clone(),
-                        property_value: vec![key.clone()],
+                        property_value: vec![key],
                     });
                     filter_properties.push(Filter {
                         property_name: dimension2_key.clone(),
-                        property_value: values.clone(),
+                        property_value: values,
                     });
                 }
                 filter_properties
@@ -139,12 +138,9 @@ impl UsageClient for MeteringUsageClient {
         let request = QueryMeterRequest {
             tenant_id: tenant_id.as_proto(),
             meter_slug: metric.id.to_string(),
-            event_name: metric.code.clone(),
+            code: metric.code.clone(),
             meter_aggregation_type: aggregation_type,
-            customers: vec![CustomerIdentifier {
-                local_id: customer_id.to_string(), // TODO
-                alias: customer_alias.clone(),
-            }],
+            customer_ids: vec![customer_id.to_string()],
             from: Some(date_to_timestamp(period.start)),
             to: Some(date_to_timestamp(period.end)), // exclusive TODO check
             // not used here, defaults to customer_id
@@ -169,8 +165,7 @@ impl UsageClient for MeteringUsageClient {
             .map(|usage| {
                 let value: Decimal = usage
                     .value
-                    .as_ref()
-                    .and_then(|v| v.clone().try_into().ok())
+                    .and_then(|v| v.try_into().ok())
                     .unwrap_or(Decimal::ZERO);
                 GroupedUsageData {
                     value,

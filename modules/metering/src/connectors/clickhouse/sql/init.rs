@@ -22,21 +22,21 @@ fn get_kafka_mv_table_name() -> String {
 }
 
 // data String if we want JSON with path, but to simplify for end user let's use Map<String,String> for now
-// TODO LowCardinality(String) for tenant, event name and for property key as well when available, https://github.com/suharev7/clickhouse-rs/issues/199#issuecomment-1837427136
 const COMMON_COLUMNS: &str = "tenant_id String,
-    event_id String,
-    event_name String,
+    id String,
+    code String,
     customer_id String,
-    event_timestamp DateTime64(9, 'UTC'),
-    properties Map(String, String)";
+    timestamp DateTime64(9, 'UTC'),
+    properties Map(String, String),
+    ingested_at DateTime64(9, 'UTC')";
 
 pub(crate) fn create_events_table_sql() -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS {} (
             {}
         ) ENGINE = MergeTree
-        PARTITION BY toYYYYMM(event_timestamp)
-        ORDER BY (tenant_id, event_timestamp, event_name, customer_id)",
+        PARTITION BY toYYYYMM(timestamp)
+        ORDER BY (tenant_id, timestamp, code, customer_id)",
         get_events_table_name(),
         COMMON_COLUMNS
     )
@@ -51,10 +51,10 @@ pub(crate) fn create_events_table_sql() -> String {
 */
 
 pub(crate) fn create_kafka_event_table_sql(
-    kafka_broker_list: String,
-    kafka_topic_list: String,
-    kafka_group_name: String,
-    kafka_format: String,
+    kafka_broker_list: &str,
+    kafka_topic_list: &str,
+    kafka_group_name: &str,
+    kafka_format: &str,
 ) -> String {
     format!(
         "CREATE TABLE IF NOT EXISTS {} (
@@ -67,10 +67,10 @@ pub(crate) fn create_kafka_event_table_sql(
                 kafka_format = '{}'",
         get_kafka_events_table_name(),
         COMMON_COLUMNS,
-        &kafka_broker_list,
-        &kafka_topic_list,
-        &kafka_group_name,
-        &kafka_format,
+        kafka_broker_list,
+        kafka_topic_list,
+        kafka_group_name,
+        kafka_format,
     )
 }
 

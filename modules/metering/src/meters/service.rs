@@ -45,7 +45,7 @@ impl MetersServiceGrpc for MetersService {
             aggregation: meter_aggregation,
             namespace: req.tenant_id,
             id: meter.id,
-            event_name: meter.event_name,
+            code: meter.code,
             value_property: meter.aggregation_key,
             group_by: meter.dimensions,
         };

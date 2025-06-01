@@ -3,8 +3,8 @@ syntax = "proto3";
 package meteroid.metering.v1;
 
 message Event {
-  string event_id = 1;
-  string event_name = 2;
+  string id = 1;
+  string code = 2; // billable metric code
   oneof customer_id {
     string meteroid_customer_id = 3;
     string external_customer_alias = 4;
@@ -24,7 +24,7 @@ message Metadata {
 
 message Meter {
   string id = 1; // id by default is local_id. We could at some point support metric alias for external implementations of metering, & use this field
-  string event_name = 3;
+  string code = 3; // billable metric code
 
   // TODO used ? (can we store metadata in clickhouse ? if yes do we want some metadata field instead)
   //optional string description = 3;
@@ -52,9 +52,4 @@ message Meter {
 
   // unit conversions
   // segmentation matrix (or that's just the group_by_dimensions ?)
-}
-
-message CustomerIdentifier {
-  string local_id = 1;
-  optional string alias = 2;
 }

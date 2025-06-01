@@ -25,8 +25,8 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
     // Also we want to make sure that we can group by full day, as it's the main view. Maybe an extra MV ?
     let mut selects = vec![
         "customer_id".to_string(),
-        "tumbleStart(toDateTime(event_timestamp), toIntervalMinute(1)) AS windowstart".to_string(),
-        "tumbleEnd(toDateTime(event_timestamp), toIntervalMinute(1)) AS windowend".to_string(),
+        "tumbleStart(toDateTime(timestamp), toIntervalMinute(1)) AS windowstart".to_string(),
+        "tumbleEnd(toDateTime(timestamp), toIntervalMinute(1)) AS windowend".to_string(),
     ];
 
     // we rasterize the value property to be an option of non empty string
@@ -70,13 +70,13 @@ fn create_meter_view_to_select_sql(meter: Meter) -> String {
     let events_table_name = get_events_table_name();
 
     let query = format!(
-        "SELECT {} FROM {} WHERE {}.tenant_id = '{}' AND {}.event_name = '{}' GROUP BY {}",
+        "SELECT {} FROM {} WHERE {}.tenant_id = '{}' AND {}.code = '{}' GROUP BY {}",
         selects.join(", "),
         events_table_name,
         events_table_name,
         escape_sql_identifier(&meter.namespace),
         events_table_name,
-        escape_sql_identifier(&meter.event_name),
+        escape_sql_identifier(&meter.code),
         order_by.join(", "), // TODO check
     );
 
@@ -159,7 +159,7 @@ mod tests {
         let meter = Meter {
             namespace: "test_namespace".to_string(),
             id: "test_slug".to_string(),
-            event_name: "test_event".to_string(),
+            code: "test_event".to_string(),
             aggregation: MeterAggregation::Count,
             group_by: vec!["test_group1".to_string(), "test_group2".to_string()],
             value_property: Some("test_value".to_string()),
@@ -178,14 +178,14 @@ mod tests {
             POPULATE
             AS SELECT
                 customer_id,
-                tumbleStart(toDateTime(event_timestamp), toIntervalMinute(1)) AS windowstart,
-                tumbleEnd(toDateTime(event_timestamp), toIntervalMinute(1)) AS windowend,
+                tumbleStart(toDateTime(timestamp), toIntervalMinute(1)) AS windowstart,
+                tumbleEnd(toDateTime(timestamp), toIntervalMinute(1)) AS windowend,
                 countState(cast(properties['test_value'], 'Float64')) AS value,
                 properties['test_group1'] as test_group1,
                 properties['test_group2'] as test_group2
             FROM meteroid.raw_events
             WHERE meteroid.raw_events.tenant_id = 'test_namespace'
-                AND meteroid.raw_events.event_name = 'test_event'
+                AND meteroid.raw_events.code = 'test_event'
                 GROUP BY windowstart, windowend, customer_id, test_group1, test_group2
         "#;
 

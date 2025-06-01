@@ -1,5 +1,5 @@
 use super::{FailedRecord, Sink};
-use crate::ingest::domain::ProcessedEvent;
+use crate::ingest::domain::RawEvent;
 use crate::ingest::errors::IngestError;
 use crate::ingest::metrics::{INGEST_BATCH_SIZE, INGESTED_EVENTS_TOTAL};
 use async_trait::async_trait;
@@ -12,7 +12,7 @@ pub struct PrintSink {}
 impl Sink for PrintSink {
     async fn send(
         &self,
-        events: Vec<ProcessedEvent>,
+        events: Vec<RawEvent>,
         attributes: &[KeyValue],
     ) -> Result<Vec<FailedRecord>, IngestError> {
         let span = tracing::span!(tracing::Level::INFO, "batch of events");

@@ -39,16 +39,9 @@ pub struct Meter {
     pub aggregation: MeterAggregation,
     pub namespace: String,
     pub id: String,
-    pub event_name: String,
+    pub code: String,
     pub value_property: Option<String>,
     pub group_by: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Customer {
-    pub local_id: String,
-    pub alias: Option<String>,
-    // pub custom_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,10 +49,10 @@ pub struct QueryMeterParams {
     pub aggregation: MeterAggregation,
     pub namespace: String,
     pub meter_slug: String,
-    pub event_name: String,
-    pub customers: Vec<Customer>,
+    pub code: String,
+    pub customer_ids: Vec<String>,
     pub filter_group_by: HashMap<String, Vec<String>>,
-    pub group_by: Vec<String>,
+    pub group_by: Vec<String>, // todo
     pub window_size: Option<WindowSize>,
     pub window_time_zone: Option<String>,
     pub from: DateTime<Utc>,

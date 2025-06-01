@@ -83,7 +83,7 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
 
     let mut group_by_columns = params.group_by.clone();
     // Add group by columns
-    if !params.customers.is_empty() && !params.group_by.contains(&"customer_id".to_string()) {
+    if !params.customer_ids.is_empty() && !params.group_by.contains(&"customer_id".to_string()) {
         group_by_columns.insert(0, "customer_id".to_string());
     }
 
@@ -92,11 +92,11 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         select_columns.push(column.clone());
     }
 
-    if !params.customers.is_empty() {
+    if !params.customer_ids.is_empty() {
         let subjects_condition = params
-            .customers
+            .customer_ids
             .iter()
-            .map(|customer| format!("customer_id = '{}'", customer.local_id)) // TODO config for id/ext/custom field
+            .map(|id| format!("customer_id = '{}'", id)) // TODO config for id/ext/custom field
             .collect::<Vec<_>>()
             .join(" OR ");
         where_clauses.push(format!("({})", subjects_condition));

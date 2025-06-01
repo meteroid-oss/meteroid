@@ -1,5 +1,5 @@
 use crate::config::KafkaConfig;
-use crate::ingest::domain::ProcessedEvent;
+use crate::ingest::domain::RawEvent;
 use crate::ingest::errors::IngestError;
 use crate::ingest::metrics::{INGEST_BATCH_SIZE, INGESTED_EVENTS_TOTAL};
 use crate::ingest::sinks::{FailedRecord, Sink};
@@ -52,19 +52,15 @@ impl KafkaSink {
         self.producer.flush(Duration::new(30, 0))
     }
 
-    async fn kafka_send(
-        producer: FutureProducer,
-        topic: String,
-        event: &ProcessedEvent,
-    ) -> Result<DeliveryFuture, IngestError> {
+    fn kafka_send(&self, event: &RawEvent) -> Result<DeliveryFuture, IngestError> {
         // TODO proto
         let payload = serde_json::to_string(&event).map_err(|e| {
             error!("failed to serialize event: {}", e);
             IngestError::NonRetryableSinkError
         })?;
 
-        match producer.send_result(FutureRecord {
-            topic: topic.as_str(),
+        match self.producer.send_result(FutureRecord {
+            topic: self.topic.as_str(),
             payload: Some(&payload),
             partition: None,
             key: Some(event.key().as_str()),
@@ -92,7 +88,7 @@ impl KafkaSink {
     ) -> Result<(), IngestError> {
         match delivery.await {
             Err(_) => {
-                // Cancelled due to timeout while retrying
+                // Canceled due to timeout while retrying
                 error!("failed to produce to Kafka before write timeout");
                 Err(IngestError::RetryableSinkError)
             }
@@ -117,7 +113,7 @@ impl Sink for KafkaSink {
     #[instrument(skip_all)]
     async fn send(
         &self,
-        events: Vec<ProcessedEvent>,
+        events: Vec<RawEvent>,
         attributes: &[KeyValue],
     ) -> Result<Vec<FailedRecord>, IngestError> {
         let mut set = JoinSet::new();
@@ -126,15 +122,12 @@ impl Sink for KafkaSink {
         let attributes_arc = Arc::new(attributes.to_vec());
 
         for event in events {
-            let producer = self.producer.clone();
-            let topic = self.topic.clone();
-            // or sequentially ?
-            // let ack = Self::kafka_send(producer, topic, event).await?;
-            // set.spawn(Self::process_ack(ack, attributes));
             let attributes = attributes_arc.clone();
 
+            let send_result = self.kafka_send(&event);
+
             set.spawn(async move {
-                match Self::kafka_send(producer, topic, &event).await {
+                match send_result {
                     Ok(ack) => {
                         if let Err(error) = Self::process_ack(ack, &attributes).await {
                             vec![FailedRecord { event, error }]
@@ -179,7 +172,7 @@ impl Sink for KafkaSink {
 #[cfg(test)]
 mod tests {
     use crate::config;
-    use crate::ingest::domain::ProcessedEvent;
+    use crate::ingest::domain::RawEvent;
     use crate::ingest::errors::IngestError;
     use crate::ingest::sinks::Sink;
     use crate::ingest::sinks::kafka::KafkaSink;
@@ -218,12 +211,13 @@ mod tests {
         // We test different cases in a single test to amortize the startup cost of the producer.
 
         let (cluster, sink) = start_on_mocked_sink().await;
-        let event: ProcessedEvent = ProcessedEvent {
-            event_id: "eventid".to_string(),
-            event_name: "eventname".to_string(),
+        let event: RawEvent = RawEvent {
+            id: "eventid".to_string(),
+            code: "eventname".to_string(),
             customer_id: "customerid".to_string(),
             tenant_id: "tenantid".to_string(),
-            event_timestamp: chrono::Utc::now().naive_utc(),
+            timestamp: chrono::Utc::now().naive_utc(),
+            ingested_at: chrono::Utc::now().naive_utc(),
             properties: HashMap::from([("key".to_string(), "value".to_string())]),
         };
 
@@ -246,22 +240,23 @@ mod tests {
         .await
         .expect("failed to send initial event batch");
 
-        // Producer should reject a 2MB message, twice the default `message.max.bytes`
+        // Producer should reject larger than `message.max.bytes` message (1MB)
         let big_data = rand::rng()
             .sample_iter(Alphanumeric)
-            .take(2_000_000)
+            .take(1_100_000)
             .map(char::from)
             .collect::<String>();
-        let big_event: ProcessedEvent = ProcessedEvent {
-            event_id: "eventid".to_string(),
-            event_name: "eventname".to_string(),
+        let big_event: RawEvent = RawEvent {
+            id: "eventid".to_string(),
+            code: "eventname".to_string(),
             customer_id: "customerid".to_string(),
             tenant_id: "tenantid".to_string(),
-            event_timestamp: chrono::Utc::now().naive_utc(),
+            timestamp: chrono::Utc::now().naive_utc(),
+            ingested_at: chrono::Utc::now().naive_utc(),
             properties: HashMap::from([("key".to_string(), big_data.to_string())]),
         };
 
-        async fn check_error(sink: &KafkaSink, input: Vec<ProcessedEvent>, error: IngestError) {
+        async fn check_error(sink: &KafkaSink, input: Vec<RawEvent>, error: IngestError) {
             match sink.send(input, &[]).await {
                 Err(err) => panic!("Sink failed the whole batch with error {}", err),
                 Ok(vec) => match vec.first().map(|r| &r.error) {
@@ -277,7 +272,7 @@ mod tests {
 
         check_error(&sink, vec![big_event.clone()], IngestError::EventTooBig).await;
 
-        // Simulate unretriable errors
+        // Simulate non-retriable errors
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);

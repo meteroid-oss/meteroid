@@ -12,7 +12,7 @@ use metering_grpc::meteroid::metering::v1::{
 use tonic::{Request, Response, Status};
 
 use crate::connectors::Connector;
-use crate::domain::{Customer, QueryMeterParams, WindowSize};
+use crate::domain::{QueryMeterParams, WindowSize};
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
 
 #[derive(Clone)]
@@ -58,22 +58,15 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             aggregation: meter_aggregation,
             namespace: req.tenant_id,
             meter_slug: req.meter_slug,
-            event_name: req.event_name,
-            customers: req
-                .customers
-                .iter()
-                .map(|c| Customer {
-                    alias: c.alias.clone(),
-                    local_id: c.local_id.clone(),
-                })
-                .collect(),
+            code: req.code,
+            customer_ids: req.customer_ids,
             group_by: req.group_by_properties,
             window_size,
             window_time_zone: req.timezone,
             filter_group_by: req
                 .filter_properties
-                .iter()
-                .map(|filter| (filter.property_name.clone(), filter.property_value.clone()))
+                .into_iter()
+                .map(|filter| (filter.property_name, filter.property_value))
                 .collect(),
             from: req
                 .from

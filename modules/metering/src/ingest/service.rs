@@ -10,7 +10,7 @@ use metering_grpc::meteroid::metering::v1::{Event, IngestFailure, IngestRequest,
 use tonic::{Request, Response, Status};
 use tracing::error;
 
-use crate::ingest::domain::{FailedEvent, ProcessedEvent};
+use crate::ingest::domain::{FailedEvent, RawEvent};
 use crate::ingest::sinks::Sink;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::internal::v1::ResolveCustomerAliasesRequest;
@@ -64,22 +64,23 @@ impl EventsServiceGrpc for EventsService {
         let mut unresolved = vec![];
         let mut unresolved_aliases = vec![];
 
-        let now = chrono::Utc::now();
+        let now = Utc::now();
 
         for event in events {
             match validate_event(&event, &now, allow_backfilling) {
                 Ok((id, ts)) => match id {
-                    CustomerId::MeteroidCustomerId(local_id) => {
-                        resolved.push(to_processed_event(event, local_id, tenant_id.clone(), ts))
+                    CustomerId::MeteroidCustomerId(id) => {
+                        resolved.push(to_domain_event(event, id, tenant_id.clone(), ts, now))
                     }
                     CustomerId::ExternalCustomerAlias(alias) => {
                         let from_cache = CUSTOMER_ID_CACHE.get(&(tenant_id.clone(), alias.clone()));
                         match from_cache {
-                            Some(meteroid_id) => resolved.push(to_processed_event(
+                            Some(meteroid_id) => resolved.push(to_domain_event(
                                 event,
                                 meteroid_id.clone(),
                                 tenant_id.clone(),
                                 ts,
+                                now,
                             )),
                             None => {
                                 unresolved_aliases.push(alias.clone());
@@ -100,9 +101,9 @@ impl EventsServiceGrpc for EventsService {
         if !unresolved_aliases.is_empty() {
             // we call the api to resolve customers by external id & tenant
 
-            let mut client = self.internal_client.clone();
-
-            let res = client
+            let res = self
+                .internal_client
+                .clone()
                 .resolve_customer_aliases(ResolveCustomerAliasesRequest {
                     tenant_id: tenant_id.clone(),
                     aliases: unresolved_aliases,
@@ -140,11 +141,12 @@ impl EventsServiceGrpc for EventsService {
                     .find(|(_, alias, _)| alias == &customer.alias)
                     .unwrap();
 
-                resolved.push(to_processed_event(
+                resolved.push(to_domain_event(
                     event.clone(),
                     customer.local_id,
                     tenant_id.clone(),
                     *ts,
+                    now,
                 ))
             })
         }
@@ -166,13 +168,13 @@ impl EventsServiceGrpc for EventsService {
         let mut failures: Vec<IngestFailure> = failed_events
             .into_iter()
             .map(|e| IngestFailure {
-                idempotency_key: e.event.event_id,
+                event_id: e.event.id,
                 reason: e.reason,
             })
             .collect();
 
         failures.extend(res.into_iter().map(|rec| IngestFailure {
-            idempotency_key: rec.event.event_id,
+            event_id: rec.event.id,
             reason: rec.error.to_string(),
         }));
 
@@ -183,18 +185,20 @@ impl EventsServiceGrpc for EventsService {
     }
 }
 
-fn to_processed_event(
+fn to_domain_event(
     event: Event,
     customer_id: String,
     tenant_id: String,
     ts: DateTime<Utc>,
-) -> ProcessedEvent {
-    ProcessedEvent {
-        event_id: event.event_id,
-        event_name: event.event_name,
+    now: DateTime<Utc>,
+) -> RawEvent {
+    RawEvent {
+        id: event.id,
+        code: event.code,
         customer_id,
         tenant_id,
-        event_timestamp: ts.naive_utc(),
+        timestamp: ts.naive_utc(),
+        ingested_at: now.naive_utc(),
         properties: event.properties,
     }
 }

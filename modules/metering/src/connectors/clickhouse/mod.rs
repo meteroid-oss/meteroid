@@ -32,10 +32,10 @@ impl ClickhouseConnector {
         let event_table_ddl = sql::init::create_events_table_sql();
         // TODO replace with custom integration (with dedupe) or kafka connect, as this puts the constraints on CH
         let kafka_table_ddl = sql::init::create_kafka_event_table_sql(
-            kafka_config.kafka_internal_addr.clone(),
-            kafka_config.kafka_topic.clone(),
-            "clickhouse".to_string(),
-            "JSONEachRow".to_string(),
+            kafka_config.kafka_internal_addr.as_str(),
+            kafka_config.kafka_topic.as_str(),
+            "clickhouse",
+            "JSONEachRow",
         );
         let kafka_mv_ddl = sql::init::create_kafka_mv_sql();
 
@@ -84,7 +84,7 @@ impl ClickhouseConnector {
     ) -> Option<Arc<dyn ConnectorClickhouseExtension + Send + Sync>> {
         self.extensions
             .iter()
-            .find(|ext| params.event_name.starts_with(&ext.prefix()))
+            .find(|ext| params.code.starts_with(&ext.prefix()))
             .cloned()
     }
 }

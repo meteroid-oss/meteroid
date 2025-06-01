@@ -155,8 +155,8 @@ impl EventHandler {
         }
 
         Ok(Some(server::Event {
-            event_id: sample.message_id.clone(),
-            event_name: format!("openstack.{}", sample.counter_name),
+            id: sample.message_id.clone(),
+            code: format!("openstack.{}", sample.counter_name),
             customer_id: Some(server::event::CustomerId::ExternalCustomerAlias(
                 sample.project_id.clone(),
             )),
@@ -213,8 +213,8 @@ impl EventHandler {
                 properties.insert("flavor".to_string(), flavor.to_string());
 
                 Ok(Some(server::Event {
-                    event_id: event.message_id.clone(),
-                    event_name: format!("openstack.{}", event.event_type),
+                    id: event.message_id.clone(),
+                    code: format!("openstack.{}", event.event_type),
                     customer_id: Some(server::event::CustomerId::ExternalCustomerAlias(
                         project_id.to_string(),
                     )),

@@ -12,7 +12,7 @@ pub fn query_raw_event_table_sql(
     let mut where_clauses = Vec::new();
 
     let mut query = format!(
-        "SELECT event_id, event_name, customer_id, event_timestamp, properties FROM {}",
+        "SELECT event_id, code, customer_id, event_timestamp, properties FROM {}",
         table_name
     );
 
