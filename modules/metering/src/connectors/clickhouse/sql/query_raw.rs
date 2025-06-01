@@ -12,18 +12,18 @@ pub fn query_raw_event_table_sql(
     let mut where_clauses = Vec::new();
 
     let mut query = format!(
-        "SELECT event_id, code, customer_id, event_timestamp, properties FROM {}",
+        "SELECT id, code, customer_id, timestamp, ingested_at, properties FROM {}",
         table_name
     );
 
     where_clauses.push(format!("tenant_id = '{}'", tenant_id));
 
     if let Some(from_time) = from {
-        where_clauses.push(format!("event_timestamp >= {}", from_time.timestamp()));
+        where_clauses.push(format!("timestamp >= {}", from_time.timestamp()));
     }
 
     if let Some(to_time) = to {
-        where_clauses.push(format!("event_timestamp <= {}", to_time.timestamp()));
+        where_clauses.push(format!("timestamp <= {}", to_time.timestamp()));
     }
 
     if !where_clauses.is_empty() {
