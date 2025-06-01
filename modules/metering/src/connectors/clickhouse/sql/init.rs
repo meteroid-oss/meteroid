@@ -22,13 +22,13 @@ fn get_kafka_mv_table_name() -> String {
 }
 
 // data String if we want JSON with path, but to simplify for end user let's use Map<String,String> for now
-const COMMON_COLUMNS: &str = "tenant_id String,
-    id String,
+const COMMON_COLUMNS: &str = "id String,
     code String,
     customer_id String,
+    tenant_id String,
     timestamp DateTime64(9, 'UTC'),
-    properties Map(String, String),
-    ingested_at DateTime64(9, 'UTC')";
+    ingested_at DateTime64(9, 'UTC'),
+    properties Map(String, String)";
 
 pub(crate) fn create_events_table_sql() -> String {
     format!(

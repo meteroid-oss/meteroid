@@ -77,7 +77,7 @@ pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, u16) {
 
     let container = GenericImage::new(clickhouse::CONTAINER_NAME, clickhouse::CONTAINER_VERSION)
         .with_exposed_port(local.tcp())
-        .with_mapped_port(internal_port, local.tcp())
+        .with_mapped_port(local, internal_port.tcp())
         .with_env_var("CLICKHOUSE_DB", "meteroid")
         .with_env_var("CLICKHOUSE_USER", "default")
         .with_env_var("CLICKHOUSE_PASSWORD", "default")
