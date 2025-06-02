@@ -3,6 +3,7 @@ use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use backon::Retryable;
 use chrono::Days;
+use itertools::Itertools;
 use metering::ingest::domain::RawEventRow;
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
@@ -81,7 +82,7 @@ async fn test_metering_ingestion() {
     // we consider a billing period 1, customer 1, inference endpoint
     let to_ingest = vec![
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -95,7 +96,7 @@ async fn test_metering_ingestion() {
             .into(),
         },
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -112,7 +113,7 @@ async fn test_metering_ingestion() {
             .into(),
         },
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -129,7 +130,7 @@ async fn test_metering_ingestion() {
             .into(),
         },
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -147,7 +148,7 @@ async fn test_metering_ingestion() {
         },
         // out of period
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -162,7 +163,7 @@ async fn test_metering_ingestion() {
         },
         // other customer
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_2.to_string(),
@@ -180,7 +181,7 @@ async fn test_metering_ingestion() {
         },
         // other event type
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_response".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -198,7 +199,7 @@ async fn test_metering_ingestion() {
         },
         // other endpoint
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_response".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -216,7 +217,7 @@ async fn test_metering_ingestion() {
         },
         // other model
         Event {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::now_v7().to_string(),
             code: "api_calls".to_string(),
             customer_id: Some(event::CustomerId::MeteroidCustomerId(
                 customer_1.to_string(),
@@ -240,7 +241,7 @@ async fn test_metering_ingestion() {
     let ingested = metering_clients
         .events
         .ingest(Request::new(IngestRequest {
-            events: to_ingest,
+            events: to_ingest.clone(),
             allow_backfilling: true,
         }))
         .await
@@ -252,7 +253,7 @@ async fn test_metering_ingestion() {
 
     let clickhouse_client = metering_it::clickhouse::get_client(clickhouse_port);
 
-    (|| async {
+    let events = (|| async {
         match clickhouse_client
             .query("SELECT * FROM raw_events")
             .fetch_all::<RawEventRow>()
@@ -282,4 +283,53 @@ async fn test_metering_ingestion() {
     })
     .await
     .expect("Failed to validate events in ClickHouse");
+
+    assert_events_eq(&to_ingest, &events);
+}
+
+fn assert_events_eq(left: &[Event], right: &[RawEventRow]) {
+    fn sort_by<T, F>(items: &[T], sort_fn: F) -> Vec<T>
+    where
+        T: Clone,
+        F: Fn(&T) -> &str,
+    {
+        let mut vec: Vec<T> = items.iter().cloned().collect();
+        vec.sort_by(|a, b| sort_fn(a).cmp(sort_fn(b)));
+        vec
+    }
+
+    let sorted_left = sort_by(left, |a| &a.id);
+    let sorted_right = sort_by(right, |a| &a.id);
+
+    assert_eq!(sorted_left.len(), sorted_right.len());
+
+    for (event, right_event) in sorted_left.iter().zip(sorted_right.iter()) {
+        assert_event_eq(event, right_event);
+    }
+}
+
+fn assert_event_eq(left: &Event, right: &RawEventRow) {
+    assert_eq!(left.id, right.id);
+    assert_eq!(left.code, right.code);
+
+    let left_customer_id = match left.customer_id.as_ref().unwrap() {
+        event::CustomerId::MeteroidCustomerId(id) => id,
+        _ => panic!("Unexpected customer_id type"),
+    };
+
+    assert_eq!(left_customer_id, &right.customer_id);
+    assert_eq!(left.timestamp, right.timestamp.to_rfc3339());
+    assert_eq!(
+        left.properties
+            .iter()
+            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect_vec(),
+        right
+            .properties
+            .iter()
+            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect_vec(),
+    );
 }
