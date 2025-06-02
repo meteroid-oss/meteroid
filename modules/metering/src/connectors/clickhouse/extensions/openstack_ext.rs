@@ -111,10 +111,10 @@ WITH
             tenant_id,
             properties['instance_id'] as instance_id,
             properties['flavor'] as flavor,
-            event_timestamp AS start_time,
-            leadInFrame(toNullable(event_timestamp)) OVER (
+            timestamp AS start_time,
+            leadInFrame(toNullable(timestamp)) OVER (
                 PARTITION BY customer_id, tenant_id, properties['instance_id']
-                ORDER BY event_timestamp
+                ORDER BY timestamp
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
             ) AS end_time,
             code

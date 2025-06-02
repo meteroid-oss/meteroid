@@ -52,7 +52,7 @@ pub struct QueryMeterParams {
     pub code: String,
     pub customer_ids: Vec<String>,
     pub filter_group_by: HashMap<String, Vec<String>>,
-    pub group_by: Vec<String>, // todo
+    pub group_by: Vec<String>,
     pub window_size: Option<WindowSize>,
     pub window_time_zone: Option<String>,
     pub from: DateTime<Utc>,
