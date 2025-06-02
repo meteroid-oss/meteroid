@@ -31,9 +31,9 @@ impl ConnectorClickhouseExtension for OpenstackClickhouseExtension {
     }
 
     fn build_query(&self, params: &QueryMeterParams) -> Option<String> {
-        if params.event_name == "openstack.instance.uptime" {
+        if params.code == "openstack.instance.uptime" {
             let params = params.clone();
-            let cust = params.customers[0].clone();
+            let cust = params.customer_ids[0].clone();
 
             let query = build_openstack_instance_query(&QueryOpenStackInstanceParams {
                 customer_id: cust.id,
@@ -111,15 +111,15 @@ WITH
             tenant_id,
             properties['instance_id'] as instance_id,
             properties['flavor'] as flavor,
-            event_timestamp AS start_time,
-            leadInFrame(toNullable(event_timestamp)) OVER (
+            timestamp AS start_time,
+            leadInFrame(toNullable(timestamp)) OVER (
                 PARTITION BY customer_id, tenant_id, properties['instance_id']
-                ORDER BY event_timestamp
+                ORDER BY timestamp
                 ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
             ) AS end_time,
-            event_name
+            code
         FROM meteroid.raw_events
-        WHERE raw_events.event_name IN ('compute.instance.create.end', 'compute.instance.delete.end', 'compute.instance.resize.confirm.end')
+        WHERE raw_events.code IN ('compute.instance.create.end', 'compute.instance.delete.end', 'compute.instance.resize.confirm.end')
     ),
     instance_periods AS (
         SELECT

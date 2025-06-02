@@ -53,7 +53,6 @@ pub trait UsageClient: Send + Sync {
         &self,
         tenant_id: &TenantId,
         customer_id: &CustomerId,
-        customer_alias: &Option<String>,
         metric: &BillableMetric,
         period: Period,
     ) -> StoreResult<UsageData>;
@@ -82,8 +81,7 @@ impl UsageClient for MockUsageClient {
     async fn fetch_usage(
         &self,
         _tenant_id: &TenantId,
-        _customer_local_id: &CustomerId,
-        _customer_alias: &Option<String>,
+        _customer_id: &CustomerId,
         metric: &BillableMetric,
         period: Period,
     ) -> StoreResult<UsageData> {

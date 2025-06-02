@@ -269,7 +269,7 @@ pub mod metric {
 
         metering::Meter {
             id: metric.id.as_proto(), // we could allow optional external_id if the metric is defined externally
-            event_name: metric.code.to_string(),
+            code: metric.code.to_string(),
             aggregation_key: metric.aggregation_key,
             aggregation: super::aggregation_type::domain_to_metering(metric.aggregation_type)
                 .into(),

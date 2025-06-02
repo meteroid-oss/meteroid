@@ -16,7 +16,7 @@ message QueryMeterRequest {
   string tenant_id = 1;
   string meter_slug = 2;
   Meter.AggregationType meter_aggregation_type = 3;
-  repeated CustomerIdentifier customers = 4;
+  repeated string customer_ids = 4;
   google.protobuf.Timestamp from = 5;
   google.protobuf.Timestamp to = 6;
   // If null, default to WindowSize.AGGREGATE_ALL
@@ -24,7 +24,7 @@ message QueryMeterRequest {
   repeated Filter filter_properties = 8;
   QueryWindowSize window_size = 9;
   optional string timezone = 10;
-  string event_name = 11;
+  string code = 11;  // billable metric code
 
   enum QueryWindowSize {
     MINUTE = 0;

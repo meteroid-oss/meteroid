@@ -360,7 +360,6 @@ impl Services {
             .fetch_usage(
                 &subscription_details.subscription.tenant_id,
                 &subscription_details.subscription.customer_id,
-                &subscription_details.subscription.customer_alias,
                 metric,
                 period,
             )

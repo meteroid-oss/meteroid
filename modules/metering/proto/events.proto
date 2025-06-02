@@ -11,7 +11,7 @@ message IngestRequest {
 }
 
 message IngestFailure {
-  string idempotency_key = 1;
+  string event_id = 1;
   string reason = 2;
 }
 message IngestResponse {

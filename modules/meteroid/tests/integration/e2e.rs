@@ -1,13 +1,14 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
-use common_domain::ids::{BaseId, InvoicingEntityId, PlanVersionId, TenantId};
-use metering::ingest::domain::ProcessedEventRow;
-use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event::CustomerId};
+use common_domain::ids::{
+    BaseId, CustomerId, InvoicingEntityId, PlanVersionId, SubscriptionId, TenantId,
+};
+use metering::ingest::domain::RawEventRow;
+use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::mapping::common::chrono_to_date;
 use meteroid_grpc::meteroid::api;
@@ -26,7 +27,6 @@ use meteroid_store::domain::{
     PaginationRequest,
 };
 use meteroid_store::repositories::InvoiceInterface;
-use opentelemetry::propagation::Injector;
 use rust_decimal::Decimal;
 use tonic::Request;
 use uuid::{Uuid, uuid};
@@ -114,11 +114,10 @@ async fn test_metering_e2e() {
         "testslug",
     );
 
-    let tenant_uuid = uuid!("018c2c82-3df1-7e84-9e05-6e141d0e751a");
-    let tenant_id = tenant_uuid.to_string();
+    let tenant_id = TenantId::from(uuid!("018c2c82-3df1-7e84-9e05-6e141d0e751a"));
 
-    let customer_1 = "018c345f-7324-7cd2-a692-78e5ab9158e0".to_string();
-    let customer_2 = "018c345f-dff1-7857-b988-6c792ed6fa3f".to_string();
+    let customer_1 = CustomerId::from(uuid!("018c345f-7324-7cd2-a692-78e5ab9158e0"));
+    let customer_2 = CustomerId::from(uuid!("018c345f-dff1-7857-b988-6c792ed6fa3f"));
 
     let now = chrono::Utc::now();
 
@@ -135,125 +134,165 @@ async fn test_metering_e2e() {
 
     // we consider a billing period 1, customer 1, inference endpoint
     let events = vec![
-        (
-            &customer_1,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "20"),
-            ],
-            period_1_start,
-        ),
-        (
-            &customer_1,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "150"),
-            ],
-            period_1_start.checked_add_days(Days::new(1)).unwrap(),
-        ),
-        (
-            &customer_1,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "70"),
-            ],
-            period_1_start.checked_add_days(Days::new(10)).unwrap(),
-        ),
-        (
-            &customer_1,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "9"),
-            ],
-            period_2_start.checked_sub_days(Days::new(1)).unwrap(),
-        ),
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_1_start.to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "20".to_string()),
+            ]
+            .into(),
+        },
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_1_start
+                .checked_add_days(Days::new(1))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "150".to_string()),
+            ]
+            .into(),
+        },
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_1_start
+                .checked_add_days(Days::new(10))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "70".to_string()),
+            ]
+            .into(),
+        },
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_2_start
+                .checked_sub_days(Days::new(1))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "9".to_string()),
+            ]
+            .into(),
+        },
         // out of period
-        (
-            &customer_1,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "25000"),
-            ],
-            period_2_start,
-        ),
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_2_start.to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "25000".to_string()),
+            ]
+            .into(),
+        },
         // other customer
-        (
-            &customer_2,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "25000"),
-            ],
-            period_1_start.checked_add_days(Days::new(10)).unwrap(),
-        ),
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_2.to_string(),
+            )),
+            timestamp: period_1_start
+                .checked_add_days(Days::new(10))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "25000".to_string()),
+            ]
+            .into(),
+        },
         // other event type
-        (
-            &customer_1,
-            "api_response",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_3.5"),
-                ("tokens", "25000"),
-            ],
-            period_1_start.checked_add_days(Days::new(10)).unwrap(),
-        ),
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_response".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_1_start
+                .checked_add_days(Days::new(10))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "25000".to_string()),
+            ]
+            .into(),
+        },
         // other endpoint
-        (
-            &customer_1,
-            "api_response",
-            vec![
-                ("endpoint", "embedding"),
-                ("model", "gpt_3.5"),
-                ("tokens", "25000"),
-            ],
-            period_1_start.checked_add_days(Days::new(10)).unwrap(),
-        ),
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_response".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_1_start
+                .checked_add_days(Days::new(10))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "embedding".to_string()),
+                ("model".to_string(), "gpt_3.5".to_string()),
+                ("tokens".to_string(), "25000".to_string()),
+            ]
+            .into(),
+        },
         // other model
-        (
-            &customer_2,
-            "api_calls",
-            vec![
-                ("endpoint", "inference"),
-                ("model", "gpt_4"),
-                ("tokens", "25000"),
-            ],
-            period_1_start.checked_add_days(Days::new(10)).unwrap(),
-        ),
+        Event {
+            id: Uuid::new_v4().to_string(),
+            code: "api_calls".to_string(),
+            customer_id: Some(event::CustomerId::MeteroidCustomerId(
+                customer_1.to_string(),
+            )),
+            timestamp: period_1_start
+                .checked_add_days(Days::new(10))
+                .unwrap()
+                .to_rfc3339(),
+            properties: [
+                ("endpoint".to_string(), "inference".to_string()),
+                ("model".to_string(), "gpt_4".to_string()),
+                ("tokens".to_string(), "25000".to_string()),
+            ]
+            .into(),
+        },
     ];
-
-    let events_mapped: Vec<Event> = events
-        .into_iter()
-        .map(|(customer, event_name, properties, timestamp)| Event {
-            event_id: uuid::Uuid::new_v4().to_string(),
-            event_name: event_name.to_string(),
-            customer_id: Some(CustomerId::MeteroidCustomerId(customer.clone())),
-            timestamp: timestamp.to_rfc3339(),
-            properties: {
-                let mut map = HashMap::new();
-                for (key, value) in properties {
-                    map.set(key, value.to_string());
-                }
-                map
-            },
-        })
-        .collect();
 
     // we ingest events in metering
     let ingested = metering_clients
         .events
         .ingest(Request::new(IngestRequest {
-            events: events_mapped,
+            events,
             allow_backfilling: true,
         }))
         .await
@@ -314,7 +353,7 @@ async fn test_metering_e2e() {
         .unwrap();
 
     let expected_table_name = metering::connectors::clickhouse::sql::get_meter_view_name(
-        &tenant_id,
+        &tenant_id.to_string(),
         &created_metric.billable_metric.unwrap().id,
     )
     .split(".")
@@ -329,7 +368,7 @@ async fn test_metering_e2e() {
     // check that events were ingested
     let _events = clickhouse_client
         .query("SELECT * FROM raw_events")
-        .fetch_all::<ProcessedEventRow>()
+        .fetch_all::<RawEventRow>()
         .await
         .expect("Could not query events");
 
@@ -354,7 +393,7 @@ async fn test_metering_e2e() {
     let price_component = meteroid_clients
         .price_components
         .clone()
-        .create_price_component(tonic::Request::new(
+        .create_price_component(Request::new(
             api::components::v1::CreatePriceComponentRequest {
                 plan_version_id: plan_version_id.clone(),
                 name: "Capacity".to_string(),
@@ -410,7 +449,7 @@ async fn test_metering_e2e() {
                         invoice_memo: None,
                         invoice_threshold: None,
                         billing_day_anchor: Some(billing_day),
-                        customer_id: customer_1.clone(),
+                        customer_id: customer_1.to_string(),
                         trial_duration: None,
                         components: Some(api::subscriptions::v1::CreateSubscriptionComponents {
                             parameterized_components: vec![
@@ -444,9 +483,9 @@ async fn test_metering_e2e() {
         .insert_invoice(InvoiceNew {
             status: InvoiceStatusEnum::Draft,
             external_status: None,
-            tenant_id: tenant_uuid.into(),
-            customer_id: Uuid::from_str(&customer_1).unwrap().into(),
-            subscription_id: Some(Uuid::from_str(&subscription.id).unwrap().into()),
+            tenant_id,
+            customer_id: customer_1,
+            subscription_id: Some(SubscriptionId::from_proto(&subscription.id).unwrap()),
             currency: subscription.currency.clone(),
             due_at: Some(
                 period_2_start.naive_utc() + chrono::Duration::days(subscription.net_terms as i64),
@@ -475,7 +514,7 @@ async fn test_metering_e2e() {
             tax_amount: 0,
             customer_details: InlineCustomer {
                 billing_address: None,
-                id: Uuid::from_str(&customer_1).unwrap().into(),
+                id: customer_1,
                 name: "Customer 1".to_string(),
                 email: None,
                 vat_number: None,
@@ -500,7 +539,7 @@ async fn test_metering_e2e() {
         .await
         .unwrap();
 
-    let db_invoices = fetch_invoices(&store, tenant_uuid.into()).await;
+    let db_invoices = fetch_invoices(&store, tenant_id).await;
 
     assert_eq!(db_invoices.len(), 2);
     assert_eq!(

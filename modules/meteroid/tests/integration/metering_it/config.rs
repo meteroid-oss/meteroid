@@ -16,7 +16,7 @@ pub fn mocked_config(
     Config {
         clickhouse: ClickhouseConfig {
             database: "meteroid".to_string(),
-            address: format!("tcp://127.0.0.1:{}", clickhouse_port),
+            address: format!("http://127.0.0.1:{}", clickhouse_port),
             username: "default".to_string(),
             password: "default".to_string(),
         },
@@ -38,7 +38,7 @@ pub fn mocked_config(
             },
             kafka_internal_addr: format!("it_redpanda:{}", 29092),
             kafka_topic,
-            kafka_producer_linger_ms: 20,
+            kafka_producer_linger_ms: 5,
             kafka_producer_queue_mib: 400,
             kafka_message_timeout_ms: 20000,
             kafka_compression_codec: "none".to_string(),

@@ -5,18 +5,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Clone, Default, Debug, Serialize, Eq, PartialEq)]
-pub struct ProcessedEvent {
-    pub event_id: String,
-    pub event_name: String,
+pub struct RawEvent {
+    pub id: String,
+    pub code: String,
     pub customer_id: String,
     pub tenant_id: String,
-    pub event_timestamp: NaiveDateTime,
+    pub timestamp: NaiveDateTime,
+    pub ingested_at: NaiveDateTime,
     pub properties: HashMap<String, String>,
 }
 
-impl ProcessedEvent {
+impl RawEvent {
     pub fn key(&self) -> String {
-        format!("{}:{}", self.tenant_id, self.event_id)
+        format!("{}:{}", self.tenant_id, self.id)
     }
 }
 
@@ -26,13 +27,16 @@ pub struct FailedEvent {
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, Eq, PartialEq, Row)]
-pub struct ProcessedEventRow {
-    pub event_id: String,
-    pub event_name: String,
+/// NOTE: the order of fields must match the order in the ClickHouse table
+pub struct RawEventRow {
+    pub id: String,
+    pub code: String,
     pub customer_id: String,
     pub tenant_id: String,
     #[serde(with = "clickhouse::serde::chrono::datetime64::nanos")]
-    pub event_timestamp: DateTime<Utc>,
+    pub timestamp: DateTime<Utc>,
+    #[serde(with = "clickhouse::serde::chrono::datetime64::nanos")]
+    pub ingested_at: DateTime<Utc>,
     // clickhouse crate doesn't support Map in decoder/encoder
     pub properties: Vec<(String, String)>,
 }

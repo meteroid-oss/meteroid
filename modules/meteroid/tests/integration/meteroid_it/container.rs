@@ -27,7 +27,7 @@ pub struct MeteroidSetup {
     pub channel: Channel,
     pub config: Config,
     pub store: meteroid_store::Store,
-    pub services: meteroid_store::Services,
+    pub services: Services,
 }
 
 pub async fn start_meteroid_with_port(
