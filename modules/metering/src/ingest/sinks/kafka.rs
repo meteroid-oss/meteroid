@@ -43,7 +43,7 @@ impl KafkaSink {
 
         Ok(KafkaSink {
             producer,
-            topic: config.kafka_topic.clone(),
+            topic: config.kafka_raw_topic.clone(),
         })
     }
 
@@ -199,7 +199,7 @@ mod tests {
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
             kafka_compression_codec: "none".to_string(),
-            kafka_topic: "ingest_events".to_string(),
+            kafka_raw_topic: "ingest_events".to_string(),
         };
         let sink = KafkaSink::new(&config).expect("failed to create sink");
         (cluster, sink)
