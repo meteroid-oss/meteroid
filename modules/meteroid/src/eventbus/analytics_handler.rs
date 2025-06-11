@@ -636,6 +636,7 @@ impl EventHandler<Event> for AnalyticsHandler {
                 self.subscription_canceled(&event, details).await?
             }
             EventData::UserCreated(details) => self.user_created(&event, details).await?,
+            EventData::UserUpdated(details) => self.user_updated(&event, details).await?,
             _ => {
                 log::debug!("Skipping event: {:?}", &event);
                 return Ok(());
