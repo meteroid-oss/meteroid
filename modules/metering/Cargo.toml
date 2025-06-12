@@ -49,7 +49,7 @@ rdkafka = { workspace = true, features = ["ssl", "sasl"], optional = true }
 
 # clickhosue connector deps
 clickhouse = { workspace = true, features = ["chrono"], optional = true }
-klickhouse = { workspace = true, default-features = true, features = ["refinery"], optional = true }
+klickhouse = { workspace = true, default-features = false, features = ["refinery", "compression"], optional = true }
 refinery = { workspace = true, features = ["default"], optional = true }
 
 [[bin]]
