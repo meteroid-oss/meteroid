@@ -14,6 +14,7 @@ pub mod sql;
 
 use crate::connectors::clickhouse::extensions::ConnectorClickhouseExtension;
 use crate::connectors::json::JsonFieldExtractor;
+use crate::migrations;
 use clickhouse::Client;
 use tokio::io::AsyncBufReadExt;
 
@@ -29,47 +30,19 @@ impl ClickhouseConnector {
         kafka_config: &KafkaConfig,
         extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
     ) -> Result<Self, ConnectorError> {
-        let event_table_ddl = sql::init::create_events_table_sql();
-        // TODO replace with custom integration (with dedupe) or kafka connect, as this puts the constraints on CH
-        let kafka_table_ddl = sql::init::create_kafka_event_table_sql(
-            kafka_config.kafka_internal_addr.as_str(),
-            kafka_config.kafka_topic.as_str(),
-            "clickhouse",
-            "JSONEachRow",
-        );
-        let kafka_mv_ddl = sql::init::create_kafka_mv_sql();
+        migrations::run(clickhouse_config, kafka_config)
+            .await
+            .change_context(ConnectorError::InitError(
+                "Failed to run migrations".to_string(),
+            ))?;
 
         let client = Client::default()
-            .with_url(&clickhouse_config.address)
+            .with_url(&clickhouse_config.http_address)
             .with_user(&clickhouse_config.username)
             .with_password(&clickhouse_config.password)
             .with_database(&clickhouse_config.database);
 
         let client = Arc::new(client);
-
-        client
-            .query(event_table_ddl.as_str())
-            .execute()
-            .await
-            .map_err(|err| {
-                ConnectorError::InitError(format!("Could not create event table: {}", err))
-            })?;
-
-        client
-            .query(kafka_table_ddl.as_str())
-            .execute()
-            .await
-            .map_err(|err| {
-                ConnectorError::InitError(format!("Could not create kafka engine table: {}", err))
-            })?;
-
-        client
-            .query(kafka_mv_ddl.as_str())
-            .execute()
-            .await
-            .map_err(|err| {
-                ConnectorError::InitError(format!("Could not create kafka MV: {}", err))
-            })?;
 
         for ext in &extensions {
             ext.init(client.clone()).await?;

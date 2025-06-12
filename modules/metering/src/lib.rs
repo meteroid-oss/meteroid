@@ -5,6 +5,7 @@ pub mod connectors;
 pub mod domain;
 pub mod ingest;
 pub mod meters;
+pub mod migrations;
 pub mod query;
 pub mod server;
 pub mod utils;

@@ -1,5 +1,6 @@
 use envconfig::Envconfig;
 
+use crate::metering_it::clickhouse::{HttpPort, TcpPort};
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
 use common_config::telemetry::TelemetryConfig;
@@ -9,14 +10,16 @@ use metering::config::{ClickhouseConfig, Config, KafkaConfig};
 pub fn mocked_config(
     meteroid_port: u16,
     metering_port: u16,
-    clickhouse_port: u16,
+    clickhouse_http_port: HttpPort,
+    clickhouse_tcp_port: TcpPort,
     kafka_port: u16,
     kafka_topic: String,
 ) -> Config {
     Config {
         clickhouse: ClickhouseConfig {
             database: "meteroid".to_string(),
-            address: format!("http://127.0.0.1:{}", clickhouse_port),
+            http_address: format!("http://127.0.0.1:{clickhouse_http_port}"),
+            tcp_address: format!("127.0.0.1:{clickhouse_tcp_port}"),
             username: "default".to_string(),
             password: "default".to_string(),
         },
@@ -37,7 +40,7 @@ pub fn mocked_config(
                 sasl_password: None,
             },
             kafka_internal_addr: format!("it_redpanda:{}", 29092),
-            kafka_topic,
+            kafka_raw_topic: kafka_topic,
             kafka_producer_linger_ms: 5,
             kafka_producer_queue_mib: 400,
             kafka_message_timeout_ms: 20000,
