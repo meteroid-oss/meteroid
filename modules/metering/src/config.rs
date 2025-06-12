@@ -32,7 +32,7 @@ pub struct Config {
 }
 
 #[cfg(feature = "kafka")]
-#[derive(Envconfig, Clone)]
+#[derive(Envconfig, Clone, Debug)]
 pub struct KafkaConfig {
     // TODO if using clickhouse kafka table engine with auth or schema, we need to pass the auth data through clickhouse server xml config as well
     #[envconfig(nested)]
@@ -42,8 +42,8 @@ pub struct KafkaConfig {
     #[envconfig(from = "KAFKA_INTERNAL_ADDR", default = "redpanda:29092")]
     pub kafka_internal_addr: String,
 
-    #[envconfig(from = "KAFKA_TOPIC", default = "meteroid-events-raw")]
-    pub kafka_topic: String,
+    #[envconfig(from = "KAFKA_RAW_TOPIC", default = "meteroid-events-raw")]
+    pub kafka_raw_topic: String,
 
     #[envconfig(from = "KAFKA_PRODUCER_LINGER_MS", default = "20")]
     pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
@@ -83,8 +83,11 @@ pub struct ClickhouseConfig {
     #[envconfig(from = "CLICKHOUSE_DATABASE", default = "meteroid")]
     pub database: String,
 
-    #[envconfig(from = "CLICKHOUSE_ADDRESS", default = "http://127.0.0.1:8123")]
-    pub address: String,
+    #[envconfig(from = "CLICKHOUSE_HTTP_ADDRESS", default = "http://127.0.0.1:8123")]
+    pub http_address: String,
+
+    #[envconfig(from = "CLICKHOUSE_TCP_ADDRESS", default = "127.0.0.1:9000")]
+    pub tcp_address: String,
 
     #[envconfig(from = "CLICKHOUSE_USERNAME", default = "default")]
     pub username: String,

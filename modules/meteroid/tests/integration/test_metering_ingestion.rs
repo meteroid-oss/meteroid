@@ -25,7 +25,8 @@ async fn test_metering_ingestion() {
         .await
         .expect("Could not start kafka");
 
-    let (_clickhouse_container, clickhouse_port) = metering_it::container::start_clickhouse().await;
+    let (_clickhouse_container, ch_http_port, ch_tcp_port) =
+        metering_it::container::start_clickhouse().await;
 
     metering_it::kafka::create_topic(kafka_port, "meteroid-events-raw")
         .await
@@ -39,7 +40,8 @@ async fn test_metering_ingestion() {
     let metering_config = metering_it::config::mocked_config(
         meteroid_port,
         metering_port,
-        clickhouse_port,
+        ch_http_port,
+        ch_tcp_port,
         kafka_port,
         "meteroid-events-raw".to_string(),
     );
@@ -251,7 +253,7 @@ async fn test_metering_ingestion() {
 
     assert_eq!(ingested.failures.len(), 0);
 
-    let clickhouse_client = metering_it::clickhouse::get_client(clickhouse_port);
+    let clickhouse_client = metering_it::clickhouse::get_client(ch_http_port);
 
     let events = (|| async {
         match clickhouse_client
