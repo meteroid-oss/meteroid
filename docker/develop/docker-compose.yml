@@ -190,7 +190,15 @@ services:
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
     depends_on:
       - redpanda
-    entrypoint: [ "bash", "-c", "sleep 5 && rpk topic create meteroid-events-raw --brokers redpanda:29092" ]
+    entrypoint:
+      - bash
+      - -c
+      - |
+        sleep 5 && \
+        for topic in meteroid-events-raw meteroid-events-preprocessed; do \
+          echo "Creating topic: $$topic" && \
+          rpk topic create "$$topic" --brokers redpanda:29092 || true; \
+        done
     networks:
       - meteroid_net
     profiles:
