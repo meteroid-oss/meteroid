@@ -70,7 +70,7 @@ impl PreprocessorHandler {
             set.spawn(async move {
                 match delivery_future.await {
                     Ok(delivery) => {
-                        log::info!("Successfully sent preprocessed event: {:?}", delivery);
+                        log::debug!("Successfully sent preprocessed event: {:?}", delivery);
                     }
                     Err(e) => {
                         log::error!("Failed to send preprocessed event: {}", e);

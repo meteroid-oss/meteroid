@@ -4,7 +4,6 @@ use tokio::signal;
 use common_build_info::BuildInfo;
 use common_logging::init::init_telemetry;
 use metering::config::Config;
-use metering::preprocessor::run_raw_preprocessor;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,25 +17,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting {}", build_info);
 
     let config = Config::init_from_env()?;
-    let kafka_config = &config.kafka;
 
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
 
-    let internal_client = metering::server::create_meteroid_internal_client(&config).await;
-    let private_server =
-        metering::server::start_api_server(config.clone(), internal_client.clone());
+    let private_server = metering::server::start_server(config.clone());
 
     let exit = signal::ctrl_c();
 
     tokio::select! {
-          result = private_server => {
-            if let Err(e) = result {
-                log::error!("Error starting API server: {}", e);
-            }
-        },
-        _ = run_raw_preprocessor(kafka_config, internal_client.clone()) => {
-            log::info!("Raw preprocessor finished");
-        },
+          _ = private_server => {},
         _ = exit => {
               log::info!("Interrupted");
         }

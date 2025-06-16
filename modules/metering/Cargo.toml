@@ -41,8 +41,7 @@ opentelemetry = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 prost-types.workspace = true
 quick_cache.workspace = true
-env_logger = { workspace = true }
-
+fixnum = { workspace = true, features = ["serde", "i128"] }
 
 # kafka ingest deps
 kafka = { workspace = true, optional = true }

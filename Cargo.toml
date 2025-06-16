@@ -78,6 +78,7 @@ educe = { version = "0.6.0", default-features = false, features = ["Default"] }
 fake = "4.0.0"
 fang = { version = "0.10.4", default-features = false }
 fastrand = "2.0.1"
+fixnum = { version = "0.9.3", default-features = false }
 fluent = "0.16"
 fluent-static = "0.5.0"
 fluent-static-codegen = "0.6.0"

@@ -14,10 +14,10 @@ pub fn migration() -> String {
             timestamp DateTime64(9, 'UTC'),
             preprocessed_at DateTime64(9, 'UTC'),
             properties Map(String, String),
-            value Decimal(36, 24),
-            distinct_on String,
-            group_by_dim1 String,
-            group_by_dim2 String
+            value Nullable(Decimal(38, 26)),
+            distinct_on Nullable(String),
+            group_by_dim1 Nullable(String),
+            group_by_dim2 Nullable(String)
         ) ENGINE = ReplacingMergeTree(timestamp)
           PARTITION BY toYYYYMM(timestamp)
           ORDER BY (tenant_id, code, billable_metric_id, customer_id, toDate(timestamp), timestamp, id);
@@ -31,10 +31,10 @@ pub fn migration() -> String {
             timestamp DateTime64(9, 'UTC'),
             preprocessed_at DateTime64(9, 'UTC'),
             properties Map(String, String),
-            value Decimal(36, 24),
-            distinct_on String,
-            group_by_dim1 String,
-            group_by_dim2 String
+            value Nullable(Decimal(38, 26)),
+            distinct_on Nullable(String),
+            group_by_dim1 Nullable(String),
+            group_by_dim2 Nullable(String)
         ) ENGINE = Kafka()
           SETTINGS
               kafka_broker_list = '{}',
