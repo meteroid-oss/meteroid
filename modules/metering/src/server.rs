@@ -34,7 +34,10 @@ fn only_api(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.EventsService")
 }
 
-pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_api_server(
+    config: Config,
+    internal_client: InternalServiceClient<LayeredClientService>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
         "Starting Metering API grpc server on port {}",
         config.listen_addr.port()
@@ -63,21 +66,6 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
 
     #[cfg(not(feature = "kafka"))]
     let sink = Arc::new(PrintSink {});
-
-    let channel = Endpoint::from_shared(config.meteroid_endpoint.clone())
-        .expect("Failed to create channel to meteroid from shared endpoint");
-    let channel = channel
-        .connect()
-        .await
-        .or_else(|e| {
-            log::warn!("Failed to connect to the meteroid GRPC channel for endpoint {}: {}. Starting in lazy mode.", config.meteroid_endpoint.clone(), e);
-            Ok::<Channel, tonic::transport::Error>(channel.connect_lazy())
-        })?;
-
-    let service = build_layered_client_service(channel, &config.internal_auth);
-
-    let internal_client: InternalServiceClient<LayeredClientService> =
-        InternalServiceClient::new(service.clone());
 
     let (_, health_service) = tonic_health::server::health_reporter();
 
@@ -115,4 +103,23 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
         .await?;
 
     Ok(())
+}
+
+pub async fn create_meteroid_internal_client(
+    config: &Config,
+) -> InternalServiceClient<LayeredClientService> {
+    let channel = Endpoint::from_shared(config.meteroid_endpoint.clone())
+        .expect("Failed to create channel to meteroid from shared endpoint");
+
+    let channel = channel
+        .connect()
+        .await
+        .or_else(|e| {
+            log::warn!("Failed to connect to the meteroid GRPC channel for endpoint {}: {}. Starting in lazy mode.", config.meteroid_endpoint.clone(), e);
+            Ok::<Channel, tonic::transport::Error>(channel.connect_lazy())
+        }).expect("Failed to connect to the meteroid GRPC channel");
+
+    let service = build_layered_client_service(channel, &config.internal_auth);
+
+    InternalServiceClient::new(service)
 }

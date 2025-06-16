@@ -200,6 +200,7 @@ mod tests {
             kafka_message_timeout_ms: 500,
             kafka_compression_codec: "none".to_string(),
             kafka_raw_topic: "ingest_events".to_string(),
+            kafka_preprocessed_topic: "preproc_events".to_string(),
         };
         let sink = KafkaSink::new(&config).expect("failed to create sink");
         (cluster, sink)

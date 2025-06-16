@@ -1,3 +1,4 @@
+use metering::preprocessor::run_raw_preprocessor;
 use std::time::Duration;
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
@@ -25,12 +26,16 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
     let cloned_token = token.clone();
 
     let config_clone = config.clone();
+    let kafka_config = config.kafka.clone();
     log::info!("Starting metering gRPC server {}", config.listen_addr);
-    let private_server = metering::server::start_api_server(config_clone);
+    let internal_client = metering::server::create_meteroid_internal_client(&config).await;
+    let internal_client_clone = internal_client.clone();
+    let private_server = metering::server::start_api_server(config_clone, internal_client);
 
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
             _ = private_server => {},
+            _ = run_raw_preprocessor(&kafka_config, internal_client_clone) => {},
             _ = cloned_token.cancelled() => {
                 log::info!("Interrupted metering server via token");
             }

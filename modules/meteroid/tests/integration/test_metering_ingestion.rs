@@ -32,6 +32,10 @@ async fn test_metering_ingestion() {
         .await
         .expect("Could not create topic");
 
+    metering_it::kafka::create_topic(kafka_port, "meteroid-events-preprocessed")
+        .await
+        .expect("Could not create topic");
+
     // we start meteroid and metering
 
     let meteroid_port = helpers::network::free_local_port().expect("Could not get free port");
@@ -44,6 +48,7 @@ async fn test_metering_ingestion() {
         ch_tcp_port,
         kafka_port,
         "meteroid-events-raw".to_string(),
+        "meteroid-events-preprocessed".to_string(),
     );
 
     let metering_setup = metering_it::container::start_metering(metering_config.clone()).await;
