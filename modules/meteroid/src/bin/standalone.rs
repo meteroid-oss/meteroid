@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "metering-server")]
     let metering_grpc_server =
-        metering::server::start_api_server(metering::config::Config::init_from_env()?);
+        metering::server::start_server(metering::config::Config::init_from_env()?);
 
     #[cfg(not(feature = "metering-server"))]
     let metering_grpc_server = async {

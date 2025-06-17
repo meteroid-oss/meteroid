@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package meteroid.internal.v1;
 
+import "api/billablemetrics/v1/models.proto";
+
 message ResolvedId {
   string alias = 1;
   string local_id = 2;
@@ -27,7 +29,17 @@ message ResolveApiKeyResponse {
   string hash = 3;
 }
 
+message ListBillableMetricsRequest {
+  string tenant_id = 1;
+  string code = 2;
+}
+
+message ListBillableMetricsResponse {
+  repeated api.billablemetrics.v1.BillableMetric items = 1;
+}
+
 service InternalService {
   rpc ResolveCustomerAliases(ResolveCustomerAliasesRequest) returns (ResolveCustomerAliasesResponse) {}
   rpc ResolveApiKey(ResolveApiKeyRequest) returns (ResolveApiKeyResponse) {}
+  rpc ListBillableMetrics(ListBillableMetricsRequest) returns (ListBillableMetricsResponse) {}
 }

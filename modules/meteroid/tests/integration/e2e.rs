@@ -79,6 +79,7 @@ async fn test_metering_e2e() {
         clickhouse_tcp_port,
         kafka_port,
         "meteroid-events-raw".to_string(),
+        "meteroid-events-preprocessed".to_string(),
     );
 
     let metering_setup = metering_it::container::start_metering(metering_config.clone()).await;

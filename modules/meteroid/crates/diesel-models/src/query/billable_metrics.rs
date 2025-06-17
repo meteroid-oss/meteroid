@@ -96,4 +96,21 @@ impl BillableMetricRow {
             .attach_printable("Error while fetching billable metrics")
             .into_db_result()
     }
+
+    pub async fn list_by_code(
+        conn: &mut PgConn,
+        tenant_id_param: &TenantId,
+        code_param: &str,
+    ) -> DbResult<Vec<BillableMetricRow>> {
+        use crate::schema::billable_metric::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        billable_metric
+            .filter(tenant_id.eq(tenant_id_param))
+            .filter(code.eq(code_param))
+            .get_results(conn)
+            .await
+            .attach_printable("Error while listing billable metrics by code")
+            .into_db_result()
+    }
 }

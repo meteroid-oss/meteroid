@@ -45,6 +45,12 @@ pub struct KafkaConfig {
     #[envconfig(from = "KAFKA_RAW_TOPIC", default = "meteroid-events-raw")]
     pub kafka_raw_topic: String,
 
+    #[envconfig(
+        from = "KAFKA_PREPROCESSED_TOPIC",
+        default = "meteroid-events-preprocessed"
+    )]
+    pub kafka_preprocessed_topic: String,
+
     #[envconfig(from = "KAFKA_PRODUCER_LINGER_MS", default = "20")]
     pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
 
