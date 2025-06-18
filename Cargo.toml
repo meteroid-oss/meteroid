@@ -182,9 +182,9 @@ derive_typst_intoval = { version = "0.3.0", features = [] }
 unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
-utoipa = { version = "5.3.1", features = ["axum_extras", "uuid", "debug", "chrono"] }
+utoipa = { version = "5.4.0", features = ["axum_extras", "uuid", "debug", "chrono"] }
 utoipa-axum = { version = "0.2.0" }
-utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 
 utoipa-redoc = { version = "6.0.0", features = ["axum"] }
@@ -220,7 +220,3 @@ meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
 meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
 hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
 pennylane-client = { path = "modules/meteroid/crates/pennylane-client" }
-
-[patch.crates-io]
-# waiting for https://github.com/juhaku/utoipa/pull/1391
-zip = { version = "=2.6.1", git = "https://github.com/zip-rs/zip2", rev = "cde72a582d4bd59216bdd54d530333cd637df5eb" }
