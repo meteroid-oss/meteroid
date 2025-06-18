@@ -20,18 +20,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
 
-    // TODO clickhouse migrations
-
-    let private_server = metering::server::start_api_server(config);
+    let private_server = metering::server::start_server(config.clone());
 
     let exit = signal::ctrl_c();
 
     tokio::select! {
-          result = private_server => {
-            if let Err(e) = result {
-                log::error!("Error starting API server: {}", e);
-            }
-        },
+          _ = private_server => {},
         _ = exit => {
               log::info!("Interrupted");
         }

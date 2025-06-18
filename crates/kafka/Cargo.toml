@@ -14,3 +14,8 @@ serde = { workspace = true }
 serde_json.workspace = true
 log = { workspace = true }
 anyhow = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+env_logger = { workspace = true }

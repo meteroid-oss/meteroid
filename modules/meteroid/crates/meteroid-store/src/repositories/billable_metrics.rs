@@ -1,16 +1,15 @@
-use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
-use common_eventbus::Event;
-use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
-use diesel_models::product_families::ProductFamilyRow;
-use error_stack::Report;
-
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::{
     BillableMetric, BillableMetricMeta, BillableMetricNew, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
 use crate::{Store, StoreResult, domain};
+use common_domain::ids::{BaseId, BillableMetricId, ProductFamilyId, TenantId};
+use common_eventbus::Event;
+use diesel_async::scoped_futures::ScopedFutureExt;
+use diesel_models::billable_metrics::{BillableMetricRow, BillableMetricRowNew};
+use diesel_models::product_families::ProductFamilyRow;
+use error_stack::Report;
 
 #[async_trait::async_trait]
 pub trait BillableMetricInterface {
@@ -31,6 +30,12 @@ pub trait BillableMetricInterface {
         &self,
         billable_metric: domain::BillableMetricNew,
     ) -> StoreResult<domain::BillableMetric>;
+
+    async fn list_billable_metrics_by_code(
+        &self,
+        tenant_id: TenantId,
+        code: String,
+    ) -> StoreResult<Vec<BillableMetric>>;
 }
 
 #[async_trait::async_trait]
@@ -145,5 +150,20 @@ impl BillableMetricInterface for Store {
             .await;
 
         Ok(res)
+    }
+
+    async fn list_billable_metrics_by_code(
+        &self,
+        tenant_id: TenantId,
+        code: String,
+    ) -> StoreResult<Vec<BillableMetric>> {
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::list_by_code(&mut conn, &tenant_id, code.as_str())
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect()
     }
 }

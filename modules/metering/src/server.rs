@@ -1,5 +1,5 @@
 use crate::auth::ExternalApiAuthLayer;
-use crate::config::Config;
+use crate::config::{Config, KafkaConfig};
 
 use crate::ingest;
 
@@ -24,6 +24,8 @@ use crate::connectors::clickhouse::extensions::openstack_ext::OpenstackClickhous
 
 #[cfg(not(feature = "clickhouse"))]
 use crate::connectors::PrintConnector;
+#[cfg(feature = "kafka")]
+use crate::preprocessor::run_raw_preprocessor;
 
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
@@ -34,7 +36,36 @@ fn only_api(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.EventsService")
 }
 
-pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn start_server(config: Config) {
+    let internal_client = create_meteroid_internal_client(&config).await;
+    #[cfg(feature = "kafka")]
+    let internal_client_clone = internal_client.clone();
+    let api_server = start_api_server(config.clone(), internal_client);
+    #[cfg(feature = "kafka")]
+    let kafka_workers = create_kafka_workers(&config.kafka, internal_client_clone);
+
+    #[cfg(feature = "kafka")]
+    tokio::select! {
+          result = api_server => {
+            if let Err(e) = result {
+                log::error!("Error starting API server: {}", e);
+            }
+        },
+        _ = kafka_workers => {
+              log::warn!("Workers terminated");
+        }
+    }
+
+    #[cfg(not(feature = "kafka"))]
+    if let Err(e) = api_server.await {
+        log::error!("Error starting API server: {}", e);
+    }
+}
+
+pub async fn start_api_server(
+    config: Config,
+    internal_client: InternalServiceClient<LayeredClientService>,
+) -> Result<(), Box<dyn std::error::Error>> {
     log::info!(
         "Starting Metering API grpc server on port {}",
         config.listen_addr.port()
@@ -63,21 +94,6 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
 
     #[cfg(not(feature = "kafka"))]
     let sink = Arc::new(PrintSink {});
-
-    let channel = Endpoint::from_shared(config.meteroid_endpoint.clone())
-        .expect("Failed to create channel to meteroid from shared endpoint");
-    let channel = channel
-        .connect()
-        .await
-        .or_else(|e| {
-            log::warn!("Failed to connect to the meteroid GRPC channel for endpoint {}: {}. Starting in lazy mode.", config.meteroid_endpoint.clone(), e);
-            Ok::<Channel, tonic::transport::Error>(channel.connect_lazy())
-        })?;
-
-    let service = build_layered_client_service(channel, &config.internal_auth);
-
-    let internal_client: InternalServiceClient<LayeredClientService> =
-        InternalServiceClient::new(service.clone());
 
     let (_, health_service) = tonic_health::server::health_reporter();
 
@@ -115,4 +131,30 @@ pub async fn start_api_server(config: Config) -> Result<(), Box<dyn std::error::
         .await?;
 
     Ok(())
+}
+
+async fn create_meteroid_internal_client(
+    config: &Config,
+) -> InternalServiceClient<LayeredClientService> {
+    let channel = Endpoint::from_shared(config.meteroid_endpoint.clone())
+        .expect("Failed to create channel to meteroid from shared endpoint");
+
+    let channel = channel
+        .connect()
+        .await
+        .or_else(|e| {
+            log::warn!("Failed to connect to the meteroid GRPC channel for endpoint {}: {}. Starting in lazy mode.", config.meteroid_endpoint.clone(), e);
+            Ok::<Channel, tonic::transport::Error>(channel.connect_lazy())
+        }).expect("Failed to connect to the meteroid GRPC channel");
+
+    let service = build_layered_client_service(channel, &config.internal_auth);
+
+    InternalServiceClient::new(service)
+}
+
+async fn create_kafka_workers(
+    config: &KafkaConfig,
+    internal_client: InternalServiceClient<LayeredClientService>,
+) {
+    run_raw_preprocessor(config, internal_client).await
 }
