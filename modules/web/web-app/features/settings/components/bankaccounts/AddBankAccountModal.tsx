@@ -1,4 +1,18 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import {
+  Button,
+  ComboboxFormField,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Form,
+  InputFormField,
+  SelectFormField,
+  SelectItem,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -19,22 +33,6 @@ import {
   SortCodeAccountNumber,
 } from '@/rpc/api/bankaccounts/v1/models_pb'
 import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
-import {
-  Button,
-  ComboboxFormField,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Form,
-  InputFormField,
-  SelectFormField,
-  SelectItem,
-} from '@md/ui'
-
-type BankAccountFormat = 'iban' | 'account_bic' | 'account_routing' | 'sort_code'
 
 const baseSchema = z.object({
   currency: z.string().min(3, 'Currency is required'),

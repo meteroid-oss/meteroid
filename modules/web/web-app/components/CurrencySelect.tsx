@@ -1,7 +1,8 @@
-import { useQuery } from '@/lib/connectrpc'
-import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 import { SelectFormField, SelectItem } from '@ui/components'
 import { Control, FieldPath, FieldValues } from 'react-hook-form'
+
+import { useQuery } from '@/lib/connectrpc'
+import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 interface Props<TFieldValues extends FieldValues, TName extends FieldPath<TFieldValues>> {
   name: TName

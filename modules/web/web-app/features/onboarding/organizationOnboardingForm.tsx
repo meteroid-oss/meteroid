@@ -20,7 +20,6 @@ import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { AccountingCurrencySelect } from '@/features/onboarding/accountingCurrencySelect'
-import { convertEnterpriseName } from '@/features/onboarding/utils'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -79,8 +78,6 @@ export const OrganizationOnboardingForm = () => {
       vatNumber: data.vatNumber,
     })
   }
-
-  const tradeName = methods.watch('tradeName')
 
   return (
     <Flex direction="column" className="w-full h-full gap-2 p-[40px] lg:p-[52px]">

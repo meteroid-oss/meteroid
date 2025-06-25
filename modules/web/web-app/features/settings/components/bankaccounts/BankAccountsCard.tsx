@@ -1,19 +1,18 @@
-import { createConnectQueryKey } from '@connectrpc/connect-query'
+import { createConnectQueryKey , useMutation } from '@connectrpc/connect-query'
+import { Badge, Button, Card, Spinner } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { useQuery } from '@/lib/connectrpc'
-import { useMutation } from '@connectrpc/connect-query'
-import { Badge, Button, Card, Spinner } from '@md/ui'
-
 import ConfirmationModal from '@/components/ConfirmationModal'
+import { useQuery } from '@/lib/connectrpc'
 import {
   deleteBankAccount,
   listBankAccounts,
 } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
 import { BankAccount } from '@/rpc/api/bankaccounts/v1/models_pb'
+
 import { AddBankAccountModal } from './AddBankAccountModal'
 
 export const BankAccountsCard = () => {
@@ -124,7 +123,7 @@ export const BankAccountsCard = () => {
           accountToDelete && deleteBankAccountMut.mutate({ id: accountToDelete.id })
         }
         onSelectCancel={() => setAccountToDelete(null)}
-        header={'Delete Bank Account'}
+        header="Delete Bank Account"
         danger
         buttonLabel="Delete"
       />

@@ -23,10 +23,12 @@ import { z } from 'zod'
 
 import { Combobox } from '@/components/Combobox'
 import { Loading } from '@/components/Loading'
+import { BankAccountsCard } from '@/features/settings/components/bankaccounts'
 import { BrandIcon } from '@/features/settings/tabs/IntegrationsTab'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { listBankAccounts } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum, ConnectorTypeEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
@@ -34,8 +36,6 @@ import {
   listInvoicingEntities,
   updateInvoicingEntityProviders,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
-import { listBankAccounts } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
-import { BankAccountsCard } from '@/features/settings/components/bankaccounts'
 
 const paymentMethodsSchema = z.object({
   cardProviderId: z.string().optional(),
