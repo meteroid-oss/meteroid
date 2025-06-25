@@ -3,6 +3,7 @@ types:
   include:
     - meteroid.api.addons.v1.AddOnsService
     - meteroid.api.apitokens.v1.ApiTokensService
+    - meteroid.api.bankaccounts.v1.BankAccountsService
     - meteroid.api.billablemetrics.v1.BillableMetricsService
     - meteroid.api.connectors.v1.ConnectorsService
     - meteroid.api.customers.v1.CustomersService

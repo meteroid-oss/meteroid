@@ -87,10 +87,10 @@ export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: Trial
 
 const formSchema = z.object({
   durationDays: z.number().int().optional(),
-  trialingPlanId: z.string().uuid().optional(),
+  trialingPlanId: z.union([z.string().uuid(), z.literal('current')]).optional(),
   trialType: z.enum(['free', 'paid']).optional(),
   actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
-  downgradePlanId: z.string().uuid().optional(),
+  downgradePlanId: z.union([z.string().uuid(), z.literal('current')]).optional(),
 })
 
 interface TrialConfigSentenceProps {
@@ -143,7 +143,7 @@ export function PlanTrialForm({
     const isCurrent = plan.id === currentPlanId
 
     return {
-      value: isCurrent ? null : plan.id,
+      value: isCurrent ? 'current' : plan.id,
       name: isCurrent ? 'current' : plan.name,
       type: plan.planType,
       status: plan.planStatus,
@@ -155,7 +155,7 @@ export function PlanTrialForm({
   const [trialingPlanId, trialType] = methods.watch(['trialingPlanId', 'trialType'])
 
   useEffect(() => {
-    if (trialingPlanId === null) {
+    if (trialingPlanId === 'current' || trialingPlanId === currentPlanId) {
       methods.resetField('trialType')
     }
   }, [trialingPlanId, currentPlanId, methods.resetField])
@@ -180,9 +180,9 @@ export function PlanTrialForm({
                       actionAfterTrial: actionAfterTrialToGrpc(data.actionAfterTrial),
                       downgradePlanId:
                         trialIsFree && data.actionAfterTrial === 'DOWNGRADE'
-                          ? data.downgradePlanId
+                          ? data.downgradePlanId === 'current' ? undefined : data.downgradePlanId
                           : undefined,
-                      trialingPlanId: data.trialingPlanId,
+                      trialingPlanId: data.trialingPlanId === 'current' ? undefined : data.trialingPlanId,
                       durationDays: data.durationDays,
                       trialIsFree,
                       requiresPreAuthorization: false, // TODO
@@ -234,7 +234,7 @@ export function PlanTrialForm({
                   )}
                 />{' '}
                 plan{' '}
-                {!data.trialingPlanId || data.trialingPlanId === currentPlanId ? (
+                {!data.trialingPlanId || data.trialingPlanId === 'current' || data.trialingPlanId === currentPlanId ? (
                   'for free'
                 ) : (
                   <Controller
@@ -431,8 +431,8 @@ export function PlanTrialReadonly({ config, currentPlanId }: PlanTrialReadonlyPr
 
 interface EditableSpanProps {
   value?: string | number | null
-  onChange: (newValue: string | number | null) => void
-  options?: { name: string; value: string | null; label?: string }[]
+  onChange: (newValue: string | number) => void
+  options?: { name: string; value: string; label?: string }[]
   type?: 'text' | 'number'
   emptyMessage?: string
   quotes?: boolean
@@ -466,7 +466,7 @@ const EditableSpan = forwardRef(
             </SelectTrigger>
             <SelectContent>
               {options.map(option => (
-                <SelectItem key={option.value} value={option.value as string}>
+                <SelectItem key={option.value} value={option.value}>
                   {option.name || option.label}
                 </SelectItem>
               ))}
@@ -493,10 +493,10 @@ const EditableSpan = forwardRef(
     }
 
     const msg = options
-      ? options.find(o => o.value === value)?.name || value
+      ? options.find(o => o.value === value)?.name || emptyMessage || value
       : value ?? emptyMessage
 
-    const shouldQuote = quotes && msg != 'current'
+    const shouldQuote = quotes && msg !== 'current' && msg !== emptyMessage
 
     return (
       <span onClick={() => setIsEditing(true)} className="font-bold cursor-pointer underline">

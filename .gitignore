@@ -72,3 +72,5 @@ k8s/*/values.*.yaml
 ## Temporary
 sdk
 
+
+.claude
