@@ -129,7 +129,7 @@ const SubscriptionsTab = () => {
   )
 
   const data = subscriptionsQuery.data?.subscriptions ?? []
-  const count = Number(subscriptionsQuery.data?.paginationMeta?.totalItems ?? 0)
+  const count = Number(subscriptionsQuery.data?.pagination?.totalItems ?? 0)
   const isLoading = subscriptionsQuery.isLoading
 
   return (
@@ -192,6 +192,7 @@ const PlanBody = () => {
           </PageSection>
 
           <PageSection
+            hidden
             header={{
               title: 'Schedules',
               subtitle: 'Define the phases of your plan.',
@@ -202,6 +203,7 @@ const PlanBody = () => {
             </div>
           </PageSection>
           <PageSection
+            hidden
             header={{
               title: 'Price points',
               subtitle:

@@ -107,7 +107,11 @@ export const GenericFormField = <
       render={fieldProps => (
         <FormItem className={cn(formFieldVariants({ layout }), containerClassName)}>
           {label && (
-            <Flex align="center" justify="between" className="my-2">
+            <Flex
+              align="center"
+              justify="between"
+              className={cn('my-2', formFieldLabelVariants({ layout }), labelClassName)}
+            >
               <FormLabel className={cn(formFieldLabelVariants({ layout }), labelClassName)}>
                 {label}
                 {required ? <span className="text-destructive text-xs pl-1">*</span> : null}

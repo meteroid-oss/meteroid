@@ -14,7 +14,7 @@ import {
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { customAlphabet } from 'nanoid'
-import { FC } from 'react'
+import { FC, useEffect } from 'react'
 import { ControllerRenderProps, FieldPath, FieldValues, useController } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
@@ -80,9 +80,13 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
     if (data.planType === 'FREE') {
       navigate(`../${plan.plan?.plan?.localId}`)
     } else {
-      navigate(`../${plan.plan?.plan?.localId}/draft/onboarding`)
+      navigate(`../${plan.plan?.plan?.localId}/draft`) // /draft/onboarding
     }
   }
+
+  useEffect(() => {
+    methods.setValue('productFamilyLocalId', families[0]?.localId)
+  }, [families])
 
   return (
     <Form {...methods}>
@@ -98,21 +102,31 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
               placeholder="Plan name"
             />
 
-            <SelectFormField
-              name="productFamilyLocalId"
-              label="Product line"
-              layout="horizontal"
-              placeholder="Select a product line"
-              className="max-w-[320px]  "
-              empty={families.length === 0}
-              control={methods.control}
-            >
-              {families.map(f => (
-                <SelectItem value={f.localId} key={f.localId}>
-                  {f.name}
-                </SelectItem>
-              ))}
-            </SelectFormField>
+            {families.length > 1 ? (
+              <SelectFormField
+                name="productFamilyLocalId"
+                label="Product line"
+                layout="horizontal"
+                placeholder="Select a product line"
+                className="max-w-[320px]  "
+                empty={families.length === 0}
+                control={methods.control}
+              >
+                {families.map(f => (
+                  <SelectItem value={f.localId} key={f.localId}>
+                    {f.name}
+                  </SelectItem>
+                ))}
+              </SelectFormField>
+            ) : (
+              <InputFormField
+                hidden
+                className="hidden"
+                value={families[0]?.localId}
+                control={methods.control}
+                name="productFamilyLocalId"
+              />
+            )}
 
             {/* TODO */}
             <div className="hidden">

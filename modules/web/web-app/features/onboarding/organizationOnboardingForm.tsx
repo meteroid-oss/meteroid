@@ -104,9 +104,9 @@ export const OrganizationOnboardingForm = () => {
               control={methods.control}
               placeholder="Acme inc"
             />
-            <div className="text-xs text-muted-foreground/50">
-              app.meteroid.com/{convertEnterpriseName(tradeName)}
-            </div>
+            {/*<div className="text-xs text-muted-foreground/50">*/}
+            {/*  app.meteroid.com/{convertEnterpriseName(tradeName)}*/}
+            {/*</div>*/}
           </Flex>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">

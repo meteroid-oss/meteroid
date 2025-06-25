@@ -50,7 +50,7 @@ const PriceInput = <T extends FieldValues>({
     const negativeSign = Number(amount) < 0 ? '-' : ''
     return `${negativeSign}${Math.abs(Number(amount))
       .toLocaleString(undefined, {
-        minimumFractionDigits: 2,
+        minimumFractionDigits: 0,
         maximumFractionDigits: precision,
       })
       .replaceAll(',', '')
@@ -71,7 +71,7 @@ const PriceInput = <T extends FieldValues>({
     if (value && value.length && POSITIVE_NUM_REGEX.test(value)) {
       setInputValue(value)
     } else if (!value.length) {
-      setInputValue('0.00')
+      setInputValue('')
     }
   }
 
@@ -150,7 +150,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
       const negativeSign = Number(amount) < 0 ? '-' : ''
       return `${negativeSign}${Math.abs(Number(amount))
         .toLocaleString(undefined, {
-          minimumFractionDigits: 2,
+          minimumFractionDigits: 0,
           maximumFractionDigits: precision,
         })
         .replaceAll(',', '')
@@ -162,7 +162,7 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
         ? formatCurrencyAmountWithoutRounding(parseFloat(value))
         : value
           ? value
-          : '0.00'
+          : ''
 
     useEffect(() => {
       if (inputValue === undefined) {

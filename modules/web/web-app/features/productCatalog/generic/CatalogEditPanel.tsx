@@ -54,7 +54,7 @@ export function CatalogEditPanel<T extends z.ZodTypeAny>({
           <Form {...methods}>
             <form
               /* @ts-expect-error react hook form generic breaks */
-              onSubmit={methods.handleSubmit(async (values) => {
+              onSubmit={methods.handleSubmit(async values => {
                 await onSubmit(values)
                 methods.reset()
                 closePanel()

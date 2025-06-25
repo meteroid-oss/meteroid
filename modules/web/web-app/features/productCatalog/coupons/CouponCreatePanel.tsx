@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -20,6 +20,7 @@ import { customAlphabet } from 'nanoid'
 import { FunctionComponent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { CurrencySelect } from '@/components/CurrencySelect'
 import { CatalogEditPanel } from '@/features/productCatalog/generic/CatalogEditPanel'
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
@@ -32,19 +33,17 @@ export const CouponCreatePanel: FunctionComponent = () => {
 
   const createCouponMut = useMutation(createCoupon, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listCoupons) })
+      await queryClient.invalidateQueries({ queryKey: [listCoupons.service.typeName] })
     },
   })
 
   const methods = useZodForm({
-    schema: schemas.coupons.createCouponschema,
+    schema: schemas.coupons.createCouponSchema,
     defaultValues: {
       code: `${nanoid(2)}-${nanoid(7)}`,
       description: '',
       discountType: 'percentage',
-      percentage: '',
-      amount: '',
-      currency: '', // TODO
+      percentage: undefined,
       redemptionLimit: undefined,
       recurringValue: undefined,
       reusable: false,
@@ -133,7 +132,6 @@ export const CouponCreatePanel: FunctionComponent = () => {
                 type="number"
                 placeholder="0"
                 rightText="%"
-                asString
               />
             )}
 
@@ -145,17 +143,16 @@ export const CouponCreatePanel: FunctionComponent = () => {
                   label="Amount"
                   layout="horizontal"
                   control={methods.control}
-                  asString
                   type="number"
                   placeholder="Amount"
                 />
-                <InputFormField // TODO
+
+                <CurrencySelect
                   name="currency"
                   label="Currency"
                   required
                   layout="horizontal"
                   control={methods.control}
-                  type="text"
                   placeholder="Currency"
                 />
               </>

@@ -100,7 +100,7 @@ export type TieredAndVolumeRow = z.infer<typeof TieredAndVolumeRowSchema>
 const TieredAndVolumeSchema = z
   .object({
     rows: z.array(TieredAndVolumeRowSchema),
-    blockSize: z.bigint().positive().optional(),
+    blockSize: z.coerce.bigint().positive().optional(),
   })
   .superRefine((data, ctx) => {
     if (data.rows[0].firstUnit !== BigInt(0)) {
@@ -130,7 +130,7 @@ export type PerUnit = z.infer<typeof PerUnitSchema>
 
 // Package Schema
 const PackageSchema = z.object({
-  blockSize: z.bigint().positive(),
+  blockSize: z.coerce.bigint().positive(),
   packagePrice: pricePrecision8Schema,
 })
 export type Package = z.infer<typeof PackageSchema>
