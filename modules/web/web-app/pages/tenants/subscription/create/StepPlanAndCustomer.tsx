@@ -1,4 +1,4 @@
-import { Alert, AlertDescription, Button, Form, GenericFormField } from '@ui/components'
+import { Button, Form, GenericFormField } from '@ui/components'
 import { useAtom } from 'jotai'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
@@ -75,14 +75,14 @@ export const StepPlanAndCustomer = () => {
                 ),
               }}
             >
-              <div>
+              {/* <div>
                 <Alert variant="destructive">
                   <AlertDescription>
                     !! WIP !! This UI only works for non-parametrized price component in this
                     iteration
                   </AlertDescription>
                 </Alert>
-              </div>
+              </div> */}
               <CreateSubscriptionPriceComponents planVersionId={planVersionId} />
             </PageSection>
 
