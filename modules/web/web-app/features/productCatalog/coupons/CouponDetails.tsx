@@ -276,10 +276,12 @@ export const CouponDetails: FunctionComponent = () => {
           <Form {...methods}>
             <form
               className="h-full flex flex-col flex-1 justify-between"
-              onSubmit={methods.handleSubmit(async values => {
-                await onSubmit(values)
-                methods.reset()
-              })}
+              onSubmit={methods.handleSubmit(
+                async (values: z.infer<typeof schemas.coupons.editComponentSchema>) => {
+                  await onSubmit(values)
+                  methods.reset()
+                }
+              )}
             >
               <div className="space-y-4">
                 <TextareaFormField

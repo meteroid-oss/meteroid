@@ -129,7 +129,7 @@ const SubscriptionsTab = () => {
   )
 
   const data = subscriptionsQuery.data?.subscriptions ?? []
-  const count = Number(subscriptionsQuery.data?.pagination?.totalItems ?? 0)
+  const count = Number(subscriptionsQuery.data?.paginationMeta?.totalItems ?? 0)
   const isLoading = subscriptionsQuery.isLoading
 
   return (
