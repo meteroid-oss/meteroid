@@ -22,6 +22,7 @@ import { FunctionComponent, useMemo } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CurrencySelect } from '@/components/CurrencySelect'
 import { LocalId } from '@/components/LocalId'
 import { Property } from '@/components/Property'
 import { useQueryState } from '@/hooks/useQueryState'
@@ -79,9 +80,7 @@ export const CouponDetails: FunctionComponent = () => {
     defaultValues: {
       description: '',
       discountType: 'percentage',
-      percentage: '',
-      amount: '',
-      currency: '',
+      percentage: undefined,
     },
   })
 
@@ -120,7 +119,7 @@ export const CouponDetails: FunctionComponent = () => {
       amount:
         coupon.discount?.discountType?.case === 'fixed'
           ? coupon.discount.discountType.value.amount
-          : '',
+          : undefined,
       currency:
         coupon.discount?.discountType?.case === 'fixed'
           ? coupon.discount.discountType.value.currency
@@ -130,7 +129,7 @@ export const CouponDetails: FunctionComponent = () => {
       percentage:
         coupon.discount?.discountType?.case === 'percentage'
           ? coupon.discount.discountType.value.percentage
-          : '',
+          : undefined,
     })
 
     if (coupon.disabled) {
@@ -277,10 +276,12 @@ export const CouponDetails: FunctionComponent = () => {
           <Form {...methods}>
             <form
               className="h-full flex flex-col flex-1 justify-between"
-              onSubmit={methods.handleSubmit(async values => {
-                await onSubmit(values)
-                methods.reset()
-              })}
+              onSubmit={methods.handleSubmit(
+                async (values: z.infer<typeof schemas.coupons.editComponentSchema>) => {
+                  await onSubmit(values)
+                  methods.reset()
+                }
+              )}
             >
               <div className="space-y-4">
                 <TextareaFormField
@@ -317,7 +318,6 @@ export const CouponDetails: FunctionComponent = () => {
                     type="number"
                     placeholder="0"
                     rightText="%"
-                    asString
                   />
                 )}
 
@@ -329,17 +329,15 @@ export const CouponDetails: FunctionComponent = () => {
                       label="Amount"
                       layout="horizontal"
                       control={methods.control}
-                      asString
                       type="number"
                       placeholder="Amount"
                     />
-                    <InputFormField // TODO
+                    <CurrencySelect
                       name="currency"
                       label="Currency"
                       required
                       layout="horizontal"
                       control={methods.control}
-                      type="text"
                       placeholder="Currency"
                     />
                   </>

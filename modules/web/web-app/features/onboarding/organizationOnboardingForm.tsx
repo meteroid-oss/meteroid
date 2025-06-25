@@ -20,7 +20,6 @@ import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
 import { AccountingCurrencySelect } from '@/features/onboarding/accountingCurrencySelect'
-import { convertEnterpriseName } from '@/features/onboarding/utils'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -80,8 +79,6 @@ export const OrganizationOnboardingForm = () => {
     })
   }
 
-  const tradeName = methods.watch('tradeName')
-
   return (
     <Flex direction="column" className="w-full h-full gap-2 p-[40px] lg:p-[52px]">
       <Button
@@ -104,9 +101,9 @@ export const OrganizationOnboardingForm = () => {
               control={methods.control}
               placeholder="Acme inc"
             />
-            <div className="text-xs text-muted-foreground/50">
-              app.meteroid.com/{convertEnterpriseName(tradeName)}
-            </div>
+            {/*<div className="text-xs text-muted-foreground/50">*/}
+            {/*  app.meteroid.com/{convertEnterpriseName(tradeName)}*/}
+            {/*</div>*/}
           </Flex>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">

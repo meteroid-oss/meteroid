@@ -45,7 +45,7 @@ export const InputFormField = <
             field.onChange({ ...e, target: { ...e.target, value: newValue } })
             // valueAsNumber is not available with controller
           } else if (props.type == 'number' && !props.asString) {
-            const newValue = parseNumber(e.target.value)
+            const newValue = e.target.value === '' ? '' : parseNumber(e.target.value)
             field.onChange({ ...e, target: { ...e.target, value: newValue } })
           } else {
             field.onChange(e)

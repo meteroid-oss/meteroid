@@ -192,6 +192,7 @@ const PlanBody = () => {
           </PageSection>
 
           <PageSection
+            hidden
             header={{
               title: 'Schedules',
               subtitle: 'Define the phases of your plan.',
@@ -202,6 +203,7 @@ const PlanBody = () => {
             </div>
           </PageSection>
           <PageSection
+            hidden
             header={{
               title: 'Price points',
               subtitle:

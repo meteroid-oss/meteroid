@@ -38,7 +38,8 @@ services:
 
   meteroid-api:
     depends_on:
-      - meteroid-db
+      meteroid-db:
+        condition: service_healthy
     image: ghcr.io/meteroid-oss/meteroid-api:main
     ports:
       - "8084:8084"

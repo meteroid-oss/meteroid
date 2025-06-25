@@ -23,10 +23,12 @@ import { z } from 'zod'
 
 import { Combobox } from '@/components/Combobox'
 import { Loading } from '@/components/Loading'
+import { BankAccountsCard } from '@/features/settings/components/bankaccounts'
 import { BrandIcon } from '@/features/settings/tabs/IntegrationsTab'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
+import { listBankAccounts } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum, ConnectorTypeEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
@@ -49,6 +51,8 @@ export const PaymentMethodsTab = () => {
   const connectorsQuery = useQuery(listConnectors, {
     connectorType: ConnectorTypeEnum.PAYMENT_PROVIDER,
   })
+
+  const bankAccountsQuery = useQuery(listBankAccounts)
 
   const defaultInvoicingEntity = listInvoicingEntitiesQuery.data?.entities?.find(
     entity => entity.isDefault
@@ -108,7 +112,8 @@ export const PaymentMethodsTab = () => {
   if (
     listInvoicingEntitiesQuery.isLoading ||
     connectorsQuery.isLoading ||
-    (invoiceEntityId && providersQuery.isLoading)
+    (invoiceEntityId && providersQuery.isLoading) ||
+    bankAccountsQuery.isLoading
   ) {
     return <Loading />
   }
@@ -129,7 +134,12 @@ export const PaymentMethodsTab = () => {
       connector => connector.connectorType === ConnectorTypeEnum.PAYMENT_PROVIDER
     ) || []
 
-  const bankAccounts: { id: string; name: string }[] = [] // TODO
+  const bankAccounts = bankAccountsQuery.data?.accounts.map(account => ({
+    id: account.id,
+    name: account.data?.bankName || 'Unknown Bank',
+    currency: account.data?.currency || '',
+    displayName: `${account.data?.bankName || 'Unknown Bank'} (${account.data?.currency})`
+  })) || []
 
   return (
     <div className="flex flex-col gap-4">
@@ -288,7 +298,7 @@ export const PaymentMethodsTab = () => {
                           {bankAccounts.length == 0 ? <SelectEmpty /> : null}
                           {bankAccounts.map(account => (
                             <SelectItem key={account.id} value={account.id}>
-                              {account.name || account.id}
+                              {account.displayName}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -312,6 +322,8 @@ export const PaymentMethodsTab = () => {
           </Card>
         </form>
       </Form>
+      
+      <BankAccountsCard />
     </div>
   )
 }

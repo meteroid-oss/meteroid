@@ -1,5 +1,13 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { Button, Card, ComboboxFormField, Form, InputFormField, MultiSelectFormField, MultiSelectItem } from '@md/ui'
+import {
+  Button,
+  Card,
+  ComboboxFormField,
+  Form,
+  InputFormField,
+  MultiSelectFormField,
+  MultiSelectItem,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -15,7 +23,7 @@ import {
   activeTenant,
   listTenantCurrencies,
   updateTenant,
-  updateTenantAvailableCurrencies
+  updateTenantAvailableCurrencies,
 } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 const generalSchema = z.object({
@@ -71,20 +79,18 @@ export const GeneralTab = () => {
     mode: 'onSubmit',
   })
 
-
   const updateTenantCurrencyMut = useMutation(updateTenantAvailableCurrencies, {
     onSuccess: async () => {
       await queryClient.invalidateQueries()
       toast.success('Currencies updated successfully!')
       currencyMethods.reset({
-        selectedCurrencies: []
+        selectedCurrencies: [],
       })
     },
     onError: error => {
       toast.error(error.rawMessage)
     },
   })
-
 
   const methods = useZodForm({
     schema: generalSchema,
@@ -109,15 +115,18 @@ export const GeneralTab = () => {
   }, [activeTenantData, currencies])
 
   useEffect(() => {
-    if (activeCurrencies?.length && currencies.length > 0) {
+    if (activeCurrencies.length && currencies.length > 0) {
       currencyMethods.reset({
         selectedCurrencies: activeCurrencies,
       })
     }
   }, [activeCurrencies, currencies])
 
-
-  if (activeTenantQuery.isLoading || getCurrenciesQuery.isLoading|| activeCurrenciesQuery.isLoading) {
+  if (
+    activeTenantQuery.isLoading ||
+    getCurrenciesQuery.isLoading ||
+    activeCurrenciesQuery.isLoading
+  ) {
     return <Loading />
   }
 
@@ -137,24 +146,22 @@ export const GeneralTab = () => {
       currencies: values.selectedCurrencies,
     })
   }
-  
+
   // Filter out already active currencies from the available options
-  const availableCurrencyOptions = currencies
-    .filter(currency => !activeCurrencies.includes(currency.code))
-    .map(currency => ({
-      label: (
-        <span className="flex flex-row">
-          <span className="pr-2">{currency.name}</span>
-          <span>({currency.code})</span>
-        </span>
-      ),
-      value: currency.code,
-      keywords: [currency.name, currency.code],
-    }))
-    
+  const availableCurrencyOptions = currencies.map(currency => ({
+    label: (
+      <span className="flex flex-row">
+        <span className="pr-2">{currency.name}</span>
+        <span>({currency.code})</span>
+      </span>
+    ),
+    value: currency.code,
+    keywords: [currency.name, currency.code],
+  }))
+
   return (
     <div className="flex flex-col gap-4">
-       <Form {...currencyMethods}>
+      <Form {...currencyMethods}>
         <form onSubmit={currencyMethods.handleSubmit(onSubmitCurrencies)} className="space-y-4">
           <Card className="px-8 py-6 max-w-[950px] space-y-4">
             <div className="grid grid-cols-6 gap-4">
@@ -162,10 +169,9 @@ export const GeneralTab = () => {
                 <h3 className="font-medium text-lg">Available currencies</h3>
               </div>
             </div>
-            
+
             {/* Display currently active currencies */}
             <div className="grid grid-cols-6 gap-4 pt-1">
-              
               <MultiSelectFormField
                 name="selectedCurrencies"
                 control={currencyMethods.control}
@@ -174,12 +180,12 @@ export const GeneralTab = () => {
                 // hasSearch
                 containerClassName="col-span-6"
                 description="Select currencies you want to make available in this tenant. Note: Once linked to a customer, a currency cannot be removed."
-                
               >
-
-
-                  {availableCurrencyOptions.map((a,i) => <MultiSelectItem key={"msc-"+i} value={a.value} keywords={a.keywords}>{a.label}</MultiSelectItem>)}
-
+                {availableCurrencyOptions.map((a, i) => (
+                  <MultiSelectItem key={'msc-' + i} value={a.value} keywords={a.keywords}>
+                    {a.label}
+                  </MultiSelectItem>
+                ))}
               </MultiSelectFormField>
             </div>
 
@@ -188,7 +194,7 @@ export const GeneralTab = () => {
                 <Button
                   size="sm"
                   disabled={
-                    currencyMethods.getValues().selectedCurrencies.length === 0 || 
+                    currencyMethods.getValues().selectedCurrencies.length === 0 ||
                     updateTenantCurrencyMut.isPending
                   }
                 >
@@ -202,7 +208,6 @@ export const GeneralTab = () => {
       <Form {...methods}>
         <form onSubmit={methods.handleSubmit(onSubmit)} className="space-y-4">
           <Card className="px-8 py-6 max-w-[950px]  space-y-4">
-         
             <div className="grid grid-cols-6 gap-4  ">
               <div className="col-span-3">
                 <h3 className="font-medium text-lg">Tenant settings</h3>
