@@ -4,7 +4,7 @@
 use backon::Retryable;
 use std::ops::Deref;
 pub(crate) const CONTAINER_NAME: &str = "clickhouse/clickhouse-server";
-pub(crate) const CONTAINER_VERSION: &str = "23.12.1-alpine";
+pub(crate) const CONTAINER_VERSION: &str = "25.6.2-alpine";
 
 use clickhouse::Client;
 use std::time::Duration;

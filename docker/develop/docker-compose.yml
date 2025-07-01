@@ -111,7 +111,7 @@ services:
 
   ### Metering Dependencies
   clickhouse:
-    image: clickhouse/clickhouse-server:23.12.1-alpine
+    image: clickhouse/clickhouse-server:25.6.2-alpine
     ports:
       - 8123:8123
       - 9000:9000
