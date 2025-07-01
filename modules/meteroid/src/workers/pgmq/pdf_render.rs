@@ -5,31 +5,33 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::ids::InvoiceId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
-use meteroid_store::StoreResult;
-use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage};
+use meteroid_store::{Store, StoreResult};
+use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage, PgmqQueue};
 use std::sync::Arc;
+use meteroid_store::repositories::pgmq::PgmqInterface;
 
 pub(crate) struct PdfRender {
     pdf_service: Arc<PdfRenderingService>,
+    store: Arc<Store>,
 }
 
 impl PdfRender {
-    pub fn new(pdf_service: Arc<PdfRenderingService>) -> Self {
-        Self { pdf_service }
+    pub fn new(pdf_service: Arc<PdfRenderingService>, store: Arc<Store>) -> Self {
+        Self { pdf_service, store }
     }
 }
 
 #[async_trait::async_trait]
 impl PgmqHandler for PdfRender {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
-        let mut ids = vec![];
+        let mut evts = vec![];
 
         for msg in msgs {
             let evt: StoreResult<InvoicePdfRequestEvent> = msg.try_into();
 
             match evt {
                 Ok(evt) => {
-                    ids.push((evt.invoice_id, msg.msg_id));
+                    evts.push((evt, msg.msg_id));
                 }
                 Err(e) => {
                     log::warn!(
@@ -40,7 +42,7 @@ impl PgmqHandler for PdfRender {
             }
         }
 
-        let invoice_ids = ids.iter().map(|(id, _)| *id).collect();
+        let invoice_ids = evts.iter().map(|(evt, _)| evt.invoice_id).collect();
 
         let result = self
             .pdf_service
@@ -56,10 +58,10 @@ impl PgmqHandler for PdfRender {
             })
             .collect();
 
-        let success_msg_ids = ids
+        let success_msg_ids = evts
             .iter()
-            .filter_map(|(id, msg_id)| {
-                if success_invoice_ids.contains(id) {
+            .filter_map(|(evt, msg_id)| {
+                if success_invoice_ids.contains(&evt.invoice_id) {
                     Some(*msg_id)
                 } else {
                     None

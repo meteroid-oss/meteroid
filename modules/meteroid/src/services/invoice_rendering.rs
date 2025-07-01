@@ -2,13 +2,13 @@ use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as Base64Engine;
-use common_domain::ids::{BaseId, EventId, InvoiceId, InvoicingEntityId, TenantId};
+use common_domain::ids::{BaseId, EventId, InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};
 use meteroid_store::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
 use meteroid_store::domain::pgmq::{PgmqMessageNew, PgmqQueue};
-use meteroid_store::domain::{Invoice, InvoicingEntity};
+use meteroid_store::domain::{Invoice, InvoiceStatusEnum, InvoicingEntity};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
@@ -59,7 +59,7 @@ impl InvoicePreviewRenderingService {
 
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let res = get_logo_as_base64_for_invoice(&self.storage, logo_id).await?;
+                let res = get_logo_as_base64_for_invoice(&self.storage, *logo_id).await?;
 
                 Some(res)
             }
@@ -100,7 +100,7 @@ pub enum GenerateResult {
     Success {
         invoice_id: InvoiceId,
         tenant_id: TenantId,
-        pdf_id: Uuid,
+        pdf_id: StoredDocumentId,
     },
     Failure {
         invoice_id: InvoiceId,
@@ -159,6 +159,17 @@ impl PdfRenderingService {
         for invoice in invoices {
             let invoice_id = invoice.id;
             let tenant_id = invoice.tenant_id;
+
+
+            if let Some(pdf_id) = invoice.pdf_document_id  {
+                results.push( GenerateResult::Success {
+                    invoice_id,
+                    tenant_id,
+                    pdf_id,
+                });
+                continue;
+            }
+
             let res = match self
                 .generate_pdf_and_save(invoice, &invoicing_entities)
                 .await
@@ -182,7 +193,7 @@ impl PdfRenderingService {
         &self,
         invoice: Invoice,
         invoicing_entities: &[InvoicingEntity],
-    ) -> error_stack::Result<Uuid, InvoicingRenderError> {
+    ) -> error_stack::Result<StoredDocumentId, InvoicingRenderError> {
         let invoicing_entity = invoicing_entities
             .iter()
             .find(|entity| entity.id == invoice.seller_details.id)
@@ -190,14 +201,12 @@ impl PdfRenderingService {
             .attach_printable("Failed to resolve invoicing entity")?;
 
         let invoice_id = invoice.id;
-        let customer_id = invoice.customer_id;
         let tenant_id = invoice.tenant_id;
 
         // let's resolve the logo and encode it to a base64 url
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let res = get_logo_as_base64_for_invoice(&self.storage, logo_id).await?;
-
+                let res = get_logo_as_base64_for_invoice(&self.storage, *logo_id).await?;
                 Some(res)
             }
             None => None,
@@ -216,6 +225,8 @@ impl PdfRenderingService {
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
+        let customer_id = invoice.customer_id;
+
         let mapped_invoice =
             mapper::map_invoice_to_invoicing(invoice, invoicing_entity, &organization_logo, rate)?;
 
@@ -232,26 +243,10 @@ impl PdfRenderingService {
             .change_context(InvoicingRenderError::StorageError)?;
 
         self.store
-            .save_invoice_documents(invoice_id, tenant_id, pdf_id.to_string(), None)
+            .save_invoice_documents(invoice_id, tenant_id, customer_id, pdf_id, None)
             .await
             .change_context(InvoicingRenderError::StoreError)?;
 
-        let evt: StoreResult<PgmqMessageNew> =
-            OutboxEvent::invoice_pdf_generated(InvoicePdfGeneratedEvent {
-                id: EventId::new(),
-                invoice_id,
-                tenant_id,
-                customer_id,
-                pdf_id,
-            })
-            .try_into();
-
-        let evt = evt.change_context(InvoicingRenderError::StoreError)?;
-
-        self.store
-            .pgmq_send_batch(PgmqQueue::OutboxEvent, vec![evt])
-            .await
-            .change_context(InvoicingRenderError::StoreError)?;
 
         Ok(pdf_id)
     }
@@ -392,12 +387,11 @@ mod mapper {
 
 async fn get_logo_as_base64_for_invoice(
     storage: &Arc<dyn ObjectStoreService>,
-    logo_id: &str,
+    logo_id: StoredDocumentId,
 ) -> error_stack::Result<String, InvoicingRenderError> {
-    let logo_uuid = Uuid::parse_str(logo_id).change_context(InvoicingRenderError::StorageError)?;
 
     let logo = storage
-        .retrieve(logo_uuid, Prefix::ImageLogo)
+        .retrieve(logo_id, Prefix::ImageLogo)
         .await
         .change_context(InvoicingRenderError::StorageError)?;
 

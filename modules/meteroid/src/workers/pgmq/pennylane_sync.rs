@@ -18,7 +18,7 @@ use meteroid_store::domain::{Address, ConnectorProviderEnum, DetailedInvoice};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
-use meteroid_store::utils::decimals::ToUnit;
+use common_utils::decimals::ToUnit;
 use meteroid_store::{Store, StoreResult};
 use moka::Expiry;
 use moka::future::Cache;
@@ -405,7 +405,6 @@ impl PennylaneSync {
         if let Some(pdf_id) = invoice
             .invoice
             .pdf_document_id
-            .and_then(|x| Uuid::parse_str(&x).ok())
         {
             let currency = match rusty_money::iso::find(&invoice.invoice.currency) {
                 Some(currency) => currency,

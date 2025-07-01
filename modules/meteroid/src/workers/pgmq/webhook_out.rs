@@ -6,19 +6,18 @@ use crate::workers::webhook_out::to_webhook_out;
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
 use futures::future::try_join_all;
-use meteroid_store::Store;
+use meteroid_store::{Services, Store};
 use meteroid_store::domain::pgmq::PgmqMessage;
 use meteroid_store::domain::webhooks::WebhookOutCreateMessageResult;
-use meteroid_store::repositories::webhooks::WebhooksInterface;
 use std::sync::Arc;
 
 pub(crate) struct WebhookOut {
-    pub store: Arc<Store>,
+    pub services: Arc<Services>
 }
 
 impl WebhookOut {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+    pub fn new( services: Arc<Services>) -> Self {
+        Self {  services }
     }
 }
 
@@ -28,14 +27,14 @@ impl PgmqHandler for WebhookOut {
         let msg_id_to_out_evt = to_outbox_events(msgs).await?;
 
         let tasks: Vec<_> = msg_id_to_out_evt.into_iter().map(|(msg_id, event)| {
-            let store = self.store.clone();
+            let services = self.services.clone();
             tokio::spawn(async move {
                 let event_id = event.event_id();
                 let tenant_id = event.tenant_id();
                 let webhook_out = to_webhook_out(event).change_context(PgmqError::HandleMessages)?;
 
                 if let Some(webhook_out) = webhook_out {
-                    let res = store
+                    let res = services
                         .insert_webhook_message_out(tenant_id, webhook_out)
                         .await
                         .change_context(PgmqError::HandleMessages)?;
