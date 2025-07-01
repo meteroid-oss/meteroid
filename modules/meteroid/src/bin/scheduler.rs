@@ -14,8 +14,11 @@ use meteroid::services::currency_rates::OpenexchangeRatesService;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::singletons;
+use meteroid::svix::new_svix;
 use meteroid::workers;
+use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
+use stripe_client::client::StripeClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,10 +32,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
 
     let store = Arc::new(singletons::get_store().await.clone());
+    let svix = new_svix(config);
+    let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Arc::new(Services::new(store.clone(), usage_clients.clone()));
+    let services = Arc::new(Services::new(store.clone(), usage_clients.clone(), svix, stripe));
+
 
     let object_store_service = Arc::new(S3Storage::try_new(
         &config.object_store_uri,
@@ -49,6 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store.clone(),
     )?);
 
+    let mailer_service = mailer_service(config.mailer.clone());
+
     workers::spawn_workers(
         store.clone(),
         services.clone(),
@@ -56,6 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         usage_clients.clone(),
         Arc::new(currency_rate_service),
         pdf_service.clone(),
+        mailer_service,
+        config
     )
     .await;
 

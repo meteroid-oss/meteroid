@@ -11,6 +11,7 @@ use metering::config::Config;
 use super::clickhouse;
 use super::kafka::{CONTAINER_NAME, CONTAINER_VERSION};
 use crate::helpers::network::free_local_port;
+use crate::meteroid_it::container::MeteroidSetup;
 use crate::metering_it::clickhouse::{HttpPort, TcpPort};
 
 pub struct MeteringSetup {
@@ -54,22 +55,16 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
     }
 }
 
-// TODO check if that replaces terminate_meteroid
-// impl Drop for MeteroidSetup {
-//     fn drop(&mut self) {
-//         self.token.cancel();
-//         // wait synchronously on join_handle
-//         futures::executor::block_on(&self.join_handle).unwrap();
-//         log::info!("Stopped meteroid server");
-//     }
-// }
 
-pub async fn terminate_metering(token: CancellationToken, join_handle: JoinHandle<()>) {
-    token.cancel();
-    join_handle.await.unwrap();
-
-    log::info!("Stopped meteroid server");
+impl Drop for MeteringSetup {
+    fn drop(&mut self) {
+        self.token.cancel();
+        self.join_handle.abort();
+        log::info!("Stopped metering server  ");
+    }
 }
+
+
 
 pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpPort) {
     let local_http = free_local_port().expect("Could not get free http port");

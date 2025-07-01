@@ -15,7 +15,7 @@ pub mod invoices {
     fn status_domain_to_server(value: domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
         match value {
             domain::enums::InvoiceStatusEnum::Finalized => InvoiceStatus::Finalized,
-            domain::enums::InvoiceStatusEnum::Pending => InvoiceStatus::Pending,
+            domain::enums::InvoiceStatusEnum::Uncollectible => InvoiceStatus::Uncollectible,
             domain::enums::InvoiceStatusEnum::Draft => InvoiceStatus::Draft,
             domain::enums::InvoiceStatusEnum::Void => InvoiceStatus::Void,
         }
@@ -30,7 +30,7 @@ pub mod invoices {
                 .map(|status| match status {
                     InvoiceStatus::Draft => domain::enums::InvoiceStatusEnum::Draft,
                     InvoiceStatus::Finalized => domain::enums::InvoiceStatusEnum::Finalized,
-                    InvoiceStatus::Pending => domain::enums::InvoiceStatusEnum::Pending,
+                    InvoiceStatus::Uncollectible => domain::enums::InvoiceStatusEnum::Uncollectible,
                     InvoiceStatus::Void => domain::enums::InvoiceStatusEnum::Void,
                 })
         })
@@ -160,12 +160,7 @@ pub mod invoices {
             customer_id: invoice.customer_id.as_proto(),
             subscription_id: invoice.subscription_id.map(|x| x.as_proto()),
             currency: invoice.currency,
-            external_invoice_id: invoice.external_invoice_id,
             invoice_number: invoice.invoice_number,
-            issued: invoice.issued,
-            issue_attempts: invoice.issue_attempts,
-            last_issue_attempt_at: invoice.last_issue_attempt_at.as_proto(),
-            last_issue_error: invoice.last_issue_error,
             data_updated_at: invoice.data_updated_at.as_proto(),
             invoice_date: invoice.invoice_date.as_proto(),
             plan_version_id: invoice.plan_version_id.map(|x| x.as_proto()),
@@ -197,8 +192,8 @@ pub mod invoices {
             line_items,
             applied_credits: invoice.applied_credits,
             document_sharing_key: share_key,
-            pdf_document_id: invoice.pdf_document_id,
-            xml_document_id: invoice.xml_document_id,
+            pdf_document_id: invoice.pdf_document_id.map(|id| id.as_proto()),
+            xml_document_id: invoice.xml_document_id.map(|id| id.as_proto())
         })
     }
 

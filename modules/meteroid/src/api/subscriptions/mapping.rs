@@ -94,6 +94,8 @@ pub mod subscriptions {
             end_date: NaiveDate::from_proto_opt(param.end_date)?,
             trial_duration: param.trial_duration,
             payment_strategy: None,
+            auto_advance_invoices: true, // TODO
+            charge_automatically: true,// TODO
         };
 
         let res = domain::CreateSubscription {

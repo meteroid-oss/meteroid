@@ -7,7 +7,6 @@ use meteroid_grpc::meteroid::api::webhooks::out::v1::{
     GetWebhookEndpointResponse, ListWebhookEndpointsRequest, ListWebhookEndpointsResponse,
     WebhookPortalAccessRequest, WebhookPortalAccessResponse,
 };
-use meteroid_store::repositories::webhooks::WebhooksInterface;
 
 use crate::api::webhooksout::WebhooksServiceComponents;
 use crate::api::webhooksout::error::WebhookApiError;
@@ -27,7 +26,7 @@ impl WebhooksService for WebhooksServiceComponents {
         let domain = endpoint::new_req_to_domain(tenant_id, req)?;
 
         let endpoint = self
-            .store
+            .services
             .insert_webhook_out_endpoint(domain)
             .await
             .map(endpoint::to_proto)
@@ -48,7 +47,7 @@ impl WebhooksService for WebhooksServiceComponents {
         let req = request.into_inner();
 
         let endpoint = self
-            .store
+            .services
             .get_webhook_out_endpoint(tenant_id, req.id)
             .await
             .map(endpoint::to_proto)
@@ -69,7 +68,7 @@ impl WebhooksService for WebhooksServiceComponents {
         let inner = request.into_inner();
 
         let page = self
-            .store
+            .services
             .list_webhook_out_endpoints(
                 tenant_id,
                 Some(endpoint::list_request_to_domain_filter(inner)),
@@ -88,7 +87,7 @@ impl WebhooksService for WebhooksServiceComponents {
         let tenant_id = request.tenant()?;
 
         let resp = self
-            .store
+            .services
             .get_webhook_portal_access(tenant_id)
             .await
             .map(|x| WebhookPortalAccessResponse {

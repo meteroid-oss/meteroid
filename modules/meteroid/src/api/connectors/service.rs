@@ -1,3 +1,4 @@
+use error_stack::Report;
 use crate::api::connectors::error::ConnectorApiError;
 use crate::api::connectors::{ConnectorsServiceComponents, mapping};
 use crate::api::utils::parse_referer;
@@ -15,8 +16,9 @@ use meteroid_store::domain::connectors::HubspotPublicData;
 use meteroid_store::domain::oauth::{ConnectHubspotData, ConnectPennylaneData, OauthVerifierData};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use tonic::{Request, Response, Status};
+use meteroid_store::errors::StoreError;
 
 #[tonic::async_trait]
 impl ConnectorsService for ConnectorsServiceComponents {
@@ -86,6 +88,9 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         let sensitive_data = mapping::connectors::stripe_data_to_domain(&data);
 
+        let account_id = self.services.get_stripe_account_id(&sensitive_data).await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
         let res = self
             .store
             .connect_stripe(
@@ -93,6 +98,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
                 data.alias,
                 data.api_publishable_key,
                 sensitive_data,
+                account_id
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;

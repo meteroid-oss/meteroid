@@ -58,5 +58,5 @@ async fn test_instance() {
     assert!(new_org_res.is_err());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

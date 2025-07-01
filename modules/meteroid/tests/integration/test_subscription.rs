@@ -205,7 +205,7 @@ async fn test_subscription_create() {
     );
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 #[tokio::test]
@@ -271,7 +271,7 @@ async fn test_subscription_cancel() {
     assert_eq!(result_subscription.status(), SubscriptionStatus::Pending);
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 // TODO Commenting this test while we complete the slot flow (cf sequence diagram in the store impl)
@@ -546,7 +546,7 @@ async fn test_subscription_create_invoice_seats() {
     assert_eq!(current_active_seats, seats_quantity);
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 #[tokio::test]
@@ -763,7 +763,7 @@ async fn test_subscription_create_invoice_rate() {
     assert_eq!(invoice_line_monthly.end_date, start.with_day(30).unwrap());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 #[tokio::test]
@@ -861,7 +861,7 @@ async fn test_subscription_create_invoice_usage() {
     assert_eq!(invoice_line.end_date, start.with_day(10).unwrap());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 // TDOO capacity, onetime, recurring

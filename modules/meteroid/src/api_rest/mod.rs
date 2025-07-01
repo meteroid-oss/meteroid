@@ -4,7 +4,7 @@ use crate::api_rest::plans::plan_routes;
 use crate::api_rest::productfamilies::product_family_routes;
 use crate::api_rest::subscriptions::subscription_routes;
 use crate::services::storage::ObjectStoreService;
-use meteroid_store::Store;
+use meteroid_store::{Services, Store};
 use secrecy::SecretString;
 use std::sync::Arc;
 use utoipa_axum::router::OpenApiRouter;
@@ -35,6 +35,7 @@ pub fn api_routes() -> OpenApiRouter<AppState> {
 pub struct AppState {
     pub object_store: Arc<dyn ObjectStoreService>,
     pub store: Store,
+    pub services: Services,
     pub stripe_adapter: Arc<Stripe>,
     pub jwt_secret: SecretString,
 }

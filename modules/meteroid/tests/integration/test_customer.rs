@@ -289,5 +289,5 @@ async fn test_customers_basic() {
     // bue credits end
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

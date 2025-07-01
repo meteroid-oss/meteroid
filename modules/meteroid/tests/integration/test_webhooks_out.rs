@@ -68,5 +68,5 @@ async fn test_webhook_endpoint_out() {
     // assert_eq!(listed[0], created);
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

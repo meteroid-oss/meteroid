@@ -76,7 +76,7 @@ async fn test_idempotency_cache_err_response() {
     }
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
 
 #[tokio::test]
@@ -150,7 +150,7 @@ async fn test_idempotency_cache_ok_response() {
     }
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
 
 // method always returns error because registration is not allowed

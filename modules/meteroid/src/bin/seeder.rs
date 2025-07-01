@@ -47,9 +47,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_noop().await,
 
-        svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
-        stripe: Arc::new(StripeClient::new()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .change_context(SeederError::InitializationError)?;
@@ -60,6 +58,8 @@ async fn main() -> error_stack::Result<(), SeederError> {
         Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
+         None,
+        Arc::new(StripeClient::new()),
     );
 
     let organization_id: OrganizationId = env::var("SEEDER_ORGANIZATION_ID")

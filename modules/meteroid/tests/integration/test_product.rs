@@ -101,5 +101,5 @@ async fn test_products_basic() {
     assert_eq!(searched.first().unwrap().id, created.id.clone());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

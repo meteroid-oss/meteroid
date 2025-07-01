@@ -68,5 +68,5 @@ async fn test_product_families_basic() {
     assert_eq!(listed.first(), Some(created).as_ref());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

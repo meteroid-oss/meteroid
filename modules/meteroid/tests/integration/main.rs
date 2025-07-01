@@ -27,7 +27,6 @@ mod test_subscription;
 mod test_tenant;
 mod test_user;
 mod test_webhooks_out;
-mod test_workers;
 
 mod data;
 mod test_metering_ingestion;

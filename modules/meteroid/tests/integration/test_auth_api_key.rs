@@ -62,7 +62,7 @@ async fn test_api_key() {
     assert_eq!(customers_response.unwrap().into_inner().customers.len(), 0);
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
 
 async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {

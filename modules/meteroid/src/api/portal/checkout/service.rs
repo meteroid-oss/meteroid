@@ -101,10 +101,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
         let logo_url = if let Some(logo_attachment_id) = invoicing_entity.logo_attachment_id {
-            let logo_uuid = parse_uuid!(logo_attachment_id)?;
 
             self.object_store
-                .get_url(logo_uuid, Prefix::ImageLogo, Duration::from_secs(7 * 86400))
+                .get_url(logo_attachment_id, Prefix::ImageLogo, Duration::from_secs(7 * 86400))
                 .await
                 .map_err(Into::<PortalCheckoutApiError>::into)?
         } else {

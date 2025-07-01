@@ -1,5 +1,7 @@
 use std::error::Error;
 use std::sync::Arc;
+#[cfg(feature = "metering-server")]
+use envconfig::Envconfig;
 use tokio::signal;
 
 use common_build_info::BuildInfo;
@@ -14,6 +16,8 @@ use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
 use meteroid::workers;
 use meteroid::{bootstrap, singletons};
+use meteroid::svix::new_svix;
+use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
 use stripe_client::client::StripeClient;
 
@@ -34,15 +38,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store = singletons::get_store().await;
     let store_arc = Arc::new(store.clone()); // TODO harmonize, arc everywhere or nowhere
+    let svix = new_svix(config);
+    let stripe = Arc::new(StripeClient::new());
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Services::new(store_arc.clone(), usage_clients.clone());
+    let services = Services::new(
+        store_arc.clone(),
+        usage_clients.clone(),
+        svix,
+        stripe
+    );
 
     let services_arc = Arc::new(services.clone());
 
     migrations::run(&store.pool).await?;
-    bootstrap::bootstrap_once(store.clone()).await?;
+    bootstrap::bootstrap_once(store.clone(), services.clone()).await?;
     setup_eventbus_handlers(store.clone(), config.clone()).await;
 
     let object_store_service = Arc::new(S3Storage::try_new(
@@ -53,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_server = meteroid::api::server::start_api_server(
         config.clone(),
         store.clone(),
-        services,
+        services.clone(),
         object_store_service.clone(),
     );
 
@@ -77,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store_service.clone(),
         stripe_adapter.clone(),
         store.clone(),
+        services.clone()
     );
 
     let object_store_service = Arc::new(S3Storage::try_new(
@@ -94,6 +106,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         store_arc.clone(),
     )?);
 
+    let mailer_service = mailer_service(config.mailer.clone());
+
+
     let workers_handle = tokio::spawn(async move {
         workers::spawn_workers(
             store_arc.clone(),
@@ -102,6 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             usage_clients.clone(),
             Arc::new(currency_rate_service),
             pdf_service,
+            mailer_service,
+            &config,
         )
         .await;
     });

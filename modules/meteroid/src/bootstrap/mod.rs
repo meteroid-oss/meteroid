@@ -1,6 +1,5 @@
 use crate::constants::OSS_API;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
-use meteroid_store::repositories::webhooks::WebhooksInterface;
 
 mod historical_rates;
 
@@ -10,8 +9,9 @@ const BASE_DATE: chrono::NaiveDate =
 
 pub async fn bootstrap_once(
     store: meteroid_store::Store,
+    services: meteroid_store::Services,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Err(err) = store.insert_webhook_out_event_types().await {
+    if let Err(err) = services.insert_webhook_out_event_types().await {
         log::error!("Failed to insert webhook out event types: {}", err)
     }
 

@@ -27,6 +27,14 @@ pub enum AdapterWebhookError {
     ObjectStoreUnreachable,
     #[error("Database error")]
     DatabaseError,
+    #[error("Event is missing metadata : {0}")]
+    MissingMetadata(String),
+    #[error("Invalid metadata")]
+    InvalidMetadata,
+    #[error("Error in payment provider")]
+    ProviderError,
+    #[error("Error in store")]
+    StoreError,
     // DuplicateRequest,
 }
 
@@ -42,8 +50,12 @@ impl IntoResponse for AdapterWebhookError {
             AdapterWebhookError::EventTypeNotSupported(_) => StatusCode::BAD_REQUEST,
             AdapterWebhookError::SignatureVerificationFailed => StatusCode::FORBIDDEN,
             AdapterWebhookError::SignatureNotFound => StatusCode::BAD_REQUEST,
+            AdapterWebhookError::InvalidMetadata => StatusCode::BAD_REQUEST,
+            AdapterWebhookError::MissingMetadata(_) => StatusCode::BAD_REQUEST,
             AdapterWebhookError::ObjectStoreUnreachable => StatusCode::INTERNAL_SERVER_ERROR,
             AdapterWebhookError::DatabaseError => StatusCode::INTERNAL_SERVER_ERROR,
+            AdapterWebhookError::ProviderError => StatusCode::INTERNAL_SERVER_ERROR,
+            AdapterWebhookError::StoreError => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
         let error_message = match status {

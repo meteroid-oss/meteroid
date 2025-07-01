@@ -22,14 +22,12 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 use meteroid_store::Store;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
-use meteroid_store::domain::{
-    Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, OrderByRequest,
-    PaginationRequest,
-};
+use meteroid_store::domain::{Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use rust_decimal::Decimal;
 use tonic::Request;
 use uuid::{Uuid, uuid};
+use meteroid_mailer::config::MailerConfig;
 /*
 Plan with Capacity
 (aka fixed advance fee + usage fee)
@@ -103,10 +101,12 @@ async fn test_metering_e2e() {
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
         Arc::new(metering_client),
+     meteroid_mailer::service::mailer_service(MailerConfig::dummy())
+
     )
     .await;
 
-    let store = meteroid_setup.store;
+    let store = meteroid_setup.store.clone();
 
     let jwt_auth = meteroid_it::svc_auth::login(meteroid_setup.channel.clone()).await;
 
@@ -485,7 +485,6 @@ async fn test_metering_e2e() {
     let _invoice_p2 = store
         .insert_invoice(InvoiceNew {
             status: InvoiceStatusEnum::Draft,
-            external_status: None,
             tenant_id,
             customer_id: customer_1,
             subscription_id: Some(SubscriptionId::from_proto(&subscription.id).unwrap()),
@@ -494,13 +493,8 @@ async fn test_metering_e2e() {
                 period_2_start.naive_utc() + chrono::Duration::days(subscription.net_terms as i64),
             ),
             plan_name: None,
-            external_invoice_id: None,
             invoice_number: "2021-0001".to_string(),
             line_items: Vec::new(),
-            issued: false,
-            issue_attempts: 0,
-            last_issue_attempt_at: None,
-            last_issue_error: None,
             data_updated_at: None,
             invoice_date: period_2_start.date_naive(),
             total: 100,
@@ -538,6 +532,8 @@ async fn test_metering_e2e() {
                 },
                 snapshot_at: period_2_start.naive_utc(),
             },
+            auto_advance: true,
+            payment_status: InvoicePaymentStatus::Unpaid,
         })
         .await
         .unwrap();

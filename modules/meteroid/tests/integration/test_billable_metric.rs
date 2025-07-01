@@ -86,5 +86,5 @@ async fn test_billable_metrics_basic() {
     assert_eq!(get_by_id.name, metric_name.clone());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

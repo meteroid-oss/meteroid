@@ -32,9 +32,7 @@ async fn test_slot_transaction_active_slots() {
         multi_organization_enabled: false,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_memory(),
-        svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
-        stripe: Arc::new(StripeClient::new()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .expect("Could not create store");
