@@ -1,6 +1,6 @@
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
-use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, TenantId};
+use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]
@@ -17,7 +17,7 @@ pub struct InvoicingEntityRow {
     pub net_terms: i32,
     pub invoice_footer_info: Option<String>,
     pub invoice_footer_legal: Option<String>,
-    pub logo_attachment_id: Option<String>,
+    pub logo_attachment_id: Option<StoredDocumentId>,
     pub brand_color: Option<String>,
     pub address_line1: Option<String>,
     pub address_line2: Option<String>,
@@ -44,7 +44,7 @@ pub struct InvoicingEntityRowPatch {
     pub net_terms: Option<i32>,
     pub invoice_footer_info: Option<String>,
     pub invoice_footer_legal: Option<String>,
-    pub logo_attachment_id: Option<Option<String>>,
+    pub logo_attachment_id: Option<Option<StoredDocumentId>>,
     pub brand_color: Option<Option<String>>,
     pub address_line1: Option<String>,
     pub address_line2: Option<String>,

@@ -38,8 +38,8 @@ pub mod sql_types {
     pub struct FangTaskState;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "InvoiceExternalStatusEnum"))]
-    pub struct InvoiceExternalStatusEnum;
+    #[diesel(postgres_type(name = "InvoicePaymentStatus"))]
+    pub struct InvoicePaymentStatus;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "InvoiceStatusEnum"))]
@@ -462,25 +462,19 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::InvoiceStatusEnum;
-    use super::sql_types::InvoiceExternalStatusEnum;
     use super::sql_types::InvoiceType;
+    use super::sql_types::InvoicePaymentStatus;
 
     invoice (id) {
         id -> Uuid,
         status -> InvoiceStatusEnum,
-        external_status -> Nullable<InvoiceExternalStatusEnum>,
         created_at -> Timestamptz,
         updated_at -> Nullable<Timestamptz>,
         tenant_id -> Uuid,
         customer_id -> Uuid,
         subscription_id -> Nullable<Uuid>,
         currency -> Text,
-        external_invoice_id -> Nullable<Text>,
         line_items -> Jsonb,
-        issued -> Bool,
-        issue_attempts -> Int4,
-        last_issue_attempt_at -> Nullable<Timestamptz>,
-        last_issue_error -> Nullable<Text>,
         data_updated_at -> Nullable<Timestamp>,
         invoice_date -> Date,
         total -> Int8,
@@ -501,10 +495,14 @@ diesel::table! {
         subtotal -> Int8,
         applied_credits -> Int8,
         seller_details -> Jsonb,
-        xml_document_id -> Nullable<Text>,
-        pdf_document_id -> Nullable<Text>,
+        xml_document_id -> Nullable<Uuid>,
+        pdf_document_id -> Nullable<Uuid>,
         applied_coupon_ids -> Array<Nullable<Uuid>>,
         conn_meta -> Nullable<Jsonb>,
+        auto_advance -> Bool,
+        issued_at -> Nullable<Timestamptz>,
+        payment_status -> InvoicePaymentStatus,
+        paid_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -520,7 +518,7 @@ diesel::table! {
         net_terms -> Int4,
         invoice_footer_info -> Nullable<Text>,
         invoice_footer_legal -> Nullable<Text>,
-        logo_attachment_id -> Nullable<Text>,
+        logo_attachment_id -> Nullable<Uuid>,
         brand_color -> Nullable<Text>,
         address_line1 -> Nullable<Text>,
         address_line2 -> Nullable<Text>,
@@ -602,6 +600,7 @@ diesel::table! {
         status -> PaymentStatusEnum,
         payment_type -> PaymentTypeEnum,
         error_type -> Nullable<Text>,
+        receipt_pdf_id -> Nullable<Uuid>,
     }
 }
 
@@ -779,6 +778,8 @@ diesel::table! {
         last_error -> Nullable<Text>,
         error_count -> Int4,
         next_retry -> Nullable<Timestamp>,
+        auto_advance_invoices -> Bool,
+        charge_automatically -> Bool,
     }
 }
 

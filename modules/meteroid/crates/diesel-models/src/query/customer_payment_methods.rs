@@ -1,8 +1,8 @@
-use crate::customer_payment_methods::{CustomerPaymentMethodRow, CustomerPaymentMethodRowNew};
+use crate::customer_payment_methods::{CustomerPaymentMethodRow, CustomerPaymentMethodRowNew, ResolvedSubscriptionPaymentMethod};
 
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId};
+use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId};
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
@@ -45,6 +45,32 @@ impl CustomerPaymentMethodRow {
             .get_result(conn)
             .await
             .attach_printable("Error while finding customer payment method by id")
+            .into_db_result()
+    }
+
+    pub async fn resolve_subscription_payment_method(
+        conn: &mut PgConn,
+        tenant_id_param: TenantId,
+        subscription_id_param: SubscriptionId,
+    ) -> DbResult<ResolvedSubscriptionPaymentMethod> {
+        use crate::schema::subscription::dsl as sub_dsl;
+        use crate::schema::customer::dsl as cust_dsl;
+        use crate::schema::invoicing_entity::dsl as ie_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = sub_dsl::subscription
+            .inner_join(
+                cust_dsl::customer.inner_join(ie_dsl::invoicing_entity)
+            )
+            .filter(sub_dsl::id.eq(subscription_id_param))
+            .filter(sub_dsl::tenant_id.eq(tenant_id_param))
+            .select(ResolvedSubscriptionPaymentMethod::as_select());
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while resolving payment method for subscription id")
             .into_db_result()
     }
 

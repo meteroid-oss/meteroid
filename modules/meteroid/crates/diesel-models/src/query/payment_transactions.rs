@@ -4,10 +4,11 @@ use crate::payments::{
 };
 use crate::{DbResult, PgConn};
 
-use common_domain::ids::{InvoiceId, PaymentTransactionId, TenantId};
+use common_domain::ids::{InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
 use diesel::debug_query;
-use diesel::prelude::{ExpressionMethods, QueryDsl};
+use diesel::prelude::{ExpressionMethods, QueryDsl, SelectableHelper, OptionalExtension,};
 use error_stack::ResultExt;
+use crate::enums::PaymentStatusEnum;
 
 impl PaymentTransactionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PaymentTransactionRow> {
@@ -48,11 +49,33 @@ impl PaymentTransactionRow {
             .into_db_result()
     }
 
+    pub async fn get_by_id_for_update(
+        conn: &mut PgConn,
+        tx_id: PaymentTransactionId,
+        tenant_uid: TenantId,
+    ) -> DbResult<PaymentTransactionRow> {
+        use crate::schema::payment_transaction::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = payment_transaction
+            .filter(id.eq(tx_id))
+            .filter(tenant_id.eq(tenant_uid))
+            .for_update();
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while finding transaction")
+            .into_db_result()
+    }
+
     pub async fn list_by_invoice_id(
         conn: &mut PgConn,
         inv_uid: InvoiceId,
         tenant_uid: TenantId,
-    ) -> DbResult<PaymentTransactionRow> {
+    ) -> DbResult<Vec<PaymentTransactionRow>> {
         use crate::schema::payment_transaction::dsl::*;
         use diesel_async::RunQueryDsl;
 
@@ -63,9 +86,56 @@ impl PaymentTransactionRow {
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
-            .first(conn)
+            .get_results(conn)
             .await
             .attach_printable("Error while finding transaction")
+            .into_db_result()
+    }
+
+    pub async fn last_settled_by_invoice_id(
+        conn: &mut PgConn,
+        inv_uid: InvoiceId,
+        tenant_uid: TenantId,
+    ) -> DbResult<Option<PaymentTransactionRow>> {
+        use crate::schema::payment_transaction::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = payment_transaction
+            .filter(invoice_id.eq(inv_uid))
+            .filter(tenant_id.eq(tenant_uid))
+            .filter(status.eq(PaymentStatusEnum::Settled))
+            .order(processed_at.desc())
+            .select(PaymentTransactionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .optional()
+            .attach_printable("Error while finding transaction")
+            .into_db_result()
+    }
+
+    pub async fn set_receipt_pdf(
+        conn: &mut PgConn,
+        tx_id: PaymentTransactionId,
+        tenant_uid: TenantId,
+        pdf_id: StoredDocumentId,
+    ) -> DbResult<PaymentTransactionRow> {
+        use crate::schema::payment_transaction::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(payment_transaction.filter(id.eq(tx_id)))
+            .filter(tenant_id.eq(tenant_uid))
+            .set(receipt_pdf_id.eq(pdf_id));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while setting receipt PDF")
             .into_db_result()
     }
 }

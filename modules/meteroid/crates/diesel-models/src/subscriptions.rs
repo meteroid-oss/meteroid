@@ -5,10 +5,7 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::{
-    BillingPeriodEnum, CycleActionEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum,
-    SubscriptionStatusEnum,
-};
+use crate::enums::{BillingPeriodEnum, CycleActionEnum,  PaymentMethodTypeEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum};
 use common_domain::ids::{
     BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
     PlanId, PlanVersionId, SubscriptionId, TenantId,
@@ -55,6 +52,8 @@ pub struct SubscriptionRow {
     pub last_error: Option<String>,
     pub error_count: i32,
     pub next_retry: Option<NaiveDateTime>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
 }
 
 #[derive(Insertable, Debug)]
@@ -90,6 +89,8 @@ pub struct SubscriptionRowNew {
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
     pub next_cycle_action: Option<CycleActionEnum>,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
 }
 
 pub struct CancelSubscriptionParams {

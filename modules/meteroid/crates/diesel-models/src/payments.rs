@@ -1,9 +1,10 @@
 use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
-use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId};
+use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
+use uuid::Uuid;
 
-#[derive(Queryable, Debug, Identifiable, Selectable)]
+#[derive(Queryable, Debug, Identifiable, Selectable, Clone)]
 #[diesel(table_name = crate::schema::payment_transaction)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct PaymentTransactionRow {
@@ -21,6 +22,7 @@ pub struct PaymentTransactionRow {
     pub payment_type: PaymentTypeEnum,
     // enum ?
     pub error_type: Option<String>,
+    pub receipt_pdf_id: Option<StoredDocumentId>,
 }
 
 #[derive(Debug, Insertable)]
