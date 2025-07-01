@@ -66,11 +66,15 @@ pub struct SetupIntent {
     pub client_secret: String,
     pub created: i64,
     pub customer: Option<String>,
+    pub payment_method: Option<String>,
     pub livemode: bool,
     pub payment_method_types: Vec<String>,
     pub status: String,
     pub usage: String,
+    pub metadata: HashMap<String, String>,
 }
+
+
 
 #[async_trait::async_trait]
 pub trait SetupIntentApi {

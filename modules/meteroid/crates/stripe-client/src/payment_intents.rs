@@ -25,7 +25,7 @@ pub struct PaymentIntentRequest {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PaymentIntent {
+pub struct StripePaymentIntent {
     pub id: String,
     pub amount: i64,
     pub amount_received: Option<i64>,
@@ -34,6 +34,7 @@ pub struct PaymentIntent {
     pub livemode: bool,
     pub status: StripePaymentStatus,
     pub last_payment_error: Option<String>,
+    pub metadata: HashMap<String, String>,
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -76,7 +77,7 @@ pub trait PaymentIntentApi {
         params: PaymentIntentRequest,
         secret_key: &SecretString,
         idempotency_key: String,
-    ) -> Result<PaymentIntent, StripeError>;
+    ) -> Result<StripePaymentIntent, StripeError>;
 }
 
 #[async_trait::async_trait]
@@ -86,7 +87,7 @@ impl PaymentIntentApi for StripeClient {
         params: PaymentIntentRequest,
         secret_key: &SecretString,
         idempotency_key: String,
-    ) -> Result<PaymentIntent, StripeError> {
+    ) -> Result<StripePaymentIntent, StripeError> {
         self.post_form(
             "/payment_intents",
             params,

@@ -1,11 +1,11 @@
 use crate::error::WebhookError;
-use crate::payment_intents::PaymentIntent;
 use crate::setup_intents::SetupIntent;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::Sha256;
 use std::collections::HashMap;
+use crate::payment_intents::StripePaymentIntent;
 
 pub mod event_type {
     pub const SETUP_INTENT_SUCCEEDED: &str = "setup_intent.succeeded";
@@ -24,7 +24,7 @@ pub static STRIPE_PAYMENT_WEBHOOKS: [&str; 4] = [
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "object", rename_all = "snake_case")]
 pub enum EventObject {
-    PaymentIntent(PaymentIntent),
+    PaymentIntent(StripePaymentIntent),
     SetupIntent(SetupIntent),
 }
 
