@@ -6,7 +6,7 @@ use crate::workers::webhook_out::to_webhook_out;
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
 use futures::future::try_join_all;
-use meteroid_store::{Services, Store};
+use meteroid_store::Services;
 use meteroid_store::domain::pgmq::PgmqMessage;
 use meteroid_store::domain::webhooks::WebhookOutCreateMessageResult;
 use std::sync::Arc;

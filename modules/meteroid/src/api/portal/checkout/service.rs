@@ -6,7 +6,6 @@ use crate::api::customers::mapping::customer::{
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::services::storage::Prefix;
-use crate::{api::utils::parse_uuid, parse_uuid};
 use common_domain::ids::{
     BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
 };

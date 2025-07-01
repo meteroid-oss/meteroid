@@ -1,13 +1,11 @@
-use diesel::QueryDsl;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use error_stack::{Report, ResultExt};
-use common_domain::ids::TenantId;
+use error_stack::Report;
 use diesel_models::enums::SubscriptionActivationConditionEnum;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use crate::{ StoreResult};
-use crate::domain::{Invoice, InvoicePaymentStatus, ResolvedPaymentMethod};
-use crate::domain::outbox_event::{InvoiceEvent, InvoicePdfGeneratedEvent, OutboxEvent, PaymentTransactionEvent};
+use crate::domain::Invoice;
+use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
 use crate::errors::StoreError;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;

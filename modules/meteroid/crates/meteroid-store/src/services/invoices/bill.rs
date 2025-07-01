@@ -10,10 +10,7 @@ use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, SubscriptionId, Ten
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
-use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
-use crate::domain::pgmq::{PaymentRequestEvent, PgmqQueue};
-use crate::repositories::pgmq::PgmqInterface;
 
 pub enum InvoiceBillingMode {
     /// Post checkout. We request a payment and don't finalize the invoice until paid.

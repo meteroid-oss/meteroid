@@ -1,9 +1,8 @@
-use error_stack::ResultExt;
 use common_domain::ids::TenantId;
 use crate::domain::pgmq::{PaymentRequestEvent, PgmqMessageNew, PgmqQueue, SendEmailRequest};
 use crate::{ StoreResult};
 use crate::domain::{InvoicePaymentStatus, ResolvedPaymentMethod};
-use crate::domain::outbox_event::{InvoiceEvent, InvoicePdfGeneratedEvent};
+use crate::domain::outbox_event::InvoicePdfGeneratedEvent;
 use crate::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;

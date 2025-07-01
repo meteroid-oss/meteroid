@@ -1,4 +1,4 @@
-use crate::enums::{  InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType, PaymentStatusEnum};
+use crate::enums::{  InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 

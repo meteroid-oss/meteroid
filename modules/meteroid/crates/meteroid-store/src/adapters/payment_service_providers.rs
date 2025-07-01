@@ -4,7 +4,7 @@ use crate::domain::enums::ConnectorProviderEnum;
 use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum};
 use crate::utils::local_id::LocalId;
 use async_trait::async_trait;
-use common_domain::ids::{BaseId, CustomerId, PaymentTransactionId, TenantId};
+use common_domain::ids::{BaseId, PaymentTransactionId, TenantId};
 use error_stack::{Report, bail, ResultExt};
 use secrecy::SecretString;
 use std::collections::HashMap;
@@ -19,9 +19,7 @@ use stripe_client::setup_intents::{
 use uuid::Uuid;
 use diesel_models::enums::PaymentStatusEnum;
 use stripe_client::payment_methods::PaymentMethodsApi;
-use crate::domain;
 use crate::domain::payment_transactions::PaymentIntent;
-use crate::errors::StoreError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PaymentProviderError {

@@ -25,7 +25,7 @@ use strum::IntoEnumIterator;
 use svix::api::{AppPortalAccessIn, ApplicationIn, EndpointIn, EventTypeIn, MessageIn};
 use svix::error::Error;
 use tracing::log;
-use crate::services::{Services, ServicesEdge};
+use crate::services::ServicesEdge;
 
 static API_RATE_LIMITER: std::sync::OnceLock<
     RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>,

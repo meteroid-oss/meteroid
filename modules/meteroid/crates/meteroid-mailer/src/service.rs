@@ -11,10 +11,10 @@ use sailfish::TemplateSimple;
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 
-#[cfg(test)]
+#[cfg(feature = "test-utils")]
 use mockall::automock;
 
-#[cfg_attr(test, automock)]
+#[cfg_attr(feature = "test-utils", automock)]
 #[async_trait]
 pub trait MailerService: Send + Sync {
     async fn send(&self, email: Email) -> error_stack::Result<(), MailerServiceError>;

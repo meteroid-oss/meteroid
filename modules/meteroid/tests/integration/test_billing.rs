@@ -1,12 +1,11 @@
 use std::sync::Arc;
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
 
 use crate::data::ids::*;
 use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
-use common_domain::ids::{CustomerId, SubscriptionId};
-use diesel_models::customers::CustomerRowNew;
+use common_domain::ids::SubscriptionId;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use diesel_models::subscriptions::SubscriptionRow;
 use meteroid_mailer::service::MockMailerService;
@@ -17,7 +16,6 @@ use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
 use meteroid_store::clients::usage::MockUsageClient;
-use crate::data::ids;
 
 #[tokio::test]
 async fn test_lifecycle_billing() {

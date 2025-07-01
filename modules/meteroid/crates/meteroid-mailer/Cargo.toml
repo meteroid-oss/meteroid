@@ -20,5 +20,8 @@ log = { workspace = true }
 rusty-money = { workspace = true }
 common-utils = { workspace = true }
 
-[dev-dependencies]
-mockall = { workspace = true }
+mockall = { workspace = true, optional = true }
+
+[features]
+test-utils = ["mockall"]
+

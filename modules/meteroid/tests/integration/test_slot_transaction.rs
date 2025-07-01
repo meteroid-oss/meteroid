@@ -11,8 +11,6 @@ use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::store::StoreConfig;
 use secrecy::SecretString;
 use std::str::FromStr;
-use std::sync::Arc;
-use stripe_client::client::StripeClient;
 use uuid::{Uuid, uuid};
 
 const SLOT_SUBSCRIPTION_ID: SubscriptionId = SUB_UBER_LEETCODE_ID;

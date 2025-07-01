@@ -16,7 +16,6 @@ use diesel_models::query::pgmq;
 use error_stack::{Report, bail};
 use meteroid_oauth::model::OauthProvider;
 use secrecy::{ExposeSecret, SecretString};
-use stripe_client::accounts::AccountsApi;
 
 #[async_trait::async_trait]
 pub trait ConnectorsInterface {

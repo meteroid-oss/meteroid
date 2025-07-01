@@ -22,7 +22,6 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use uuid::Uuid;
-use diesel_models::enums::PaymentStatusEnum;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]

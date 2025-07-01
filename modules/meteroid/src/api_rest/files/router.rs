@@ -20,7 +20,6 @@ use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
 use utoipa::OpenApi;
-use uuid::Uuid;
 
 #[derive(OpenApi)]
 #[openapi(paths(get_logo, get_invoice_pdf))]

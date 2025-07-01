@@ -118,7 +118,8 @@ impl PendingInvoicesTotalRow {
                 tenant_currency
             WHERE
                 i.tenant_id = $2
-              AND i.status = 'PENDING'
+              AND i.status = 'FINALIZED' 
+              AND i.paid_at IS NULL
         )
         SELECT
             COUNT(*)::integer AS total,

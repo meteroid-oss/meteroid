@@ -7,7 +7,7 @@ use error_stack::{Report, ResultExt, report};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, InvoicePdfRequestEvent,
+    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent,
     PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;

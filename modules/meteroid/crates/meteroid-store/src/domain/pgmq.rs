@@ -2,14 +2,12 @@ use chrono::NaiveDate;
 use crate::domain::outbox_event::{BillableMetricEvent, CustomerEvent, SubscriptionEvent};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use common_domain::ids::{CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, PaymentTransactionId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, StoredDocumentId, SubscriptionId, TenantId};
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
 use strum::Display;
-use uuid::Uuid;
-use meteroid_mailer::model::{EmailAttachment, EmailRecipient};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Display)]
 pub enum PgmqQueue {

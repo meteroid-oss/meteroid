@@ -1,10 +1,7 @@
 use crate::config::Config;
 use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use crate::svix::new_svix;
 use meteroid_store::Store;
 use meteroid_store::store::StoreConfig;
-use std::sync::Arc;
-use stripe_client::client::StripeClient;
 
 static STORE: tokio::sync::OnceCell<Store> = tokio::sync::OnceCell::const_new();
 

@@ -2,7 +2,6 @@ use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
 use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
-use uuid::Uuid;
 
 #[derive(Queryable, Debug, Identifiable, Selectable, Clone)]
 #[diesel(table_name = crate::schema::payment_transaction)]

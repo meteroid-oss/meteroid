@@ -6,9 +6,8 @@ use common_domain::ids::InvoiceId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
 use meteroid_store::{Store, StoreResult};
-use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage, PgmqQueue};
+use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage};
 use std::sync::Arc;
-use meteroid_store::repositories::pgmq::PgmqInterface;
 
 pub(crate) struct PdfRender {
     pdf_service: Arc<PdfRenderingService>,

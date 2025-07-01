@@ -24,14 +24,14 @@ use diesel_models::subscriptions::SubscriptionRow;
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
-use crate::jwt_claims::{generate_portal_token, PortalJwtClaims, ResourceAccess};
+use crate::jwt_claims::{generate_portal_token, ResourceAccess};
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use diesel_models::PgConn;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use error_stack::Result;
 use meteroid_store_macros::with_conn_delegate;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 
 pub mod slots;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventNew};

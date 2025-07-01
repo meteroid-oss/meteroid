@@ -2,11 +2,10 @@ use crate::domain::enums::InvoiceType;
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{StoreResult, domain};
-use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
-use error_stack::{Report, bail, ResultExt};
+use error_stack::{Report, bail};
 
 use crate::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
 use crate::domain::pgmq::{PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue};
@@ -163,6 +162,7 @@ impl InvoiceInterface for Store {
 
         Ok(res)
     }
+
 
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
         self.transaction(|conn| {

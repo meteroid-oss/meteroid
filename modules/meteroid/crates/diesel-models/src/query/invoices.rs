@@ -3,7 +3,6 @@ use crate::invoices::{
     DetailedInvoiceRow, InvoiceLockRow, InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew,
     InvoiceWithCustomerRow,
 };
-use chrono::NaiveDateTime;
 
 use crate::{DbResult, PgConn};
 

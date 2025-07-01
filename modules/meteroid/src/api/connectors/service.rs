@@ -1,4 +1,3 @@
-use error_stack::Report;
 use crate::api::connectors::error::ConnectorApiError;
 use crate::api::connectors::{ConnectorsServiceComponents, mapping};
 use crate::api::utils::parse_referer;
@@ -16,9 +15,8 @@ use meteroid_store::domain::connectors::HubspotPublicData;
 use meteroid_store::domain::oauth::{ConnectHubspotData, ConnectPennylaneData, OauthVerifierData};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 use tonic::{Request, Response, Status};
-use meteroid_store::errors::StoreError;
 
 #[tonic::async_trait]
 impl ConnectorsService for ConnectorsServiceComponents {

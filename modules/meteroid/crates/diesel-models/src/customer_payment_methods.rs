@@ -4,9 +4,6 @@ use common_domain::ids::{BankAccountId, CustomerConnectionId, CustomerId, Custom
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use crate::subscriptions::SubscriptionRow;
 
-use crate::schema::customer;
-use crate::schema::subscription;
-use crate::schema::invoicing_entity;
 
 #[derive(Queryable, Debug, Identifiable, Selectable, AsChangeset)]
 #[diesel(table_name = crate::schema::customer_payment_method)]

@@ -2,21 +2,17 @@ use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as Base64Engine;
-use common_domain::ids::{BaseId, EventId, InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
+use common_domain::ids::{BaseId, InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};
-use meteroid_store::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
-use meteroid_store::domain::pgmq::{PgmqMessageNew, PgmqQueue};
-use meteroid_store::domain::{Invoice, InvoiceStatusEnum, InvoicingEntity};
+use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
-use meteroid_store::repositories::pgmq::PgmqInterface;
-use meteroid_store::{Store, StoreResult};
+use meteroid_store::Store;
 use std::io::Cursor;
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub struct InvoicePreviewRenderingService {
     store: Arc<Store>,

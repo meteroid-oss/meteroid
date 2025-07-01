@@ -18,8 +18,6 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::str::FromStr;
 use std::sync::Arc;
-use stripe_client::client::StripeClient;
-use svix::api::Svix;
 use tokio_postgres_rustls::MakeRustlsConnect;
 
 pub type PgPool = Pool<AsyncPgConnection>;

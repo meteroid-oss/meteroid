@@ -5,13 +5,10 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::pgmq::MessageId;
 use error_stack::{Report, ResultExt};
 use futures::future::try_join_all;
-use meteroid_store::clients::usage::UsageClient;
-use meteroid_store::domain::{BillableMetric, Invoice, PaymentStatusEnum, ResolvedPaymentMethod};
+use meteroid_store::domain::PaymentStatusEnum;
 use meteroid_store::domain::outbox_event::OutboxEvent;
-use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PaymentRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue, SendEmailRequest};
+use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue};
 use std::sync::Arc;
-use meteroid_invoicing::model::PaymentStatus;
-use meteroid_store::repositories::{CustomersInterface, InvoiceInterface, SubscriptionInterface};
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Services, Store, StoreResult};
 

@@ -32,7 +32,6 @@ use rust_decimal::Decimal;
 use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use uuid::Uuid;
 
 /// todo extract out common and reuse in hubspot and pennylane
 

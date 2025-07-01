@@ -3,9 +3,8 @@ use crate::{domain, StoreResult};
 use crate::store::{PgConn, Store};
 
 use crate::errors::StoreError;
-use common_domain::ids::{InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
+use common_domain::ids::{InvoiceId, PaymentTransactionId, TenantId};
 use error_stack::Report;
-use uuid::Uuid;
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowPatch};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;

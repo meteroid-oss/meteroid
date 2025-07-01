@@ -1,4 +1,4 @@
-use crate::{domain, StoreResult};
+use crate::StoreResult;
 use crate::adapters::payment_service_providers::initialize_payment_provider;
 use crate::domain::connectors::Connector;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
@@ -8,20 +8,14 @@ use crate::store::PgConn;
 use common_domain::ids::{
     BaseId, CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, TenantId,
 };
-use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
 use diesel_models::enums::{
-    PaymentStatusEnum, PaymentTypeEnum, SubscriptionActivationConditionEnum,
+    PaymentStatusEnum, PaymentTypeEnum,
 };
 use diesel_models::invoices::InvoiceRow;
-use diesel_models::payments::{
-    PaymentTransactionRow, PaymentTransactionRowNew, PaymentTransactionRowPatch,
-};
-use diesel_models::subscriptions::SubscriptionRow;
+use diesel_models::payments::PaymentTransactionRowNew;
 use error_stack::{Report, ResultExt};
-use stripe_client::payment_intents::{  StripePaymentStatus};
-use crate::domain::outbox_event::OutboxEvent;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
 
 impl Services {

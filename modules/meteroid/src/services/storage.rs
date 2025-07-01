@@ -12,7 +12,6 @@ use object_store::signer::Signer;
 use object_store::{ObjectStore, ObjectStoreScheme, PutPayload};
 use std::sync::Arc;
 use std::time::Duration;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub enum Prefix {

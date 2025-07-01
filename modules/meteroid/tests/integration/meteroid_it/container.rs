@@ -1,7 +1,6 @@
 use backon::{ConstantBuilder, Retryable};
 use std::sync::Arc;
 use std::time::Duration;
-use futures::FutureExt;
 use testcontainers::core::WaitFor;
 use testcontainers::core::wait::LogWaitStrategy;
 use testcontainers::runners::AsyncRunner;

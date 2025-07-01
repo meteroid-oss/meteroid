@@ -5,8 +5,6 @@ use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, PaymentTransactionI
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
 use o2o::o2o;
 use serde::Deserialize;
-use uuid::Uuid;
-use stripe_client::payment_intents::StripePaymentStatus;
 
 #[derive(Clone, Debug, PartialEq, o2o)]
 #[from_owned(PaymentTransactionRow)]
