@@ -49,7 +49,7 @@ anyhow = "1.0.75"
 argon2 = "0.5.2"
 async-trait = "0.1.74"
 axum = { version = "0.8.1", features = ["json", "query", "tower-log", "http1"] }
-axum-valid = "0.23.0"
+axum-valid = "0.24.0"
 arrow = { version = "55.0.0", default-features = false }
 parquet = { version = "55.0.0", default-features = false }
 base62 = "2.0.2"
