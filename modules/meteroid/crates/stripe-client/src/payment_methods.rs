@@ -4,7 +4,6 @@ use crate::request::RetryStrategy;
 use secrecy::SecretString;
 use serde::Deserialize;
 
-
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StripePaymentMethodType {
@@ -25,9 +24,6 @@ pub struct PaymentMethod {
     pub us_bank_account: Option<PaymentMethodUsBankDebit>,
     pub bacs_debit: Option<PaymentMethodBacsDebit>,
     pub card: Option<PaymentMethodCard>,
-
-
-
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -66,15 +62,28 @@ pub struct PaymentMethodBacsDebit {
 
 #[async_trait::async_trait]
 pub trait PaymentMethodsApi {
-    async fn get_payment_method(&self, id: &str, customer_id: &str, secret_key: &SecretString) -> Result<PaymentMethod, StripeError>;
+    async fn get_payment_method(
+        &self,
+        id: &str,
+        customer_id: &str,
+        secret_key: &SecretString,
+    ) -> Result<PaymentMethod, StripeError>;
 }
-
 
 // TODO we could support all payment methods, with a generic json fallback
 #[async_trait::async_trait]
 impl PaymentMethodsApi for StripeClient {
-    async fn get_payment_method(&self, id: &str, customer_id: &str, secret_key: &SecretString) -> Result<PaymentMethod, StripeError> {
-        self.get(&format!("/customers/{}/payment_methods/{}", customer_id, id), secret_key, RetryStrategy::default())
-            .await
+    async fn get_payment_method(
+        &self,
+        id: &str,
+        customer_id: &str,
+        secret_key: &SecretString,
+    ) -> Result<PaymentMethod, StripeError> {
+        self.get(
+            &format!("/customers/{}/payment_methods/{}", customer_id, id),
+            secret_key,
+            RetryStrategy::default(),
+        )
+        .await
     }
 }

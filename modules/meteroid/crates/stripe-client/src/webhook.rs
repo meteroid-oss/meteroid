@@ -1,11 +1,11 @@
 use crate::error::WebhookError;
+use crate::payment_intents::StripePaymentIntent;
 use crate::setup_intents::SetupIntent;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
 use serde::Deserialize;
 use sha2::Sha256;
 use std::collections::HashMap;
-use crate::payment_intents::StripePaymentIntent;
 
 pub mod event_type {
     pub const SETUP_INTENT_SUCCEEDED: &str = "setup_intent.succeeded";

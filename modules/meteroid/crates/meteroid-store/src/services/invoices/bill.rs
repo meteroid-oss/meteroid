@@ -144,13 +144,25 @@ impl Services {
                 }
 
                 // else we finalize immediately, and trigger payment
-                self.finalize_invoice_tx(conn, draft_invoice.id, tenant_id, false, &Some(subscription.clone()))
-                    .await?;
+                self.finalize_invoice_tx(
+                    conn,
+                    draft_invoice.id,
+                    tenant_id,
+                    false,
+                    &Some(subscription.clone()),
+                )
+                .await?;
             }
             InvoiceBillingMode::Immediate => {
                 // Finalize and process payment immediately
-                self.finalize_invoice_tx(conn, draft_invoice.id, tenant_id, false, &Some(subscription.clone()))
-                    .await?;
+                self.finalize_invoice_tx(
+                    conn,
+                    draft_invoice.id,
+                    tenant_id,
+                    false,
+                    &Some(subscription.clone()),
+                )
+                .await?;
             }
         };
 
@@ -173,7 +185,6 @@ impl Services {
             transactions: vec![],
         })
     }
-
 
     /// Schedule invoice finalization after grace period
     async fn schedule_invoice_finalization(

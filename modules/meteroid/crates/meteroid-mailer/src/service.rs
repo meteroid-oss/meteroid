@@ -1,7 +1,10 @@
 use crate::config::MailerConfig;
 use crate::errors::MailerServiceError;
 use crate::model::{Email, EmailValidationLink, InvoicePaid, InvoiceReady, ResetPasswordLink};
-use crate::template::{EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate, ResetPasswordLinkTemplate};
+use crate::template::{
+    EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate,
+    ResetPasswordLinkTemplate,
+};
 use async_trait::async_trait;
 use error_stack::Report;
 use lettre::transport::smtp::authentication::Credentials;
@@ -112,7 +115,7 @@ where
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
 
         let email = Email {
-            from ,
+            from,
             reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
             to: data.recipients.clone(),
             subject: title.into(),
@@ -120,7 +123,6 @@ where
             attachments: vec![data.attachment],
         };
         self.send(email).await
-
     }
 
     async fn send_invoice_paid(
@@ -137,7 +139,7 @@ where
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
 
         let email = Email {
-            from ,
+            from,
             reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
             to: data.recipients.clone(),
             subject: title.into(),
@@ -145,7 +147,6 @@ where
             attachments: data.attachments,
         };
         self.send(email).await
-
     }
 }
 

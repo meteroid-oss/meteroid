@@ -7,8 +7,8 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
-use common_utils::decimals::ToSubunit;
 use chrono::NaiveDate;
+use common_utils::decimals::ToSubunit;
 use diesel_models::errors::DatabaseError;
 use error_stack::{Report, report};
 use itertools::Itertools;
@@ -480,8 +480,6 @@ impl SubscriptionDetails {
         Some(periods.end)
     }
 }
-
-
 
 impl Services {
     pub(super) async fn insert_created_outbox_events_tx(

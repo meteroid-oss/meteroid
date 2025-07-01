@@ -7,8 +7,8 @@ use error_stack::{Report, ResultExt, report};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent,
-    PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, PennylaneSyncInvoice,
+    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -163,16 +163,16 @@ impl PgmqOutboxDispatch {
         Ok(())
     }
 
-
-    pub(crate) async fn handle_invoice_orchestration(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
-
+    pub(crate) async fn handle_invoice_orchestration(
+        &self,
+        msgs: &[PgmqMessage],
+    ) -> PgmqResult<()> {
         let mut events = vec![];
 
         for msg in msgs {
             let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
                 msg.headers.as_ref().map(TryInto::try_into).transpose();
             if let Ok(Some(out_headers)) = out_headers {
-
                 let event_types = [
                     EventType::InvoicePdfGenerated,
                     EventType::InvoiceFinalized,
@@ -183,16 +183,15 @@ impl PgmqOutboxDispatch {
                     continue;
                 }
 
-                events.push(
-                    PgmqMessageNew {
-                        message: None,
-                        headers: Some(DispatchHeaders {
+                events.push(PgmqMessageNew {
+                    message: None,
+                    headers: Some(
+                        DispatchHeaders {
                             outbox_msg_id: msg.msg_id,
                         }
-                        .try_into()?),
-                    },
-                );
-
+                        .try_into()?,
+                    ),
+                });
             }
         }
 
@@ -205,8 +204,6 @@ impl PgmqOutboxDispatch {
             .await
             .change_context(PgmqError::HandleMessages)
     }
-
-
 }
 
 #[async_trait]

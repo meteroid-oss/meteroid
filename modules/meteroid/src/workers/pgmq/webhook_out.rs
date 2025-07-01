@@ -12,12 +12,12 @@ use meteroid_store::domain::webhooks::WebhookOutCreateMessageResult;
 use std::sync::Arc;
 
 pub(crate) struct WebhookOut {
-    pub services: Arc<Services>
+    pub services: Arc<Services>,
 }
 
 impl WebhookOut {
-    pub fn new( services: Arc<Services>) -> Self {
-        Self {  services }
+    pub fn new(services: Arc<Services>) -> Self {
+        Self { services }
     }
 }
 

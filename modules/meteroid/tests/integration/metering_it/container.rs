@@ -11,7 +11,6 @@ use metering::config::Config;
 use super::clickhouse;
 use super::kafka::{CONTAINER_NAME, CONTAINER_VERSION};
 use crate::helpers::network::free_local_port;
-use crate::meteroid_it::container::MeteroidSetup;
 use crate::metering_it::clickhouse::{HttpPort, TcpPort};
 
 pub struct MeteringSetup {
@@ -55,7 +54,6 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
     }
 }
 
-
 impl Drop for MeteringSetup {
     fn drop(&mut self) {
         self.token.cancel();
@@ -63,8 +61,6 @@ impl Drop for MeteringSetup {
         log::info!("Stopped metering server  ");
     }
 }
-
-
 
 pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpPort) {
     let local_http = free_local_port().expect("Could not get free http port");

@@ -10,7 +10,10 @@ pub struct ConnectorsServiceComponents {
     pub services: Services,
 }
 
-pub fn service(store: Store, services: Services) -> ConnectorsServiceServer<ConnectorsServiceComponents> {
+pub fn service(
+    store: Store,
+    services: Services,
+) -> ConnectorsServiceServer<ConnectorsServiceComponents> {
     let inner = ConnectorsServiceComponents { store, services };
     ConnectorsServiceServer::new(inner)
 }

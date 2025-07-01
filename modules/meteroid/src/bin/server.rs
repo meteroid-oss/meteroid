@@ -9,8 +9,8 @@ use meteroid::config::Config;
 use meteroid::eventbus::setup_eventbus_handlers;
 use meteroid::migrations;
 use meteroid::services::storage::S3Storage;
-use meteroid::{bootstrap, singletons};
 use meteroid::svix::new_svix;
+use meteroid::{bootstrap, singletons};
 use meteroid_store::Services;
 use stripe_client::client::StripeClient;
 
@@ -36,7 +36,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let store_arc = Arc::new(store.clone());
 
-    let services = Services::new(store_arc, Arc::new(MeteringUsageClient::get().clone()), svix, stripe);
+    let services = Services::new(
+        store_arc,
+        Arc::new(MeteringUsageClient::get().clone()),
+        svix,
+        stripe,
+    );
 
     migrations::run(&store.pool).await?;
     bootstrap::bootstrap_once(store.clone(), services.clone()).await?;
@@ -64,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store_service.clone(),
         stripe_adapter.clone(),
         store.clone(),
-        services.clone()
+        services.clone(),
     );
 
     tokio::select! {

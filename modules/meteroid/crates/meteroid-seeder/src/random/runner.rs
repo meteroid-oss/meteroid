@@ -25,7 +25,10 @@ use rand_chacha::ChaCha8Rng;
 use chrono::Utc;
 
 use common_domain::ids::OrganizationId;
-use meteroid_store::domain::{Address, InlineCustomer, InlineInvoicingEntity, InvoicePaymentStatus, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{
+    Address, InlineCustomer, InlineInvoicingEntity, InvoicePaymentStatus, OrderByRequest,
+    PaginationRequest,
+};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::{

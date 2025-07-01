@@ -1,15 +1,15 @@
+use crate::config::Config;
 use crate::services::currency_rates::CurrencyRatesService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::S3Storage;
 use crate::workers;
 use crate::workers::pgmq::processors;
 use hubspot_client::client::HubspotClient;
+use meteroid_mailer::service::MailerService;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::UsageClient;
 use pennylane_client::client::PennylaneClient;
 use std::sync::Arc;
-use meteroid_mailer::service::MailerService;
-use crate::config::Config;
 
 pub mod billing;
 pub mod clients;
@@ -49,7 +49,7 @@ pub async fn spawn_workers(
     currency_rates_service: Arc<dyn CurrencyRatesService>,
     pdf_rendering_service: Arc<PdfRenderingService>,
     mailer_service: Arc<dyn MailerService>,
-    config: &Config
+    config: &Config,
 ) {
     let object_store_service1 = object_store_service.clone();
     let object_store_service2 = object_store_service.clone();
@@ -102,7 +102,15 @@ pub async fn spawn_workers(
         processors::run_invoice_orchestration(store_pgmq7, services_arc4).await;
     });
     join_set.spawn(async move {
-        processors::run_email_sender(store_pgmq8, mailer_service, object_store_service2, public_url, rest_api_external_url, jwt_secret).await;
+        processors::run_email_sender(
+            store_pgmq8,
+            mailer_service,
+            object_store_service2,
+            public_url,
+            rest_api_external_url,
+            jwt_secret,
+        )
+        .await;
     });
 
     join_set.spawn(async move {
@@ -118,8 +126,6 @@ pub async fn spawn_workers(
     join_set.spawn(async move {
         workers::billing::scheduled::run_worker(services_arc2).await;
     });
-
-
 
     join_set.join_all().await;
 }

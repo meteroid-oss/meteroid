@@ -1,25 +1,27 @@
 use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::customer_payment_methods::SetupIntent;
 use crate::domain::enums::ConnectorProviderEnum;
+use crate::domain::payment_transactions::PaymentIntent;
 use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum};
 use crate::utils::local_id::LocalId;
 use async_trait::async_trait;
 use common_domain::ids::{BaseId, PaymentTransactionId, TenantId};
-use error_stack::{Report, bail, ResultExt};
+use diesel_models::enums::PaymentStatusEnum;
+use error_stack::{Report, ResultExt, bail};
 use secrecy::SecretString;
 use std::collections::HashMap;
 use stripe_client::client::StripeClient;
 use stripe_client::customers::{
     CreateCustomer, CustomerApi, CustomerShipping, OptionalFieldsAddress,
 };
-use stripe_client::payment_intents::{FutureUsage,   PaymentIntentApi, PaymentIntentRequest, StripePaymentIntent, StripePaymentStatus};
+use stripe_client::payment_intents::{
+    FutureUsage, PaymentIntentApi, PaymentIntentRequest, StripePaymentIntent, StripePaymentStatus,
+};
+use stripe_client::payment_methods::PaymentMethodsApi;
 use stripe_client::setup_intents::{
     CreateSetupIntent, CreateSetupIntentUsage, SetupIntentApi, StripePaymentMethodType,
 };
 use uuid::Uuid;
-use diesel_models::enums::PaymentStatusEnum;
-use stripe_client::payment_methods::PaymentMethodsApi;
-use crate::domain::payment_transactions::PaymentIntent;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PaymentProviderError {
@@ -36,7 +38,7 @@ pub enum PaymentProviderError {
     #[error("Missing metadata: {0}")]
     MissingMetadata(String),
     #[error("Invalid metadata")]
-    InvalidMetadata ,
+    InvalidMetadata,
 }
 
 #[async_trait]
@@ -145,13 +147,13 @@ impl PaymentProvider for StripeClient {
         Ok(res.id)
     }
 
-
     async fn get_payment_method_from_provider(
         &self,
         connector: &Connector,
         payment_method_id: &str,
         customer_id: &str,
-    ) -> error_stack::Result<stripe_client::payment_methods::PaymentMethod, PaymentProviderError> {
+    ) -> error_stack::Result<stripe_client::payment_methods::PaymentMethod, PaymentProviderError>
+    {
         let secret_key = extract_stripe_secret_key(connector)?;
 
         self.get_payment_method(payment_method_id, customer_id, &secret_key)
@@ -270,26 +272,22 @@ impl PaymentProvider for StripeClient {
 impl TryFrom<StripePaymentIntent> for PaymentIntent {
     type Error = Report<PaymentProviderError>;
 
-
     fn try_from(intent: StripePaymentIntent) -> Result<Self, Self::Error> {
-
-
         let tenant_id = intent
             .metadata
             .get("meteroid.tenant_id")
-          // TODO search :  .get("customer_id")
-            .ok_or(PaymentProviderError::MissingMetadata("meteroid.tenant_id".to_string()))? ;
+            // TODO search :  .get("customer_id")
+            .ok_or(PaymentProviderError::MissingMetadata(
+                "meteroid.tenant_id".to_string(),
+            ))?;
         let tenant_id = TenantId::parse_base62(tenant_id)
-            .change_context(PaymentProviderError::InvalidMetadata)? ;
+            .change_context(PaymentProviderError::InvalidMetadata)?;
 
-        let transaction_id = intent
-            .metadata
-            .get("meteroid.transaction_id")
-            .ok_or(PaymentProviderError::MissingMetadata("meteroid.transaction_id".to_string()))? ;
+        let transaction_id = intent.metadata.get("meteroid.transaction_id").ok_or(
+            PaymentProviderError::MissingMetadata("meteroid.transaction_id".to_string()),
+        )?;
         let transaction_id = PaymentTransactionId::parse_base62(transaction_id)
-            .change_context(PaymentProviderError::InvalidMetadata)? ;
-
-
+            .change_context(PaymentProviderError::InvalidMetadata)?;
 
         let (new_status, processed_at) = match intent.status {
             StripePaymentStatus::Succeeded => (
@@ -319,12 +317,10 @@ impl TryFrom<StripePaymentIntent> for PaymentIntent {
                     intent.id,
                     intent.status
                 );
-                return Err(
-                    Report::new(PaymentProviderError::PaymentIntent(format!(
-                        "Unhandled payment status: {:?}",
-                        intent.status
-                    )))
-                );
+                return Err(Report::new(PaymentProviderError::PaymentIntent(format!(
+                    "Unhandled payment status: {:?}",
+                    intent.status
+                ))));
             }
         };
 
@@ -342,8 +338,6 @@ impl TryFrom<StripePaymentIntent> for PaymentIntent {
         })
     }
 }
-
-
 
 fn extract_stripe_secret_key(
     connector: &Connector,

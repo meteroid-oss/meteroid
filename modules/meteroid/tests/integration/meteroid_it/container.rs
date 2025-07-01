@@ -17,8 +17,8 @@ use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_mailer::service::MailerService;
 use meteroid_oauth::config::OauthConfig;
-use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::Services;
+use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
 use stripe_client::client::StripeClient;
 
@@ -51,7 +51,6 @@ pub async fn start_meteroid_with_port(
     let token = CancellationToken::new();
     let cloned_token = token.clone();
     let stripe = Arc::new(StripeClient::new());
-
 
     let store = meteroid_store::Store::new(StoreConfig {
         database_url: config.database_url.clone(),
@@ -122,11 +121,10 @@ pub async fn start_meteroid(
         postgres_connection_string,
         seed_level,
         Arc::new(MockUsageClient::noop()),
-        meteroid_mailer::service::mailer_service(MailerConfig::dummy())
+        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
     .await
 }
-
 
 pub async fn start_meteroid_with_clients(
     postgres_connection_string: String,
@@ -143,11 +141,10 @@ pub async fn start_meteroid_with_clients(
         postgres_connection_string,
         seed_level,
         Arc::new(MockUsageClient::noop()),
-        meteroid_mailer::service::mailer_service(MailerConfig::dummy())
+        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
-        .await
+    .await
 }
-
 
 impl Drop for MeteroidSetup {
     fn drop(&mut self) {
@@ -156,7 +153,6 @@ impl Drop for MeteroidSetup {
         log::info!("Stopped meteroid server  ");
     }
 }
-
 
 pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
     let container = (|| async {

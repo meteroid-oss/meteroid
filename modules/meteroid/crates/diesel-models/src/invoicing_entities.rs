@@ -1,6 +1,8 @@
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
-use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId};
+use common_domain::ids::{
+    BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Debug, Insertable, Queryable, Identifiable, Selectable)]

@@ -2,7 +2,9 @@ use super::enums::PaymentMethodTypeEnum;
 use chrono::NaiveDateTime;
 
 use crate::domain::ConnectorProviderEnum;
-use common_domain::ids::{BankAccountId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId};
+use common_domain::ids::{
+    BankAccountId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId,
+};
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
@@ -63,8 +65,6 @@ pub struct SetupIntent {
 //     subscription_payment_method_id: Option<CustomerPaymentMethodId>,
 //     customer_payment_method_id: Option<CustomerPaymentMethodId>,
 // }
-
-
 
 pub enum ResolvedPaymentMethod {
     CustomerPaymentMethod(CustomerPaymentMethodId),

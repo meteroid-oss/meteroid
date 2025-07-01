@@ -1,7 +1,7 @@
-use secrecy::{ExposeSecret, SecretString};
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
-use crate::errors::StoreError;
 use crate::StoreResult;
+use crate::errors::StoreError;
+use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
+use secrecy::{ExposeSecret, SecretString};
 // todo reuse in common-grpc as well
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -36,10 +36,7 @@ pub fn generate_portal_token(
     tenant_id: TenantId,
     resource: ResourceAccess,
 ) -> StoreResult<String> {
-    let claims = serde_json::to_value(PortalJwtClaims::new(
-        tenant_id,
-        resource,
-    ))
+    let claims = serde_json::to_value(PortalJwtClaims::new(tenant_id, resource))
         .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
 
     let token = jsonwebtoken::encode(
@@ -47,6 +44,6 @@ pub fn generate_portal_token(
         &claims,
         &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
     )
-        .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
+    .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
     Ok(token)
 }

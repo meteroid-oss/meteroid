@@ -6,11 +6,11 @@ use common_domain::ids::{BaseId, InvoiceId, InvoicingEntityId, StoredDocumentId,
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};
+use meteroid_store::Store;
 use meteroid_store::domain::{Invoice, InvoicingEntity};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
-use meteroid_store::Store;
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -156,9 +156,8 @@ impl PdfRenderingService {
             let invoice_id = invoice.id;
             let tenant_id = invoice.tenant_id;
 
-
-            if let Some(pdf_id) = invoice.pdf_document_id  {
-                results.push( GenerateResult::Success {
+            if let Some(pdf_id) = invoice.pdf_document_id {
+                results.push(GenerateResult::Success {
                     invoice_id,
                     tenant_id,
                     pdf_id,
@@ -242,7 +241,6 @@ impl PdfRenderingService {
             .save_invoice_documents(invoice_id, tenant_id, customer_id, pdf_id, None)
             .await
             .change_context(InvoicingRenderError::StoreError)?;
-
 
         Ok(pdf_id)
     }
@@ -385,7 +383,6 @@ async fn get_logo_as_base64_for_invoice(
     storage: &Arc<dyn ObjectStoreService>,
     logo_id: StoredDocumentId,
 ) -> error_stack::Result<String, InvoicingRenderError> {
-
     let logo = storage
         .retrieve(logo_id, Prefix::ImageLogo)
         .await

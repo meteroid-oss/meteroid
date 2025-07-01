@@ -1,13 +1,15 @@
-use crate::enums::{  InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
+use crate::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
 use crate::plan_versions::PlanVersionRowOverview;
-use common_domain::ids::{CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId,
+    TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
-
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::invoice)]
@@ -50,7 +52,6 @@ pub struct InvoiceRow {
     pub issued_at: Option<NaiveDateTime>,
     pub payment_status: InvoicePaymentStatus,
     pub paid_at: Option<NaiveDateTime>,
-
 }
 
 #[derive(Debug, AsChangeset)]

@@ -140,7 +140,6 @@ impl Store {
             .attach_printable("Failed to get a connection from the pool")
     }
 
-
     pub async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
     where
         F: for<'r> FnOnce(
@@ -172,8 +171,6 @@ impl Store {
     {
         self.internal.transaction_with(conn, callback).await
     }
-
-
 }
 
 impl StoreInternal {

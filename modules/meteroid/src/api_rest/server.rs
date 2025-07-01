@@ -57,7 +57,7 @@ pub async fn start_rest_server(
     let app_state = AppState {
         object_store,
         store: store.clone(),
-        services ,
+        services,
         stripe_adapter,
         jwt_secret: config.jwt_secret.clone(),
     };

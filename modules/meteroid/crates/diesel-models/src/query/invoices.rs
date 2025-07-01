@@ -6,14 +6,16 @@ use crate::invoices::{
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::{ConnectorProviderEnum, InvoiceStatusEnum, InvoicePaymentStatus};
+use crate::enums::{ConnectorProviderEnum, InvoicePaymentStatus, InvoiceStatusEnum};
 use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+};
 use diesel::dsl::IntervalDsl;
 use diesel::{
     BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods, PgTextExpressionMethods,
@@ -433,7 +435,6 @@ impl InvoiceRow {
             .attach_printable("Error while paginating outdated invoices")
             .into_db_result()
     }
-
 
     pub async fn upsert_conn_meta(
         conn: &mut PgConn,

@@ -3,7 +3,10 @@ use chrono::{NaiveDate, NaiveDateTime};
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
-use crate::domain::{AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,   PlanForSubscription, Schedule, SubscriptionComponent, SubscriptionStatusEnum};
+use crate::domain::{
+    AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
+    PlanForSubscription, Schedule, SubscriptionComponent, SubscriptionStatusEnum,
+};
 use crate::errors::StoreErrorReport;
 use crate::services::PaymentSetupResult;
 use common_domain::ids::{
@@ -243,7 +246,6 @@ impl SubscriptionNewEnriched<'_> {
             cycle_index: self.cycle_index.map(|i| i as i32),
             charge_automatically: sub.charge_automatically,
             auto_advance_invoices: sub.auto_advance_invoices,
-
         }
     }
 }

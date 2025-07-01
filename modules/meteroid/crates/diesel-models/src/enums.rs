@@ -79,7 +79,6 @@ pub enum InvoicePaymentStatus {
     Errored,
 }
 
-
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceType"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

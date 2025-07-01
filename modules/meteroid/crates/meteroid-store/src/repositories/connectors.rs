@@ -33,7 +33,7 @@ pub trait ConnectorsInterface {
         alias: String,
         publishable_key: String,
         stripe_data: StripeSensitiveData,
-        stripe_account_id: String
+        stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta>;
 
     async fn get_connector_with_data(
@@ -105,9 +105,8 @@ impl ConnectorsInterface for Store {
         alias: String,
         publishable_key: String,
         stripe_data: StripeSensitiveData,
-        stripe_account_id: String
+        stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta> {
-
         // then insert
         let mut conn = self.get_conn().await?;
 

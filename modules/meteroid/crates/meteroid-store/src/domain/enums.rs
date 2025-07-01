@@ -94,15 +94,13 @@ pub enum FangTaskState {
     Retried,
 }
 
-
-
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceStatusEnum)]
 pub enum InvoiceStatusEnum {
     Draft,
     Finalized,
     Void,
-    Uncollectible
+    Uncollectible,
 }
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
@@ -113,8 +111,6 @@ pub enum InvoicePaymentStatus {
     Paid,
     Errored,
 }
-
- 
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceType)]

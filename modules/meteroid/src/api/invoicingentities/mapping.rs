@@ -1,10 +1,12 @@
 pub mod invoicing_entities {
+    use crate::api::shared::conversions::AsProtoOpt;
     use common_domain::ids::{InvoicingEntityId, StoredDocumentId};
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
     use meteroid_store::domain::invoicing_entities as domain;
-    use crate::api::shared::conversions::AsProtoOpt;
 
-    pub fn proto_to_domain(proto: server::InvoicingEntityData) -> Result<domain::InvoicingEntityNew, tonic::Status> {
+    pub fn proto_to_domain(
+        proto: server::InvoicingEntityData,
+    ) -> Result<domain::InvoicingEntityNew, tonic::Status> {
         Ok(domain::InvoicingEntityNew {
             legal_name: proto.legal_name,
             invoice_number_pattern: proto.invoice_number_pattern,

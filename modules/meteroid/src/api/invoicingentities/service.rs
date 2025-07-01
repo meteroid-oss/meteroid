@@ -158,7 +158,9 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .patch_invoicing_entity(
                 InvoicingEntityPatch {
                     id: InvoicingEntityId::from_proto(req.id)?,
-                    logo_attachment_id: Some(StoredDocumentId::from_proto_opt(logo_attachment_id.clone())?), // Option<Option<Uuid>> as we need to set it to None if no logo is uploaded
+                    logo_attachment_id: Some(StoredDocumentId::from_proto_opt(
+                        logo_attachment_id.clone(),
+                    )?), // Option<Option<Uuid>> as we need to set it to None if no logo is uploaded
                     ..InvoicingEntityPatch::default()
                 },
                 tenant,

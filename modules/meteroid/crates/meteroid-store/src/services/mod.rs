@@ -1,5 +1,5 @@
-use crate::{Store, StoreResult};
 use crate::services::clients::usage::UsageClient;
+use crate::{Store, StoreResult};
 use std::sync::Arc;
 use svix::api::Svix;
 
@@ -7,22 +7,22 @@ use svix::api::Svix;
 pub mod utils;
 
 pub mod clients;
+mod connectors;
 mod credits;
 mod edge;
 mod invoice_lines;
 mod invoices;
 mod lifecycle;
+mod orchestration;
 mod payment;
 mod subscriptions;
 mod webhooks;
-mod connectors;
-mod orchestration;
 
+use crate::errors::StoreError;
 pub use invoices::InvoiceBillingMode;
 use meteroid_mailer::service::MailerService;
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
-use crate::errors::StoreError;
 
 // INTERNAL. Share connections
 #[derive(Clone)]
@@ -35,7 +35,6 @@ struct Services {
 }
 
 impl Services {
-
     pub(crate) fn svix(&self) -> StoreResult<Arc<Svix>> {
         self.svix
             .clone()
@@ -68,5 +67,4 @@ impl ServicesEdge {
             store,
         }
     }
-
 }

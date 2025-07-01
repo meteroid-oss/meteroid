@@ -10,7 +10,10 @@ pub struct WebhooksServiceComponents {
     pub services: Services,
 }
 
-pub fn service(store: Store, services: Services) -> WebhooksServiceServer<WebhooksServiceComponents> {
+pub fn service(
+    store: Store,
+    services: Services,
+) -> WebhooksServiceServer<WebhooksServiceComponents> {
     let inner = WebhooksServiceComponents { store, services };
     WebhooksServiceServer::new(inner)
 }

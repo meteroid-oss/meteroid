@@ -5,7 +5,10 @@ use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 use uuid::Uuid;
 
-use crate::enums::{BillingPeriodEnum, CycleActionEnum,  PaymentMethodTypeEnum, SubscriptionActivationConditionEnum, SubscriptionStatusEnum};
+use crate::enums::{
+    BillingPeriodEnum, CycleActionEnum, PaymentMethodTypeEnum, SubscriptionActivationConditionEnum,
+    SubscriptionStatusEnum,
+};
 use common_domain::ids::{
     BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
     PlanId, PlanVersionId, SubscriptionId, TenantId,

@@ -1,8 +1,11 @@
-use chrono::NaiveDate;
 use crate::domain::outbox_event::{BillableMetricEvent, CustomerEvent, SubscriptionEvent};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use common_domain::ids::{CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, StoredDocumentId, SubscriptionId, TenantId};
+use chrono::NaiveDate;
+use common_domain::ids::{
+    CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, StoredDocumentId,
+    SubscriptionId, TenantId,
+};
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
 use o2o::o2o;
@@ -55,7 +58,6 @@ pub struct PgmqMessageNew {
     pub headers: Option<Headers>,
 }
 
-
 /// Macro to implement PgmqEvent and json_value_serde for a type
 macro_rules! derive_pgmq_message {
     ($type:ty) => {
@@ -83,7 +85,6 @@ macro_rules! derive_pgmq_message {
     };
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaymentRequestEvent {
     pub tenant_id: TenantId,
@@ -92,17 +93,23 @@ pub struct PaymentRequestEvent {
 }
 
 impl PaymentRequestEvent {
-    pub fn new(tenant_id: TenantId, invoice_id: InvoiceId, payment_method_id: CustomerPaymentMethodId) -> Self {
-        Self { tenant_id , invoice_id, payment_method_id}
+    pub fn new(
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+    ) -> Self {
+        Self {
+            tenant_id,
+            invoice_id,
+            payment_method_id,
+        }
     }
 }
 json_value_serde!(PaymentRequestEvent);
 derive_pgmq_message!(PaymentRequestEvent);
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendEmailRequest {
-
     InvoiceReady {
         tenant_id: TenantId,
         invoicing_entity_id: InvoicingEntityId,
@@ -116,7 +123,7 @@ pub enum SendEmailRequest {
         company_name: String,
         logo_attachment_id: Option<StoredDocumentId>,
         invoicing_emails: Vec<String>,
-        invoice_pdf_id: StoredDocumentId
+        invoice_pdf_id: StoredDocumentId,
     },
 
     InvoicePaid {
@@ -137,9 +144,7 @@ pub enum SendEmailRequest {
     },
 
     /// check once a day, then
-    PaymentReminder {
-        invoice_id: InvoiceId,
-    },
+    PaymentReminder { invoice_id: InvoiceId },
 
     PaymentRejected {
         invoice_id: InvoiceId,
@@ -150,10 +155,6 @@ pub enum SendEmailRequest {
 json_value_serde!(SendEmailRequest);
 derive_pgmq_message!(SendEmailRequest);
 
-
-
-
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoicePdfRequestEvent {
     pub invoice_id: InvoiceId,
@@ -161,8 +162,11 @@ pub struct InvoicePdfRequestEvent {
 }
 
 impl InvoicePdfRequestEvent {
-    pub fn new(invoice_id: InvoiceId, is_accounting: bool ) -> Self {
-        Self { invoice_id, is_accounting }
+    pub fn new(invoice_id: InvoiceId, is_accounting: bool) -> Self {
+        Self {
+            invoice_id,
+            is_accounting,
+        }
     }
 }
 json_value_serde!(InvoicePdfRequestEvent);
@@ -229,7 +233,6 @@ impl PennylaneSyncRequestEvent {
 }
 json_value_serde!(PennylaneSyncRequestEvent);
 derive_pgmq_message!(PennylaneSyncRequestEvent);
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PennylaneSyncCustomer {

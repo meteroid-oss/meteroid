@@ -136,10 +136,7 @@ async fn get_invoice_pdf_handler(
         Some(id) => {
             let data = app_state
                 .object_store
-                .retrieve(
-                    id,
-                    Prefix::InvoicePdf,
-                )
+                .retrieve(id, Prefix::InvoicePdf)
                 .await
                 .change_context(errors::RestApiError::ObjectStoreError)?;
 

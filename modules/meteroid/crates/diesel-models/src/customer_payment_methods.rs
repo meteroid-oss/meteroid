@@ -1,9 +1,11 @@
 use crate::enums::PaymentMethodTypeEnum;
-use chrono::NaiveDateTime;
-use common_domain::ids::{BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId, PlanId, TenantId};
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use crate::subscriptions::SubscriptionRow;
-
+use chrono::NaiveDateTime;
+use common_domain::ids::{
+    BankAccountId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
+    PlanId, TenantId,
+};
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable, AsChangeset)]
 #[diesel(table_name = crate::schema::customer_payment_method)]
@@ -43,8 +45,6 @@ pub struct CustomerPaymentMethodRowNew {
     pub card_exp_year: Option<i32>,
 }
 
-
-
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct SubscriptionForDisplayRow {
@@ -73,7 +73,6 @@ pub struct SubscriptionForDisplayRow {
     pub plan_id: PlanId,
 }
 
-
 #[derive(Debug, Queryable, Selectable)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ResolvedSubscriptionPaymentMethod {
@@ -82,16 +81,16 @@ pub struct ResolvedSubscriptionPaymentMethod {
     pub subscription_payment_method: Option<PaymentMethodTypeEnum>,
     #[diesel(select_expression = crate::schema::subscription::bank_account_id)]
     #[diesel(select_expression_type = crate::schema::subscription::bank_account_id)]
-    pub  subscription_bank_account_id: Option<BankAccountId>,
+    pub subscription_bank_account_id: Option<BankAccountId>,
     #[diesel(select_expression = crate::schema::customer::bank_account_id)]
     #[diesel(select_expression_type = crate::schema::customer::bank_account_id)]
-    pub  customer_bank_account_id: Option<BankAccountId>,
+    pub customer_bank_account_id: Option<BankAccountId>,
     #[diesel(select_expression = crate::schema::invoicing_entity::bank_account_id)]
     #[diesel(select_expression_type = crate::schema::invoicing_entity::bank_account_id)]
-    pub  invoicing_entity_bank_account_id: Option<BankAccountId>,
+    pub invoicing_entity_bank_account_id: Option<BankAccountId>,
     #[diesel(select_expression = crate::schema::subscription::payment_method)]
     #[diesel(select_expression_type = crate::schema::subscription::payment_method)]
-    pub   subscription_payment_method_id: Option<CustomerPaymentMethodId>,
+    pub subscription_payment_method_id: Option<CustomerPaymentMethodId>,
     #[diesel(select_expression = crate::schema::customer::current_payment_method_id)]
     #[diesel(select_expression_type = crate::schema::customer::current_payment_method_id)]
     pub customer_payment_method_id: Option<CustomerPaymentMethodId>,

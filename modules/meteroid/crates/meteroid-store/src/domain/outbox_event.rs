@@ -1,11 +1,19 @@
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
-use crate::domain::{Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, SegmentationMatrix, ShippingAddress, Subscription, SubscriptionStatusEnum, UnitConversionRoundingEnum, PaymentTransaction, PaymentStatusEnum, PaymentTypeEnum};
+use crate::domain::{
+    Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, PaymentStatusEnum,
+    PaymentTransaction, PaymentTypeEnum, SegmentationMatrix, ShippingAddress, Subscription,
+    SubscriptionStatusEnum, UnitConversionRoundingEnum,
+};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId, ProductFamilyId, ProductId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, CustomerPaymentMethodId,
+    EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId, ProductFamilyId, ProductId,
+    StoredDocumentId, SubscriptionId, TenantId,
+};
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
 use error_stack::Report;
@@ -36,7 +44,7 @@ pub enum EventType {
     InvoicePaid,
     InvoicePdfGenerated,
     SubscriptionCreated,
-    PaymentTransactionReceived
+    PaymentTransactionReceived,
 }
 
 json_value_serde!(OutboxEvent);

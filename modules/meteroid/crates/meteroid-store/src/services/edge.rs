@@ -1,4 +1,7 @@
 use crate::StoreResult;
+use crate::domain::outbox_event::{
+    InvoiceEvent, InvoicePdfGeneratedEvent, PaymentTransactionEvent,
+};
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{
     CreateSubscription, CreatedSubscription, DetailedInvoice, LineItem, SetupIntent, Subscription,
@@ -16,7 +19,6 @@ use common_domain::ids::{
 use diesel_async::scoped_futures::ScopedFutureExt;
 use error_stack::{Report, ResultExt};
 use uuid::Uuid;
-use crate::domain::outbox_event::{InvoiceEvent, InvoicePdfGeneratedEvent, PaymentTransactionEvent};
 
 impl ServicesEdge {
     async fn get_conn(&self) -> StoreResult<PgConn> {
@@ -206,26 +208,27 @@ impl ServicesEdge {
             .await
     }
 
-
     pub async fn on_invoice_accounting_pdf_generated(
         &self,
         event: InvoicePdfGeneratedEvent,
-        tenant_id: TenantId
+        tenant_id: TenantId,
     ) -> StoreResult<()> {
-        self.services.on_invoice_accounting_pdf_generated(event, tenant_id).await
+        self.services
+            .on_invoice_accounting_pdf_generated(event, tenant_id)
+            .await
     }
 
     pub async fn on_invoice_paid(
         &self,
         event: InvoiceEvent,
-        tenant_id: TenantId
+        tenant_id: TenantId,
     ) -> StoreResult<()> {
         self.services.on_invoice_paid(event, tenant_id).await
     }
 
     pub async fn on_payment_transaction_settled(
         &self,
-        event: PaymentTransactionEvent
+        event: PaymentTransactionEvent,
     ) -> StoreResult<()> {
         self.services.on_payment_transaction_settled(event).await
     }

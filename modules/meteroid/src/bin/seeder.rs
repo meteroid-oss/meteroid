@@ -58,7 +58,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
         Arc::new(MockUsageClient {
             data: HashMap::new(),
         }),
-         None,
+        None,
         Arc::new(StripeClient::new()),
     );
 

@@ -8,7 +8,9 @@ use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use error_stack::{Report, bail};
 
 use crate::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
-use crate::domain::pgmq::{PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue};
+use crate::domain::pgmq::{
+    PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue,
+};
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
     InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
@@ -16,7 +18,9 @@ use crate::domain::{
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::pgmq::PgmqInterface;
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
@@ -63,14 +67,12 @@ pub trait InvoiceInterface {
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
-
     async fn list_invoices_by_ids(&self, ids: Vec<InvoiceId>) -> StoreResult<Vec<Invoice>>;
 
     async fn list_detailed_invoices_by_ids(
         &self,
         ids: Vec<InvoiceId>,
     ) -> StoreResult<Vec<DetailedInvoice>>;
-
 
     async fn save_invoice_documents(
         &self,
@@ -162,7 +164,6 @@ impl InvoiceInterface for Store {
 
         Ok(res)
     }
-
 
     async fn insert_invoice(&self, invoice: InvoiceNew) -> StoreResult<Invoice> {
         self.transaction(|conn| {
@@ -259,32 +260,29 @@ impl InvoiceInterface for Store {
         pdf_id: StoredDocumentId,
         xml_id: Option<StoredDocumentId>,
     ) -> StoreResult<()> {
-
         self.transaction(|conn| {
             async move {
                 InvoiceRow::save_invoice_documents(conn, id, tenant_id, pdf_id, xml_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?;
 
-                let evt: PgmqMessageNew=
+                let evt: PgmqMessageNew =
                     OutboxEvent::invoice_pdf_generated(InvoicePdfGeneratedEvent {
                         id: EventId::new(),
-                        invoice_id :id,
+                        invoice_id: id,
                         tenant_id,
                         customer_id,
                         pdf_id,
                     })
-                        .try_into()?;
-                self
-                    .pgmq_send_batch_tx(conn, PgmqQueue::OutboxEvent, vec![evt])
+                    .try_into()?;
+                self.pgmq_send_batch_tx(conn, PgmqQueue::OutboxEvent, vec![evt])
                     .await?;
 
                 Ok(())
-
             }
-                .scope_boxed()
+            .scope_boxed()
         })
-            .await?;
+        .await?;
 
         Ok(())
     }

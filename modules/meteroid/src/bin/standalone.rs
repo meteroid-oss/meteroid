@@ -1,7 +1,7 @@
-use std::error::Error;
-use std::sync::Arc;
 #[cfg(feature = "metering-server")]
 use envconfig::Envconfig;
+use std::error::Error;
+use std::sync::Arc;
 use tokio::signal;
 
 use common_build_info::BuildInfo;
@@ -14,9 +14,9 @@ use meteroid::migrations;
 use meteroid::services::currency_rates::OpenexchangeRatesService;
 use meteroid::services::invoice_rendering::PdfRenderingService;
 use meteroid::services::storage::S3Storage;
+use meteroid::svix::new_svix;
 use meteroid::workers;
 use meteroid::{bootstrap, singletons};
-use meteroid::svix::new_svix;
 use meteroid_mailer::service::mailer_service;
 use meteroid_store::Services;
 use stripe_client::client::StripeClient;
@@ -43,12 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Services::new(
-        store_arc.clone(),
-        usage_clients.clone(),
-        svix,
-        stripe
-    );
+    let services = Services::new(store_arc.clone(), usage_clients.clone(), svix, stripe);
 
     let services_arc = Arc::new(services.clone());
 
@@ -88,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         object_store_service.clone(),
         stripe_adapter.clone(),
         store.clone(),
-        services.clone()
+        services.clone(),
     );
 
     let object_store_service = Arc::new(S3Storage::try_new(
@@ -107,7 +102,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
 
     let mailer_service = mailer_service(config.mailer.clone());
-
 
     let workers_handle = tokio::spawn(async move {
         workers::spawn_workers(

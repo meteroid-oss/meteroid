@@ -1,13 +1,16 @@
-use super::enums::{  InvoiceStatusEnum, InvoiceType,  InvoicePaymentStatus};
+use super::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
-use common_utils::decimals::ToSubunit;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
+    SubscriptionId, TenantId,
+};
+use common_utils::decimals::ToSubunit;
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;

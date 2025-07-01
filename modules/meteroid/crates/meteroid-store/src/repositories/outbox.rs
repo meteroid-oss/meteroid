@@ -9,7 +9,11 @@ use error_stack::Report;
 #[async_trait::async_trait]
 pub trait OutboxInterface {
     async fn insert_outbox_event(&self, event: outbox_event::OutboxEvent) -> StoreResult<()>;
-    async fn insert_outbox_event_tx(&self, conn: &mut PgConn, event: outbox_event::OutboxEvent) -> StoreResult<()>;
+    async fn insert_outbox_event_tx(
+        &self,
+        conn: &mut PgConn,
+        event: outbox_event::OutboxEvent,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -21,7 +25,11 @@ impl OutboxInterface for Store {
             .await
     }
 
-    async fn insert_outbox_event_tx(&self, conn: &mut PgConn, event: outbox_event::OutboxEvent) -> StoreResult<()> {
+    async fn insert_outbox_event_tx(
+        &self,
+        conn: &mut PgConn,
+        event: outbox_event::OutboxEvent,
+    ) -> StoreResult<()> {
         self.internal
             .insert_outbox_events_tx(conn, vec![event])
             .await

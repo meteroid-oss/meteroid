@@ -1,6 +1,8 @@
 use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
-use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
+use common_domain::ids::{
+    CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
+};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 
 #[derive(Queryable, Debug, Identifiable, Selectable, Clone)]

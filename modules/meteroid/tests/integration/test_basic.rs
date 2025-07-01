@@ -7,9 +7,9 @@ use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
+use crate::data::ids::TENANT_ID;
 use meteroid_store::domain::{OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
-use crate::data::ids::TENANT_ID;
 
 #[tokio::test]
 #[ignore] // needs to be revisited
@@ -202,5 +202,4 @@ async fn test_main() {
         db_invoice.subscription_id.map(|x| x.to_string()),
         Some(subscription.id.clone())
     );
- 
 }

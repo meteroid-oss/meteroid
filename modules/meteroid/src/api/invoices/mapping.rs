@@ -193,7 +193,7 @@ pub mod invoices {
             applied_credits: invoice.applied_credits,
             document_sharing_key: share_key,
             pdf_document_id: invoice.pdf_document_id.map(|id| id.as_proto()),
-            xml_document_id: invoice.xml_document_id.map(|id| id.as_proto())
+            xml_document_id: invoice.xml_document_id.map(|id| id.as_proto()),
         })
     }
 

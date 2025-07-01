@@ -171,7 +171,6 @@ pub struct ShippingAddress {
 
 json_value_serde!(ShippingAddress);
 
-
 #[derive(Clone, Debug)]
 pub struct CustomerTopUpBalance {
     pub created_by: Uuid,

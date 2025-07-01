@@ -1,12 +1,12 @@
 use crate::errors::MailerServiceError;
+use chrono::NaiveDate;
 use error_stack::Report;
 use itertools::Itertools;
 use lettre::message::header::{ContentDisposition, ContentType};
-use lettre::message::{  Mailbox, MultiPart, SinglePart};
+use lettre::message::{Mailbox, MultiPart, SinglePart};
 use lettre::{Address, Message};
 use secrecy::SecretString;
 use std::str::FromStr;
-use chrono::NaiveDate;
 
 pub struct Email {
     pub from: String,
@@ -53,8 +53,7 @@ impl TryInto<Message> for Email {
         }
 
         if self.include_attachments() {
-            let mut multi_builder =
-                MultiPart::mixed().singlepart(SinglePart::html(self.body_html));
+            let mut multi_builder = MultiPart::mixed().singlepart(SinglePart::html(self.body_html));
 
             for attachment in self.attachments.into_iter() {
                 multi_builder = multi_builder.singlepart(attachment.into());
@@ -106,7 +105,6 @@ pub struct EmailValidationLink {
     pub recipient: EmailRecipient,
 }
 
-
 #[derive(Clone)]
 pub struct InvoiceLine {
     pub description: String,
@@ -116,7 +114,6 @@ pub struct InvoiceLine {
     pub from_date: Option<NaiveDate>,
     pub to_date: Option<NaiveDate>,
 }
-
 
 #[derive(Clone)]
 pub struct InvoiceReady {
@@ -131,8 +128,7 @@ pub struct InvoiceReady {
     pub logo_url: Option<String>,
     pub recipients: Vec<EmailRecipient>,
     pub attachment: EmailAttachment,
-    pub account: String
-
+    pub account: String,
 }
 
 #[derive(Clone)]
@@ -148,12 +144,9 @@ pub struct InvoicePaid {
     pub recipients: Vec<EmailRecipient>,
     pub attachments: Vec<EmailAttachment>,
     //
-    pub lines : Vec<InvoiceLine>,
-    pub account: String
-
-    // is checkout
+    pub lines: Vec<InvoiceLine>,
+    pub account: String, // is checkout
 }
-
 
 impl TryInto<Mailbox> for EmailRecipient {
     type Error = Report<MailerServiceError>;

@@ -1,7 +1,9 @@
 use super::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
 
-use common_domain::ids::{CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
+use common_domain::ids::{
+    CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
+};
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
 use o2o::o2o;
 use serde::Deserialize;
@@ -45,7 +47,6 @@ pub struct PaymentTransactionNew {
     pub payment_type: PaymentTypeEnum,
     pub error_type: Option<String>,
 }
-
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct PaymentIntent {

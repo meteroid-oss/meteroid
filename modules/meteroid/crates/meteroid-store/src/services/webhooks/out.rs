@@ -7,6 +7,7 @@ use crate::domain::webhooks::{
     WebhookPortalAccess,
 };
 use crate::errors::StoreError;
+use crate::services::ServicesEdge;
 use crate::{Store, StoreResult};
 use backon::{ConstantBuilder, Retryable};
 use cached::proc_macro::cached;
@@ -25,7 +26,6 @@ use strum::IntoEnumIterator;
 use svix::api::{AppPortalAccessIn, ApplicationIn, EndpointIn, EventTypeIn, MessageIn};
 use svix::error::Error;
 use tracing::log;
-use crate::services::ServicesEdge;
 
 static API_RATE_LIMITER: std::sync::OnceLock<
     RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>,
@@ -35,7 +35,7 @@ struct ApiRateLimiter;
 
 impl ApiRateLimiter {
     pub fn get()
-        -> &'static RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware> {
+    -> &'static RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware> {
         API_RATE_LIMITER.get_or_init(|| RateLimiter::direct(Quota::per_second(nonzero!(50u32))))
     }
 }

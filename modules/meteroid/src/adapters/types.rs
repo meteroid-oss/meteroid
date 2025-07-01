@@ -1,9 +1,9 @@
 use crate::errors;
 use error_stack::Result;
+use meteroid_store::Store;
+use meteroid_store::domain::connectors::Connector;
 use secrecy::SecretString;
 use std::fmt::Debug;
-use meteroid_store::domain::connectors::Connector;
-use meteroid_store::Store;
 
 pub enum IncomingWebhookEvent {
     EventNotSupported,

@@ -1,8 +1,10 @@
-use crate::domain::{CustomerPaymentMethodNew, ResolvedPaymentMethod};
 use crate::domain::customer_payment_methods::CustomerPaymentMethod;
+use crate::domain::{CustomerPaymentMethodNew, ResolvedPaymentMethod};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId,
+};
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
@@ -83,7 +85,6 @@ impl CustomerPaymentMethodsInterface for Store {
         Ok(customer_payment_methods)
     }
 
-
     async fn get_payment_method_by_id(
         &self,
         tenant_id: &TenantId,
@@ -138,22 +139,28 @@ impl CustomerPaymentMethodsInterface for Store {
     ) -> StoreResult<ResolvedPaymentMethod> {
         let mut conn = self.get_conn().await?;
 
-        let resolved = CustomerPaymentMethodRow::resolve_subscription_payment_method(&mut conn, tenant_id, id)
-            .await
-            .map_err(|err| StoreError::DatabaseError(err.error))? ;
+        let resolved =
+            CustomerPaymentMethodRow::resolve_subscription_payment_method(&mut conn, tenant_id, id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-       let resolved =  match resolved.subscription_payment_method {
-            Some(PaymentMethodTypeEnum::Transfer) =>
-                resolved.subscription_bank_account_id
-                    .or(resolved.customer_bank_account_id)
-                    .or(resolved.invoicing_entity_bank_account_id)
-                    .map_or(  ResolvedPaymentMethod::NotConfigured, ResolvedPaymentMethod::BankTransfer),
-            None | Some(PaymentMethodTypeEnum::Other) =>
-                ResolvedPaymentMethod::NotConfigured,
-            Some(_) =>
-                resolved.subscription_payment_method_id
-                    .or(resolved.customer_payment_method_id)
-                    .map_or(  ResolvedPaymentMethod::NotConfigured,  ResolvedPaymentMethod::CustomerPaymentMethod)
+        let resolved = match resolved.subscription_payment_method {
+            Some(PaymentMethodTypeEnum::Transfer) => resolved
+                .subscription_bank_account_id
+                .or(resolved.customer_bank_account_id)
+                .or(resolved.invoicing_entity_bank_account_id)
+                .map_or(
+                    ResolvedPaymentMethod::NotConfigured,
+                    ResolvedPaymentMethod::BankTransfer,
+                ),
+            None | Some(PaymentMethodTypeEnum::Other) => ResolvedPaymentMethod::NotConfigured,
+            Some(_) => resolved
+                .subscription_payment_method_id
+                .or(resolved.customer_payment_method_id)
+                .map_or(
+                    ResolvedPaymentMethod::NotConfigured,
+                    ResolvedPaymentMethod::CustomerPaymentMethod,
+                ),
         };
 
         Ok(resolved)

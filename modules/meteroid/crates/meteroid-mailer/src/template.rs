@@ -75,7 +75,6 @@ pub struct HeaderTemplate {
 #[template(path = "footer.stpl")]
 pub struct FooterTemplate {}
 
-
 #[derive(TemplateSimple)]
 #[template(path = "invoice_ready.stpl")]
 pub struct InvoiceReadyContent {
@@ -91,7 +90,6 @@ pub struct InvoiceReadyContent {
 pub struct InvoiceReadyTemplate {
     pub tpl: LayoutTemplate<InvoiceReadyContent>,
 }
-
 
 impl From<InvoiceReady> for InvoiceReadyTemplate {
     fn from(data: InvoiceReady) -> Self {
@@ -160,6 +158,5 @@ impl From<InvoicePaid> for InvoicePaidTemplate {
                 content,
             },
         }
-
     }
 }

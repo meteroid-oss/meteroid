@@ -1,20 +1,28 @@
-use diesel_async::scoped_futures::ScopedFutureExt;
-use crate::{domain, StoreResult};
 use crate::store::{PgConn, Store};
+use crate::{StoreResult, domain};
+use diesel_async::scoped_futures::ScopedFutureExt;
 
-use crate::errors::StoreError;
-use common_domain::ids::{InvoiceId, PaymentTransactionId, TenantId};
-use error_stack::Report;
-use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowPatch};
+use crate::domain::PaymentIntent;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::PaymentIntent;
+use crate::errors::StoreError;
+use common_domain::ids::{InvoiceId, PaymentTransactionId, TenantId};
+use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowPatch};
+use error_stack::Report;
 
 #[async_trait::async_trait]
 pub trait PaymentTransactionInterface {
-    async fn list_payment_tx_by_invoice_id(&self,  tenant_id: TenantId, invoice_id: InvoiceId) -> StoreResult<Vec<PaymentTransaction>> ;
+    async fn list_payment_tx_by_invoice_id(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Vec<PaymentTransaction>>;
 
-    async fn last_settled_payment_tx_by_invoice_id(&self, tenant_id: TenantId, invoice_id: InvoiceId) -> StoreResult<Option<PaymentTransaction>>;
+    async fn last_settled_payment_tx_by_invoice_id(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Option<PaymentTransaction>>;
 
     async fn consolidate_intent_and_transaction_tx(
         &self,
@@ -23,19 +31,24 @@ pub trait PaymentTransactionInterface {
         payment_intent: PaymentIntent,
     ) -> error_stack::Result<PaymentTransaction, StoreError>;
 
-    async fn get_payment_tx_by_id_for_update(&self, conn: &mut PgConn, id: PaymentTransactionId, tenant_id: TenantId) -> StoreResult<PaymentTransaction> ;
+    async fn get_payment_tx_by_id_for_update(
+        &self,
+        conn: &mut PgConn,
+        id: PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<PaymentTransaction>;
 }
 
 #[async_trait::async_trait]
 impl PaymentTransactionInterface for Store {
-
-    async fn list_payment_tx_by_invoice_id(&self, tenant_id: TenantId, invoice_id: InvoiceId) -> StoreResult<Vec<PaymentTransaction>> {
+    async fn list_payment_tx_by_invoice_id(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Vec<PaymentTransaction>> {
         let mut conn = self.get_conn().await?;
-        PaymentTransactionRow::list_by_invoice_id(
-            &mut conn,
-            invoice_id,
-            tenant_id,
-        ).await
+        PaymentTransactionRow::list_by_invoice_id(&mut conn, invoice_id, tenant_id)
+            .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(|rows| {
                 rows.into_iter()
@@ -44,17 +57,16 @@ impl PaymentTransactionInterface for Store {
             })
     }
 
-    async fn last_settled_payment_tx_by_invoice_id(&self, tenant_id: TenantId, invoice_id: InvoiceId) -> StoreResult<Option<PaymentTransaction>> {
+    async fn last_settled_payment_tx_by_invoice_id(
+        &self,
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    ) -> StoreResult<Option<PaymentTransaction>> {
         let mut conn = self.get_conn().await?;
-        PaymentTransactionRow::last_settled_by_invoice_id(
-            &mut conn,
-            invoice_id,
-            tenant_id,
-        ).await
+        PaymentTransactionRow::last_settled_by_invoice_id(&mut conn, invoice_id, tenant_id)
+            .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|row_opt| {
-                row_opt.map(|row| row.into())
-            })
+            .map(|row_opt| row_opt.map(|row| row.into()))
     }
 
     async fn consolidate_intent_and_transaction_tx(
@@ -108,24 +120,32 @@ impl PaymentTransactionInterface for Store {
                     let transaction: PaymentTransaction = updated_transaction.into();
 
                     self.internal
-                        .insert_outbox_events_tx(conn, vec![OutboxEvent::payment_transaction_saved(transaction.clone().into())])
+                        .insert_outbox_events_tx(
+                            conn,
+                            vec![OutboxEvent::payment_transaction_saved(
+                                transaction.clone().into(),
+                            )],
+                        )
                         .await?;
 
                     Ok(transaction)
                 }
-                    .scope_boxed()
+                .scope_boxed()
             })
             .await?;
 
         Ok(updated_transaction.into())
     }
 
-    async fn get_payment_tx_by_id_for_update(&self, conn: &mut PgConn, id: PaymentTransactionId, tenant_id: TenantId) -> StoreResult<PaymentTransaction> {
-
+    async fn get_payment_tx_by_id_for_update(
+        &self,
+        conn: &mut PgConn,
+        id: PaymentTransactionId,
+        tenant_id: TenantId,
+    ) -> StoreResult<PaymentTransaction> {
         PaymentTransactionRow::get_by_id_for_update(conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
             .map(|row| row.into())
-
     }
 }

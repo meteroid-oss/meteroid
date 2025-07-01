@@ -1,8 +1,12 @@
-use crate::customer_payment_methods::{CustomerPaymentMethodRow, CustomerPaymentMethodRowNew, ResolvedSubscriptionPaymentMethod};
+use crate::customer_payment_methods::{
+    CustomerPaymentMethodRow, CustomerPaymentMethodRowNew, ResolvedSubscriptionPaymentMethod,
+};
 
 use crate::errors::IntoDbResult;
 use crate::{DbResult, PgConn};
-use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId,
+};
 use diesel::{ExpressionMethods, QueryDsl, SelectableHelper, debug_query};
 use error_stack::ResultExt;
 
@@ -53,15 +57,13 @@ impl CustomerPaymentMethodRow {
         tenant_id_param: TenantId,
         subscription_id_param: SubscriptionId,
     ) -> DbResult<ResolvedSubscriptionPaymentMethod> {
-        use crate::schema::subscription::dsl as sub_dsl;
         use crate::schema::customer::dsl as cust_dsl;
         use crate::schema::invoicing_entity::dsl as ie_dsl;
+        use crate::schema::subscription::dsl as sub_dsl;
         use diesel_async::RunQueryDsl;
 
         let query = sub_dsl::subscription
-            .inner_join(
-                cust_dsl::customer.inner_join(ie_dsl::invoicing_entity)
-            )
+            .inner_join(cust_dsl::customer.inner_join(ie_dsl::invoicing_entity))
             .filter(sub_dsl::id.eq(subscription_id_param))
             .filter(sub_dsl::tenant_id.eq(tenant_id_param))
             .select(ResolvedSubscriptionPaymentMethod::as_select());

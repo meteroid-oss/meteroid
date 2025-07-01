@@ -18,10 +18,10 @@ use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 
+use crate::data::ids::TENANT_ID;
 use meteroid_store::domain::{LineItem, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
-use crate::data::ids::TENANT_ID;
 
 struct TestContext {
     setup: MeteroidSetup,
@@ -713,9 +713,11 @@ async fn test_subscription_create_invoice_rate() {
     let db_invoice_monthly = &db_invoices
         .iter()
         .find(|i| {
-            i.invoice.subscription_id.unwrap().to_string() == sub_monthly.subscription.clone().unwrap().id
+            i.invoice.subscription_id.unwrap().to_string()
+                == sub_monthly.subscription.clone().unwrap().id
         })
-        .unwrap().invoice;
+        .unwrap()
+        .invoice;
 
     let invoice_lines_monthly: Vec<LineItem> = db_invoice_monthly.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
@@ -734,7 +736,8 @@ async fn test_subscription_create_invoice_rate() {
     let db_invoice_annual = db_invoices
         .iter()
         .find(|i| {
-            i.invoice.subscription_id.unwrap().to_string() == sub_annual.subscription.clone().unwrap().id
+            i.invoice.subscription_id.unwrap().to_string()
+                == sub_annual.subscription.clone().unwrap().id
         })
         .unwrap();
 

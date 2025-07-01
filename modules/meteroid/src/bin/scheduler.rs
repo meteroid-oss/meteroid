@@ -37,8 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let usage_clients = Arc::new(MeteringUsageClient::get().clone());
 
-    let services = Arc::new(Services::new(store.clone(), usage_clients.clone(), svix, stripe));
-
+    let services = Arc::new(Services::new(
+        store.clone(),
+        usage_clients.clone(),
+        svix,
+        stripe,
+    ));
 
     let object_store_service = Arc::new(S3Storage::try_new(
         &config.object_store_uri,
@@ -65,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::new(currency_rate_service),
         pdf_service.clone(),
         mailer_service,
-        config
+        config,
     )
     .await;
 

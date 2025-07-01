@@ -8,6 +8,7 @@ use metering::ingest::domain::{PreprocessedEventRow, RawEventRow};
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid_grpc::meteroid::api;
+use meteroid_mailer::config::MailerConfig;
 use std::sync::Arc;
 use std::time::Duration;
 use tonic::Request;
@@ -73,6 +74,7 @@ async fn test_metering_ingestion() {
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
         Arc::new(metering_client),
+        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
     .await;
 

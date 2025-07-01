@@ -3,6 +3,7 @@ use crate::adapters::payment_service_providers::initialize_payment_provider;
 use crate::domain::connectors::Connector;
 use crate::domain::payment_transactions::{PaymentIntent, PaymentTransaction};
 use crate::errors::StoreError;
+use crate::repositories::payment_transactions::PaymentTransactionInterface;
 use crate::services::Services;
 use crate::store::PgConn;
 use common_domain::ids::{
@@ -10,13 +11,10 @@ use common_domain::ids::{
 };
 use diesel_models::customer_connection::CustomerConnectionDetailsRow;
 use diesel_models::customer_payment_methods::CustomerPaymentMethodRow;
-use diesel_models::enums::{
-    PaymentStatusEnum, PaymentTypeEnum,
-};
+use diesel_models::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::payments::PaymentTransactionRowNew;
 use error_stack::{Report, ResultExt};
-use crate::repositories::payment_transactions::PaymentTransactionInterface;
 
 impl Services {
     /// Creates a payment intent and the associated payment transaction.
@@ -78,8 +76,13 @@ impl Services {
             .await?;
 
         // Consolidate the transaction
-        let tx =  self.store
-            .consolidate_intent_and_transaction_tx(conn, inserted_transaction.into(), payment_intent)
+        let tx = self
+            .store
+            .consolidate_intent_and_transaction_tx(
+                conn,
+                inserted_transaction.into(),
+                payment_intent,
+            )
             .await?;
 
         Ok(tx)
@@ -122,6 +125,4 @@ impl Services {
 
         Ok(payment_intent)
     }
-
-
 }

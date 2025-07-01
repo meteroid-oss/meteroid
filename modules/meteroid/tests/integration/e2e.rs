@@ -20,14 +20,17 @@ use meteroid_grpc::meteroid::api::billablemetrics::v1::{
     Aggregation, CreateBillableMetricRequest, SegmentationMatrix,
 };
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
+use meteroid_mailer::config::MailerConfig;
 use meteroid_store::Store;
 use meteroid_store::domain::enums::{InvoiceStatusEnum, InvoiceType};
-use meteroid_store::domain::{Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus, OrderByRequest, PaginationRequest};
+use meteroid_store::domain::{
+    Address, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
+    OrderByRequest, PaginationRequest,
+};
 use meteroid_store::repositories::InvoiceInterface;
 use rust_decimal::Decimal;
 use tonic::Request;
 use uuid::{Uuid, uuid};
-use meteroid_mailer::config::MailerConfig;
 /*
 Plan with Capacity
 (aka fixed advance fee + usage fee)
@@ -101,8 +104,7 @@ async fn test_metering_e2e() {
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
         Arc::new(metering_client),
-     meteroid_mailer::service::mailer_service(MailerConfig::dummy())
-
+        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
     .await;
 

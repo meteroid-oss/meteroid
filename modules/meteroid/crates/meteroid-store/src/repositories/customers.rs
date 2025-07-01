@@ -5,7 +5,13 @@ use crate::domain::pgmq::{
     HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PennylaneSyncCustomer,
     PennylaneSyncRequestEvent, PgmqQueue,
 };
-use crate::domain::{ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoicePaymentStatus, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest};
+use crate::domain::{
+    ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew,
+    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
+    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoicePaymentStatus, InvoiceTotals,
+    InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
+    PaginationRequest,
+};
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
 use crate::repositories::connectors::ConnectorsInterface;

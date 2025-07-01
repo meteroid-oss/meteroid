@@ -74,8 +74,6 @@ pub struct SetupIntent {
     pub metadata: HashMap<String, String>,
 }
 
-
-
 #[async_trait::async_trait]
 pub trait SetupIntentApi {
     async fn create_setup_intent(

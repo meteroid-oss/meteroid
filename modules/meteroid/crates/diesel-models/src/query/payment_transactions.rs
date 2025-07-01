@@ -4,11 +4,11 @@ use crate::payments::{
 };
 use crate::{DbResult, PgConn};
 
+use crate::enums::PaymentStatusEnum;
 use common_domain::ids::{InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
 use diesel::debug_query;
-use diesel::prelude::{ExpressionMethods, QueryDsl, SelectableHelper, OptionalExtension,};
+use diesel::prelude::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
 use error_stack::ResultExt;
-use crate::enums::PaymentStatusEnum;
 
 impl PaymentTransactionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PaymentTransactionRow> {
