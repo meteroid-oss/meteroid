@@ -24,7 +24,7 @@ use diesel_models::subscriptions::SubscriptionRow;
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
-use crate::jwt_claims::{PortalJwtClaims, ResourceAccess};
+use crate::jwt_claims::{generate_portal_token, PortalJwtClaims, ResourceAccess};
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use diesel_models::PgConn;
@@ -420,19 +420,11 @@ pub fn generate_checkout_token(
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
 ) -> StoreResult<String> {
-    let claims = serde_json::to_value(PortalJwtClaims::new(
+    generate_portal_token(
+        jwt_secret,
         tenant_id,
-        ResourceAccess::SubscriptionCheckout(subscription_id),
-    ))
-    .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
-
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &claims,
-        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
+        ResourceAccess::SubscriptionCheckout(subscription_id)
     )
-    .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
-    Ok(token)
 }
 
 // fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {

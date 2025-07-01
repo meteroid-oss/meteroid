@@ -1,15 +1,13 @@
-use super::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType};
+use super::enums::{  InvoiceStatusEnum, InvoiceType,  InvoicePaymentStatus};
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
-use crate::utils::decimals::ToSubunit;
+use common_utils::decimals::ToSubunit;
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{
-    BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, SubscriptionId, TenantId,
-};
+use common_domain::ids::{BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId, TenantId};
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
@@ -24,6 +22,7 @@ use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
 use uuid::Uuid;
+use diesel_models::enums::PaymentStatusEnum;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
@@ -31,24 +30,17 @@ pub struct Invoice {
     pub id: InvoiceId,
     #[from(~.into())]
     pub status: InvoiceStatusEnum,
-    #[from(~.map(| x | x.into()))]
-    pub external_status: Option<InvoiceExternalStatusEnum>,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
-    pub external_invoice_id: Option<String>,
     pub invoice_number: String,
     #[from(serde_json::from_value(~).map_err(| e | {
     StoreError::SerdeError("Failed to deserialize line_items".to_string(), e)
     }) ?)]
     pub line_items: Vec<LineItem>,
-    pub issued: bool,
-    pub issue_attempts: i32,
-    pub last_issue_attempt_at: Option<NaiveDateTime>,
-    pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub plan_version_id: Option<PlanVersionId>,
@@ -67,7 +59,6 @@ pub struct Invoice {
     pub memo: Option<String>,
     pub due_at: Option<NaiveDateTime>,
     pub plan_name: Option<String>,
-
     #[from(serde_json::from_value(~).map_err(| e | {
     StoreError::SerdeError("Failed to deserialize customer_details".to_string(), e)
     }) ?)]
@@ -76,15 +67,20 @@ pub struct Invoice {
     StoreError::SerdeError("Failed to deserialize seller_details".to_string(), e)
     }) ?)]
     pub seller_details: InlineInvoicingEntity,
-    pub pdf_document_id: Option<String>,
-    pub xml_document_id: Option<String>,
+    pub pdf_document_id: Option<StoredDocumentId>,
+    pub xml_document_id: Option<StoredDocumentId>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub conn_meta: Option<ConnectionMeta>,
+    pub auto_advance: bool,
+    pub issued_at: Option<NaiveDateTime>,
+    #[from(~.into())]
+    pub payment_status: InvoicePaymentStatus,
+    pub paid_at: Option<NaiveDateTime>,
 }
 
 impl Invoice {
     pub fn can_edit(&self) -> bool {
-        self.status == InvoiceStatusEnum::Draft || self.status == InvoiceStatusEnum::Pending
+        self.status == InvoiceStatusEnum::Draft
     }
 }
 
@@ -94,22 +90,15 @@ impl Invoice {
 pub struct InvoiceNew {
     #[into(~.into())]
     pub status: InvoiceStatusEnum,
-    #[into(~.map(| x | x.into()))]
-    pub external_status: Option<InvoiceExternalStatusEnum>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
-    pub external_invoice_id: Option<String>,
     pub invoice_number: String,
     #[into(serde_json::to_value(& ~).map_err(| e | {
     StoreError::SerdeError("Failed to serialize line_items".to_string(), e)
     }) ?)]
     pub line_items: Vec<LineItem>,
-    pub issued: bool,
-    pub issue_attempts: i32,
-    pub last_issue_attempt_at: Option<NaiveDateTime>,
-    pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub plan_version_id: Option<PlanVersionId>,
@@ -135,6 +124,9 @@ pub struct InvoiceNew {
     StoreError::SerdeError("Failed to serialize seller_details".to_string(), e)
     }) ?)]
     pub seller_details: InlineInvoicingEntity,
+    pub auto_advance: bool,
+    #[into(~.into())]
+    pub payment_status: InvoicePaymentStatus,
 }
 
 #[derive(Debug, o2o)]

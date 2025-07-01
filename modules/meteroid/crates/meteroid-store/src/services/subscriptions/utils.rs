@@ -7,7 +7,7 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store};
-use crate::utils::decimals::ToSubunit;
+use common_utils::decimals::ToSubunit;
 use chrono::NaiveDate;
 use diesel_models::errors::DatabaseError;
 use error_stack::{Report, report};
@@ -480,79 +480,8 @@ impl SubscriptionDetails {
         Some(periods.end)
     }
 }
-//
-// pub fn subscription_to_draft(
-//     subscription: &SubscriptionInvoiceCandidate,
-//     customer: &Customer,
-//     invoicing_entity: &InvoicingEntity,
-// ) -> StoreResult<domain::invoices::InvoiceNew> {
-//     let billing_start_date = subscription
-//         .billing_start_date
-//         .unwrap_or(subscription.start_date);
-//
-//     let period = crate::utils::periods::calculate_period_range(
-//         billing_start_date,
-//         subscription.billing_day_anchor as u16,
-//         0,
-//         &subscription.period,
-//     );
-//
-//     let due_date = (period.end + chrono::Duration::days(subscription.net_terms as i64))
-//         .and_time(NaiveTime::MIN);
-//
-//     // should we have a draft number ? TODO re-set optional, and also implement it in finalize, and fetch from tenant config
-//     let invoice_number = "draft";
-//
-//     let invoice = crate::domain::invoices::InvoiceNew {
-//         tenant_id: subscription.tenant_id,
-//         customer_id: subscription.customer_id,
-//         subscription_id: Some(subscription.id),
-//         plan_version_id: Some(subscription.plan_version_id),
-//         invoice_type: InvoiceType::Recurring,
-//         currency: subscription.currency.clone(),
-//         external_invoice_id: None,
-//         line_items: vec![], // TODO
-//         issued: false,
-//         issue_attempts: 0,
-//         last_issue_attempt_at: None,
-//         last_issue_error: None,
-//         data_updated_at: None,
-//         status: InvoiceStatusEnum::Draft,
-//         external_status: None,
-//         invoice_date: period.end,
-//         finalized_at: None,
-//         subtotal: 0,
-//         subtotal_recurring: 0,
-//         tax_rate: 0,
-//         tax_amount: 0,
-//         total: 0,
-//         amount_due: 0,
-//         net_terms: subscription.net_terms,
-//         reference: None,
-//         memo: None,
-//         due_at: Some(due_date),
-//         plan_name: Some(subscription.plan_name.clone()),
-//         invoice_number: invoice_number.to_string(),
-//         customer_details: InlineCustomer {
-//             id: subscription.customer_id,
-//             name: customer.name.clone(),
-//             billing_address: customer.billing_address.clone(),
-//             vat_number: customer.vat_number.clone(),
-//             email: customer.billing_email.clone(),
-//             alias: customer.alias.clone(),
-//             snapshot_at: chrono::Utc::now().naive_utc(),
-//         },
-//         seller_details: InlineInvoicingEntity {
-//             id: invoicing_entity.id,
-//             legal_name: invoicing_entity.legal_name.clone(),
-//             vat_number: invoicing_entity.vat_number.clone(),
-//             address: invoicing_entity.address(),
-//             snapshot_at: chrono::Utc::now().naive_utc(),
-//         },
-//     };
-//
-//     Ok(invoice)
-// }
+
+
 
 impl Services {
     pub(super) async fn insert_created_outbox_events_tx(

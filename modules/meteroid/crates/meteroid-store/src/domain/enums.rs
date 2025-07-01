@@ -94,26 +94,27 @@ pub enum FangTaskState {
     Retried,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
-#[map_owned(diesel_enums::InvoiceExternalStatusEnum)]
-pub enum InvoiceExternalStatusEnum {
-    Deleted,
-    Draft,
-    Finalized,
-    Paid,
-    PaymentFailed,
-    Uncollectible,
-    Void,
-}
+
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceStatusEnum)]
 pub enum InvoiceStatusEnum {
     Draft,
     Finalized,
-    Pending,
     Void,
+    Uncollectible
 }
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
+#[map_owned(diesel_enums::InvoicePaymentStatus)]
+pub enum InvoicePaymentStatus {
+    Unpaid,
+    PartiallyPaid,
+    Paid,
+    Errored,
+}
+
+ 
 
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceType)]

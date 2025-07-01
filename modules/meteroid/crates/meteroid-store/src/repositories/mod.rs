@@ -25,6 +25,7 @@ pub mod invoicing_entities;
 pub mod organizations;
 pub mod outbox;
 pub mod pgmq;
+pub mod payment_transactions;
 pub mod price_components;
 pub mod product_families;
 pub mod products;
@@ -35,6 +36,4 @@ pub mod subscriptions;
 pub mod customer_payment_methods;
 pub mod oauth;
 pub mod users;
-pub mod webhooks;
-// mod temp;
-// mod temp2;
+

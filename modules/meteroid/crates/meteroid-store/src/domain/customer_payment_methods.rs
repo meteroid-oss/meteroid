@@ -2,9 +2,7 @@ use super::enums::PaymentMethodTypeEnum;
 use chrono::NaiveDateTime;
 
 use crate::domain::ConnectorProviderEnum;
-use common_domain::ids::{
-    ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId,
-};
+use common_domain::ids::{BankAccountId, ConnectorId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId};
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
@@ -55,4 +53,21 @@ pub struct SetupIntent {
     pub provider: ConnectorProviderEnum,
     pub connector_id: ConnectorId,
     pub connection_id: CustomerConnectionId,
+}
+
+// pub struct ResolvedPaymentMethod {
+//     subscription_payment_method: Option<PaymentMethodTypeEnum>,
+//     subscription_bank_account_id: Option<BankAccountId>,
+//     customer_bank_account_id: Option<BankAccountId>,
+//     invoicing_entity_bank_account_id: Option<BankAccountId>,
+//     subscription_payment_method_id: Option<CustomerPaymentMethodId>,
+//     customer_payment_method_id: Option<CustomerPaymentMethodId>,
+// }
+
+
+
+pub enum ResolvedPaymentMethod {
+    CustomerPaymentMethod(CustomerPaymentMethodId),
+    BankTransfer(BankAccountId),
+    NotConfigured, // TODO we could separate NotConfigured and RequiresCheckout (for the first there's no connector), or it's done elsewhere
 }

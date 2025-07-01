@@ -171,17 +171,6 @@ pub struct ShippingAddress {
 
 json_value_serde!(ShippingAddress);
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct StripeCustomerConfig {
-    pub customer_id: String,
-    pub collection_method: StripeCollectionMethod,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum StripeCollectionMethod {
-    ChargeAutomatically,
-    SendInvoice,
-}
 
 #[derive(Clone, Debug)]
 pub struct CustomerTopUpBalance {

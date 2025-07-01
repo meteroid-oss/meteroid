@@ -2,7 +2,7 @@ use crate::errors;
 use error_stack::Result;
 use secrecy::SecretString;
 use std::fmt::Debug;
-
+use meteroid_store::domain::connectors::Connector;
 use meteroid_store::Store;
 
 pub enum IncomingWebhookEvent {
@@ -35,6 +35,7 @@ pub trait WebhookAdapter: AdapterCommon + Sync {
     async fn process_webhook_event(
         &self,
         request: &ParsedRequest,
+        connector: &Connector,
         store: Store,
     ) -> Result<bool, errors::AdapterWebhookError>;
 }

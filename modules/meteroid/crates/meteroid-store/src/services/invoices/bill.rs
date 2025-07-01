@@ -12,6 +12,8 @@ use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
+use crate::domain::pgmq::{PaymentRequestEvent, PgmqQueue};
+use crate::repositories::pgmq::PgmqInterface;
 
 pub enum InvoiceBillingMode {
     /// Post checkout. We request a payment and don't finalize the invoice until paid.
@@ -20,9 +22,9 @@ pub enum InvoiceBillingMode {
         total_amount_confirmation: u64,
         currency_confirmation: String,
     },
-    /// Subscription renewal or terminated. If grace period, we schedule finalization. Else, we immediately finalize and request payment.
+    /// Subscription renewal or terminated. If grace period, we schedule finalization. Else, we immediately finalize
     AwaitGracePeriodIfApplicable,
-    /// Subscription created without checkout (ex: upgrade/downgrade). We immediately finalize and request payment.
+    /// Subscription created without checkout (ex: upgrade/downgrade). We immediately finalize
     Immediate,
 }
 
@@ -96,7 +98,7 @@ impl Services {
                         .attach_printable("Total due amount is different from the confirmation"));
                 }
 
-                // We trigger the payment but don't finalize the invoice yet, it will be done via the webhook
+                // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook
                 let res = self
                     .process_invoice_payment_tx(
                         conn,
@@ -145,12 +147,12 @@ impl Services {
                 }
 
                 // else we finalize immediately, and trigger payment
-                self.finalize_and_process_payment(conn, tenant_id, draft_invoice.id, &subscription)
+                self.finalize_invoice_tx(conn, draft_invoice.id, tenant_id, false, &Some(subscription.clone()))
                     .await?;
             }
             InvoiceBillingMode::Immediate => {
                 // Finalize and process payment immediately
-                self.finalize_and_process_payment(conn, tenant_id, draft_invoice.id, &subscription)
+                self.finalize_invoice_tx(conn, draft_invoice.id, tenant_id, false, &Some(subscription.clone()))
                     .await?;
             }
         };
@@ -175,38 +177,6 @@ impl Services {
         })
     }
 
-    /// Finalize invoice and process payment
-    async fn finalize_and_process_payment(
-        &self,
-        conn: &mut PgConn,
-        tenant_id: TenantId,
-        invoice_id: InvoiceId,
-        subscription: &SubscriptionDetails,
-    ) -> StoreResult<()> {
-        self.finalize_invoice_tx(
-            conn,
-            invoice_id,
-            tenant_id,
-            false,
-            &Some(subscription.clone()),
-        )
-        .await?;
-
-        let subscription_payment_method = SubscriptionRow::get_subscription_payment_method_by_id(
-            conn,
-            &tenant_id,
-            subscription.subscription.id,
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        if let Some(payment_method) = subscription_payment_method {
-            self.process_invoice_payment_tx(conn, tenant_id, invoice_id, payment_method)
-                .await?;
-        }
-
-        Ok(())
-    }
 
     /// Schedule invoice finalization after grace period
     async fn schedule_invoice_finalization(

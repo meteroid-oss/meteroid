@@ -5,12 +5,7 @@ use crate::domain::pgmq::{
     HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PennylaneSyncCustomer,
     PennylaneSyncRequestEvent, PgmqQueue,
 };
-use crate::domain::{
-    ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew,
-    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
-    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoiceTotals, InvoiceTotalsParams,
-    InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest,
-};
+use crate::domain::{ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew, CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice, InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoicePaymentStatus, InvoiceTotals, InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec, PaginationRequest};
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
 use crate::repositories::connectors::ConnectorsInterface;
@@ -444,24 +439,18 @@ impl CustomersInterface for Store {
 
                     let invoice_new = InvoiceNew {
                         status: InvoiceStatusEnum::Finalized,
-                        external_status: None,
                         tenant_id: req.tenant_id,
                         customer_id: req.customer_id,
                         subscription_id: None,
                         currency: customer.currency,
                         due_at,
                         plan_name: None,
-                        external_invoice_id: None, // todo check later if we want it sync (instead of issue_worker)
                         invoice_number: format_invoice_number(
                             invoicing_entity.next_invoice_number,
                             invoicing_entity.invoice_number_pattern,
                             now.date(),
                         ),
                         line_items,
-                        issued: false,
-                        issue_attempts: 0,
-                        last_issue_attempt_at: None,
-                        last_issue_error: None,
                         data_updated_at: None,
                         invoice_date: now.date(),
                         total: totals.total,
@@ -492,6 +481,8 @@ impl CustomersInterface for Store {
                             vat_number: invoicing_entity.vat_number.clone(),
                             snapshot_at: now,
                         },
+                        auto_advance: true,
+                        payment_status: InvoicePaymentStatus::Unpaid,
                     };
 
                     let inserted_invoice = insert_invoice_tx(self, conn, invoice_new).await?;

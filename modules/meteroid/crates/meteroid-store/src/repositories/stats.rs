@@ -1,6 +1,6 @@
 use crate::domain::stats::*;
 use crate::errors::StoreError;
-use crate::utils::decimals::ToSubunit;
+use common_utils::decimals::ToSubunit;
 use crate::{Store, StoreResult};
 use common_domain::ids::TenantId;
 use diesel_models::stats::{

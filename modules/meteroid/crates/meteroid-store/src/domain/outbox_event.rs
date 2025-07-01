@@ -1,17 +1,11 @@
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::enums::{BillingPeriodEnum, InvoiceStatusEnum};
 use crate::domain::pgmq::{PgmqMessage, PgmqMessageNew};
-use crate::domain::{
-    Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, SegmentationMatrix,
-    ShippingAddress, Subscription, SubscriptionStatusEnum, UnitConversionRoundingEnum,
-};
+use crate::domain::{Address, BillableMetric, BillingMetricAggregateEnum, Customer, Invoice, SegmentationMatrix, ShippingAddress, Subscription, SubscriptionStatusEnum, UnitConversionRoundingEnum, PaymentTransaction, PaymentStatusEnum, PaymentTypeEnum};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_serde};
 use chrono::{NaiveDate, NaiveDateTime};
-use common_domain::ids::{
-    BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, EventId, InvoiceId, PlanId,
-    PlanVersionId, ProductFamilyId, ProductId, SubscriptionId, TenantId,
-};
+use common_domain::ids::{BankAccountId, BaseId, BillableMetricId, ConnectorId, CustomerId, CustomerPaymentMethodId, EventId, InvoiceId, PaymentTransactionId, PlanId, PlanVersionId, ProductFamilyId, ProductId, StoredDocumentId, SubscriptionId, TenantId};
 use diesel_models::outbox_event::OutboxEventRowNew;
 use diesel_models::pgmq::PgmqMessageRowNew;
 use error_stack::Report;
@@ -27,11 +21,13 @@ pub enum OutboxEvent {
     InvoiceCreated(Box<InvoiceEvent>),
     InvoiceFinalized(Box<InvoiceEvent>),
     InvoicePaid(Box<InvoiceEvent>),
-    InvoicePdfGenerated(Box<InvoicePdfGeneratedEvent>),
+    // only triggered at finalization. Other pdfs (other lang etc) do not trigger this.
+    InvoiceAccountingPdfGenerated(Box<InvoicePdfGeneratedEvent>),
     SubscriptionCreated(Box<SubscriptionEvent>),
+    PaymentTransactionSaved(Box<PaymentTransactionEvent>),
 }
 
-#[derive(Display, Debug, Serialize, Deserialize)]
+#[derive(Display, Debug, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
     CustomerCreated,
     BillableMetricCreated,
@@ -40,6 +36,7 @@ pub enum EventType {
     InvoicePaid,
     InvoicePdfGenerated,
     SubscriptionCreated,
+    PaymentTransactionReceived
 }
 
 json_value_serde!(OutboxEvent);
@@ -52,8 +49,9 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(event) => event.id,
             OutboxEvent::InvoiceFinalized(event) => event.id,
             OutboxEvent::InvoicePaid(event) => event.id,
-            OutboxEvent::InvoicePdfGenerated(event) => event.id,
+            OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.id,
             OutboxEvent::SubscriptionCreated(event) => event.id,
+            OutboxEvent::PaymentTransactionSaved(event) => event.id,
         }
     }
 
@@ -64,8 +62,9 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
             OutboxEvent::InvoicePaid(event) => event.tenant_id,
-            OutboxEvent::InvoicePdfGenerated(event) => event.tenant_id,
+            OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.tenant_id,
             OutboxEvent::SubscriptionCreated(event) => event.tenant_id,
+            OutboxEvent::PaymentTransactionSaved(event) => event.tenant_id,
         }
     }
 
@@ -76,8 +75,9 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoicePaid(event) => event.invoice_id.as_uuid(),
-            OutboxEvent::InvoicePdfGenerated(event) => event.invoice_id.as_uuid(),
+            OutboxEvent::InvoiceAccountingPdfGenerated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::SubscriptionCreated(event) => event.subscription_id.as_uuid(),
+            OutboxEvent::PaymentTransactionSaved(event) => event.payment_transaction_id.as_uuid(),
         }
     }
 
@@ -88,8 +88,9 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
             OutboxEvent::InvoicePaid(_) => "Invoice".to_string(),
-            OutboxEvent::InvoicePdfGenerated(_) => "Invoice".to_string(),
+            OutboxEvent::InvoiceAccountingPdfGenerated(_) => "Invoice".to_string(),
             OutboxEvent::SubscriptionCreated(_) => "Subscription".to_string(),
+            OutboxEvent::PaymentTransactionSaved(_) => "PaymentTransaction".to_string(),
         }
     }
 
@@ -100,8 +101,9 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
             OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
-            OutboxEvent::InvoicePdfGenerated(_) => EventType::InvoicePdfGenerated,
+            OutboxEvent::InvoiceAccountingPdfGenerated(_) => EventType::InvoicePdfGenerated,
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
+            OutboxEvent::PaymentTransactionSaved(_) => EventType::PaymentTransactionReceived,
         }
     }
 
@@ -121,12 +123,20 @@ impl OutboxEvent {
         OutboxEvent::InvoiceFinalized(Box::new(event))
     }
 
+    pub fn invoice_paid(event: InvoiceEvent) -> OutboxEvent {
+        OutboxEvent::InvoicePaid(Box::new(event))
+    }
+
     pub fn invoice_pdf_generated(event: InvoicePdfGeneratedEvent) -> OutboxEvent {
-        OutboxEvent::InvoicePdfGenerated(Box::new(event))
+        OutboxEvent::InvoiceAccountingPdfGenerated(Box::new(event))
     }
 
     pub fn subscription_created(event: SubscriptionEvent) -> OutboxEvent {
         OutboxEvent::SubscriptionCreated(Box::new(event))
+    }
+
+    pub fn payment_transaction_saved(event: PaymentTransactionEvent) -> OutboxEvent {
+        OutboxEvent::PaymentTransactionSaved(Box::new(event))
     }
 
     fn payload_json(&self) -> StoreResult<serde_json::Value> {
@@ -292,7 +302,34 @@ pub struct InvoicePdfGeneratedEvent {
     pub invoice_id: InvoiceId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    pub pdf_id: Uuid,
+    pub pdf_id: StoredDocumentId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, o2o)]
+#[map_owned(PaymentTransaction)]
+pub struct PaymentTransactionEvent {
+    #[ghost(EventId::new())]
+    pub id: EventId,
+    #[map(id)]
+    pub payment_transaction_id: PaymentTransactionId,
+    pub tenant_id: TenantId,
+    pub invoice_id: InvoiceId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_transaction_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub processed_at: Option<NaiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refunded_at: Option<NaiveDateTime>,
+    pub amount: i64,
+    pub currency: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payment_method_id: Option<CustomerPaymentMethodId>,
+    pub status: PaymentStatusEnum,
+    pub payment_type: PaymentTypeEnum,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_pdf_id: Option<StoredDocumentId>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
