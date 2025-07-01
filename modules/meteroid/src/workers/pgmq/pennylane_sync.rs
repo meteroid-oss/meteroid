@@ -24,7 +24,8 @@ use moka::Expiry;
 use moka::future::Cache;
 use pennylane_client::client::PennylaneClient;
 use pennylane_client::customer_invoices::{
-    CustomerInvoiceLine, CustomerInvoicesApi, NewCustomerInvoiceImport,
+    CustomerInvoiceLine, CustomerInvoiceLineImputationDates, CustomerInvoicesApi,
+    NewCustomerInvoiceImport,
 };
 use pennylane_client::customers::{BillingAddress, CustomersApi, NewCompany, UpdateCompany};
 use pennylane_client::file_attachments::{FileAttachmentsApi, MediaType, NewAttachment};
@@ -481,6 +482,10 @@ impl PennylaneSync {
                             unit: "".to_string(),
                             vat_rate: "exempt".to_string(), // todo update me after we have tax implemented
                             description: None,
+                            imputation_dates: Some(CustomerInvoiceLineImputationDates {
+                                start_date: x.start_date,
+                                end_date: x.end_date,
+                            }),
                         }
                     })
                     .collect_vec(),

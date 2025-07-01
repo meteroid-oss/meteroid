@@ -97,6 +97,13 @@ pub struct CustomerInvoiceLine {
     pub unit: String,
     pub vat_rate: String, // an enum
     pub description: Option<String>,
+    pub imputation_dates: Option<CustomerInvoiceLineImputationDates>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CustomerInvoiceLineImputationDates {
+    pub start_date: NaiveDate,
+    pub end_date: NaiveDate,
 }
 
 #[derive(Debug, Clone, Deserialize)]
