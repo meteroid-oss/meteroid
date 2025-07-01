@@ -1,0 +1,33 @@
+<div class="footer">
+  <div class="footer-header">
+    <div class="footer-logo">
+      <img src="https://static.meteroid.com/assets/mail-images/meteroid-logo-small.svg" alt="Meteroid Logo">
+      <span class="footer-logo-text">Meteroid</span>
+    </div>
+
+    <div class="social-links">
+      <a href="https://github.com/meteroid-oss/meteroid" class="social-link">
+        <img src="https://static.meteroid.com/assets/mail-images/github.svg" alt="GitHub">
+      </a>
+      <a href="https://bsky.app/profile/meteroid.bsky.social" class="social-link">
+        <img src="https://static.meteroid.com/assets/mail-images/bluesky.svg" alt="Bluesky">
+      </a>
+      <a href="https://linkedin.com/company/meteroid" class="social-link">
+        <img src="https://static.meteroid.com/assets/mail-images/linkedin.svg" alt="Linkedin">
+      </a>
+      <a href="https://go.meteroid.com/discord" class="social-link">
+        <img src="https://static.meteroid.com/assets/mail-images/discord.svg" alt="Discord">
+      </a>
+    </div>
+  </div>
+
+  <div class="footer-address">
+    Meteroid SAS, 165 avenue de Bretagne, 59000 LILLE<br>
+    © 2025 Meteroid. All rights reserved.<br>
+    979116688 RCS Lille Métropole<br>
+  </div>
+
+  <div class="footer-links">
+      <a href="https://meteroid.com">Learn more about Meteroid</a>
+  </div>
+</div>

@@ -49,6 +49,8 @@ pub enum StoreError {
     WebhookServiceError(String),
     #[error("Failed to send email")]
     MailServiceError,
+    #[error("Error in object store service")]
+    ObjectStoreError,
     #[error("Error received from payment provider")]
     PaymentProviderError,
     #[error("OAuth failure: {0}")]

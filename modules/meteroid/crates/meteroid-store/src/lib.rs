@@ -1,4 +1,4 @@
-mod adapters;
+pub mod adapters;
 pub mod constants;
 pub mod crypt;
 pub mod domain;

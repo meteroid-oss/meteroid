@@ -1,0 +1,14 @@
+<div class="content-section">
+  <h1>Your receipt</h1>
+</div>
+
+<div class="content-section">
+  <h2><%= label %></h2>
+  <div class="summary-box">
+    <p>• <strong>Invoice n°:</strong> <%= invoice_number %></p>
+    <p>• <strong>Invoice date:</strong> <%= invoice_date %></p>
+    <p>• <strong>Due at:</strong> <%= invoice_due_date %></p>
+    <p>• <strong>Amount paid:</strong> <%= amount_paid %></p>
+  </div>
+
+</div>

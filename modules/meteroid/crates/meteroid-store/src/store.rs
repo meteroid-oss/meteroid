@@ -40,10 +40,8 @@ pub struct Store {
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub(crate) settings: Settings,
     pub(crate) internal: StoreInternal,
-    pub(crate) svix: Option<Arc<Svix>>,
-    pub(crate) mailer: Arc<dyn MailerService>,
-    pub(crate) stripe: Arc<StripeClient>,
     pub(crate) oauth: OauthServices,
+    pub mailer: Arc<dyn MailerService>,
 }
 
 pub struct StoreConfig {
@@ -54,9 +52,7 @@ pub struct StoreConfig {
     pub skip_email_validation: bool,
     pub public_url: String,
     pub eventbus: Arc<dyn EventBus<Event>>,
-    pub svix: Option<Arc<Svix>>,
     pub mailer: Arc<dyn MailerService>,
-    pub stripe: Arc<StripeClient>,
     pub oauth: OauthServices,
 }
 
@@ -132,9 +128,7 @@ impl Store {
                 skip_email_validation: config.skip_email_validation,
             },
             internal: StoreInternal {},
-            svix: config.svix,
             mailer: config.mailer,
-            stripe: config.stripe,
             oauth: config.oauth,
         })
     }
@@ -148,9 +142,8 @@ impl Store {
             .attach_printable("Failed to get a connection from the pool")
     }
 
-    // Temporary, evaluating if this simplifies the handling of store + diesel interactions within a transaction
 
-    pub(crate) async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
+    pub async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
     where
         F: for<'r> FnOnce(
                 &'r mut PgConn,
@@ -182,11 +175,7 @@ impl Store {
         self.internal.transaction_with(conn, callback).await
     }
 
-    pub(crate) fn svix(&self) -> StoreResult<Arc<Svix>> {
-        self.svix
-            .clone()
-            .ok_or(StoreError::InitializationError("svix client config".into()).into())
-    }
+
 }
 
 impl StoreInternal {

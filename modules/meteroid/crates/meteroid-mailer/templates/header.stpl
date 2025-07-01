@@ -1,0 +1,14 @@
+<div class="header">
+  <div class="logo-container">
+    <% if let Some(logo_url) = logo_url { %>
+      <img src="<%= logo_url %>" alt="<%= company_name %>" class="logo">
+    <% } else { %>
+      <svg class="logo" viewBox="0 0 24 24" fill="none">
+        <title>Checkmark</title>
+        <circle cx="12" cy="12" r="10" fill="black"/>
+        <path d="M8 12L11 15L16 10" stroke="white" stroke-width="2"/>
+      </svg>
+    <% } %>
+    <span class="logo-text"><%= company_name.to_uppercase() %></span>
+  </div>
+</div>

@@ -19,28 +19,19 @@ use std::time::{Duration, Instant};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Starting invoice generation benchmark...");
 
-    // Initialize the Typst PDF generator
     let generator = TypstPdfGenerator::new()?;
-
-    // Number of iterations for the benchmark
     let iterations = 10;
-    // To store timing results
     let mut generation_times = Vec::with_capacity(iterations);
-
-    // Create a test invoice once, to be reused in the benchmark
     let invoice = create_test_invoice();
 
     // Run the benchmark
     for i in 1..=iterations {
         println!("Running iteration {}/{}...", i, iterations);
 
-        // Start timing
         let start = Instant::now();
 
-        // Generate the PDF
         let _pdf_data = generator.generate_pdf(&invoice).await?;
 
-        // Record the elapsed time
         let elapsed = start.elapsed();
         generation_times.push(elapsed);
 
@@ -61,7 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Minimum generation time: {:.2?}", *min_time);
         println!("  Maximum generation time: {:.2?}", *max_time);
 
-        // Optional: Save the last generated PDF
         let pdf_data = generator.generate_pdf(&invoice).await?;
         let output_path = Path::new("benchmark_invoice.pdf");
         std::fs::write(output_path, pdf_data)?;
@@ -74,20 +64,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// Reuse the create_test_invoice function from your example
 fn create_test_invoice() -> Invoice {
     let issue_date = NaiveDate::from_ymd_opt(2025, 4, 1).unwrap();
     let due_date = NaiveDate::from_ymd_opt(2025, 4, 15).unwrap();
     let start_date = NaiveDate::from_ymd_opt(2025, 3, 1).unwrap();
     let end_date = NaiveDate::from_ymd_opt(2025, 3, 31).unwrap();
 
-    // Payment transaction dates
     let payment1_date = NaiveDate::from_ymd_opt(2025, 3, 15).unwrap();
     let payment2_date = NaiveDate::from_ymd_opt(2025, 3, 20).unwrap();
 
     let eur = *iso::find("EUR").unwrap();
 
-    // Create payment information
     let mut payment_info = HashMap::new();
     payment_info.insert("Bank Name".to_string(), "International Bank".to_string());
     payment_info.insert("Account Holder".to_string(), "Acme Inc.".to_string());
@@ -98,22 +85,21 @@ fn create_test_invoice() -> Invoice {
     payment_info.insert("BIC/SWIFT".to_string(), "INTLFRPP".to_string());
     payment_info.insert("Reference".to_string(), "INV-2025-001".to_string());
 
-    // Create payment transactions
     let transactions = vec![
         Transaction {
             method: "Card •••• 7726".to_string(),
             date: payment1_date,
-            amount: 50000, // 500.00 in cents
+            amount: 50000,
         },
         Transaction {
             method: "Bank Transfer".to_string(),
             date: payment2_date,
-            amount: 30000, // 300.00 in cents
+            amount: 30000,
         },
     ];
 
     Invoice {
-        lang: "fr-FR".to_string(), // Try with French language
+        lang: "fr-FR".to_string(),
         organization: Organization {
             name: "Acme Inc.".to_string(),
             logo_src: None,
@@ -151,14 +137,13 @@ fn create_test_invoice() -> Invoice {
             number: "INV-2025-001".to_string(),
             issue_date,
             payment_term: 14,
-            subtotal: 100000, // 1,000.00 in cents
-            tax_amount: 20000, // 200.00 in cents
-            tax_rate: 2000,    // 20.00% (stored as 20.00)
-            total_amount: 120000, // 1,200.00 in cents
+            subtotal: 100000,
+            tax_amount: 20000,
+            tax_rate: 2000,
+            total_amount: 120000,
             currency: eur,
             due_date,
             memo: Some("Thank you for your subscription!".to_string()),
-            // New fields
             payment_url: Some("https://pay.example.com/inv-2025-001".to_string()),
             flags: Flags {
                 show_payment_status: Some(true),
@@ -173,23 +158,23 @@ fn create_test_invoice() -> Invoice {
             InvoiceLine {
                 name: "Consulting Services".to_string(),
                 description: Some("Technical consulting for Q1 2025".to_string()),
-                subtotal: 75000, // 750.00
-                total: 75000,    // 750.00
-                quantity: Some(Decimal::from_str("15.0").unwrap()), // 15 hours
-                unit_price: Some(Decimal::from_str("50.0").unwrap()), // 50.00 per hour
-                vat_rate: Some(Decimal::from_str("20.0").unwrap()), // 20%
+                subtotal: 75000,
+                total: 75000,
+                quantity: Some(Decimal::from_str("15.0").unwrap()),
+                unit_price: Some(Decimal::from_str("50.0").unwrap()),
+                vat_rate: Some(Decimal::from_str("20.0").unwrap()),
                 start_date,
                 end_date,
                 sub_lines: vec![
                     InvoiceSubLine {
                         name: "Frontend Development".to_string(),
-                        total: 25000, // 250.00
+                        total: 25000,
                         quantity: Decimal::from_str("5.0").unwrap(),
                         unit_price: Decimal::from_str("50.0").unwrap(),
                     },
                     InvoiceSubLine {
                         name: "Backend Development".to_string(),
-                        total: 50000, // 500.00
+                        total: 50000,
                         quantity: Decimal::from_str("10.0").unwrap(),
                         unit_price: Decimal::from_str("50.0").unwrap(),
                     },
@@ -198,8 +183,8 @@ fn create_test_invoice() -> Invoice {
             InvoiceLine {
                 name: "Software License".to_string(),
                 description: Some("Annual license renewal".to_string()),
-                subtotal: 25000, // 250.00
-                total: 25000,    // 250.00
+                subtotal: 25000,
+                total: 25000,
                 quantity: Some(Decimal::from_str("1.0").unwrap()),
                 unit_price: Some(Decimal::from_str("250.0").unwrap()),
                 vat_rate: Some(Decimal::from_str("20.0").unwrap()),
@@ -208,7 +193,6 @@ fn create_test_invoice() -> Invoice {
                 sub_lines: vec![],
             },
         ],
-        // New fields
         payment_status: Some(PaymentStatus::Paid),
         transactions,
         bank_details: Some(payment_info),

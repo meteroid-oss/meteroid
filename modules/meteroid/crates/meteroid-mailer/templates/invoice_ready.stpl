@@ -1,0 +1,18 @@
+<div class="content-section">
+  <h1>Your invoice is ready</h1>
+</div>
+
+<div class="content-section">
+  <h2><%= label %></h2>
+  <div class="summary-box">
+    <p>• <strong>Invoice n°:</strong> <%= invoice_number %></p>
+    <p>• <strong>Invoice date:</strong> <%= invoice_date %></p>
+    <p>• <strong>Due at:</strong> <%= invoice_due_date %></p>
+    <p>• <strong>Amount due:</strong> <%= amount_due %></p>
+  </div>
+
+  <div class="button-container">
+    <a href="<%= payment_url %>" class="button">View and pay</a>
+  </div>
+
+</div>

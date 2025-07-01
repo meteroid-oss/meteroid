@@ -25,9 +25,7 @@ use rand_chacha::ChaCha8Rng;
 use chrono::Utc;
 
 use common_domain::ids::OrganizationId;
-use meteroid_store::domain::{
-    Address, InlineCustomer, InlineInvoicingEntity, OrderByRequest, PaginationRequest,
-};
+use meteroid_store::domain::{Address, InlineCustomer, InlineInvoicingEntity, InvoicePaymentStatus, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::{
@@ -318,6 +316,8 @@ pub async fn run(
             end_date: billing_end_date,
             payment_strategy: None, // TODO
             billing_start_date: None,
+            auto_advance_invoices: true,
+            charge_automatically: true,
         };
 
         let create_subscription_components = if parameterized_components.is_empty() {
@@ -472,19 +472,13 @@ pub async fn run(
                 plan_version_id: Some(subscription.plan_version_id),
                 invoice_type: InvoiceType::Recurring,
                 currency: "EUR".to_string(),
-                external_invoice_id: None,
                 line_items: invoice_lines,
-                issued: false,
-                issue_attempts: 0,
-                last_issue_attempt_at: None,
-                last_issue_error: None,
                 data_updated_at: None,
                 status: if is_last_invoice {
                     InvoiceStatusEnum::Draft
                 } else {
                     InvoiceStatusEnum::Finalized
                 },
-                external_status: None,
                 invoice_date,
                 finalized_at: if is_last_invoice {
                     None
@@ -519,6 +513,8 @@ pub async fn run(
                     address: invoicing_entity.address(),
                     snapshot_at: subscription.created_at,
                 },
+                auto_advance: true,
+                payment_status: InvoicePaymentStatus::Unpaid,
             };
 
             invoices_to_create.push(invoice);
