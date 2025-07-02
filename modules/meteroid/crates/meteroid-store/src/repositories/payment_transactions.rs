@@ -84,7 +84,7 @@ impl PaymentTransactionInterface for Store {
                 transaction.id,
                 transaction.status
             );
-            return Ok(transaction.into());
+            return Ok(transaction);
         }
 
         // Only update if the status has changed
@@ -94,7 +94,7 @@ impl PaymentTransactionInterface for Store {
                 transaction.id,
                 payment_intent.status
             );
-            return Ok(transaction.into());
+            return Ok(transaction);
         }
 
         log::info!(
@@ -134,7 +134,7 @@ impl PaymentTransactionInterface for Store {
             })
             .await?;
 
-        Ok(updated_transaction.into())
+        Ok(updated_transaction)
     }
 
     async fn get_payment_tx_by_id_for_update(

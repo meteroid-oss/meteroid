@@ -66,13 +66,13 @@ async fn test_lifecycle_billing() {
 async fn test_issuing(
     services: &Services,
     store: &Store,
-    mock_mailer: Arc<MockMailerService>,
+    _mock_mailer: Arc<MockMailerService>,
     conn: &mut PgConn,
 ) {
     log::info!(">>> Testing issuing");
 
     // we insert a customer with an invoicing email
-    let inserted = store
+    let _inserted = store
         .insert_customer(
             CustomerNew {
                 name: "".to_string(),
@@ -97,7 +97,7 @@ async fn test_issuing(
         .unwrap();
 
     // we insert a subscription
-    let subscription_id = create_subscription(
+    let _subscription_id = create_subscription(
         services,
         SubscriptionParams {
             start_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),

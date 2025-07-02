@@ -408,7 +408,7 @@ fn assert_raw_events_eq(left: &[Event], right: &[RawEventRow]) {
         T: Clone,
         F: Fn(&T) -> &str,
     {
-        let mut vec: Vec<T> = items.iter().cloned().collect();
+        let mut vec: Vec<T> = items.to_vec();
         vec.sort_by(|a, b| sort_fn(a).cmp(sort_fn(b)));
         vec
     }
@@ -437,7 +437,7 @@ fn assert_raw_event_eq(left: &Event, right: &RawEventRow) {
     assert_eq!(
         left.properties
             .iter()
-            .sorted_by(|a, b| a.0.cmp(&b.0))
+            .sorted_by(|a, b| a.0.cmp(b.0))
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect_vec(),
         right
@@ -455,7 +455,7 @@ fn assert_preprocessed_events_eq(left: &[RawEventRow], right: &[PreprocessedEven
         T: Clone,
         F: Fn(&T) -> &str,
     {
-        let mut vec: Vec<T> = items.iter().cloned().collect();
+        let mut vec: Vec<T> = items.to_vec();
         vec.sort_by(|a, b| sort_fn(a).cmp(sort_fn(b)));
         vec
     }

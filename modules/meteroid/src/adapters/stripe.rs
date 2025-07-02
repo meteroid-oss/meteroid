@@ -1,5 +1,5 @@
 use error_stack::Result;
-use error_stack::{FutureExt, Report};
+use error_stack::{  Report};
 use hyper::StatusCode;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
@@ -185,7 +185,7 @@ impl Stripe {
                 if let Some(card) = &method.card {
                     (
                         Some(card.brand.clone()),
-                        (&card.last4).clone(),
+                        card.last4.clone(),
                         Some(card.exp_month),
                         Some(card.exp_year),
                     )
@@ -200,15 +200,15 @@ impl Stripe {
             .upsert_payment_method(CustomerPaymentMethodNew {
                 id: CustomerPaymentMethodId::new(),
                 tenant_id: connector.tenant_id,
-                customer_id: customer_id,
+                customer_id,
                 connection_id,
                 external_payment_method_id: method.id,
                 payment_method_type,
-                account_number_hint: account_number_hint,
-                card_brand: card_brand,
-                card_last4: card_last4,
-                card_exp_month: card_exp_month,
-                card_exp_year: card_exp_year,
+                account_number_hint,
+                card_brand,
+                card_last4,
+                card_exp_month,
+                card_exp_year,
             })
             .await
             .change_context(errors::AdapterWebhookError::StoreError)?;
@@ -249,7 +249,7 @@ impl Stripe {
                         .consolidate_intent_and_transaction_tx(
                             conn,
                             inserted_transaction,
-                            data.into(),
+                            data,
                         )
                         .await?;
 

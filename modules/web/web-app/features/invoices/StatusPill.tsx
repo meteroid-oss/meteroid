@@ -10,7 +10,7 @@ interface Props {
 export const StatusPill = ({ status }: Props) =>
   match(status)
     .with(InvoiceStatus.VOID, () => <Badge variant="secondary">Void</Badge>)
-    .with(InvoiceStatus.PENDING, () => <Badge variant="warning">Pending</Badge>)
+    .with(InvoiceStatus.UNCOLLECTIBLE, () => <Badge variant="warning">Uncollectible</Badge>)
     .with(InvoiceStatus.FINALIZED, () => <Badge variant="success">Finalized</Badge>)
     .with(InvoiceStatus.DRAFT, () => <Badge variant="primary">Draft</Badge>)
     .otherwise(() => <Badge variant="destructive">Unknown</Badge>)

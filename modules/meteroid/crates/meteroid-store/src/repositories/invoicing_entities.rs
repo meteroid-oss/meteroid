@@ -244,7 +244,7 @@ impl StoreInternal {
             net_terms: invoicing_entity.net_terms.unwrap_or(30),
             invoice_footer_info: invoicing_entity.invoice_footer_info.clone(),
             invoice_footer_legal: invoicing_entity.invoice_footer_legal.clone(),
-            logo_attachment_id: invoicing_entity.logo_attachment_id.clone(),
+            logo_attachment_id: invoicing_entity.logo_attachment_id,
             brand_color: invoicing_entity.brand_color.clone(),
             address_line1: invoicing_entity.address_line1.clone(),
             address_line2: invoicing_entity.address_line2.clone(),

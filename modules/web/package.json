@@ -15,28 +15,19 @@
     "eslint": "^8.57.1",
     "husky": "^9.1.7",
     "kill-port": "^2.0.1",
-    "lint-staged": "^15.5.0",
     "prettier": "^3.5.3",
     "turbo": "^1.13.4",
     "typescript": "^5.8.2"
   },
   "engines": {
-    "node": ">=18",
+    "node": ">=22",
     "pnpm": ">=8.0.0",
     "npm": "pnpm",
     "yarn": "pnpm"
   },
   "homepage": "https://meteroid.io",
   "license": "AGPL-3.0",
-  "lint-staged": {
-    "(apps|packages)/**/*.{ts,tsx}": [
-      "prettier --write",
-      "eslint --fix"
-    ],
-    "*.json": [
-      "prettier --write"
-    ]
-  },
+ 
   "packageManager": "pnpm@8.9.0",
   "private": true,
   "repository": "meteroid-oss/monorepo.git",

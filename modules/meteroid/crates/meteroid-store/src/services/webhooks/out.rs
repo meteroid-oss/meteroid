@@ -149,7 +149,7 @@ impl ServicesEdge {
             .and_then(TryInto::try_into)
     }
 
-    async fn list_message_attempts_out(
+    async fn _list_message_attempts_out(
         &self,
         tenant_id: TenantId,
         endpoint_id: String,
@@ -173,7 +173,7 @@ impl ServicesEdge {
         msg: WebhookOutMessageNew,
     ) -> StoreResult<WebhookOutCreateMessageResult> {
         if let Some(svix_api) = &self.services.svix {
-            let types = get_endpoint_events_to_listen_cached(&self, tenant_id).await?;
+            let types = get_endpoint_events_to_listen_cached(self, tenant_id).await?;
 
             if !types.contains(&msg.event_type) {
                 return Ok(WebhookOutCreateMessageResult::NotFound);

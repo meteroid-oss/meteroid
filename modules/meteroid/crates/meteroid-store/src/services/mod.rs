@@ -20,7 +20,6 @@ mod webhooks;
 
 use crate::errors::StoreError;
 pub use invoices::InvoiceBillingMode;
-use meteroid_mailer::service::MailerService;
 use stripe_client::client::StripeClient;
 pub use subscriptions::insert::payment_method::PaymentSetupResult;
 
@@ -29,8 +28,7 @@ pub use subscriptions::insert::payment_method::PaymentSetupResult;
 struct Services {
     store: Arc<Store>,
     usage_client: Arc<dyn UsageClient>,
-    svix: Option<Arc<Svix>>,
-    pub(crate) mailer: Arc<dyn MailerService>,
+    svix: Option<Arc<Svix>>, 
     pub(crate) stripe: Arc<StripeClient>,
 }
 
@@ -61,7 +59,6 @@ impl ServicesEdge {
                 store: store.clone(),
                 usage_client,
                 svix,
-                mailer: store.mailer.clone(),
                 stripe,
             },
             store,

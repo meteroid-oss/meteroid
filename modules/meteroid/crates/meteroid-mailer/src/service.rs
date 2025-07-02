@@ -118,7 +118,7 @@ where
             from,
             reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
             to: data.recipients.clone(),
-            subject: title.into(),
+            subject: title,
             body_html,
             attachments: vec![data.attachment],
         };
@@ -142,7 +142,7 @@ where
             from,
             reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
             to: data.recipients.clone(),
-            subject: title.into(),
+            subject: title,
             body_html,
             attachments: data.attachments,
         };

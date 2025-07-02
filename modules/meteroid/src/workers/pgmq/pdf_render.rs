@@ -6,17 +6,16 @@ use common_domain::ids::InvoiceId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage};
-use meteroid_store::{Store, StoreResult};
+use meteroid_store::StoreResult;
 use std::sync::Arc;
 
 pub(crate) struct PdfRender {
     pdf_service: Arc<PdfRenderingService>,
-    store: Arc<Store>,
 }
 
 impl PdfRender {
-    pub fn new(pdf_service: Arc<PdfRenderingService>, store: Arc<Store>) -> Self {
-        Self { pdf_service, store }
+    pub fn new(pdf_service: Arc<PdfRenderingService>) -> Self {
+        Self { pdf_service }
     }
 }
 

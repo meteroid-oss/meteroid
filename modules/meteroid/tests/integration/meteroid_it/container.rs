@@ -140,8 +140,8 @@ pub async fn start_meteroid_with_clients(
         metering_port,
         postgres_connection_string,
         seed_level,
-        Arc::new(MockUsageClient::noop()),
-        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
+        usage_client,
+        mailer,
     )
     .await
 }

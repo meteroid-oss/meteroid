@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(currency_rate_service),
             pdf_service,
             mailer_service,
-            &config,
+            config,
         )
         .await;
     });

@@ -2,7 +2,7 @@ use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as Base64Engine;
-use common_domain::ids::{BaseId, InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
+use common_domain::ids::{  InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};

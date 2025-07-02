@@ -83,7 +83,6 @@ pub struct InvoiceReadyContent {
     pub invoice_due_date: String,
     pub label: String,
     pub amount_due: String,
-    pub currency: String,
     pub payment_url: String,
 }
 
@@ -104,7 +103,6 @@ impl From<InvoiceReady> for InvoiceReadyTemplate {
             invoice_due_date: format_date(data.invoice_due_date),
             label: data.label,
             amount_due: format_currency(data.amount_due, &data.currency),
-            currency: data.currency,
             payment_url: data.payment_url,
         };
         InvoiceReadyTemplate {
@@ -127,7 +125,6 @@ pub struct InvoicePaidContent {
     pub invoice_due_date: String,
     pub label: String,
     pub amount_paid: String,
-    pub currency: String,
 }
 
 pub struct InvoicePaidTemplate {
@@ -147,7 +144,6 @@ impl From<InvoicePaid> for InvoicePaidTemplate {
             invoice_due_date: format_date(data.invoice_due_date),
             label: data.label,
             amount_paid: format_currency(data.amount_paid, &data.currency),
-            currency: data.currency,
         };
         InvoicePaidTemplate {
             tpl: LayoutTemplate {

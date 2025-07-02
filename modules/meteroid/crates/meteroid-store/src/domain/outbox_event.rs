@@ -42,7 +42,7 @@ pub enum EventType {
     InvoiceCreated,
     InvoiceFinalized,
     InvoicePaid,
-    InvoicePdfGenerated,
+    InvoiceAccountingPdfGenerated,
     SubscriptionCreated,
     PaymentTransactionReceived,
 }
@@ -109,7 +109,7 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
             OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
-            OutboxEvent::InvoiceAccountingPdfGenerated(_) => EventType::InvoicePdfGenerated,
+            OutboxEvent::InvoiceAccountingPdfGenerated(_) => EventType::InvoiceAccountingPdfGenerated,
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
             OutboxEvent::PaymentTransactionSaved(_) => EventType::PaymentTransactionReceived,
         }

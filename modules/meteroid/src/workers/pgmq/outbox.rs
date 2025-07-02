@@ -100,7 +100,7 @@ impl PgmqOutboxDispatch {
                             .map(|msg_new| new_messages.push(msg_new))
                             .change_context(PgmqError::HandleMessages)?;
                     }
-                } else if let EventType::InvoicePdfGenerated = &out_headers.event_type {
+                } else if let EventType::InvoiceAccountingPdfGenerated = &out_headers.event_type {
                     if let Ok(OutboxEvent::InvoiceAccountingPdfGenerated(evt)) = msg.try_into() {
                         PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
                             id: evt.invoice_id,
@@ -174,9 +174,10 @@ impl PgmqOutboxDispatch {
                 msg.headers.as_ref().map(TryInto::try_into).transpose();
             if let Ok(Some(out_headers)) = out_headers {
                 let event_types = [
-                    EventType::InvoicePdfGenerated,
+                    EventType::InvoiceAccountingPdfGenerated,
                     EventType::InvoiceFinalized,
                     EventType::InvoicePaid,
+                    EventType::PaymentTransactionReceived, 
                 ];
 
                 if !event_types.contains(&out_headers.event_type) {
@@ -200,7 +201,7 @@ impl PgmqOutboxDispatch {
         }
 
         self.store
-            .pgmq_send_batch(PgmqQueue::WebhookOut, events)
+            .pgmq_send_batch(PgmqQueue::InvoiceOrchestration, events)
             .await
             .change_context(PgmqError::HandleMessages)
     }
@@ -216,6 +217,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
             self.handle_hubspot_out(msgs).boxed(),
             self.handle_pennylane_out(msgs).boxed(),
             self.handle_billable_metric_sync(msgs).boxed(),
+            self.handle_invoice_orchestration(msgs).boxed(),
         ];
 
         // Run the functions concurrently

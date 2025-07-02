@@ -227,9 +227,10 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
   })
 
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
-  const canRefresh = invoice && invoice.status === InvoiceStatus.PENDING || invoice.status === InvoiceStatus.DRAFT
-    const pdf_url =
-    invoice.documentSharingKey && `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
+  const canRefresh = invoice && invoice.status === InvoiceStatus.DRAFT
+  const pdf_url =
+    invoice.documentSharingKey &&
+    `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
 
   useEffect(() => {
     if (canRefresh) {
@@ -277,16 +278,16 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
             </DropdownMenuContent>
           </DropdownMenu>
 
-           <a
-              href={invoice.pdfDocumentId ? pdf_url : "#"}
-              download={`invoice_${invoice.invoiceNumber}.pdf`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <Button size="sm" disabled={!invoice.pdfDocumentId} variant="primary">
-                <Download size="16" />
-              </Button>
-            </a>
+          <a
+            href={invoice.pdfDocumentId ? pdf_url : '#'}
+            download={`invoice_${invoice.invoiceNumber}.pdf`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Button size="sm" disabled={!invoice.pdfDocumentId} variant="primary">
+              <Download size="16" />
+            </Button>
+          </a>
         </div>
         <InvoiceMeta invoice={invoice} />
         {invoice.invoiceType === InvoiceType.RECURRING ? (
@@ -311,8 +312,8 @@ export const InvoiceStatusBadge = ({ status }: { status: InvoiceStatus }) => {
     switch (status) {
       case InvoiceStatus.DRAFT:
         return <Badge variant="primary">Draft</Badge>
-      case InvoiceStatus.PENDING:
-        return <Badge variant="default">Issued</Badge>
+      case InvoiceStatus.UNCOLLECTIBLE:
+        return <Badge variant="warning">Uncollectible</Badge>
       case InvoiceStatus.FINALIZED:
         return <Badge variant="success">Finalized</Badge>
       case InvoiceStatus.VOID:

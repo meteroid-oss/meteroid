@@ -68,7 +68,7 @@ impl Services {
             company_name: invoice.customer_details.name.clone(),
             logo_attachment_id: invoicing_entity.logo_attachment_id,
             invoicing_emails: customer.invoicing_emails,
-            invoice_pdf_id: invoice_pdf_id,
+            invoice_pdf_id,
             receipt_pdf_id: receipt.receipt_pdf_id,
         }
         .try_into();

@@ -41,6 +41,7 @@ pub mod webhook_out;
 //     worker_concurrency: usize,
 // }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_workers(
     store: Arc<meteroid_store::Store>,
     services: Arc<Services>,

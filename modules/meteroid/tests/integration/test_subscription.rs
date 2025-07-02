@@ -218,7 +218,7 @@ async fn test_subscription_create() {
 #[ignore] // subscription seed is broken
 async fn test_subscription_cancel() {
     let TestContext {
-        setup,
+        setup: _,
         clients,
         _container,
     } = setup_test(SeedLevel::PLANS).await.unwrap();

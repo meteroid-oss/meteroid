@@ -1,5 +1,4 @@
 pub mod invoicing_entities {
-    use crate::api::shared::conversions::AsProtoOpt;
     use common_domain::ids::{InvoicingEntityId, StoredDocumentId};
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
     use meteroid_store::domain::invoicing_entities as domain;

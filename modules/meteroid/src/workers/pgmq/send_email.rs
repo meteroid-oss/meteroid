@@ -11,12 +11,11 @@ use meteroid_mailer::service::MailerService;
 use meteroid_store::domain::pgmq::{PgmqMessage, SendEmailRequest};
 use meteroid_store::errors::StoreError;
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
-use meteroid_store::{Store, StoreResult};
+use meteroid_store::StoreResult;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct EmailSender {
-    store: Arc<Store>,
     mailer: Arc<dyn MailerService>,
     public_url: String,
     rest_api_url: String,
@@ -26,7 +25,6 @@ pub struct EmailSender {
 
 impl EmailSender {
     pub(crate) fn new(
-        store: Arc<Store>,
         mailer: Arc<dyn MailerService>,
         object_store: Arc<dyn ObjectStoreService>,
         public_url: String,
@@ -34,7 +32,6 @@ impl EmailSender {
         jwt_secret: secrecy::SecretString,
     ) -> Self {
         Self {
-            store,
             mailer,
             public_url,
             rest_api_url,
@@ -117,7 +114,7 @@ impl EmailSender {
                     format!(
                         "{}/files/v1/logo/{}",
                         self.rest_api_url,
-                        logo_attachment_id.to_string()
+                        logo_attachment_id
                     )
                 });
 
@@ -198,7 +195,7 @@ impl EmailSender {
                         filename: format!(
                             "receipt_{}-{}.pdf",
                             sanitized_company_name,
-                            receipt_pdf_id.to_string()
+                            receipt_pdf_id
                         ),
                         content: receipt_data.to_vec(),
                         type_: EmailAttachmentType::Pdf,
@@ -209,7 +206,7 @@ impl EmailSender {
                     format!(
                         "{}/files/v1/logo/{}",
                         self.rest_api_url,
-                        logo_attachment_id.to_string() // TODO check it's base62 everywhere
+                        logo_attachment_id // TODO check it's base62 everywhere
                     )
                 });
 

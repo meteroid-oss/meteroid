@@ -39,7 +39,7 @@ pub async fn run_outbox_dispatch(store: Arc<Store>) {
 
 pub async fn run_pdf_render(store: Arc<Store>, pdf_service: Arc<PdfRenderingService>) {
     let queue = PgmqQueue::InvoicePdfRequest;
-    let processor = Arc::new(PdfRender::new(pdf_service, store.clone()));
+    let processor = Arc::new(PdfRender::new(pdf_service));
 
     run(ProcessorConfig {
         name: processor_name("PdfRender"),
@@ -167,7 +167,6 @@ pub async fn run_email_sender(
 ) {
     let queue = PgmqQueue::SendEmailRequest;
     let processor = Arc::new(EmailSender::new(
-        store.clone(),
         mailer,
         object_store,
         public_url,
