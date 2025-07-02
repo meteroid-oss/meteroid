@@ -1,0 +1,21 @@
+<html lang="<%= lang %>">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1, shrink-to-fit=no" name="viewport">
+    <style><% include!("styles.css"); %></style>
+    <title><%= title %></title>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="email-container">
+      <%+ header %>
+
+      <div class="email-content">
+        <%+ content %>
+      </div>
+
+      <%+ footer %>
+    </div>
+  </div>
+</body>
+</html>

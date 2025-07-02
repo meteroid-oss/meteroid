@@ -3,7 +3,9 @@ use secrecy::SecretString;
 use crate::StoreResult;
 use crate::domain::connectors::{Connector, ConnectorMeta};
 use crate::domain::{Address, BankAccount};
-use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, TenantId};
+use common_domain::ids::{
+    BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
+};
 use diesel_models::invoicing_entities::{
     InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
     InvoicingEntityRowProvidersPatch,
@@ -27,7 +29,7 @@ pub struct InvoicingEntity {
     pub net_terms: i32,
     pub invoice_footer_info: Option<String>,
     pub invoice_footer_legal: Option<String>,
-    pub logo_attachment_id: Option<String>,
+    pub logo_attachment_id: Option<StoredDocumentId>,
     pub brand_color: Option<String>,
     pub address_line1: Option<String>,
     pub address_line2: Option<String>,
@@ -71,7 +73,7 @@ pub struct InvoicingEntityNew {
     pub net_terms: Option<i32>,
     pub invoice_footer_info: Option<String>,
     pub invoice_footer_legal: Option<String>,
-    pub logo_attachment_id: Option<String>,
+    pub logo_attachment_id: Option<StoredDocumentId>,
     pub brand_color: Option<String>,
     pub address_line1: Option<String>,
     pub address_line2: Option<String>,
@@ -92,7 +94,7 @@ pub struct InvoicingEntityPatch {
     pub net_terms: Option<i32>,
     pub invoice_footer_info: Option<String>,
     pub invoice_footer_legal: Option<String>,
-    pub logo_attachment_id: Option<Option<String>>,
+    pub logo_attachment_id: Option<Option<StoredDocumentId>>,
     pub brand_color: Option<Option<String>>,
     pub address_line1: Option<String>,
     pub address_line2: Option<String>,

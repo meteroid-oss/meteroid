@@ -1,11 +1,12 @@
-use crate::enums::{InvoiceExternalStatusEnum, InvoiceStatusEnum, InvoiceType};
+use crate::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use chrono::NaiveDate;
 use chrono::NaiveDateTime;
 
 use crate::customers::CustomerRow;
 use crate::plan_versions::PlanVersionRowOverview;
 use common_domain::ids::{
-    CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, SubscriptionId, TenantId,
+    CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId, SubscriptionId,
+    TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
 use uuid::Uuid;
@@ -16,19 +17,13 @@ use uuid::Uuid;
 pub struct InvoiceRow {
     pub id: InvoiceId,
     pub status: InvoiceStatusEnum,
-    pub external_status: Option<InvoiceExternalStatusEnum>,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
-    pub external_invoice_id: Option<String>,
     pub line_items: serde_json::Value,
-    pub issued: bool,
-    pub issue_attempts: i32,
-    pub last_issue_attempt_at: Option<NaiveDateTime>,
-    pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub total: i64,
@@ -49,10 +44,14 @@ pub struct InvoiceRow {
     pub subtotal: i64,
     pub applied_credits: i64,
     pub seller_details: serde_json::Value,
-    pub xml_document_id: Option<String>,
-    pub pdf_document_id: Option<String>,
+    pub xml_document_id: Option<StoredDocumentId>,
+    pub pdf_document_id: Option<StoredDocumentId>,
     pub applied_coupon_ids: Vec<Option<Uuid>>,
     pub conn_meta: Option<serde_json::Value>,
+    pub auto_advance: bool,
+    pub issued_at: Option<NaiveDateTime>,
+    pub payment_status: InvoicePaymentStatus,
+    pub paid_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -73,18 +72,12 @@ pub struct InvoiceRowLinesPatch {
 pub struct InvoiceRowNew {
     pub id: InvoiceId,
     pub status: InvoiceStatusEnum,
-    pub external_status: Option<InvoiceExternalStatusEnum>,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
     pub subscription_id: Option<SubscriptionId>,
     pub currency: String,
-    pub external_invoice_id: Option<String>,
     pub invoice_number: String,
     pub line_items: serde_json::Value,
-    pub issued: bool,
-    pub issue_attempts: i32,
-    pub last_issue_attempt_at: Option<NaiveDateTime>,
-    pub last_issue_error: Option<String>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub plan_version_id: Option<PlanVersionId>,
@@ -103,6 +96,8 @@ pub struct InvoiceRowNew {
     pub plan_name: Option<String>,
     pub customer_details: serde_json::Value,
     pub seller_details: serde_json::Value,
+    pub auto_advance: bool,
+    pub payment_status: InvoicePaymentStatus,
 }
 
 #[derive(Debug, Queryable, Selectable)]

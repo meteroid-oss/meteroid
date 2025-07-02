@@ -11,7 +11,7 @@ pub struct MailerConfig {
     pub smtp_password: Option<SecretString>,
     #[envconfig(from = "MAILER_SMTP_TLS", default = "true")]
     pub smtp_tls: bool,
-    #[envconfig(from = "MAILER_FROM", default = "Hey <hey@meteroid.com>")]
+    #[envconfig(from = "MAILER_FROM", default = "Meteroid <hey@meteroid.com>")]
     pub from: String,
 }
 
@@ -22,7 +22,7 @@ impl MailerConfig {
             smtp_username: None,
             smtp_password: None,
             smtp_tls: true,
-            from: "Hey <hey@meteroid.com>".to_string(),
+            from: "Meteroid <hey@meteroid.com>".to_string(),
         }
     }
 }

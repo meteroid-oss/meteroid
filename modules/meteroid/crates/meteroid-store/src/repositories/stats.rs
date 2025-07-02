@@ -1,8 +1,8 @@
 use crate::domain::stats::*;
 use crate::errors::StoreError;
-use crate::utils::decimals::ToSubunit;
 use crate::{Store, StoreResult};
 use common_domain::ids::TenantId;
+use common_utils::decimals::ToSubunit;
 use diesel_models::stats::{
     ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
     LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,

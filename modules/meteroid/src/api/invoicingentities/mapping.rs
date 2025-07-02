@@ -1,10 +1,12 @@
 pub mod invoicing_entities {
-    use common_domain::ids::InvoicingEntityId;
+    use common_domain::ids::{InvoicingEntityId, StoredDocumentId};
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
     use meteroid_store::domain::invoicing_entities as domain;
 
-    pub fn proto_to_domain(proto: server::InvoicingEntityData) -> domain::InvoicingEntityNew {
-        domain::InvoicingEntityNew {
+    pub fn proto_to_domain(
+        proto: server::InvoicingEntityData,
+    ) -> Result<domain::InvoicingEntityNew, tonic::Status> {
+        Ok(domain::InvoicingEntityNew {
             legal_name: proto.legal_name,
             invoice_number_pattern: proto.invoice_number_pattern,
             next_invoice_number: None,
@@ -13,7 +15,7 @@ pub mod invoicing_entities {
             net_terms: proto.net_terms,
             invoice_footer_info: proto.invoice_footer_info,
             invoice_footer_legal: proto.invoice_footer_legal,
-            logo_attachment_id: proto.logo_attachment_id,
+            logo_attachment_id: StoredDocumentId::from_proto_opt(proto.logo_attachment_id)?,
             brand_color: proto.brand_color,
             address_line1: proto.address_line1,
             address_line2: proto.address_line2,
@@ -22,7 +24,7 @@ pub mod invoicing_entities {
             city: proto.city,
             vat_number: proto.vat_number,
             country: proto.country,
-        }
+        })
     }
 
     pub fn proto_to_patch_domain(
@@ -64,7 +66,7 @@ pub mod invoicing_entities {
             net_terms: domain.net_terms,
             invoice_footer_info: domain.invoice_footer_info,
             invoice_footer_legal: domain.invoice_footer_legal,
-            logo_attachment_id: domain.logo_attachment_id,
+            logo_attachment_id: domain.logo_attachment_id.map(|id| id.as_proto()),
             brand_color: domain.brand_color,
             address_line1: domain.address_line1,
             address_line2: domain.address_line2,

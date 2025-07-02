@@ -24,14 +24,14 @@ use diesel_models::subscriptions::SubscriptionRow;
 // TODO we need to always pass the tenant id and match it with the resource, if not within the resource.
 // and even within it's probably still unsafe no ? Ex: creating components against a wrong subscription within a different tenant
 use crate::domain::pgmq::{HubspotSyncRequestEvent, HubspotSyncSubscription, PgmqQueue};
-use crate::jwt_claims::{PortalJwtClaims, ResourceAccess};
+use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use diesel_models::PgConn;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use error_stack::Result;
 use meteroid_store_macros::with_conn_delegate;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 
 pub mod slots;
 use crate::domain::scheduled_events::{ScheduledEvent, ScheduledEventNew};
@@ -420,19 +420,11 @@ pub fn generate_checkout_token(
     tenant_id: TenantId,
     subscription_id: SubscriptionId,
 ) -> StoreResult<String> {
-    let claims = serde_json::to_value(PortalJwtClaims::new(
+    generate_portal_token(
+        jwt_secret,
         tenant_id,
         ResourceAccess::SubscriptionCheckout(subscription_id),
-    ))
-    .map_err(|err| StoreError::SerdeError("failed to generate JWT token".into(), err))?;
-
-    let token = jsonwebtoken::encode(
-        &jsonwebtoken::Header::default(),
-        &claims,
-        &jsonwebtoken::EncodingKey::from_secret(jwt_secret.expose_secret().as_bytes()),
     )
-    .map_err(|_| StoreError::InvalidArgument("failed to generate JWT token".into()))?;
-    Ok(token)
 }
 
 // fn get_event_priority(event_type:  ScheduledEventTypeEnum) -> i32 {

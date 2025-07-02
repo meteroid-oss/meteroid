@@ -7,8 +7,8 @@ use error_stack::{Report, ResultExt, report};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
-    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, InvoicePdfRequestEvent,
-    PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
+    BillableMetricSyncRequestEvent, HubspotSyncRequestEvent, PennylaneSyncInvoice,
+    PennylaneSyncRequestEvent, PgmqMessage, PgmqMessageNew, PgmqQueue,
 };
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use meteroid_store::{Store, StoreResult};
@@ -49,34 +49,6 @@ impl PgmqOutboxDispatch {
             .pgmq_send_batch(PgmqQueue::WebhookOut, wh_messages)
             .await
             .change_context(PgmqError::HandleMessages)
-    }
-
-    pub(crate) async fn handle_invoice_pdf_requests(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
-        let mut pdf_requests = vec![];
-
-        for msg in msgs {
-            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
-                msg.headers.as_ref().map(TryInto::try_into).transpose();
-            if let Ok(Some(out_headers)) = out_headers {
-                if let EventType::InvoiceFinalized = &out_headers.event_type {
-                    if let Ok(OutboxEvent::InvoiceFinalized(evt)) = msg.try_into() {
-                        if let Ok(msg_new) = InvoicePdfRequestEvent::new(evt.invoice_id).try_into()
-                        {
-                            pdf_requests.push(msg_new);
-                        }
-                    }
-                }
-            }
-        }
-
-        if !pdf_requests.is_empty() {
-            self.store
-                .pgmq_send_batch(PgmqQueue::InvoicePdfRequest, pdf_requests)
-                .await
-                .change_context(PgmqError::HandleMessages)?;
-        }
-
-        Ok(())
     }
 
     pub(crate) async fn handle_hubspot_out(&self, msgs: &[PgmqMessage]) -> PgmqResult<()> {
@@ -128,8 +100,8 @@ impl PgmqOutboxDispatch {
                             .map(|msg_new| new_messages.push(msg_new))
                             .change_context(PgmqError::HandleMessages)?;
                     }
-                } else if let EventType::InvoicePdfGenerated = &out_headers.event_type {
-                    if let Ok(OutboxEvent::InvoicePdfGenerated(evt)) = msg.try_into() {
+                } else if let EventType::InvoiceAccountingPdfGenerated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::InvoiceAccountingPdfGenerated(evt)) = msg.try_into() {
                         PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
                             id: evt.invoice_id,
                             tenant_id: evt.tenant_id,
@@ -190,6 +162,49 @@ impl PgmqOutboxDispatch {
 
         Ok(())
     }
+
+    pub(crate) async fn handle_invoice_orchestration(
+        &self,
+        msgs: &[PgmqMessage],
+    ) -> PgmqResult<()> {
+        let mut events = vec![];
+
+        for msg in msgs {
+            let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
+                msg.headers.as_ref().map(TryInto::try_into).transpose();
+            if let Ok(Some(out_headers)) = out_headers {
+                let event_types = [
+                    EventType::InvoiceAccountingPdfGenerated,
+                    EventType::InvoiceFinalized,
+                    EventType::InvoicePaid,
+                    EventType::PaymentTransactionReceived,
+                ];
+
+                if !event_types.contains(&out_headers.event_type) {
+                    continue;
+                }
+
+                events.push(PgmqMessageNew {
+                    message: None,
+                    headers: Some(
+                        DispatchHeaders {
+                            outbox_msg_id: msg.msg_id,
+                        }
+                        .try_into()?,
+                    ),
+                });
+            }
+        }
+
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        self.store
+            .pgmq_send_batch(PgmqQueue::InvoiceOrchestration, events)
+            .await
+            .change_context(PgmqError::HandleMessages)
+    }
 }
 
 #[async_trait]
@@ -199,10 +214,10 @@ impl PgmqHandler for PgmqOutboxDispatch {
 
         let handlers = vec![
             self.handle_webhook_out(msgs).boxed(),
-            self.handle_invoice_pdf_requests(msgs).boxed(),
             self.handle_hubspot_out(msgs).boxed(),
             self.handle_pennylane_out(msgs).boxed(),
             self.handle_billable_metric_sync(msgs).boxed(),
+            self.handle_invoice_orchestration(msgs).boxed(),
         ];
 
         // Run the functions concurrently

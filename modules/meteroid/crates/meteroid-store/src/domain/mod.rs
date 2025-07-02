@@ -9,6 +9,7 @@ pub use invoices::*;
 pub use invoicing_entities::*;
 pub use misc::*;
 pub use organizations::*;
+pub use payment_transactions::*;
 pub use plans::*;
 pub use price_components::*;
 pub use product_families::*;

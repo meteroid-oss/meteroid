@@ -32,6 +32,7 @@ id_type!(ProductId, "prd_");
 id_type!(PriceComponentId, "price_");
 id_type!(PlanId, "plan_");
 id_type!(PlanVersionId, "plv_");
+id_type!(StoredDocumentId, "doc_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

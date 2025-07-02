@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use std::sync::Arc;
 
 use crate::data::ids::*;
 use crate::helpers;
@@ -7,13 +8,15 @@ use crate::meteroid_it::container::SeedLevel;
 use common_domain::ids::SubscriptionId;
 use diesel_models::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use diesel_models::subscriptions::SubscriptionRow;
+use meteroid_mailer::service::MockMailerService;
+use meteroid_store::clients::usage::MockUsageClient;
 use meteroid_store::domain::enums::InvoiceStatusEnum;
 use meteroid_store::domain::{
-    CreateSubscription, Invoice, OrderByRequest, PaginationRequest,
+    CreateSubscription, CustomerNew, Invoice, OrderByRequest, PaginationRequest,
     SubscriptionActivationCondition, SubscriptionNew, SubscriptionPaymentStrategy,
 };
-use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::CancellationEffectiveAt;
+use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::store::PgConn;
 use meteroid_store::{Services, Store};
 
@@ -22,8 +25,16 @@ async fn test_lifecycle_billing() {
     helpers::init::logging();
     let (_postgres_container, postgres_connection_string) =
         meteroid_it::container::start_postgres().await;
-    let setup =
-        meteroid_it::container::start_meteroid(postgres_connection_string, SeedLevel::PLANS).await;
+
+    let mock_mailer = Arc::new(MockMailerService::new());
+
+    let setup = meteroid_it::container::start_meteroid_with_clients(
+        postgres_connection_string,
+        SeedLevel::PLANS,
+        Arc::new(MockUsageClient::noop()),
+        mock_mailer.clone(),
+    )
+    .await;
 
     let store = setup.store.clone();
     let pool = setup.store.pool.clone();
@@ -45,10 +56,83 @@ async fn test_lifecycle_billing() {
     // Race condition / locking
     test_subscription_cancellation_race_condition(&services, &store, &mut conn).await;
 
+    test_issuing(&services, &store, mock_mailer.clone(), &mut conn).await;
+
     // TODO next tests :
     // - ubb
-    // - issuing
     // - late payments, retries etc
+}
+
+async fn test_issuing(
+    services: &Services,
+    store: &Store,
+    _mock_mailer: Arc<MockMailerService>,
+    conn: &mut PgConn,
+) {
+    log::info!(">>> Testing issuing");
+
+    // we insert a customer with an invoicing email
+    let _inserted = store
+        .insert_customer(
+            CustomerNew {
+                name: "".to_string(),
+                alias: None,
+                billing_email: None,
+                invoicing_emails: vec!["mock@meteroid.com".to_string()],
+                phone: None,
+                balance_value_cents: 0,
+                currency: "EUR".to_string(),
+                billing_address: None,
+                shipping_address: None,
+                created_by: Default::default(),
+                invoicing_entity_id: None,
+                force_created_date: None,
+                bank_account_id: None,
+                vat_number: None,
+                custom_vat_rate: None,
+            },
+            TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    // we insert a subscription
+    let _subscription_id = create_subscription(
+        services,
+        SubscriptionParams {
+            start_date: NaiveDate::from_ymd_opt(2024, 1, 31).unwrap(),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let start_date = NaiveDate::from_ymd_opt(2024, 1, 31).unwrap();
+    let expected_total = 3500;
+
+    let invoice_dates = [start_date, NaiveDate::from_ymd_opt(2024, 2, 29).unwrap()];
+
+    let subscription_id = create_subscription(
+        services,
+        SubscriptionParams {
+            start_date,
+            ..Default::default()
+        },
+    )
+    .await;
+
+    let subscription = get_subscription_row(conn, subscription_id).await;
+    assert_subscription_state(&subscription, 0, &invoice_dates, expected_total);
+
+    let invoices = get_invoices(store, subscription_id).await;
+    assert_eq!(invoices.len(), 1);
+    assert_full_invoice(&invoices[0], invoice_dates[0], expected_total);
+
+    // we expect the fisrt invoice to be issued
+
+    services.get_and_process_cycle_transitions().await.unwrap();
+    services.get_and_process_due_events().await.unwrap();
+
+    // we expect the second invoice to be issued
 }
 
 async fn test_monthly_subscription_with_billing_anchor(
@@ -473,6 +557,8 @@ async fn create_subscription(services: &Services, params: SubscriptionParams) ->
                     trial_duration: params.trial_duration,
                     billing_day_anchor: params.billing_day_anchor,
                     payment_strategy: params.payment_strategy,
+                    auto_advance_invoices: true,
+                    charge_automatically: true,
                 },
                 price_components: None,
                 add_ons: None,

@@ -127,8 +127,6 @@ impl Services {
         retries < 5
     }
 
-    // Event processing implementation methods
-
     async fn process_finalize_invoice(
         &self,
         conn: &mut PgConn,

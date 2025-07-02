@@ -12,7 +12,7 @@ use crate::errors;
 
 use crate::api::sharable::ShareableEntityClaims;
 use crate::services::storage::Prefix;
-use common_domain::ids::InvoiceId;
+use common_domain::ids::{InvoiceId, StoredDocumentId};
 use error_stack::{Report, Result, ResultExt};
 use fang::Deserialize;
 use image::ImageFormat::Png;
@@ -20,7 +20,6 @@ use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
 use utoipa::OpenApi;
-use uuid::Uuid;
 
 #[derive(OpenApi)]
 #[openapi(paths(get_logo, get_invoice_pdf))]
@@ -41,7 +40,7 @@ pub struct FileApi;
 )]
 #[axum::debug_handler]
 pub async fn get_logo(
-    Path(uuid): Path<Uuid>,
+    Path(uuid): Path<StoredDocumentId>,
     State(app_state): State<AppState>,
 ) -> impl IntoResponse {
     match get_logo_handler(uuid, app_state).await {
@@ -54,7 +53,7 @@ pub async fn get_logo(
 }
 
 async fn get_logo_handler(
-    image_uuid: Uuid,
+    image_uuid: StoredDocumentId,
     app_state: AppState,
 ) -> Result<Response, errors::RestApiError> {
     let data = app_state
@@ -134,13 +133,10 @@ async fn get_invoice_pdf_handler(
         return Err(Report::new(errors::RestApiError::Forbidden));
     }
     match invoice.invoice.pdf_document_id {
-        Some(uid) => {
+        Some(id) => {
             let data = app_state
                 .object_store
-                .retrieve(
-                    Uuid::parse_str(&uid).change_context(errors::RestApiError::StoreError)?,
-                    Prefix::InvoicePdf,
-                )
+                .retrieve(id, Prefix::InvoicePdf)
                 .await
                 .change_context(errors::RestApiError::ObjectStoreError)?;
 

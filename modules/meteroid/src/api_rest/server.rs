@@ -8,7 +8,7 @@ use axum::routing::get;
 use axum::{
     Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
 };
-use meteroid_store::Store;
+use meteroid_store::{Services, Store};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use utoipa::{
@@ -52,10 +52,12 @@ pub async fn start_rest_server(
     object_store: Arc<dyn ObjectStoreService>,
     stripe_adapter: Arc<Stripe>,
     store: Store,
+    services: Services,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let app_state = AppState {
         object_store,
         store: store.clone(),
+        services,
         stripe_adapter,
         jwt_secret: config.jwt_secret.clone(),
     };

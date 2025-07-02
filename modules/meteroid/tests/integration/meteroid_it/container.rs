@@ -15,6 +15,7 @@ use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
 use meteroid::services::storage::in_memory_object_store;
 use meteroid_mailer::config::MailerConfig;
+use meteroid_mailer::service::MailerService;
 use meteroid_oauth::config::OauthConfig;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
@@ -36,6 +37,7 @@ pub async fn start_meteroid_with_port(
     postgres_connection_string: String,
     seed_level: SeedLevel,
     usage_client: Arc<dyn UsageClient>,
+    mailer: Arc<dyn MailerService>,
 ) -> MeteroidSetup {
     let rest_api_addr = helpers::network::free_local_socket().expect("Could not get webhook addr");
 
@@ -58,14 +60,12 @@ pub async fn start_meteroid_with_port(
         skip_email_validation: !config.mailer_enabled(),
         public_url: config.public_url.clone(),
         eventbus: create_eventbus_memory(),
-        svix: None,
-        mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
-        stripe,
+        mailer: mailer.clone(),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .expect("Could not create store");
 
-    let services = Services::new(Arc::new(store.clone()), usage_client);
+    let services = Services::new(Arc::new(store.clone()), usage_client, None, stripe);
 
     populate_postgres(&store.pool, seed_level).await;
 
@@ -121,25 +121,37 @@ pub async fn start_meteroid(
         postgres_connection_string,
         seed_level,
         Arc::new(MockUsageClient::noop()),
+        meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
     .await
 }
 
-// TODO check if that replaces terminate_meteroid
-// impl Drop for MeteroidSetup {
-//     fn drop(&mut self) {
-//         self.token.cancel();
-//         // wait synchronously on join_handle
-//         futures::executor::block_on(&self.join_handle).unwrap();
-//         log::info!("Stopped meteroid server");
-//     }
-// }
+pub async fn start_meteroid_with_clients(
+    postgres_connection_string: String,
+    seed_level: SeedLevel,
+    usage_client: Arc<dyn UsageClient>,
+    mailer: Arc<dyn MailerService>,
+) -> MeteroidSetup {
+    let meteroid_port = helpers::network::free_local_port().expect("Could not get free port");
+    let metering_port = helpers::network::free_local_port().expect("Could not get free port");
 
-pub async fn terminate_meteroid(token: CancellationToken, join_handle: JoinHandle<()>) {
-    token.cancel();
-    join_handle.await.unwrap();
+    start_meteroid_with_port(
+        meteroid_port,
+        metering_port,
+        postgres_connection_string,
+        seed_level,
+        usage_client,
+        mailer,
+    )
+    .await
+}
 
-    log::info!("Stopped meteroid server");
+impl Drop for MeteroidSetup {
+    fn drop(&mut self) {
+        self.token.cancel();
+        self.join_handle.abort();
+        log::info!("Stopped meteroid server  ");
+    }
 }
 
 pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {

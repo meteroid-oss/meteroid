@@ -11,6 +11,7 @@ error-stack = { workspace = true, optional = true }
 anyhow = { workspace = true, optional = true }
 pin-project = { workspace = true }
 chrono = { workspace = true }
+rust_decimal = { workspace = true }
 
 [features]
 error-stack-conv = ["dep:error-stack", "dep:anyhow", "dep:thiserror"]

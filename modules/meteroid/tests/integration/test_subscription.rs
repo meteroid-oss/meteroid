@@ -18,7 +18,8 @@ use meteroid_grpc::meteroid::api::shared::v1::BillingPeriod;
 use meteroid_grpc::meteroid::api::subscriptions::v1::SubscriptionStatus;
 use meteroid_grpc::meteroid::api::subscriptions::v1::cancel_subscription_request::EffectiveAt;
 
-use meteroid_store::domain::{CursorPaginationRequest, LineItem};
+use crate::data::ids::TENANT_ID;
+use meteroid_store::domain::{LineItem, OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 use meteroid_store::repositories::subscriptions::slots::SubscriptionSlotsInterfaceAuto;
 
@@ -182,11 +183,16 @@ async fn test_subscription_create() {
 
     let db_invoices = setup
         .store
-        .list_invoices_to_issue(
-            1,
-            CursorPaginationRequest {
-                limit: Some(1000),
-                cursor: None,
+        .list_invoices(
+            TENANT_ID,
+            None,
+            None,
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                per_page: Some(10),
+                page: 0,
             },
         )
         .await
@@ -195,7 +201,7 @@ async fn test_subscription_create() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.first().unwrap();
+    let db_invoice = &db_invoices.first().unwrap().invoice;
 
     assert_eq!(db_invoice.tenant_id.to_string(), tenant_id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer_id);
@@ -205,14 +211,14 @@ async fn test_subscription_create() {
     );
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 #[tokio::test]
 #[ignore] // subscription seed is broken
 async fn test_subscription_cancel() {
     let TestContext {
-        setup,
+        setup: _,
         clients,
         _container,
     } = setup_test(SeedLevel::PLANS).await.unwrap();
@@ -271,7 +277,7 @@ async fn test_subscription_cancel() {
     assert_eq!(result_subscription.status(), SubscriptionStatus::Pending);
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 // TODO Commenting this test while we complete the slot flow (cf sequence diagram in the store impl)
@@ -494,11 +500,16 @@ async fn test_subscription_create_invoice_seats() {
 
     let db_invoices = setup
         .store
-        .list_invoices_to_issue(
-            1,
-            CursorPaginationRequest {
-                limit: Some(1000),
-                cursor: None,
+        .list_invoices(
+            TENANT_ID,
+            None,
+            None,
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                per_page: Some(10),
+                page: 0,
             },
         )
         .await
@@ -507,7 +518,7 @@ async fn test_subscription_create_invoice_seats() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.first().unwrap();
+    let db_invoice = &db_invoices.first().unwrap().invoice;
 
     assert_eq!(db_invoice.invoice_date, start);
 
@@ -546,7 +557,7 @@ async fn test_subscription_create_invoice_seats() {
     assert_eq!(current_active_seats, seats_quantity);
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 #[tokio::test]
@@ -681,11 +692,16 @@ async fn test_subscription_create_invoice_rate() {
 
     let db_invoices = setup
         .store
-        .list_invoices_to_issue(
-            1,
-            CursorPaginationRequest {
-                limit: Some(1000),
-                cursor: None,
+        .list_invoices(
+            TENANT_ID,
+            None,
+            None,
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                per_page: Some(10),
+                page: 0,
             },
         )
         .await
@@ -694,12 +710,14 @@ async fn test_subscription_create_invoice_rate() {
 
     assert_eq!(db_invoices.len(), 3);
 
-    let db_invoice_monthly = db_invoices
+    let db_invoice_monthly = &db_invoices
         .iter()
         .find(|i| {
-            i.subscription_id.unwrap().to_string() == sub_monthly.subscription.clone().unwrap().id
+            i.invoice.subscription_id.unwrap().to_string()
+                == sub_monthly.subscription.clone().unwrap().id
         })
-        .unwrap();
+        .unwrap()
+        .invoice;
 
     let invoice_lines_monthly: Vec<LineItem> = db_invoice_monthly.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
@@ -718,11 +736,12 @@ async fn test_subscription_create_invoice_rate() {
     let db_invoice_annual = db_invoices
         .iter()
         .find(|i| {
-            i.subscription_id.unwrap().to_string() == sub_annual.subscription.clone().unwrap().id
+            i.invoice.subscription_id.unwrap().to_string()
+                == sub_annual.subscription.clone().unwrap().id
         })
         .unwrap();
 
-    let invoice_lines_annual = db_invoice_annual.line_items.clone();
+    let invoice_lines_annual = db_invoice_annual.invoice.line_items.clone();
     assert_eq!(invoice_lines_annual.len(), 1);
     let invoice_line_annual = invoice_lines_annual.first().unwrap();
     assert_eq!(invoice_line_annual.name, "Subscription Rate");
@@ -740,12 +759,12 @@ async fn test_subscription_create_invoice_rate() {
     let db_invoice_monthly = db_invoices
         .iter()
         .find(|i| {
-            i.subscription_id.unwrap().to_string()
+            i.invoice.subscription_id.unwrap().to_string()
                 == sub_monthly_prorated.subscription.clone().unwrap().id
         })
         .unwrap();
 
-    let invoice_lines_monthly = db_invoice_monthly.line_items.clone();
+    let invoice_lines_monthly = db_invoice_monthly.invoice.line_items.clone();
     assert_eq!(invoice_lines_monthly.len(), 1);
     let invoice_line_monthly = invoice_lines_monthly.first().unwrap();
     assert_eq!(invoice_line_monthly.name, "Subscription Rate");
@@ -763,7 +782,7 @@ async fn test_subscription_create_invoice_rate() {
     assert_eq!(invoice_line_monthly.end_date, start.with_day(30).unwrap());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 #[tokio::test]
@@ -814,11 +833,16 @@ async fn test_subscription_create_invoice_usage() {
 
     let db_invoices = setup
         .store
-        .list_invoices_to_issue(
-            1,
-            CursorPaginationRequest {
-                limit: Some(1000),
-                cursor: None,
+        .list_invoices(
+            TENANT_ID,
+            None,
+            None,
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                per_page: Some(10),
+                page: 0,
             },
         )
         .await
@@ -827,7 +851,7 @@ async fn test_subscription_create_invoice_usage() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.first().unwrap();
+    let db_invoice = &db_invoices.first().unwrap().invoice;
 
     assert_eq!(db_invoice.invoice_date, start);
 
@@ -861,7 +885,7 @@ async fn test_subscription_create_invoice_usage() {
     assert_eq!(invoice_line.end_date, start.with_day(10).unwrap());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
 
 // TDOO capacity, onetime, recurring

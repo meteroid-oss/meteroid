@@ -1,7 +1,11 @@
 use crate::domain::outbox_event::{BillableMetricEvent, CustomerEvent, SubscriptionEvent};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
+use chrono::NaiveDate;
+use common_domain::ids::{
+    CustomerId, CustomerPaymentMethodId, InvoiceId, InvoicingEntityId, StoredDocumentId,
+    SubscriptionId, TenantId,
+};
 use common_domain::pgmq::{Headers, Message, MessageId, ReadCt};
 use diesel_models::pgmq::{PgmqMessageRow, PgmqMessageRowNew};
 use o2o::o2o;
@@ -16,6 +20,9 @@ pub enum PgmqQueue {
     BillableMetricSync,
     HubspotSync,
     PennylaneSync,
+    InvoiceOrchestration,
+    PaymentRequest,
+    SendEmailRequest,
 }
 
 impl PgmqQueue {
@@ -27,6 +34,10 @@ impl PgmqQueue {
             PgmqQueue::BillableMetricSync => "billable_metric_sync",
             PgmqQueue::HubspotSync => "hubspot_sync",
             PgmqQueue::PennylaneSync => "pennylane_sync",
+
+            PgmqQueue::InvoiceOrchestration => "invoice_orchestration",
+            PgmqQueue::PaymentRequest => "payment_request",
+            PgmqQueue::SendEmailRequest => "send_email_request",
         }
     }
 }
@@ -47,45 +58,119 @@ pub struct PgmqMessageNew {
     pub headers: Option<Headers>,
 }
 
+/// Macro to implement PgmqEvent and json_value_serde for a type
+macro_rules! derive_pgmq_message {
+    ($type:ty) => {
+        impl TryInto<PgmqMessageNew> for $type {
+            type Error = StoreErrorReport;
+            fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
+                Ok(PgmqMessageNew {
+                    message: Some(Message(self.try_into()?)),
+                    headers: None,
+                })
+            }
+        }
+
+        impl TryInto<$type> for &PgmqMessage {
+            type Error = StoreErrorReport;
+            fn try_into(self) -> Result<$type, Self::Error> {
+                let payload = &self
+                    .message
+                    .as_ref()
+                    .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
+                    .0;
+                payload.try_into()
+            }
+        }
+    };
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaymentRequestEvent {
+    pub tenant_id: TenantId,
+    pub invoice_id: InvoiceId,
+    pub payment_method_id: CustomerPaymentMethodId,
+}
+
+impl PaymentRequestEvent {
+    pub fn new(
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+        payment_method_id: CustomerPaymentMethodId,
+    ) -> Self {
+        Self {
+            tenant_id,
+            invoice_id,
+            payment_method_id,
+        }
+    }
+}
+json_value_serde!(PaymentRequestEvent);
+derive_pgmq_message!(PaymentRequestEvent);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SendEmailRequest {
+    InvoiceReady {
+        tenant_id: TenantId,
+        invoicing_entity_id: InvoicingEntityId,
+        invoice_id: InvoiceId,
+        invoice_number: String,
+        invoice_date: NaiveDate,
+        invoice_due_date: NaiveDate,
+        label: String,
+        amount_due: i64,
+        currency: String,
+        company_name: String,
+        logo_attachment_id: Option<StoredDocumentId>,
+        invoicing_emails: Vec<String>,
+        invoice_pdf_id: StoredDocumentId,
+    },
+
+    InvoicePaid {
+        invoice_id: InvoiceId,
+        invoicing_entity_id: InvoicingEntityId,
+        invoice_number: String,
+        invoice_date: NaiveDate,
+        invoice_due_date: NaiveDate,
+        label: String,
+        amount_paid: i64,
+        currency: String,
+        company_name: String,
+        logo_attachment_id: Option<StoredDocumentId>,
+        invoicing_emails: Vec<String>,
+        invoice_pdf_id: StoredDocumentId,
+        receipt_pdf_id: Option<StoredDocumentId>,
+        // lines : Vec<InvoiceLine>, TODO
+    },
+
+    /// check once a day, then
+    PaymentReminder { invoice_id: InvoiceId },
+
+    PaymentRejected {
+        invoice_id: InvoiceId,
+        invoice_pdf_url: String,
+        receipt_pdf_url: Option<String>, // or tx details ?
+    },
+}
+json_value_serde!(SendEmailRequest);
+derive_pgmq_message!(SendEmailRequest);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoicePdfRequestEvent {
     pub invoice_id: InvoiceId,
+    pub is_accounting: bool,
 }
 
 impl InvoicePdfRequestEvent {
-    pub fn new(invoice_id: InvoiceId) -> Self {
-        Self { invoice_id }
+    pub fn new(invoice_id: InvoiceId, is_accounting: bool) -> Self {
+        Self {
+            invoice_id,
+            is_accounting,
+        }
     }
 }
-
 json_value_serde!(InvoicePdfRequestEvent);
-
-impl TryInto<PgmqMessageNew> for InvoicePdfRequestEvent {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
-        let message = Some(Message(self.try_into()?));
-
-        Ok(PgmqMessageNew {
-            message,
-            headers: None,
-        })
-    }
-}
-
-impl TryInto<InvoicePdfRequestEvent> for &PgmqMessage {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<InvoicePdfRequestEvent, Self::Error> {
-        let payload = &self
-            .message
-            .as_ref()
-            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
-            .0;
-
-        payload.try_into()
-    }
-}
+derive_pgmq_message!(InvoicePdfRequestEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum HubspotSyncRequestEvent {
@@ -124,35 +209,8 @@ impl HubspotSyncRequestEvent {
         }
     }
 }
-
 json_value_serde!(HubspotSyncRequestEvent);
-
-impl TryInto<PgmqMessageNew> for HubspotSyncRequestEvent {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
-        let message = Some(Message(self.try_into()?));
-
-        Ok(PgmqMessageNew {
-            message,
-            headers: None,
-        })
-    }
-}
-
-impl TryInto<HubspotSyncRequestEvent> for &PgmqMessage {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<HubspotSyncRequestEvent, Self::Error> {
-        let payload = &self
-            .message
-            .as_ref()
-            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
-            .0;
-
-        payload.try_into()
-    }
-}
+derive_pgmq_message!(HubspotSyncRequestEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PennylaneSyncRequestEvent {
@@ -173,35 +231,8 @@ impl PennylaneSyncRequestEvent {
         }
     }
 }
-
 json_value_serde!(PennylaneSyncRequestEvent);
-
-impl TryInto<PgmqMessageNew> for PennylaneSyncRequestEvent {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
-        let message = Some(Message(self.try_into()?));
-
-        Ok(PgmqMessageNew {
-            message,
-            headers: None,
-        })
-    }
-}
-
-impl TryInto<PennylaneSyncRequestEvent> for &PgmqMessage {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<PennylaneSyncRequestEvent, Self::Error> {
-        let payload = &self
-            .message
-            .as_ref()
-            .ok_or(StoreError::ValueNotFound("Pgmq message".to_string()))?
-            .0;
-
-        payload.try_into()
-    }
-}
+derive_pgmq_message!(PennylaneSyncRequestEvent);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PennylaneSyncCustomer {
@@ -227,18 +258,5 @@ impl BillableMetricSyncRequestEvent {
         }
     }
 }
-
 json_value_serde!(BillableMetricSyncRequestEvent);
-
-impl TryInto<PgmqMessageNew> for BillableMetricSyncRequestEvent {
-    type Error = StoreErrorReport;
-
-    fn try_into(self) -> Result<PgmqMessageNew, Self::Error> {
-        let message = Some(Message(self.try_into()?));
-
-        Ok(PgmqMessageNew {
-            message,
-            headers: None,
-        })
-    }
-}
+derive_pgmq_message!(BillableMetricSyncRequestEvent);

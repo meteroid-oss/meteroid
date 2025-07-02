@@ -1,4 +1,7 @@
 use crate::StoreResult;
+use crate::domain::outbox_event::{
+    InvoiceEvent, InvoicePdfGeneratedEvent, PaymentTransactionEvent,
+};
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{
     CreateSubscription, CreatedSubscription, DetailedInvoice, LineItem, SetupIntent, Subscription,
@@ -203,5 +206,30 @@ impl ServicesEdge {
         self.services
             .cancel_subscription(subscription_id, tenant_id, reason, effective_at, actor)
             .await
+    }
+
+    pub async fn on_invoice_accounting_pdf_generated(
+        &self,
+        event: InvoicePdfGeneratedEvent,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services
+            .on_invoice_accounting_pdf_generated(event, tenant_id)
+            .await
+    }
+
+    pub async fn on_invoice_paid(
+        &self,
+        event: InvoiceEvent,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        self.services.on_invoice_paid(event, tenant_id).await
+    }
+
+    pub async fn on_payment_transaction_settled(
+        &self,
+        event: PaymentTransactionEvent,
+    ) -> StoreResult<()> {
+        self.services.on_payment_transaction_settled(event).await
     }
 }

@@ -7,6 +7,7 @@ use crate::domain::webhooks::{
     WebhookPortalAccess,
 };
 use crate::errors::StoreError;
+use crate::services::ServicesEdge;
 use crate::{Store, StoreResult};
 use backon::{ConstantBuilder, Retryable};
 use cached::proc_macro::cached;
@@ -26,52 +27,6 @@ use svix::api::{AppPortalAccessIn, ApplicationIn, EndpointIn, EventTypeIn, Messa
 use svix::error::Error;
 use tracing::log;
 
-#[async_trait::async_trait]
-pub trait WebhooksInterface {
-    async fn insert_webhook_out_endpoint(
-        &self,
-        endpoint: WebhookOutEndpointNew,
-    ) -> StoreResult<WebhookOutEndpoint>;
-
-    async fn get_webhook_out_endpoint(
-        &self,
-        tenant_id: TenantId,
-        endpoint_id: String,
-    ) -> StoreResult<WebhookOutEndpoint>;
-
-    async fn list_webhook_out_endpoints(
-        &self,
-        tenant_id: TenantId,
-        filter: Option<WebhookOutListEndpointFilter>,
-    ) -> StoreResult<WebhookPage<WebhookOutEndpointListItem>>;
-
-    async fn list_message_attempts_out(
-        &self,
-        tenant_id: TenantId,
-        endpoint_id: String,
-        filter: Option<WebhookOutListMessageAttemptFilter>,
-    ) -> StoreResult<WebhookPage<WebhookOutMessageAttempt>>;
-
-    async fn insert_webhook_message_out(
-        &self,
-        tenant_id: TenantId,
-        msg: WebhookOutMessageNew,
-    ) -> StoreResult<WebhookOutCreateMessageResult>;
-
-    // this will have its own CRUD
-    async fn insert_webhook_out_event_types(&self) -> StoreResult<()>;
-
-    async fn insert_webhook_in_event(
-        &self,
-        event: WebhookInEventNew,
-    ) -> StoreResult<WebhookInEvent>;
-
-    async fn get_webhook_portal_access(
-        &self,
-        tenant_id: TenantId,
-    ) -> StoreResult<WebhookPortalAccess>;
-}
-
 static API_RATE_LIMITER: std::sync::OnceLock<
     RateLimiter<NotKeyed, InMemoryState, clock::DefaultClock, NoOpMiddleware>,
 > = std::sync::OnceLock::new();
@@ -85,14 +40,13 @@ impl ApiRateLimiter {
     }
 }
 
-#[async_trait::async_trait]
 #[allow(deprecated)]
-impl WebhooksInterface for Store {
-    async fn insert_webhook_out_endpoint(
+impl ServicesEdge {
+    pub async fn insert_webhook_out_endpoint(
         &self,
         endpoint: WebhookOutEndpointNew,
     ) -> StoreResult<WebhookOutEndpoint> {
-        let svix = self.svix()?;
+        let svix = self.services.svix()?;
 
         let created = svix
             .endpoint()
@@ -128,12 +82,12 @@ impl WebhooksInterface for Store {
             .await
     }
 
-    async fn get_webhook_out_endpoint(
+    pub async fn get_webhook_out_endpoint(
         &self,
         tenant_id: TenantId,
         endpoint_id: String,
     ) -> StoreResult<WebhookOutEndpoint> {
-        let svix = self.svix()?;
+        let svix = self.services.svix()?;
 
         let endpoint = svix
             .endpoint()
@@ -165,12 +119,12 @@ impl WebhooksInterface for Store {
         })
     }
 
-    async fn list_webhook_out_endpoints(
+    pub async fn list_webhook_out_endpoints(
         &self,
         tenant_id: TenantId,
         filter: Option<WebhookOutListEndpointFilter>,
     ) -> StoreResult<WebhookPage<WebhookOutEndpointListItem>> {
-        let svix = self.svix()?;
+        let svix = self.services.svix()?;
 
         let result = svix
             .endpoint()
@@ -195,13 +149,13 @@ impl WebhooksInterface for Store {
             .and_then(TryInto::try_into)
     }
 
-    async fn list_message_attempts_out(
+    async fn _list_message_attempts_out(
         &self,
         tenant_id: TenantId,
         endpoint_id: String,
         filter: Option<WebhookOutListMessageAttemptFilter>,
     ) -> StoreResult<WebhookPage<WebhookOutMessageAttempt>> {
-        let svix = self.svix()?;
+        let svix = self.services.svix()?;
 
         // note: in os version svix doesn't return the message inside the attempt
         svix.message_attempt()
@@ -213,12 +167,12 @@ impl WebhooksInterface for Store {
             .map(Into::into)
     }
 
-    async fn insert_webhook_message_out(
+    pub async fn insert_webhook_message_out(
         &self,
         tenant_id: TenantId,
         msg: WebhookOutMessageNew,
     ) -> StoreResult<WebhookOutCreateMessageResult> {
-        if let Some(svix_api) = &self.svix {
+        if let Some(svix_api) = &self.services.svix {
             let types = get_endpoint_events_to_listen_cached(self, tenant_id).await?;
 
             if !types.contains(&msg.event_type) {
@@ -237,12 +191,12 @@ impl WebhooksInterface for Store {
                     .create(tenant_id.to_string(), message_in.clone(), None)
                     .await
             })
-            .retry(ConstantBuilder::default().with_jitter())
-            .when(|err| matches!(err, Error::Http(e) if e.status.as_u16() == 429 || e.status.as_u16() >= 500))
-            .notify(|err: &Error, dur: Duration| {
-                log::warn!("Retrying svix api error {:?} after {:?}", err, dur);
-            })
-            .await;
+                .retry(ConstantBuilder::default().with_jitter())
+                .when(|err| matches!(err, Error::Http(e) if e.status.as_u16() == 429 || e.status.as_u16() >= 500))
+                .notify(|err: &Error, dur: Duration| {
+                    log::warn!("Retrying svix api error {:?} after {:?}", err, dur);
+                })
+                .await;
 
             if let Err(Error::Http(ref e)) = message_result {
                 match e.status.as_u16() {
@@ -263,8 +217,8 @@ impl WebhooksInterface for Store {
     }
 
     /// naive hack, will be replaced with a proper CRUD for event types
-    async fn insert_webhook_out_event_types(&self) -> StoreResult<()> {
-        if let Some(svix_api) = &self.svix {
+    pub async fn insert_webhook_out_event_types(&self) -> StoreResult<()> {
+        if let Some(svix_api) = &self.services.svix {
             for event_type in WebhookOutEventTypeEnum::iter() {
                 let created = svix_api
                     .event_type()
@@ -302,13 +256,13 @@ impl WebhooksInterface for Store {
         Ok(())
     }
 
-    async fn get_webhook_portal_access(
+    pub async fn get_webhook_portal_access(
         &self,
         tenant_id: TenantId,
     ) -> StoreResult<WebhookPortalAccess> {
-        let svix = self.svix()?;
+        let svix = self.services.svix()?;
 
-        let app_in = svix_application_in(self, tenant_id).await?;
+        let app_in = svix_application_in(&self.store, tenant_id).await?;
 
         let access_in = AppPortalAccessIn {
             application: Some(app_in),
@@ -326,11 +280,11 @@ impl WebhooksInterface for Store {
             ))
     }
 
-    async fn insert_webhook_in_event(
+    pub async fn insert_webhook_in_event(
         &self,
         event: WebhookInEventNew,
     ) -> StoreResult<WebhookInEvent> {
-        let mut conn = self.get_conn().await?;
+        let mut conn = self.services.store.get_conn().await?;
 
         let insertable: WebhookInEventRowNew = event.into();
 
@@ -350,10 +304,10 @@ impl WebhooksInterface for Store {
     convert = r#"{ tenant_id }"#
 )]
 async fn get_endpoint_events_to_listen_cached(
-    store: &Store,
+    services: &ServicesEdge,
     tenant_id: TenantId,
 ) -> StoreResult<Vec<WebhookOutEventTypeEnum>> {
-    let endpoints = store
+    let endpoints = services
         .list_webhook_out_endpoints(
             tenant_id,
             Some(WebhookOutListEndpointFilter {

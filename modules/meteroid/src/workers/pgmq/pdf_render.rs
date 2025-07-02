@@ -22,14 +22,14 @@ impl PdfRender {
 #[async_trait::async_trait]
 impl PgmqHandler for PdfRender {
     async fn handle(&self, msgs: &[PgmqMessage]) -> PgmqResult<Vec<MessageId>> {
-        let mut ids = vec![];
+        let mut evts = vec![];
 
         for msg in msgs {
             let evt: StoreResult<InvoicePdfRequestEvent> = msg.try_into();
 
             match evt {
                 Ok(evt) => {
-                    ids.push((evt.invoice_id, msg.msg_id));
+                    evts.push((evt, msg.msg_id));
                 }
                 Err(e) => {
                     log::warn!(
@@ -40,7 +40,7 @@ impl PgmqHandler for PdfRender {
             }
         }
 
-        let invoice_ids = ids.iter().map(|(id, _)| *id).collect();
+        let invoice_ids = evts.iter().map(|(evt, _)| evt.invoice_id).collect();
 
         let result = self
             .pdf_service
@@ -56,10 +56,10 @@ impl PgmqHandler for PdfRender {
             })
             .collect();
 
-        let success_msg_ids = ids
+        let success_msg_ids = evts
             .iter()
-            .filter_map(|(id, msg_id)| {
-                if success_invoice_ids.contains(id) {
+            .filter_map(|(evt, msg_id)| {
+                if success_invoice_ids.contains(&evt.invoice_id) {
                     Some(*msg_id)
                 } else {
                     None

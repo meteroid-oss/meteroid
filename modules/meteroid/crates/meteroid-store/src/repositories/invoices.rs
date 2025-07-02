@@ -2,14 +2,15 @@ use crate::domain::enums::InvoiceType;
 use crate::errors::StoreError;
 use crate::store::Store;
 use crate::{StoreResult, domain};
-use chrono::NaiveDateTime;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
 use diesel_models::enums::{MrrMovementType, SubscriptionEventType};
 use error_stack::{Report, bail};
 
-use crate::domain::outbox_event::OutboxEvent;
-use crate::domain::pgmq::{PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqQueue};
+use crate::domain::outbox_event::{InvoicePdfGeneratedEvent, OutboxEvent};
+use crate::domain::pgmq::{
+    PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessageNew, PgmqQueue,
+};
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
     InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
@@ -17,7 +18,9 @@ use crate::domain::{
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::repositories::pgmq::PgmqInterface;
-use common_domain::ids::{ConnectorId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, ConnectorId, CustomerId, EventId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+};
 use diesel_models::customer_balance_txs::CustomerBalancePendingTxRow;
 use diesel_models::invoices::{InvoiceRow, InvoiceRowNew};
 use diesel_models::subscriptions::SubscriptionRow;
@@ -64,12 +67,6 @@ pub trait InvoiceInterface {
         pagination: CursorPaginationRequest,
     ) -> StoreResult<CursorPaginatedVec<Invoice>>;
 
-    async fn list_invoices_to_issue(
-        &self,
-        max_attempts: i32,
-        pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<Invoice>>;
-
     async fn list_invoices_by_ids(&self, ids: Vec<InvoiceId>) -> StoreResult<Vec<Invoice>>;
 
     async fn list_detailed_invoices_by_ids(
@@ -77,23 +74,14 @@ pub trait InvoiceInterface {
         ids: Vec<InvoiceId>,
     ) -> StoreResult<Vec<DetailedInvoice>>;
 
-    async fn invoice_issue_success(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()>;
-
-    async fn invoice_issue_error(
-        &self,
-        id: InvoiceId,
-        tenant_id: TenantId,
-        last_issue_error: &str,
-    ) -> StoreResult<()>;
-
-    async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()>;
-
     async fn save_invoice_documents(
         &self,
         id: InvoiceId,
         tenant_id: TenantId,
-        pdf_id: String,
-        xml_id: Option<String>,
+        customer_id: CustomerId,
+
+        pdf_id: StoredDocumentId,
+        xml_id: Option<StoredDocumentId>,
     ) -> StoreResult<()>;
 
     async fn sync_invoices_to_pennylane(
@@ -235,29 +223,6 @@ impl InvoiceInterface for Store {
         Ok(res)
     }
 
-    async fn list_invoices_to_issue(
-        &self,
-        max_attempts: i32,
-        pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<Invoice>> {
-        let mut conn = self.get_conn().await?;
-
-        let invoices = InvoiceRow::list_to_issue(&mut conn, max_attempts, pagination.into())
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
-
-        let res: CursorPaginatedVec<Invoice> = CursorPaginatedVec {
-            items: invoices
-                .items
-                .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Result<Vec<_>, _>>()?,
-            next_cursor: invoices.next_cursor,
-        };
-
-        Ok(res)
-    }
-
     async fn list_invoices_by_ids(&self, ids: Vec<InvoiceId>) -> StoreResult<Vec<Invoice>> {
         let mut conn = self.get_conn().await?;
 
@@ -287,51 +252,39 @@ impl InvoiceInterface for Store {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    async fn invoice_issue_success(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        InvoiceRow::issue_success(&mut conn, id, tenant_id)
-            .await
-            .map(|_| ())
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-
-    async fn invoice_issue_error(
-        &self,
-        id: InvoiceId,
-        tenant_id: TenantId,
-        last_issue_error: &str,
-    ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        InvoiceRow::issue_error(&mut conn, id, tenant_id, last_issue_error)
-            .await
-            .map(|_| ())
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-
-    async fn update_pending_finalization_invoices(&self, now: NaiveDateTime) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
-
-        InvoiceRow::update_pending_finalization(&mut conn, now)
-            .await
-            .map(|_| ())
-            .map_err(Into::<Report<StoreError>>::into)
-    }
-
     async fn save_invoice_documents(
         &self,
         id: InvoiceId,
         tenant_id: TenantId,
-        pdf_id: String,
-        xml_id: Option<String>,
+        customer_id: CustomerId,
+        pdf_id: StoredDocumentId,
+        xml_id: Option<StoredDocumentId>,
     ) -> StoreResult<()> {
-        let mut conn = self.get_conn().await?;
+        self.transaction(|conn| {
+            async move {
+                InvoiceRow::save_invoice_documents(conn, id, tenant_id, pdf_id, xml_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
 
-        InvoiceRow::save_invoice_documents(&mut conn, id, tenant_id, pdf_id, xml_id)
-            .await
-            .map(|_| ())
-            .map_err(Into::<Report<StoreError>>::into)
+                let evt: PgmqMessageNew =
+                    OutboxEvent::invoice_pdf_generated(InvoicePdfGeneratedEvent {
+                        id: EventId::new(),
+                        invoice_id: id,
+                        tenant_id,
+                        customer_id,
+                        pdf_id,
+                    })
+                    .try_into()?;
+                self.pgmq_send_batch_tx(conn, PgmqQueue::OutboxEvent, vec![evt])
+                    .await?;
+
+                Ok(())
+            }
+            .scope_boxed()
+        })
+        .await?;
+
+        Ok(())
     }
 
     async fn sync_invoices_to_pennylane(

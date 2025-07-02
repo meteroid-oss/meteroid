@@ -1,7 +1,7 @@
 use crate::errors::ObjectStoreError;
 use async_trait::async_trait;
 use bytes::Bytes;
-use common_domain::ids::TenantId;
+use common_domain::ids::{BaseId, StoredDocumentId, TenantId};
 use error_stack::{Report, ResultExt};
 use http::Method;
 use object_store::aws::AmazonS3Builder;
@@ -12,11 +12,11 @@ use object_store::signer::Signer;
 use object_store::{ObjectStore, ObjectStoreScheme, PutPayload};
 use std::sync::Arc;
 use std::time::Duration;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub enum Prefix {
     InvoicePdf,
+    ReceiptPdf,
     InvoiceXml,
     ImageLogo,
     WebhookArchive {
@@ -29,6 +29,7 @@ impl Prefix {
     pub fn to_path_string(&self) -> String {
         match self {
             Prefix::InvoicePdf => "invoice_pdf".to_string(),
+            Prefix::ReceiptPdf => "receipt_pdf".to_string(),
             Prefix::InvoiceXml => "invoice_xml".to_string(),
             Prefix::ImageLogo => "image_logo".to_string(),
             Prefix::WebhookArchive {
@@ -43,11 +44,11 @@ pub type Result<T> = error_stack::Result<T, ObjectStoreError>;
 
 #[async_trait]
 pub trait ObjectStoreService: Send + Sync {
-    async fn store(&self, binary: Bytes, prefix: Prefix) -> Result<Uuid>;
-    async fn retrieve(&self, uid: Uuid, prefix: Prefix) -> Result<Bytes>;
+    async fn store(&self, binary: Bytes, prefix: Prefix) -> Result<StoredDocumentId>;
+    async fn retrieve(&self, uid: StoredDocumentId, prefix: Prefix) -> Result<Bytes>;
     async fn get_url(
         &self,
-        uid: Uuid,
+        uid: StoredDocumentId,
         prefix: Prefix,
         expires_in: Duration,
     ) -> Result<Option<String>>;
@@ -101,15 +102,15 @@ impl S3Storage {
 
 #[async_trait]
 impl ObjectStoreService for S3Storage {
-    async fn store(&self, binary: Bytes, document_type: Prefix) -> Result<Uuid> {
+    async fn store(&self, binary: Bytes, document_type: Prefix) -> Result<StoredDocumentId> {
         let payload = PutPayload::from_bytes(binary);
 
-        let uid = Uuid::now_v7();
+        let uid = StoredDocumentId::new();
 
         let path = self
             .path
             .child(document_type.to_path_string().as_str())
-            .child(uid.to_string().as_str());
+            .child(uid.as_uuid().to_string().as_str());
 
         self.object_store_client
             .put(&path, payload)
@@ -119,11 +120,11 @@ impl ObjectStoreService for S3Storage {
         Ok(uid)
     }
 
-    async fn retrieve(&self, uid: Uuid, document_type: Prefix) -> Result<Bytes> {
+    async fn retrieve(&self, uid: StoredDocumentId, document_type: Prefix) -> Result<Bytes> {
         let path = self
             .path
             .child(document_type.to_path_string().as_str())
-            .child(uid.to_string().as_str());
+            .child(uid.as_uuid().to_string().as_str());
 
         let data = self
             .object_store_client
@@ -138,14 +139,14 @@ impl ObjectStoreService for S3Storage {
     }
     async fn get_url(
         &self,
-        uid: Uuid,
+        uid: StoredDocumentId,
         prefix: Prefix,
         expires_in: Duration,
     ) -> Result<Option<String>> {
         let path = self
             .path
             .child(prefix.to_path_string().as_str())
-            .child(uid.to_string().as_str());
+            .child(uid.as_uuid().to_string().as_str());
 
         // Only some backends supports presigned URLs
         if let Some(s3_client) = self.signer.clone() {

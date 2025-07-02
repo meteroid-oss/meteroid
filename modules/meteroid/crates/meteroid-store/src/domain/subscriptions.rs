@@ -87,6 +87,8 @@ pub struct Subscription {
     pub current_period_end: Option<NaiveDate>,
     pub cycle_index: Option<u32>,
     pub status: SubscriptionStatusEnum,
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
 }
 
 pub enum CyclePosition {
@@ -137,6 +139,8 @@ impl TryFrom<SubscriptionForDisplayRow> for Subscription {
                 .transpose()?,
             cycle_index: val.subscription.cycle_index.map(|x| x as u32),
             status: val.subscription.status.into(),
+            charge_automatically: val.subscription.charge_automatically,
+            auto_advance_invoices: val.subscription.auto_advance_invoices,
         })
     }
 }
@@ -184,6 +188,9 @@ pub struct SubscriptionNew {
     // Auto is default : uses the existing default method for customer, or attempts a checkout if invoicing entity's PP, or link to bank, or set as external payment
     // ==> try to simplify TODO
     pub payment_strategy: Option<SubscriptionPaymentStrategy>,
+
+    pub auto_advance_invoices: bool,
+    pub charge_automatically: bool,
 }
 
 pub struct SubscriptionNewEnriched<'a> {
@@ -237,6 +244,8 @@ impl SubscriptionNewEnriched<'_> {
             current_period_end: self.current_period_end,
             next_cycle_action: self.next_cycle_action.clone(),
             cycle_index: self.cycle_index.map(|i| i as i32),
+            charge_automatically: sub.charge_automatically,
+            auto_advance_invoices: sub.auto_advance_invoices,
         }
     }
 }

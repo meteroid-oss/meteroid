@@ -4,12 +4,20 @@ use diesel_models::query::pgmq;
 use error_stack::Report;
 
 use crate::errors::StoreError;
+use crate::store::PgConn;
 use crate::{Store, StoreResult};
 
 #[async_trait::async_trait]
 pub trait PgmqInterface {
     async fn pgmq_send_batch(
         &self,
+        queue: PgmqQueue,
+        messages: Vec<PgmqMessageNew>,
+    ) -> StoreResult<()>;
+
+    async fn pgmq_send_batch_tx(
+        &self,
+        conn: &mut PgConn,
         queue: PgmqQueue,
         messages: Vec<PgmqMessageNew>,
     ) -> StoreResult<()>;
@@ -40,10 +48,18 @@ impl PgmqInterface for Store {
         messages: Vec<PgmqMessageNew>,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
+        self.pgmq_send_batch_tx(&mut conn, queue, messages).await
+    }
 
+    async fn pgmq_send_batch_tx(
+        &self,
+        conn: &mut PgConn,
+        queue: PgmqQueue,
+        messages: Vec<PgmqMessageNew>,
+    ) -> StoreResult<()> {
         let rows = messages.into_iter().map(Into::into).collect::<Vec<_>>();
 
-        pgmq::send_batch(&mut conn, queue.as_str(), &rows)
+        pgmq::send_batch(conn, queue.as_str(), &rows)
             .await
             .map_err(Into::<Report<StoreError>>::into)
     }

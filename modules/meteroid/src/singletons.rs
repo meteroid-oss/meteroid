@@ -1,10 +1,7 @@
 use crate::config::Config;
 use crate::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
-use crate::svix::new_svix;
 use meteroid_store::Store;
 use meteroid_store::store::StoreConfig;
-use std::sync::Arc;
-use stripe_client::client::StripeClient;
 
 static STORE: tokio::sync::OnceCell<Store> = tokio::sync::OnceCell::const_new();
 
@@ -13,9 +10,7 @@ pub async fn get_store() -> &'static Store {
         .get_or_init(|| async {
             let config = Config::get();
 
-            let svix = new_svix(config);
             let mailer = meteroid_mailer::service::mailer_service(config.mailer.clone());
-            let stripe = Arc::new(StripeClient::new());
             let oauth = meteroid_oauth::service::OauthServices::new(config.oauth.clone());
 
             let store = Store::new(StoreConfig {
@@ -26,9 +21,7 @@ pub async fn get_store() -> &'static Store {
                 skip_email_validation: !config.mailer_enabled(),
                 public_url: config.public_url.clone(),
                 eventbus: create_eventbus_memory(),
-                svix,
                 mailer,
-                stripe,
                 oauth,
             })
             .expect("Failed to initialize store");

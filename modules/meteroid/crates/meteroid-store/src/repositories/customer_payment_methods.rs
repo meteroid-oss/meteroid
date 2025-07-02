@@ -1,11 +1,14 @@
-use crate::domain::CustomerPaymentMethodNew;
 use crate::domain::customer_payment_methods::CustomerPaymentMethod;
+use crate::domain::{CustomerPaymentMethodNew, ResolvedPaymentMethod};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
-use common_domain::ids::{CustomerConnectionId, CustomerId, CustomerPaymentMethodId, TenantId};
+use common_domain::ids::{
+    CustomerConnectionId, CustomerId, CustomerPaymentMethodId, SubscriptionId, TenantId,
+};
 use diesel_models::customer_payment_methods::{
     CustomerPaymentMethodRow, CustomerPaymentMethodRowNew,
 };
+use diesel_models::enums::PaymentMethodTypeEnum;
 
 #[async_trait::async_trait]
 pub trait CustomerPaymentMethodsInterface {
@@ -36,6 +39,12 @@ pub trait CustomerPaymentMethodsInterface {
         &self,
         method: CustomerPaymentMethodNew,
     ) -> StoreResult<CustomerPaymentMethod>;
+
+    async fn resolve_payment_method_for_subscription(
+        &self,
+        tenant_id: TenantId,
+        id: SubscriptionId,
+    ) -> StoreResult<ResolvedPaymentMethod>;
 }
 
 #[async_trait::async_trait]
@@ -121,5 +130,39 @@ impl CustomerPaymentMethodsInterface for Store {
             .into();
 
         Ok(customer_payment_method)
+    }
+
+    async fn resolve_payment_method_for_subscription(
+        &self,
+        tenant_id: TenantId,
+        id: SubscriptionId,
+    ) -> StoreResult<ResolvedPaymentMethod> {
+        let mut conn = self.get_conn().await?;
+
+        let resolved =
+            CustomerPaymentMethodRow::resolve_subscription_payment_method(&mut conn, tenant_id, id)
+                .await
+                .map_err(|err| StoreError::DatabaseError(err.error))?;
+
+        let resolved = match resolved.subscription_payment_method {
+            Some(PaymentMethodTypeEnum::Transfer) => resolved
+                .subscription_bank_account_id
+                .or(resolved.customer_bank_account_id)
+                .or(resolved.invoicing_entity_bank_account_id)
+                .map_or(
+                    ResolvedPaymentMethod::NotConfigured,
+                    ResolvedPaymentMethod::BankTransfer,
+                ),
+            None | Some(PaymentMethodTypeEnum::Other) => ResolvedPaymentMethod::NotConfigured,
+            Some(_) => resolved
+                .subscription_payment_method_id
+                .or(resolved.customer_payment_method_id)
+                .map_or(
+                    ResolvedPaymentMethod::NotConfigured,
+                    ResolvedPaymentMethod::CustomerPaymentMethod,
+                ),
+        };
+
+        Ok(resolved)
     }
 }

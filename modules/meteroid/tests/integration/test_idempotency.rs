@@ -65,7 +65,7 @@ async fn test_idempotency() {
         );
     }
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
 
 async fn grpc_call(channel: Channel, idempotency: Option<&str>) -> Result<MetadataMap, Status> {

@@ -59,27 +59,24 @@ pub enum FangTaskState {
     Retried,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::InvoiceExternalStatusEnum"]
-#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
-pub enum InvoiceExternalStatusEnum {
-    Deleted,
-    Draft,
-    Finalized,
-    Paid,
-    PaymentFailed,
-    Uncollectible,
-    Void,
-}
-
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoiceStatusEnum {
     Draft,
     Finalized,
-    Pending,
     Void,
+    Uncollectible, // manual status. Use if the invoice will not be paid, e.g. customer is bankrupt
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::InvoicePaymentStatus"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum InvoicePaymentStatus {
+    Unpaid,
+    PartiallyPaid,
+    Paid,
+    Errored,
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone)]

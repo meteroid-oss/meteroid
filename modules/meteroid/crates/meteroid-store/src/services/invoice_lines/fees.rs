@@ -2,8 +2,8 @@ use crate::StoreResult;
 use crate::domain::{Period, SubLineAttributes, SubLineItem, TierRow};
 use crate::errors::StoreError;
 use crate::services::invoice_lines::component::InvoiceLineInner;
-use crate::utils::decimals::ToSubunit;
 use crate::utils::local_id::LocalId;
+use common_utils::decimals::ToSubunit;
 use error_stack::{Report, ResultExt};
 use rust_decimal::Decimal;
 

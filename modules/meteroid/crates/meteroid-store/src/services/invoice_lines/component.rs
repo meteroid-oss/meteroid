@@ -9,7 +9,7 @@ use crate::utils::local_id::LocalId;
 
 use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::services::invoice_lines::shared::{only_positive, only_positive_decimal};
-use crate::utils::decimals::ToSubunit;
+use common_utils::decimals::ToSubunit;
 
 use super::fees;
 use crate::StoreResult;

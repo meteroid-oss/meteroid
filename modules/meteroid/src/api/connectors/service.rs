@@ -86,6 +86,12 @@ impl ConnectorsService for ConnectorsServiceComponents {
 
         let sensitive_data = mapping::connectors::stripe_data_to_domain(&data);
 
+        let account_id = self
+            .services
+            .get_stripe_account_id(&sensitive_data)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
         let res = self
             .store
             .connect_stripe(
@@ -93,6 +99,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
                 data.alias,
                 data.api_publishable_key,
                 sensitive_data,
+                account_id,
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;

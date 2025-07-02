@@ -54,21 +54,12 @@ pub async fn start_metering(config: Config) -> MeteringSetup {
     }
 }
 
-// TODO check if that replaces terminate_meteroid
-// impl Drop for MeteroidSetup {
-//     fn drop(&mut self) {
-//         self.token.cancel();
-//         // wait synchronously on join_handle
-//         futures::executor::block_on(&self.join_handle).unwrap();
-//         log::info!("Stopped meteroid server");
-//     }
-// }
-
-pub async fn terminate_metering(token: CancellationToken, join_handle: JoinHandle<()>) {
-    token.cancel();
-    join_handle.await.unwrap();
-
-    log::info!("Stopped meteroid server");
+impl Drop for MeteringSetup {
+    fn drop(&mut self) {
+        self.token.cancel();
+        self.join_handle.abort();
+        log::info!("Stopped metering server  ");
+    }
 }
 
 pub async fn start_clickhouse() -> (ContainerAsync<GenericImage>, HttpPort, TcpPort) {

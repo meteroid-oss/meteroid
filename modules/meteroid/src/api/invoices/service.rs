@@ -131,7 +131,7 @@ impl InvoicesService for InvoiceServiceComponents {
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
-        let pgmq_msg_new: PgmqMessageNew = InvoicePdfRequestEvent::new(invoice.invoice.id)
+        let pgmq_msg_new: PgmqMessageNew = InvoicePdfRequestEvent::new(invoice.invoice.id, false)
             .try_into()
             .map_err(Into::<InvoiceApiError>::into)?;
 

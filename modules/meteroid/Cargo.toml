@@ -116,6 +116,9 @@ backon = { workspace = true }
 diesel-models.workspace = true
 rdkafka = { workspace = true }
 kafka = { workspace = true }
+mockall = { workspace = true }
+meteroid-mailer = { workspace = true, features = ["test-utils"] }
+
 
 [features]
 metering-server = ["metering"]

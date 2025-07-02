@@ -7,7 +7,8 @@ use crate::meteroid_it::container::SeedLevel;
 use meteroid_grpc::meteroid::api;
 use meteroid_grpc::meteroid::api::plans::v1::PlanType;
 
-use meteroid_store::domain::CursorPaginationRequest;
+use crate::data::ids::TENANT_ID;
+use meteroid_store::domain::{OrderByRequest, PaginationRequest};
 use meteroid_store::repositories::InvoiceInterface;
 
 #[tokio::test]
@@ -175,11 +176,16 @@ async fn test_main() {
 
     let db_invoices = setup
         .store
-        .list_invoices_to_issue(
-            1,
-            CursorPaginationRequest {
-                limit: Some(1000),
-                cursor: None,
+        .list_invoices(
+            TENANT_ID,
+            None,
+            None,
+            None,
+            None,
+            OrderByRequest::DateAsc,
+            PaginationRequest {
+                per_page: Some(10),
+                page: 0,
             },
         )
         .await
@@ -188,7 +194,7 @@ async fn test_main() {
 
     assert_eq!(db_invoices.len(), 1);
 
-    let db_invoice = db_invoices.first().unwrap();
+    let db_invoice = &db_invoices.first().unwrap().invoice;
 
     assert_eq!(db_invoice.tenant_id.to_string(), tenant.id);
     assert_eq!(db_invoice.customer_id.clone().to_string(), customer.id);
@@ -196,7 +202,4 @@ async fn test_main() {
         db_invoice.subscription_id.map(|x| x.to_string()),
         Some(subscription.id.clone())
     );
-
-    // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
 }

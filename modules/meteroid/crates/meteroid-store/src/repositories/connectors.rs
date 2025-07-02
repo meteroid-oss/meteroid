@@ -16,7 +16,6 @@ use diesel_models::query::pgmq;
 use error_stack::{Report, bail};
 use meteroid_oauth::model::OauthProvider;
 use secrecy::{ExposeSecret, SecretString};
-use stripe_client::accounts::AccountsApi;
 
 #[async_trait::async_trait]
 pub trait ConnectorsInterface {
@@ -34,6 +33,7 @@ pub trait ConnectorsInterface {
         alias: String,
         publishable_key: String,
         stripe_data: StripeSensitiveData,
+        stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta>;
 
     async fn get_connector_with_data(
@@ -105,15 +105,8 @@ impl ConnectorsInterface for Store {
         alias: String,
         publishable_key: String,
         stripe_data: StripeSensitiveData,
+        stripe_account_id: String,
     ) -> StoreResult<ConnectorMeta> {
-        // we test with the account api, and fail if we cannot reach it
-        let secret = &SecretString::new(stripe_data.api_secret_key.clone());
-        let account = self
-            .stripe
-            .get_account(secret)
-            .await
-            .map_err(|err| Report::new(err).change_context(StoreError::PaymentProviderError))?;
-
         // then insert
         let mut conn = self.get_conn().await?;
 
@@ -124,7 +117,7 @@ impl ConnectorsInterface for Store {
             provider: ConnectorProviderEnum::Stripe,
             data: Some(ProviderData::Stripe(StripePublicData {
                 api_publishable_key: publishable_key,
-                account_id: account.id,
+                account_id: stripe_account_id,
             })),
             sensitive: Some(ProviderSensitiveData::Stripe(stripe_data)),
         }

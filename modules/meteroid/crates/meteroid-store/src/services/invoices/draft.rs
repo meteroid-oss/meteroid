@@ -1,6 +1,6 @@
 use crate::domain::{
-    Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoiceStatusEnum,
-    InvoiceTotals, InvoiceTotalsParams, InvoiceType, SubscriptionDetails,
+    Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
+    InvoiceStatusEnum, InvoiceTotals, InvoiceTotalsParams, InvoiceType, SubscriptionDetails,
 };
 use crate::errors::StoreError;
 use crate::repositories::invoices::insert_invoice_tx;
@@ -65,15 +65,9 @@ impl Services {
             plan_version_id: Some(subscription.plan_version_id),
             invoice_type: InvoiceType::Recurring,
             currency: subscription.currency.clone(),
-            external_invoice_id: None,
             line_items: invoice_lines,
-            issued: false,
-            issue_attempts: 0,
-            last_issue_attempt_at: None,
-            last_issue_error: None,
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
-            external_status: None, // TODO
             invoice_date,
             finalized_at: None,
             total: totals.total,
@@ -104,6 +98,8 @@ impl Services {
                 address: invoicing_entity.address(),
                 snapshot_at: chrono::Utc::now().naive_utc(),
             },
+            auto_advance: true,
+            payment_status: InvoicePaymentStatus::Unpaid,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;

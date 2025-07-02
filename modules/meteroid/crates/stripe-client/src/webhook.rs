@@ -1,5 +1,5 @@
 use crate::error::WebhookError;
-use crate::payment_intents::PaymentIntent;
+use crate::payment_intents::StripePaymentIntent;
 use crate::setup_intents::SetupIntent;
 use chrono::Utc;
 use hmac::{Hmac, Mac};
@@ -24,7 +24,7 @@ pub static STRIPE_PAYMENT_WEBHOOKS: [&str; 4] = [
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "object", rename_all = "snake_case")]
 pub enum EventObject {
-    PaymentIntent(PaymentIntent),
+    PaymentIntent(StripePaymentIntent),
     SetupIntent(SetupIntent),
 }
 

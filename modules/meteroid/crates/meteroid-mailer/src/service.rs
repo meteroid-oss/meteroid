@@ -1,7 +1,10 @@
 use crate::config::MailerConfig;
 use crate::errors::MailerServiceError;
-use crate::model::{Email, EmailValidationLink, ResetPasswordLink};
-use crate::template::{EmailValidationLinkTemplate, ResetPasswordLinkTemplate};
+use crate::model::{Email, EmailValidationLink, InvoicePaid, InvoiceReady, ResetPasswordLink};
+use crate::template::{
+    EmailValidationLinkTemplate, InvoicePaidTemplate, InvoiceReadyTemplate,
+    ResetPasswordLinkTemplate,
+};
 use async_trait::async_trait;
 use error_stack::Report;
 use lettre::transport::smtp::authentication::Credentials;
@@ -11,6 +14,10 @@ use sailfish::TemplateSimple;
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 
+#[cfg(feature = "test-utils")]
+use mockall::automock;
+
+#[cfg_attr(feature = "test-utils", automock)]
 #[async_trait]
 pub trait MailerService: Send + Sync {
     async fn send(&self, email: Email) -> error_stack::Result<(), MailerServiceError>;
@@ -22,6 +29,16 @@ pub trait MailerService: Send + Sync {
     async fn send_email_validation_link(
         &self,
         link: EmailValidationLink,
+    ) -> error_stack::Result<(), MailerServiceError>;
+
+    async fn send_invoice_ready_for_payment(
+        &self,
+        link: InvoiceReady,
+    ) -> error_stack::Result<(), MailerServiceError>;
+
+    async fn send_invoice_paid(
+        &self,
+        link: InvoicePaid,
     ) -> error_stack::Result<(), MailerServiceError>;
 }
 
@@ -57,7 +74,7 @@ where
         let email = Email {
             from: self.config.from.clone(),
             reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
-            to: link.recipient.clone(),
+            to: vec![link.recipient.clone()],
             subject: "Reset password".into(),
             body_html,
             attachments: vec![],
@@ -76,10 +93,58 @@ where
         let email = Email {
             from: self.config.from.clone(),
             reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
-            to: link.recipient.clone(),
+            to: vec![link.recipient.clone()],
             subject: "Validate your email".into(),
             body_html,
             attachments: vec![],
+        };
+        self.send(email).await
+    }
+
+    async fn send_invoice_ready_for_payment(
+        &self,
+        data: InvoiceReady,
+    ) -> error_stack::Result<(), MailerServiceError> {
+        let tpl = InvoiceReadyTemplate::from(data.clone()).tpl;
+
+        let title = tpl.title.clone();
+        let from = format!(
+            "{} (via Meteroid.com) <billing@meteroid.com>",
+            data.company_name
+        );
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+
+        let email = Email {
+            from,
+            reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
+            to: data.recipients.clone(),
+            subject: title,
+            body_html,
+            attachments: vec![data.attachment],
+        };
+        self.send(email).await
+    }
+
+    async fn send_invoice_paid(
+        &self,
+        data: InvoicePaid,
+    ) -> error_stack::Result<(), MailerServiceError> {
+        let tpl = InvoicePaidTemplate::from(data.clone()).tpl;
+
+        let title = tpl.title.clone();
+        let from = format!(
+            "{} (via Meteroid.com) <billing@meteroid.com>",
+            data.company_name
+        );
+        let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
+
+        let email = Email {
+            from,
+            reply_to: Some("Meteroid <support@meteroid.com>".into()), // TODO allow custom reply email
+            to: data.recipients.clone(),
+            subject: title,
+            body_html,
+            attachments: data.attachments,
         };
         self.send(email).await
     }
@@ -139,11 +204,11 @@ mod tests {
         let email = Email {
             from: "NoBody <hey@pp.com>".to_string(),
             reply_to: None,
-            to: EmailRecipient {
+            to: vec![EmailRecipient {
                 email: "aa@g.com".into(),
                 first_name: None,
                 last_name: None,
-            },
+            }],
             subject: "Happy new year buddy".to_string(),
             body_html: "Please find the attached PDF! \n".to_string(),
             attachments: vec![EmailAttachment {

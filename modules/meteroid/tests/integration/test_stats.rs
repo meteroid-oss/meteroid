@@ -121,5 +121,5 @@ async fn test_stats_basic() {
     assert!(res.is_empty());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }

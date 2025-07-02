@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId};
+use common_domain::ids::{BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId};
 use common_grpc::middleware::server::auth::RequestExt;
 use image::ImageFormat;
 use meteroid_grpc::meteroid::api::invoicingentities::v1::{
@@ -83,7 +83,7 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
         let res = self
             .store
             .create_invoicing_entity(
-                mapping::invoicing_entities::proto_to_domain(data),
+                mapping::invoicing_entities::proto_to_domain(data)?,
                 tenant,
                 organization,
             )
@@ -158,7 +158,9 @@ impl InvoicingEntitiesService for InvoicingEntitiesServiceComponents {
             .patch_invoicing_entity(
                 InvoicingEntityPatch {
                     id: InvoicingEntityId::from_proto(req.id)?,
-                    logo_attachment_id: Some(logo_attachment_id.clone()), // Option<Option<Uuid>> as we need to set it to None if no logo is uploaded
+                    logo_attachment_id: Some(StoredDocumentId::from_proto_opt(
+                        logo_attachment_id.clone(),
+                    )?), // Option<Option<Uuid>> as we need to set it to None if no logo is uploaded
                     ..InvoicingEntityPatch::default()
                 },
                 tenant,

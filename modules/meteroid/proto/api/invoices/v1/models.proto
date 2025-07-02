@@ -8,7 +8,7 @@ enum InvoiceStatus {
   DRAFT = 0;
   FINALIZED = 1;
   // PAID/ISSUED ?
-  PENDING = 2;
+  UNCOLLECTIBLE = 2;
   VOID = 3;
 }
 
@@ -49,13 +49,8 @@ message DetailedInvoice {
   string customer_id = 7;
   optional string subscription_id = 8;
   string currency = 9;
-  optional string external_invoice_id = 10;
   string invoice_number = 11;
   repeated LineItem line_items = 13;
-  bool issued = 14;
-  int32 issue_attempts = 15;
-  optional string last_issue_attempt_at = 16;
-  optional string last_issue_error = 17;
   optional string data_updated_at = 18;
   string invoice_date = 19;
   optional string plan_version_id = 20;

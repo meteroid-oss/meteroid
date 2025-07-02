@@ -109,5 +109,5 @@ async fn test_jwt() {
     assert!(tenants_response.is_ok());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await;
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }

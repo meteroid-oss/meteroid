@@ -6,6 +6,7 @@ use cached::proc_macro::cached;
 use common_domain::ids::{ConnectorId, TenantId};
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
+use common_utils::decimals::ToUnit;
 use error_stack::{ResultExt, report};
 use itertools::Itertools;
 use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
@@ -18,7 +19,6 @@ use meteroid_store::domain::{Address, ConnectorProviderEnum, DetailedInvoice};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
-use meteroid_store::utils::decimals::ToUnit;
 use meteroid_store::{Store, StoreResult};
 use moka::Expiry;
 use moka::future::Cache;
@@ -33,7 +33,6 @@ use rust_decimal::Decimal;
 use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use uuid::Uuid;
 
 /// todo extract out common and reuse in hubspot and pennylane
 
@@ -403,11 +402,7 @@ impl PennylaneSync {
             }
         };
 
-        if let Some(pdf_id) = invoice
-            .invoice
-            .pdf_document_id
-            .and_then(|x| Uuid::parse_str(&x).ok())
-        {
+        if let Some(pdf_id) = invoice.invoice.pdf_document_id {
             let currency = match rusty_money::iso::find(&invoice.invoice.currency) {
                 Some(currency) => currency,
                 None => {

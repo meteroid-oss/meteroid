@@ -5,9 +5,9 @@ use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
-use crate::utils::decimals::ToUnit;
 use common_domain::ids::{BaseId, InvoiceId, InvoicingEntityId, TenantId};
 use common_eventbus::Event;
+use common_utils::decimals::ToUnit;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 impl Services {
     /// Mark an invoice as finalized, incrementing the invoice number counter and applying attached coupons
-    pub(in crate::services) async fn finalize_invoice_tx(
+    pub async fn finalize_invoice_tx(
         &self,
         conn: &mut PgConn,
         id: InvoiceId,

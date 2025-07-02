@@ -1,9 +1,11 @@
+use crate::config::Config;
 use crate::services::currency_rates::CurrencyRatesService;
 use crate::services::invoice_rendering::PdfRenderingService;
 use crate::services::storage::S3Storage;
 use crate::workers;
 use crate::workers::pgmq::processors;
 use hubspot_client::client::HubspotClient;
+use meteroid_mailer::service::MailerService;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::UsageClient;
 use pennylane_client::client::PennylaneClient;
@@ -39,6 +41,7 @@ pub mod webhook_out;
 //     worker_concurrency: usize,
 // }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_workers(
     store: Arc<meteroid_store::Store>,
     services: Arc<Services>,
@@ -46,14 +49,19 @@ pub async fn spawn_workers(
     usage_clients: Arc<dyn UsageClient>,
     currency_rates_service: Arc<dyn CurrencyRatesService>,
     pdf_rendering_service: Arc<PdfRenderingService>,
+    mailer_service: Arc<dyn MailerService>,
+    config: &Config,
 ) {
     let object_store_service1 = object_store_service.clone();
+    let object_store_service2 = object_store_service.clone();
 
     let hubspot_client = Arc::new(HubspotClient::default());
     let pennylane_client = Arc::new(PennylaneClient::default());
 
     let services_arc1 = services.clone();
     let services_arc2 = services.clone();
+    let services_arc3 = services.clone();
+    let services_arc4 = services.clone();
 
     let store_curr = store.clone();
     let store_pgmq1 = store.clone();
@@ -62,9 +70,15 @@ pub async fn spawn_workers(
     let store_pgmq4 = store.clone();
     let store_pgmq5 = store.clone();
     let store_pgmq6 = store.clone();
+    let store_pgmq7 = store.clone();
+    let store_pgmq8 = store.clone();
 
     // TODO add config to only spawn some
     let mut join_set = tokio::task::JoinSet::new();
+
+    let public_url = config.public_url.clone();
+    let rest_api_external_url = config.rest_api_external_url.clone();
+    let jwt_secret = config.jwt_secret.clone();
 
     join_set.spawn(async move {
         processors::run_outbox_dispatch(store_pgmq1).await;
@@ -74,16 +88,30 @@ pub async fn spawn_workers(
         processors::run_pdf_render(store_pgmq2, pdf_rendering_service).await;
     });
     join_set.spawn(async move {
-        processors::run_webhook_out(store_pgmq3).await;
+        processors::run_webhook_out(store_pgmq3, services_arc3).await;
     });
     join_set.spawn(async move {
-        processors::run_metric_sync(store_pgmq6, usage_clients).await;
+        processors::run_metric_sync(store_pgmq4, usage_clients).await;
     });
     join_set.spawn(async move {
-        processors::run_hubspot_sync(store_pgmq4, hubspot_client).await;
+        processors::run_hubspot_sync(store_pgmq5, hubspot_client).await;
     });
     join_set.spawn(async move {
-        processors::run_pennylane_sync(store_pgmq5, pennylane_client, object_store_service1).await;
+        processors::run_pennylane_sync(store_pgmq6, pennylane_client, object_store_service1).await;
+    });
+    join_set.spawn(async move {
+        processors::run_invoice_orchestration(store_pgmq7, services_arc4).await;
+    });
+    join_set.spawn(async move {
+        processors::run_email_sender(
+            store_pgmq8,
+            mailer_service,
+            object_store_service2,
+            public_url,
+            rest_api_external_url,
+            jwt_secret,
+        )
+        .await;
     });
 
     join_set.spawn(async move {

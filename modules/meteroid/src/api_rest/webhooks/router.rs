@@ -15,7 +15,6 @@ use meteroid_store::domain::connectors::ProviderSensitiveData;
 use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
-use meteroid_store::repositories::webhooks::WebhooksInterface;
 use secrecy::SecretString;
 
 #[axum::debug_handler]
@@ -74,9 +73,9 @@ async fn handler(
 
     // index in db
     app_state
-        .store
+        .services
         .insert_webhook_in_event(WebhookInEventNew {
-            id: uid,
+            id: uid.as_uuid(),
             received_at,
             attempts: 0,
             action: None,
@@ -120,11 +119,11 @@ async fn handler(
     };
 
     // verify webhook source (signature, origin ip address, bearer ..)
-    if let Some(ProviderSensitiveData::Stripe(sensitive_data)) = connector.sensitive {
+    if let Some(ProviderSensitiveData::Stripe(sensitive_data)) = &connector.sensitive {
         adapter
             .verify_webhook(
                 &parsed_request,
-                &SecretString::new(sensitive_data.webhook_secret),
+                &SecretString::new(sensitive_data.webhook_secret.clone()),
             )
             .await?;
     };
@@ -136,7 +135,7 @@ async fn handler(
     // then process specific event
     tokio::spawn(async move {
         adapter
-            .process_webhook_event(&parsed_request, app_state.store.clone())
+            .process_webhook_event(&parsed_request, &connector, app_state.store.clone())
             .await
     });
 

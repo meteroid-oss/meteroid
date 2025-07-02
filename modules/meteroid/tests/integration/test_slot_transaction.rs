@@ -11,8 +11,6 @@ use meteroid_store::repositories::subscriptions::SubscriptionSlotsInterface;
 use meteroid_store::store::StoreConfig;
 use secrecy::SecretString;
 use std::str::FromStr;
-use std::sync::Arc;
-use stripe_client::client::StripeClient;
 use uuid::{Uuid, uuid};
 
 const SLOT_SUBSCRIPTION_ID: SubscriptionId = SUB_UBER_LEETCODE_ID;
@@ -32,9 +30,7 @@ async fn test_slot_transaction_active_slots() {
         multi_organization_enabled: false,
         public_url: "http://localhost:8080".to_owned(),
         eventbus: create_eventbus_memory(),
-        svix: None,
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
-        stripe: Arc::new(StripeClient::new()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
     })
     .expect("Could not create store");

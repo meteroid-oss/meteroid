@@ -3,4 +3,5 @@ pub mod date;
 pub mod error_stack_conv;
 pub mod timed;
 
+pub mod decimals;
 pub mod rng;

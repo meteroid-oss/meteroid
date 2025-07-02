@@ -1,11 +1,13 @@
 use crate::domain::connectors::{Connector, ProviderData, ProviderSensitiveData};
 use crate::domain::customer_payment_methods::SetupIntent;
 use crate::domain::enums::ConnectorProviderEnum;
+use crate::domain::payment_transactions::PaymentIntent;
 use crate::domain::{Address, Customer, CustomerConnection, PaymentMethodTypeEnum};
 use crate::utils::local_id::LocalId;
 use async_trait::async_trait;
-use common_domain::ids::{BaseId, PaymentTransactionId};
-use error_stack::{Report, bail};
+use common_domain::ids::{BaseId, PaymentTransactionId, TenantId};
+use diesel_models::enums::PaymentStatusEnum;
+use error_stack::{Report, ResultExt, bail};
 use secrecy::SecretString;
 use std::collections::HashMap;
 use stripe_client::client::StripeClient;
@@ -13,8 +15,9 @@ use stripe_client::customers::{
     CreateCustomer, CustomerApi, CustomerShipping, OptionalFieldsAddress,
 };
 use stripe_client::payment_intents::{
-    FutureUsage, PaymentIntent, PaymentIntentApi, PaymentIntentRequest,
+    FutureUsage, PaymentIntentApi, PaymentIntentRequest, StripePaymentIntent, StripePaymentStatus,
 };
+use stripe_client::payment_methods::PaymentMethodsApi;
 use stripe_client::setup_intents::{
     CreateSetupIntent, CreateSetupIntentUsage, SetupIntentApi, StripePaymentMethodType,
 };
@@ -32,6 +35,10 @@ pub enum PaymentProviderError {
     PaymentIntent(String),
     #[error("Database error: {0}")]
     Database(#[from] diesel::result::Error),
+    #[error("Missing metadata: {0}")]
+    MissingMetadata(String),
+    #[error("Invalid metadata")]
+    InvalidMetadata,
 }
 
 #[async_trait]
@@ -41,6 +48,12 @@ pub trait PaymentProvider: Send + Sync {
         customer: &Customer,
         connector: &Connector,
     ) -> error_stack::Result<String, PaymentProviderError>;
+    async fn get_payment_method_from_provider(
+        &self,
+        connector: &Connector,
+        payment_method_id: &str,
+        customer_id: &str,
+    ) -> error_stack::Result<stripe_client::payment_methods::PaymentMethod, PaymentProviderError>;
     async fn create_setup_intent_in_provider(
         &self,
         connection: &CustomerConnection,
@@ -132,6 +145,20 @@ impl PaymentProvider for StripeClient {
             .map_err(|e| PaymentProviderError::CustomerCreation(e.to_string()))?;
 
         Ok(res.id)
+    }
+
+    async fn get_payment_method_from_provider(
+        &self,
+        connector: &Connector,
+        payment_method_id: &str,
+        customer_id: &str,
+    ) -> error_stack::Result<stripe_client::payment_methods::PaymentMethod, PaymentProviderError>
+    {
+        let secret_key = extract_stripe_secret_key(connector)?;
+
+        self.get_payment_method(payment_method_id, customer_id, &secret_key)
+            .await
+            .map_err(|e| Report::new(PaymentProviderError::Configuration(e.to_string())))
     }
 
     async fn create_setup_intent_in_provider(
@@ -238,7 +265,77 @@ impl PaymentProvider for StripeClient {
             .await
             .map_err(|e| PaymentProviderError::PaymentIntent(e.to_string()))?;
 
-        Ok(payment_intent)
+        Ok(payment_intent.try_into()?)
+    }
+}
+
+impl TryFrom<StripePaymentIntent> for PaymentIntent {
+    type Error = Report<PaymentProviderError>;
+
+    fn try_from(intent: StripePaymentIntent) -> Result<Self, Self::Error> {
+        let tenant_id = intent
+            .metadata
+            .get("meteroid.tenant_id")
+            // TODO search :  .get("customer_id")
+            .ok_or(PaymentProviderError::MissingMetadata(
+                "meteroid.tenant_id".to_string(),
+            ))?;
+        let tenant_id = TenantId::parse_base62(tenant_id)
+            .change_context(PaymentProviderError::InvalidMetadata)?;
+
+        let transaction_id = intent.metadata.get("meteroid.transaction_id").ok_or(
+            PaymentProviderError::MissingMetadata("meteroid.transaction_id".to_string()),
+        )?;
+        let transaction_id = PaymentTransactionId::parse_base62(transaction_id)
+            .change_context(PaymentProviderError::InvalidMetadata)?;
+
+        let (new_status, processed_at) = match intent.status {
+            StripePaymentStatus::Succeeded => (
+                PaymentStatusEnum::Settled,
+                Some(chrono::Utc::now().naive_utc()),
+            ),
+            StripePaymentStatus::Failed => (PaymentStatusEnum::Failed, None),
+            StripePaymentStatus::Canceled => (PaymentStatusEnum::Cancelled, None),
+            StripePaymentStatus::Pending | StripePaymentStatus::Processing => {
+                (PaymentStatusEnum::Pending, None)
+            }
+            StripePaymentStatus::RequiresCustomerAction
+            | StripePaymentStatus::RequiresPaymentMethod
+            | StripePaymentStatus::RequiresConfirmation
+            | StripePaymentStatus::RequiresCapture => {
+                // Customer action is required - keep as Pending but we might want to notify the customer
+                tracing::log::info!(
+                    "Payment intent {} requires customer action: {:?}",
+                    intent.id,
+                    intent.status
+                );
+                (PaymentStatusEnum::Pending, None)
+            }
+            StripePaymentStatus::Chargeable | StripePaymentStatus::Consumed => {
+                tracing::log::warn!(
+                    "Unhandled stripe payment status for transaction {}: {:?}",
+                    intent.id,
+                    intent.status
+                );
+                return Err(Report::new(PaymentProviderError::PaymentIntent(format!(
+                    "Unhandled payment status: {:?}",
+                    intent.status
+                ))));
+            }
+        };
+
+        Ok(PaymentIntent {
+            external_id: intent.id,
+            amount_requested: intent.amount,
+            amount_received: intent.amount_received,
+            currency: intent.currency,
+            next_action: intent.next_action,
+            status: new_status.into(),
+            processed_at,
+            last_payment_error: intent.last_payment_error,
+            tenant_id,
+            transaction_id,
+        })
     }
 }
 

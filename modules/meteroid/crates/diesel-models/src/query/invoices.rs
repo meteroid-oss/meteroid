@@ -3,18 +3,19 @@ use crate::invoices::{
     DetailedInvoiceRow, InvoiceLockRow, InvoiceRow, InvoiceRowLinesPatch, InvoiceRowNew,
     InvoiceWithCustomerRow,
 };
-use chrono::NaiveDateTime;
 
 use crate::{DbResult, PgConn};
 
-use crate::enums::{ConnectorProviderEnum, InvoiceStatusEnum};
+use crate::enums::{ConnectorProviderEnum, InvoicePaymentStatus, InvoiceStatusEnum};
 use crate::extend::connection_metadata;
 use crate::extend::cursor_pagination::{
     CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
 };
 use crate::extend::order::OrderByRequest;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
-use common_domain::ids::{BaseId, ConnectorId, CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    BaseId, ConnectorId, CustomerId, InvoiceId, StoredDocumentId, SubscriptionId, TenantId,
+};
 use diesel::dsl::IntervalDsl;
 use diesel::{
     BoolExpressionMethods, JoinOnDsl, NullableExpressionMethods, PgTextExpressionMethods,
@@ -319,6 +320,40 @@ impl InvoiceRow {
             .into_db_result()
     }
 
+    pub async fn apply_payment_status(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+        payment_status: InvoicePaymentStatus,
+    ) -> DbResult<InvoiceRow> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let now = chrono::Utc::now().naive_utc();
+
+        let paid_at = if payment_status == InvoicePaymentStatus::Paid {
+            Some(now)
+        } else {
+            None
+        };
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .set((
+                i_dsl::payment_status.eq(payment_status),
+                i_dsl::paid_at.eq(paid_at),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .get_result(conn)
+            .await
+            .attach_printable("Error while applying payment status to invoice")
+            .into_db_result()
+    }
+
     pub async fn apply_transaction(
         conn: &mut PgConn,
         id: InvoiceId,
@@ -351,8 +386,8 @@ impl InvoiceRow {
         conn: &mut PgConn,
         id: InvoiceId,
         tenant_id: TenantId,
-        pdf_document_id: String,
-        xml_document_id: Option<String>,
+        pdf_document_id: StoredDocumentId,
+        xml_document_id: Option<StoredDocumentId>,
     ) -> DbResult<usize> {
         use crate::schema::invoice::dsl as i_dsl;
         use diesel_async::RunQueryDsl;
@@ -398,127 +433,6 @@ impl InvoiceRow {
             .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
             .await
             .attach_printable("Error while paginating outdated invoices")
-            .into_db_result()
-    }
-
-    pub async fn list_to_issue(
-        conn: &mut PgConn,
-        max_attempts: i32,
-        pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<InvoiceRow>> {
-        use crate::schema::invoice::dsl as i_dsl;
-
-        let query = i_dsl::invoice
-            // TODO update with issueworker
-            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
-            .filter(i_dsl::issued.eq(false))
-            .filter(i_dsl::issue_attempts.lt(max_attempts))
-            .select(InvoiceRow::as_select())
-            .cursor_paginate(pagination, "id");
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
-            .await
-            .attach_printable("Error while paginating invoices to issue")
-            .into_db_result()
-    }
-
-    pub async fn issue_success(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-    ) -> DbResult<usize> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let now = chrono::Utc::now().naive_utc();
-
-        let query = diesel::update(i_dsl::invoice)
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
-            .filter(i_dsl::issued.eq(false))
-            .set((
-                i_dsl::issued.eq(true),
-                i_dsl::issue_attempts.eq(i_dsl::issue_attempts + 1),
-                i_dsl::updated_at.eq(now),
-                i_dsl::last_issue_attempt_at.eq(now),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while issue_success invoice")
-            .into_db_result()
-    }
-
-    pub async fn issue_error(
-        conn: &mut PgConn,
-        id: InvoiceId,
-        tenant_id: TenantId,
-        last_issue_error: &str,
-    ) -> DbResult<usize> {
-        use crate::schema::invoice::dsl as i_dsl;
-        use diesel_async::RunQueryDsl;
-
-        let now = chrono::Utc::now().naive_utc();
-
-        let query = diesel::update(i_dsl::invoice)
-            .filter(i_dsl::id.eq(id))
-            .filter(i_dsl::tenant_id.eq(tenant_id))
-            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
-            .filter(i_dsl::issued.eq(false))
-            .set((
-                i_dsl::last_issue_error.eq(last_issue_error),
-                i_dsl::issue_attempts.eq(i_dsl::issue_attempts + 1),
-                i_dsl::updated_at.eq(now),
-                i_dsl::last_issue_attempt_at.eq(now),
-            ));
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while issue_error invoice")
-            .into_db_result()
-    }
-
-    pub async fn update_pending_finalization(
-        conn: &mut PgConn,
-        now: NaiveDateTime,
-    ) -> DbResult<usize> {
-        use diesel_async::RunQueryDsl;
-
-        // diesel doesn't support update/delete with joins https://github.com/diesel-rs/diesel/issues/1478
-        // also the id::eq_any(subquery_with_joins) doesn't work when the subquery is on the same table
-        let raw_sql = r#"
-UPDATE invoice
-SET status = 'PENDING',
-    updated_at = $1
-FROM customer
-INNER JOIN invoicing_entity ON customer.invoicing_entity_id = invoicing_entity.id
-WHERE invoice.customer_id = customer.id
-  AND invoice.status = 'DRAFT'
-  AND invoice.invoice_date < $2
-  AND $3 <= (invoice.invoice_date + interval '1 hour' * invoicing_entity.grace_period_hours);
-        "#;
-
-        let query = diesel::sql_query(raw_sql)
-            .bind::<diesel::sql_types::Timestamp, _>(now)
-            .bind::<diesel::sql_types::Timestamp, _>(now)
-            .bind::<diesel::sql_types::Timestamp, _>(now);
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .execute(conn)
-            .await
-            .attach_printable("Error while fetching revenue trend")
             .into_db_result()
     }
 

@@ -101,7 +101,7 @@ klickhouse = { default-features = false, version = "0.14.0" }
 lapin = "2.5.0"
 lettre = { version = "0.11.11", default-features = false }
 log = "0.4.20"
-maud = "0.27.0"
+mockall = "0.13.1"
 moka = { version = "0.12.10", features = ["log", "logging", "sync"] }
 nanoid = "0.4.0"
 ndarray = "0.16.1"

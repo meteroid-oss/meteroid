@@ -90,5 +90,5 @@ async fn test_tenants_basic() {
     assert_eq!(listed_created, Some(created).as_ref());
 
     // teardown
-    meteroid_it::container::terminate_meteroid(setup.token, setup.join_handle).await
+    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
 }
