@@ -8,10 +8,10 @@ use error_stack::ResultExt;
 use itertools::Itertools;
 use meteroid_mailer::model::{EmailAttachmentType, EmailRecipient, InvoicePaid, InvoiceReady};
 use meteroid_mailer::service::MailerService;
+use meteroid_store::StoreResult;
 use meteroid_store::domain::pgmq::{PgmqMessage, SendEmailRequest};
 use meteroid_store::errors::StoreError;
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
-use meteroid_store::StoreResult;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -111,11 +111,7 @@ impl EmailSender {
                 };
 
                 let logo_url = logo_attachment_id.map(|logo_attachment_id| {
-                    format!(
-                        "{}/files/v1/logo/{}",
-                        self.rest_api_url,
-                        logo_attachment_id
-                    )
+                    format!("{}/files/v1/logo/{}", self.rest_api_url, logo_attachment_id)
                 });
 
                 self.mailer
@@ -194,8 +190,7 @@ impl EmailSender {
                     attachments.push(meteroid_mailer::model::EmailAttachment {
                         filename: format!(
                             "receipt_{}-{}.pdf",
-                            sanitized_company_name,
-                            receipt_pdf_id
+                            sanitized_company_name, receipt_pdf_id
                         ),
                         content: receipt_data.to_vec(),
                         type_: EmailAttachmentType::Pdf,

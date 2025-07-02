@@ -109,7 +109,9 @@ impl OutboxEvent {
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
             OutboxEvent::InvoicePaid(_) => EventType::InvoicePaid,
-            OutboxEvent::InvoiceAccountingPdfGenerated(_) => EventType::InvoiceAccountingPdfGenerated,
+            OutboxEvent::InvoiceAccountingPdfGenerated(_) => {
+                EventType::InvoiceAccountingPdfGenerated
+            }
             OutboxEvent::SubscriptionCreated(_) => EventType::SubscriptionCreated,
             OutboxEvent::PaymentTransactionSaved(_) => EventType::PaymentTransactionReceived,
         }

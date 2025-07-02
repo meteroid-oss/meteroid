@@ -177,7 +177,7 @@ impl PgmqOutboxDispatch {
                     EventType::InvoiceAccountingPdfGenerated,
                     EventType::InvoiceFinalized,
                     EventType::InvoicePaid,
-                    EventType::PaymentTransactionReceived, 
+                    EventType::PaymentTransactionReceived,
                 ];
 
                 if !event_types.contains(&out_headers.event_type) {

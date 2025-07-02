@@ -1,5 +1,5 @@
+use error_stack::Report;
 use error_stack::Result;
-use error_stack::{  Report};
 use hyper::StatusCode;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
@@ -246,11 +246,7 @@ impl Stripe {
                         .await?;
 
                     store
-                        .consolidate_intent_and_transaction_tx(
-                            conn,
-                            inserted_transaction,
-                            data,
-                        )
+                        .consolidate_intent_and_transaction_tx(conn, inserted_transaction, data)
                         .await?;
 
                     Ok(())

@@ -5,8 +5,8 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::ids::InvoiceId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
-use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage};
 use meteroid_store::StoreResult;
+use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessage};
 use std::sync::Arc;
 
 pub(crate) struct PdfRender {

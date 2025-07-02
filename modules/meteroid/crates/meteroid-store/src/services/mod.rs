@@ -28,7 +28,7 @@ pub use subscriptions::insert::payment_method::PaymentSetupResult;
 struct Services {
     store: Arc<Store>,
     usage_client: Arc<dyn UsageClient>,
-    svix: Option<Arc<Svix>>, 
+    svix: Option<Arc<Svix>>,
     pub(crate) stripe: Arc<StripeClient>,
 }
 
