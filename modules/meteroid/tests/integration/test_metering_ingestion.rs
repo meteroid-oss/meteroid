@@ -4,10 +4,8 @@ use crate::{helpers, meteroid_it};
 use backon::Retryable;
 use chrono::Days;
 use common_domain::ids::BillableMetricId;
-use diesel_models::schema::bank_account::format;
 use itertools::Itertools;
 use metering::connectors::clickhouse::sql::get_meter_view_name;
-use metering::domain::{Meter, MeterAggregation};
 use metering::ingest::domain::{PreprocessedEventRow, RawEventRow};
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
@@ -440,8 +438,7 @@ async fn test_metering_ingestion() {
             .unwrap();
 
         let actual_count = usage.data.len();
-        // TODO for unknown yet reasons the materialized view is not populated for each test run
-        if actual_count != 0 && actual_count != 1 {
+        if actual_count != 1 {
             Err(anyhow::anyhow!(
                 "Expected 1 (or TEMPORARY 0) usage records but got {actual_count}"
             ))
@@ -598,6 +595,9 @@ async fn wait_for_clichouse_meter(bm_id: &str, ch_client: &clickhouse::Client) {
     )
     .await
     .expect("Timeout waiting for view in ClickHouse");
+
+    // TODO for some reason the MVw is not immediately ready so give it some time before publishing events
+    tokio::time::sleep(Duration::from_millis(1500)).await;
 
     log::info!("Meter {view_name} is ready in ClickHouse");
 }
