@@ -423,8 +423,6 @@ async fn test_metering_ingestion() {
         .await
         .unwrap();
 
-    //tokio::time::sleep(Duration::from_secs(5000)).await;
-
     log::info!("Validating clickhouse usage data...");
     (|| async {
         let usage = metering_client
@@ -442,7 +440,7 @@ async fn test_metering_ingestion() {
             .unwrap();
 
         let actual_count = usage.data.len();
-        // TODO for unknown yet reasons the materialized view is not populated in all the cases
+        // TODO for unknown yet reasons the materialized view is not populated for each test run
         if actual_count != 0 && actual_count != 1 {
             Err(anyhow::anyhow!(
                 "Expected 1 (or TEMPORARY 0) usage records but got {actual_count}"

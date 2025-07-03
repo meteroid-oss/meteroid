@@ -47,9 +47,7 @@ impl PgmqHandler for BillableMetricSync {
                     async move {
                         let tenant_id = event.tenant_id();
 
-                        let metric = match event {
-                            BillableMetricSyncRequestEvent::BillableMetricCreated(event) => event,
-                        };
+                        let BillableMetricSyncRequestEvent::BillableMetricCreated(metric) = event;
                         let metric: BillableMetric = (*metric).into();
                         usage_client
                             .register_meter(tenant_id, &metric)
