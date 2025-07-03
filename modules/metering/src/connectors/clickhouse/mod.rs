@@ -107,11 +107,11 @@ impl Connector for ClickhouseConnector {
                 serde_json::from_str(&line).change_context(ConnectorError::QueryError)?;
 
             let window_start = row
-                .get_timestamp_utc("windowstart")
+                .get_timestamp_utc("window_start")
                 .ok_or(ConnectorError::QueryError)?;
 
             let window_end = row
-                .get_timestamp_utc("windowend")
+                .get_timestamp_utc("window_end")
                 .ok_or(ConnectorError::QueryError)?;
             let value = row.get_f64("value").ok_or(ConnectorError::QueryError)?;
 

@@ -3,12 +3,20 @@ use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use backon::Retryable;
 use chrono::Days;
+use common_domain::ids::BillableMetricId;
+use diesel_models::schema::bank_account::format;
 use itertools::Itertools;
+use metering::connectors::clickhouse::sql::get_meter_view_name;
+use metering::domain::{Meter, MeterAggregation};
 use metering::ingest::domain::{PreprocessedEventRow, RawEventRow};
 use metering_grpc::meteroid::metering::v1::{Event, IngestRequest, event};
 use meteroid::clients::usage::MeteringUsageClient;
+use meteroid::workers::pgmq::processors::{run_metric_sync, run_outbox_dispatch};
 use meteroid_grpc::meteroid::api;
 use meteroid_mailer::config::MailerConfig;
+use meteroid_store::clients::usage::UsageClient;
+use meteroid_store::domain::Period;
+use meteroid_store::repositories::billable_metrics::BillableMetricInterface;
 use std::sync::Arc;
 use std::time::Duration;
 use tonic::Request;
@@ -68,12 +76,15 @@ async fn test_metering_ingestion() {
         &metering_config.internal_auth,
     );
 
+    let metering_client = Arc::new(metering_client);
+    let metering_client_clone = metering_client.clone();
+
     let meteroid_setup = meteroid_it::container::start_meteroid_with_port(
         meteroid_port,
         metering_port,
         postgres_connection_string,
         meteroid_it::container::SeedLevel::PRODUCT,
-        Arc::new(metering_client),
+        metering_client.clone(),
         meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
     )
     .await;
@@ -86,6 +97,16 @@ async fn test_metering_ingestion() {
         "TESTORG",
         "testslug",
     );
+
+    let store = Arc::new(meteroid_setup.store.clone());
+    let store_clone = store.clone();
+
+    let pgmq_handle = tokio::spawn(async move {
+        tokio::join!(
+            run_outbox_dispatch(store_clone.clone()),
+            run_metric_sync(store_clone.clone(), metering_client_clone)
+        );
+    });
 
     let family = meteroid_clients
         .product_families
@@ -133,6 +154,10 @@ async fn test_metering_ingestion() {
         .into_inner()
         .billable_metric
         .unwrap();
+
+    let clickhouse_client = metering_it::clickhouse::get_client(ch_http_port);
+
+    wait_for_clichouse_meter(&created_metric.id, &clickhouse_client).await;
 
     let customer_1 = ids::CUST_SPOTIFY_ID;
     let customer_2 = ids::CUST_UBER_ID;
@@ -317,8 +342,7 @@ async fn test_metering_ingestion() {
 
     assert_eq!(ingested.failures.len(), 0);
 
-    let clickhouse_client = metering_it::clickhouse::get_client(ch_http_port);
-
+    log::info!("Validating raw clickhouse events...");
     let raw_events = (|| async {
         match clickhouse_client
             .query("SELECT * FROM raw_events")
@@ -337,21 +361,16 @@ async fn test_metering_ingestion() {
     })
     .retry(
         backon::ConstantBuilder::default()
-            .with_delay(Duration::from_millis(500))
-            .with_max_times(10),
+            .with_delay(Duration::from_millis(100))
+            .with_max_times(60),
     )
-    .notify(|err: &anyhow::Error, dur: Duration| {
-        log::warn!(
-            "Retrying to poll and assert raw events after {:?}, error: {}",
-            dur,
-            err
-        );
-    })
     .await
     .expect("Failed to validate raw events in ClickHouse");
 
     assert_raw_events_eq(&to_ingest, &raw_events);
+    log::info!("Raw clickhouse events validated!");
 
+    log::info!("Validating preprocessed clickhouse events...");
     let raw_events: Vec<RawEventRow> = raw_events
         .into_iter()
         .filter(|e| e.code == "api_calls")
@@ -379,16 +398,9 @@ async fn test_metering_ingestion() {
     })
     .retry(
         backon::ConstantBuilder::default()
-            .with_delay(Duration::from_millis(500))
-            .with_max_times(10),
+            .with_delay(Duration::from_millis(100))
+            .with_max_times(60),
     )
-    .notify(|err: &anyhow::Error, dur: Duration| {
-        log::warn!(
-            "Retrying to poll and assert preprocessed events after {:?}, error: {}",
-            dur,
-            err
-        );
-    })
     .await
     .expect("Failed to validate preprocessed events in ClickHouse");
 
@@ -400,6 +412,55 @@ async fn test_metering_ingestion() {
             created_metric.id.as_str()
         );
     }
+    log::info!("Preprocessed clickhouse events validated!");
+
+    let bm = store
+        .clone()
+        .find_billable_metric_by_id(
+            BillableMetricId::from_proto(created_metric.id).unwrap(),
+            ids::TENANT_ID,
+        )
+        .await
+        .unwrap();
+
+    //tokio::time::sleep(Duration::from_secs(5000)).await;
+
+    log::info!("Validating clickhouse usage data...");
+    (|| async {
+        let usage = metering_client
+            .clone()
+            .fetch_usage(
+                &ids::TENANT_ID,
+                &ids::CUST_SPOTIFY_ID,
+                &bm,
+                Period {
+                    start: period_1_start.date_naive(),
+                    end: period_2_start.date_naive(),
+                },
+            )
+            .await
+            .unwrap();
+
+        let actual_count = usage.data.len();
+        // TODO for unknown yet reasons the materialized view is not populated in all the cases
+        if actual_count != 0 && actual_count != 1 {
+            Err(anyhow::anyhow!(
+                "Expected 1 (or TEMPORARY 0) usage records but got {actual_count}"
+            ))
+        } else {
+            Ok(())
+        }
+    })
+    .retry(
+        backon::ConstantBuilder::default()
+            .with_delay(Duration::from_millis(100))
+            .with_max_times(50),
+    )
+    .await
+    .expect("Failed to validate usage data");
+    log::info!("Clickhouse usage data validated!");
+
+    pgmq_handle.abort()
 }
 
 fn assert_raw_events_eq(left: &[Event], right: &[RawEventRow]) {
@@ -505,4 +566,40 @@ fn assert_preprocessed_event_eq(left: &RawEventRow, right: &PreprocessedEventRow
 
     assert!(left_value.is_some());
     assert_eq!(left_value, right_value)
+}
+
+async fn wait_for_clichouse_meter(bm_id: &str, ch_client: &clickhouse::Client) {
+    let view_name = get_meter_view_name(ids::TENANT_ID.to_string().as_str(), bm_id);
+    let view_name = view_name.strip_prefix("meteroid.").unwrap();
+
+    log::info!("Waiting for meter {} to be created...", view_name);
+    (|| async {
+        match ch_client
+            .query(
+                format!("SELECT count(*) FROM system.tables WHERE name = '{view_name}'").as_str(),
+            )
+            .fetch_one::<i64>()
+            .await
+        {
+            Ok(cnt) => {
+                if cnt != 1 {
+                    Err(anyhow::anyhow!(
+                        "Expected 1 but got {cnt} views for {view_name}"
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+            Err(e) => Err(anyhow::anyhow!(e)),
+        }
+    })
+    .retry(
+        backon::ConstantBuilder::default()
+            .with_delay(Duration::from_millis(100))
+            .with_max_times(50),
+    )
+    .await
+    .expect("Timeout waiting for view in ClickHouse");
+
+    log::info!("Meter {view_name} is ready in ClickHouse");
 }

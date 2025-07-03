@@ -19,31 +19,31 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         match window_size {
             WindowSize::Minute => {
                 select_columns.push(format!(
-                    "tumbleStart(windowstart, toIntervalMinute(1), '{}') AS windowstart",
+                    "tumbleStart(windowstart, toIntervalMinute(1), '{}') AS window_start",
                     tz
                 ));
                 select_columns.push(format!(
-                    "tumbleEnd(windowstart, toIntervalMinute(1), '{}') AS windowend",
+                    "tumbleEnd(windowstart, toIntervalMinute(1), '{}') AS window_end",
                     tz
                 ));
             }
             WindowSize::Hour => {
                 select_columns.push(format!(
-                    "tumbleStart(windowstart, toIntervalHour(1), '{}') AS windowstart",
+                    "tumbleStart(windowstart, toIntervalHour(1), '{}') AS window_start",
                     tz
                 ));
                 select_columns.push(format!(
-                    "tumbleEnd(windowstart, toIntervalHour(1), '{}') AS windowend",
+                    "tumbleEnd(windowstart, toIntervalHour(1), '{}') AS window_end",
                     tz
                 ));
             }
             WindowSize::Day => {
                 select_columns.push(format!(
-                    "tumbleStart(windowstart, toIntervalDay(1), '{}') AS windowstart",
+                    "tumbleStart(windowstart, toIntervalDay(1), '{}') AS window_start",
                     tz
                 ));
                 select_columns.push(format!(
-                    "tumbleEnd(windowstart, toIntervalDay(1), '{}') AS windowend",
+                    "tumbleEnd(windowstart, toIntervalDay(1), '{}') AS window_end",
                     tz
                 ));
             }
@@ -51,8 +51,8 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         group_by_columns.push("windowstart".to_string());
         group_by_columns.push("windowend".to_string());
     } else {
-        select_columns.push("min(windowstart) AS windowstart".to_string());
-        select_columns.push("max(windowend) AS windowend".to_string());
+        select_columns.push("min(windowstart) AS window_start".to_string());
+        select_columns.push("max(windowend) AS window_end".to_string());
     }
 
     let aggregation_column = match &params.aggregation {
@@ -132,7 +132,7 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         sql.push_str(&format!(" GROUP BY {}", group_by_columns.join(", ")));
     }
     if params.window_size.is_some() {
-        sql.push_str(" ORDER BY windowstart");
+        sql.push_str(" ORDER BY window_start");
     }
 
     Ok(sql)
