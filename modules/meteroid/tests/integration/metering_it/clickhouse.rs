@@ -17,8 +17,8 @@ pub(super) async fn wait_for_ok(port: HttpPort) -> anyhow::Result<()> {
                 .with_max_times(60),
         )
         .notify(|err: &anyhow::Error, dur: Duration| {
-            log::warn!(
-                "Retrying to connect to ClickHouse container after {:?}, error: {}",
+            log::info!(
+                "Retrying connecting to ClickHouse container after {:?}, error: {}",
                 dur,
                 err
             );
