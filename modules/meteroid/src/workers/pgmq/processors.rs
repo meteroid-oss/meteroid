@@ -118,10 +118,7 @@ pub async fn run_pennylane_sync(
 
 pub async fn run_metric_sync(store: Arc<Store>, usage_client: Arc<dyn UsageClient>) {
     let queue = PgmqQueue::BillableMetricSync;
-    let processor = Arc::new(PgmqOutboxProxy::new(
-        store.clone(),
-        Arc::new(BillableMetricSync::new(usage_client.clone())),
-    ));
+    let processor = Arc::new(BillableMetricSync::new(usage_client.clone()));
 
     run(ProcessorConfig {
         name: processor_name("BillableMetricSync"),
