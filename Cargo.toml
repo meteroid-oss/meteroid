@@ -66,7 +66,7 @@ clap = "4.5.16"
 clickhouse = { version = "0.13.2", default-features = false }
 deadpool-postgres = "0.14.0"
 diesel = { version = "2.2.6", features = ["chrono", "uuid", "serde_json", "numeric"] }
-diesel-async = { version = "0.5.0", features = ["postgres", "deadpool"] }
+diesel-async = { version = "0.6.1", features = ["postgres", "deadpool"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres"] }
 diesel-derive-newtype = { version = "2.1.0" }
