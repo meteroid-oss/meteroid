@@ -42,5 +42,6 @@ impl KafkaProducer {
                 log::error!("Failed to publish record with key={key_str}, error={err}");
                 anyhow::Error::new(err)
             })
+            .map(|x| (x.partition, x.offset))
     }
 }
