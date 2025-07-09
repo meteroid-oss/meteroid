@@ -44,8 +44,7 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
             .shipping_address
             .map(addresses::mapping::shipping_address::rest_to_domain),
         force_created_date: None,
-        // TODO
-        bank_account_id: None,
+        bank_account_id: req.bank_account_id,
         vat_number: None,
         custom_vat_rate: None,
     }
@@ -70,5 +69,8 @@ pub fn update_req_to_domain(
         shipping_address: req
             .shipping_address
             .map(addresses::mapping::shipping_address::rest_to_domain),
+        vat_number: req.vat_number,
+        custom_vat_rate: req.custom_vat_rate,
+        bank_account_id: req.bank_account_id,
     }
 }

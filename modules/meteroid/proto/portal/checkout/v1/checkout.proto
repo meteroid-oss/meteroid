@@ -15,7 +15,7 @@ message GetSubscriptionCheckoutResponse {
 }
 
 message UpdateCustomerRequest {
-  api.customers.v1.PatchCustomer customer = 1;
+  api.customers.v1.UpdateCustomer customer = 1;
 }
 
 message UpdateCustomerResponse {

@@ -92,6 +92,7 @@ pub struct CustomerRowPatch {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
     pub custom_vat_rate: Option<Option<i32>>,
+    pub bank_account_id: Option<Option<BankAccountId>>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -110,4 +111,7 @@ pub struct CustomerRowUpdate {
     pub billing_address: Option<serde_json::Value>,
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub vat_number: Option<String>,
+    pub custom_vat_rate: Option<i32>,
+    pub bank_account_id: Option<BankAccountId>,
 }

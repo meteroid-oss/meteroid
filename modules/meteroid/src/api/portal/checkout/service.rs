@@ -7,7 +7,8 @@ use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
 use crate::services::storage::Prefix;
 use common_domain::ids::{
-    BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId, InvoicingEntityId,
+    BankAccountId, BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
+    InvoicingEntityId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::ResultExt;
@@ -181,7 +182,8 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     vat_number: customer
                         .vat_number
                         .map(|v| if v.is_empty() { None } else { Some(v) }),
-                    custom_vat_rate: None,
+                    custom_vat_rate: Some(customer.custom_vat_rate),
+                    bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
                 },
             )
             .await
