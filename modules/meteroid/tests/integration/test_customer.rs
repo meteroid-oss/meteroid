@@ -46,6 +46,9 @@ async fn test_customers_basic() {
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
+                bank_account_id: None,
+                vat_number: None,
+                custom_vat_rate: None,
             }),
         })
         .await
@@ -90,6 +93,9 @@ async fn test_customers_basic() {
                 billing_address: None,
                 shipping_address: None,
                 invoicing_entity_id: None,
+                bank_account_id: None,
+                vat_number: None,
+                custom_vat_rate: None,
             }),
         })
         .await
@@ -176,12 +182,12 @@ async fn test_customers_basic() {
     assert_eq!(get_by_alias.alias, Some(customer_alias.clone()));
     assert_eq!(get_by_alias.currency, "EUR");
 
-    // patch
+    // update
     let _ = clients
         .customers
         .clone()
-        .patch_customer(api::customers::v1::PatchCustomerRequest {
-            customer: Some(api::customers::v1::PatchCustomer {
+        .update_customer(api::customers::v1::UpdateCustomerRequest {
+            customer: Some(api::customers::v1::UpdateCustomer {
                 id: created.id.clone(),
                 name: Some("new name".to_string()),
                 billing_email: None,
@@ -194,6 +200,8 @@ async fn test_customers_basic() {
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
+                custom_vat_rate: None,
+                bank_account_id: None,
             }),
         })
         .await
