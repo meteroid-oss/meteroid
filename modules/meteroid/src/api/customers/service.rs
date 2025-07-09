@@ -1,4 +1,4 @@
-use common_domain::ids::{AliasOr, CustomerId, InvoicingEntityId};
+use common_domain::ids::{AliasOr, BankAccountId, CustomerId, InvoicingEntityId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::customers::v1::list_customer_request::SortBy;
@@ -6,10 +6,10 @@ use meteroid_grpc::meteroid::api::customers::v1::{
     ArchiveCustomerRequest, ArchiveCustomerResponse, BuyCustomerCreditsRequest,
     BuyCustomerCreditsResponse, CreateCustomerRequest, CreateCustomerResponse, CustomerBrief,
     GetCustomerByAliasRequest, GetCustomerByAliasResponse, GetCustomerByIdRequest,
-    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, PatchCustomerRequest,
-    PatchCustomerResponse, SyncToHubspotRequest, SyncToHubspotResponse, SyncToPennylaneRequest,
-    SyncToPennylaneResponse, TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse,
-    customers_service_server::CustomersService,
+    GetCustomerByIdResponse, ListCustomerRequest, ListCustomerResponse, SyncToHubspotRequest,
+    SyncToHubspotResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
+    TopUpCustomerBalanceRequest, TopUpCustomerBalanceResponse, UpdateCustomerRequest,
+    UpdateCustomerResponse, customers_service_server::CustomersService,
 };
 use meteroid_store::domain::{
     CustomerBuyCredits, CustomerNew, CustomerPatch, CustomerTopUpBalance, OrderByRequest,
@@ -63,10 +63,9 @@ impl CustomersService for CustomerServiceComponents {
                 .transpose()?
                 .map(|v| v.0),
             force_created_date: None,
-            // TODO
-            bank_account_id: None,
-            vat_number: None,
-            custom_vat_rate: None,
+            bank_account_id: BankAccountId::from_proto_opt(inner.bank_account_id)?,
+            vat_number: inner.vat_number,
+            custom_vat_rate: inner.custom_vat_rate,
         };
 
         let customer = self
@@ -83,10 +82,10 @@ impl CustomersService for CustomerServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn patch_customer(
+    async fn update_customer(
         &self,
-        request: Request<PatchCustomerRequest>,
-    ) -> Result<Response<PatchCustomerResponse>, Status> {
+        request: Request<UpdateCustomerRequest>,
+    ) -> Result<Response<UpdateCustomerResponse>, Status> {
         let actor = request.actor()?;
         let tenant_id = request.tenant()?;
 
@@ -127,15 +126,15 @@ impl CustomersService for CustomerServiceComponents {
                     currency: customer.currency.clone(),
                     billing_address,
                     shipping_address,
-                    // TODO
-                    vat_number: None,
-                    custom_vat_rate: None,
+                    vat_number: Some(customer.vat_number),
+                    custom_vat_rate: Some(customer.custom_vat_rate),
+                    bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
                 },
             )
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
-        Ok(Response::new(PatchCustomerResponse {}))
+        Ok(Response::new(UpdateCustomerResponse {}))
     }
 
     #[tracing::instrument(skip_all)]

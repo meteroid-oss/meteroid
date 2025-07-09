@@ -725,6 +725,13 @@
           }
         }
       },
+      "BankAccountId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "ba_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
       "Currency": {
         "type": "string",
         "enum": [
@@ -971,6 +978,16 @@
               "null"
             ]
           },
+          "bank_account_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BankAccountId"
+              }
+            ]
+          },
           "billing_address": {
             "oneOf": [
               {
@@ -989,6 +1006,13 @@
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
+          },
+          "custom_vat_rate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "invoicing_emails": {
             "type": "array",
@@ -1024,11 +1048,21 @@
                 "$ref": "#/components/schemas/ShippingAddress"
               }
             ]
+          },
+          "vat_number": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
       "CustomerId": {
-        "type": "string"
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "cus_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "CustomerUpdateRequest": {
         "type": "object",
@@ -1043,6 +1077,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "bank_account_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BankAccountId"
+              }
             ]
           },
           "billing_address": {
@@ -1063,6 +1107,13 @@
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
+          },
+          "custom_vat_rate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "invoicing_emails": {
             "type": "array",
@@ -1091,11 +1142,21 @@
                 "$ref": "#/components/schemas/ShippingAddress"
               }
             ]
+          },
+          "vat_number": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
       "InvoicingEntityId": {
-        "type": "string"
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "ive_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "PaginatedResponse_Customer": {
         "type": "object",
@@ -1389,7 +1450,11 @@
         }
       },
       "PlanId": {
-        "type": "string"
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "plan_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "PlanStatusEnum": {
         "type": "string",
@@ -1435,7 +1500,11 @@
         }
       },
       "ProductFamilyId": {
-        "type": "string"
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "pf_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       },
       "ShippingAddress": {
         "type": "object",
@@ -1527,7 +1596,11 @@
         }
       },
       "SubscriptionId": {
-        "type": "string"
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "sub_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
       }
     },
     "securitySchemes": {

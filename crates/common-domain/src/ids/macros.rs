@@ -3,9 +3,29 @@ macro_rules! id_type {
     ($id_name:ident, $id_prefix:literal) => {
         #[derive(Debug, PartialEq, Eq, Clone, Hash, serde::Serialize, Copy)]
         #[cfg_attr(feature = "diesel", derive(diesel_derive_newtype::DieselNewType))]
-        #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-        #[cfg_attr(feature = "utoipa", schema(value_type = String))]
         pub struct $id_name(uuid::Uuid);
+
+        #[cfg(feature = "utoipa")]
+        impl utoipa::PartialSchema for $id_name {
+            fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::Schema> {
+                utoipa::openapi::schema::Object::builder()
+                    .schema_type(utoipa::openapi::schema::SchemaType::Type(
+                        utoipa::openapi::Type::String,
+                    ))
+                    .format(Some(utoipa::openapi::schema::SchemaFormat::Custom(
+                        "MeteroidId".to_string(),
+                    )))
+                    .examples([$id_name::default().as_base62()])
+                    .into()
+            }
+        }
+
+        #[cfg(feature = "utoipa")]
+        impl utoipa::ToSchema for $id_name {
+            fn name() -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(stringify!($id_name))
+            }
+        }
 
         impl $id_name {
             #[cfg(feature = "tonic")]

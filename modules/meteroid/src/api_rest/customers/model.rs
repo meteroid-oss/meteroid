@@ -1,7 +1,7 @@
 use crate::api_rest::addresses::model::{Address, ShippingAddress};
 use crate::api_rest::currencies::model::Currency;
 use crate::api_rest::model::PaginatedRequest;
-use common_domain::ids::CustomerId;
+use common_domain::ids::{BankAccountId, CustomerId};
 use common_domain::ids::{InvoicingEntityId, string_serde, string_serde_opt};
 use utoipa::ToSchema;
 use validator::Validate;
@@ -49,6 +49,10 @@ pub struct CustomerCreateRequest {
     pub shipping_address: Option<ShippingAddress>,
     #[serde(with = "string_serde_opt")]
     pub invoicing_entity_id: Option<InvoicingEntityId>,
+    #[serde(with = "string_serde_opt")]
+    pub bank_account_id: Option<BankAccountId>,
+    pub vat_number: Option<String>,
+    pub custom_vat_rate: Option<i32>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
@@ -63,6 +67,10 @@ pub struct CustomerUpdateRequest {
     pub shipping_address: Option<ShippingAddress>,
     #[serde(with = "string_serde")]
     pub invoicing_entity_id: InvoicingEntityId,
+    #[serde(with = "string_serde_opt")]
+    pub bank_account_id: Option<BankAccountId>,
+    pub vat_number: Option<String>,
+    pub custom_vat_rate: Option<i32>,
 }
 
 // TODO : allow importing from stripe

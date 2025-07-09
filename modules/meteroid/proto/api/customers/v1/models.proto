@@ -48,6 +48,8 @@ message Customer {
   optional string vat_number = 16;
   optional string current_payment_method_id = 17;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 18;
+  optional string bank_account_id = 19;
+  optional int32 custom_vat_rate = 20;
 }
 
 message CustomerNew {
@@ -60,11 +62,13 @@ message CustomerNew {
   optional Address billing_address = 12;
   optional ShippingAddress shipping_address = 13;
   optional string invoicing_entity_id = 14;
+  optional string bank_account_id = 15;
+  optional string vat_number = 16;
+  optional int32 custom_vat_rate = 17;
 }
 
 
-// TODO need better patch mechanism / need to check empty (diesel option<option<>>)
-message PatchCustomer {
+message UpdateCustomer {
   string id = 10;
   optional string name = 1;
   optional string billing_email = 2;
@@ -77,6 +81,8 @@ message PatchCustomer {
   optional ShippingAddress shipping_address = 9;
   optional string invoicing_entity_id = 14;
   optional string vat_number = 15;
+  optional string bank_account_id = 16;
+  optional int32 custom_vat_rate = 17;
 
   message InvoicingEmails {
     repeated string emails = 1;

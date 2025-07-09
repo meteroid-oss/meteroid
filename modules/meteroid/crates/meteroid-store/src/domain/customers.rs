@@ -142,6 +142,7 @@ pub struct CustomerPatch {
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
     pub custom_vat_rate: Option<Option<i32>>,
+    pub bank_account_id: Option<Option<BankAccountId>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -201,6 +202,9 @@ pub struct CustomerUpdate {
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub vat_number: Option<String>,
+    pub custom_vat_rate: Option<i32>,
+    pub bank_account_id: Option<BankAccountId>,
 }
 
 #[derive(Clone, Debug, o2o)]

@@ -14,11 +14,11 @@ message CreateCustomerResponse {
   CustomerBrief customer = 1;
 }
 
-message PatchCustomerRequest {
-  PatchCustomer customer = 1;
+message UpdateCustomerRequest {
+  UpdateCustomer customer = 1;
 }
 
-message PatchCustomerResponse {}
+message UpdateCustomerResponse {}
 
 message ListCustomerRequest {
   optional string search = 1;
@@ -93,7 +93,7 @@ message SyncToPennylaneResponse {
 
 service CustomersService {
   rpc CreateCustomer(CreateCustomerRequest) returns (CreateCustomerResponse) {}
-  rpc PatchCustomer(PatchCustomerRequest) returns (PatchCustomerResponse) {}
+  rpc UpdateCustomer(UpdateCustomerRequest) returns (UpdateCustomerResponse) {}
   rpc ListCustomers(ListCustomerRequest) returns (ListCustomerResponse) {}
   rpc GetCustomerById(GetCustomerByIdRequest) returns (GetCustomerByIdResponse) {}
   rpc GetCustomerByAlias(GetCustomerByAliasRequest) returns (GetCustomerByAliasResponse) {}

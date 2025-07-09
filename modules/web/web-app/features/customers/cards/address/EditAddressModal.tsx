@@ -9,7 +9,7 @@ import { addressesSchema } from '@/features/customers/cards/address/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
   getCustomerById,
-  patchCustomer,
+  updateCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 
@@ -17,12 +17,12 @@ type Props = Pick<ComponentProps<typeof Modal>, 'visible' | 'onCancel'> & {
   customer: Customer
 }
 
-export const EditAddressModal = ({ customer, ...props }: Props) => {
+export const EditAddressModal = ({customer, ...props}: Props) => {
   const queryClient = useQueryClient()
-  const patchCustomerMutation = useMutation(patchCustomer, {
+  const updateCustomerMutation = useMutation(updateCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomerById, { id: customer.id }),
+        queryKey: createConnectQueryKey(getCustomerById, {id: customer.id}),
       })
     },
   })
@@ -41,7 +41,7 @@ export const EditAddressModal = ({ customer, ...props }: Props) => {
   const sameShippingAddress = methods.watch('shipping_address.sameAsBilling')
 
   const onSubmit = async (data: z.infer<typeof addressesSchema>) => {
-    await patchCustomerMutation.mutateAsync({
+    await updateCustomerMutation.mutateAsync({
       customer: {
         id: customer.id,
         billingAddress: data.billing_address,

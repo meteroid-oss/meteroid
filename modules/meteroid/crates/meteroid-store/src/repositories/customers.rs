@@ -575,6 +575,9 @@ impl CustomersInterface for Store {
                 .transpose()?,
             updated_by: actor,
             invoicing_entity_id: invoicing_entity.id,
+            vat_number: customer.vat_number,
+            custom_vat_rate: customer.custom_vat_rate,
+            bank_account_id: customer.bank_account_id,
         };
 
         let updated = update_model

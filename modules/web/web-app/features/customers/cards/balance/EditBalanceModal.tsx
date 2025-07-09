@@ -9,7 +9,7 @@ import { balanceSchema } from '@/features/customers/cards/balance/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
   getCustomerById,
-  patchCustomer,
+  updateCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 
@@ -17,12 +17,12 @@ type Props = Pick<ComponentProps<typeof Modal>, 'visible' | 'onCancel'> & {
   customer: Customer
 }
 
-export const EditBalanceModal = ({ customer, ...props }: Props) => {
+export const EditBalanceModal = ({customer, ...props}: Props) => {
   const queryClient = useQueryClient()
-  const patchCustomerMutation = useMutation(patchCustomer, {
+  const updateCustomerMutation = useMutation(updateCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomerById, { id: customer.id }),
+        queryKey: createConnectQueryKey(getCustomerById, {id: customer.id}),
       })
     },
   })
@@ -37,7 +37,7 @@ export const EditBalanceModal = ({ customer, ...props }: Props) => {
 
   const onSubmit = async (data: z.infer<typeof balanceSchema>) => {
     console.log('data', data)
-    await patchCustomerMutation.mutateAsync({
+    await updateCustomerMutation.mutateAsync({
       customer: {
         id: customer.id,
         balanceValueCents: BigInt(data.balanceValueCents),

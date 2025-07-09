@@ -9,7 +9,7 @@ import { customerSchema } from '@/features/customers/cards/customer/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
   getCustomerById,
-  patchCustomer,
+  updateCustomer,
 } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 
@@ -17,12 +17,12 @@ type Props = Pick<ComponentProps<typeof Modal>, 'visible' | 'onCancel'> & {
   customer: Customer
 }
 
-export const EditCustomerModal = ({ customer, ...props }: Props) => {
+export const EditCustomerModal = ({customer, ...props}: Props) => {
   const queryClient = useQueryClient()
-  const patchCustomerMutation = useMutation(patchCustomer, {
+  const updateCustomerMutation = useMutation(updateCustomer, {
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: createConnectQueryKey(getCustomerById, { id: customer.id }),
+        queryKey: createConnectQueryKey(getCustomerById, {id: customer.id}),
       })
     },
   })
@@ -34,14 +34,14 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
   })
 
   const onSubmit = async (data: z.infer<typeof customerSchema>) => {
-    await patchCustomerMutation.mutateAsync({
+    await updateCustomerMutation.mutateAsync({
       customer: {
         id: customer.id,
         name: data.name,
         alias: data.alias,
         billingEmail: data.email,
         // TODO allow multiple
-        invoicingEmails: data.invoicingEmail ? { emails: [data.invoicingEmail] } : undefined,
+        invoicingEmails: data.invoicingEmail ? {emails: [data.invoicingEmail]} : undefined,
         phone: data.phone,
       },
     })
