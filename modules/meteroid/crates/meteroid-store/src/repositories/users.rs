@@ -95,6 +95,8 @@ impl UserInterface for Store {
         &self,
         req: RegisterUserRequest,
     ) -> StoreResult<RegisterUserResponse> {
+        validate_domain(&req.email, &self.settings.domains_whitelist)?;
+
         if self.settings.skip_email_validation {
             return register_user_internal(
                 self,
@@ -146,6 +148,8 @@ impl UserInterface for Store {
 
     async fn login_user(&self, req: LoginUserRequest) -> StoreResult<LoginUserResponse> {
         let mut conn = self.get_conn().await?;
+
+        validate_domain(&req.email, &self.settings.domains_whitelist)?;
 
         let user =
             UserRow::find_by_email(&mut conn, req.email)
@@ -361,6 +365,8 @@ impl UserInterface for Store {
     ) -> StoreResult<InitRegistrationResponse> {
         let mut conn = self.get_conn().await?;
 
+        validate_domain(&email, &self.settings.domains_whitelist)?;
+
         let user_opt = UserRow::find_by_email(&mut conn, email.clone()).await?;
 
         if user_opt.is_some() {
@@ -463,6 +469,8 @@ impl UserInterface for Store {
         };
 
         let email = user.email;
+
+        validate_domain(&email, &self.settings.domains_whitelist)?;
 
         let mut conn = self.get_conn().await?;
 
@@ -650,4 +658,22 @@ async fn register_user_internal(
         token: generate_auth_jwt_token(&user_id.to_string(), &store.settings.jwt_secret)?,
         user,
     })
+}
+
+fn validate_domain(email: &str, allowed_domains: &[String]) -> StoreResult<bool> {
+    if allowed_domains.is_empty() {
+        return Ok(true);
+    }
+    let domain = email
+        .split('@')
+        .nth(1)
+        .ok_or_else(|| StoreError::InvalidArgument("email does not contain domain".into()))?;
+
+    if allowed_domains.iter().any(|d| d == domain) {
+        Ok(true)
+    } else {
+        Err(Report::new(StoreError::LoginError(
+            "Domain not authorized".to_string(),
+        )))
+    }
 }

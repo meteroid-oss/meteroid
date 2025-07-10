@@ -62,6 +62,7 @@ pub async fn start_meteroid_with_port(
         eventbus: create_eventbus_memory(),
         mailer: mailer.clone(),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
+        domains_whitelist: config.domains_whitelist(),
     })
     .expect("Could not create store");
 

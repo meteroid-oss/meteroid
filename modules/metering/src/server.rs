@@ -48,7 +48,7 @@ pub async fn start_server(config: Config) {
     tokio::select! {
           result = api_server => {
             if let Err(e) = result {
-                log::error!("Error starting API server: {}", e);
+                log::error!("Error starting API server: {:?}", e);
             }
         },
         _ = kafka_workers => {

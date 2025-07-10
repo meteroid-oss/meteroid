@@ -49,6 +49,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
 
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
+        domains_whitelist: Vec::new(),
     })
     .change_context(SeederError::InitializationError)?;
     let store_arc = Arc::new(store.clone());

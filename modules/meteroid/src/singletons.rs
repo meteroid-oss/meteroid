@@ -23,6 +23,7 @@ pub async fn get_store() -> &'static Store {
                 eventbus: create_eventbus_memory(),
                 mailer,
                 oauth,
+                domains_whitelist: config.domains_whitelist(),
             })
             .expect("Failed to initialize store");
 

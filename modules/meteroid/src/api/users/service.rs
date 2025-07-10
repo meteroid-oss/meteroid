@@ -1,6 +1,3 @@
-use secrecy::{ExposeSecret, SecretString};
-use tonic::{Request, Response, Status};
-
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
 use meteroid_grpc::meteroid::api::users::v1::{
@@ -12,6 +9,9 @@ use meteroid_grpc::meteroid::api::users::v1::{
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
 use meteroid_store::repositories::users::UserInterface;
+use secrecy::{ExposeSecret, SecretString};
+use tonic::{Request, Response, Status};
+use validator::{ValidateEmail, ValidateLength};
 
 use crate::api::users::error::UserApiError;
 use crate::{api::utils::parse_uuid, parse_uuid};
@@ -149,6 +149,14 @@ impl UsersService for UsersServiceComponents {
         request: Request<ResetPasswordRequest>,
     ) -> Result<Response<ResetPasswordResponse>, Status> {
         let inner = request.into_inner();
+
+        if !inner.new_password.validate_length(Some(8), Some(64), None) {
+            return Err(UserApiError::InvalidArgument(
+                "Password must be between 8 and 64 characters long".to_string(),
+            )
+            .into());
+        }
+
         self.store
             .reset_password(
                 SecretString::new(inner.token),
@@ -167,6 +175,12 @@ impl UsersService for UsersServiceComponents {
     ) -> Result<Response<InitRegistrationResponse>, Status> {
         idempotency_cache(request, |request| async {
             let req = request.into_inner();
+
+            if !req.email.validate_email() {
+                return Err(
+                    UserApiError::InvalidArgument("Invalid email format".to_string()).into(),
+                );
+            }
 
             let resp = self
                 .store
@@ -188,6 +202,19 @@ impl UsersService for UsersServiceComponents {
     ) -> Result<Response<CompleteRegistrationResponse>, Status> {
         idempotency_cache(request, |request| async {
             let req = request.into_inner();
+
+            if !req.password.validate_length(Some(8), Some(64), None) {
+                return Err(UserApiError::InvalidArgument(
+                    "Password must be between 8 and 64 characters long".to_string(),
+                )
+                .into());
+            }
+
+            if !req.email.validate_email() {
+                return Err(
+                    UserApiError::InvalidArgument("Invalid email format".to_string()).into(),
+                );
+            }
 
             let resp = self
                 .store
