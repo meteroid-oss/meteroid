@@ -210,7 +210,8 @@ impl UsersService for UsersServiceComponents {
                 .into());
             }
 
-            if !req.email.validate_email() {
+            // we validate email only if we don't have a validation token (as req.email is empty otherwise)
+            if req.validation_token.is_none() && !req.email.validate_email() {
                 return Err(
                     UserApiError::InvalidArgument("Invalid email format".to_string()).into(),
                 );

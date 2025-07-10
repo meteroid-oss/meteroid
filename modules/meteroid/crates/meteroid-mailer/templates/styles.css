@@ -59,6 +59,15 @@ p {
   margin-bottom: 16px;
 }
 
+.small {
+  font-size: 12px;
+  color: #999999;
+  line-height: 1.5;
+}
+a.small {
+  color: #999999!important;
+}
+
 /* Header Styles */
 .header {
   padding: 40px 40px 0;
@@ -68,12 +77,11 @@ p {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 40px;
+  margin-bottom: 20px;
 }
 
 .logo {
-  width: 24px;
-  height: 24px;
+  height: 20px;
 }
 
 .logo-text {
@@ -114,12 +122,12 @@ p {
 }
 
 /* Button Styles */
-.button {
+a.button {
   display: inline-block;
   padding: 10px 24px;
   font-size: 14px;
   font-weight: 500;
-  color: #ffffff;
+  color: #ffffff!important;
   background-color: #000000;
   text-decoration: none;
   border-radius: 4px;
@@ -131,7 +139,7 @@ p {
 
 /* Links */
 a {
-  color: #000000;
+  color: #000000!important;
   text-decoration: underline;
 }
 
@@ -161,7 +169,7 @@ a {
 
 .footer-logo-text {
   color: #818084;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -187,7 +195,7 @@ a {
 
 .footer-address {
   color: #87858e;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.5;
   margin-bottom: 16px;
 }

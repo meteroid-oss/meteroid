@@ -1,22 +1,22 @@
 <div class="footer">
   <div class="footer-header">
-    <div class="footer-logo">
-      <img src="https://static.meteroid.com/assets/mail-images/meteroid-logo-small.svg" alt="Meteroid Logo">
+    <!-- <div class="footer-logo">
+      <img src="https://static.meteroid.com/assets/mail-images/meteroid-logo-small.png" alt="Meteroid Logo">
       <span class="footer-logo-text">Meteroid</span>
-    </div>
+    </div> -->
 
     <div class="social-links">
       <a href="https://github.com/meteroid-oss/meteroid" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/github.svg" alt="GitHub">
+        <img src="https://static.meteroid.com/assets/mail-images/github.png" alt="GitHub">
       </a>
       <a href="https://bsky.app/profile/meteroid.bsky.social" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/bluesky.svg" alt="Bluesky">
+        <img src="https://static.meteroid.com/assets/mail-images/bluesky.png" alt="Bluesky">
       </a>
       <a href="https://linkedin.com/company/meteroid" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/linkedin.svg" alt="Linkedin">
+        <img src="https://static.meteroid.com/assets/mail-images/linkedin.png" alt="Linkedin">
       </a>
       <a href="https://go.meteroid.com/discord" class="social-link">
-        <img src="https://static.meteroid.com/assets/mail-images/discord.svg" alt="Discord">
+        <img src="https://static.meteroid.com/assets/mail-images/discord.png" alt="Discord">
       </a>
     </div>
   </div>

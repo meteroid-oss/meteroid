@@ -9,6 +9,9 @@ pub struct ResetPasswordLinkTemplate {
     pub url_expires_in: String,
 }
 
+const METEROID_WORDMARK_URL: &str =
+    "https://static.meteroid.com/assets/mail-images/meteroid-logo-wordmark--light.png";
+
 impl From<ResetPasswordLink> for ResetPasswordLinkTemplate {
     fn from(link: ResetPasswordLink) -> Self {
         ResetPasswordLinkTemplate {
@@ -19,17 +22,47 @@ impl From<ResetPasswordLink> for ResetPasswordLinkTemplate {
 }
 
 #[derive(TemplateSimple)]
-#[template(path = "email_validation_link.html")]
-pub struct EmailValidationLinkTemplate {
+#[template(path = "email_validation_link.stpl")]
+pub struct EmailValidationLinkContent {
     pub validation_url: String,
     pub url_expires_in: String,
+    pub user: String,
+}
+
+pub struct EmailValidationLinkTemplate {
+    pub tpl: LayoutTemplate<EmailValidationLinkContent>,
 }
 
 impl From<EmailValidationLink> for EmailValidationLinkTemplate {
     fn from(link: EmailValidationLink) -> Self {
-        EmailValidationLinkTemplate {
+        let header = HeaderTemplate {
+            company_name: "".to_string(),
+            logo_url: Some(METEROID_WORDMARK_URL.to_string()),
+        };
+        let footer = FooterTemplate {};
+
+        let user = link.recipient.first_name.unwrap_or(
+            link.recipient
+                .email
+                .split('@')
+                .next()
+                .map(|name| name.to_string())
+                .unwrap_or(link.recipient.email),
+        );
+
+        let content = EmailValidationLinkContent {
             validation_url: link.url.expose_secret().clone(),
             url_expires_in: format_duration(link.url_expires_in),
+            user,
+        };
+        EmailValidationLinkTemplate {
+            tpl: LayoutTemplate {
+                lang: "en".to_string(),
+                title: "Confirm your email".to_string(),
+                header,
+                footer,
+                content,
+            },
         }
     }
 }

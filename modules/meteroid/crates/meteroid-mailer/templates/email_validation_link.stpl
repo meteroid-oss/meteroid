@@ -1,0 +1,16 @@
+<div class="content-section">
+  <h1>👋 Hi <%= user %></h1>
+</div>
+
+<div class="content-section">
+  <p>To begin, please confirm your email below</p>
+
+  <div class="button-container">
+    <a href="<%= validation_url %>" class="button">CONFIRM MY EMAIL</a>
+  </div>
+
+  <p class="expiry">This link will expire in <%= url_expires_in %>.</p>
+
+  <p class="small">Or copy and paste the following link in your browser :  <a href="<%= validation_url %>" class="small"><%= validation_url %></a></p>
+
+</div>

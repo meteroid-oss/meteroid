@@ -86,7 +86,7 @@ where
         &self,
         link: EmailValidationLink,
     ) -> error_stack::Result<(), MailerServiceError> {
-        let tpl = EmailValidationLinkTemplate::from(link.clone());
+        let tpl = EmailValidationLinkTemplate::from(link.clone()).tpl;
 
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
 
@@ -94,7 +94,7 @@ where
             from: self.config.from.clone(),
             reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
             to: vec![link.recipient.clone()],
-            subject: "Validate your email".into(),
+            subject: "Confirm your email".into(),
             body_html,
             attachments: vec![],
         };
