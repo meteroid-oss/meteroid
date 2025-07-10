@@ -30,6 +30,7 @@ pub struct Settings {
     pub multi_organization_enabled: bool,
     pub public_url: String,
     pub skip_email_validation: bool,
+    pub domains_whitelist: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -52,6 +53,7 @@ pub struct StoreConfig {
     pub eventbus: Arc<dyn EventBus<Event>>,
     pub mailer: Arc<dyn MailerService>,
     pub oauth: OauthServices,
+    pub domains_whitelist: Vec<String>,
 }
 
 /**
@@ -124,6 +126,7 @@ impl Store {
                 multi_organization_enabled: config.multi_organization_enabled,
                 public_url: config.public_url,
                 skip_email_validation: config.skip_email_validation,
+                domains_whitelist: config.domains_whitelist,
             },
             internal: StoreInternal {},
             mailer: config.mailer,

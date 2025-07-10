@@ -1,7 +1,7 @@
-use std::net::SocketAddr;
-
 use envconfig::Envconfig;
 use secrecy::SecretString;
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 use crate::workers::fang::ext::FangExtConfig;
 use common_config::analytics::AnalyticsConfig;
@@ -83,6 +83,9 @@ pub struct Config {
 
     #[envconfig(nested)]
     pub oauth: OauthConfig,
+
+    #[envconfig(from = "DOMAINS_WHITELIST")]
+    pub domains_whitelist: Option<DomainWhitelist>,
 }
 
 impl Config {
@@ -107,5 +110,29 @@ impl Config {
             .smtp_host
             .as_ref()
             .is_some_and(|s| !s.is_empty())
+    }
+
+    pub fn domains_whitelist(&self) -> Vec<String> {
+        match &self.domains_whitelist {
+            Some(DomainWhitelist(domains)) => domains.clone(),
+            None => vec![],
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DomainWhitelist(pub Vec<String>);
+impl FromStr for DomainWhitelist {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let domains: Vec<String> = s
+            .split(',')
+            .map(|d| d.trim().to_lowercase().to_string())
+            .collect();
+        if domains.is_empty() {
+            return Err("Domain whitelist cannot be empty".to_string());
+        }
+        Ok(DomainWhitelist(domains))
     }
 }

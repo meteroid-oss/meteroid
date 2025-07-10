@@ -32,6 +32,7 @@ async fn test_slot_transaction_active_slots() {
         eventbus: create_eventbus_memory(),
         mailer: meteroid_mailer::service::mailer_service(MailerConfig::dummy()),
         oauth: meteroid_oauth::service::OauthServices::new(OauthConfig::dummy()),
+        domains_whitelist: Vec::new(),
     })
     .expect("Could not create store");
 

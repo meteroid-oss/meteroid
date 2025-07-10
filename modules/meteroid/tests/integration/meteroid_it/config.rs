@@ -55,5 +55,6 @@ pub fn mocked_config(
         mailer: MailerConfig::dummy(),
         public_url: "http://localhost:8080".to_owned(),
         oauth: OauthConfig::dummy(),
+        domains_whitelist: None,
     }
 }

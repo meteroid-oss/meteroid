@@ -34,9 +34,12 @@ export const LoginForm = () => {
         email: data.email,
         password: data.password,
       })
-      .catch(e => {
-        console.log('error', e)
-        setError('Unable to identify, please verify your credentials')
+      .catch(error => {
+        console.log('error', { error })
+        const rawMessage = error?.rawMessage
+        rawMessage
+          ? setError(rawMessage)
+          : setError('Unable to identify, please verify your credentials')
       })
   }
 
