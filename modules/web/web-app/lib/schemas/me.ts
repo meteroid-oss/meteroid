@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 export const emailPasswordSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(5, '5 characters minimum'),
+  password: z.string().min(8, '8 characters minimum').max(64, '64 characters maximum'),
 })
 
 export const emailSchema = z.object({
@@ -11,7 +11,7 @@ export const emailSchema = z.object({
 
 export const validateEmailSchema = z
   .object({
-    password: z.string().min(5, '5 characters minimum'),
+    password: z.string().min(8, '8 characters minimum').max(64, '64 characters maximum'),
     confirmPassword: z.string(),
   })
   .refine(data => data.password === data.confirmPassword, {
@@ -21,7 +21,7 @@ export const validateEmailSchema = z
 
 export const registerSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(5, '5 characters minimum'),
+  password: z.string().min(8, '8 characters minimum').max(64, '64 characters maximum'),
 })
 
 export const accountSchema = z.object({
