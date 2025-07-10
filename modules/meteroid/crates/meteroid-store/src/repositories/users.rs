@@ -95,9 +95,9 @@ impl UserInterface for Store {
         &self,
         req: RegisterUserRequest,
     ) -> StoreResult<RegisterUserResponse> {
-        validate_domain(&req.email, &self.settings.domains_whitelist)?;
-
         if self.settings.skip_email_validation {
+            validate_domain(&req.email, &self.settings.domains_whitelist)?;
+
             return register_user_internal(
                 self,
                 RegisterUserRequestInternal {

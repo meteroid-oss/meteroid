@@ -86,7 +86,7 @@ where
         &self,
         link: EmailValidationLink,
     ) -> error_stack::Result<(), MailerServiceError> {
-        let tpl = EmailValidationLinkTemplate::from(link.clone());
+        let tpl = EmailValidationLinkTemplate::from(link.clone()).tpl;
 
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
 

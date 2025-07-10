@@ -210,7 +210,7 @@ impl UsersService for UsersServiceComponents {
                 .into());
             }
 
-            if !req.email.validate_email() {
+            if !req.email.is_empty() && !req.email.validate_email() {
                 return Err(
                     UserApiError::InvalidArgument("Invalid email format".to_string()).into(),
                 );
