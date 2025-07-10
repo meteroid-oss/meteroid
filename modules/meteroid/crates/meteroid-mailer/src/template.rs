@@ -58,7 +58,7 @@ impl From<EmailValidationLink> for EmailValidationLinkTemplate {
         EmailValidationLinkTemplate {
             tpl: LayoutTemplate {
                 lang: "en".to_string(),
-                title: "Validate your email".to_string(),
+                title: "Confirm your email".to_string(),
                 header,
                 footer,
                 content,

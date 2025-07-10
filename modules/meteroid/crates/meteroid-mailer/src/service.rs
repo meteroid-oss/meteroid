@@ -94,7 +94,7 @@ where
             from: self.config.from.clone(),
             reply_to: Some("No Reply <no-reply@meteroid.com>".into()),
             to: vec![link.recipient.clone()],
-            subject: "Validate your email".into(),
+            subject: "Confirm your email".into(),
             body_html,
             attachments: vec![],
         };
