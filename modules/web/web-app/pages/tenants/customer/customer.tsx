@@ -48,7 +48,7 @@ export const Customer = () => {
               <Flex direction="column" className="gap-4 w-2/3 border-r border-border px-12 py-6">
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
-                  <OverviewCard title="MRR" value={0} />
+                  <OverviewCard title="MRR" value={undefined} />
                   <OverviewCard
                     title="Balance"
                     value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined}
@@ -85,7 +85,7 @@ export const Customer = () => {
                     <div className="text-[13px] text-muted-foreground">Address</div>
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
                   </Flex>
-                  <FlexDetails title="Tax rate" value="Standard" />
+                  <FlexDetails title="Tax rate" value="None" />
                   <FlexDetails title="Tax ID" value="None" />
                 </Flex>
                 <Separator className="-my-3" />

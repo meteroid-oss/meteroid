@@ -27,7 +27,7 @@ use rust_decimal::prelude::*;
 
 use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
-use common_domain::ids::{BaseId, CouponId, PlanVersionId, TenantId};
+use common_domain::ids::{CouponId, PlanVersionId, TenantId};
 use error_stack::Result;
 
 pub fn calculate_mrr(

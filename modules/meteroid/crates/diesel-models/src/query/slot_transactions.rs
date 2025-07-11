@@ -25,22 +25,24 @@ impl SlotTransactionRow {
             .into_db_result()
     }
 
-    pub async fn insert_batch(
-        conn: &mut PgConn,
-        items: Vec<&SlotTransactionRow>,
-    ) -> DbResult<SlotTransactionRow> {
+    pub async fn insert_batch(conn: &mut PgConn, items: Vec<&SlotTransactionRow>) -> DbResult<()> {
         use crate::schema::slot_transaction::dsl::*;
         use diesel_async::RunQueryDsl;
+
+        if items.is_empty() {
+            return Ok(());
+        }
 
         let query = diesel::insert_into(slot_transaction).values(items);
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
         query
-            .get_result(conn)
+            .execute(conn)
             .await
             .attach_printable("Error while inserting slot transaction")
             .into_db_result()
+            .map(|_| ())
     }
 
     pub async fn fetch_by_subscription_id_and_unit(

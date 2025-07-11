@@ -410,21 +410,20 @@ fn process_slot_transactions(
     }
 
     for component in components {
-        match fee_to_tx(&component.fee, start_date) {
-            Some(tx) => transactions.push(tx),
-            None => {}
+        if let Some(tx) = fee_to_tx(&component.fee, start_date) {
+            transactions.push(tx)
         }
     }
 
     for addon in addons {
-        match fee_to_tx(&addon.fee, start_date) {
-            Some(tx) => transactions.push(tx),
-            None => {}
+        if let Some(tx) = fee_to_tx(&addon.fee, start_date) {
+            transactions.push(tx)
         }
     }
 
     Ok(transactions)
 }
+
 // PERSIST
 
 impl Services {

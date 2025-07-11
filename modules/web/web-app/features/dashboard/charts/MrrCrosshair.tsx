@@ -70,7 +70,9 @@ export const MrrCrosshair: React.FC<MrrCrosshairProps> = ({
               <div className="flex justify-between">
                 <span className="font-semibold">{tooltip.labels[serie.id] ?? 'unknown serie'}</span>
                 <span>
-                  {tooltip.format === 'currency' && formatAmount(serie?.data[0].data.y as number)}
+                  {/*  TODO we should not need /100 */}
+                  {tooltip.format === 'currency' &&
+                    formatAmount((serie?.data[0].data.y as number) / 100)}{' '}
                   {tooltip.format === 'percent' && (serie?.data[0].data.y as number)}
                 </span>
               </div>
