@@ -1,6 +1,5 @@
 import { PriceComponent } from '@/lib/schemas/plans'
 import { PriceComponent as GrpcPriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
-
 import { BillingPeriod, BillingPeriod as SharedBillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 
 export const mapTermToBillingPeriod = (term: string): SharedBillingPeriod => {
@@ -139,7 +138,7 @@ export const getApiComponentBillingPeriodLabel = (
 
 
 
-export const getExtraComponentBillingPeriodLabel = (feeType?: string): string => {
+export const getSubscriptionComponentBillingPeriodLabel = (feeType?: string): string => {
   switch (feeType) {
     case 'oneTime':
       return 'One-time'
@@ -154,3 +153,6 @@ export const getExtraComponentBillingPeriodLabel = (feeType?: string): string =>
       return 'One-time'
   }
 }
+
+// Keep the old export for backward compatibility
+export const getExtraComponentBillingPeriodLabel = getSubscriptionComponentBillingPeriodLabel

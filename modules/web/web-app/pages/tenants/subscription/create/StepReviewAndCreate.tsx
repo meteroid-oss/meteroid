@@ -1,5 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
 import { useAtom } from 'jotai'
 import { Calendar, Package, PlusIcon, Tag, User } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -32,7 +33,6 @@ import {
   createSubscription,
   listSubscriptions,
 } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@ui/components'
 
 export const StepReviewAndCreate = () => {
   const navigate = useNavigate()
@@ -192,7 +192,7 @@ export const StepReviewAndCreate = () => {
     if (component.fee?.feeType?.value) {
       const feeType = component.fee.feeType.case
       switch (feeType) {
-        case 'rate':
+        case 'rate': {
           const rateFeeData = component.fee.feeType.value
 
           if (rateFeeData.rates && rateFeeData.rates.length > 0) {
@@ -205,7 +205,8 @@ export const StepReviewAndCreate = () => {
             }
           }
           break
-        case 'slot':
+        }
+        case 'slot': {
           const slotFeeData = component.fee.feeType.value
           if (slotFeeData.rates && slotFeeData.rates.length > 0) {
             // Use configured billing period rate if available
@@ -219,7 +220,9 @@ export const StepReviewAndCreate = () => {
           }
           quantity = configuration?.initialSlotCount || 1
           break
-        case 'capacity':
+        }
+
+        case 'capacity': {
           const capacityFeeData = component.fee.feeType.value
           if (capacityFeeData.thresholds && capacityFeeData.thresholds.length > 0) {
             if (configuration?.committedCapacity !== undefined) {
@@ -234,6 +237,7 @@ export const StepReviewAndCreate = () => {
             }
           }
           break
+        }
         case 'usage':
           // Usage pricing is complex (tiers, blocks, per unit, package, matrix)
           // we don't try to calculate a simple price - will be marked as metered
@@ -245,14 +249,17 @@ export const StepReviewAndCreate = () => {
             isMetered: true,
             billingPeriod: undefined,
           }
-        case 'oneTime':
+        case 'oneTime': {
           const oneTimeFeeData = component.fee.feeType.value
           unitPrice = parseFloat(oneTimeFeeData.unitPrice)
           break
-        case 'extraRecurring':
+        }
+
+        case 'extraRecurring': {
           const recFeeData = component.fee.feeType.value
           unitPrice = parseFloat(recFeeData.unitPrice)
           break
+        }
       }
     }
 
@@ -562,19 +569,16 @@ export const StepReviewAndCreate = () => {
                   <div>
                     <h4 className="font-medium text-xs mb-3">Add-ons</h4>
                     <div className="space-y-2">
-                      {selectedAddOns.map(addOn => {
-                        // const config = state.addOns.find(a => a.addOnId === addOn.id)
-                        return (
-                          <div key={addOn.id} className="flex items-start justify-between text-sm">
-                            <div className="flex-1 pr-2 min-h-9">
-                              <div className="font-medium">{addOn.name}</div>
-                            </div>
-                            <div className="text-right font-medium text-muted-foreground text-xs">
-                              Included
-                            </div>
+                      {selectedAddOns.map(addOn => (
+                        <div key={addOn.id} className="flex items-start justify-between text-sm">
+                          <div className="flex-1 pr-2 min-h-9">
+                            <div className="font-medium">{addOn.name}</div>
                           </div>
-                        )
-                      })}
+                          <div className="text-right font-medium text-muted-foreground text-xs">
+                            Included
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}

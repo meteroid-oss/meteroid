@@ -27,6 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@ui/components'
+import { cn } from '@ui/lib'
 import { useAtom } from 'jotai'
 import {
   Activity,
@@ -42,7 +43,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import React, { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -60,6 +61,8 @@ import {
   ComponentParameterization,
   createSubscriptionAtom,
   ExtraComponent,
+  SubscriptionFeeData,
+  SubscriptionFeeType,
 } from '@/pages/tenants/subscription/create/state'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { PlanVersion } from '@/rpc/api/plans/v1/models_pb'
@@ -76,7 +79,6 @@ import {
   SubscriptionFee_SlotSubscriptionFee,
   SubscriptionFeeBillingPeriod,
 } from '@/rpc/api/subscriptions/v1/models_pb'
-import { cn } from '@ui/lib'
 
 export const CreateSubscriptionPriceComponents = ({
   planVersionId,
@@ -118,7 +120,7 @@ export const CreateSubscriptionPriceComponents = ({
   const currency = customer?.currency || 'USD'
 
   // Validation effect
-  React.useEffect(() => {
+  useEffect(() => {
     const unconfiguredComponents = getUnconfiguredComponents()
     const isValid = unconfiguredComponents.length === 0
     const errors = unconfiguredComponents.map(c => `${c.name} requires configuration`)
@@ -463,10 +465,11 @@ const CompactPriceComponentCard = ({
         return 'Fixed'
       case 'usage':
         return 'Usage'
-      case 'slot':
+      case 'slot': {
         const slotUnitName =
           component.fee.fee === 'slot' ? component.fee.data.slotUnitName || 'seat' : 'seat'
         return `Per ${slotUnitName}`
+      }
       case 'capacity':
         return 'Capacity'
       case 'oneTime':
@@ -528,7 +531,7 @@ const CompactPriceComponentCard = ({
     return '0'
   }
 
-  const getPriceFromFee = (fee: any): string => {
+  const getPriceFromFee = (fee: SubscriptionFeeType): string => {
     if (fee.data?.unitPrice) {
       return fee.data.unitPrice
     }
@@ -962,7 +965,7 @@ const ExtraComponentCard = ({ component, currency, onEdit, onRemove }: ExtraComp
 // Add Fee Modal - Enhanced schema for complete fee types
 const addFeeSchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  feeType: z.enum(['rate', 'oneTime', 'extraRecurring', 'slot', 'capacity']),
+  feeType: z.enum(['rate', 'oneTime', 'extraRecurring', 'slot', 'capacity', 'usage']),
   unitPrice: z.string().min(1, 'Price is required'),
   quantity: z.number().positive().int().default(1),
   // Slot-specific fields
@@ -996,14 +999,14 @@ const AddFeeModal = ({
     resolver: zodResolver(addFeeSchema),
     defaultValues: {
       name: initialValues?.name || '',
-      feeType: (initialValues?.fee?.fee as any) || 'oneTime',
+      feeType: initialValues?.fee?.fee || 'oneTime',
       unitPrice: initialValues?.fee?.data?.unitPrice || '',
       quantity: initialValues?.fee?.data?.quantity || 1,
     },
   })
 
   const onSubmit = (values: z.infer<typeof addFeeSchema>) => {
-    let componentData: any = {
+    let componentData: SubscriptionFeeData = {
       unitPrice: values.unitPrice,
       quantity: values.quantity,
     }

@@ -1,6 +1,28 @@
+import { atom } from 'jotai'
+
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
-import { atom } from 'jotai'
+
+// Subscription-specific fee types (not plan fee types)
+export interface SubscriptionFeeData {
+  unitPrice: string
+  quantity?: number
+  // Slot-specific
+  slotUnitName?: string
+  minSlots?: number
+  maxSlots?: number
+  // Capacity-specific
+  includedAmount?: string
+  overageRate?: string
+  metricId?: string
+  // Rate-specific
+  billingType?: 'ARREAR' | 'ADVANCE'
+}
+
+export interface SubscriptionFeeType {
+  fee: 'rate' | 'oneTime' | 'extraRecurring' | 'slot' | 'capacity' | 'usage'
+  data: SubscriptionFeeData
+}
 
 // Component configuration types
 export interface ComponentParameterization {
@@ -13,12 +35,12 @@ export interface ComponentParameterization {
 export interface ComponentOverride {
   componentId: string
   name: string
-  fee: any // Will be typed based on SubscriptionFee
+  fee: SubscriptionFeeType
 }
 
 export interface ExtraComponent {
   name: string
-  fee: any // Will be typed based on SubscriptionFee
+  fee: SubscriptionFeeType
 }
 
 export interface CreateSubscriptionAddOn {
@@ -30,7 +52,7 @@ export interface CreateSubscriptionAddOn {
   }
   override?: {
     name: string
-    fee: any
+    fee: SubscriptionFeeType
   }
 }
 
