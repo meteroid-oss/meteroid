@@ -10,10 +10,9 @@ export const TopSection = () => {
   return (
     <div className="flex flex-row  flex-wrap md:flex-nowrap items-center gap-4 ml-auto ">
       <StatCard
-        title="Version"
+        title="Signups"
         loading={!stats.isFetched}
-        value={110725}
-        secondaryValue="ALPHA 110725"
+        value={stats.data?.signups?.count?.toString() ?? 'No data'}
         // trend={formattedTrend(stats.data?.totalNetRevenue?.trend)}
       />
       <StatCard
