@@ -49,7 +49,7 @@ export const Dashboard = () => {
           <span className="text-md font-medium text-muted-foreground">{date}</span>
         </div>
         <Separator />
-        <Card variant="accent2">
+        <Card variant="accent2" className="hidden">
           <div className="px-6 py-4">
             <div className="text-sm font-semibold pb-4">Complete your onboarding</div>
             <Flex direction="column" className="gap-2">

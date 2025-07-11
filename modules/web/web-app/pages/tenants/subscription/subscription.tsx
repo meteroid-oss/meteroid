@@ -11,6 +11,7 @@ import { ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -439,7 +440,9 @@ export const Subscription = () => {
           <div className="p-4 border-b border-border">
             <h3 className="text-md font-medium text-foreground">Invoices</h3>
           </div>
-          <div className="p-4 text-sm overflow-hidden text-muted-foreground">No invoices</div>
+          <div className="p-4 text-sm overflow-hidden text-muted-foreground">
+            <SubscriptionInvoicesCard subscriptionId={data.localId} />
+          </div>
         </div>
       </div>
 

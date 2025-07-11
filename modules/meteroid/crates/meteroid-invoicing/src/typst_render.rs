@@ -219,6 +219,7 @@ pub struct TypstInvoiceContent {
     pub issue_date: String,
     pub due_date: String,
     pub subtotal: f64,
+    // TODO add discounts
     pub tax_amount: f64,
     pub tax_rate: f64,
     pub total_amount: f64,

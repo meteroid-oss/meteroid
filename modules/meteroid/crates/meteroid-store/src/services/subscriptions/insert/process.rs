@@ -3,11 +3,12 @@ use super::payment_method::PaymentSetupResult;
 use crate::constants::{Currencies, Currency};
 use crate::domain::coupons::Coupon;
 use crate::domain::enums::SubscriptionEventType;
+use crate::domain::slot_transactions::{SlotTransaction, SlotTransactionNewInternal};
 use crate::domain::{
     CreateSubscription, CreateSubscriptionAddOns, CreateSubscriptionComponents,
     CreatedSubscription, Customer, SubscriptionActivationCondition, SubscriptionAddOnNew,
     SubscriptionAddOnNewInternal, SubscriptionComponentNew, SubscriptionComponentNewInternal,
-    SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
+    SubscriptionFee, SubscriptionNew, SubscriptionNewEnriched, SubscriptionStatusEnum,
 };
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::subscriptions::generate_checkout_token;
@@ -19,12 +20,13 @@ use crate::services::subscriptions::utils::{
 use crate::store::PgConn;
 use crate::utils::periods::calculate_advance_period_range;
 use crate::{StoreResult, services::Services};
-use chrono::Datelike;
-use common_domain::ids::{BaseId, SubscriptionId, TenantId};
+use chrono::{Datelike, NaiveDate, NaiveTime};
+use common_domain::ids::{BaseId, SlotTransactionId, SubscriptionId, TenantId};
 use common_eventbus::{Event, EventBus};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::AppliedCouponRowNew;
 use diesel_models::enums::CycleActionEnum;
+use diesel_models::slot_transactions::SlotTransactionRow;
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
@@ -46,6 +48,7 @@ pub struct ProcessedSubscription {
     add_ons: Vec<SubscriptionAddOnRowNew>,
     coupons: Vec<AppliedCouponRowNew>,
     event: SubscriptionEventRow,
+    slot_transactions: Vec<SlotTransactionRow>,
 }
 
 pub struct DetailedSubscription {
@@ -56,6 +59,7 @@ pub struct DetailedSubscription {
     pub customer: Customer,
     // pub invoicing_entity: InvoicingEntityProviderSensitive,
     currency: Currency,
+    pub slot_transactions: Vec<SlotTransactionNewInternal>,
 }
 
 impl Services {
@@ -100,6 +104,12 @@ impl Services {
                     self.process_components(price_components, subscription, context)?;
                 let subscription_add_ons = self.process_add_ons(add_ons, context)?;
 
+                let slot_transactions = process_slot_transactions(
+                    &components,
+                    &subscription_add_ons,
+                    subscription.start_date,
+                )?;
+
                 let coupons = if let Some(coupons) = coupons {
                     let coupons = context
                         .all_coupons
@@ -126,6 +136,7 @@ impl Services {
                         coupons,
                         customer: customer.clone(),
                         currency,
+                        slot_transactions,
                     }
                 })
             })
@@ -269,12 +280,30 @@ impl Services {
             })
             .collect::<std::result::Result<Vec<_>, StoreErrorReport>>()?;
 
+        let slot_transactions = sub
+            .slot_transactions
+            .iter()
+            .map(|tx| {
+                SlotTransaction {
+                    id: tx.id,
+                    subscription_id: subscription_row.id,
+                    unit: tx.unit.clone(),
+                    delta: tx.delta,
+                    prev_active_slots: tx.prev_active_slots,
+                    effective_at: tx.effective_at,
+                    transaction_at: tx.transaction_at,
+                }
+                .into()
+            })
+            .collect::<Vec<_>>();
+
         Ok(ProcessedSubscription {
             subscription: subscription_row,
             components,
             add_ons: subscription_add_ons,
             coupons: subscription_coupons,
             event,
+            slot_transactions,
         })
     }
 
@@ -352,6 +381,50 @@ impl Services {
     }
 }
 
+fn process_slot_transactions(
+    components: &Vec<SubscriptionComponentNewInternal>,
+    addons: &Vec<SubscriptionAddOnNewInternal>,
+    start_date: NaiveDate,
+) -> StoreResult<Vec<SlotTransactionNewInternal>> {
+    let mut transactions = vec![];
+
+    fn fee_to_tx(
+        fee: &SubscriptionFee,
+        start_date: NaiveDate,
+    ) -> Option<SlotTransactionNewInternal> {
+        match &fee {
+            SubscriptionFee::Slot {
+                initial_slots,
+                unit,
+                ..
+            } => Some(SlotTransactionNewInternal {
+                id: SlotTransactionId::new(),
+                unit: unit.clone(),
+                delta: 0i32,
+                prev_active_slots: *initial_slots as i32,
+                effective_at: start_date.and_time(NaiveTime::MIN),
+                transaction_at: start_date.and_time(NaiveTime::MIN),
+            }),
+            _ => None,
+        }
+    }
+
+    for component in components {
+        match fee_to_tx(&component.fee, start_date) {
+            Some(tx) => transactions.push(tx),
+            None => {}
+        }
+    }
+
+    for addon in addons {
+        match fee_to_tx(&addon.fee, start_date) {
+            Some(tx) => transactions.push(tx),
+            None => {}
+        }
+    }
+
+    Ok(transactions)
+}
 // PERSIST
 
 impl Services {
@@ -372,6 +445,10 @@ impl Services {
                     let add_ons: Vec<_> = processed.iter().flat_map(|p| &p.add_ons).collect();
                     let coupons: Vec<_> = processed.iter().flat_map(|p| &p.coupons).collect();
                     let events: Vec<_> = processed.iter().map(|p| &p.event).collect();
+                    let slot_transactions: Vec<_> = processed
+                        .iter()
+                        .flat_map(|p| &p.slot_transactions)
+                        .collect();
 
                     // Perform batch insertions
                     let inserted: Vec<CreatedSubscription> =
@@ -392,6 +469,10 @@ impl Services {
                         .await?;
 
                     SubscriptionEventRow::insert_batch(conn, events)
+                        .map_err(Into::<StoreErrorReport>::into)
+                        .await?;
+
+                    SlotTransactionRow::insert_batch(conn, slot_transactions)
                         .map_err(Into::<StoreErrorReport>::into)
                         .await?;
 

@@ -1,4 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Form,
@@ -40,7 +40,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
 
   const createCustomerMut = useMutation(createCustomer, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listCustomers) })
+      await queryClient.invalidateQueries({ queryKey: [listCustomers.service.typeName] })
     },
   })
 

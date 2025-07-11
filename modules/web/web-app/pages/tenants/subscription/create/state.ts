@@ -1,4 +1,5 @@
-import { atom } from 'jotai'
+
+import { atomWithReset } from 'jotai/utils'
 
 import { BillingPeriod } from '@/rpc/api/shared/v1/shared_pb'
 import { ActivationCondition } from '@/rpc/api/subscriptions/v1/models_pb'
@@ -91,7 +92,7 @@ export interface CreateSubscriptionState {
   coupons: CreateSubscriptionCoupon[]
 }
 
-export const createSubscriptionAtom = atom<CreateSubscriptionState>({
+export const createSubscriptionAtom = atomWithReset<CreateSubscriptionState>({
   // Basic info
   customerId: undefined,
   planVersionId: undefined,

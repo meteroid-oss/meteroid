@@ -72,7 +72,7 @@ message UpdateSlotsResponse {
 
 message GetSlotsValueRequest {
   string subscription_id = 1;
-  string price_component_id = 2;
+  string unit = 2;
 }
 
 message GetSlotsValueResponse {

@@ -30,9 +30,11 @@ id_type!(PaymentTransactionId, "pay_");
 id_type!(ProductFamilyId, "pf_");
 id_type!(ProductId, "prd_");
 id_type!(PriceComponentId, "price_");
+id_type!(SubscriptionPriceComponentId, "sub_price_");
 id_type!(PlanId, "plan_");
 id_type!(PlanVersionId, "plv_");
 id_type!(StoredDocumentId, "doc_");
+id_type!(SlotTransactionId, "slot_tx_");
 
 #[derive(Debug)]
 pub struct IdError(pub(crate) String);

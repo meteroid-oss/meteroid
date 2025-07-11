@@ -2,12 +2,14 @@ use super::enums::{BillingPeriodEnum, BillingType, SubscriptionFeeBillingPeriod}
 use crate::domain::UsagePricingModel;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
-use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId, SubscriptionId};
+use common_domain::ids::{
+    BaseId, BillableMetricId, PriceComponentId, ProductId, SubscriptionId,
+    SubscriptionPriceComponentId,
+};
 use diesel_models::subscription_components::{
     SubscriptionComponentRow, SubscriptionComponentRowNew,
 };
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 pub trait SubscriptionFeeInterface {
     fn price_component_id(&self) -> Option<PriceComponentId>;
@@ -20,7 +22,7 @@ pub trait SubscriptionFeeInterface {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionComponent {
-    pub id: Uuid,
+    pub id: SubscriptionPriceComponentId,
     pub price_component_id: Option<PriceComponentId>,
     pub product_id: Option<ProductId>,
     pub subscription_id: SubscriptionId,
@@ -102,7 +104,7 @@ impl TryInto<SubscriptionComponentRowNew> for SubscriptionComponentNew {
         let fee = self.internal.fee.try_into()?;
 
         Ok(SubscriptionComponentRowNew {
-            id: Uuid::now_v7(),
+            id: SubscriptionPriceComponentId::new(),
             subscription_id: self.subscription_id,
             price_component_id: self.internal.price_component_id,
             product_id: self.internal.product_id,

@@ -35,7 +35,7 @@ const activationConditionToString = (
     case ActivationCondition.MANUAL:
       return 'MANUAL'
     default:
-      return 'ON_CHECKOUT'
+      return 'ON_START'
   }
 }
 
@@ -50,7 +50,7 @@ const activationConditionFromString = (
     case 'MANUAL':
       return ActivationCondition.MANUAL
     default:
-      return ActivationCondition.ON_CHECKOUT
+      return ActivationCondition.ON_START
   }
 }
 
@@ -66,7 +66,7 @@ export const StepSettings = () => {
       trialDuration: state.trialDuration,
       activationCondition: state.activationCondition
         ? activationConditionToString(state.activationCondition)
-        : 'ON_CHECKOUT',
+        : 'ON_START', // TODO error is here, somhow state.activationCondition can be undefined when going back
       netTerms: state.netTerms,
       invoiceMemo: state.invoiceMemo,
       invoiceThreshold: state.invoiceThreshold,
@@ -140,9 +140,11 @@ export const StepSettings = () => {
                   name="trialDuration"
                   label="Trial Duration (days)"
                   type="number"
+                  containerClassName="hidden"
                   placeholder="7"
                   control={methods.control}
                 />
+                {/* TODO */}
               </CardContent>
             </Card>
 

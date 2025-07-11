@@ -32,7 +32,6 @@ interface CustomerHeaderProps {
 export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
   name,
   setEditPanelVisible,
-  setShowIncoice,
 }) => {
   const basePath = useBasePath()
   const navigate = useNavigate()
@@ -113,19 +112,19 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
             </DropdownMenu>
           </NewFlex>
           <Flex direction="row" gap={spaces.space4}>
-            <Button size="sm" onClick={setShowIncoice} variant="secondary">
+            <Button size="sm" variant="secondary" disabled>
               Create Invoice
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button hasIcon size="sm" variant="secondary">
+                <Button hasIcon size="sm" variant="secondary" disabled>
                   Actions <ChevronDown size={14} className="text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-[241px]">
                 <DropdownMenuItem>Assign subscription</DropdownMenuItem>
                 <DropdownMenuItem>Charge one time payment</DropdownMenuItem>
-                <DropdownMenuItem onClick={setShowIncoice}>Create Invoice</DropdownMenuItem>
+                <DropdownMenuItem>Create Invoice</DropdownMenuItem>
                 <DropdownMenuItem>Create quote</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem>Add balance</DropdownMenuItem>

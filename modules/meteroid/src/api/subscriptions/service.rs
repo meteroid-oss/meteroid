@@ -180,11 +180,10 @@ impl SubscriptionsService for SubscriptionServiceComponents {
         let inner = request.into_inner();
 
         let subscription_id = SubscriptionId::from_proto(inner.subscription_id)?;
-        let price_component_id = PriceComponentId::from_proto(inner.price_component_id)?;
 
         let slots = self
             .store
-            .get_current_slots_value(tenant_id, subscription_id, price_component_id, None)
+            .get_current_slots_value(tenant_id, subscription_id, inner.unit, None)
             .await
             .map_err(|err| {
                 SubscriptionApiError::StoreError(

@@ -15,22 +15,24 @@ export const sidebarItems = {
           title: 'Plans',
           url: 'plans',
         },
-        {
-          title: 'Products',
-          url: 'items',
-        },
+
         {
           title: 'Metrics',
           url: 'metrics',
         },
         {
-          title: 'Features',
-          url: 'features',
-          isActive: false,
-        },
-          {
           title: 'Coupons',
           url: 'coupons',
+        },
+        {
+          title: 'Addons',
+          url: 'addons',
+          disabled: true,
+        },
+        {
+          title: 'Features',
+          url: 'features',
+          disabled: true,
         },
       ],
     },
@@ -47,12 +49,14 @@ export const sidebarItems = {
           url: 'invoices',
         },
         {
-          title: 'Credit notes',
-          url: 'credit-notes',
-        },
-        {
           title: 'Quotes',
           url: 'quotes',
+        },
+
+        {
+          title: 'Credit notes',
+          url: 'credit-notes',
+          disabled: true,
         },
       ],
     },
@@ -65,6 +69,7 @@ export const sidebarItems = {
       title: 'Insights',
       url: 'insights',
       icon: Flag,
+      disabled: true,
     },
     {
       title: 'Reports',

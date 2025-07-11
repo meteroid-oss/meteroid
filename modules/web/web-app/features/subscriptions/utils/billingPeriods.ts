@@ -75,7 +75,6 @@ export const getSchemaComponentBillingPeriodLabel = (
   return 'Monthly'
 }
 
-// For API response components (StepReviewAndCreate)
 export const getApiComponentBillingPeriodLabel = (
   component: GrpcPriceComponent, 
   configuration?: { billingPeriod?: BillingPeriod }
@@ -138,7 +137,7 @@ export const getApiComponentBillingPeriodLabel = (
 
 
 
-export const getSubscriptionComponentBillingPeriodLabel = (feeType?: string): string => {
+export const getExtraComponentBillingPeriodLabel = (feeType?: string): string => {
   switch (feeType) {
     case 'oneTime':
       return 'One-time'
@@ -146,13 +145,10 @@ export const getSubscriptionComponentBillingPeriodLabel = (feeType?: string): st
     case 'rate':
       return 'Monthly'
     case 'slot':
-      return 'Monthly' // Default for slots in extra components
+      return 'Monthly'  // TODO. defaulting for now for extra
     case 'capacity':
       return 'Monthly'
     default:
       return 'One-time'
   }
 }
-
-// Keep the old export for backward compatibility
-export const getExtraComponentBillingPeriodLabel = getSubscriptionComponentBillingPeriodLabel
