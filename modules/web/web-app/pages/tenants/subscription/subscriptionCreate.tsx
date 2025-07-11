@@ -3,6 +3,7 @@ import { Wizard } from 'react-use-wizard'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { StepPlanAndCustomer } from '@/pages/tenants/subscription/create/StepPlanAndCustomer'
+import { StepReviewAndCreate } from '@/pages/tenants/subscription/create/StepReviewAndCreate'
 import { StepSettings } from '@/pages/tenants/subscription/create/StepSettings'
 
 export const SubscriptionCreate = () => {
@@ -13,6 +14,7 @@ export const SubscriptionCreate = () => {
         <Wizard>
           <StepPlanAndCustomer />
           <StepSettings />
+          <StepReviewAndCreate />
         </Wizard>
       </div>
     </Fragment>

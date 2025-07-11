@@ -7,7 +7,7 @@ import {
   SheetContent,
   SheetFooter,
   SheetHeader,
-  SheetTitle
+  SheetTitle,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -47,7 +47,6 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
   const activeCurrenciesQuery = useQuery(listTenantCurrencies)
   const activeCurrencies = activeCurrenciesQuery.data?.currencies ?? []
 
-
   const methods = useZodForm({
     schema: schemas.customers.createCustomerSchema,
     defaultValues: {
@@ -74,6 +73,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
         <SheetContent size="medium" side="right" className="p-0">
           <Form {...methods}>
             <form
+              onSubmitCapture={() => console.log(methods.formState.errors)}
               onSubmit={methods.handleSubmit(async values => {
                 const res = await createCustomerMut.mutateAsync({
                   data: {
@@ -81,7 +81,6 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                     alias: values.alias,
                     billingEmail: values.primaryEmail,
                     currency: values.currency,
-                     
                   },
                 })
                 if (res.customer?.id) {
@@ -96,11 +95,12 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
 
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-8 p-6">
+                  {activeCurrenciesQuery.isLoading ? (
+                    <Loading />
+                  ) : (
+                    <CustomersGeneral activeCurrencies={activeCurrencies} />
+                  )}
 
-                  {
-                    activeCurrenciesQuery.isLoading ? <Loading/> : <CustomersGeneral activeCurrencies={activeCurrencies}/>
-                  }
-                  
                   {/* <CustomersBilling />
                   <CustomersInvoice /> */}
 

@@ -31,6 +31,11 @@ pub trait PlansInterface {
         version_filter: PlanVersionFilter,
     ) -> StoreResult<PlanWithVersion>;
 
+    async fn get_plan_by_version_id(
+        &self,
+        id: PlanVersionId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<PlanWithVersion>;
     /**
      * Details of a plan irrespective of version
      */
@@ -218,6 +223,19 @@ impl PlansInterface for Store {
         let mut conn = self.get_conn().await?;
 
         PlanRow::get_with_version_by_id(&mut conn, id, auth_tenant_id, version_filter.into())
+            .await
+            .map_err(Into::into)
+            .map(Into::into)
+    }
+
+    async fn get_plan_by_version_id(
+        &self,
+        id: PlanVersionId,
+        auth_tenant_id: TenantId,
+    ) -> StoreResult<PlanWithVersion> {
+        let mut conn = self.get_conn().await?;
+
+        PlanRow::get_with_version_by_version_id(&mut conn, id, auth_tenant_id)
             .await
             .map_err(Into::into)
             .map(Into::into)

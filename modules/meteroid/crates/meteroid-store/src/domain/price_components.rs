@@ -307,19 +307,27 @@ impl FeeType {
                 quota,
                 ..
             } => {
-                let billing_period = billing_period.as_ref().ok_or_else(|| {
-                    StoreError::InvalidArgument("Missing billing period".to_string())
-                })?;
+                let (rate, billing_period) = if let Some(billing_period) = billing_period.as_ref() {
+                    let rate = rates
+                        .iter()
+                        .find(|r| &r.term == billing_period)
+                        .ok_or_else(|| {
+                            StoreError::InvalidArgument(format!(
+                                "Rate not found for billing period: {:?}",
+                                billing_period
+                            ))
+                        })?;
+                    (rate, billing_period)
+                } else {
+                    if rates.len() != 1 {
+                        return Err(StoreError::InvalidArgument(format!(
+                            "Expected a single rate, found: {}",
+                            rates.len()
+                        )));
+                    }
+                    (&rates[0], &rates[0].term)
+                };
 
-                let rate = rates
-                    .iter()
-                    .find(|r| &r.term == billing_period)
-                    .ok_or_else(|| {
-                        StoreError::InvalidArgument(format!(
-                            "Rate not found for billing period: {:?}",
-                            billing_period
-                        ))
-                    })?;
                 let initial_slots =
                     initial_slot_count.unwrap_or_else(|| minimum_count.unwrap_or(0));
 

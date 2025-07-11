@@ -87,10 +87,10 @@ export const PlanTrial = ({ config, currentPlanId, currentPlanVersionId }: Trial
 
 const formSchema = z.object({
   durationDays: z.number().int().optional(),
-  trialingPlanId: z.union([z.string().uuid(), z.literal('current')]).optional(),
+  trialingPlanId: z.union([z.string(), z.literal('current')]).optional(),
   trialType: z.enum(['free', 'paid']).optional(),
   actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
-  downgradePlanId: z.union([z.string().uuid(), z.literal('current')]).optional(),
+  downgradePlanId: z.union([z.string(), z.literal('current')]).optional(),
 })
 
 interface TrialConfigSentenceProps {
@@ -180,9 +180,12 @@ export function PlanTrialForm({
                       actionAfterTrial: actionAfterTrialToGrpc(data.actionAfterTrial),
                       downgradePlanId:
                         trialIsFree && data.actionAfterTrial === 'DOWNGRADE'
-                          ? data.downgradePlanId === 'current' ? undefined : data.downgradePlanId
+                          ? data.downgradePlanId === 'current'
+                            ? undefined
+                            : data.downgradePlanId
                           : undefined,
-                      trialingPlanId: data.trialingPlanId === 'current' ? undefined : data.trialingPlanId,
+                      trialingPlanId:
+                        data.trialingPlanId === 'current' ? undefined : data.trialingPlanId,
                       durationDays: data.durationDays,
                       trialIsFree,
                       requiresPreAuthorization: false, // TODO
@@ -234,7 +237,9 @@ export function PlanTrialForm({
                   )}
                 />{' '}
                 plan{' '}
-                {!data.trialingPlanId || data.trialingPlanId === 'current' || data.trialingPlanId === currentPlanId ? (
+                {!data.trialingPlanId ||
+                data.trialingPlanId === 'current' ||
+                data.trialingPlanId === currentPlanId ? (
                   'for free'
                 ) : (
                   <Controller
@@ -494,7 +499,7 @@ const EditableSpan = forwardRef(
 
     const msg = options
       ? options.find(o => o.value === value)?.name || emptyMessage || value
-      : value ?? emptyMessage
+      : (value ?? emptyMessage)
 
     const shouldQuote = quotes && msg !== 'current' && msg !== emptyMessage
 

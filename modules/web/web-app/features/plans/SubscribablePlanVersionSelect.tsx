@@ -1,12 +1,5 @@
 import { A, D, F, pipe } from '@mobily/ts-belt'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-} from '@ui/components'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger } from '@ui/components'
 
 import { useQuery } from '@/lib/connectrpc'
 import { PlanOverview, PlanStatus, PlanVersion } from '@/rpc/api/plans/v1/models_pb'
@@ -45,7 +38,7 @@ export const SubscribablePlanVersionSelect = ({ value, onChange }: Props) => {
           D.toPairs,
           A.map(([family, plans]) => (
             <SelectGroup key={family}>
-              <SelectLabel className="SelectLabel">{family}</SelectLabel>
+              {/* <SelectLabel className="SelectLabel">{family}</SelectLabel> */}
               {plans?.map(p => (
                 <SelectItem key={p.activeVersion?.id} value={p.activeVersion?.id ?? 'none'}>
                   {p.name}

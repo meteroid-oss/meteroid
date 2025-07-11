@@ -470,7 +470,7 @@ export const Subscription = () => {
           )}
         </DetailSection>
 
-        <DetailSection title="Dates">
+        <DetailSection title="Timeline">
           <DetailRow label="Created At" value={formatDate(data.createdAt)} />
           <DetailRow label="Start Date" value={formatDate(data.startDate)} />
           {data.billingStartDate && (
@@ -571,7 +571,7 @@ export const formatSubscriptionFee = (
 
       return {
         type: 'Slot',
-        details: `${slotFee.initialSlots} ${slotFee.unit}s${limitStr}`,
+        details: `${slotFee.initialSlots} ${slotFee.unit}(s)${limitStr}`,
         amount: `${slotFee.unitRate} per ${slotFee.unit}`,
       }
     }

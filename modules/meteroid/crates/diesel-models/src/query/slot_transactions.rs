@@ -5,7 +5,7 @@ use crate::{DbResult, PgConn};
 use chrono::NaiveDateTime;
 
 use common_domain::ids::{PriceComponentId, SubscriptionId};
-use diesel::sql_types;
+use diesel::{OptionalExtension, sql_types};
 use diesel::{QueryableByName, debug_query};
 use error_stack::ResultExt;
 
@@ -67,6 +67,12 @@ GROUP BY
             .bind::<sql_types::Timestamp, _>(ts)
             .get_result::<FetchTransactionResult>(conn)
             .await
+            .optional()
+            .map(|d| {
+                d.unwrap_or(FetchTransactionResult {
+                    current_active_slots: 0,
+                })
+            })
             .attach_printable("Error while fetching slot transaction by id")
             .into_db_result()
     }
