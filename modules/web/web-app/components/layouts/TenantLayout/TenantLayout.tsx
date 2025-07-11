@@ -34,7 +34,7 @@ export const TenantPageLayout = ({ children }: PropsWithChildren) => {
   return (
     <>
       <main className="flex  flex-col flex-1 w-full max-w-screen-2xl mx-auto h-full overflow-x-hidden">
-        <div className="relative pt-4 px-4 h-full overflow-y-auto flex flex-col gap-5">
+        <div className="relative pt-4 px-6 h-full overflow-y-auto flex flex-col gap-5">
           {children}
         </div>
       </main>

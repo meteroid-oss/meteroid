@@ -71,20 +71,20 @@ export const SlotFeeSchema = z.object({
 export type SlotFee = z.infer<typeof SlotFeeSchema>
 
 const BillableMetricSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string(),
   name: z.string().optional(),
 })
 export type BillableMetric = z.infer<typeof BillableMetricSchema>
 
 const CapacityThresholdSchema = z.object({
-  includedAmount: z.string(),
+  includedAmount: z.coerce.string(),
   price: pricePrecision2Schema,
   perUnitOverage: pricePrecision8Schema,
 })
 export type CapacityThreshold = z.infer<typeof CapacityThresholdSchema>
 
 export const CapacityFeeSchema = z.object({
-  metricId: z.string().uuid(),
+  metricId: z.string(),
   thresholds: z.array(CapacityThresholdSchema),
 })
 export type CapacityFee = z.infer<typeof CapacityFeeSchema>
@@ -174,7 +174,7 @@ export type UsagePricingModel = z.infer<typeof UsagePricingModelSchema>
 export type UsagePricingModelType = UsagePricingModel['model']
 
 export const UsageFeeSchema = z.object({
-  metricId: z.string().uuid(),
+  metricId: z.string(),
   model: UsagePricingModelSchema,
 })
 export type UsageFee = z.infer<typeof UsageFeeSchema>
@@ -265,8 +265,8 @@ export const publishedPlanOverviewSchema = z.object({
 
 export const trialConfigSchema = z.object({
   durationDays: z.number().int(),
-  downgradePlanId: z.string().uuid().optional(),
-  trialingPlanId: z.string().uuid().optional(),
+  downgradePlanId: z.string().optional(),
+  trialingPlanId: z.string().optional(),
   requiresPreAuthorization: z.boolean().optional(),
   actionAfterTrial: z.enum(['BLOCK', 'CHARGE', 'DOWNGRADE']).optional(),
 })

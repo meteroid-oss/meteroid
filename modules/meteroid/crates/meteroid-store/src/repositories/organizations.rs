@@ -79,9 +79,9 @@ impl OrganizationsInterface for Store {
             role: OrganizationUserRole::Admin,
         };
 
-        let tenant_new = TenantNew {
-            name: "Production".to_string(),
-            environment: TenantEnvironmentEnum::Production,
+        let dev_tenant_new = TenantNew {
+            name: "Development".to_string(),
+            environment: TenantEnvironmentEnum::Development,
         };
 
         let (org_created, tenant_created) = self
@@ -99,7 +99,7 @@ impl OrganizationsInterface for Store {
                         .internal
                         .insert_tenant_with_default_entities(
                             conn,
-                            tenant_new,
+                            dev_tenant_new,
                             org.id,
                             org.trade_name.clone(),
                             org.default_country.clone(),

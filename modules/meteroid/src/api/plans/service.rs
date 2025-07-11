@@ -12,7 +12,8 @@ use meteroid_grpc::meteroid::api::plans::v1::{
     CopyVersionToDraftRequest, CopyVersionToDraftResponse, CreateDraftPlanRequest,
     CreateDraftPlanResponse, DiscardDraftVersionRequest, DiscardDraftVersionResponse,
     GetPlanOverviewRequest, GetPlanOverviewResponse, GetPlanParametersRequest,
-    GetPlanParametersResponse, GetPlanWithVersionRequest, GetPlanWithVersionResponse,
+    GetPlanParametersResponse, GetPlanWithVersionByVersionIdRequest,
+    GetPlanWithVersionByVersionIdResponse, GetPlanWithVersionRequest, GetPlanWithVersionResponse,
     ListPlanVersionByIdRequest, ListPlanVersionByIdResponse, ListPlansRequest, ListPlansResponse,
     PublishPlanVersionRequest, PublishPlanVersionResponse, UpdateDraftPlanOverviewRequest,
     UpdateDraftPlanOverviewResponse, UpdatePlanTrialRequest, UpdatePlanTrialResponse,
@@ -394,6 +395,26 @@ impl PlansService for PlanServiceComponents {
             .map_err(Into::<PlanApiError>::into)?;
 
         Ok(Response::new(GetPlanWithVersionResponse {
+            plan: Some(res),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn get_plan_with_version_by_version_id(
+        &self,
+        request: Request<GetPlanWithVersionByVersionIdRequest>,
+    ) -> Result<Response<GetPlanWithVersionByVersionIdResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let res = self
+            .store
+            .get_plan_by_version_id(PlanVersionId::from_proto(&req.local_id)?, tenant_id)
+            .await
+            .map(|x| PlanWithVersionWrapper::from(x).0)
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(GetPlanWithVersionByVersionIdResponse {
             plan: Some(res),
         }))
     }

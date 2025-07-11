@@ -17,7 +17,7 @@ use crate::errors::StoreError;
 use crate::repositories::subscriptions::SubscriptionSlotsInterface;
 use crate::services::Services;
 use crate::store::PgConn;
-use common_domain::ids::{BillableMetricId, PriceComponentId};
+use common_domain::ids::BillableMetricId;
 use error_stack::{Report, ResultExt};
 
 impl Services {
@@ -91,20 +91,11 @@ impl Services {
                 unit_rate,
                 min_slots,
                 max_slots,
+                unit,
                 ..
             } => {
                 let slots = self
-                    .fetch_slots(
-                        conn,
-                        invoice_date,
-                        component
-                            .price_component_id()
-                            .ok_or(Report::new(StoreError::ValueNotFound(
-                                "no price component id".to_string(),
-                            )))
-                            .attach_printable("Failed to fetch slot data")?,
-                        subscription_details,
-                    ) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
+                    .fetch_slots(conn, invoice_date, unit.clone(), subscription_details) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
                     .await?
                     .max(min_slots.unwrap_or(0) as u64)
                     .min(max_slots.unwrap_or(u32::MAX) as u64);
@@ -123,8 +114,6 @@ impl Services {
                 overage_rate,
                 metric_id,
             } => {
-                let mut lines = vec![];
-
                 lines.push(InvoiceLineInner::simple_prorated(
                     rate,
                     &dec!(1),
@@ -389,7 +378,7 @@ impl Services {
         &self,
         conn: &mut PgConn,
         invoice_date: &NaiveDate,
-        component_id: PriceComponentId,
+        unit: String,
         subscription_details: &SubscriptionDetails,
     ) -> StoreResult<u64> {
         let quantity = self
@@ -398,7 +387,7 @@ impl Services {
                 conn,
                 subscription_details.subscription.tenant_id,
                 subscription_details.subscription.id,
-                component_id,
+                unit,
                 Some(invoice_date.clone().and_time(NaiveTime::MIN)),
             )
             .await?;

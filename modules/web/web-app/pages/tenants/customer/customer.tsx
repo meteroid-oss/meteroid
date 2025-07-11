@@ -35,7 +35,8 @@ export const Customer = () => {
           <CustomerHeader
             setEditPanelVisible={setEditPanelVisible}
             name={data?.name || data?.alias}
-            setShowIncoice={() => setCreateInvoiceVisible(true)}
+            // setShowIncoice={() => setCreateInvoiceVisible(true)}
+            setShowIncoice={() => false}
           />
           {isLoading || !data ? (
             <>
@@ -47,8 +48,11 @@ export const Customer = () => {
               <Flex direction="column" className="gap-4 w-2/3 border-r border-border px-12 py-6">
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
-                  <OverviewCard title="MRR" value={0} />
-                  <OverviewCard title="Balance" value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined} />
+                  <OverviewCard title="MRR" value={undefined} />
+                  <OverviewCard
+                    title="Balance"
+                    value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined}
+                  />
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Subscriptions</div>
@@ -61,11 +65,7 @@ export const Customer = () => {
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Invoices</div>
-                  <Flex
-                    align="center"
-                    className="gap-1 text-sm"
-                    onClick={() => setCreateInvoiceVisible(true)}
-                  >
+                  <Flex align="center" className="gap-1 text-sm">
                     <Plus size={10} /> Create invoice
                   </Flex>
                 </Flex>
@@ -85,7 +85,7 @@ export const Customer = () => {
                     <div className="text-[13px] text-muted-foreground">Address</div>
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
                   </Flex>
-                  <FlexDetails title="Tax rate" value="Standard" />
+                  <FlexDetails title="Tax rate" value="None" />
                   <FlexDetails title="Tax ID" value="None" />
                 </Flex>
                 <Separator className="-my-3" />
@@ -98,7 +98,10 @@ export const Customer = () => {
                 <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Payment</div>
-                  <FlexDetails title="Payment method" value={data.currentPaymentMethodId ?? "None"} />
+                  <FlexDetails
+                    title="Payment method"
+                    value={data.currentPaymentMethodId ?? 'None'}
+                  />
                   <FlexDetails title="Payment term" value="N/A" />
                   <FlexDetails title="Grace period" value="None" />
                 </Flex>

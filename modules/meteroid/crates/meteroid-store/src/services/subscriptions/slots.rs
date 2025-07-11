@@ -11,7 +11,7 @@ pub trait SubscriptionSlotsInterface {
         &self,
         tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
+        unit: String,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32>;
 
@@ -31,18 +31,13 @@ impl SubscriptionSlotsInterface for Store {
         conn: &mut PgConn,
         _tenant_id: TenantId,
         subscription_id: SubscriptionId,
-        price_component_id: PriceComponentId,
+        unit: String,
         ts: Option<chrono::NaiveDateTime>,
     ) -> StoreResult<u32> {
-        SlotTransactionRow::fetch_by_subscription_id_and_price_component_id(
-            conn,
-            subscription_id,
-            price_component_id,
-            ts,
-        )
-        .await
-        .map(|c| c.current_active_slots as u32)
-        .map_err(Into::into)
+        SlotTransactionRow::fetch_by_subscription_id_and_unit(conn, subscription_id, unit, ts)
+            .await
+            .map(|c| c.current_active_slots as u32)
+            .map_err(Into::into)
     }
 
     async fn _add_slot_transaction(

@@ -1,5 +1,4 @@
-import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
+import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Form,
@@ -19,7 +18,6 @@ import {
 } from '@md/ui'
 import { D, pipe } from '@mobily/ts-belt'
 import { useQueryClient } from '@tanstack/react-query'
-import { Flex } from '@ui/components/legacy'
 import { useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -48,7 +46,7 @@ export const ProductMetricsEditPanel = () => {
 
   const createBillableMetricMut = useMutation(createBillableMetric, {
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(listBillableMetrics) })
+      await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
     },
   })
 
@@ -74,14 +72,26 @@ export const ProductMetricsEditPanel = () => {
         matrixType: 'NONE',
       },
     },
-    mode: 'onBlur',
+    mode: 'all',
   })
 
   useEffect(() => {
-    console.log('errors', methods.formState.errors)
+    console.log('errors', JSON.stringify(methods.formState.errors))
   }, [methods.formState.errors])
 
   const safeClosePanel = () => {
+    methods.trigger()
+    console.log('dbg', methods.formState.isValid)
+    console.log('dbg2', JSON.stringify(methods.formState))
+
+    console.log(
+      'dbg',
+      methods.formState.errors,
+      methods.formState.isValid,
+      methods.formState.isDirty,
+      Object.keys(methods.formState.dirtyFields).length
+    )
+
     const isDirty =
       methods.formState.isDirty || Object.keys(methods.formState.dirtyFields).length > 0
     if (isDirty) {
@@ -157,6 +167,10 @@ export const ProductMetricsEditPanel = () => {
     [methods, navigate]
   )
 
+  useEffect(() => {
+    methods.setValue('productFamilyId', families[0]?.localId)
+  }, [families])
+
   // TODO try without the form, with onConfirm
   return (
     <>
@@ -172,22 +186,22 @@ export const ProductMetricsEditPanel = () => {
               </SheetHeader>
               <ScrollArea className="flex grow pr-2 -mr-4">
                 <div className="px-2 relative">
-                  <section className="mb-2">
-                    <Flex direction="column" gap={spaces.space7}>
-                      <InputFormField
-                        name="metricName"
-                        label="Metric name"
-                        control={methods.control}
-                        placeholder="Compute (GB-hr)"
-                        className="max-w-sm"
-                      />
+                  <section className="mb-2 space-y-6 ">
+                    <InputFormField
+                      name="metricName"
+                      label="Metric name"
+                      control={methods.control}
+                      placeholder="Compute (CPU-seconds)"
+                      className="max-w-sm"
+                    />
 
+                    {families.length > 1 ? (
                       <SelectFormField
                         name="productFamilyId"
                         label="Product line"
                         layout="vertical"
                         placeholder="Select a product line"
-                        className="max-w-sm  "
+                        className="max-w-sm"
                         empty={families.length === 0}
                         control={methods.control}
                       >
@@ -197,28 +211,36 @@ export const ProductMetricsEditPanel = () => {
                           </SelectItem>
                         ))}
                       </SelectFormField>
-
-                      <div className="space-y-2">
-                        <InputFormField
-                          name="eventCode"
-                          label="Event Code"
-                          control={methods.control}
-                          placeholder="compute_usage"
-                          className="max-w-sm"
-                        />
-                        <FormDescription>
-                          Qualifies an event stream, ex: page_views.
-                          <br />A single usage event can be processed by multiple metrics !
-                        </FormDescription>
-                      </div>
-                      <TextareaFormField
-                        name="metricDescription"
-                        label="Description"
-                        className="max-w-sm "
+                    ) : (
+                      <InputFormField
+                        hidden
+                        className="hidden"
+                        value={families[0]?.localId}
                         control={methods.control}
-                        placeholder="Serverless compute usage for ..."
+                        name="productFamilyId"
                       />
-                    </Flex>
+                    )}
+
+                    <div className="space-y-2">
+                      <InputFormField
+                        name="eventCode"
+                        label="Event Code"
+                        control={methods.control}
+                        placeholder="compute_usage"
+                        className="max-w-sm"
+                      />
+                      <FormDescription>
+                        Qualifies an event stream, ex: page_views.
+                        <br />A single usage event can be processed by multiple metrics !
+                      </FormDescription>
+                    </div>
+                    <TextareaFormField
+                      name="metricDescription"
+                      label="Description"
+                      className="max-w-sm "
+                      control={methods.control}
+                      placeholder="Serverless compute usage for ..."
+                    />
                   </section>
                   <Separator />
                   <AggregationSection methods={methods} />

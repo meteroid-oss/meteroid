@@ -13,9 +13,11 @@ import {
   usePlanWithVersion,
 } from '@/features/plans/hooks/usePlan'
 import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
+import { useBasePath } from '@/hooks/useBasePath'
 import {
   copyVersionToDraft,
   discardDraftVersion,
+  getPlanWithVersion,
   listPlans,
   publishPlanVersion,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
@@ -36,6 +38,7 @@ export const PlanActions = () => {
   const planWithVersion = usePlanWithVersion()
 
   const navigate = useNavigate()
+  const basePath = useBasePath()
 
   const setEditedComponents = useSetAtom(editedComponentsAtom)
   const setAddedComponents = useSetAtom(addedComponentsAtom)
@@ -80,6 +83,7 @@ export const PlanActions = () => {
   const publishPlanMutation = useMutation(publishPlanVersion, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
     },
   })
 
@@ -88,11 +92,13 @@ export const PlanActions = () => {
 
     if (!overview || !planWithVersion.plan || !planWithVersion.version) return
 
-    await publishPlanMutation.mutateAsync({
+    const res = await publishPlanMutation.mutateAsync({
       planId: planWithVersion.plan.id,
       planVersionId: planWithVersion.version.id,
     })
+    const version = res.planVersion?.version
     setIsBusy(false)
+    navigate(`${basePath}/plans/${planWithVersion.plan.id}/${version}`)
   }
 
   const copyToDraftMutation = useMutation(copyVersionToDraft, {
@@ -107,6 +113,8 @@ export const PlanActions = () => {
       planId: planWithVersion.plan.id,
       planVersionId: planWithVersion.version.id,
     })
+
+    navigate(`${basePath}/plans/${planWithVersion.plan.id}/draft`)
   }
 
   return isDraft ? (

@@ -13,7 +13,7 @@ export interface TrendProp {
 export interface StatCardProp {
   title: string
   detailPath?: string
-  value: string | number
+  value?: string | number
   secondaryValue?: string
   trend?: TrendProp
   loading?: boolean
@@ -49,7 +49,8 @@ export const StatCard: React.FC<StatCardProp> = ({
         ) : (
           <>
             <div className="flex flex-row gap-4 items-baseline">
-              <div className="text-2xl font-medium">{value}</div>
+              {value && <div className="text-2xl font-medium">{value}</div>}
+
               {secondaryValue && (
                 <div className="text-xs text-muted-foreground self-baseline">{secondaryValue}</div>
               )}

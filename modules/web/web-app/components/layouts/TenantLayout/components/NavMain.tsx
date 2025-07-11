@@ -88,7 +88,10 @@ function Tree({
               return (
                 <div
                   key={index}
-                  className={cn('block w-full', item.disabled && 'pointer-events-none')}
+                  className={cn(
+                    'block w-full',
+                    subItem.disabled && 'pointer-events-none opacity-60'
+                  )}
                 >
                   <NavLink to={subItem.url} viewTransition>
                     <SidebarMenuButton key={index} isActive={isSubActive} className="pl-10">
@@ -109,7 +112,7 @@ function Tree({
 
   return (
     <SidebarMenuItem>
-      <div className={cn('block w-full', item.disabled && 'pointer-events-none')}>
+      <div className={cn('block w-full', item.disabled && 'pointer-events-none opacity-60')}>
         <NavLink to={item.url ?? ''} viewTransition>
           <SidebarMenuButton isActive={isActive}>
             {Icon && <Icon className="mr-2 h-4 w-4" />}
@@ -129,10 +132,12 @@ export function NavMain({
     url?: To
     icon: LucideIcon
     isActive?: boolean
+    disabled?: boolean
     items?: {
       title: string
       url: To
       isActive?: boolean
+      disabled?: boolean
     }[]
   }[]
 }) {

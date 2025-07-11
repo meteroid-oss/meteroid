@@ -48,8 +48,8 @@ export const EditPriceComponentCard = ({ cancel, submit, children }: EditPriceCo
             <XIcon size={16} strokeWidth={2} />
           </Button>
           <Button
-            variant="ghost"
-            className="font-bold py-1.5 !rounded-l-none text-success hover:text-success"
+            variant="secondary"
+            className="font-bold py-1.5 !rounded-l-none bg-success hover:bg-success/80 text-success-foreground"
             onClick={submit}
             size="icon"
           >

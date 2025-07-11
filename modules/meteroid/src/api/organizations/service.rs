@@ -6,6 +6,7 @@ use meteroid_grpc::meteroid::api::organizations::v1::{
     GetCurrentOrganizationResponse, ListOrganizationsRequest, ListOrganizationsResponse,
     Organization, organizations_service_server::OrganizationsService,
 };
+use meteroid_seeder::presets;
 use meteroid_store::domain::OrganizationNew;
 use meteroid_store::repositories::organizations::OrganizationsInterface;
 
@@ -51,6 +52,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
         let response = GetCurrentOrganizationResponse {
             organization: Some(mapping::organization::domain_with_tenants_to_proto(
                 organization,
+                None,
             )),
         };
 
@@ -77,9 +79,21 @@ impl OrganizationsService for OrganizationsServiceComponents {
             .await
             .map_err(Into::<OrganizationApiError>::into)?;
 
+        let sandbox_tenant = presets::run_preset(
+            &self.store,
+            &self.services,
+            presets::simple::basic_scenario_1(),
+            organization.organization.id,
+            user,
+            Some("Sandbox".to_string()),
+        )
+        .await
+        .map_err(Into::<OrganizationApiError>::into)?;
+
         let response = CreateOrganizationResponse {
             organization: Some(mapping::organization::domain_with_tenants_to_proto(
                 organization,
+                Some(sandbox_tenant),
             )),
         };
 

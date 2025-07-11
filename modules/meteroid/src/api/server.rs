@@ -59,7 +59,7 @@ pub async fn start_api_server(
         .add_service(api::addons::service(store.clone()))
         .add_service(api::billablemetrics::service(store.clone()))
         .add_service(api::bankaccounts::service(store.clone()))
-        .add_service(api::organizations::service(store.clone()))
+        .add_service(api::organizations::service(store.clone(), services.clone()))
         .add_service(api::invoicingentities::service(
             store.clone(),
             object_store.clone(),

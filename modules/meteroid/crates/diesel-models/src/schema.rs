@@ -725,12 +725,13 @@ diesel::table! {
 diesel::table! {
     slot_transaction (id) {
         id -> Uuid,
-        price_component_id -> Uuid,
         subscription_id -> Uuid,
         delta -> Int4,
         prev_active_slots -> Int4,
         effective_at -> Timestamp,
         transaction_at -> Timestamp,
+        #[max_length = 255]
+        unit -> Varchar,
     }
 }
 
@@ -930,7 +931,6 @@ diesel::joinable!(product -> tenant (tenant_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
 diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(scheduled_event -> subscription (subscription_id));
-diesel::joinable!(slot_transaction -> price_component (price_component_id));
 diesel::joinable!(slot_transaction -> subscription (subscription_id));
 diesel::joinable!(subscription -> bank_account (bank_account_id));
 diesel::joinable!(subscription -> customer (customer_id));

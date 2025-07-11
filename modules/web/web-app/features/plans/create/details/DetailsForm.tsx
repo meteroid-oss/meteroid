@@ -59,6 +59,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
     defaultValues: {
       planType: 'STANDARD',
     },
+    mode: 'onChange',
   })
   const queryClient = useQueryClient()
 

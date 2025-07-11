@@ -209,6 +209,30 @@ impl PlanRow {
             .attach_printable("Error while getting plan with version by local_id")
             .into_db_result()
     }
+
+    pub async fn get_with_version_by_version_id(
+        conn: &mut PgConn,
+        id: PlanVersionId,
+        tenant_id: TenantId,
+    ) -> DbResult<PlanWithVersionRow> {
+        use crate::schema::plan::dsl as p_dsl;
+        use crate::schema::plan_version::dsl as pv_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = p_dsl::plan
+            .left_join(pv_dsl::plan_version.on(p_dsl::id.eq(pv_dsl::plan_id)))
+            .filter(pv_dsl::id.eq(id))
+            .filter(p_dsl::tenant_id.eq(tenant_id))
+            .select(PlanWithVersionRow::as_select());
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .first(conn)
+            .await
+            .attach_printable("Error while getting plan with version by local_id")
+            .into_db_result()
+    }
 }
 
 impl PlanRowOverview {

@@ -25,7 +25,7 @@ export const createCustomerSchema = z.object({
   taxRate: z.number().optional(),
 
   //integrations
-  connectorCustomerId: z.string(),
+  connectorCustomerId: z.string().optional(),
 })
 
 export type CreateCustomerSchema = z.infer<typeof createCustomerSchema>
