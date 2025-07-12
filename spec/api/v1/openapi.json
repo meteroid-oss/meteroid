@@ -237,8 +237,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Customer"
+          "204": {
+            "description": "No Content"
           },
           "401": {
             "description": "Unauthorized"
@@ -912,6 +912,16 @@
               "null"
             ]
           },
+          "bank_account_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BankAccountId"
+              }
+            ]
+          },
           "billing_address": {
             "oneOf": [
               {
@@ -930,6 +940,13 @@
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
+          },
+          "custom_vat_rate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "id": {
             "$ref": "#/components/schemas/CustomerId"
@@ -961,6 +978,12 @@
                 "$ref": "#/components/schemas/ShippingAddress"
               }
             ]
+          },
+          "vat_number": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -968,6 +991,7 @@
         "type": "object",
         "required": [
           "name",
+          "invoicing_emails",
           "currency"
         ],
         "properties": {
@@ -1014,10 +1038,7 @@
             "format": "int32"
           },
           "invoicing_emails": {
-            "type": [
-              "array",
-              "null"
-            ],
+            "type": "array",
             "items": {
               "type": "string"
             }
@@ -1185,6 +1206,16 @@
                     "null"
                   ]
                 },
+                "bank_account_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BankAccountId"
+                    }
+                  ]
+                },
                 "billing_address": {
                   "oneOf": [
                     {
@@ -1203,6 +1234,13 @@
                 },
                 "currency": {
                   "$ref": "#/components/schemas/Currency"
+                },
+                "custom_vat_rate": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
                 },
                 "id": {
                   "$ref": "#/components/schemas/CustomerId"
@@ -1233,6 +1271,12 @@
                     {
                       "$ref": "#/components/schemas/ShippingAddress"
                     }
+                  ]
+                },
+                "vat_number": {
+                  "type": [
+                    "string",
+                    "null"
                   ]
                 }
               }
