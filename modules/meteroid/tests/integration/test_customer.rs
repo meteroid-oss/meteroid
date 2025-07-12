@@ -1,8 +1,10 @@
 use meteroid_grpc::meteroid::api;
+use serde_json::json;
 
 use crate::helpers;
 use crate::meteroid_it;
-use crate::meteroid_it::container::SeedLevel;
+use crate::meteroid_it::clients::AllClients;
+use crate::meteroid_it::container::{MeteroidSetup, SeedLevel};
 use common_domain::ids::{BaseId, ConnectorId, CustomerId, TenantId};
 use meteroid_store::domain::ConnectorProviderEnum;
 use meteroid_store::repositories::CustomersInterface;
@@ -296,6 +298,64 @@ async fn test_customers_basic() {
     assert_eq!(credits_invoice.customer_id, created_manual.id);
     // bue credits end
 
-    // teardown
-    // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await
+    rest_api_test(&setup, &clients).await;
+}
+
+async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
+    let api_key = clients
+        .api_tokens
+        .clone()
+        .create_api_token(tonic::Request::new(
+            api::apitokens::v1::CreateApiTokenRequest {
+                name: "test-api-key".to_string(),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner()
+        .api_key;
+
+    let client = reqwest::Client::new();
+    let json_req_body = json!({
+        "name": "Test Customer REST",
+        "alias": "test-customer-rest",
+        "billing_email": "billing@meteroid.com",
+        "invoicing_emails": ["invoicing@meteroid.com"],
+        "phone": "123456789",
+        "currency": "EUR",
+        "billing_address": {
+            "line1": "123 Test St",
+            "city": "Test City",
+            "zip_code": "12345",
+            "country": "Testland"
+        },
+        "shipping_address": {
+           "same_as_billing": true
+        },
+        "vat_number": "VAT123456",
+        "custom_vat_rate": 20,
+    });
+
+    let created = client
+        .post(format!(
+            "{}/api/v1/customers",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .json(&json_req_body)
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    assert!(
+        created["id"]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("cus_")
+    );
+
+    assert_eq!(created["name"], "Test Customer REST");
 }

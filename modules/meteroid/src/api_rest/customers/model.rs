@@ -37,7 +37,7 @@ pub struct Customer {
     pub invoicing_entity_id: InvoicingEntityId,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Debug)]
 pub struct CustomerCreateRequest {
     pub name: String,
     pub alias: Option<String>,
@@ -47,9 +47,9 @@ pub struct CustomerCreateRequest {
     pub currency: Currency,
     pub billing_address: Option<Address>,
     pub shipping_address: Option<ShippingAddress>,
-    #[serde(with = "string_serde_opt")]
+    #[serde(default, with = "string_serde_opt")]
     pub invoicing_entity_id: Option<InvoicingEntityId>,
-    #[serde(with = "string_serde_opt")]
+    #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_vat_rate: Option<i32>,
@@ -67,7 +67,7 @@ pub struct CustomerUpdateRequest {
     pub shipping_address: Option<ShippingAddress>,
     #[serde(with = "string_serde")]
     pub invoicing_entity_id: InvoicingEntityId,
-    #[serde(with = "string_serde_opt")]
+    #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
     pub custom_vat_rate: Option<i32>,

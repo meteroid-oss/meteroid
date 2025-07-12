@@ -70,7 +70,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -118,7 +118,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -160,7 +160,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -216,7 +216,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -252,7 +252,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -327,7 +327,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -395,7 +395,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -437,7 +437,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -482,7 +482,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -537,7 +537,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -579,7 +579,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -1604,10 +1604,9 @@
       }
     },
     "securitySchemes": {
-      "api-key": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "x-api-key"
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   },

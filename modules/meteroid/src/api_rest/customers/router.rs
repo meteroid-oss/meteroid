@@ -32,7 +32,7 @@ use meteroid_store::repositories::CustomersInterface;
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -80,7 +80,7 @@ pub(crate) async fn list_customers(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -115,7 +115,7 @@ pub(crate) async fn get_customer(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -164,7 +164,7 @@ pub(crate) async fn create_customer(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -204,7 +204,7 @@ pub(crate) async fn update_customer(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
