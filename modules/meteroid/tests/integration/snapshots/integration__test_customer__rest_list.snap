@@ -1,0 +1,64 @@
+---
+source: modules/meteroid/tests/integration/test_customer.rs
+assertion_line: 393
+expression: "&list"
+---
+{
+  "data": [
+    {
+      "alias": "fffrrriiieeennndddsss",
+      "bank_account_id": null,
+      "billing_address": null,
+      "billing_email": "fake@fake.com",
+      "currency": "EUR",
+      "custom_vat_rate": null,
+      "id": "cus_xxx",
+      "invoicing_emails": [],
+      "invoicing_entity_id": "ive_xxx",
+      "name": "new name",
+      "phone": null,
+      "shipping_address": null,
+      "vat_number": null
+    },
+    {
+      "alias": "created_manual",
+      "bank_account_id": null,
+      "billing_address": null,
+      "billing_email": "created_manual@meteroid.com",
+      "currency": "EUR",
+      "custom_vat_rate": null,
+      "id": "cus_xxx",
+      "invoicing_emails": [],
+      "invoicing_entity_id": "ive_xxx",
+      "name": "created_manual",
+      "phone": null,
+      "shipping_address": null,
+      "vat_number": null
+    },
+    {
+      "alias": "test-customer-rest",
+      "bank_account_id": null,
+      "billing_address": {
+        "city": "Test City",
+        "country": "Testland",
+        "line1": "123 Test St",
+        "zip_code": "12345"
+      },
+      "billing_email": "billing@meteroid.com",
+      "currency": "EUR",
+      "custom_vat_rate": 20,
+      "id": "cus_xxx",
+      "invoicing_emails": [
+        "invoicing@meteroid.com"
+      ],
+      "invoicing_entity_id": "ive_xxx",
+      "name": "Test Customer REST",
+      "phone": "123456789",
+      "shipping_address": {
+        "same_as_billing": true
+      },
+      "vat_number": "VAT123456"
+    }
+  ],
+  "total": 3
+}

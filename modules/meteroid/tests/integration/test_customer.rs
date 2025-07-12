@@ -316,33 +316,33 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .api_key;
 
     let client = reqwest::Client::new();
-    let json_req_body = json!({
-        "name": "Test Customer REST",
-        "alias": "test-customer-rest",
-        "billing_email": "billing@meteroid.com",
-        "invoicing_emails": ["invoicing@meteroid.com"],
-        "phone": "123456789",
-        "currency": "EUR",
-        "billing_address": {
-            "line1": "123 Test St",
-            "city": "Test City",
-            "zip_code": "12345",
-            "country": "Testland"
-        },
-        "shipping_address": {
-           "same_as_billing": true
-        },
-        "vat_number": "VAT123456",
-        "custom_vat_rate": 20,
-    });
 
-    let created = client
+    // CREATE CUSTOMER
+    let mut created = client
         .post(format!(
             "{}/api/v1/customers",
             setup.config.rest_api_external_url
         ))
         .bearer_auth(&api_key)
-        .json(&json_req_body)
+        .json(&json!({
+            "name": "Test Customer REST",
+            "alias": "test-customer-rest",
+            "billing_email": "billing@meteroid.com",
+            "invoicing_emails": ["invoicing@meteroid.com"],
+            "phone": "123456789",
+            "currency": "EUR",
+            "billing_address": {
+                "line1": "123 Test St",
+                "city": "Test City",
+                "zip_code": "12345",
+                "country": "Testland"
+            },
+            "shipping_address": {
+               "same_as_billing": true
+            },
+            "vat_number": "VAT123456",
+            "custom_vat_rate": 20,
+        }))
         .send()
         .await
         .unwrap()
@@ -350,12 +350,136 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
         .await
         .unwrap();
 
-    assert!(
-        created["id"]
-            .as_str()
-            .unwrap_or_default()
-            .starts_with("cus_")
+    let created = scrub_customer_json(
+        &mut created,
+        &["id", "invoicing_entity_id", "bank_account_id"],
     );
 
-    assert_eq!(created["name"], "Test Customer REST");
+    insta::assert_json_snapshot!("rest_created", &created);
+
+    // GET BY ALIAS
+    let mut get_by_alias = client
+        .get(format!(
+            "{}/api/v1/customers/test-customer-rest",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    let invoicing_entity_id = get_by_alias
+        .get("invoicing_entity_id")
+        .cloned()
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let get_by_alias = scrub_customer_json(
+        &mut get_by_alias,
+        &["id", "invoicing_entity_id", "bank_account_id"],
+    );
+
+    insta::assert_json_snapshot!("rest_get_by_alias", &get_by_alias);
+
+    // LIST CUSTOMERS
+    let mut list = client
+        .get(format!(
+            "{}/api/v1/customers",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    let list = scrub_customer_json(&mut list, &["id", "invoicing_entity_id", "bank_account_id"]);
+    insta::assert_json_snapshot!("rest_list", &list);
+
+    // UPDATE CUSTOMER
+    let mut updated = client
+        .put(format!(
+            "{}/api/v1/customers/test-customer-rest",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .json(&json!({
+            "name": "Test Customer REST",
+            "alias": "test-customer-rest",
+            "billing_email": "billing@meteroid.com",
+            "invoicing_emails": ["invoicing@meteroid.com"],
+            "phone": "123456789",
+            "currency": "USD",
+            "billing_address": {
+                "line1": "123 Test St",
+                "city": "Test City",
+                "zip_code": "12345",
+                "country": "Testland"
+            },
+            "shipping_address": {
+               "same_as_billing": true
+            },
+            "vat_number": "VAT123456",
+            "custom_vat_rate": 20,
+            "invoicing_entity_id": invoicing_entity_id,
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap();
+
+    let updated = scrub_customer_json(
+        &mut updated,
+        &["id", "invoicing_entity_id", "bank_account_id"],
+    );
+    insta::assert_json_snapshot!("rest_updated", &updated);
+
+    // DELETE CUSTOMER
+    let delete_response = client
+        .delete(format!(
+            "{}/api/v1/customers/test-customer-rest",
+            setup.config.rest_api_external_url
+        ))
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(delete_response.status(), reqwest::StatusCode::NO_CONTENT);
+}
+
+/// Mask non-static fields like ids/timestamps in JSON values.
+fn scrub_customer_json(value: &mut serde_json::Value, ids: &[&'static str]) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(obj) => {
+            for (k, v) in obj.iter_mut() {
+                if ids.contains(&k.as_str()) {
+                    if let Some(id_str) = v.as_str() {
+                        if let Some(pos) = id_str.rfind('_') {
+                            let obfuscated = format!("{}{}", &id_str[..=pos], "xxx");
+                            *v = serde_json::Value::String(obfuscated);
+                        }
+                    }
+                } else {
+                    *v = scrub_customer_json(&mut v.take(), ids);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                *v = scrub_customer_json(&mut v.take(), ids);
+            }
+        }
+        _ => {}
+    }
+    value.clone()
 }

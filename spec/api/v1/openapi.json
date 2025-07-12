@@ -968,7 +968,6 @@
         "type": "object",
         "required": [
           "name",
-          "invoicing_emails",
           "currency"
         ],
         "properties": {
@@ -1015,7 +1014,10 @@
             "format": "int32"
           },
           "invoicing_emails": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "string"
             }
