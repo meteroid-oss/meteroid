@@ -11,7 +11,7 @@ pub struct PlanListRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
-    #[serde(with = "string_serde_opt")]
+    #[serde(default, with = "string_serde_opt")]
     pub product_family_id: Option<ProductFamilyId>,
     #[serde(flatten)]
     pub plan_filters: PlanFilters,
