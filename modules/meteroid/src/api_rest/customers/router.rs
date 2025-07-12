@@ -32,7 +32,7 @@ use meteroid_store::repositories::CustomersInterface;
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -80,7 +80,7 @@ pub(crate) async fn list_customers(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -115,7 +115,7 @@ pub(crate) async fn get_customer(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -164,7 +164,7 @@ pub(crate) async fn create_customer(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -198,13 +198,13 @@ pub(crate) async fn update_customer(
         ("id_or_alias" = String, Path, description = "customer ID or alias")
     ),
     responses(
-        (status = 200, description = "Customer"),
+        (status = 204, description = "No Content"),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Customer not found"),
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -225,5 +225,5 @@ pub(crate) async fn delete_customer(
             log::error!("Error handling delete_customer: {}", e);
             RestApiError::from(e)
         })
-        .map(Json)
+        .map(|_| StatusCode::NO_CONTENT)
 }

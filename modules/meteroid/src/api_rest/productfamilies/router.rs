@@ -33,7 +33,7 @@ use meteroid_store::repositories::ProductFamilyInterface;
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -76,7 +76,7 @@ pub(crate) async fn list_product_families(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -113,7 +113,7 @@ pub(crate) async fn create_product_family(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]

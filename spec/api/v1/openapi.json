@@ -70,7 +70,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -118,7 +118,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -160,7 +160,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -216,7 +216,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -237,8 +237,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Customer"
+          "204": {
+            "description": "No Content"
           },
           "401": {
             "description": "Unauthorized"
@@ -252,7 +252,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -327,7 +327,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -395,7 +395,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       },
@@ -437,7 +437,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -482,7 +482,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -537,7 +537,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -579,7 +579,7 @@
         },
         "security": [
           {
-            "api-key": []
+            "bearer_auth": []
           }
         ]
       }
@@ -912,6 +912,16 @@
               "null"
             ]
           },
+          "bank_account_id": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BankAccountId"
+              }
+            ]
+          },
           "billing_address": {
             "oneOf": [
               {
@@ -930,6 +940,13 @@
           },
           "currency": {
             "$ref": "#/components/schemas/Currency"
+          },
+          "custom_vat_rate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           },
           "id": {
             "$ref": "#/components/schemas/CustomerId"
@@ -960,6 +977,12 @@
               {
                 "$ref": "#/components/schemas/ShippingAddress"
               }
+            ]
+          },
+          "vat_number": {
+            "type": [
+              "string",
+              "null"
             ]
           }
         }
@@ -1183,6 +1206,16 @@
                     "null"
                   ]
                 },
+                "bank_account_id": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BankAccountId"
+                    }
+                  ]
+                },
                 "billing_address": {
                   "oneOf": [
                     {
@@ -1201,6 +1234,13 @@
                 },
                 "currency": {
                   "$ref": "#/components/schemas/Currency"
+                },
+                "custom_vat_rate": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32"
                 },
                 "id": {
                   "$ref": "#/components/schemas/CustomerId"
@@ -1231,6 +1271,12 @@
                     {
                       "$ref": "#/components/schemas/ShippingAddress"
                     }
+                  ]
+                },
+                "vat_number": {
+                  "type": [
+                    "string",
+                    "null"
                   ]
                 }
               }
@@ -1604,10 +1650,9 @@
       }
     },
     "securitySchemes": {
-      "api-key": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "x-api-key"
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   },

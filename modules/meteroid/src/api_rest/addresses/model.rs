@@ -1,6 +1,6 @@
 use utoipa::ToSchema;
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct Address {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line1: Option<String>,
@@ -16,7 +16,7 @@ pub struct Address {
     pub zip_code: Option<String>,
 }
 
-#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ShippingAddress {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<Address>,

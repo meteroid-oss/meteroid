@@ -23,6 +23,9 @@ pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
             .map(addresses::mapping::shipping_address::domain_to_rest),
         currency: currencies::mapping::from_str(d.currency.as_str())?,
         invoicing_entity_id: d.invoicing_entity_id,
+        bank_account_id: d.bank_account_id,
+        vat_number: d.vat_number,
+        custom_vat_rate: d.custom_vat_rate,
     })
 }
 
@@ -45,8 +48,8 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
             .map(addresses::mapping::shipping_address::rest_to_domain),
         force_created_date: None,
         bank_account_id: req.bank_account_id,
-        vat_number: None,
-        custom_vat_rate: None,
+        vat_number: req.vat_number,
+        custom_vat_rate: req.custom_vat_rate,
     }
 }
 

@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stripe_adapter = Arc::new(Stripe { client: stripe });
 
     let rest_server = meteroid::api_rest::server::start_rest_server(
-        config,
+        config.clone(),
         object_store_service.clone(),
         stripe_adapter.clone(),
         store.clone(),

@@ -1,15 +1,6 @@
-use backon::{ConstantBuilder, Retryable};
-use std::sync::Arc;
-use std::time::Duration;
-use testcontainers::core::WaitFor;
-use testcontainers::core::wait::LogWaitStrategy;
-use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, GenericImage, ImageExt, TestcontainersError};
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-use tonic::transport::Channel;
-
 use crate::helpers;
+use backon::{ConstantBuilder, Retryable};
+use meteroid::adapters::stripe::Stripe;
 use meteroid::config::Config;
 use meteroid::eventbus::{create_eventbus_memory, setup_eventbus_handlers};
 use meteroid::migrations;
@@ -20,7 +11,16 @@ use meteroid_oauth::config::OauthConfig;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::{MockUsageClient, UsageClient};
 use meteroid_store::store::{PgPool, StoreConfig};
+use std::sync::Arc;
+use std::time::Duration;
 use stripe_client::client::StripeClient;
+use testcontainers::core::WaitFor;
+use testcontainers::core::wait::LogWaitStrategy;
+use testcontainers::runners::AsyncRunner;
+use testcontainers::{ContainerAsync, GenericImage, ImageExt, TestcontainersError};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tonic::transport::Channel;
 
 pub struct MeteroidSetup {
     pub token: CancellationToken,
@@ -80,9 +80,21 @@ pub async fn start_meteroid_with_port(
         in_memory_object_store(),
     );
 
+    let stripe = Arc::new(StripeClient::new());
+    let stripe_adapter = Arc::new(Stripe { client: stripe });
+
+    let rest_server = meteroid::api_rest::server::start_rest_server(
+        config.clone(),
+        in_memory_object_store(),
+        stripe_adapter,
+        store.clone(),
+        services.clone(),
+    );
+
     let join_handle_meteroid = tokio::spawn(async move {
         tokio::select! {
             _ = private_server => {},
+            _ = rest_server => {},
             _ = cloned_token.cancelled() => {
                 log::info!("Interrupted meteroid server via token");
             }

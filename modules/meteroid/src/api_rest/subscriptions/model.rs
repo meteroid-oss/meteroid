@@ -10,7 +10,7 @@ pub struct SubscriptionRequest {
     #[serde(flatten)]
     #[validate(nested)]
     pub pagination: PaginatedRequest,
-    #[serde(with = "string_serde_opt")]
+    #[serde(default, with = "string_serde_opt")]
     pub customer_id: Option<CustomerId>,
     #[serde(with = "string_serde_opt")]
     pub plan_id: Option<PlanId>,

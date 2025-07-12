@@ -1,3 +1,5 @@
+use crate::api_rest::error::{ErrorCode, RestErrorResponse};
+use axum::Json;
 use axum::response::{IntoResponse, Response};
 use error_stack::Report;
 use hyper::StatusCode;
@@ -113,15 +115,22 @@ pub enum RestApiError {
 
 impl IntoResponse for RestApiError {
     fn into_response(self) -> Response {
-        let status = match self {
-            RestApiError::ObjectStoreError => StatusCode::INTERNAL_SERVER_ERROR,
-            RestApiError::ImageLoadingError => StatusCode::INTERNAL_SERVER_ERROR,
-            RestApiError::Unauthorized => StatusCode::UNAUTHORIZED,
-            RestApiError::Forbidden => StatusCode::FORBIDDEN,
-            RestApiError::InvalidInput => StatusCode::BAD_REQUEST,
-            RestApiError::StoreError => StatusCode::INTERNAL_SERVER_ERROR,
-            RestApiError::NotFound => StatusCode::NOT_FOUND,
-            RestApiError::Conflict => StatusCode::CONFLICT,
+        let (status, code) = match self {
+            RestApiError::ObjectStoreError => {
+                (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Unauthorized)
+            }
+            RestApiError::ImageLoadingError => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError,
+            ),
+            RestApiError::Unauthorized => (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
+            RestApiError::Forbidden => (StatusCode::FORBIDDEN, ErrorCode::Forbidden),
+            RestApiError::InvalidInput => (StatusCode::BAD_REQUEST, ErrorCode::BadRequest),
+            RestApiError::StoreError => {
+                (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Unauthorized)
+            }
+            RestApiError::NotFound => (StatusCode::NOT_FOUND, ErrorCode::NotFound),
+            RestApiError::Conflict => (StatusCode::CONFLICT, ErrorCode::Conflict),
         };
 
         let error_message = match status {
@@ -130,7 +139,12 @@ impl IntoResponse for RestApiError {
             }
             _ => format!("{}", self),
         };
-        (status, error_message).into_response()
+        let error_body = Json(RestErrorResponse {
+            code,
+            message: error_message,
+        });
+
+        (status, error_body).into_response()
     }
 }
 

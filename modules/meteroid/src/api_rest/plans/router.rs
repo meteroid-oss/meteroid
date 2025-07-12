@@ -31,7 +31,7 @@ use meteroid_store::{Store, domain};
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
