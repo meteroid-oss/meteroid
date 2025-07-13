@@ -1,12 +1,13 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct RestErrorResponse {
     pub code: ErrorCode,
     pub message: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub enum ErrorCode {
     #[serde(rename = "BAD_REQUEST")]
     BadRequest,

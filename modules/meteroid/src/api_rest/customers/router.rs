@@ -5,6 +5,7 @@ use crate::api_rest::customers::mapping::{
 use crate::api_rest::customers::model::{
     Customer, CustomerCreateRequest, CustomerListRequest, CustomerUpdateRequest,
 };
+use crate::api_rest::error::RestErrorResponse;
 use crate::api_rest::model::PaginatedResponse;
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
@@ -28,8 +29,8 @@ use meteroid_store::repositories::CustomersInterface;
     ),
     responses(
         (status = 200, description = "List of customers", body = PaginatedResponse<Customer>),
-        (status = 401, description = "Unauthorized"),
-        (status = 500, description = "Internal error"),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -76,8 +77,8 @@ pub(crate) async fn list_customers(
     ),
     responses(
         (status = 200, description = "Customer", body = Customer),
-        (status = 401, description = "Unauthorized"),
-        (status = 500, description = "Internal error"),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -108,11 +109,11 @@ pub(crate) async fn get_customer(
     request_body(content = CustomerCreateRequest, content_type = "application/json"),
     responses(
         (status = 201, description = "Customer successfully created", body = Customer),
-        (status = 400, description = "Bad request"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Customer not found"),
-        (status = 409, description = "Customer already exists"),
-        (status = 500, description = "Internal error"),
+        (status = 400, description = "Bad request", body = RestErrorResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
+        (status = 409, description = "Customer already exists", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -158,10 +159,10 @@ pub(crate) async fn create_customer(
     request_body(content = CustomerUpdateRequest, content_type = "application/json"),
     responses(
         (status = 200, description = "Customer", body = Customer),
-        (status = 400, description = "Bad request"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Customer not found"),
-        (status = 500, description = "Internal error"),
+        (status = 400, description = "Bad request", body = RestErrorResponse),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])
@@ -199,9 +200,9 @@ pub(crate) async fn update_customer(
     ),
     responses(
         (status = 204, description = "No Content"),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Customer not found"),
-        (status = 500, description = "Internal error"),
+        (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
+        (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(
         ("bearer_auth" = [])

@@ -1,15 +1,19 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::AppState;
 use crate::api_rest::api_routes;
+use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
+use axum::response::Response;
 use axum::routing::get;
 use axum::{
-    Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
+    Json, Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
 };
 use meteroid_store::{Services, Store};
+use std::any::Any;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tower_http::catch_panic::CatchPanicLayer;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder};
 use utoipa::{Modify, OpenApi, openapi::security::SecurityScheme};
 use utoipa_axum::router::OpenApiRouter;
@@ -77,7 +81,8 @@ pub async fn start_rest_server(
         .fallback(handler_404)
         .with_state(app_state)
         .layer(auth_layer)
-        .layer(DefaultBodyLimit::max(4096));
+        .layer(DefaultBodyLimit::max(4096))
+        .layer(CatchPanicLayer::custom(handle_500));
 
     tracing::info!("Starting REST API on {}", config.rest_api_addr);
 
@@ -91,6 +96,21 @@ pub async fn start_rest_server(
 }
 
 async fn handler_404(uri: Uri) -> impl IntoResponse {
-    log::warn!("Not found {}", uri);
-    (StatusCode::NOT_FOUND, "Not found")
+    log::debug!("Not found {}", uri);
+    (
+        StatusCode::NOT_FOUND,
+        Json(RestErrorResponse {
+            code: ErrorCode::NotFound,
+            message: "Resource not found".to_string(),
+        }),
+    )
+}
+
+fn handle_500(_panic: Box<dyn Any + Send>) -> Response {
+    let body = Json(RestErrorResponse {
+        code: ErrorCode::InternalServerError,
+        message: "Internal Server Error".to_string(),
+    });
+
+    (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
 }
