@@ -31,7 +31,7 @@ use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]
@@ -95,7 +95,7 @@ async fn list_subscriptions_handler(
         (status = 500, description = "Internal error"),
     ),
     security(
-        ("api-key" = [])
+        ("bearer_auth" = [])
     )
 )]
 #[axum::debug_handler]

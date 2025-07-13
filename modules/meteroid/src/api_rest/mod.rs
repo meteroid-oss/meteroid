@@ -13,6 +13,7 @@ mod addresses;
 mod auth;
 mod currencies;
 mod customers;
+pub mod error;
 mod files;
 mod model;
 mod oauth;

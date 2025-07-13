@@ -1,20 +1,21 @@
 use crate::adapters::stripe::Stripe;
 use crate::api_rest::AppState;
 use crate::api_rest::api_routes;
-use crate::api_rest::auth::ExternalApiAuthLayer;
+use crate::api_rest::error::{ErrorCode, RestErrorResponse};
 use crate::config::Config;
 use crate::services::storage::ObjectStoreService;
+use axum::response::Response;
 use axum::routing::get;
 use axum::{
-    Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
+    Json, Router, extract::DefaultBodyLimit, http::StatusCode, http::Uri, response::IntoResponse,
 };
 use meteroid_store::{Services, Store};
+use std::any::Any;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use utoipa::{
-    Modify, OpenApi,
-    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
-};
+use tower_http::catch_panic::CatchPanicLayer;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder};
+use utoipa::{Modify, OpenApi, openapi::security::SecurityScheme};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_rapidoc::RapiDoc;
 use utoipa_redoc::{Redoc, Servable};
@@ -37,18 +38,15 @@ impl Modify for SecurityAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
         if let Some(components) = openapi.components.as_mut() {
             components.add_security_scheme(
-                "api-key",
-                SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::new("x-api-key"))),
+                "bearer_auth",
+                SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
             )
         }
     }
 }
-fn only_api(path: &str) -> bool {
-    path.starts_with("/api/")
-}
 
 pub async fn start_rest_server(
-    config: &Config,
+    config: Config,
     object_store: Arc<dyn ObjectStoreService>,
     stripe_adapter: Arc<Stripe>,
     store: Store,
@@ -59,10 +57,11 @@ pub async fn start_rest_server(
         store: store.clone(),
         services,
         stripe_adapter,
-        jwt_secret: config.jwt_secret.clone(),
+        jwt_secret: config.jwt_secret,
     };
 
-    let auth_layer = ExternalApiAuthLayer::new(store.clone()).filter(only_api);
+    let auth_layer =
+        axum::middleware::from_fn_with_state(store.clone(), crate::api_rest::auth::auth_middleware);
 
     let (api_router, open_api) = OpenApiRouter::<AppState>::with_openapi(ApiDoc::openapi())
         .merge(api_routes())
@@ -82,9 +81,10 @@ pub async fn start_rest_server(
         .fallback(handler_404)
         .with_state(app_state)
         .layer(auth_layer)
-        .layer(DefaultBodyLimit::max(4096));
+        .layer(DefaultBodyLimit::max(4096))
+        .layer(CatchPanicLayer::custom(handle_500));
 
-    tracing::info!("Starting REST API on {}", config.rest_api_addr.clone());
+    tracing::info!("Starting REST API on {}", config.rest_api_addr);
 
     let listener = TcpListener::bind(&config.rest_api_addr)
         .await
@@ -96,6 +96,21 @@ pub async fn start_rest_server(
 }
 
 async fn handler_404(uri: Uri) -> impl IntoResponse {
-    log::warn!("Not found {}", uri);
-    (StatusCode::NOT_FOUND, "Not found")
+    log::debug!("Not found {}", uri);
+    (
+        StatusCode::NOT_FOUND,
+        Json(RestErrorResponse {
+            code: ErrorCode::NotFound,
+            message: "Resource not found".to_string(),
+        }),
+    )
+}
+
+fn handle_500(_panic: Box<dyn Any + Send>) -> Response {
+    let body = Json(RestErrorResponse {
+        code: ErrorCode::InternalServerError,
+        message: "Internal Server Error".to_string(),
+    });
+
+    (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
 }
