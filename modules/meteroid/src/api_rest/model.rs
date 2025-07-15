@@ -28,3 +28,13 @@ pub struct PaginatedResponse<T> {
     pub data: Vec<T>,
     pub total: u64,
 }
+
+#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub enum BillingPeriod {
+    #[serde(rename = "MONTHLY")]
+    Monthly,
+    #[serde(rename = "QUARTERLY")]
+    Quarterly,
+    #[serde(rename = "ANNUAL")]
+    Annual,
+}

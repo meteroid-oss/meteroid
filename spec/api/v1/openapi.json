@@ -134,16 +134,6 @@
               }
             }
           },
-          "404": {
-            "description": "Customer not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestErrorResponse"
-                }
-              }
-            }
-          },
           "409": {
             "description": "Customer already exists",
             "content": {
@@ -202,6 +192,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Customer not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -607,7 +607,7 @@
         "operationId": "list_subscriptions",
         "parameters": [
           {
-            "name": "offset",
+            "name": "page",
             "in": "query",
             "description": "Specifies the starting position of the results",
             "required": true,
@@ -618,15 +618,34 @@
             "example": 0
           },
           {
-            "name": "limit",
+            "name": "per_page",
             "in": "query",
             "description": "The maximum number of objects to return",
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 100,
               "minimum": 1
             },
             "example": 10
+          },
+          {
+            "name": "customer_id",
+            "in": "query",
+            "description": "Filter by customer ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/CustomerId"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "query",
+            "description": "Filter by plan ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PlanId"
+            }
           }
         ],
         "responses": {
@@ -641,10 +660,87 @@
             }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "500": {
-            "description": "Internal error"
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "subscription"
+        ],
+        "operationId": "create_subscription",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Subscription successfully created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -667,7 +763,7 @@
             "description": "subscription ID",
             "required": true,
             "schema": {
-              "type": "string"
+              "$ref": "#/components/schemas/SubscriptionId"
             }
           }
         ],
@@ -683,10 +779,34 @@
             }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Subscription not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           },
           "500": {
-            "description": "Internal error"
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestErrorResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1538,7 +1658,7 @@
                   "format": "int32"
                 },
                 "currency": {
-                  "type": "string"
+                  "$ref": "#/components/schemas/Currency"
                 },
                 "customer_alias": {
                   "type": [
@@ -1642,6 +1762,13 @@
           "custom"
         ]
       },
+      "PlanVersionId": {
+        "type": "string",
+        "format": "MeteroidId",
+        "examples": [
+          "plv_7n42DGM5Tflk9n8mt7Fhc7"
+        ]
+      },
       "ProductFamily": {
         "type": "object",
         "required": [
@@ -1726,7 +1853,7 @@
             "format": "int32"
           },
           "currency": {
-            "type": "string"
+            "$ref": "#/components/schemas/Currency"
           },
           "customer_alias": {
             "type": [
@@ -1745,6 +1872,86 @@
           }
         }
       },
+      "SubscriptionActivationCondition": {
+        "type": "string",
+        "enum": [
+          "ON_START",
+          "ON_CHECKOUT",
+          "MANUAL"
+        ]
+      },
+      "SubscriptionCreateRequest": {
+        "type": "object",
+        "required": [
+          "plan_version_id",
+          "customer_id",
+          "start_date",
+          "activation_condition"
+        ],
+        "properties": {
+          "activation_condition": {
+            "$ref": "#/components/schemas/SubscriptionActivationCondition"
+          },
+          "billing_day_anchor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "maximum": 32767,
+            "minimum": 1
+          },
+          "customer_id": {
+            "$ref": "#/components/schemas/CustomerId"
+          },
+          "end_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "example": "2025-11-01"
+          },
+          "invoice_memo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoice_threshold": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "decimal",
+            "example": "19.99"
+          },
+          "net_terms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "plan_version_id": {
+            "$ref": "#/components/schemas/PlanVersionId"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "example": "2024-11-01"
+          },
+          "trial_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "SubscriptionDetails": {
         "type": "object",
         "required": [
@@ -1760,7 +1967,7 @@
             "format": "int32"
           },
           "currency": {
-            "type": "string"
+            "$ref": "#/components/schemas/Currency"
           },
           "customer_alias": {
             "type": [

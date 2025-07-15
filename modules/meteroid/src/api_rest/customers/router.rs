@@ -78,6 +78,7 @@ pub(crate) async fn list_customers(
     responses(
         (status = 200, description = "Customer", body = Customer),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
+        (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
     security(
@@ -111,7 +112,6 @@ pub(crate) async fn get_customer(
         (status = 201, description = "Customer successfully created", body = Customer),
         (status = 400, description = "Bad request", body = RestErrorResponse),
         (status = 401, description = "Unauthorized", body = RestErrorResponse),
-        (status = 404, description = "Customer not found", body = RestErrorResponse),
         (status = 409, description = "Customer already exists", body = RestErrorResponse),
         (status = 500, description = "Internal error", body = RestErrorResponse),
     ),
