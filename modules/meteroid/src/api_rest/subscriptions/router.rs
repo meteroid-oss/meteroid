@@ -129,8 +129,8 @@ pub(crate) async fn create_subscription(
     State(app_state): State<AppState>,
     Valid(Json(payload)): Valid<Json<SubscriptionCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
-    let id_or_alias: AliasOr<CustomerId> =
-        AliasOr::from_str(payload.customer_id.as_str()).map_err(|_| RestApiError::InvalidInput)?;
+    let id_or_alias: AliasOr<CustomerId> = AliasOr::from_str(payload.customer_id_or_alias.as_str())
+        .map_err(|_| RestApiError::InvalidInput)?;
 
     let resolved_customer_id = match id_or_alias {
         AliasOr::Id(id) => id,

@@ -1884,7 +1884,7 @@
         "type": "object",
         "required": [
           "plan_version_id",
-          "customer_id",
+          "customer_id_or_alias",
           "start_date",
           "activation_condition"
         ],
@@ -1901,9 +1901,9 @@
             "maximum": 32767,
             "minimum": 1
           },
-          "customer_id": {
+          "customer_id_or_alias": {
             "type": "string",
-            "format": "CustomerId or alias"
+            "format": "CustomerId or customer alias"
           },
           "end_date": {
             "type": [

@@ -46,8 +46,8 @@ pub struct SubscriptionDetails {
 pub struct SubscriptionCreateRequest {
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
-    #[schema(format = "CustomerId or alias")]
-    pub customer_id: String,
+    #[schema(format = "CustomerId or customer alias")]
+    pub customer_id_or_alias: String,
     pub trial_days: Option<u32>,
     #[schema(example = "2024-11-01")]
     pub start_date: NaiveDate,
