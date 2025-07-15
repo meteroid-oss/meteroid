@@ -4,6 +4,7 @@ use crate::api_rest::subscriptions::model::{
     Subscription, SubscriptionActivationCondition, SubscriptionCreateRequest, SubscriptionDetails,
 };
 use crate::errors::RestApiError;
+use common_domain::ids::CustomerId;
 use meteroid_store::domain;
 use meteroid_store::domain::{CreateSubscription, SubscriptionNew};
 use uuid::Uuid;
@@ -33,13 +34,14 @@ pub fn domain_to_rest_details(
 }
 
 pub fn rest_to_domain_create_request(
+    resolved_customer_id: CustomerId,
     created_by: Uuid,
     sub: SubscriptionCreateRequest,
 ) -> Result<CreateSubscription, RestApiError> {
     let converted = CreateSubscription {
         subscription: SubscriptionNew {
             plan_version_id: sub.plan_version_id,
-            customer_id: sub.customer_id,
+            customer_id: resolved_customer_id,
             trial_duration: sub.trial_days,
             start_date: sub.start_date,
             end_date: sub.end_date,

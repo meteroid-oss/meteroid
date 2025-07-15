@@ -1,4 +1,5 @@
 use super::AppState;
+use std::str::FromStr;
 
 use axum::extract::{Path, Query};
 use axum::{Json, extract::State, response::IntoResponse};
@@ -14,11 +15,11 @@ use crate::api_rest::subscriptions::model::{
 use crate::errors::RestApiError;
 use axum::Extension;
 use axum_valid::Valid;
-use common_domain::ids::{CustomerId, PlanId, SubscriptionId};
+use common_domain::ids::{AliasOr, CustomerId, PlanId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
-use meteroid_store::repositories::SubscriptionInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
+use meteroid_store::repositories::{CustomersInterface, SubscriptionInterface};
 
 #[utoipa::path(
     get,
@@ -56,7 +57,7 @@ pub(crate) async fn list_subscriptions(
         .await
         .map_err(|e| {
             log::error!("Error handling list_subscriptions: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })?;
 
     let subscriptions: Vec<Subscription> = res
@@ -100,7 +101,7 @@ pub(crate) async fn subscription_details(
         .await
         .map_err(|e| {
             log::error!("Error handling subscription_details: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;
 
@@ -128,16 +129,35 @@ pub(crate) async fn create_subscription(
     State(app_state): State<AppState>,
     Valid(Json(payload)): Valid<Json<SubscriptionCreateRequest>>,
 ) -> Result<impl IntoResponse, RestApiError> {
+    let id_or_alias: AliasOr<CustomerId> =
+        AliasOr::from_str(payload.customer_id.as_str()).map_err(|_| RestApiError::InvalidInput)?;
+
+    let resolved_customer_id = match id_or_alias {
+        AliasOr::Id(id) => id,
+        AliasOr::Alias(alias) => {
+            app_state
+                .store
+                .find_customer_by_alias(alias)
+                .await
+                .map_err(RestApiError::from)?
+                .id
+        }
+    };
+
     let created = app_state
         .services
         .insert_subscription(
-            rest_to_domain_create_request(authorized_state.actor_id, payload)?,
+            rest_to_domain_create_request(
+                resolved_customer_id,
+                authorized_state.actor_id,
+                payload,
+            )?,
             authorized_state.tenant_id,
         )
         .await
         .map_err(|e| {
             log::error!("Error handling create subscription request: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })?;
 
     let res = app_state
@@ -146,7 +166,7 @@ pub(crate) async fn create_subscription(
         .await
         .map_err(|e| {
             log::error!("Error handling subscription_details: {}", e);
-            RestApiError::StoreError
+            RestApiError::from(e)
         })
         .and_then(domain_to_rest_details)?;
 

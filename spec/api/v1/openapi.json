@@ -1902,7 +1902,8 @@
             "minimum": 1
           },
           "customer_id": {
-            "$ref": "#/components/schemas/CustomerId"
+            "type": "string",
+            "format": "CustomerId or alias"
           },
           "end_date": {
             "type": [
