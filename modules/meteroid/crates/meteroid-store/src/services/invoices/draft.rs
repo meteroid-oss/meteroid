@@ -1,7 +1,6 @@
 use crate::domain::{
-    CouponLineItem, Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew,
-    InvoicePaymentStatus, InvoiceStatusEnum, InvoiceTotals, InvoiceTotalsParams, InvoiceType,
-    SubscriptionDetails,
+    Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
+    InvoiceStatusEnum, InvoiceTotals, InvoiceTotalsParams, InvoiceType, SubscriptionDetails,
 };
 use crate::errors::StoreError;
 use crate::repositories::invoices::insert_invoice_tx;
