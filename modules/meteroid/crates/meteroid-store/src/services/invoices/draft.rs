@@ -1,6 +1,7 @@
 use crate::domain::{
-    Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
-    InvoiceStatusEnum, InvoiceTotals, InvoiceTotalsParams, InvoiceType, SubscriptionDetails,
+    CouponLineItem, Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew,
+    InvoicePaymentStatus, InvoiceStatusEnum, InvoiceTotals, InvoiceTotalsParams, InvoiceType,
+    SubscriptionDetails,
 };
 use crate::errors::StoreError;
 use crate::repositories::invoices::insert_invoice_tx;
@@ -73,7 +74,7 @@ impl Services {
             invoice_type: InvoiceType::Recurring,
             currency: subscription.currency.clone(),
             line_items: invoice_lines,
-            coupons: vec![], // TODO how should we procees for draft ? Apply, but delete if cancelled ?
+            coupons: totals.applied_coupons,
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,

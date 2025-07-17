@@ -331,7 +331,6 @@ impl InvoiceTotals {
             subtotal_subunits -= discount;
 
             let discount = discount.to_i64().unwrap_or(0);
-            // (applicable_coupon.applied_coupon.id, discount)
             applied_coupons_items.push(CouponLineItem {
                 coupon_id: applicable_coupon.coupon.id,
                 applied_coupon_id: applicable_coupon.applied_coupon.id,
