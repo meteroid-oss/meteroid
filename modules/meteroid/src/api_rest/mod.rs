@@ -21,6 +21,7 @@ pub mod openapi;
 mod plans;
 mod productfamilies;
 pub mod server;
+mod shared;
 mod subscriptions;
 mod webhooks;
 
