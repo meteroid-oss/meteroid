@@ -18,6 +18,7 @@ id_type!(SubscriptionId, "sub_");
 id_type!(InvoiceId, "inv_");
 id_type!(InvoicingEntityId, "ive_");
 id_type!(AddOnId, "add_");
+id_type!(AppliedCouponId, "sub_cou_");
 id_type!(BankAccountId, "ba_");
 id_type!(BillableMetricId, "bm_");
 id_type!(CouponId, "cou_");

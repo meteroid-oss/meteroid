@@ -17,6 +17,7 @@
   inputs.memo,
   inputs.payment_term,
   inputs.lines,
+  inputs.coupons,
   inputs.translations,
   inputs.formatted_currency,
   pay_online_url: inputs.at("pay_online_url", default: none),

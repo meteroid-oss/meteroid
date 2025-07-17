@@ -5,7 +5,8 @@ pub mod invoices {
     use common_domain::ids::BaseId;
     use error_stack::ResultExt;
     use meteroid_grpc::meteroid::api::invoices::v1::{
-        DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType, LineItem,
+        CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType,
+        LineItem,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
@@ -43,6 +44,19 @@ pub mod invoices {
             domain::enums::InvoiceType::UsageThreshold => InvoiceType::UsageThreshold,
             domain::enums::InvoiceType::Adjustment => InvoiceType::Adjustment,
         }
+    }
+
+    pub fn domain_coupon_line_item_to_server(
+        line_items: Vec<domain::CouponLineItem>,
+    ) -> Vec<CouponLineItem> {
+        line_items
+            .into_iter()
+            .map(|line| CouponLineItem {
+                coupon_id: line.coupon_id.as_proto(),
+                name: line.name,
+                total: line.value,
+            })
+            .collect()
     }
 
     pub fn domain_invoice_lines_to_server(line_items: Vec<domain::LineItem>) -> Vec<LineItem> {
@@ -151,6 +165,8 @@ pub mod invoices {
 
         let line_items = domain_invoice_lines_to_server(invoice.line_items);
 
+        let coupon_line_items = domain_coupon_line_item_to_server(invoice.coupons);
+
         Ok(DetailedInvoice {
             id: invoice.id.as_proto(),
             status: status_domain_to_server(invoice.status).into(),
@@ -190,6 +206,7 @@ pub mod invoices {
                     .map(|x: ServerAddressWrapper| x.0),
             }),
             line_items,
+            coupon_line_items,
             applied_credits: invoice.applied_credits,
             document_sharing_key: share_key,
             pdf_document_id: invoice.pdf_document_id.map(|id| id.as_proto()),

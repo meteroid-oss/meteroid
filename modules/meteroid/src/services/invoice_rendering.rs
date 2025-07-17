@@ -362,6 +362,15 @@ mod mapper {
             })
             .collect();
 
+        let coupons = invoice
+            .coupons
+            .iter()
+            .map(|coupon| invoicing_model::Coupon {
+                name: coupon.name.clone(),
+                total: coupon.value,
+            })
+            .collect();
+
         let lang = Countries::resolve_country(&invoicing_entity.country)
             .map(|c| c.locale)
             .unwrap_or_else(|| "en-US");
@@ -372,6 +381,7 @@ mod mapper {
             lines,
             metadata,
             organization,
+            coupons,
             bank_details: None,       // TODO
             transactions: Vec::new(), // TODO
             payment_status: None,     // TODO

@@ -4,12 +4,11 @@ use crate::applied_coupons::{
 use crate::errors::IntoDbResult;
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use crate::{DbResult, PgConn};
-use common_domain::ids::{CouponId, SubscriptionId, TenantId};
+use common_domain::ids::{AppliedCouponId, CouponId, SubscriptionId, TenantId};
 use diesel::{ExpressionMethods, JoinOnDsl, QueryDsl, SelectableHelper, debug_query};
 use diesel_async::RunQueryDsl;
 use error_stack::ResultExt;
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 impl AppliedCouponRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<AppliedCouponRow> {
@@ -63,7 +62,7 @@ impl AppliedCouponRow {
 
     pub async fn refresh_state(
         conn: &mut PgConn,
-        id: Uuid,
+        id: AppliedCouponId,
         amount_delta: Option<Decimal>,
     ) -> DbResult<AppliedCouponRow> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
@@ -150,7 +149,7 @@ impl AppliedCouponDetailedRow {
 
     pub async fn list_by_ids_for_update(
         conn: &mut PgConn,
-        applied_coupons_ids: &[Uuid],
+        applied_coupons_ids: &[AppliedCouponId],
     ) -> DbResult<Vec<AppliedCouponDetailedRow>> {
         use crate::schema::applied_coupon::dsl as ac_dsl;
         use crate::schema::coupon::dsl as c_dsl;

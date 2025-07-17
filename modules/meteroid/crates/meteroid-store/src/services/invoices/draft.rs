@@ -29,6 +29,13 @@ impl Services {
             .await
             .change_context(StoreError::InvoiceComputationError)?;
 
+        let coupons = subscription_details
+            .applied_coupons
+            .iter()
+            .filter(|c| c.is_invoice_applicable())
+            .cloned()
+            .collect::<Vec<_>>();
+
         if invoice_lines.is_empty() {
             log::info!(
                 "No invoice lines computed for subscription {}. Skipping draft invoice creation.",
@@ -43,7 +50,7 @@ impl Services {
             amount_due: 0,
             tax_rate: 0,
             customer_balance_cents: customer.balance_value_cents,
-            subscription_applied_coupons: &vec![], // TODO
+            subscription_applied_coupons: &coupons,
             invoice_currency: subscription.currency.as_str(),
         });
 
@@ -66,6 +73,7 @@ impl Services {
             invoice_type: InvoiceType::Recurring,
             currency: subscription.currency.clone(),
             line_items: invoice_lines,
+            coupons: vec![], // TODO how should we procees for draft ? Apply, but delete if cancelled ?
             data_updated_at: None,
             status: InvoiceStatusEnum::Draft,
             invoice_date,
@@ -78,6 +86,7 @@ impl Services {
             tax_amount: totals.tax_amount,
             tax_rate: 0, // TODO
             reference: None,
+            purchase_order: None,
             memo: None,
             due_at: Some(due_date),
             plan_name: Some(subscription.plan_name.clone()),
@@ -100,6 +109,7 @@ impl Services {
             },
             auto_advance: true,
             payment_status: InvoicePaymentStatus::Unpaid,
+            discount: 0,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;

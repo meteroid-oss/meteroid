@@ -26,8 +26,7 @@ pub struct Invoice {
     pub customer: Customer,
     pub metadata: InvoiceMetadata,
     pub lines: Vec<InvoiceLine>,
-
-    //
+    pub coupons: Vec<Coupon>,
     pub payment_status: Option<PaymentStatus>, // "paid", "partially_paid", or "unpaid"
     pub transactions: Vec<Transaction>,
     pub bank_details: Option<HashMap<String, String>>, // TODO here we need the BankAccount format, and we mak to kv in the Typst types
@@ -115,4 +114,9 @@ pub struct Transaction {
     pub method: String,
     pub date: NaiveDate,
     pub amount: i64,
+}
+
+pub struct Coupon {
+    pub name: String,
+    pub total: i64,
 }

@@ -497,12 +497,14 @@ diesel::table! {
         seller_details -> Jsonb,
         xml_document_id -> Nullable<Uuid>,
         pdf_document_id -> Nullable<Uuid>,
-        applied_coupon_ids -> Array<Nullable<Uuid>>,
         conn_meta -> Nullable<Jsonb>,
         auto_advance -> Bool,
         issued_at -> Nullable<Timestamptz>,
         payment_status -> InvoicePaymentStatus,
         paid_at -> Nullable<Timestamptz>,
+        coupons -> Jsonb,
+        discount -> Int8,
+        purchase_order -> Nullable<Text>,
     }
 }
 
