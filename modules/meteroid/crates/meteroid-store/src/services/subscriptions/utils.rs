@@ -13,7 +13,6 @@ use diesel_models::errors::DatabaseError;
 use error_stack::{Report, report};
 use itertools::Itertools;
 use std::collections::HashMap;
-use uuid::Uuid;
 
 use crate::domain::add_ons::AddOn;
 use crate::domain::coupons::{Coupon, CouponDiscount};
@@ -27,7 +26,7 @@ use rust_decimal::prelude::*;
 
 use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
-use common_domain::ids::{CouponId, PlanVersionId, TenantId};
+use common_domain::ids::{AppliedCouponId, BaseId, CouponId, PlanVersionId, TenantId};
 use error_stack::Result;
 
 pub fn calculate_mrr(
@@ -128,7 +127,7 @@ pub fn process_create_subscription_coupons(
         .iter()
         .unique_by(|x| x.id)
         .map(|x| AppliedCouponRowNew {
-            id: Uuid::now_v7(),
+            id: AppliedCouponId::new(),
             subscription_id: subscription.id,
             coupon_id: x.id,
             customer_id: subscription.customer_id,

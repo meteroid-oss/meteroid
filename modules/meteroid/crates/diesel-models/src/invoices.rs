@@ -9,7 +9,6 @@ use common_domain::ids::{
     TenantId,
 };
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable, Selectable};
-use uuid::Uuid;
 
 #[derive(Debug, Identifiable, Queryable, Selectable)]
 #[diesel(table_name = crate::schema::invoice)]
@@ -46,12 +45,14 @@ pub struct InvoiceRow {
     pub seller_details: serde_json::Value,
     pub xml_document_id: Option<StoredDocumentId>,
     pub pdf_document_id: Option<StoredDocumentId>,
-    pub applied_coupon_ids: Vec<Option<Uuid>>,
     pub conn_meta: Option<serde_json::Value>,
     pub auto_advance: bool,
     pub issued_at: Option<NaiveDateTime>,
     pub payment_status: InvoicePaymentStatus,
     pub paid_at: Option<NaiveDateTime>,
+    pub coupons: serde_json::Value,
+    pub discount: i64,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -98,6 +99,9 @@ pub struct InvoiceRowNew {
     pub seller_details: serde_json::Value,
     pub auto_advance: bool,
     pub payment_status: InvoicePaymentStatus,
+    pub coupons: serde_json::Value,
+    pub discount: i64,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

@@ -3,7 +3,9 @@ use crate::domain::connectors::ConnectionMeta;
 use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::{Address, AppliedCouponDetailed, Customer, PlanVersionOverview};
+use crate::domain::{
+    Address, AppliedCouponDetailed, CouponLineItem, Customer, PlanVersionOverview,
+};
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
@@ -24,7 +26,6 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use std::cmp::min;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
@@ -51,7 +52,8 @@ pub struct Invoice {
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
     pub subtotal_recurring: i64,
-    pub tax_rate: i32, // TODO decimal, I guess we need to support more than 2 dec
+    // TODO precision 4
+    pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
@@ -78,6 +80,12 @@ pub struct Invoice {
     #[from(~.into())]
     pub payment_status: InvoicePaymentStatus,
     pub paid_at: Option<NaiveDateTime>,
+    #[from(serde_json::from_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to deserialize coupons".to_string(), e)
+    }) ?)]
+    pub coupons: Vec<CouponLineItem>,
+    pub discount: i64,
+    pub purchase_order: Option<String>,
 }
 
 impl Invoice {
@@ -101,6 +109,10 @@ pub struct InvoiceNew {
     StoreError::SerdeError("Failed to serialize line_items".to_string(), e)
     }) ?)]
     pub line_items: Vec<LineItem>,
+    #[into(serde_json::to_value(& ~).map_err(| e | {
+    StoreError::SerdeError("Failed to serialize coupons".to_string(), e)
+    }) ?)]
+    pub coupons: Vec<CouponLineItem>,
     pub data_updated_at: Option<NaiveDateTime>,
     pub invoice_date: NaiveDate,
     pub plan_version_id: Option<PlanVersionId>,
@@ -109,12 +121,14 @@ pub struct InvoiceNew {
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
     pub subtotal_recurring: i64,
+    pub discount: i64,
     pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
     pub net_terms: i32,
     pub reference: Option<String>,
+    pub purchase_order: Option<String>,
     pub memo: Option<String>,
     pub due_at: Option<NaiveDateTime>, // TODO due_date
     pub plan_name: Option<String>,
@@ -145,7 +159,7 @@ pub struct InvoiceLinesPatch {
     pub tax_amount: i64,
     pub applied_credits: i64,
     #[ghost({vec![]})]
-    pub applied_coupons: Vec<(Uuid, i64)>,
+    pub applied_coupons: Vec<CouponLineItem>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -230,12 +244,12 @@ pub struct InvoiceTotals {
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
-    pub applied_coupons: Vec<(Uuid, i64)>,
+    pub applied_coupons: Vec<CouponLineItem>,
 }
 
 struct AppliedCouponsDiscount {
     pub discount_subunit: i64,
-    pub applied_coupons: Vec<(Uuid, i64)>,
+    pub applied_coupons: Vec<CouponLineItem>,
 }
 
 impl InvoiceTotals {
@@ -281,7 +295,7 @@ impl InvoiceTotals {
             .sorted_by_key(|x| x.applied_coupon.created_at)
             .collect::<Vec<_>>();
 
-        let mut applied_coupons_amount = vec![];
+        let mut applied_coupons_items = vec![];
 
         let mut subtotal_subunits = Decimal::from(subtotal);
 
@@ -317,12 +331,19 @@ impl InvoiceTotals {
             subtotal_subunits -= discount;
 
             let discount = discount.to_i64().unwrap_or(0);
-            applied_coupons_amount.push((applicable_coupon.applied_coupon.id, discount));
+            applied_coupons_items.push(CouponLineItem {
+                coupon_id: applicable_coupon.coupon.id,
+                applied_coupon_id: applicable_coupon.applied_coupon.id,
+                name: format!("Coupon ({})", applicable_coupon.coupon.code), // TODO allow defining a name in coupon
+                code: applicable_coupon.coupon.code.clone(),
+                value: discount,
+                discount: applicable_coupon.coupon.discount.clone(),
+            });
         }
 
         AppliedCouponsDiscount {
-            discount_subunit: applied_coupons_amount.iter().map(|x| x.1).sum(),
-            applied_coupons: applied_coupons_amount,
+            discount_subunit: applied_coupons_items.iter().map(|x| x.value).sum(),
+            applied_coupons: applied_coupons_items,
         }
     }
 }

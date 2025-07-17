@@ -1,11 +1,11 @@
 use crate::StoreResult;
 use crate::domain::outbox_event::OutboxEvent;
-use crate::domain::{DetailedInvoice, Invoice, SubscriptionDetails};
+use crate::domain::{CouponLineItem, DetailedInvoice, Invoice, SubscriptionDetails};
 use crate::errors::StoreError;
 use crate::repositories::customer_balance::CustomerBalance;
 use crate::services::Services;
 use crate::services::utils::format_invoice_number;
-use common_domain::ids::{BaseId, InvoiceId, InvoicingEntityId, TenantId};
+use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, InvoicingEntityId, TenantId};
 use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
@@ -13,7 +13,6 @@ use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::{DbResult, PgConn};
 use error_stack::Report;
-use uuid::Uuid;
 
 impl Services {
     /// Mark an invoice as finalized, incrementing the invoice number counter and applying attached coupons
@@ -75,7 +74,7 @@ impl Services {
         tx: &mut PgConn,
         invoice: Invoice,
         invoicing_entity_id: InvoicingEntityId,
-        applied_coupons_amounts: Vec<(Uuid, i64)>,
+        applied_coupons_amounts: Vec<CouponLineItem>,
     ) -> StoreResult<DetailedInvoice> {
         let invoicing_entity = InvoicingEntityRow::select_for_update_by_id_and_tenant(
             tx,
@@ -91,15 +90,17 @@ impl Services {
             invoice.invoice_date,
         );
 
-        let applied_coupons_ids =
-            refresh_applied_coupons(tx, &invoice.currency, &applied_coupons_amounts).await?;
+        let _ = refresh_applied_coupons(tx, &invoice.currency, &applied_coupons_amounts).await?;
+
+        let applied_coupons_json = serde_json::to_value(&applied_coupons_amounts)
+            .map_err(|e| StoreError::SerdeError("Failed to serialize coupons".to_string(), e))?;
 
         InvoiceRow::finalize(
             tx,
             invoice.id,
             invoice.tenant_id,
             new_invoice_number,
-            &applied_coupons_ids,
+            applied_coupons_json,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
@@ -141,9 +142,12 @@ impl Services {
 async fn refresh_applied_coupons(
     tx_conn: &mut PgConn,
     currency: &str,
-    applied_coupons_amounts: &[(Uuid, i64)],
-) -> DbResult<Vec<Uuid>> {
-    let applied_coupons_ids: Vec<Uuid> = applied_coupons_amounts.iter().map(|(k, _)| *k).collect();
+    applied_coupons_amounts: &[CouponLineItem],
+) -> DbResult<Vec<AppliedCouponId>> {
+    let applied_coupons_ids: Vec<AppliedCouponId> = applied_coupons_amounts
+        .iter()
+        .map(|c| c.applied_coupon_id)
+        .collect();
 
     let applied_coupons_detailed =
         AppliedCouponDetailedRow::list_by_ids_for_update(tx_conn, &applied_coupons_ids).await?;
@@ -152,14 +156,14 @@ async fn refresh_applied_coupons(
         let amount_delta = if applied_coupon_detailed
             .coupon
             .recurring_value
-            .is_some_and(|x| x == 1)
+            .is_some_and(|x| x >= 1)
         {
             let cur = rusty_money::iso::find(currency).unwrap();
 
             applied_coupons_amounts
                 .iter()
-                .find(|x| x.0 == applied_coupon_detailed.applied_coupon.id)
-                .map(|x| x.1.to_unit(cur.exponent as u8))
+                .find(|x| x.applied_coupon_id == applied_coupon_detailed.applied_coupon.id)
+                .map(|x| x.value.to_unit(cur.exponent as u8))
         } else {
             None
         };

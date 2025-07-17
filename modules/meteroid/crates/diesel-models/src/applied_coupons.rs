@@ -1,14 +1,13 @@
 use crate::coupons::CouponRow;
-use common_domain::ids::{CouponId, CustomerId, PlanId, SubscriptionId};
+use common_domain::ids::{AppliedCouponId, CouponId, CustomerId, PlanId, SubscriptionId};
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 use rust_decimal::Decimal;
-use uuid::Uuid;
 
 #[derive(Debug, Queryable, Identifiable, Selectable)]
 #[diesel(table_name = crate::schema::applied_coupon)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AppliedCouponRow {
-    pub id: Uuid,
+    pub id: AppliedCouponId,
     pub coupon_id: CouponId,
     pub customer_id: CustomerId,
     pub subscription_id: SubscriptionId,
@@ -23,7 +22,7 @@ pub struct AppliedCouponRow {
 #[diesel(table_name = crate::schema::applied_coupon)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AppliedCouponForDisplayRow {
-    pub id: Uuid,
+    pub id: AppliedCouponId,
     pub coupon_id: CouponId,
     pub customer_id: CustomerId,
     #[diesel(select_expression = crate::schema::customer::name)]
@@ -50,7 +49,7 @@ pub struct AppliedCouponForDisplayRow {
 #[diesel(table_name = crate::schema::applied_coupon)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct AppliedCouponRowNew {
-    pub id: Uuid,
+    pub id: AppliedCouponId,
     pub coupon_id: CouponId,
     pub customer_id: CustomerId,
     pub subscription_id: SubscriptionId,

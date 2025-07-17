@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use meteroid_invoicing::model::{Flags, PaymentStatus};
+use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus};
 use meteroid_invoicing::pdf::PdfGenerator;
 use meteroid_invoicing::{
     model::{
@@ -192,6 +192,12 @@ fn create_test_invoice() -> Invoice {
                 end_date,
                 sub_lines: vec![],
             },
+        ],
+        coupons: vec![
+            Coupon {
+                name: "Spring promotion 10% off".to_string(),
+                total: 2500,
+            }
         ],
         payment_status: Some(PaymentStatus::Paid),
         transactions,

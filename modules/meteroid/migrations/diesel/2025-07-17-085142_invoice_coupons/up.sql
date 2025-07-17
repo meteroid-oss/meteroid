@@ -1,0 +1,6 @@
+ALTER TABLE invoice
+ADD COLUMN coupons JSONB NOT NULL DEFAULT '{}',
+ADD COLUMN discount BIGINT NOT NULL DEFAULT 0,
+ADD COLUMN purchase_order TEXT NULL;
+
+ALTER TABLE invoice DROP COLUMN IF EXISTS applied_coupon_ids;

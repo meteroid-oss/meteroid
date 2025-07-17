@@ -457,18 +457,21 @@ impl CustomersInterface for Store {
                             now.date(),
                         ),
                         line_items,
+                        coupons: vec![],
                         data_updated_at: None,
                         invoice_date: now.date(),
                         total: totals.total,
                         amount_due: totals.amount_due,
                         net_terms: invoicing_entity.net_terms,
                         reference: None,
+                        purchase_order: None,
                         memo: None, // TODO
                         plan_version_id: None,
                         invoice_type: InvoiceType::OneOff,
                         finalized_at: Some(now),
                         subtotal: totals.subtotal,
                         subtotal_recurring: totals.subtotal_recurring,
+                        discount: 0,
                         tax_rate: 0, // TODO
                         tax_amount: totals.tax_amount,
                         customer_details: InlineCustomer {
