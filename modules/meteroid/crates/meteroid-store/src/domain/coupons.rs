@@ -47,7 +47,7 @@ impl Coupon {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum CouponDiscount {
     Percentage(Decimal),
     Fixed { currency: String, amount: Decimal },

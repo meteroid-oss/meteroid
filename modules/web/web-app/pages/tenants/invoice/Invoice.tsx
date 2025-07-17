@@ -335,14 +335,21 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
       <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">
         {formatCurrency(invoice.subtotal, invoice.currency)}
       </div>
+      {invoice.couponLineItems.map(c => (
+        <>
+          <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
+            <span className="text-sm text-accent-foreground">{c.name}</span>
+          </div>
+          <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm text-success">
+            -{formatCurrency(c.total, invoice.currency)}
+          </div>
+        </>
+      ))}
       <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
         <span className="text-sm text-accent-foreground">Tax</span>
       </div>
       <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">-</div>
-      <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-        <span className="text-sm text-accent-foreground">Discount</span>
-      </div>
-      <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">-</div>
+
       <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
         <span className="text-xl text-accent-foreground">Total</span>
       </div>

@@ -51,6 +51,7 @@ message DetailedInvoice {
   string currency = 9;
   string invoice_number = 11;
   repeated LineItem line_items = 13;
+  repeated CouponLineItem coupon_line_items = 15;
   optional string data_updated_at = 18;
   string invoice_date = 19;
   optional string plan_version_id = 20;
@@ -73,6 +74,12 @@ message DetailedInvoice {
   optional string document_sharing_key = 37;
   optional string pdf_document_id = 38;
   optional string xml_document_id = 39;
+}
+
+message CouponLineItem {
+  string coupon_id = 1;
+  string name = 2;
+  int64 total = 3;
 }
 
 message LineItem {

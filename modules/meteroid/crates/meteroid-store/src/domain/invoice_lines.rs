@@ -1,6 +1,19 @@
-use common_domain::ids::{BillableMetricId, PriceComponentId, ProductId};
+use crate::domain::coupons::CouponDiscount;
+use common_domain::ids::{
+    AppliedCouponId, BillableMetricId, CouponId, PriceComponentId, ProductId,
+};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+
+#[derive(PartialEq, Eq, Debug, Deserialize, Serialize, Clone)]
+pub struct CouponLineItem {
+    pub coupon_id: CouponId,
+    pub applied_coupon_id: AppliedCouponId,
+    pub name: String,
+    pub code: String,
+    pub value: i64,
+    pub discount: CouponDiscount,
+}
 
 #[derive(PartialEq, Debug, Deserialize, Serialize, Eq, Clone)]
 pub struct LineItem {

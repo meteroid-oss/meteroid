@@ -156,7 +156,7 @@ impl From<&InvoiceLine> for TypstInvoiceLine {
             quantity: line.quantity.and_then(|d| d.to_f64()),
             unit_price: line.unit_price.and_then(|d| d.to_f64()),
             vat_rate: line.vat_rate.and_then(|d| d.to_f64()),
-            subtotal: (line.subtotal as f64) / 100.0,
+            subtotal: (line.subtotal as f64) / 100.0, // TODO handle precision
             total: (line.total as f64) / 100.0,
             start_date,
             end_date,
@@ -211,6 +211,21 @@ impl From<&Transaction> for TypstTransaction {
 }
 
 #[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstCoupon {
+    pub name: String,
+    pub total: f64,
+}
+
+impl From<&Coupon> for TypstCoupon {
+    fn from(transaction: &Coupon) -> Self {
+        TypstCoupon {
+            name: transaction.name.clone(),
+            total: (transaction.total as f64) / 100.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
 pub struct TypstInvoiceContent {
     pub lang: String,
     pub organization: TypstOrganization,
@@ -241,6 +256,7 @@ pub struct TypstInvoiceContent {
     pub show_tax_info: bool,
     pub show_legal_info: bool,
     pub whitelabel: bool,
+    pub coupons: Vec<TypstCoupon>,
 }
 
 impl From<&Invoice> for TypstInvoiceContent {
@@ -344,6 +360,11 @@ impl From<&Invoice> for TypstInvoiceContent {
             transactions.push(TypstTransaction::from(transaction));
         }
 
+        let mut coupons = Vec::with_capacity(invoice.coupons.len());
+        for coupon in &invoice.coupons {
+            coupons.push(TypstCoupon::from(coupon));
+        }
+
         let currency_code = invoice.metadata.currency.code().to_string();
 
         let payment_status = invoice
@@ -380,6 +401,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             footer_custom_message: None,
             payment_status,
             transactions,
+            coupons,
             payment_info,
             // Use unwrap_or directly instead of unwrap_or_else for simple booleans
             show_payment_status: invoice.metadata.flags.show_payment_status.unwrap_or(true),

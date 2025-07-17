@@ -476,6 +476,7 @@ pub async fn run(
                 invoice_type: InvoiceType::Recurring,
                 currency: "EUR".to_string(),
                 line_items: invoice_lines,
+                coupons: vec![],
                 data_updated_at: None,
                 status: if is_last_invoice {
                     InvoiceStatusEnum::Draft
@@ -490,12 +491,14 @@ pub async fn run(
                 },
                 subtotal: amount_cents,
                 subtotal_recurring: amount_cents, // TODO
+                discount: 0,
                 tax_rate: 0,
                 tax_amount: 0,
                 total: amount_cents,
                 amount_due: amount_cents,
                 net_terms: 30,
                 reference: None,
+                purchase_order: None,
                 memo: None,
                 due_at: Some((invoice_date + chrono::Duration::days(30)).and_time(NaiveTime::MIN)),
                 plan_name: Some(subscription_details.subscription.plan_name.clone()),

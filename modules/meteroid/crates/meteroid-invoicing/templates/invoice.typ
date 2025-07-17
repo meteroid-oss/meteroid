@@ -17,6 +17,7 @@
   memo,
   payment_term,
   lines,
+  coupons,
   translations,
   formatted_currency,
   pay_online_url: none,
@@ -403,6 +404,13 @@
 
         text(fill: color.accent, translations.subtotal),
         align(right, text(weight: "regular", format_amount(subtotal))),
+
+        ..for coupon in coupons {
+          (
+            text(fill: color.accent, coupon.name),
+            align(right, text(weight: "regular", "-" + format_amount(coupon.total))),
+          )
+        },
 
         text(fill: color.accent, translations.tax + " " + str(tax_rate) + "%"),
         align(right, text(weight: "regular", format_amount(tax_amount))),
