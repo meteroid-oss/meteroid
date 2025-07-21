@@ -28,6 +28,13 @@ pub struct Subscription {
     pub customer_alias: Option<String>,
     pub billing_day_anchor: i16,
     pub currency: Currency,
+    pub plan_id: PlanId,
+    pub plan_name: String,
+    pub plan_version_id: PlanVersionId,
+    pub plan_version: u32,
+    pub status: SubscriptionStatus,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
 }
 
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize)]
@@ -40,6 +47,13 @@ pub struct SubscriptionDetails {
     pub customer_alias: Option<String>,
     pub billing_day_anchor: i16,
     pub currency: Currency,
+    pub plan_id: PlanId,
+    pub plan_name: String,
+    pub plan_version_id: PlanVersionId,
+    pub plan_version: u32,
+    pub status: SubscriptionStatus,
+    pub current_period_start: NaiveDate,
+    pub current_period_end: Option<NaiveDate>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Debug)]
@@ -60,11 +74,11 @@ pub struct SubscriptionCreateRequest {
     pub invoice_memo: Option<String>,
     #[schema(example = "19.99", format = "decimal")]
     pub invoice_threshold: Option<String>,
-
+    pub coupon_codes: Option<Vec<String>>,
     pub activation_condition: SubscriptionActivationCondition,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub enum SubscriptionActivationCondition {
     #[serde(rename = "ON_START")]
     OnStart,
@@ -74,7 +88,7 @@ pub enum SubscriptionActivationCondition {
     Manual,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub enum SubscriptionFeeBillingPeriod {
     #[serde(rename = "ONETIME")]
     OneTime,
@@ -84,4 +98,28 @@ pub enum SubscriptionFeeBillingPeriod {
     Quarterly,
     #[serde(rename = "ANNUAL")]
     Annual,
+}
+
+#[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+pub enum SubscriptionStatus {
+    #[serde(rename = "PENDING_ACTIVATION")]
+    PendingActivation,
+    #[serde(rename = "PENDING_CHARGE")]
+    PendingCharge,
+    #[serde(rename = "TRIAL_ACTIVE")]
+    TrialActive,
+    #[serde(rename = "ACTIVE")]
+    Active,
+    #[serde(rename = "TRIAL_EXPIRED")]
+    TrialExpired,
+    #[serde(rename = "PAUSED")]
+    Paused,
+    #[serde(rename = "SUSPENDED")]
+    Suspended,
+    #[serde(rename = "CANCELLED")]
+    Cancelled,
+    #[serde(rename = "COMPLETED")]
+    Completed,
+    #[serde(rename = "SUPERSEDED")]
+    Superseded,
 }

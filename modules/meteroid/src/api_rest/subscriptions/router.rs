@@ -18,6 +18,8 @@ use axum_valid::Valid;
 use common_domain::ids::{AliasOr, CustomerId, PlanId, SubscriptionId};
 use common_grpc::middleware::server::auth::AuthorizedAsTenant;
 use http::StatusCode;
+use itertools::Itertools;
+use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{CustomersInterface, SubscriptionInterface};
 
@@ -144,11 +146,29 @@ pub(crate) async fn create_subscription(
         }
     };
 
+    let resolved_coupon_ids = match payload.coupon_codes.as_ref() {
+        Some(codes) if !codes.is_empty() => Some(
+            app_state
+                .store
+                .list_coupons_by_codes(authorized_state.tenant_id, codes)
+                .await
+                .map_err(|e| {
+                    log::error!("Error resolving coupon codes: {}", e);
+                    RestApiError::from(e)
+                })?
+                .into_iter()
+                .map(|c| c.id)
+                .collect_vec(),
+        ),
+        _ => None,
+    };
+
     let created = app_state
         .services
         .insert_subscription(
             rest_to_domain_create_request(
                 resolved_customer_id,
+                resolved_coupon_ids,
                 authorized_state.actor_id,
                 payload,
             )?,

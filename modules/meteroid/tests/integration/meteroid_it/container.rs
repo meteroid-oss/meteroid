@@ -230,6 +230,7 @@ pub async fn populate_postgres(pool: &PgPool, seed_level: SeedLevel) {
 
 #[allow(clippy::upper_case_acronyms)]
 pub enum SeedLevel {
+    NONE,
     MINIMAL,
     PRODUCT,
     PLANS,
@@ -239,6 +240,7 @@ pub enum SeedLevel {
 impl SeedLevel {
     fn seeds(&self) -> Vec<Seed> {
         match *self {
+            SeedLevel::NONE => vec![],
             SeedLevel::MINIMAL => vec![Seed::MINIMAL],
             SeedLevel::PRODUCT => vec![Seed::MINIMAL, Seed::CUSTOMERS, Seed::METERS],
             SeedLevel::PLANS => vec![Seed::MINIMAL, Seed::CUSTOMERS, Seed::METERS, Seed::PLANS],

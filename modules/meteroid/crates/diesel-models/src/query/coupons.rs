@@ -228,6 +228,26 @@ impl CouponRow {
             .attach_printable("Error while updating coupon last redemption at")
             .into_db_result()
     }
+
+    pub async fn list_by_codes(
+        conn: &mut PgConn,
+        tenant_id: TenantId,
+        codes: &[String],
+    ) -> DbResult<Vec<CouponRow>> {
+        use crate::schema::coupon::dsl as c_dsl;
+
+        let query = c_dsl::coupon
+            .filter(c_dsl::tenant_id.eq(tenant_id))
+            .filter(c_dsl::code.eq_any(codes));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .load(conn)
+            .await
+            .attach_printable("Error while listing coupons by codes")
+            .into_db_result()
+    }
 }
 
 impl CouponRowPatch {

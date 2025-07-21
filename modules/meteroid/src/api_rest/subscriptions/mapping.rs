@@ -2,11 +2,12 @@ use crate::api_rest::currencies;
 use crate::api_rest::shared::conversions::FromRestOpt;
 use crate::api_rest::subscriptions::model::{
     Subscription, SubscriptionActivationCondition, SubscriptionCreateRequest, SubscriptionDetails,
+    SubscriptionStatus,
 };
 use crate::errors::RestApiError;
-use common_domain::ids::CustomerId;
+use common_domain::ids::{CouponId, CustomerId};
 use meteroid_store::domain;
-use meteroid_store::domain::{CreateSubscription, SubscriptionNew};
+use meteroid_store::domain::{CreateSubscription, SubscriptionNew, SubscriptionStatusEnum};
 use uuid::Uuid;
 
 pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiError> {
@@ -17,6 +18,13 @@ pub fn domain_to_rest(s: domain::Subscription) -> Result<Subscription, RestApiEr
         customer_alias: s.customer_alias,
         billing_day_anchor: s.billing_day_anchor as i16,
         currency: currencies::mapping::from_str(s.currency.as_str())?,
+        plan_id: s.plan_id,
+        plan_name: s.plan_name,
+        plan_version_id: s.plan_version_id,
+        plan_version: s.version,
+        status: subscription_status_to_rest(s.status),
+        current_period_start: s.current_period_start,
+        current_period_end: s.current_period_end,
     })
 }
 
@@ -30,11 +38,19 @@ pub fn domain_to_rest_details(
         customer_alias: s.subscription.customer_alias,
         billing_day_anchor: s.subscription.billing_day_anchor as i16,
         currency: currencies::mapping::from_str(s.subscription.currency.as_str())?,
+        plan_id: s.subscription.plan_id,
+        plan_name: s.subscription.plan_name,
+        plan_version_id: s.subscription.plan_version_id,
+        plan_version: s.subscription.version,
+        status: subscription_status_to_rest(s.subscription.status),
+        current_period_start: s.subscription.current_period_start,
+        current_period_end: s.subscription.current_period_end,
     })
 }
 
 pub fn rest_to_domain_create_request(
     resolved_customer_id: CustomerId,
+    resolved_coupon_ids: Option<Vec<CouponId>>,
     created_by: Uuid,
     sub: SubscriptionCreateRequest,
 ) -> Result<CreateSubscription, RestApiError> {
@@ -68,8 +84,28 @@ pub fn rest_to_domain_create_request(
         },
         price_components: None, // todo
         add_ons: None,          // todo
-        coupons: None,          // todo
+        coupons: resolved_coupon_ids.map(|ids| domain::CreateSubscriptionCoupons {
+            coupons: ids
+                .into_iter()
+                .map(|coupon_id| domain::CreateSubscriptionCoupon { coupon_id })
+                .collect(),
+        }),
     };
 
     Ok(converted)
+}
+
+fn subscription_status_to_rest(status: SubscriptionStatusEnum) -> SubscriptionStatus {
+    match status {
+        SubscriptionStatusEnum::Active => SubscriptionStatus::Active,
+        SubscriptionStatusEnum::Paused => SubscriptionStatus::Paused,
+        SubscriptionStatusEnum::PendingActivation => SubscriptionStatus::PendingActivation,
+        SubscriptionStatusEnum::PendingCharge => SubscriptionStatus::PendingCharge,
+        SubscriptionStatusEnum::TrialActive => SubscriptionStatus::TrialActive,
+        SubscriptionStatusEnum::TrialExpired => SubscriptionStatus::TrialExpired,
+        SubscriptionStatusEnum::Suspended => SubscriptionStatus::Suspended,
+        SubscriptionStatusEnum::Cancelled => SubscriptionStatus::Cancelled,
+        SubscriptionStatusEnum::Completed => SubscriptionStatus::Completed,
+        SubscriptionStatusEnum::Superseded => SubscriptionStatus::Superseded,
+    }
 }

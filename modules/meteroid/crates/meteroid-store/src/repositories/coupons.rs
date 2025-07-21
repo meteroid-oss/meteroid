@@ -29,6 +29,12 @@ pub trait CouponInterface {
         coupon_id: CouponId,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<AppliedCouponForDisplay>>;
+
+    async fn list_coupons_by_codes(
+        &self,
+        tenant_id: TenantId,
+        codes: &[String],
+    ) -> StoreResult<Vec<Coupon>>;
 }
 
 #[async_trait::async_trait]
@@ -143,5 +149,23 @@ impl CouponInterface for Store {
             total_pages: coupons.total_pages,
             total_results: coupons.total_results,
         })
+    }
+
+    async fn list_coupons_by_codes(
+        &self,
+        tenant_id: TenantId,
+        codes: &[String],
+    ) -> StoreResult<Vec<Coupon>> {
+        let mut conn = self.get_conn().await?;
+
+        CouponRow::list_by_codes(&mut conn, tenant_id, codes)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
+            .and_then(|coupons| {
+                coupons
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()
+            })
     }
 }

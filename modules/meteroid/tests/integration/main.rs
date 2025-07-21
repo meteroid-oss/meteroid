@@ -25,6 +25,7 @@ mod test_slot_transaction;
 mod test_stats;
 mod test_subscription;
 mod test_tenant;
+mod test_test;
 mod test_user;
 mod test_webhooks_out;
 
