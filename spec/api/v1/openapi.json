@@ -964,13 +964,6 @@
           "ba_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
-      "CouponId": {
-        "type": "string",
-        "format": "MeteroidId",
-        "examples": [
-          "cou_7n42DGM5Tflk9n8mt7Fhc7"
-        ]
-      },
       "Currency": {
         "type": "string",
         "enum": [
@@ -1976,13 +1969,13 @@
             "maximum": 32767,
             "minimum": 1
           },
-          "coupon_ids": {
+          "coupon_codes": {
             "type": [
               "array",
               "null"
             ],
             "items": {
-              "$ref": "#/components/schemas/CouponId"
+              "type": "string"
             }
           },
           "customer_id_or_alias": {
