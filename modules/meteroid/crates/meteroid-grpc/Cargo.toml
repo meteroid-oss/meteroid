@@ -20,7 +20,7 @@ pbjson = "0.7.0"
 tonic-build.workspace = true
 error-stack.workspace = true
 thiserror.workspace = true
-pbjson-build = "0.7.0"
+pbjson-build = "0.8.0"
 
 [features]
 default = ["client"]
