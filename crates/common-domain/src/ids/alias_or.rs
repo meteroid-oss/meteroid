@@ -1,10 +1,12 @@
 use crate::ids::BaseId;
+use serde::{Serialize, Serializer};
 use std::convert::Infallible;
 use std::fmt::Display;
 use std::str::FromStr;
 use validator::{Validate, ValidationError};
 
 #[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "diesel", derive(utoipa::ToSchema))]
 pub enum AliasOr<ID: BaseId> {
     Id(ID),
     Alias(String),
@@ -55,6 +57,18 @@ where
         let s = String::deserialize(deserializer)?;
 
         AliasOr::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<ID> Serialize for AliasOr<ID>
+where
+    ID: BaseId + Display,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
     }
 }
 

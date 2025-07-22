@@ -65,7 +65,7 @@ async fn test_api_key() {
     // meteroid_it::container::terminate_meteroid(setup.token, &setup.join_handle).await;
 }
 
-async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
+pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenResponse {
     let svc = tower::ServiceBuilder::new().service(channel.clone());
     let users_svc = UsersServiceClient::new(svc);
 
