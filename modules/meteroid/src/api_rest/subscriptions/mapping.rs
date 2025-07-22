@@ -1,8 +1,7 @@
 use crate::api_rest::currencies;
-use crate::api_rest::shared::conversions::FromRestOpt;
 use crate::api_rest::subscriptions::model::{
-    Subscription, SubscriptionActivationCondition, SubscriptionCreateRequest, SubscriptionDetails,
-    SubscriptionStatus,
+    Subscription, SubscriptionActivationCondition, SubscriptionAddOnCustomization,
+    SubscriptionCreateRequest, SubscriptionDetails, SubscriptionStatus,
 };
 use crate::errors::RestApiError;
 use common_domain::ids::{CouponId, CustomerId};
@@ -78,12 +77,50 @@ pub fn rest_to_domain_create_request(
             },
             payment_strategy: None,      // todo
             auto_advance_invoices: true, // todo
-            invoice_threshold: rust_decimal::Decimal::from_rest_opt(sub.invoice_threshold)?,
+            invoice_threshold: sub.invoice_threshold,
             billing_start_date: None,   // todo
             charge_automatically: true, // todo
         },
-        price_components: None, // todo
-        add_ons: None,          // todo
+        price_components: sub
+            .price_components
+            .map(|pc| domain::CreateSubscriptionComponents {
+                parameterized_components: pc
+                    .parameterized_components
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                overridden_components: pc
+                    .overridden_components
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                extra_components: pc
+                    .extra_components
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(Into::into)
+                    .collect(),
+                remove_components: pc.remove_components.unwrap_or_default(),
+            }),
+        add_ons: sub.add_ons.map(|add_ons| domain::CreateSubscriptionAddOns {
+            add_ons: add_ons
+                .into_iter()
+                .map(|add_on| domain::CreateSubscriptionAddOn {
+                    add_on_id: add_on.add_on_id,
+                    customization: match add_on.customization {
+                        None => domain::SubscriptionAddOnCustomization::None,
+                        Some(SubscriptionAddOnCustomization::Parameterization(p)) => {
+                            domain::SubscriptionAddOnCustomization::Parameterization(p.into())
+                        }
+                        Some(SubscriptionAddOnCustomization::Override(o)) => {
+                            domain::SubscriptionAddOnCustomization::Override(o.into())
+                        }
+                    },
+                })
+                .collect(),
+        }),
         coupons: resolved_coupon_ids.map(|ids| domain::CreateSubscriptionCoupons {
             coupons: ids
                 .into_iter()

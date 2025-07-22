@@ -1,4 +1,5 @@
 use meteroid_store::domain;
+use o2o::o2o;
 use serde_with::{DisplayFromStr, serde_as};
 use utoipa::ToSchema;
 use validator::Validate;
@@ -29,7 +30,8 @@ pub struct PaginatedResponse<T> {
     pub total: u64,
 }
 
-#[derive(ToSchema, serde::Serialize, serde::Deserialize, Debug)]
+#[derive(o2o, ToSchema, serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
 pub enum BillingPeriod {
     #[serde(rename = "MONTHLY")]
     Monthly,
