@@ -1,7 +1,6 @@
 use crate::api_rest::currencies;
 use crate::api_rest::subscriptions::model::{
-    Subscription, SubscriptionActivationConditionEnum, SubscriptionAddOnCustomization,
-    SubscriptionCreateRequest, SubscriptionDetails,
+    Subscription, SubscriptionAddOnCustomization, SubscriptionCreateRequest, SubscriptionDetails,
 };
 use crate::errors::RestApiError;
 use common_domain::ids::{CouponId, CustomerId};
@@ -64,17 +63,7 @@ pub fn rest_to_domain_create_request(
             net_terms: sub.net_terms,
             invoice_memo: sub.invoice_memo,
             created_by,
-            activation_condition: match sub.activation_condition {
-                SubscriptionActivationConditionEnum::OnStart => {
-                    domain::enums::SubscriptionActivationCondition::OnStart
-                }
-                SubscriptionActivationConditionEnum::OnCheckout => {
-                    domain::enums::SubscriptionActivationCondition::OnCheckout
-                }
-                SubscriptionActivationConditionEnum::Manual => {
-                    domain::enums::SubscriptionActivationCondition::Manual
-                }
-            },
+            activation_condition: sub.activation_condition.into(),
             payment_strategy: None,      // todo
             auto_advance_invoices: true, // todo
             invoice_threshold: sub.invoice_threshold,
