@@ -978,7 +978,7 @@
           "bm_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
-      "BillingPeriod": {
+      "BillingPeriodEnum": {
         "type": "string",
         "enum": [
           "MONTHLY",
@@ -986,7 +986,7 @@
           "ANNUAL"
         ]
       },
-      "BillingType": {
+      "BillingTypeEnum": {
         "type": "string",
         "enum": [
           "ADVANCE",
@@ -1032,7 +1032,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/BillingPeriod"
+                "$ref": "#/components/schemas/BillingPeriodEnum"
               }
             ]
           },
@@ -1911,7 +1911,7 @@
                   "$ref": "#/components/schemas/PlanVersionId"
                 },
                 "status": {
-                  "$ref": "#/components/schemas/SubscriptionStatus"
+                  "$ref": "#/components/schemas/SubscriptionStatusEnum"
                 }
               }
             }
@@ -1986,18 +1986,18 @@
       "PlanStatusEnum": {
         "type": "string",
         "enum": [
-          "draft",
-          "active",
-          "inactive",
-          "archived"
+          "DRAFT",
+          "ACTIVE",
+          "INACTIVE",
+          "ARCHIVED"
         ]
       },
       "PlanTypeEnum": {
         "type": "string",
         "enum": [
-          "standard",
-          "free",
-          "custom"
+          "STANDARD",
+          "FREE",
+          "CUSTOM"
         ]
       },
       "PlanVersionId": {
@@ -2154,11 +2154,11 @@
             "$ref": "#/components/schemas/PlanVersionId"
           },
           "status": {
-            "$ref": "#/components/schemas/SubscriptionStatus"
+            "$ref": "#/components/schemas/SubscriptionStatusEnum"
           }
         }
       },
-      "SubscriptionActivationCondition": {
+      "SubscriptionActivationConditionEnum": {
         "type": "string",
         "enum": [
           "ON_START",
@@ -2182,7 +2182,7 @@
                   "discriminator": {
                     "type": "string",
                     "enum": [
-                      "Override"
+                      "OVERRIDE"
                     ]
                   }
                 }
@@ -2203,7 +2203,7 @@
                   "discriminator": {
                     "type": "string",
                     "enum": [
-                      "Parameterization"
+                      "PARAMETERIZATION"
                     ]
                   }
                 }
@@ -2227,7 +2227,7 @@
             "type": "string"
           },
           "period": {
-            "$ref": "#/components/schemas/SubscriptionFeeBillingPeriod"
+            "$ref": "#/components/schemas/SubscriptionFeeBillingPeriodEnum"
           }
         }
       },
@@ -2240,7 +2240,7 @@
                 "type": "null"
               },
               {
-                "$ref": "#/components/schemas/BillingPeriod"
+                "$ref": "#/components/schemas/BillingPeriodEnum"
               }
             ]
           },
@@ -2281,7 +2281,7 @@
             "type": "string"
           },
           "period": {
-            "$ref": "#/components/schemas/SubscriptionFeeBillingPeriod"
+            "$ref": "#/components/schemas/SubscriptionFeeBillingPeriodEnum"
           },
           "price_component_id": {
             "oneOf": [
@@ -2316,7 +2316,7 @@
         ],
         "properties": {
           "activation_condition": {
-            "$ref": "#/components/schemas/SubscriptionActivationCondition"
+            "$ref": "#/components/schemas/SubscriptionActivationConditionEnum"
           },
           "add_ons": {
             "type": [
@@ -2467,7 +2467,7 @@
             "$ref": "#/components/schemas/PlanVersionId"
           },
           "status": {
-            "$ref": "#/components/schemas/SubscriptionStatus"
+            "$ref": "#/components/schemas/SubscriptionStatusEnum"
           }
         }
       },
@@ -2483,7 +2483,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Rate"
+                  "RATE"
                 ]
               },
               "rate": {
@@ -2503,7 +2503,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "OneTime"
+                  "ONE_TIME"
                 ]
               },
               "quantity": {
@@ -2527,12 +2527,12 @@
             ],
             "properties": {
               "billing_type": {
-                "$ref": "#/components/schemas/BillingType"
+                "$ref": "#/components/schemas/BillingTypeEnum"
               },
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Recurring"
+                  "RECURRING"
                 ]
               },
               "quantity": {
@@ -2559,7 +2559,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Capacity"
+                  "CAPACITY"
                 ]
               },
               "included": {
@@ -2592,7 +2592,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Slot"
+                  "SLOT"
                 ]
               },
               "initial_slots": {
@@ -2636,7 +2636,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Usage"
+                  "USAGE"
                 ]
               },
               "metric_id": {
@@ -2649,10 +2649,10 @@
           }
         ]
       },
-      "SubscriptionFeeBillingPeriod": {
+      "SubscriptionFeeBillingPeriodEnum": {
         "type": "string",
         "enum": [
-          "ONETIME",
+          "ONE_TIME",
           "MONTHLY",
           "QUARTERLY",
           "ANNUAL"
@@ -2665,7 +2665,7 @@
           "sub_7n42DGM5Tflk9n8mt7Fhc7"
         ]
       },
-      "SubscriptionStatus": {
+      "SubscriptionStatusEnum": {
         "type": "string",
         "enum": [
           "PENDING_ACTIVATION",
@@ -2720,7 +2720,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "PerUnit"
+                  "PER_UNIT"
                 ]
               },
               "rate": {
@@ -2747,7 +2747,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Tiered"
+                  "TIERED"
                 ]
               },
               "tiers": {
@@ -2776,7 +2776,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Volume"
+                  "VOLUME"
                 ]
               },
               "tiers": {
@@ -2803,7 +2803,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Package"
+                  "PACKAGE"
                 ]
               },
               "rate": {
@@ -2822,7 +2822,7 @@
               "discriminator": {
                 "type": "string",
                 "enum": [
-                  "Matrix"
+                  "MATRIX"
                 ]
               },
               "rates": {

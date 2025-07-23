@@ -32,11 +32,9 @@ pub struct PaginatedResponse<T> {
 
 #[derive(o2o, ToSchema, serde::Serialize, serde::Deserialize, Clone, Debug)]
 #[map_owned(meteroid_store::domain::enums::BillingPeriodEnum)]
-pub enum BillingPeriod {
-    #[serde(rename = "MONTHLY")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BillingPeriodEnum {
     Monthly,
-    #[serde(rename = "QUARTERLY")]
     Quarterly,
-    #[serde(rename = "ANNUAL")]
     Annual,
 }
