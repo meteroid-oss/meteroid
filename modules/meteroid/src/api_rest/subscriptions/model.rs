@@ -1,5 +1,5 @@
 use crate::api_rest::currencies::model::Currency;
-use crate::api_rest::model::{BillingPeriod, PaginatedRequest};
+use crate::api_rest::model::{BillingPeriodEnum, PaginatedRequest};
 use chrono::NaiveDate;
 use common_domain::ids::{
     AddOnId, BillableMetricId, CustomerId, PlanVersionId, PriceComponentId, ProductId,
@@ -38,7 +38,7 @@ pub struct Subscription {
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
     pub plan_version: u32,
-    pub status: SubscriptionStatus,
+    pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
 }
@@ -59,7 +59,7 @@ pub struct SubscriptionDetails {
     #[serde(with = "string_serde")]
     pub plan_version_id: PlanVersionId,
     pub plan_version: u32,
-    pub status: SubscriptionStatus,
+    pub status: SubscriptionStatusEnum,
     pub current_period_start: NaiveDate,
     pub current_period_end: Option<NaiveDate>,
 }
@@ -83,57 +83,43 @@ pub struct SubscriptionCreateRequest {
     #[schema(value_type = String, format = "decimal")]
     pub invoice_threshold: Option<rust_decimal::Decimal>,
     pub coupon_codes: Option<Vec<String>>,
-    pub activation_condition: SubscriptionActivationCondition,
+    pub activation_condition: SubscriptionActivationConditionEnum,
     pub price_components: Option<CreateSubscriptionComponents>,
     pub add_ons: Option<Vec<CreateSubscriptionAddOn>>,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::SubscriptionActivationCondition)]
-pub enum SubscriptionActivationCondition {
-    #[serde(rename = "ON_START")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SubscriptionActivationConditionEnum {
     OnStart,
-    #[serde(rename = "ON_CHECKOUT")]
     OnCheckout,
-    #[serde(rename = "MANUAL")]
     Manual,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::SubscriptionFeeBillingPeriod)]
-pub enum SubscriptionFeeBillingPeriod {
-    #[serde(rename = "ONETIME")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SubscriptionFeeBillingPeriodEnum {
     OneTime,
-    #[serde(rename = "MONTHLY")]
     Monthly,
-    #[serde(rename = "QUARTERLY")]
     Quarterly,
-    #[serde(rename = "ANNUAL")]
     Annual,
 }
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::SubscriptionStatusEnum)]
-pub enum SubscriptionStatus {
-    #[serde(rename = "PENDING_ACTIVATION")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SubscriptionStatusEnum {
     PendingActivation,
-    #[serde(rename = "PENDING_CHARGE")]
     PendingCharge,
-    #[serde(rename = "TRIAL_ACTIVE")]
     TrialActive,
-    #[serde(rename = "ACTIVE")]
     Active,
-    #[serde(rename = "TRIAL_EXPIRED")]
     TrialExpired,
-    #[serde(rename = "PAUSED")]
     Paused,
-    #[serde(rename = "SUSPENDED")]
     Suspended,
-    #[serde(rename = "CANCELLED")]
     Cancelled,
-    #[serde(rename = "COMPLETED")]
     Completed,
-    #[serde(rename = "SUPERSEDED")]
     Superseded,
 }
 
@@ -148,7 +134,7 @@ pub struct CreateSubscriptionComponents {
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[map_owned(meteroid_store::domain::subscription_components::SubscriptionFee)]
-#[serde(tag = "discriminator")]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SubscriptionFee {
     Rate {
         #[schema(value_type = String, format = "decimal")]
@@ -164,7 +150,7 @@ pub enum SubscriptionFee {
         rate: rust_decimal::Decimal,
         quantity: u32,
         #[map(~.into())]
-        billing_type: BillingType,
+        billing_type: BillingTypeEnum,
     },
     Capacity {
         #[schema(value_type = String, format = "decimal")]
@@ -223,16 +209,15 @@ pub struct TierRow {
 
 #[derive(o2o, Clone, ToSchema, Serialize, Deserialize, Debug)]
 #[map_owned(meteroid_store::domain::enums::BillingType)]
-pub enum BillingType {
-    #[serde(rename = "ADVANCE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum BillingTypeEnum {
     Advance,
-    #[serde(rename = "ARREARS")]
     Arrears,
 }
 
 #[derive(o2o, ToSchema, Serialize, Deserialize, Clone, Debug)]
 #[map_owned(meteroid_store::domain::price_components::UsagePricingModel)]
-#[serde(tag = "discriminator")]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UsagePricingModel {
     PerUnit {
         #[schema(value_type = String, format = "decimal")]
@@ -268,7 +253,7 @@ pub struct SubscriptionComponent {
     pub product_id: Option<ProductId>,
     pub name: String,
     #[map(~.into())]
-    pub period: SubscriptionFeeBillingPeriod,
+    pub period: SubscriptionFeeBillingPeriodEnum,
     #[map(~.into())]
     pub fee: SubscriptionFee,
     pub is_override: bool,
@@ -288,7 +273,7 @@ pub struct ComponentParameterization {
 pub struct ComponentParameters {
     pub initial_slot_count: Option<u32>,
     #[map(~.map(| x | x.into()))]
-    pub billing_period: Option<BillingPeriod>,
+    pub billing_period: Option<BillingPeriodEnum>,
     pub committed_capacity: Option<u64>,
 }
 
@@ -313,7 +298,7 @@ pub struct ExtraComponent {
 pub struct SubscriptionAddOnOverride {
     pub name: String,
     #[map(~.into())]
-    pub period: SubscriptionFeeBillingPeriod,
+    pub period: SubscriptionFeeBillingPeriodEnum,
     #[map(~.into())]
     pub fee: SubscriptionFee,
 }
@@ -323,12 +308,12 @@ pub struct SubscriptionAddOnOverride {
 pub struct SubscriptionAddOnParameterization {
     pub initial_slot_count: Option<u32>,
     #[map(~.map(| x | x.into()))]
-    pub billing_period: Option<BillingPeriod>,
+    pub billing_period: Option<BillingPeriodEnum>,
     pub committed_capacity: Option<u64>,
 }
 
 #[derive(ToSchema, Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "discriminator")]
+#[serde(tag = "discriminator", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SubscriptionAddOnCustomization {
     Override(SubscriptionAddOnOverride),
     Parameterization(SubscriptionAddOnParameterization),
