@@ -44,7 +44,7 @@ const commonChartProps: LineSvgProps = {
   enableGridY: false,
   enableSlices: false,
   enablePoints: false,
-  colors: {datum: 'color'},
+  colors: { datum: 'color' },
 }
 
 export const MrrChart = (props: MrrChartProps) => {
@@ -56,7 +56,7 @@ export const MrrChart = (props: MrrChartProps) => {
     startDate: mapDate(props.from),
     endDate: mapDate(props.to),
   })
-  const {formatAmount} = useCurrency()
+  const { formatAmount } = useCurrency()
 
   const data =
     chartData.data?.series.map(s => ({
@@ -70,11 +70,11 @@ export const MrrChart = (props: MrrChartProps) => {
     })) ?? []
 
   const Item = ({
-                  label,
-                  value,
-                  circle,
-                  count,
-                }: {
+    label,
+    value,
+    circle,
+    count,
+  }: {
     label: string
     value: string
     count?: bigint
@@ -139,7 +139,7 @@ export const MrrChart = (props: MrrChartProps) => {
     )
   }
 
-  const {min, max}: { min: number; max: number } = useMemo(() => {
+  const { min, max }: { min: number; max: number } = useMemo(() => {
     const numbers = data
       ?.map(d => d.data)
       .flat()
@@ -147,7 +147,7 @@ export const MrrChart = (props: MrrChartProps) => {
       .map(point => Number(point.y))
 
     if (!numbers) {
-      return {min: 0, max: 0}
+      return { min: 0, max: 0 }
     }
 
     const max = Math.max(...numbers)
@@ -212,11 +212,11 @@ export const MrrChart = (props: MrrChartProps) => {
             //   curve="monotoneX"
             defs={[
               linearGradientDef('gradientA', [
-                {offset: 0, color: 'inherit'},
-                {offset: 100, color: 'inherit', opacity: 0},
+                { offset: 0, color: 'inherit' },
+                { offset: 100, color: 'inherit', opacity: 0 },
               ]),
             ]}
-            fill={[{match: '*', id: 'gradientA'}]}
+            fill={[{ match: '*', id: 'gradientA' }]}
             colors={[theme.isDarkMode ? '#8b8a74' : '#513ceb']}
             data={data}
             xScale={{
@@ -225,7 +225,7 @@ export const MrrChart = (props: MrrChartProps) => {
               precision: 'day',
               nice: true,
             }}
-            yScale={{type: 'linear', min: min, max: max}}
+            yScale={{ type: 'linear', min: min, max: max }}
             layers={['lines', props => <ActiveSerieLayer {...props} setSerie={setSerie}/>]}
           />
         )}
