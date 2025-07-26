@@ -82,7 +82,7 @@ export const MrrChart = (props: MrrChartProps) => {
   }) => (
     <div className="flex justify-between items-center space-x-2" key={label}>
       <span className="flex justify-between items-center space-x-0">
-        {circle && <MrrColorCircle type={circle} />}
+        {circle && <MrrColorCircle type={circle}/>}
         <span className="semibold pr-2">{label}</span>
       </span>
       <span>{value}</span>
@@ -93,7 +93,7 @@ export const MrrChart = (props: MrrChartProps) => {
   const renderTooltipAdditionalData = (data: { breakdown: MRRBreakdown }) => {
     return (
       <div className="flex flex-col gap-2 text-muted-foreground text-xs border-t border-border pt-3">
-        <Item label="Net New MRR" value={formatAmount(data.breakdown.netNewMrr)} />
+        <Item label="Net New MRR" value={formatAmount(data.breakdown.netNewMrr)}/>
 
         {!!data.breakdown.newBusiness?.count && (
           <Item
@@ -185,7 +185,7 @@ export const MrrChart = (props: MrrChartProps) => {
         </div>
       </div>
       <div className="h-[220px] relative" ref={containerRef}>
-        <div className="h-0 w-0">{!isEmpty && <DottedBackground />}</div>
+        <div className="h-0 w-0">{!isEmpty && <DottedBackground/>}</div>
         <MrrCrosshair
           serie={serie}
           interval="All"
@@ -204,7 +204,7 @@ export const MrrChart = (props: MrrChartProps) => {
           }}
         />
         {isEmpty ? (
-          <ChartNoData error={!!chartData.error} />
+          <ChartNoData error={!!chartData.error}/>
         ) : (
           <ResponsiveLine
             {...commonChartProps}
@@ -226,7 +226,7 @@ export const MrrChart = (props: MrrChartProps) => {
               nice: true,
             }}
             yScale={{ type: 'linear', min: min, max: max }}
-            layers={['lines', props => <ActiveSerieLayer {...props} setSerie={setSerie} />]}
+            layers={['lines', props => <ActiveSerieLayer {...props} setSerie={setSerie}/>]}
           />
         )}
       </div>
