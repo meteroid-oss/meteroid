@@ -4,7 +4,7 @@ connect:
 events_per_second: 200
 limit: 5000
 events:
-  - event_name: api_request
+  - code: api_request
     customer_aliases: [ "spotify", "uber", "comodo" ]
     properties:
       app_id:

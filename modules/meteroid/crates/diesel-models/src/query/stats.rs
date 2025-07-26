@@ -118,7 +118,7 @@ impl PendingInvoicesTotalRow {
                 tenant_currency
             WHERE
                 i.tenant_id = $2
-              AND i.status = 'FINALIZED' 
+              AND i.status = 'FINALIZED'
               AND i.paid_at IS NULL
         )
         SELECT
@@ -317,14 +317,25 @@ impl TotalMrrRow {
     ) -> DbResult<TotalMrrRow> {
         let raw_sql = r#"
         SELECT
-           COALESCE(SUM(bd.net_mrr_cents_usd * (hr.rates->>(SELECT reporting_currency FROM tenant WHERE id = bd.tenant_id))::NUMERIC), 0)::bigint AS total_net_mrr_cents
-        FROM
+            COALESCE(
+                SUM(
+                    CASE
+                        WHEN bd.currency = t.reporting_currency
+                        THEN bd.net_mrr_cents
+                        ELSE
+                            bd.net_mrr_cents_usd * (hr.rates->>t.reporting_currency)::NUMERIC
+                    END
+                ),
+                0
+            )::bigint AS total_net_mrr_cents
+       FROM
            bi_delta_mrr_daily bd
-               JOIN  historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
-        WHERE
+           JOIN historical_rates_from_usd hr ON bd.historical_rate_id = hr.id
+           JOIN tenant t ON bd.tenant_id = t.id
+       WHERE
            bd.tenant_id = $1
            AND bd.date <= $2;
-        "#;
+       "#;
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
