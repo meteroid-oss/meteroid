@@ -322,8 +322,7 @@ impl TotalMrrRow {
                     CASE
                         WHEN bd.currency = t.reporting_currency
                         THEN bd.net_mrr_cents
-                        ELSE
-                            bd.net_mrr_cents_usd * (hr.rates->>t.reporting_currency)::NUMERIC
+                        ELSE bd.net_mrr_cents_usd * (hr.rates->>t.reporting_currency)::NUMERIC
                     END
                 ),
                 0
