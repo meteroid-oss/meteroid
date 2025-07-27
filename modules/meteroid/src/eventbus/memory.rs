@@ -6,10 +6,10 @@ use tokio::sync::broadcast::error::RecvError;
 
 /**
  * Simple in-memory event bus implementation based on tokio::sync::broadcast.
- * It allows to have one publisher and many subscribers.
- * NOTE:
- *   As it doesn't use persistent storage and the publisher is decoupled from the subscribers,
- *   if the process dies then all in-flight events are lost.
+ * It allows having one publisher and many subscribers.
+ * WARNING:
+ *   As it doesn't use persistent storage and the publisher is decoupled from the subscribers
+ *   if the process dies, then all in-flight events are lost.
  */
 pub struct InMemory<E> {
     pub sender: tokio::sync::broadcast::Sender<E>,
