@@ -6,6 +6,7 @@ use axum::response::Redirect;
 use fang::Deserialize;
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::oauth::{OauthVerifierData, SignInData};
+use meteroid_store::repositories::TenantInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::users::UserInterface;
@@ -78,10 +79,29 @@ async fn oauth_connect_callback(
 
     match connected {
         Ok(conn) => {
-            let mut referer = conn.referer;
-            referer.query_pairs_mut().append_pair("success", "true");
+            let tenant = app_state
+                .store
+                .find_tenant_by_id(conn.connector.tenant_id)
+                .await
+                .map_err(|e| RestApiError::from(e))?;
 
-            Ok(Redirect::to(referer.as_str()))
+            let section = match oauth_provider {
+                OauthProvider::Hubspot => "#crm",
+                OauthProvider::Pennylane => "#accounting",
+                _ => "",
+            };
+
+            let url = format!(
+                "{}/{}/{}/settings?success=true&tab=integrations{}",
+                Config::get().public_url,
+                tenant.organization.slug,
+                tenant.tenant.slug,
+                section
+            );
+
+            println!("Redirecting to: {}", url);
+
+            Ok(Redirect::to(url.as_str()))
         }
         Err(e) => {
             log::warn!("Error connecting {}: {}", oauth_provider, e);

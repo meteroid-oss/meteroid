@@ -46,7 +46,7 @@ impl OauthVerifierRow {
         use crate::schema::oauth_verifier::dsl as ov_dsl;
 
         let query =
-            diesel::delete(ov_dsl::oauth_verifier).filter(ov_dsl::created_at.lt(expiration_time));
+            diesel::delete(ov_dsl::oauth_verifier).filter(ov_dsl::created_at.gt(expiration_time));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

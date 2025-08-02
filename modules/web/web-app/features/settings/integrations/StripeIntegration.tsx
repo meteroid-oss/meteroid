@@ -58,7 +58,7 @@ export const StripeIntegrationModal = () => {
       description: (
         <>
           Choose a unique alias to identify this connection.
-          <br />
+          <br/>
           You can connect multiple Stripe accounts.
         </>
       ),
@@ -73,9 +73,9 @@ export const StripeIntegrationModal = () => {
           <span>
             Get your {!isProduction && 'test-mode'} API keys from your Stripe Dashboard under{' '}
           </span>
-          <br />
+          <br/>
           <Button variant="link" hasIcon>
-            <ExternalLink size={14} strokeWidth={1.5} />
+            <ExternalLink size={14} strokeWidth={1.5}/>
             <a
               target="_blank"
               href={`https://dashboard.stripe.com/${isProduction ? '' : 'test/'}apikeys`}
@@ -84,7 +84,7 @@ export const StripeIntegrationModal = () => {
               Developers → API keys
             </a>
           </Button>
-          <br />
+          <br/>
         </span>
       ),
       icon: Key,
@@ -96,9 +96,9 @@ export const StripeIntegrationModal = () => {
       description: (
         <span>
           <span>Create a webhook endpoint in your Stripe Dashboard under </span>
-          <br />
+          <br/>
           <Button variant="link" hasIcon>
-            <ExternalLink size={14} strokeWidth={1.5} />
+            <ExternalLink size={14} strokeWidth={1.5}/>
             <a
               target="_blank"
               href={`https://dashboard.stripe.com/${isProduction ? '' : 'test/'}webhooks/create?events=setup_intent.succeeded%2Cpayment_intent.succeeded%2Cpayment_intent.partially_funded%2Cpayment_intent.payment_failed&url=${restApiUrl}/v1/webhooks/${tenant?.id?.toLowerCase()}/${alias}`}
@@ -107,13 +107,13 @@ export const StripeIntegrationModal = () => {
               Developers → Webhooks
             </a>
           </Button>
-          <br />
+          <br/>
 
           <div className="bg-card p-4 rounded-lg space-y-3 mt-4  ">
             <ol className="space-y-2 text-sm text-card-foreground">
               <li>
                 Endpoint URL:
-                <br />
+                <br/>
                 <CopyToClipboardButton
                   text={`${restApiUrl}/v1/webhooks/${tenant?.id?.toLowerCase()}/${alias}`}
                   className="whitespace-normal"
@@ -121,14 +121,14 @@ export const StripeIntegrationModal = () => {
               </li>
 
               <li>
-                The following events should be selected : <br />
+                The following events should be selected : <br/>
                 <div className="font-mono text-xs bg-background dark:bg-secondary rounded-md py-2">
                   <code>
                     payment_intent.succeeded, payment_intent.payment_failed,
                     payment_intent.partially_funded
                   </code>
                 </div>
-                <br />
+                <br/>
               </li>
               <li>
                 {`Then click on "Add an endpoint", reveal and copy the "Signing secret" to the form
@@ -233,7 +233,7 @@ export const StripeIntegrationModal = () => {
       header={
         <>
           <DialogTitle className="flex items-center gap-2 text-md">
-            <CreditCard className="w-6 h-6 text-blue" />
+            <CreditCard className="w-6 h-6 text-blue"/>
             <span>Connect Stripe</span>
           </DialogTitle>
           <DialogDescription className="text-sm">
@@ -261,7 +261,7 @@ export const StripeIntegrationModal = () => {
                           : 'bg-muted text-muted-foreground'
                     }`}
                   >
-                    {currentStep > idx ? <CheckCircle2 className="w-5 h-5" /> : idx + 1}
+                    {currentStep > idx ? <CheckCircle2 className="w-5 h-5"/> : idx + 1}
                   </div>
                   {idx < steps.length - 1 && (
                     <div
@@ -324,7 +324,7 @@ export const StripeIntegrationModal = () => {
                     size="sm"
                     disabled={!isCurrentStepValid() || methods.formState.isSubmitting}
                   >
-                    {connectStripeMutation.isPending && <Spinner />}
+                    {connectStripeMutation.isPending && <Spinner/>}
                     {currentStep === steps.length - 1 ? 'Connect Stripe' : 'Continue'}
                   </Button>
                 </div>

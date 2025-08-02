@@ -12,32 +12,37 @@ import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
 import { growthRoutes } from 'router/tenant/growth'
+import { PennylaneIntegrationModal } from "@/features/settings/integrations/PennylaneIntegration";
 
 export const tenantRoutes: RouteObject = {
   path: ':tenantSlug',
   element: (
     <SidebarProvider>
-      <TenantLayoutOutlet />
+      <TenantLayoutOutlet/>
     </SidebarProvider>
   ),
   children: [
     {
       index: true,
-      element: <Dashboard />,
+      element: <Dashboard/>,
     },
     {
       path: 'settings',
-      element: <TenantSettings />,
+      element: <TenantSettings/>,
       children: [
         {
           path: 'add-stripe',
-          element: <StripeIntegrationModal />,
+          element: <StripeIntegrationModal/>,
+        },
+        {
+          path: 'connect-pennylane',
+          element: <PennylaneIntegrationModal/>,
         },
       ],
     },
     {
       path: 'developers',
-      element: <DeveloperSettings />,
+      element: <DeveloperSettings/>,
     },
     productCatalogRoutes,
     customersRoutes,
@@ -45,11 +50,11 @@ export const tenantRoutes: RouteObject = {
     growthRoutes,
     {
       path: 'reports',
-      element: <ReportsPage />,
+      element: <ReportsPage/>,
     },
     {
       path: '*',
-      element: <NotImplemented />,
+      element: <NotImplemented/>,
     },
   ],
 }
