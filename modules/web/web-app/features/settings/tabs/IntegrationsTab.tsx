@@ -19,22 +19,23 @@ import {
   PlusIcon,
   Users,
 } from 'lucide-react'
+import * as React from 'react';
 import { FunctionComponent, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { siAdyen, siStripe, siHubspot, siQuickbooks } from 'simple-icons'
+import { toast } from 'sonner'
 
 import { CopyToClipboardButton } from '@/components/CopyToClipboard'
+import { useQueryState } from "@/hooks/useQueryState";
 import { useQuery } from '@/lib/connectrpc'
 import {
   disconnectConnector,
   listConnectors,
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { Connector, ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
-import { useConfirmationModal } from 'providers/ConfirmationProvider'
 import { getInstance } from "@/rpc/api/instance/v1/instance-InstanceService_connectquery";
-import React from 'react'
-import { useQueryState } from "@/hooks/useQueryState";
-import { toast } from 'sonner'
+import { useConfirmationModal } from 'providers/ConfirmationProvider'
+
 
 interface Integration {
   name: string

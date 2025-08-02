@@ -3,6 +3,7 @@ import { RouteObject } from 'react-router-dom'
 
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
+import { PennylaneIntegrationModal } from "@/features/settings/integrations/PennylaneIntegration";
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
@@ -12,7 +13,6 @@ import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
 import { growthRoutes } from 'router/tenant/growth'
-import { PennylaneIntegrationModal } from "@/features/settings/integrations/PennylaneIntegration";
 
 export const tenantRoutes: RouteObject = {
   path: ':tenantSlug',
