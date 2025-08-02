@@ -99,8 +99,6 @@ async fn oauth_connect_callback(
                 section
             );
 
-            println!("Redirecting to: {}", url);
-
             Ok(Redirect::to(url.as_str()))
         }
         Err(e) => {
