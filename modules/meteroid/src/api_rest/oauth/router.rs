@@ -83,7 +83,7 @@ async fn oauth_connect_callback(
                 .store
                 .find_tenant_by_id(conn.connector.tenant_id)
                 .await
-                .map_err(|e| RestApiError::from(e))?;
+                .map_err(RestApiError::from)?;
 
             let section = match oauth_provider {
                 OauthProvider::Hubspot => "#crm",

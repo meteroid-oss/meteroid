@@ -231,6 +231,7 @@ impl ServicesEdge {
                             group_name: Some(event_type.group()),
                             name: event_type.to_string(),
                             schemas: None,
+                            feature_flags: None,
                         },
                         None,
                     )
@@ -269,6 +270,7 @@ impl ServicesEdge {
             expiry: None, // 7 days by default
             feature_flags: None,
             read_only: None,
+            session_id: None,
         };
 
         svix.authentication()
