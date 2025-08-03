@@ -280,7 +280,6 @@ async fn connect_hubspot(
 
     Ok(OauthConnected {
         connector: res.into(),
-        referer: crm_data.referer,
     })
 }
 
@@ -328,7 +327,6 @@ async fn connect_pennylane(
 
     Ok(OauthConnected {
         connector: inserted.into(),
-        referer: crm_data.referer,
     })
 }
 
