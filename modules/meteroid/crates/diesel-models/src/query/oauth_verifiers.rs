@@ -39,14 +39,14 @@ impl OauthVerifierRow {
             .into_db_result()
     }
 
-    pub async fn delete_expired(
+    pub async fn delete(
         conn: &mut PgConn,
-        expiration_time: chrono::NaiveDateTime,
+        created_before: chrono::NaiveDateTime,
     ) -> DbResult<usize> {
         use crate::schema::oauth_verifier::dsl as ov_dsl;
 
         let query =
-            diesel::delete(ov_dsl::oauth_verifier).filter(ov_dsl::created_at.gt(expiration_time));
+            diesel::delete(ov_dsl::oauth_verifier).filter(ov_dsl::created_at.lt(created_before));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
