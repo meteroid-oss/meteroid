@@ -9,7 +9,6 @@ use error_stack::ResultExt;
 use meteroid_oauth::model::{OAuthTokens, OAuthUser};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
-use url::Url;
 use uuid::Uuid;
 
 pub struct OauthVerifier {
@@ -65,14 +64,12 @@ pub struct SignInData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectHubspotData {
     pub tenant_id: TenantId,
-    pub referer: Url,
     pub auto_sync: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectPennylaneData {
     pub tenant_id: TenantId,
-    pub referer: Url,
 }
 
 json_value_serde!(OauthVerifierData);
@@ -89,5 +86,4 @@ pub struct OauthTokens {
 
 pub struct OauthConnected {
     pub connector: ConnectorMeta,
-    pub referer: Url,
 }

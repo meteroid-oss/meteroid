@@ -151,12 +151,11 @@ serde_qs = "0.15.0"
 serde_yaml = "0.9.30"
 sha2 = "0.10.8"
 shellexpand = "3.1.0"
-svix = { version = "1.61.0", default-features = false }
+svix = { version = "1.70.0", default-features = false }
 syn = "2.0.52"
 strum = { version = "0.27", default-features = false }
 tap = "1.0.1"
-testcontainers = "0.24.0"
-testcontainers-modules = { version = "0.11.2", default-features = false }
+testcontainers = "0.25.0"
 thiserror = "2.0.3"
 time = "0.3.36"
 tokio = { version = "1.33.0", default-features = false }
@@ -224,5 +223,4 @@ hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
 pennylane-client = { path = "modules/meteroid/crates/pennylane-client" }
 
 [patch.crates-io]
-# waiting for https://github.com/juhaku/utoipa/pull/1391
-zip = { version = "=2.6.1", git = "https://github.com/zip-rs/zip2", rev = "cde72a582d4bd59216bdd54d530333cd637df5eb" }
+# add patches here

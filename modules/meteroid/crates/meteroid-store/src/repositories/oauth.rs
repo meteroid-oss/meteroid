@@ -7,7 +7,7 @@ use diesel_models::oauth_verifiers::OauthVerifierRow;
 use error_stack::{Report, ResultExt};
 use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
 use secrecy::{ExposeSecret, SecretString};
-use std::ops::Add;
+use std::ops::Sub;
 
 #[async_trait]
 pub trait OauthInterface {
@@ -155,7 +155,7 @@ async fn get_verifier(store: &Store, state: SecretString) -> StoreResult<OauthVe
     tokio::spawn(async move {
         let mut conn = pool.get().await.expect("failed to get connection");
 
-        OauthVerifierRow::delete_expired(&mut conn, Utc::now().add(verifier_ttl).naive_utc())
+        OauthVerifierRow::delete(&mut conn, Utc::now().sub(verifier_ttl).naive_utc())
             .await
             .map_err(Into::<Report<StoreError>>::into)
     });

@@ -33,6 +33,7 @@ impl InstanceService for InstanceServiceComponents {
             skip_email_validation: maybe_instance.skip_email_validation,
             google_oauth_client_id: maybe_instance.google_oauth_client_id,
             hubspot_oauth_client_id: maybe_instance.hubspot_oauth_client_id,
+            pennylane_oauth_client_id: maybe_instance.pennylane_oauth_client_id,
         }))
     }
 

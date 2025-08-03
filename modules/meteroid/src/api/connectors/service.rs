@@ -1,6 +1,5 @@
 use crate::api::connectors::error::ConnectorApiError;
 use crate::api::connectors::{ConnectorsServiceComponents, mapping};
-use crate::api::utils::parse_referer;
 use common_domain::ids::ConnectorId;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::connectors::v1::connectors_service_server::ConnectorsService;
@@ -115,8 +114,6 @@ impl ConnectorsService for ConnectorsServiceComponents {
     ) -> Result<Response<ConnectHubspotResponse>, Status> {
         let tenant_id = request.tenant()?;
 
-        let referer = parse_referer(&request)?;
-
         let auto_sync = request
             .into_inner()
             .data
@@ -129,7 +126,6 @@ impl ConnectorsService for ConnectorsServiceComponents {
                 OauthProvider::Hubspot,
                 OauthVerifierData::ConnectHubspot(ConnectHubspotData {
                     tenant_id,
-                    referer,
                     auto_sync,
                 }),
             )
@@ -177,13 +173,11 @@ impl ConnectorsService for ConnectorsServiceComponents {
     ) -> Result<Response<ConnectPennylaneResponse>, Status> {
         let tenant_id = request.tenant()?;
 
-        let referer = parse_referer(&request)?;
-
         let url = self
             .store
             .oauth_auth_url(
                 OauthProvider::Pennylane,
-                OauthVerifierData::ConnectPennylane(ConnectPennylaneData { tenant_id, referer }),
+                OauthVerifierData::ConnectPennylane(ConnectPennylaneData { tenant_id }),
             )
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
