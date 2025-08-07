@@ -3,6 +3,7 @@ import { RouteObject } from 'react-router-dom'
 
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
+import { HubspotIntegrationModal } from "@/features/settings/integrations/HubspotIntegration";
 import { PennylaneIntegrationModal } from "@/features/settings/integrations/PennylaneIntegration";
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
@@ -37,6 +38,10 @@ export const tenantRoutes: RouteObject = {
         {
           path: 'connect-pennylane',
           element: <PennylaneIntegrationModal/>,
+        },
+        {
+          path: 'connect-hubspot',
+          element: <HubspotIntegrationModal/>,
         },
       ],
     },

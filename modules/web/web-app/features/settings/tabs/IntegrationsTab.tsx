@@ -131,7 +131,12 @@ export const IntegrationsTab = () => {
             <BrandIcon path={siHubspot.path} color="#ff7a59" className={className}/>
           ),
           features: [],
-          disabled: true,
+          link: 'connect-hubspot',
+          data: connectorsQuery.data?.connectors.filter(
+            connector => connector.provider === ConnectorProviderEnum.HUBSPOT
+          ),
+          disabled: !getInstanceQuery.data?.hubspotOauthClientId,
+          multiConnectionsDisabled: true,
         },
       ],
     },
