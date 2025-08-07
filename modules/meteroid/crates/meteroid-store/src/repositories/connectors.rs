@@ -196,7 +196,7 @@ impl ConnectorsInterface for Store {
 
         let patch = ConnectorRowPatch {
             id: connector_id,
-            data: Some(Some(data.try_into()?)),
+            data: Some(Some(ProviderData::Hubspot(data).try_into()?)),
         };
 
         let row = patch
