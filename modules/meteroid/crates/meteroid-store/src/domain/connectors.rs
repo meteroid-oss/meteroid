@@ -29,6 +29,8 @@ pub enum ProviderData {
     Hubspot(HubspotPublicData),
 }
 
+json_value_ser!(ProviderData);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StripePublicData {
     pub api_publishable_key: String,

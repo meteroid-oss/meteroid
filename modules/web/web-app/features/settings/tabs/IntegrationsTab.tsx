@@ -17,7 +17,7 @@ import {
   MoreVerticalIcon,
   PlugIcon,
   PlusIcon,
-  Users,
+  Users, UnplugIcon, Edit2Icon,
 } from 'lucide-react'
 import * as React from 'react';
 import { FunctionComponent, useEffect, useState } from 'react'
@@ -44,6 +44,7 @@ interface Integration {
   disabled?: boolean
   icon?: FunctionComponent<{ className?: string }>
   link?: string
+  editLink?: string
   data?: Connector[],
   multiConnectionsDisabled?: boolean,
 }
@@ -131,7 +132,13 @@ export const IntegrationsTab = () => {
             <BrandIcon path={siHubspot.path} color="#ff7a59" className={className}/>
           ),
           features: [],
-          disabled: true,
+          link: 'connect-hubspot',
+          editLink: 'edit-hubspot-connection',
+          data: connectorsQuery.data?.connectors.filter(
+            connector => connector.provider === ConnectorProviderEnum.HUBSPOT
+          ),
+          disabled: !getInstanceQuery.data?.hubspotOauthClientId,
+          multiConnectionsDisabled: true,
         },
       ],
     },
@@ -286,17 +293,33 @@ export const IntegrationsTab = () => {
                                         <MoreVerticalIcon size={16} className="cursor-pointer"/>
                                       </PopoverTrigger>
                                       <PopoverContent
-                                        className="p-0  w-24  "
+                                        className="p-0  w-32  "
                                         side="bottom"
                                         align="end"
                                       >
+                                        {
+                                          integration.editLink && (
+                                            <Link
+                                              to={`${integration.editLink}/${connector.id}`}
+                                              className="w-full text-xs"
+                                            >
+                                              <Button
+                                                type="button"
+                                                variant="ghost"
+                                                className="w-full text-xs"
+                                              >
+                                                <Edit2Icon size={14} className="mr-1"/>Edit
+                                              </Button>
+                                            </Link>
+                                          )
+                                        }
                                         <Button
                                           type="button"
                                           variant="destructiveGhost"
-                                          className=" w-full text-xs"
+                                          className="w-full text-xs"
                                           onClick={() => removeConnection(connector.id)}
                                         >
-                                          Disconnect
+                                          <UnplugIcon size={14} className="mr-1"/> Disconnect
                                         </Button>
                                       </PopoverContent>
                                     </Popover>

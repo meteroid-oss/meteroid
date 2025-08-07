@@ -17,7 +17,6 @@ export const PennylaneIntegrationModal = () => {
 
   const connectPennylaneMutation = useMutation(connectPennylane, {
     onSuccess: (resp) => {
-      console.log(resp.authUrl)
       window.location.href = resp.authUrl
     },
   })

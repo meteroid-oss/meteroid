@@ -20,9 +20,11 @@ const linkedValuesPlaceholder = `{
     "GCP": ["europe-west-1", "europe-west-2", "..."],
     "Azure": ["francecentral", "germanywestcentral", "..."],
   }`
+
 interface BillingMatrixProps {
   methods: Methods<schemas.billableMetrics.CreateBillableMetricSchema>
 }
+
 export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
   const mode = useWatch({ name: 'segmentationMatrix.matrixType', control: methods.control })
 
@@ -47,7 +49,7 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
           <FormDescription>
             <p>
               Specify different pricing based on one or two dimensions with fixed values.
-              <br />
+              <br/>
               For example, you could have different pricing for a Compute metric per cloud provider
               and region.
             </p>
@@ -62,8 +64,8 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
                 >
                   <SelectItem value="NONE">No segmentation</SelectItem>
                   <SelectItem value="SINGLE">Single dimension</SelectItem>
-                  <SelectItem value="DOUBLE">Two dimensions (independant)</SelectItem>
-                  <SelectItem value="LINKED">Two dimensions (dependant)</SelectItem>
+                  <SelectItem value="DOUBLE">Two dimensions (independent)</SelectItem>
+                  <SelectItem value="LINKED">Two dimensions (dependent)</SelectItem>
                 </SelectFormField>
 
                 {mode === 'SINGLE' && (
@@ -210,6 +212,7 @@ interface JsonMapEditorProps {
   onChange: (value: unknown) => void
   onBlur?: () => void
 }
+
 const JsonMapEditor = forwardRef<ReactCodeMirrorRef, JsonMapEditorProps>(
   ({ value, onChange, onBlur }: JsonMapEditorProps, ref) => {
     const mappedValue = pipe(
