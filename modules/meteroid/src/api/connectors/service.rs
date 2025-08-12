@@ -132,8 +132,6 @@ impl ConnectorsService for ConnectorsServiceComponents {
             .await
             .map_err(Into::<ConnectorApiError>::into)?;
 
-        tracing::info!("Requesting Hubspot oauth url for {}", tenant_id);
-
         Ok(Response::new(ConnectHubspotResponse {
             auth_url: url.expose_secret().to_owned(),
         }))
