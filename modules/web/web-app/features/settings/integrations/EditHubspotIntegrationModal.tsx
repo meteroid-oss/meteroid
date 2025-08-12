@@ -1,17 +1,22 @@
-import { useMutation } from '@connectrpc/connect-query'
+import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   CheckboxFormField, DialogDescription,
   DialogTitle, Form,
   Modal,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { Edit2Icon } from 'lucide-react'
+import { useEffect } from "react";
 import { useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { Loading } from "@/components/Loading";
 import { hubspotIntegrationSchema } from "@/features/settings/integrations/schemas";
 import { useZodForm } from "@/hooks/useZodForm";
+import { useQuery } from "@/lib/connectrpc";
 import {
+  listConnectors,
   updateHubspotConnector,
 } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 
@@ -21,6 +26,8 @@ export const EditHubspotIntegrationModal = () => {
 
   const { connectionId } = useParams();
 
+  const connectorsQuery = useQuery(listConnectors, {})
+
   const methods = useZodForm({
     mode: 'onChange',
     schema: hubspotIntegrationSchema,
@@ -29,8 +36,22 @@ export const EditHubspotIntegrationModal = () => {
     },
   })
 
+  const connection = connectorsQuery.data?.connectors.find(conn => conn.id === connectionId)
+
+  useEffect(() => {
+    if (connection?.data?.data?.case == 'hubspot') {
+      methods.reset({
+        autoSync: connection.data.data.value.autoSync,
+      })
+    }
+  }, [connection])
+
+  const queryClient = useQueryClient()
   const updateHubspotConnectorMutation = useMutation(updateHubspotConnector, {
     onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(listConnectors),
+      })
       toast.success('Connection updated!')
     },
     onError: (error) => {
@@ -46,6 +67,10 @@ export const EditHubspotIntegrationModal = () => {
       },
     })
     navigate('..')
+  }
+
+  if (!connection) {
+    return <Loading/>
   }
 
   return (
