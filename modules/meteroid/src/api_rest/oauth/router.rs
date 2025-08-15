@@ -132,6 +132,11 @@ async fn signin_callback(
 }
 
 fn signin_error_url(error: Report<StoreError>) -> String {
+    let error = match error.current_context() {
+        StoreError::OauthError(error) => error.as_ref(),
+        _ => "internal server error",
+    };
+
     format!(
         "{}/login?error={}",
         Config::get().public_url.as_str(),
