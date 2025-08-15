@@ -2,6 +2,7 @@ import { useQuery } from '@connectrpc/connect-query'
 import { Button, Flex, Separator } from '@ui/components'
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
 
+import { env } from "@/lib/env";
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 
 export const AuthFormLayout = () => {
@@ -36,10 +37,12 @@ export const AuthFormLayout = () => {
       {
         shouldShowOauth && (<>
             {isGoogleAuthEnabled && (
-              <Button variant="default" size="md" className="w-full" hasIcon>
-                <img src="/company/google.svg" alt="Google" className="w-[19px] h-[19px] mb-0.5"/>
-                Continue with Google
-              </Button>
+              <a href={`${env.meteroidRestApiUri}/oauth/google?is_signup=${!isLogin}&invite_key=${invite ?? ''}`}>
+                <Button variant="default" size="md" className="w-full" hasIcon>
+                  <img src="/company/google.svg" alt="Google" className="w-[19px] h-[19px] mb-0.5"/>
+                  Continue with Google
+                </Button>
+              </a>
             )}
             {isGithubAuthEnabled && (
               <Button variant="secondary" size="md" className="w-full" hasIcon>

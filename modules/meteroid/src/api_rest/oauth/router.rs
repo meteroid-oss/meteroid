@@ -1,20 +1,24 @@
 use crate::api_rest::AppState;
+use crate::api_rest::empty_string_as_none;
 use crate::config::Config;
 use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
+use error_stack::Report;
 use fang::Deserialize;
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::oauth::{OauthVerifierData, SignInData};
+use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::TenantInterface;
 use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::users::UserInterface;
 use secrecy::{ExposeSecret, SecretString};
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct GetCallbackUrlParams {
     is_signup: bool,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     invite_key: Option<String>,
 }
 
@@ -45,7 +49,7 @@ pub async fn redirect_to_identity_provider(
         Ok(url) => Redirect::to(url.expose_secret()),
         Err(e) => {
             log::warn!("Error getting callback URL: {}", e);
-            Redirect::to(signin_error_url(1).as_str())
+            Redirect::to(signin_error_url(e).as_str())
         }
     }
 }
@@ -121,17 +125,22 @@ async fn signin_callback(
     match auth_res {
         Ok(url) => Redirect::to(signin_success_url(&url.token).as_str()),
         Err(e) => {
-            log::warn!("Error executing callback: {}", e);
-            Redirect::to(signin_error_url(2).as_str())
+            log::warn!("Error executing callback: {:?}", e);
+            Redirect::to(signin_error_url(e).as_str())
         }
     }
 }
 
-fn signin_error_url(code: u8) -> String {
+fn signin_error_url(error: Report<StoreError>) -> String {
+    let error = match error.current_context() {
+        StoreError::OauthError(error) => error.as_ref(),
+        _ => "internal server error",
+    };
+
     format!(
-        "{}/error?oauth_signin={}",
+        "{}/login?error={}",
         Config::get().public_url.as_str(),
-        code
+        error
     )
 }
 
