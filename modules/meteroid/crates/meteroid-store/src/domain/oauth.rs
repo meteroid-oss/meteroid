@@ -1,4 +1,4 @@
-use crate::crypt::encrypt;
+use crate::crypt::{decrypt, encrypt};
 use crate::domain::connectors::ConnectorMeta;
 use crate::errors::StoreError;
 use crate::{StoreResult, json_value_serde};
@@ -22,8 +22,8 @@ impl OauthVerifier {
         encrypt(key, raw).change_context(StoreError::CryptError("encryption error".into()))
     }
 
-    fn dec(key: &SecretString, enc: &str) -> StoreResult<String> {
-        encrypt(key, enc).change_context(StoreError::CryptError("decryption error".into()))
+    fn dec(key: &SecretString, enc: &str) -> StoreResult<SecretString> {
+        decrypt(key, enc).change_context(StoreError::CryptError("decryption error".into()))
     }
 
     pub fn to_row(&self, crypt_key: &SecretString) -> StoreResult<OauthVerifierRow> {
@@ -39,7 +39,7 @@ impl OauthVerifier {
     pub fn from_row(row: OauthVerifierRow, crypt_key: SecretString) -> StoreResult<Self> {
         Ok(OauthVerifier {
             csrf_token: SecretString::new(row.csrf_token),
-            pkce_verifier: SecretString::new(Self::dec(&crypt_key, &row.pkce_verifier)?),
+            pkce_verifier: Self::dec(&crypt_key, &row.pkce_verifier)?,
             data: row
                 .data
                 .ok_or_else(|| StoreError::InvalidArgument("empty data field".into()))?
