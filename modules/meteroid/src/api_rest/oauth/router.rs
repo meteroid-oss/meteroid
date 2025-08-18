@@ -48,7 +48,7 @@ pub async fn redirect_to_identity_provider(
     match callback_url_res {
         Ok(url) => Redirect::to(url.expose_secret()),
         Err(e) => {
-            log::warn!("Error getting callback URL: {}", e);
+            log::warn!("Error getting callback URL: {:?}", e);
             Redirect::to(signin_error_url(e).as_str())
         }
     }
@@ -106,7 +106,7 @@ async fn oauth_connect_callback(
             Ok(Redirect::to(url.as_str()))
         }
         Err(e) => {
-            log::warn!("Error connecting {}: {}", oauth_provider, e);
+            log::warn!("Error connecting {}: {:?}", oauth_provider, e);
             Err(RestApiError::from(e))
         }
     }
