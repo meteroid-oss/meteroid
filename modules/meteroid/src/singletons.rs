@@ -15,7 +15,7 @@ pub async fn get_store() -> &'static Store {
 
             let store = Store::new(StoreConfig {
                 database_url: config.database_url.clone(),
-                crypt_key: config.secrets_crypt_key.clone(),
+                crypt_key: config.secrets_crypt_key.0.clone(),
                 jwt_secret: config.jwt_secret.clone(),
                 multi_organization_enabled: config.multi_organization_enabled,
                 skip_email_validation: !config.mailer_enabled(),

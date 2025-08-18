@@ -6,7 +6,7 @@ use std::str::FromStr;
 use validator::{Validate, ValidationError};
 
 #[derive(Debug, PartialEq, Clone)]
-#[cfg_attr(feature = "diesel", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub enum AliasOr<ID: BaseId> {
     Id(ID),
     Alias(String),
