@@ -67,7 +67,7 @@ pub struct Config {
         from = "SECRETS_CRYPT_KEY",
         default = "00000000000000000000000000000000"
     )]
-    pub secrets_crypt_key: SecretString,
+    pub secrets_crypt_key: CryptKey,
 
     #[envconfig(nested)]
     pub fang_ext: FangExtConfig,
@@ -134,5 +134,18 @@ impl FromStr for DomainWhitelist {
             return Err("Domain whitelist cannot be empty".to_string());
         }
         Ok(DomainWhitelist(domains))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CryptKey(pub SecretString);
+impl FromStr for CryptKey {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.len() != 32 {
+            return Err("Crypt key must be exactly 32 characters long".to_string());
+        }
+        Ok(CryptKey(SecretString::new(s.to_string())))
     }
 }

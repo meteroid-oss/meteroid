@@ -48,7 +48,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
         let response = ListConnectorsResponse {
             connectors: connectors
                 .into_iter()
-                .map(|x| mapping::connectors::connector_meta_to_server(&x))
+                .map(|x| mapping::connectors::connector_to_server(&x))
                 .collect(),
         };
 

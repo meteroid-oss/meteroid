@@ -42,8 +42,6 @@ nonzero_ext = { workspace = true }
 chacha20poly1305 = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }
-base64 = { workspace = true }
-fastrand = { workspace = true }
 jsonwebtoken = { workspace = true }
 futures = { workspace = true }
 once_cell = { workspace = true }
@@ -60,6 +58,7 @@ log.workspace = true
 golden.workspace = true
 paste.workspace = true
 meteroid-store-macros = { workspace = true }
+ctor = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

@@ -6,6 +6,9 @@ use crate::api_rest::subscriptions::subscription_routes;
 use crate::services::storage::ObjectStoreService;
 use meteroid_store::{Services, Store};
 use secrecy::SecretString;
+use serde::{Deserialize, Deserializer, de};
+use std::fmt;
+use std::str::FromStr;
 use std::sync::Arc;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -39,4 +42,18 @@ pub struct AppState {
     pub services: Services,
     pub stripe_adapter: Arc<Stripe>,
     pub jwt_secret: SecretString,
+}
+
+/// Serde deserialization decorator to map empty Strings to None,
+pub fn empty_string_as_none<'de, D, T>(de: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    T::Err: fmt::Display,
+{
+    let opt = Option::<String>::deserialize(de)?;
+    match opt.as_deref() {
+        None | Some("") => Ok(None),
+        Some(s) => FromStr::from_str(s).map_err(de::Error::custom).map(Some),
+    }
 }

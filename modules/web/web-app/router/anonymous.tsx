@@ -12,46 +12,51 @@ import {
   ResetPassword,
   ValidateEmail,
 } from '@/pages/auth'
+import { OauthSuccess } from "@/pages/auth/oauth-success";
 
 export const anonymousRoutes: RouteObject = {
-  element: <AnonymousRoutes />,
+  element: <AnonymousRoutes/>,
   children: [
     {
-      element: <AuthLayout />,
+      element: <AuthLayout/>,
       children: [
         {
-          element: <AuthFormLayout />,
+          element: <AuthFormLayout/>,
           children: [
             {
               path: '/login',
-              element: <Login />,
+              element: <Login/>,
             },
             {
               path: '/registration',
-              element: <Registration />,
+              element: <Registration/>,
             },
           ],
         },
         {
           path: '/check-inbox',
-          element: <CheckInbox />,
+          element: <CheckInbox/>,
         },
         {
           path: '/validate-email',
-          element: <ValidateEmail />,
+          element: <ValidateEmail/>,
         },
         {
           path: '/forgot-password',
-          element: <ForgotPassword />,
+          element: <ForgotPassword/>,
         },
         {
           path: '/check-inbox-password',
-          element: <CheckInboxPassword />,
+          element: <CheckInboxPassword/>,
         },
         {
           path: '/reset-password',
-          element: <ResetPassword />,
+          element: <ResetPassword/>,
         },
+        {
+          path: '/oauth_success',
+          element: <OauthSuccess/>
+        }
       ],
     },
   ],
