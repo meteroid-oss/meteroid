@@ -23,7 +23,7 @@ pub trait ConnectorsInterface {
         &self,
         connector_type_filter: Option<ConnectorTypeEnum>,
         tenant_id: TenantId,
-    ) -> StoreResult<Vec<ConnectorMeta>>;
+    ) -> StoreResult<Vec<Connector>>;
 
     async fn delete_connector(&self, id: ConnectorId, tenant_id: TenantId) -> StoreResult<()>;
 
@@ -72,7 +72,7 @@ impl ConnectorsInterface for Store {
         &self,
         connector_type_filter: Option<ConnectorTypeEnum>,
         tenant_id: TenantId,
-    ) -> StoreResult<Vec<ConnectorMeta>> {
+    ) -> StoreResult<Vec<Connector>> {
         let mut conn = self.get_conn().await?;
 
         let rows = ConnectorRow::list_connectors(
@@ -84,7 +84,10 @@ impl ConnectorsInterface for Store {
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-        let connectors = rows.into_iter().map(Into::into).collect();
+        let connectors = rows
+            .into_iter()
+            .map(|x| Connector::from_row(&self.settings.crypt_key, x))
+            .collect::<StoreResult<Vec<_>>>()?;
 
         Ok(connectors)
     }
@@ -196,7 +199,7 @@ impl ConnectorsInterface for Store {
 
         let patch = ConnectorRowPatch {
             id: connector_id,
-            data: Some(Some(data.try_into()?)),
+            data: Some(Some(ProviderData::Hubspot(data).try_into()?)),
         };
 
         let row = patch

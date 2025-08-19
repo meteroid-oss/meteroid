@@ -15,3 +15,7 @@ export const stripeIntegrationSchema = z.object({
     .min(1, 'Webhook secret is required')
     .regex(/^whsec_/, 'Should start with whsec_'),
 })
+
+export const hubspotIntegrationSchema = z.object({
+  autoSync: z.boolean().default(true),
+})
