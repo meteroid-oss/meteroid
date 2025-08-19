@@ -11,6 +11,7 @@ use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServ
 use rdkafka::Message;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use std::time::Duration;
 use tokio::task::JoinSet;
 use tonic::Status;
 
