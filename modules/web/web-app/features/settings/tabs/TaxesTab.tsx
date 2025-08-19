@@ -28,6 +28,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { EditIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
+import { match } from 'ts-pattern'
 import { z } from 'zod'
 
 import { Combobox } from '@/components/Combobox'
@@ -48,7 +49,6 @@ import {
   listCustomTaxes,
   updateCustomTax,
 } from '@/rpc/api/taxes/v1/taxes-TaxesService_connectquery'
-import { match } from 'ts-pattern'
 
 const taxSettingsSchema = z.object({
   taxResolver: z.enum(['NONE', 'MANUAL', 'METEROID_EU_VAT']).optional(),
@@ -346,9 +346,9 @@ export const TaxesTab = () => {
                 placeholder="Select how taxes should be calculated"
                 containerClassName="col-span-6"
               >
-                <SelectItem value={'NONE'}>None</SelectItem>
-                <SelectItem value={'MANUAL'}>Manual</SelectItem>
-                <SelectItem value={'METEROID_EU_VAT'}>Meteroid EU VAT</SelectItem>
+                <SelectItem value="NONE">None</SelectItem>
+                <SelectItem value="MANUAL">Manual</SelectItem>
+                <SelectItem value="METEROID_EU_VAT">Meteroid EU VAT</SelectItem>
               </SelectFormField>
             </div>
 

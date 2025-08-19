@@ -3,7 +3,7 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Badge, Button, Card, Form, InputFormField, TextareaFormField, SelectFormField } from '@md/ui'
+import { Badge, Button, Card, Form, InputFormField, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'

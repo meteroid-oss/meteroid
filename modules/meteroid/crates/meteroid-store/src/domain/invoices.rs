@@ -22,7 +22,6 @@ use rust_decimal::Decimal;
 use serde::ser::Error;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
 pub struct Invoice {

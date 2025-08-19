@@ -94,7 +94,7 @@ impl TaxEngine for MeteroidTaxEngine {
         customer: CustomerForTax,
         invoicing_entity_address: Address,
         amount: u64,
-        currency: &String,
+        currency: &str,
     ) -> error_stack::Result<CustomerTax, TaxEngineError> {
         if customer.tax_exempt {
             return Ok(CustomerTax::Exempt);

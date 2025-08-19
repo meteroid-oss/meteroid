@@ -52,7 +52,6 @@ pub struct Customer {
     pub vat_number_format_valid: bool,
 }
 
-
 #[derive(Clone, Debug, o2o)]
 #[from_owned(CustomerBriefRow)]
 #[owned_into(CustomerBriefRow)]
