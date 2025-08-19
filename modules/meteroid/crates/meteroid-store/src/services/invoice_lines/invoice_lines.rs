@@ -308,10 +308,19 @@ impl Services {
             // we get the matching taxed line
             if let Some(taxed_line) = res.line_items.iter().find(|l| l.line_id == line.local_id) {
                 // we update the line with the tax details
-                line.tax_rate = match taxed_line.tax_details {
-                    TaxDetails::Tax { tax_rate, .. } => tax_rate,
-                    TaxDetails::Exempt(_) => rust_decimal::Decimal::ZERO,
-                };
+
+                if let TaxDetails::Tax {
+                    tax_rate,
+                    tax_amount,
+                    ..
+                } = taxed_line.tax_details.clone()
+                {
+                    line.tax_amount = tax_amount as i64;
+                    line.tax_rate = tax_rate;
+                } else {
+                    line.tax_amount = 0;
+                    line.tax_rate = rust_decimal::Decimal::ZERO;
+                }
                 line.taxable_amount = taxed_line.pre_tax_amount as i64;
             } else {
                 // no tax details found
