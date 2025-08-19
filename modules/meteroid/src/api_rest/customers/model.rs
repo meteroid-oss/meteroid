@@ -38,6 +38,7 @@ pub struct Customer {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
+    #[serde(with = "rust_decimal::serde::float_option")]
     pub custom_tax_rate: Option<rust_decimal::Decimal>,
 }
 

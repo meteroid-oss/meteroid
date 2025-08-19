@@ -152,7 +152,7 @@ impl Services {
             finalized_at: None,
             total: invoice_content.total,
             amount_due: invoice_content.amount_due,
-            net_terms: invoicing_entity.net_terms as i32,
+            net_terms: invoicing_entity.net_terms,
             subtotal: invoice_content.subtotal,
             subtotal_recurring: invoice_content.subtotal_recurring,
             reference: None,

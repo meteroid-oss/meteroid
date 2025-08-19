@@ -58,7 +58,7 @@ anyhow.workspace = true
 axum = { workspace = true, features = ["default", "macros", "http2"] }
 hyper = { workspace = true, features = ["http1", "http2", "server"] }
 
-rust_decimal = { workspace = true, features = ["serde_json"] }
+rust_decimal = { workspace = true, features = ["serde_json", "serde-with-float"] }
 rust_decimal_macros = { workspace = true }
 
 metering-grpc = { workspace = true, features = ["client"] }
