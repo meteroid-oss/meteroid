@@ -139,7 +139,6 @@ pub struct TypstInvoiceLine {
     pub unit_price: Option<f64>,
     pub vat_rate: Option<f64>,
     pub subtotal: f64,
-    pub total: f64,
     pub start_date: String,
     pub end_date: String,
     pub sub_lines: Vec<TypstInvoiceSubLine>,
@@ -154,10 +153,9 @@ impl From<&InvoiceLine> for TypstInvoiceLine {
             name: line.name.clone(),
             description: line.description.clone(),
             quantity: line.quantity.and_then(|d| d.to_f64()),
-            unit_price: line.unit_price.and_then(|d| d.to_f64()),
-            vat_rate: line.vat_rate.and_then(|d| d.to_f64()),
-            subtotal: (line.subtotal as f64) / 100.0, // TODO handle precision
-            total: (line.total as f64) / 100.0,
+            unit_price: line.unit_price.as_ref().and_then(|d| d.amount().to_f64()),
+            vat_rate: line.tax_rate.to_f64(),
+            subtotal: line.subtotal.amount().to_f64().unwrap_or(0.0),
             start_date,
             end_date,
             sub_lines: {
@@ -182,13 +180,13 @@ pub struct TypstInvoiceSubLine {
 impl From<&InvoiceSubLine> for TypstInvoiceSubLine {
     fn from(sub_line: &InvoiceSubLine) -> Self {
         let quantity = sub_line.quantity.to_f64().unwrap_or(0.0);
-        let unit_price = sub_line.unit_price.to_f64().unwrap_or(0.0);
+        let unit_price = sub_line.unit_price.amount().to_f64().unwrap_or(0.0);
 
         TypstInvoiceSubLine {
             name: sub_line.name.clone(),
             quantity,
             unit_price,
-            total: (sub_line.total as f64) / 100.0,
+            total: sub_line.total.amount().to_f64().unwrap_or(0.0),
         }
     }
 }
@@ -205,7 +203,7 @@ impl From<&Transaction> for TypstTransaction {
         TypstTransaction {
             method: transaction.method.clone(),
             date: transaction.date.format("%Y-%m-%d").to_string(),
-            amount: (transaction.amount as f64) / 100.0,
+            amount: transaction.amount.amount().to_f64().unwrap_or(0.0),
         }
     }
 }
@@ -217,10 +215,27 @@ pub struct TypstCoupon {
 }
 
 impl From<&Coupon> for TypstCoupon {
-    fn from(transaction: &Coupon) -> Self {
+    fn from(coupon: &Coupon) -> Self {
         TypstCoupon {
-            name: transaction.name.clone(),
-            total: (transaction.total as f64) / 100.0,
+            name: coupon.name.clone(),
+            total: coupon.total.amount().to_f64().unwrap_or(0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, IntoValue, IntoDict)]
+pub struct TypstTaxBreakdownItem {
+    pub name: String,
+    pub rate: f64,
+    pub amount: f64,
+}
+
+impl From<&TaxBreakdownItem> for TypstTaxBreakdownItem {
+    fn from(item: &TaxBreakdownItem) -> Self {
+        TypstTaxBreakdownItem {
+            name: item.name.clone(),
+            rate: item.rate.to_f64().unwrap_or(0.0),
+            amount: item.amount.amount().to_f64().unwrap_or(0.0),
         }
     }
 }
@@ -236,7 +251,6 @@ pub struct TypstInvoiceContent {
     pub subtotal: f64,
     // TODO add discounts
     pub tax_amount: f64,
-    pub tax_rate: f64,
     pub total_amount: f64,
     pub currency_code: String,
     pub currency_symbol: String,
@@ -257,6 +271,7 @@ pub struct TypstInvoiceContent {
     pub show_legal_info: bool,
     pub whitelabel: bool,
     pub coupons: Vec<TypstCoupon>,
+    pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
 }
 
 impl From<&Invoice> for TypstInvoiceContent {
@@ -299,10 +314,19 @@ impl From<&Invoice> for TypstInvoiceContent {
             "payment_terms_title" => invoice_l10n.payment_terms_title().into_value(),
             "payment_terms_text" => invoice_l10n.payment_terms_text(invoice.metadata.payment_term.to_string()).into_value(),
             "tax_info_title" => invoice_l10n.tax_info_title().into_value(),
-            "tax_included_text" => invoice_l10n.tax_included_text( invoice.metadata.currency.code(), invoice.metadata.tax_rate.to_string()).into_value(),
             "tax_reverse_charge" => invoice_l10n.tax_reverse_charge().into_value(),
             "pay_online" => invoice_l10n.pay_online().into_value(),
             "vat_id" => invoice_l10n.vat_id().into_value(),
+            "tax_breakdown_title" => invoice_l10n.tax_breakdown_title().into_value(),
+            "vat_standard" => invoice_l10n.vat_standard().into_value(),
+            "vat_reduced" => invoice_l10n.vat_reduced().into_value(),
+            "vat_exempt_notice" => invoice_l10n.vat_exempt_notice().into_value(),
+            "reverse_charge_notice" => invoice_l10n.reverse_charge_notice().into_value(),
+            "intra_eu_notice" => invoice_l10n.intra_eu_notice().into_value(),
+            "b2b_notice" => invoice_l10n.b_2_b_notice().into_value(),
+            "eu_vat_directive_notice" => invoice_l10n.eu_vat_directive_notice().into_value(),
+            "late_payment_interest" => invoice_l10n.late_payment_interest().into_value(),
+            "company_registration" => invoice_l10n.company_registration().into_value(),
         };
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
@@ -317,7 +341,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             );
 
             let amount_converted = format_currency_dec(
-                Decimal::from(invoice.metadata.total_amount) * exchange_rate,
+                invoice.metadata.total_amount.amount() * exchange_rate,
                 &invoice.organization.accounting_currency,
             );
 
@@ -364,6 +388,10 @@ impl From<&Invoice> for TypstInvoiceContent {
         for coupon in &invoice.coupons {
             coupons.push(TypstCoupon::from(coupon));
         }
+        let mut tax_breakdown = Vec::with_capacity(invoice.tax_breakdown.len());
+        for tax_breakdown_item in &invoice.tax_breakdown {
+            tax_breakdown.push(TypstTaxBreakdownItem::from(tax_breakdown_item));
+        }
 
         let currency_code = invoice.metadata.currency.code().to_string();
 
@@ -373,10 +401,14 @@ impl From<&Invoice> for TypstInvoiceContent {
             .unwrap_or(PaymentStatus::Unpaid)
             .as_template_string();
 
-        let subtotal = (invoice.metadata.subtotal as f64) / 100.0;
-        let tax_amount = (invoice.metadata.tax_amount as f64) / 100.0;
-        let tax_rate = (invoice.metadata.tax_rate as f64) / 100.0;
-        let total_amount = (invoice.metadata.total_amount as f64) / 100.0;
+        let subtotal = invoice.metadata.subtotal.amount().to_f64().unwrap_or(0.0);
+        let tax_amount = invoice.metadata.tax_amount.amount().to_f64().unwrap_or(0.0);
+        let total_amount = invoice
+            .metadata
+            .total_amount
+            .amount()
+            .to_f64()
+            .unwrap_or(0.0);
 
         TypstInvoiceContent {
             lang: invoice.lang.clone(),
@@ -388,7 +420,6 @@ impl From<&Invoice> for TypstInvoiceContent {
             due_date: formatted_due_date,
             subtotal,
             tax_amount,
-            tax_rate,
             total_amount,
             currency_code,
             currency_symbol: currency_symbol.to_string(),
@@ -410,6 +441,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             show_tax_info: invoice.metadata.flags.show_tax_info.unwrap_or(false),
             show_legal_info: invoice.metadata.flags.show_legal_info.unwrap_or(true),
             whitelabel: invoice.metadata.flags.whitelabel.unwrap_or(false),
+            tax_breakdown,
         }
     }
 }

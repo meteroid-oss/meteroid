@@ -96,12 +96,38 @@ export const CustomersBilling = () => {
             />
           </Flex>
           <InputFormField
-            name="taxId"
-            label="Tax ID"
+            name="vatNumber"
+            label="VAT Number"
             control={control}
             type="text"
-            placeholder="NL12391234585"
+            placeholder="NL123456789B01"
             autoComplete="off"
+          />
+          
+          <InputFormField
+            name="customTaxRate"
+            label="Custom Tax Rate (%)"
+            control={control}
+            type="text"
+            placeholder="21.5"
+            autoComplete="off"
+          />
+          
+          <FormField
+            control={control}
+            name="isTaxExempt"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Tax Exemption</FormLabel>
+                <FormControl>
+                  <Flex align="center" className="gap-1.5">
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    <div className="text-xs">Tax exempt customer</div>
+                  </Flex>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
           />
 
           <FormField

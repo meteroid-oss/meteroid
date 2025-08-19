@@ -5,7 +5,8 @@ use crate::domain::enums::{BillingPeriodEnum, SubscriptionActivationCondition};
 use crate::domain::subscription_add_ons::{CreateSubscriptionAddOns, SubscriptionAddOn};
 use crate::domain::{
     AppliedCouponDetailed, BillableMetric, CreateSubscriptionComponents, CreateSubscriptionCoupons,
-    PlanForSubscription, Schedule, SubscriptionComponent, SubscriptionStatusEnum,
+    Customer, InvoicingEntity, PlanForSubscription, Schedule, SubscriptionComponent,
+    SubscriptionStatusEnum,
 };
 use crate::errors::StoreErrorReport;
 use crate::services::PaymentSetupResult;
@@ -261,6 +262,8 @@ pub struct CreateSubscription {
 #[derive(Debug, Clone)]
 pub struct SubscriptionDetails {
     pub subscription: Subscription,
+    pub invoicing_entity: InvoicingEntity,
+    pub customer: Customer,
     pub schedules: Vec<Schedule>,
     pub price_components: Vec<SubscriptionComponent>,
     pub add_ons: Vec<SubscriptionAddOn>,

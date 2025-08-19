@@ -1,18 +1,14 @@
 use super::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use crate::domain::connectors::ConnectionMeta;
-use crate::domain::coupons::CouponDiscount;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::{
-    Address, AppliedCouponDetailed, CouponLineItem, Customer, PlanVersionOverview,
-};
+use crate::domain::{Address, CouponLineItem, Customer, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::{NaiveDate, NaiveDateTime};
 use common_domain::ids::{
     BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
     SubscriptionId, TenantId,
 };
-use common_utils::decimals::ToSubunit;
 use diesel_models::invoices::DetailedInvoiceRow;
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::invoices::InvoiceRowLinesPatch;
@@ -20,12 +16,12 @@ use diesel_models::invoices::InvoiceRowNew;
 use diesel_models::invoices::InvoiceWithCustomerRow;
 use diesel_models::payments::PaymentTransactionRow;
 use error_stack::Report;
-use itertools::Itertools;
+use meteroid_tax::TaxDetails;
 use o2o::o2o;
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
+use serde::ser::Error;
 use serde::{Deserialize, Serialize};
-use std::cmp::min;
+
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
 #[try_from_owned(InvoiceRow, StoreErrorReport)]
@@ -52,8 +48,6 @@ pub struct Invoice {
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
     pub subtotal_recurring: i64,
-    // TODO precision 4
-    pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
@@ -86,11 +80,40 @@ pub struct Invoice {
     pub coupons: Vec<CouponLineItem>,
     pub discount: i64,
     pub purchase_order: Option<String>,
+    #[from(serde_json::from_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to deserialize tax_breakdown".to_string(), e)
+    }) ?)]
+    pub tax_breakdown: Vec<TaxBreakdownItem>,
 }
 
 impl Invoice {
     pub fn can_edit(&self) -> bool {
         self.status == InvoiceStatusEnum::Draft
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaxBreakdownItem {
+    pub taxable_amount: u64,
+    pub tax_rate: Decimal,
+    pub name: String,
+}
+impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
+    fn from(item: meteroid_tax::TaxBreakdownItem) -> Self {
+        match item.details {
+            TaxDetails::Tax {
+                tax_rate, tax_name, ..
+            } => TaxBreakdownItem {
+                taxable_amount: item.taxable_amount,
+                tax_rate,
+                name: tax_name,
+            },
+            TaxDetails::Exempt(_) => TaxBreakdownItem {
+                taxable_amount: item.taxable_amount,
+                tax_rate: Decimal::ZERO,
+                name: "Exempt".to_string(),
+            },
+        }
     }
 }
 
@@ -122,7 +145,6 @@ pub struct InvoiceNew {
     pub subtotal: i64,
     pub subtotal_recurring: i64,
     pub discount: i64,
-    pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
@@ -143,6 +165,10 @@ pub struct InvoiceNew {
     pub auto_advance: bool,
     #[into(~.into())]
     pub payment_status: InvoicePaymentStatus,
+    #[into(serde_json::to_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to serialize tax_breakdown".to_string(), e)
+    }) ?)]
+    pub tax_breakdown: Vec<TaxBreakdownItem>,
 }
 
 #[derive(Debug, o2o)]
@@ -160,6 +186,10 @@ pub struct InvoiceLinesPatch {
     pub applied_credits: i64,
     #[ghost({vec![]})]
     pub applied_coupons: Vec<CouponLineItem>,
+    #[into(serde_json::to_value(~).map_err(| e | {
+    StoreError::SerdeError("Failed to serialize tax_breakdown".to_string(), e)
+    }) ?)]
+    pub tax_breakdown: Vec<TaxBreakdownItem>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -224,126 +254,5 @@ impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
             plan: value.plan.map(|x| x.into()),
             transactions: vec![],
         })
-    }
-}
-
-pub struct InvoiceTotalsParams<'a> {
-    pub line_items: &'a Vec<LineItem>,
-    pub subscription_applied_coupons: &'a Vec<AppliedCouponDetailed>,
-    pub total: i64,
-    pub amount_due: i64,
-    pub tax_rate: i32,
-    pub customer_balance_cents: i64,
-    pub invoice_currency: &'a str,
-}
-
-pub struct InvoiceTotals {
-    pub amount_due: i64,
-    pub subtotal: i64,
-    pub subtotal_recurring: i64,
-    pub total: i64,
-    pub tax_amount: i64,
-    pub applied_credits: i64,
-    pub applied_coupons: Vec<CouponLineItem>,
-}
-
-struct AppliedCouponsDiscount {
-    pub discount_subunit: i64,
-    pub applied_coupons: Vec<CouponLineItem>,
-}
-
-impl InvoiceTotals {
-    pub fn from_params(params: InvoiceTotalsParams) -> Self {
-        let subtotal = params.line_items.iter().fold(0, |acc, x| acc + x.subtotal);
-        let coupons_discount = Self::calculate_coupons_discount(
-            subtotal,
-            params.invoice_currency,
-            params.subscription_applied_coupons,
-        );
-        let subtotal_with_discounts = subtotal - coupons_discount.discount_subunit;
-        let tax_amount = subtotal_with_discounts * params.tax_rate as i64 / 100;
-
-        let total = subtotal_with_discounts + tax_amount;
-        let applied_credits = min(total, params.customer_balance_cents);
-        let already_paid = params.total - params.amount_due;
-        let amount_due = total - already_paid - applied_credits;
-        let subtotal_recurring = params
-            .line_items
-            .iter()
-            .filter(|x| x.metric_id.is_none())
-            .fold(0, |acc, x| acc + x.subtotal);
-
-        Self {
-            amount_due,
-            subtotal,
-            subtotal_recurring,
-            total,
-            tax_amount,
-            applied_credits,
-            applied_coupons: coupons_discount.applied_coupons,
-        }
-    }
-
-    fn calculate_coupons_discount(
-        subtotal: i64,
-        invoice_currency: &str,
-        coupons: &[AppliedCouponDetailed],
-    ) -> AppliedCouponsDiscount {
-        let applicable_coupons: Vec<&AppliedCouponDetailed> = coupons
-            .iter()
-            .filter(|x| x.is_invoice_applicable())
-            .sorted_by_key(|x| x.applied_coupon.created_at)
-            .collect::<Vec<_>>();
-
-        let mut applied_coupons_items = vec![];
-
-        let mut subtotal_subunits = Decimal::from(subtotal);
-
-        for applicable_coupon in applicable_coupons {
-            if subtotal_subunits <= Decimal::ONE {
-                break;
-            }
-            let discount = match &applicable_coupon.coupon.discount {
-                CouponDiscount::Percentage(percentage) => {
-                    subtotal_subunits * percentage / Decimal::ONE_HUNDRED
-                }
-                CouponDiscount::Fixed { amount, currency } => {
-                    // todo currency conversion
-                    if currency != invoice_currency {
-                        continue;
-                    }
-                    // todo domain should use Currency type instead of string
-                    let cur = rusty_money::iso::find(currency).unwrap_or(rusty_money::iso::USD);
-
-                    let consumed_amount = &applicable_coupon
-                        .applied_coupon
-                        .applied_amount
-                        .unwrap_or(Decimal::ZERO);
-
-                    let discount_subunits = (amount - consumed_amount)
-                        .to_subunit_opt(cur.exponent as u8)
-                        .unwrap_or(0);
-
-                    Decimal::from(discount_subunits).min(subtotal_subunits)
-                }
-            };
-
-            subtotal_subunits -= discount;
-
-            let discount = discount.to_i64().unwrap_or(0);
-            applied_coupons_items.push(CouponLineItem {
-                coupon_id: applicable_coupon.coupon.id,
-                applied_coupon_id: applicable_coupon.applied_coupon.id,
-                name: format!("Coupon ({})", applicable_coupon.coupon.code), // TODO allow defining a name in coupon
-                code: applicable_coupon.coupon.code.clone(),
-                value: discount,
-                discount: applicable_coupon.coupon.discount.clone(),
-            });
-        }
-
-        AppliedCouponsDiscount {
-            discount_subunit: applied_coupons_items.iter().map(|x| x.value).sum(),
-            applied_coupons: applied_coupons_items,
-        }
     }
 }

@@ -135,7 +135,8 @@ pub async fn run_preset(
             alias: Some(slugify(&customer.name)),
             name: customer.name,
             shipping_address: None,
-            custom_vat_rate: None,
+            custom_tax_rate: None,
+            is_tax_exempt: false,
         });
     }
 

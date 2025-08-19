@@ -140,7 +140,8 @@ async fn test_main() {
                     invoicing_entity_id: None,
                     bank_account_id: None,
                     vat_number: None,
-                    custom_vat_rate: None,
+                    custom_tax_rate: None,
+                    is_tax_exempt: Some(false),
                 }),
             },
         ))

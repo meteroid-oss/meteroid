@@ -4,6 +4,7 @@ use crate::errors::StoreError;
 use crate::services::invoice_lines::component::InvoiceLineInner;
 use crate::utils::local_id::LocalId;
 use common_utils::decimals::ToSubunit;
+use common_utils::integers::ToNonNegativeU64;
 use error_stack::{Report, ResultExt};
 use rust_decimal::Decimal;
 
@@ -66,7 +67,8 @@ pub fn compute_volume_price(
         total: price
             .to_subunit_opt(precision)
             .ok_or(Report::new(StoreError::InvalidDecimal))
-            .attach_printable("Failed to convert line total to subunit")? as u64,
+            .attach_printable("Failed to convert line total to subunit")?
+            .to_non_negative_u64(),
         period,
         custom_line_name: None,
         is_prorated: false,
@@ -164,7 +166,8 @@ pub fn compute_tier_price(
         total: subtotal
             .to_subunit_opt(precision)
             .ok_or(Report::new(StoreError::InvalidDecimal))
-            .attach_printable("Failed to convert subline total to subunit")? as u64,
+            .attach_printable("Failed to convert subline total to subunit")?
+            .to_non_negative_u64(),
         period,
         custom_line_name: None,
         is_prorated: false,

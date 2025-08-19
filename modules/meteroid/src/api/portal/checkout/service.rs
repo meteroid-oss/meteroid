@@ -5,19 +5,18 @@ use crate::api::customers::mapping::customer::{
 };
 use crate::api::portal::checkout::PortalCheckoutServiceComponents;
 use crate::api::portal::checkout::error::PortalCheckoutApiError;
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::services::storage::Prefix;
 use common_domain::ids::{
     BankAccountId, BaseId, CustomerConnectionId, CustomerId, CustomerPaymentMethodId,
     InvoicingEntityId,
 };
 use common_grpc::middleware::server::auth::RequestExt;
+use common_utils::integers::ToNonNegativeU64;
 use error_stack::ResultExt;
 use meteroid_grpc::meteroid::portal::checkout::v1::portal_checkout_service_server::PortalCheckoutService;
 use meteroid_grpc::meteroid::portal::checkout::v1::*;
-use meteroid_store::domain::{
-    CustomerPatch, CustomerPaymentMethodNew, InvoiceTotals, InvoiceTotalsParams,
-    PaymentMethodTypeEnum,
-};
+use meteroid_store::domain::{CustomerPatch, CustomerPaymentMethodNew, PaymentMethodTypeEnum};
 use meteroid_store::errors::StoreError;
 use meteroid_store::repositories::customer_connection::CustomerConnectionInterface;
 use meteroid_store::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
@@ -25,6 +24,7 @@ use meteroid_store::repositories::customers::CustomersInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{OrganizationsInterface, SubscriptionInterface};
+use rust_decimal::Decimal;
 use secrecy::ExposeSecret;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
@@ -45,9 +45,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let invoice_lines = self
+        let invoice_content = self
             .services
-            .compute_invoice_lines(&subscription.subscription.start_date, &subscription)
+            .compute_invoice(&subscription.subscription.start_date, &subscription, None)
             .await
             .change_context(StoreError::InvoiceComputationError)
             .map_err(Into::<PortalCheckoutApiError>::into)?;
@@ -81,16 +81,6 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .await
             .map_err(Into::<PortalCheckoutApiError>::into)?;
 
-        let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
-            line_items: &invoice_lines,
-            total: 0, // no prepaid (TODO check)
-            amount_due: 0,
-            tax_rate: 0,
-            customer_balance_cents: customer.balance_value_cents,
-            subscription_applied_coupons: &vec![], // TODO
-            invoice_currency: subscription.subscription.currency.as_str(),
-        });
-
         let subscription =
             crate::api::subscriptions::mapping::subscriptions::details_domain_to_proto(
                 subscription,
@@ -113,8 +103,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             None
         };
 
-        let invoice_lines =
-            crate::api::invoices::mapping::invoices::domain_invoice_lines_to_server(invoice_lines);
+        let invoice_lines = crate::api::invoices::mapping::invoices::domain_invoice_lines_to_server(
+            invoice_content.invoice_lines,
+        );
 
         Ok(Response::new(GetSubscriptionCheckoutResponse {
             checkout: Some(Checkout {
@@ -126,8 +117,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 payment_methods,
                 // TODO recurring_total => also check this is not prorated
                 // amount_due
-                total_amount: totals.total as u64,
-                subtotal_amount: totals.subtotal as u64,
+                total_amount: invoice_content.total.to_non_negative_u64(),
+                subtotal_amount: invoice_content.subtotal.to_non_negative_u64(),
+                // TODO we need to return all totals, tax etc tpp
             }),
         }))
     }
@@ -182,8 +174,9 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                     vat_number: customer
                         .vat_number
                         .map(|v| if v.is_empty() { None } else { Some(v) }),
-                    custom_vat_rate: Some(customer.custom_vat_rate),
+                    custom_tax_rate: Some(Decimal::from_proto_opt(customer.custom_tax_rate)?),
                     bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
+                    is_tax_exempt: customer.is_tax_exempt,
                 },
             )
             .await

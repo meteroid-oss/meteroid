@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package meteroid.api.taxes.v1;
+
+import "api/taxes/v1/models.proto";
+import "google/protobuf/empty.proto";
+
+service TaxesService {
+  rpc CreateCustomTax(CreateCustomTaxRequest) returns (CreateCustomTaxResponse) {}
+  rpc UpdateCustomTax(UpdateCustomTaxRequest) returns (UpdateCustomTaxResponse) {}
+  rpc DeleteCustomTax(DeleteCustomTaxRequest) returns (google.protobuf.Empty) {}
+  rpc ListCustomTaxes(ListCustomTaxesRequest) returns (ListCustomTaxesResponse) {}
+  rpc UpsertProductAccounting(UpsertProductAccountingRequest) returns (UpsertProductAccountingResponse) {}
+  rpc GetProductAccounting(GetProductAccountingRequest) returns (GetProductAccountingResponse) {}
+  rpc ValidateVatNumber(ValidateVatNumberRequest) returns (ValidateVatNumberResponse) {}
+}
+
+message CreateCustomTaxRequest {
+  CustomTaxNew custom_tax = 1;
+}
+
+message CreateCustomTaxResponse {
+  CustomTax custom_tax = 1;
+}
+
+message UpdateCustomTaxRequest {
+  CustomTax custom_tax = 1;
+}
+
+message UpdateCustomTaxResponse {
+  CustomTax custom_tax = 1;
+}
+
+message DeleteCustomTaxRequest {
+  string id = 1;
+}
+
+message ListCustomTaxesRequest {
+  string invoicing_entity_id = 1;
+}
+
+message ListCustomTaxesResponse {
+  repeated CustomTax custom_taxes = 1;
+}
+
+message UpsertProductAccountingRequest {
+  ProductAccounting product_accounting = 1;
+}
+
+message UpsertProductAccountingResponse {
+  ProductAccounting product_accounting = 1;
+}
+
+message GetProductAccountingRequest {
+  string product_id = 1;
+  string invoicing_entity_id = 2;
+}
+
+message GetProductAccountingResponse {
+  optional ProductAccounting product_accounting = 1;
+}

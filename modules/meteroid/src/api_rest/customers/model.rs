@@ -38,7 +38,7 @@ pub struct Customer {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate, Debug)]
@@ -56,7 +56,8 @@ pub struct CustomerCreateRequest {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub is_tax_exempt: Option<bool>,
 }
 
 #[derive(ToSchema, serde::Serialize, serde::Deserialize, Validate)]
@@ -74,7 +75,8 @@ pub struct CustomerUpdateRequest {
     #[serde(default, with = "string_serde_opt")]
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub is_tax_exempt: Option<bool>,
 }
 
 // TODO : allow importing from stripe

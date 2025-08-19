@@ -43,12 +43,15 @@ pub struct Customer {
     pub card_provider_id: Option<ConnectorId>,
     pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
     #[map(~.into_iter().flatten().collect())]
     pub invoicing_emails: Vec<String>,
     #[map(~.map(|v| v.try_into()).transpose()?)]
     pub conn_meta: Option<ConnectionMeta>,
+    pub is_tax_exempt: bool,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub vat_number_format_valid: bool,
 }
+
 
 #[derive(Clone, Debug, o2o)]
 #[from_owned(CustomerBriefRow)]
@@ -76,7 +79,19 @@ pub struct CustomerNew {
     pub force_created_date: Option<NaiveDateTime>,
     pub bank_account_id: Option<BankAccountId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub is_tax_exempt: bool,
+}
+
+impl CustomerNew {
+    pub fn is_valid_vat_number_format(&self) -> bool {
+        match self.vat_number {
+            Some(ref vat_number) => {
+                meteroid_tax::validation::validate_vat_number_format(vat_number)
+            }
+            None => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -84,6 +99,7 @@ pub struct CustomerNewWrapper {
     pub inner: CustomerNew,
     pub tenant_id: TenantId,
     pub invoicing_entity_id: InvoicingEntityId,
+    pub vat_number_format_valid: bool,
 }
 
 impl TryInto<CustomerRowNew> for CustomerNewWrapper {
@@ -118,13 +134,16 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             direct_debit_provider_id: None,
             card_provider_id: None,
             vat_number: self.inner.vat_number,
-            custom_vat_rate: self.inner.custom_vat_rate,
+            custom_tax_rate: self.inner.custom_tax_rate,
+            is_tax_exempt: self.inner.is_tax_exempt,
+            vat_number_format_valid: self.vat_number_format_valid,
         })
     }
 }
 
 #[derive(Clone, Debug, o2o)]
 #[owned_try_into(CustomerRowPatch, StoreErrorReport)]
+#[ghosts(vat_number_format_valid: None)]
 pub struct CustomerPatch {
     pub id: CustomerId,
     pub name: Option<String>,
@@ -141,8 +160,21 @@ pub struct CustomerPatch {
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
-    pub custom_vat_rate: Option<Option<i32>>,
+    pub custom_tax_rate: Option<Option<rust_decimal::Decimal>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
+    pub is_tax_exempt: Option<bool>,
+}
+
+impl CustomerPatch {
+    pub fn is_valid_vat_number_format(&self) -> Option<bool> {
+        match self.vat_number.as_ref() {
+            Some(Some(vat_number)) => Some(meteroid_tax::validation::validate_vat_number_format(
+                vat_number,
+            )),
+            Some(None) => Some(false),
+            None => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -162,6 +194,18 @@ pub struct Address {
 }
 
 json_value_serde!(Address);
+
+impl From<Address> for meteroid_tax::Address {
+    fn from(val: Address) -> Self {
+        meteroid_tax::Address {
+            line1: val.line1,
+            city: val.city,
+            country: val.country,
+            region: val.state,
+            postal_code: val.zip_code,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShippingAddress {
@@ -203,8 +247,20 @@ pub struct CustomerUpdate {
     pub shipping_address: Option<ShippingAddress>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
     pub bank_account_id: Option<BankAccountId>,
+    pub is_tax_exempt: bool,
+}
+
+impl CustomerUpdate {
+    pub fn is_valid_vat_number_format(&self) -> bool {
+        match self.vat_number {
+            Some(ref vat_number) => {
+                meteroid_tax::validation::validate_vat_number_format(vat_number)
+            }
+            None => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, o2o)]

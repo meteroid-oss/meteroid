@@ -1,3 +1,4 @@
+use crate::domain::CouponLineItem;
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
@@ -163,4 +164,9 @@ pub enum CouponFilter {
     ACTIVE,
     INACTIVE,
     ARCHIVED,
+}
+
+pub struct AppliedCouponsDiscount {
+    pub discount_subunit: i64,
+    pub applied_coupons: Vec<CouponLineItem>,
 }

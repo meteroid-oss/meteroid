@@ -18,6 +18,7 @@
   payment_term,
   lines,
   coupons,
+  tax_breakdown,
   translations,
   formatted_currency,
   pay_online_url: none,
@@ -412,8 +413,24 @@
           )
         },
 
-        text(fill: color.accent, translations.tax + " " + str(tax_rate) + "%"),
-        align(right, text(weight: "regular", format_amount(tax_amount))),
+        // Show either detailed tax breakdown or simple tax line
+        ..if tax_breakdown.len() > 1 {
+          // Multiple tax rates - show breakdown
+          for tax_item in tax_breakdown {
+            (
+              text(fill: color.accent, tax_item.name + " " + str(calc.round(tax_item.rate, digits: 1)) + "%"),
+              align(right, text(weight: "regular", format_amount(tax_item.amount))),
+            )
+          }
+        } else {
+          // Single tax rate - show simple line
+          (
+            (
+              text(fill: color.accent, translations.tax + " " + str(tax_rate) + "%"),
+              align(right, text(weight: "regular", format_amount(tax_amount))),
+            ),
+          )
+        },
 
         text(weight: "medium", size: 12pt, fill: color.heading, translations.total_due),
         align(right, text(weight: "medium", size: 12pt, fill: color.heading, format_amount(total_amount))),
@@ -478,8 +495,29 @@
             #v(4pt)
             #if tax_rate == 0 {
               text(size: 9pt, translations.tax_reverse_charge)
+              #linebreak()
+              #text(size: 8pt, fill: color.footer_text, translations.at("reverse_charge_notice", default: ""))
             } else {
-              text(size: 9pt, translations.tax_included_text)
+              text(size: 9pt, translations.at("tax_included_text", default: "All prices include tax"))
+            }
+            
+            // Show tax breakdown if multiple rates
+            #if tax_breakdown.len() > 1 {
+              v(8pt)
+              text(fill: color.heading, weight: "medium", size: 9pt, translations.at("tax_breakdown_title", default: "Tax Breakdown"))
+              v(2pt)
+              for tax_item in tax_breakdown {
+                text(size: 8pt, fill: color.accent, [
+                  #tax_item.name: #str(calc.round(tax_item.rate, digits: 1))% - #format_amount(tax_item.amount)
+                ])
+                linebreak()
+              }
+            }
+            
+            // EU compliance notice for international transactions
+            #if customer.tax_id != none and organization.tax_id != none {
+              v(6pt)
+              text(size: 8pt, fill: color.footer_text, translations.at("eu_vat_directive_notice", default: ""))
             }
           ] else []
         )
@@ -497,6 +535,18 @@
         #text(fill: color.heading, weight: "medium", size: 10pt, translations.legal_info)
         #v(4pt)
         #text(size: 8pt, fill: color.footer_text, organization.footer_legal)
+        
+        // Add company registration info if available
+        #if organization.legal_number != none {
+          v(4pt)
+          text(size: 8pt, fill: color.footer_text, [
+            #translations.at("company_registration", default: "Registration"): #organization.legal_number
+          ])
+        }
+        
+        // Add late payment interest notice for EU invoices
+        #v(4pt)
+        #text(size: 8pt, fill: color.footer_text, translations.at("late_payment_interest", default: ""))
       ]
     )
   }

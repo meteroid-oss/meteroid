@@ -269,7 +269,7 @@ mod mapper {
             .map(|d| d.date())
             .unwrap_or(invoice.invoice_date);
 
-        let currency = *rusty_money::iso::find(&invoice.currency).ok_or_else(|| {
+        let currency = rusty_money::iso::find(&invoice.currency).ok_or_else(|| {
             Report::new(InvoicingRenderError::InvalidCurrency(
                 invoice.currency.clone(),
             ))
@@ -291,10 +291,9 @@ mod mapper {
             number: invoice.invoice_number,
             issue_date: finalized_date,
             payment_term: invoice.net_terms as u32,
-            total_amount: invoice.total,
-            tax_amount: invoice.tax_amount,
-            tax_rate: invoice.tax_rate,
-            subtotal: invoice.subtotal,
+            total_amount: rusty_money::Money::from_minor(invoice.total, currency),
+            tax_amount: rusty_money::Money::from_minor(invoice.tax_amount, currency),
+            subtotal: rusty_money::Money::from_minor(invoice.subtotal, currency),
             memo: invoice.memo.clone(),
             payment_url: None, // TODO
             flags: Flags::default(),
@@ -340,23 +339,24 @@ mod mapper {
             .line_items
             .iter()
             .map(|line| invoicing_model::InvoiceLine {
-                total: line.total,
                 description: line.description.clone(),
                 quantity: line.quantity,
-                vat_rate: Some(Decimal::from(invoice.tax_rate) / Decimal::from(100)),
-                unit_price: line.unit_price,
+                tax_rate: line.tax_rate,
+                unit_price: line
+                    .unit_price
+                    .map(|p| rusty_money::Money::from_decimal(p, currency)),
                 name: line.name.clone(),
                 end_date: line.end_date,
                 start_date: line.start_date,
-                subtotal: line.subtotal,
+                subtotal: rusty_money::Money::from_minor(line.amount_subtotal, currency),
                 sub_lines: line
                     .sub_lines
                     .iter()
                     .map(|sub_line| invoicing_model::InvoiceSubLine {
                         name: sub_line.name.clone(),
-                        total: sub_line.total,
+                        total: rusty_money::Money::from_minor(sub_line.total, currency),
                         quantity: sub_line.quantity,
-                        unit_price: sub_line.unit_price,
+                        unit_price: rusty_money::Money::from_decimal(sub_line.unit_price, currency),
                     })
                     .collect(),
             })
@@ -367,13 +367,23 @@ mod mapper {
             .iter()
             .map(|coupon| invoicing_model::Coupon {
                 name: coupon.name.clone(),
-                total: coupon.value,
+                total: rusty_money::Money::from_minor(coupon.value, currency),
             })
             .collect();
 
         let lang = Countries::resolve_country(&invoicing_entity.country)
             .map(|c| c.locale)
             .unwrap_or_else(|| "en-US");
+
+        let tax_breakdown = invoice
+            .tax_breakdown
+            .iter()
+            .map(|t| invoicing_model::TaxBreakdownItem {
+                name: t.name.clone(),
+                rate: t.tax_rate,
+                amount: rusty_money::Money::from_minor(t.taxable_amount as i64, currency),
+            })
+            .collect();
 
         Ok(invoicing_model::Invoice {
             lang: lang.to_string(),
@@ -382,6 +392,7 @@ mod mapper {
             metadata,
             organization,
             coupons,
+            tax_breakdown,
             bank_details: None,       // TODO
             transactions: Vec::new(), // TODO
             payment_status: None,     // TODO

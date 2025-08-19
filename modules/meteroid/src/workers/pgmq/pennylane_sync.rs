@@ -461,9 +461,8 @@ impl PennylaneSync {
                     .line_items
                     .into_iter()
                     .map(|x| {
-                        let total_amount = x.total.to_unit(currency.exponent as u8);
-                        // todo revisit this field and have a dedicated field in the invoice line for tax amount
-                        let tax_amount = 0;
+                        let total_amount = x.amount_total.to_unit(currency.exponent as u8);
+                        let tax_amount = x.tax_amount;
 
                         CustomerInvoiceLine {
                             currency_amount: total_amount.to_string(),
@@ -472,7 +471,7 @@ impl PennylaneSync {
                             quantity: x.quantity.unwrap_or(Decimal::ONE),
                             raw_currency_unit_price: x
                                 .unit_price
-                                .unwrap_or(x.subtotal.to_unit(currency.exponent as u8))
+                                .unwrap_or(x.amount_subtotal.to_unit(currency.exponent as u8))
                                 .to_string(),
                             unit: "".to_string(),
                             vat_rate: "exempt".to_string(), // todo update me after we have tax implemented

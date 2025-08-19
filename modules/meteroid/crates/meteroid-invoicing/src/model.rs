@@ -1,6 +1,7 @@
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rusty_money::iso;
+use rusty_money::iso::Currency;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,13 @@ pub struct Invoice {
     pub payment_status: Option<PaymentStatus>, // "paid", "partially_paid", or "unpaid"
     pub transactions: Vec<Transaction>,
     pub bank_details: Option<HashMap<String, String>>, // TODO here we need the BankAccount format, and we mak to kv in the Typst types
+    pub tax_breakdown: Vec<TaxBreakdownItem>,
+}
+
+pub struct TaxBreakdownItem {
+    pub name: String,
+    pub rate: Decimal,
+    pub amount: Price,
 }
 
 #[derive(Default)]
@@ -67,11 +75,10 @@ pub struct InvoiceMetadata {
     pub number: String,
     pub issue_date: chrono::NaiveDate,
     pub payment_term: u32,
-    pub subtotal: i64,
-    pub tax_amount: i64,
-    pub tax_rate: i32,
-    pub total_amount: i64,
-    pub currency: iso::Currency,
+    pub subtotal: Price,
+    pub tax_amount: Price,
+    pub total_amount: Price,
+    pub currency: &'static iso::Currency,
     pub due_date: chrono::NaiveDate,
     pub memo: Option<String>,
     pub payment_url: Option<String>,
@@ -88,14 +95,15 @@ pub struct Flags {
     pub whitelabel: Option<bool>,
 }
 
+type Price = rusty_money::Money<'static, Currency>;
+
 pub struct InvoiceLine {
     pub name: String,
     pub description: Option<String>,
-    pub subtotal: i64,
-    pub total: i64,
+    pub subtotal: Price,
     pub quantity: Option<Decimal>,
-    pub unit_price: Option<Decimal>,
-    pub vat_rate: Option<Decimal>,
+    pub unit_price: Option<Price>,
+    pub tax_rate: Decimal,
     pub start_date: chrono::NaiveDate,
     pub end_date: chrono::NaiveDate,
     pub sub_lines: Vec<InvoiceSubLine>,
@@ -103,9 +111,9 @@ pub struct InvoiceLine {
 
 pub struct InvoiceSubLine {
     pub name: String,
-    pub total: i64,
+    pub total: Price,
     pub quantity: Decimal,
-    pub unit_price: Decimal,
+    pub unit_price: Price,
     // pub attributes: Option<SubLineAttributes>,
 }
 
@@ -113,10 +121,10 @@ pub struct Transaction {
     /// ex: "Card •••• 7726" or "Bank Transfer"
     pub method: String,
     pub date: NaiveDate,
-    pub amount: i64,
+    pub amount: Price,
 }
 
 pub struct Coupon {
     pub name: String,
-    pub total: i64,
+    pub total: Price,
 }

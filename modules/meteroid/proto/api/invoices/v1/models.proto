@@ -59,7 +59,7 @@ message DetailedInvoice {
   optional string finalized_at = 22;
   int64 subtotal = 23;
   int64 subtotal_recurring = 24;
-  int32 tax_rate = 25;
+  repeated TaxBreakdownItem tax_breakdown = 25;
   int64 tax_amount = 26;
   int64 total = 27;
   int64 amount_due = 28;
@@ -76,6 +76,12 @@ message DetailedInvoice {
   optional string xml_document_id = 39;
 }
 
+message TaxBreakdownItem {
+  string name = 1;
+  string tax_rate = 2;
+  int64 amount = 3;
+}
+
 message CouponLineItem {
   string coupon_id = 1;
   string name = 2;
@@ -85,18 +91,18 @@ message CouponLineItem {
 message LineItem {
   string id = 1;
   string name = 2;
-  int64 total = 3;
-  // before discounts/minimums
-  int64 subtotal = 4;
-  optional string quantity = 10; // decimal
+  int64 subtotal = 3;
+  string tax_rate = 4;
+
   optional string unit_price = 5;
 
   string start_date = 8;
   string end_date = 9;
+  optional string quantity = 10;
+
 
   //  Minimum minimum = 1;
   //  Discount discount = 1;
-  // tax
   repeated SubLineItem sub_line_items = 11;
   bool is_prorated = 12;
 
@@ -104,6 +110,9 @@ message LineItem {
   optional string product_id = 14;
   optional string metric_id = 15; // TODO same as product id ?
   optional string description = 16;
+
+
+
 }
 
 message SubLineItem {
