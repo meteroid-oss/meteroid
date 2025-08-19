@@ -15,6 +15,7 @@ use crate::{StoreResult, domain};
 use common_domain::ids::{BaseId, OrganizationId, TenantId};
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
+use std::time::Duration;
 
 #[async_trait::async_trait]
 pub trait TenantInterface {
