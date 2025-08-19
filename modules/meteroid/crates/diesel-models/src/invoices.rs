@@ -31,7 +31,6 @@ pub struct InvoiceRow {
     pub finalized_at: Option<NaiveDateTime>,
     pub net_terms: i32,
     pub memo: Option<String>,
-    pub tax_rate: i32,
     pub reference: Option<String>,
     pub invoice_number: String,
     pub tax_amount: i64,
@@ -50,9 +49,10 @@ pub struct InvoiceRow {
     pub issued_at: Option<NaiveDateTime>,
     pub payment_status: InvoicePaymentStatus,
     pub paid_at: Option<NaiveDateTime>,
-    pub coupons: serde_json::Value,
     pub discount: i64,
     pub purchase_order: Option<String>,
+    pub tax_breakdown: serde_json::Value,
+    pub coupons: serde_json::Value,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -66,6 +66,7 @@ pub struct InvoiceRowLinesPatch {
     pub total: i64,
     pub tax_amount: i64,
     pub applied_credits: i64,
+    pub tax_breakdown: serde_json::Value,
 }
 
 #[derive(Insertable, Debug)]
@@ -86,7 +87,6 @@ pub struct InvoiceRowNew {
     pub finalized_at: Option<NaiveDateTime>,
     pub subtotal: i64,
     pub subtotal_recurring: i64,
-    pub tax_rate: i32,
     pub tax_amount: i64,
     pub total: i64,
     pub amount_due: i64,
@@ -102,6 +102,7 @@ pub struct InvoiceRowNew {
     pub coupons: serde_json::Value,
     pub discount: i64,
     pub purchase_order: Option<String>,
+    pub tax_breakdown: serde_json::Value,
 }
 
 #[derive(Debug, Queryable, Selectable)]

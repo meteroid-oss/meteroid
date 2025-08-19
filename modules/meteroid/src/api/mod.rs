@@ -27,6 +27,7 @@ pub mod schedules;
 pub mod sharable;
 pub mod stats;
 pub mod subscriptions;
+pub mod taxes;
 pub mod tenants;
 pub mod users;
 pub mod webhooksout;

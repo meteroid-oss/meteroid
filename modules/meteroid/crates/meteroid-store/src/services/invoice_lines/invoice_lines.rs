@@ -3,20 +3,44 @@ use crate::constants::{Currencies, Currency};
 use crate::domain::*;
 use chrono::NaiveDate;
 use itertools::Itertools;
+use std::cmp::min;
 
 use crate::errors::StoreError;
+use crate::repositories::accounting::AccountingInterface;
 use crate::services::Services;
+use crate::services::invoice_lines::discount::calculate_coupons_discount;
 use crate::store::PgConn;
 use crate::utils::periods::calculate_component_period_for_invoice_date;
+use common_utils::integers::ToNonNegativeU64;
 use error_stack::{Report, ResultExt};
+use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
+
+impl Services {}
+
+#[derive(Debug)]
+pub struct ComputedInvoiceContent {
+    pub invoice_lines: Vec<LineItem>,
+    pub subtotal: i64, // before discounts, coupons, credits, taxes
+    pub applied_coupons: Vec<CouponLineItem>,
+    pub discount: i64,
+    pub tax_breakdown: Vec<TaxBreakdownItem>,
+    pub applied_credits: i64,
+
+    pub total: i64,
+    pub tax_amount: i64,
+    pub amount_due: i64,
+    //
+    pub subtotal_recurring: i64,
+}
 
 impl Services {
-    pub async fn compute_invoice_lines(
+    pub async fn compute_invoice(
         &self,
-        conn: &mut PgConn, // used to fetch slots
+        conn: &mut PgConn,
         invoice_date: &NaiveDate,
         subscription_details: &SubscriptionDetails,
-    ) -> StoreResult<Vec<LineItem>> {
+        prepaid_amount: Option<u64>,
+    ) -> StoreResult<ComputedInvoiceContent> {
         let billing_start_date = subscription_details
             .subscription
             .billing_start_date
@@ -69,9 +93,249 @@ impl Services {
         let invoice_lines = price_components_lines
             .into_iter()
             .chain(add_ons_lines)
+            .collect_vec();
+
+        let subtotal = invoice_lines
+            .iter()
+            .fold(0, |acc, x| acc + x.amount_subtotal);
+
+        let coupons_discount = calculate_coupons_discount(
+            subtotal,
+            &subscription_details.subscription.currency,
+            &subscription_details.applied_coupons,
+        );
+
+        let discount_total = coupons_discount.discount_subunit.to_non_negative_u64(); // TODO we need to define the rules for negatives, same below with taxes & subtotal
+        let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
+
+        // we add taxes
+        let (invoice_lines, breakdown) = self
+            .process_invoice_lines_taxes(
+                conn,
+                invoice_lines,
+                &subscription_details.invoicing_entity,
+                &subscription_details.customer,
+                subscription_details.subscription.currency.clone(),
+                &invoice_date,
+            )
+            .await?;
+
+        let subtotal = invoice_lines
+            .iter()
+            .fold(0, |acc, x| acc + x.amount_subtotal)
+            .to_non_negative_u64();
+
+        let subtotal_with_discounts = subtotal - discount_total;
+        let tax_amount = invoice_lines
+            .iter()
+            .fold(0, |acc, x| acc + x.tax_amount)
+            .to_non_negative_u64();
+
+        let total = subtotal_with_discounts + tax_amount;
+        let applied_credits = min(
+            total,
+            subscription_details
+                .customer
+                .balance_value_cents
+                .to_non_negative_u64(),
+        );
+        let already_paid = prepaid_amount.unwrap_or(0);
+        let amount_due = total - already_paid - applied_credits;
+        let subtotal_recurring = invoice_lines
+            .iter()
+            .filter(|x| x.metric_id.is_none())
+            .fold(0, |acc, x| acc + x.amount_subtotal)
+            .to_non_negative_u64();
+
+        Ok(ComputedInvoiceContent {
+            invoice_lines,
+            subtotal: subtotal as i64,
+            applied_coupons: coupons_discount.applied_coupons,
+            discount: discount_total as i64,
+            tax_breakdown: breakdown,
+            applied_credits: applied_credits as i64,
+            total: total as i64,
+            amount_due: amount_due as i64,
+            subtotal_recurring: subtotal_recurring as i64,
+            tax_amount: tax_amount as i64,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn compute_oneoff_invoice(
+        &self,
+        conn: &mut PgConn,
+        invoice_date: &NaiveDate,
+        invoice_lines: Vec<LineItem>,
+        invoicing_entity: &InvoicingEntity,
+        customer: &Customer,
+        currency: String,
+        discount: Option<u64>,
+        prepaid_amount: Option<u64>,
+    ) -> StoreResult<ComputedInvoiceContent> {
+        let discount_total = discount.unwrap_or(0);
+        let invoice_lines = super::discount::distribute_discount(invoice_lines, discount_total);
+
+        // we add taxes
+        let (line_items, breakdown) = self
+            .process_invoice_lines_taxes(
+                conn,
+                invoice_lines,
+                invoicing_entity,
+                customer,
+                currency,
+                invoice_date,
+            )
+            .await?;
+
+        let subtotal = line_items
+            .iter()
+            .fold(0, |acc, x| acc + x.amount_subtotal)
+            .to_non_negative_u64();
+
+        let subtotal_with_discounts = subtotal - discount_total;
+        let tax_amount = line_items
+            .iter()
+            .fold(0, |acc, x| acc + x.tax_amount)
+            .to_non_negative_u64();
+
+        let total = subtotal_with_discounts + tax_amount;
+        let applied_credits = min(total, customer.balance_value_cents.to_non_negative_u64());
+        let already_paid = prepaid_amount.unwrap_or(0);
+        let amount_due = total - already_paid - applied_credits;
+        let subtotal_recurring = line_items
+            .iter()
+            .filter(|x| x.metric_id.is_none())
+            .fold(0, |acc, x| acc + x.amount_subtotal)
+            .to_non_negative_u64();
+
+        Ok(ComputedInvoiceContent {
+            invoice_lines: line_items,
+            subtotal: subtotal as i64,
+            applied_coupons: Vec::new(),
+            discount: discount_total as i64,
+            tax_breakdown: breakdown,
+            applied_credits: applied_credits as i64,
+            total: total as i64,
+            amount_due: amount_due as i64,
+            subtotal_recurring: subtotal_recurring as i64,
+            tax_amount: tax_amount as i64,
+        })
+    }
+
+    async fn process_invoice_lines_taxes(
+        &self,
+        conn: &mut PgConn,
+        invoice_lines: Vec<LineItem>,
+        invoicing_entity: &InvoicingEntity,
+        customer: &Customer,
+        currency: String,
+        invoice_date: &NaiveDate,
+    ) -> StoreResult<(Vec<LineItem>, Vec<TaxBreakdownItem>)> {
+        let customer_address = match &customer.billing_address {
+            Some(address) => address.clone(),
+            None => return Ok((invoice_lines.to_vec(), Vec::new())),
+        };
+
+        let tax_engine: Box<dyn TaxEngine + Send + Sync> = match invoicing_entity.tax_resolver {
+            TaxResolverEnum::None => {
+                return Ok((invoice_lines.to_vec(), Vec::new()));
+            }
+            TaxResolverEnum::Manual => Box::new(ManualTaxEngine {}),
+            TaxResolverEnum::MeteroidEuVat => Box::new(MeteroidTaxEngine {}),
+        };
+
+        let customer = meteroid_tax::CustomerForTax {
+            vat_number: customer.vat_number.clone(),
+            vat_number_format_valid: customer.vat_number_format_valid,
+            custom_tax_rate: customer.custom_tax_rate,
+            tax_exempt: customer.is_tax_exempt,
+            billing_address: customer_address.into(),
+        };
+
+        // we retrieve the custom tax rates for each line item
+        let product_ids = invoice_lines
+            .iter()
+            .filter_map(|line| line.product_id)
+            .collect::<Vec<_>>();
+
+        let product_taxes = self
+            .store
+            .list_product_tax_configuration_by_product_ids_and_invoicing_entity_id(
+                conn,
+                invoicing_entity.tenant_id,
+                product_ids,
+                invoicing_entity.id,
+            )
+            .await?;
+
+        let invoice_lines_for_tax: Vec<meteroid_tax::LineItemForTax> = invoice_lines
+            .iter()
+            .filter_map(|line| {
+                if line.taxable_amount > 0 {
+                    let total = line.taxable_amount.to_non_negative_u64();
+                    let custom_tax = line
+                        .product_id
+                        .and_then(|p| product_taxes.iter().find(|tax| tax.product_id == p))
+                        .and_then(|p| p.custom_tax.as_ref());
+
+                    Some(meteroid_tax::LineItemForTax {
+                        line_id: line.local_id.to_string(),
+                        amount: total,
+                        custom_tax: custom_tax.map(|t| t.clone().into()),
+                    })
+                } else {
+                    // If the line amount is zero (or refund), we skip it
+                    // TODO : consider whether we want to allow tax credits within an invoice, or if we restrict to using a separate credit note (prob cleaner)
+                    None
+                }
+            })
             .collect();
 
-        Ok(invoice_lines)
+        let res = tax_engine
+            .calculate_line_items_tax(
+                currency,
+                customer,
+                invoicing_entity.address().into(),
+                invoice_lines_for_tax,
+                *invoice_date,
+            )
+            .await
+            .change_context(StoreError::TaxError)?;
+
+        let mut updated_invoice_lines = invoice_lines.clone();
+
+        for line in &mut updated_invoice_lines {
+            // we get the matching taxed line
+            if let Some(taxed_line) = res.line_items.iter().find(|l| l.line_id == line.local_id) {
+                // we update the line with the tax details
+
+                if let TaxDetails::Tax {
+                    tax_rate,
+                    tax_amount,
+                    ..
+                } = taxed_line.tax_details.clone()
+                {
+                    line.tax_amount = tax_amount as i64;
+                    line.tax_rate = tax_rate;
+                } else {
+                    line.tax_amount = 0;
+                    line.tax_rate = rust_decimal::Decimal::ZERO;
+                }
+                line.taxable_amount = taxed_line.pre_tax_amount as i64;
+            } else {
+                // no tax details found
+                line.tax_rate = rust_decimal::Decimal::ZERO;
+            }
+        }
+
+        let breakdown = res
+            .breakdown
+            .into_iter()
+            .map(|item| item.into())
+            .collect::<Vec<_>>();
+
+        Ok((updated_invoice_lines, breakdown))
     }
 
     #[allow(clippy::too_many_arguments)]

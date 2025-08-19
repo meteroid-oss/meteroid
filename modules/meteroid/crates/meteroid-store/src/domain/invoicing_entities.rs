@@ -2,7 +2,7 @@ use secrecy::SecretString;
 
 use crate::StoreResult;
 use crate::domain::connectors::{Connector, ConnectorMeta};
-use crate::domain::{Address, BankAccount};
+use crate::domain::{Address, BankAccount, TaxResolverEnum};
 use common_domain::ids::{
     BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
 };
@@ -47,6 +47,8 @@ pub struct InvoicingEntity {
     pub card_provider_id: Option<ConnectorId>,
     pub direct_debit_provider_id: Option<ConnectorId>,
     pub bank_account_id: Option<BankAccountId>,
+    #[map(~.into())]
+    pub tax_resolver: TaxResolverEnum,
 }
 
 impl InvoicingEntity {
@@ -81,6 +83,7 @@ pub struct InvoicingEntityNew {
     pub state: Option<String>,
     pub city: Option<String>,
     pub vat_number: Option<String>,
+    pub tax_resolver: TaxResolverEnum,
 }
 
 #[derive(Clone, Debug, o2o, Default)]
@@ -103,6 +106,8 @@ pub struct InvoicingEntityPatch {
     pub city: Option<String>,
     pub vat_number: Option<String>,
     pub country: Option<String>,
+    #[map(~.map(|x| x.into()))]
+    pub tax_resolver: Option<TaxResolverEnum>,
 }
 
 #[derive(Clone, Debug, o2o, Default)]

@@ -33,9 +33,11 @@ pub async fn run_customers_seed(pool: &PgPool) {
                 card_provider_id: None,
                 direct_debit_provider_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
                 invoicing_emails: vec![],
                 phone: None,
+                is_tax_exempt: false,
+                vat_number_format_valid: false,
             }
             .insert(tx)
             .await?;
@@ -58,9 +60,11 @@ pub async fn run_customers_seed(pool: &PgPool) {
                 card_provider_id: None,
                 direct_debit_provider_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
                 invoicing_emails: vec![],
                 phone: None,
+                is_tax_exempt: false,
+                vat_number_format_valid: false,
             }
             .insert(tx)
             .await?;
@@ -83,9 +87,11 @@ pub async fn run_customers_seed(pool: &PgPool) {
                 card_provider_id: None,
                 direct_debit_provider_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
                 invoicing_emails: vec![],
                 phone: None,
+                is_tax_exempt: false,
+                vat_number_format_valid: false,
             }
             .insert(tx)
             .await?;

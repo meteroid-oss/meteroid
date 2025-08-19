@@ -29,4 +29,5 @@ mod test_user;
 mod test_webhooks_out;
 
 mod data;
+mod test_invoice_computation;
 mod test_metering_ingestion;

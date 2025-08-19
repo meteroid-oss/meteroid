@@ -1,10 +1,9 @@
 use crate::StoreResult;
-use crate::domain::{
-    Invoice, InvoiceLinesPatch, InvoiceTotals, InvoiceTotalsParams, SubscriptionDetails,
-};
+use crate::domain::{Invoice, InvoiceLinesPatch, SubscriptionDetails};
 use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::SubscriptionInterface;
 use crate::services::Services;
+use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use common_domain::ids::{InvoiceId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::PgConn;
@@ -76,11 +75,19 @@ impl Services {
             ));
         }
 
-        let lines = if refresh_invoice_lines {
-            let res;
+        let content = if refresh_invoice_lines {
+            let mut res;
 
             let subscription_details = match subscription_details_cache {
-                Some(details) => details,
+                Some(details) => {
+                    if customer_balance != details.customer.balance_value_cents {
+                        res = details.clone();
+                        res.customer.balance_value_cents = customer_balance;
+                        &res
+                    } else {
+                        details
+                    }
+                }
                 None => match invoice.subscription_id {
                     Some(subscription_id) => {
                         res = self
@@ -102,34 +109,45 @@ impl Services {
                 },
             };
 
-            self.compute_invoice_lines(conn, &invoice.invoice_date, subscription_details)
-                .await
-                .change_context(StoreError::InvoiceComputationError)?
+            let already_paid_amount = invoice.total - invoice.amount_due;
+
+            self.compute_invoice(
+                conn,
+                &invoice.invoice_date,
+                subscription_details,
+                if already_paid_amount > 0 {
+                    Some(already_paid_amount as u64)
+                } else {
+                    None
+                },
+            )
+            .await
+            .change_context(StoreError::InvoiceComputationError)?
         } else {
-            invoice.line_items.clone()
+            ComputedInvoiceContent {
+                invoice_lines: invoice.line_items.clone(),
+                applied_coupons: invoice.coupons.clone(),
+                discount: invoice.discount,
+                total: invoice.total,
+                amount_due: invoice.amount_due,
+                subtotal: invoice.subtotal,
+                subtotal_recurring: invoice.subtotal_recurring,
+                tax_amount: invoice.tax_amount,
+                applied_credits: invoice.applied_credits,
+                tax_breakdown: invoice.tax_breakdown.clone(),
+            }
         };
 
-        let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
-            line_items: &lines,
-            total: invoice.total,
-            amount_due: invoice.amount_due,
-            tax_rate: invoice.tax_rate,
-            customer_balance_cents: customer_balance,
-            subscription_applied_coupons: subscription_details_cache
-                .as_ref()
-                .map_or(&Vec::new(), |a| &a.applied_coupons), // TODO allow coupons in one-off invoices, also when no subscription_details_cache is provided
-            invoice_currency: invoice.currency.as_str(),
-        });
-
         Ok(InvoiceLinesPatch {
-            line_items: lines,
-            amount_due: totals.amount_due,
-            subtotal: totals.subtotal,
-            subtotal_recurring: totals.subtotal_recurring,
-            total: totals.total,
-            tax_amount: totals.tax_amount,
-            applied_credits: totals.applied_credits,
-            applied_coupons: totals.applied_coupons,
+            line_items: content.invoice_lines,
+            amount_due: content.amount_due,
+            subtotal: content.subtotal,
+            subtotal_recurring: content.subtotal_recurring,
+            total: content.total,
+            tax_amount: content.tax_amount,
+            applied_credits: content.applied_credits,
+            applied_coupons: content.applied_coupons,
+            tax_breakdown: content.tax_breakdown,
         })
     }
 }

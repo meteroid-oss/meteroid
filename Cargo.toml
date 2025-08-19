@@ -4,6 +4,7 @@ members = [
   # meteroid
   "modules/meteroid",
   "modules/meteroid/crates/meteroid-grpc",
+  "modules/meteroid/crates/meteroid-tax",
   "modules/meteroid/crates/stripe-client",
   "modules/meteroid/crates/hubspot-client",
   "modules/meteroid/crates/pennylane-client",
@@ -101,6 +102,7 @@ itertools = "0.14.0"
 jsonwebtoken = "9.2.0"
 klickhouse = { default-features = false, version = "0.14.0" }
 lapin = "3.2.0"
+lazy_static = "1.5.0"
 lettre = { version = "0.11.11", default-features = false }
 log = "0.4.20"
 mockall = "0.13.1"
@@ -184,7 +186,7 @@ derive_typst_intoval = { version = "0.3.0", features = [] }
 unic-langid = "0.9"
 url = "2.4.1"
 uuid = "1.4.1"
-utoipa = { version = "5.3.1", features = ["axum_extras", "uuid", "debug", "chrono"] }
+utoipa = { version = "5.3.1", features = ["axum_extras", "uuid", "debug", "chrono", "decimal_float"] }
 utoipa-axum = { version = "0.2.0" }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 
@@ -222,6 +224,7 @@ meteroid-oauth = { path = "modules/meteroid/crates/meteroid-oauth" }
 meteroid-seeder = { path = "modules/meteroid/crates/meteroid-seeder" }
 hubspot-client = { path = "modules/meteroid/crates/hubspot-client" }
 pennylane-client = { path = "modules/meteroid/crates/pennylane-client" }
+meteroid-tax = { path = "modules/meteroid/crates/meteroid-tax" }
 
 [patch.crates-io]
 # add patches here

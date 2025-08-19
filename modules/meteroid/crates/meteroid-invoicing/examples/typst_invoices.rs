@@ -1,5 +1,5 @@
 use chrono::NaiveDate;
-use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus};
+use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus, TaxBreakdownItem};
 use meteroid_invoicing::pdf::PdfGenerator;
 use meteroid_invoicing::{
     model::{
@@ -9,7 +9,7 @@ use meteroid_invoicing::{
     pdf::TypstPdfGenerator,
 };
 use rust_decimal::Decimal;
-use rusty_money::iso;
+use rusty_money::{Money, iso};
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
@@ -73,7 +73,7 @@ fn create_test_invoice() -> Invoice {
     let payment1_date = NaiveDate::from_ymd_opt(2025, 3, 15).unwrap();
     let payment2_date = NaiveDate::from_ymd_opt(2025, 3, 20).unwrap();
 
-    let eur = *iso::find("EUR").unwrap();
+    let eur = iso::find("EUR").unwrap();
 
     let mut payment_info = HashMap::new();
     payment_info.insert("Bank Name".to_string(), "International Bank".to_string());
@@ -89,12 +89,12 @@ fn create_test_invoice() -> Invoice {
         Transaction {
             method: "Card •••• 7726".to_string(),
             date: payment1_date,
-            amount: 50000,
+            amount: Money::from_major(500, eur),
         },
         Transaction {
             method: "Bank Transfer".to_string(),
             date: payment2_date,
-            amount: 30000,
+            amount: Money::from_major(300, eur),
         },
     ];
 
@@ -116,7 +116,7 @@ fn create_test_invoice() -> Invoice {
             tax_id: Some("FR123456789".to_string()),
             footer_info: Some("Payment to be made within 14 days".to_string()),
             footer_legal: Some("Acme Inc. is registered in France. All prices are in EUR and exclude VAT unless specified.".to_string()),
-            accounting_currency: eur,
+            accounting_currency: *eur,
             exchange_rate: Some(Decimal::from_str("1.08").unwrap()),
         },
         customer: Customer {
@@ -137,10 +137,9 @@ fn create_test_invoice() -> Invoice {
             number: "INV-2025-001".to_string(),
             issue_date,
             payment_term: 14,
-            subtotal: 100000,
-            tax_amount: 20000,
-            tax_rate: 2000,
-            total_amount: 120000,
+            subtotal: Money::from_major(1000, eur),
+            tax_amount: Money::from_major(200, eur),
+            total_amount: Money::from_major(1200, eur),
             currency: eur,
             due_date,
             memo: Some("Thank you for your subscription!".to_string()),
@@ -158,36 +157,34 @@ fn create_test_invoice() -> Invoice {
             InvoiceLine {
                 name: "Consulting Services".to_string(),
                 description: Some("Technical consulting for Q1 2025".to_string()),
-                subtotal: 75000,
-                total: 75000,
+                subtotal: Money::from_major(750, eur),
                 quantity: Some(Decimal::from_str("15.0").unwrap()),
-                unit_price: Some(Decimal::from_str("50.0").unwrap()),
-                vat_rate: Some(Decimal::from_str("20.0").unwrap()),
+                unit_price: Some(Money::from_major(50, eur)),
+                tax_rate: Decimal::from_str("20.0").unwrap(),
                 start_date,
                 end_date,
                 sub_lines: vec![
                     InvoiceSubLine {
                         name: "Frontend Development".to_string(),
-                        total: 25000,
+                        total: Money::from_major(250, eur),
                         quantity: Decimal::from_str("5.0").unwrap(),
-                        unit_price: Decimal::from_str("50.0").unwrap(),
+                        unit_price: Money::from_major(50, eur),
                     },
                     InvoiceSubLine {
                         name: "Backend Development".to_string(),
-                        total: 50000,
+                        total: Money::from_major(500, eur),
                         quantity: Decimal::from_str("10.0").unwrap(),
-                        unit_price: Decimal::from_str("50.0").unwrap(),
+                        unit_price: Money::from_major(50, eur),
                     },
                 ],
             },
             InvoiceLine {
                 name: "Software License".to_string(),
                 description: Some("Annual license renewal".to_string()),
-                subtotal: 25000,
-                total: 25000,
+                subtotal: Money::from_major(250, eur),
                 quantity: Some(Decimal::from_str("1.0").unwrap()),
-                unit_price: Some(Decimal::from_str("250.0").unwrap()),
-                vat_rate: Some(Decimal::from_str("20.0").unwrap()),
+                unit_price: Some(Money::from_major(250, eur)),
+                tax_rate: Decimal::from_str("20.0").unwrap(),
                 start_date,
                 end_date,
                 sub_lines: vec![],
@@ -196,11 +193,19 @@ fn create_test_invoice() -> Invoice {
         coupons: vec![
             Coupon {
                 name: "Spring promotion 10% off".to_string(),
-                total: 2500,
+                total: Money::from_major(25, eur),
             }
         ],
         payment_status: Some(PaymentStatus::Paid),
         transactions,
         bank_details: Some(payment_info),
+        tax_breakdown: vec![
+            TaxBreakdownItem {
+                name: "VAT 20%".to_string(),
+                rate: Decimal::from_str("20.0").unwrap(),
+                amount: Money::from_major(200, eur),
+                exemption_type: None
+            },
+        ],
     }
 }

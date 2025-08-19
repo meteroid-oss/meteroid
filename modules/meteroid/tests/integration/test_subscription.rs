@@ -442,7 +442,7 @@ async fn test_subscription_cancel() {
 //     assert_eq!(invoice_line.quantity, Some(5));
 //
 //     assert_eq!(invoice_line.unit_price, Some(1000f64));
-//     assert_eq!(invoice_line.total, 1000 * 5);
+//     assert_eq!(invoice_line.amount_total, 1000 * 5);
 //
 //     let period = invoice_line.period.as_ref().unwrap();
 //     assert_eq!(period.from, start);
@@ -536,7 +536,7 @@ async fn test_subscription_create_invoice_seats() {
         Decimal::from_f64(prorated_unit_price)
     );
     assert_eq!(
-        invoice_line.total,
+        invoice_line.amount_total,
         (prorated_unit_price * seats_quantity as f64) as i64
     );
 
@@ -725,7 +725,7 @@ async fn test_subscription_create_invoice_rate() {
     assert_eq!(invoice_line_monthly.name, "Subscription Rate");
     assert_eq!(invoice_line_monthly.quantity, Some(dec!(1)));
     assert_eq!(invoice_line_monthly.unit_price, Some(dec!(3500.0)));
-    assert_eq!(invoice_line_monthly.total, 3500);
+    assert_eq!(invoice_line_monthly.amount_total, 3500);
 
     assert_eq!(invoice_line_monthly.start_date, start);
     assert_eq!(
@@ -747,7 +747,7 @@ async fn test_subscription_create_invoice_rate() {
     assert_eq!(invoice_line_annual.name, "Subscription Rate");
     assert_eq!(invoice_line_annual.quantity, Some(dec!(1)));
     assert_eq!(invoice_line_annual.unit_price, Some(dec!(15900.0)));
-    assert_eq!(invoice_line_annual.total, 15900);
+    assert_eq!(invoice_line_annual.amount_total, 15900);
 
     assert_eq!(invoice_line_annual.start_date, start);
     assert_eq!(
@@ -776,7 +776,7 @@ async fn test_subscription_create_invoice_rate() {
         invoice_line_monthly.unit_price,
         Some(Decimal::from(prorated_unit_price))
     );
-    assert_eq!(invoice_line_monthly.total, prorated_unit_price);
+    assert_eq!(invoice_line_monthly.amount_total, prorated_unit_price);
 
     assert_eq!(invoice_line_monthly.start_date, start);
     assert_eq!(invoice_line_monthly.end_date, start.with_day(30).unwrap());
@@ -877,7 +877,7 @@ async fn test_subscription_create_invoice_usage() {
         Some(Decimal::from(prorated_unit_price))
     );
     assert_eq!(
-        invoice_line.total,
+        invoice_line.amount_total,
         prorated_unit_price * slots_quantity as i64
     );
 

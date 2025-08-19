@@ -24,6 +24,7 @@ message InvoicingEntity {
   optional string vat_number = 19;
   string country = 20;
   string accounting_currency = 21;
+  TaxResolver tax_resolver = 22;
 }
 
 message InvoicingEntityData {
@@ -42,6 +43,13 @@ message InvoicingEntityData {
   optional string city = 18;
   optional string vat_number = 19;
   optional string country = 20;
+  optional TaxResolver tax_resolver = 21;
+}
+
+enum TaxResolver {
+  NONE = 0;
+  MANUAL = 1;
+  METEROID_EU_VAT = 2;
 }
 
 message FileData {

@@ -49,7 +49,10 @@ message Customer {
   optional string current_payment_method_id = 17;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 18;
   optional string bank_account_id = 19;
-  optional int32 custom_vat_rate = 20;
+  optional string custom_tax_rate = 20;
+  bool is_tax_exempt = 21;
+  bool is_vat_number_valid = 22;
+
 }
 
 message CustomerNew {
@@ -64,7 +67,8 @@ message CustomerNew {
   optional string invoicing_entity_id = 14;
   optional string bank_account_id = 15;
   optional string vat_number = 16;
-  optional int32 custom_vat_rate = 17;
+  optional string custom_tax_rate = 17;
+  optional bool is_tax_exempt = 18;
 }
 
 
@@ -82,7 +86,8 @@ message UpdateCustomer {
   optional string invoicing_entity_id = 14;
   optional string vat_number = 15;
   optional string bank_account_id = 16;
-  optional int32 custom_vat_rate = 17;
+  optional string custom_tax_rate = 17;
+  optional bool is_tax_exempt = 18;
 
   message InvoicingEmails {
     repeated string emails = 1;

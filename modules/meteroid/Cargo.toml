@@ -58,11 +58,12 @@ anyhow.workspace = true
 axum = { workspace = true, features = ["default", "macros", "http2"] }
 hyper = { workspace = true, features = ["http1", "http2", "server"] }
 
-rust_decimal = { workspace = true, features = ["serde_json"] }
+rust_decimal = { workspace = true, features = ["serde_json", "serde-with-float"] }
 rust_decimal_macros = { workspace = true }
 
 metering-grpc = { workspace = true, features = ["client"] }
 meteroid-oauth = { workspace = true }
+meteroid-tax = { workspace = true }
 common-domain = { workspace = true, features = ["utoipa", "tonic"] }
 common-eventbus = { workspace = true }
 common-utils = { workspace = true, features = ["error-stack-conv"] }

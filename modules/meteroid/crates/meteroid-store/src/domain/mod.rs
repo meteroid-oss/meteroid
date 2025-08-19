@@ -21,6 +21,7 @@ pub use subscription_coupons::*;
 pub use subscriptions::*;
 pub use tenants::*;
 
+pub mod accounting;
 pub mod customers;
 pub mod invoices;
 pub mod plans;

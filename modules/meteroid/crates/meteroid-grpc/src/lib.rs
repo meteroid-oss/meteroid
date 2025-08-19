@@ -126,6 +126,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod taxes {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.taxes.v1");
+            }
+        }
+
         pub mod tenants {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.tenants.v1");

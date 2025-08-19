@@ -21,6 +21,7 @@ types:
     - meteroid.api.users.v1.UsersService
     - meteroid.api.organizations.v1.OrganizationsService
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
+    - meteroid.api.taxes.v1.TaxesService
     - meteroid.portal.checkout.v1.PortalCheckoutService
 plugins:
   - plugin: buf.build/bufbuild/es:v1.7.1

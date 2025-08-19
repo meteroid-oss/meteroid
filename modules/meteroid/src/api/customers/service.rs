@@ -23,6 +23,7 @@ use crate::api::customers::mapping::customer::{
     DomainAddressWrapper, DomainShippingAddressWrapper, ServerCustomerBriefWrapper,
     ServerCustomerWrapper,
 };
+use crate::api::shared::conversions::FromProtoOpt;
 use crate::api::utils::PaginationExt;
 
 use super::CustomerServiceComponents;
@@ -65,7 +66,8 @@ impl CustomersService for CustomerServiceComponents {
             force_created_date: None,
             bank_account_id: BankAccountId::from_proto_opt(inner.bank_account_id)?,
             vat_number: inner.vat_number,
-            custom_vat_rate: inner.custom_vat_rate,
+            custom_tax_rate: rust_decimal::Decimal::from_proto_opt(inner.custom_tax_rate)?,
+            is_tax_exempt: inner.is_tax_exempt.unwrap_or(false),
         };
 
         let customer = self
@@ -127,8 +129,11 @@ impl CustomersService for CustomerServiceComponents {
                     billing_address,
                     shipping_address,
                     vat_number: Some(customer.vat_number),
-                    custom_vat_rate: Some(customer.custom_vat_rate),
+                    custom_tax_rate: Some(rust_decimal::Decimal::from_proto_opt(
+                        customer.custom_tax_rate,
+                    )?),
                     bank_account_id: Some(BankAccountId::from_proto_opt(customer.bank_account_id)?),
+                    is_tax_exempt: customer.is_tax_exempt,
                 },
             )
             .await
@@ -264,7 +269,7 @@ impl CustomersService for CustomerServiceComponents {
         let customer_id = CustomerId::from_proto(&req.customer_id)?;
 
         let invoice = self
-            .store
+            .service
             .buy_customer_credits(CustomerBuyCredits {
                 created_by: actor,
                 tenant_id,

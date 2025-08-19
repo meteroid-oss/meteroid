@@ -30,6 +30,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         "schedules",
         "stats",
         "subscriptions",
+        "taxes",
         "tenants",
         "users",
         "webhooksout",

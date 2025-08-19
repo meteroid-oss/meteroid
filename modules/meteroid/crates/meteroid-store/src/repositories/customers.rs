@@ -1,33 +1,23 @@
 use crate::StoreResult;
-use crate::domain::enums::{InvoiceStatusEnum, InvoiceType};
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::pgmq::{
     HubspotSyncCustomerDomain, HubspotSyncRequestEvent, PennylaneSyncCustomer,
     PennylaneSyncRequestEvent, PgmqQueue,
 };
 use crate::domain::{
-    ConnectorProviderEnum, Customer, CustomerBrief, CustomerBuyCredits, CustomerNew,
-    CustomerNewWrapper, CustomerPatch, CustomerTopUpBalance, CustomerUpdate, DetailedInvoice,
-    InlineCustomer, InlineInvoicingEntity, InvoiceNew, InvoicePaymentStatus, InvoiceTotals,
-    InvoiceTotalsParams, InvoicingEntity, LineItem, OrderByRequest, PaginatedVec,
-    PaginationRequest,
+    ConnectorProviderEnum, Customer, CustomerBrief, CustomerNew, CustomerNewWrapper, CustomerPatch,
+    CustomerTopUpBalance, CustomerUpdate, OrderByRequest, PaginatedVec, PaginationRequest,
 };
 use crate::errors::StoreError;
-use crate::repositories::InvoiceInterface;
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
-use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::pgmq::PgmqInterface;
-use crate::services::utils::format_invoice_number;
 use crate::store::Store;
-use crate::utils::local_id::{IdType, LocalId};
 use common_domain::ids::{AliasOr, BaseId, ConnectorId, CustomerId, TenantId};
 use common_eventbus::Event;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::customer_balance_txs::CustomerBalancePendingTxRowNew;
 use diesel_models::customers::{CustomerRow, CustomerRowNew, CustomerRowPatch, CustomerRowUpdate};
-use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::{Report, bail};
 use uuid::Uuid;
@@ -81,8 +71,6 @@ pub trait CustomersInterface {
     ) -> StoreResult<Option<Customer>>;
 
     async fn top_up_customer_balance(&self, req: CustomerTopUpBalance) -> StoreResult<Customer>;
-
-    async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice>;
 
     async fn find_customer_by_id_or_alias(
         &self,
@@ -225,10 +213,13 @@ impl CustomersInterface for Store {
             .get_invoicing_entity(tenant_id, customer.invoicing_entity_id)
             .await?;
 
+        let vat_number_format_valid = customer.is_valid_vat_number_format();
+
         let customer: CustomerRowNew = CustomerNewWrapper {
             inner: customer,
             invoicing_entity_id: invoicing_entity.id,
             tenant_id,
+            vat_number_format_valid,
         }
         .try_into()?;
 
@@ -283,10 +274,13 @@ impl CustomersInterface for Store {
                     .and_then(|id| invoicing_entities.iter().find(|ie| ie.id == *id))
                     .unwrap_or(default_invoicing_entity);
 
+                let vat_number_format_valid = c.is_valid_vat_number_format();
+
                 let c: CustomerRowNew = CustomerNewWrapper {
                     inner: c,
                     invoicing_entity_id: invoicing_entity.id,
                     tenant_id,
+                    vat_number_format_valid,
                 }
                 .try_into()?;
 
@@ -342,7 +336,9 @@ impl CustomersInterface for Store {
     ) -> StoreResult<Option<Customer>> {
         let mut conn = self.get_conn().await?;
 
-        let patch_model: CustomerRowPatch = customer.try_into()?;
+        let is_valid_vat_number_format = customer.is_valid_vat_number_format();
+        let mut patch_model: CustomerRowPatch = customer.try_into()?;
+        patch_model.vat_number_format_valid = is_valid_vat_number_format;
 
         let updated = patch_model
             .update(&mut conn, tenant_id)
@@ -379,156 +375,6 @@ impl CustomersInterface for Store {
         })
         .await
     }
-    // TODO use services.bill
-    async fn buy_customer_credits(&self, req: CustomerBuyCredits) -> StoreResult<DetailedInvoice> {
-        let mut conn = self.get_conn().await?;
-
-        let customer: Customer =
-            CustomerRow::find_by_id(&mut conn, &req.customer_id, &req.tenant_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?
-                .try_into()?;
-
-        let invoice = self
-            .transaction_with(&mut conn, |conn| {
-                async move {
-                    let now = chrono::Utc::now().naive_utc();
-
-                    let line_items = vec![LineItem {
-                        local_id: LocalId::generate_for(IdType::Other),
-                        name: "Purchase credits".into(),
-                        total: req.cents,
-                        subtotal: req.cents,
-                        quantity: Some(req.cents.into()),
-                        unit_price: Some(1.into()),
-                        start_date: now.date(),
-                        end_date: now.date(),
-                        sub_lines: vec![],
-                        is_prorated: false,
-                        price_component_id: None,
-                        product_id: None,
-                        metric_id: None,
-                        description: None,
-                    }];
-
-                    let totals = InvoiceTotals::from_params(InvoiceTotalsParams {
-                        line_items: &line_items,
-                        total: 0,
-                        amount_due: 0,
-                        tax_rate: 0,
-                        customer_balance_cents: 0,
-                        subscription_applied_coupons: &vec![],
-                        invoice_currency: customer.currency.as_str(),
-                    });
-
-                    let invoicing_entity: InvoicingEntity =
-                        InvoicingEntityRow::select_for_update_by_id_and_tenant(
-                            conn,
-                            customer.invoicing_entity_id,
-                            req.tenant_id,
-                        )
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?
-                        .into();
-
-                    let address = invoicing_entity.address();
-
-                    let due_at = if invoicing_entity.net_terms > 0 {
-                        Some(
-                            (now.date()
-                                + chrono::Duration::days(invoicing_entity.net_terms as i64))
-                            .and_time(chrono::NaiveTime::MIN),
-                        )
-                    } else {
-                        None
-                    };
-
-                    let invoice_new = InvoiceNew {
-                        status: InvoiceStatusEnum::Finalized,
-                        tenant_id: req.tenant_id,
-                        customer_id: req.customer_id,
-                        subscription_id: None,
-                        currency: customer.currency,
-                        due_at,
-                        plan_name: None,
-                        invoice_number: format_invoice_number(
-                            invoicing_entity.next_invoice_number,
-                            invoicing_entity.invoice_number_pattern,
-                            now.date(),
-                        ),
-                        line_items,
-                        coupons: vec![],
-                        data_updated_at: None,
-                        invoice_date: now.date(),
-                        total: totals.total,
-                        amount_due: totals.amount_due,
-                        net_terms: invoicing_entity.net_terms,
-                        reference: None,
-                        purchase_order: None,
-                        memo: None, // TODO
-                        plan_version_id: None,
-                        invoice_type: InvoiceType::OneOff,
-                        finalized_at: Some(now),
-                        subtotal: totals.subtotal,
-                        subtotal_recurring: totals.subtotal_recurring,
-                        discount: 0,
-                        tax_rate: 0, // TODO
-                        tax_amount: totals.tax_amount,
-                        customer_details: InlineCustomer {
-                            billing_address: customer.billing_address.clone(),
-                            id: req.customer_id,
-                            name: customer.name,
-                            alias: customer.alias,
-                            email: customer.billing_email,
-                            vat_number: customer.vat_number,
-                            snapshot_at: now,
-                        },
-                        seller_details: InlineInvoicingEntity {
-                            address,
-                            id: invoicing_entity.id,
-                            legal_name: invoicing_entity.legal_name.clone(),
-                            vat_number: invoicing_entity.vat_number.clone(),
-                            snapshot_at: now,
-                        },
-                        auto_advance: true,
-                        payment_status: InvoicePaymentStatus::Unpaid,
-                    };
-
-                    let inserted_invoice = insert_invoice_tx(self, conn, invoice_new).await?;
-
-                    InvoicingEntityRow::update_invoicing_entity_number(
-                        conn,
-                        invoicing_entity.id,
-                        req.tenant_id,
-                        invoicing_entity.next_invoice_number,
-                    )
-                    .await
-                    .map_err(Into::<Report<StoreError>>::into)?;
-
-                    let tx = CustomerBalancePendingTxRowNew {
-                        id: Uuid::now_v7(),
-                        amount_cents: req.cents,
-                        note: req.notes,
-                        invoice_id: inserted_invoice.id,
-                        tenant_id: req.tenant_id,
-                        customer_id: req.customer_id,
-                        tx_id: None,
-                        created_by: req.created_by,
-                    };
-
-                    tx.insert(conn)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)?;
-
-                    Ok(inserted_invoice)
-                }
-                .scope_boxed()
-            })
-            .await?;
-
-        self.get_detailed_invoice_by_id(req.tenant_id, invoice.id)
-            .await
-    }
 
     async fn find_customer_by_id_or_alias(
         &self,
@@ -560,6 +406,8 @@ impl CustomersInterface for Store {
             .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
             .await?;
 
+        let vat_number_format_valid = customer.is_valid_vat_number_format();
+
         let update_model = CustomerRowUpdate {
             id: by_id_or_alias.id,
             name: customer.name,
@@ -579,8 +427,10 @@ impl CustomersInterface for Store {
             updated_by: actor,
             invoicing_entity_id: invoicing_entity.id,
             vat_number: customer.vat_number,
-            custom_vat_rate: customer.custom_vat_rate,
+            custom_tax_rate: customer.custom_tax_rate,
             bank_account_id: customer.bank_account_id,
+            vat_number_format_valid,
+            is_tax_exempt: customer.is_tax_exempt,
         };
 
         let updated = update_model
