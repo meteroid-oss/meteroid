@@ -160,8 +160,8 @@ mod tests {
 
         let items = distribute_discount(items, 1000); // 10€ so 10%
 
-        assert_eq!(items[0].taxable_amount, 540); // 60€ - 6€
-        assert_eq!(items[1].taxable_amount, 360); // 40€ - 4€
+        assert_eq!(items[0].taxable_amount, 5400); // 60€ - 6€
+        assert_eq!(items[1].taxable_amount, 3600); // 40€ - 4€
     }
 
     #[test]

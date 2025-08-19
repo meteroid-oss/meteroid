@@ -17,6 +17,7 @@ use meteroid_tax::{ManualTaxEngine, MeteroidTaxEngine, TaxDetails, TaxEngine};
 
 impl Services {}
 
+#[derive(Debug)]
 pub struct ComputedInvoiceContent {
     pub invoice_lines: Vec<LineItem>,
     pub subtotal: i64, // before discounts, coupons, credits, taxes
@@ -246,9 +247,9 @@ impl Services {
 
         let customer = meteroid_tax::CustomerForTax {
             vat_number: customer.vat_number.clone(),
-            vat_number_format_valid: false,
-            custom_tax_rate: None,
-            tax_exempt: false,
+            vat_number_format_valid: customer.vat_number_format_valid,
+            custom_tax_rate: customer.custom_tax_rate,
+            tax_exempt: customer.is_tax_exempt,
             billing_address: customer_address.into(),
         };
 
