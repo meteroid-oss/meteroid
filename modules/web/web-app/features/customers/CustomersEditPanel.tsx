@@ -52,7 +52,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
     defaultValues: {
       paymentTerm: 30,
       gracePeriod: 7,
-      taxRate: 20,
+      customTaxRate: 20,
       shipping: false,
     },
   })
