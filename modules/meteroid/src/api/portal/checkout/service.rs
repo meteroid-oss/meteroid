@@ -25,6 +25,7 @@ use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{OrganizationsInterface, SubscriptionInterface};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use secrecy::ExposeSecret;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
@@ -107,6 +108,37 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             invoice_content.invoice_lines,
         );
 
+        // Map tax breakdown
+        let tax_breakdown = invoice_content
+            .tax_breakdown
+            .into_iter()
+            .map(|item| TaxBreakdownItem {
+                name: item.name,
+                rate: item.tax_rate.to_string(),
+                amount: (item.taxable_amount as f64 * item.tax_rate.to_f64().unwrap_or(0.0) / 100.0)
+                    as u64,
+            })
+            .collect();
+
+        // Map applied coupons
+        let applied_coupons = invoice_content
+            .applied_coupons
+            .clone()
+            .into_iter()
+            .map(|coupon| AppliedCoupon {
+                coupon_code: coupon.code,
+                coupon_name: coupon.name,
+                amount: coupon.value.to_non_negative_u64(),
+            })
+            .collect();
+
+        // Calculate total coupon amount
+        let coupon_amount: i64 = invoice_content
+            .applied_coupons
+            .iter()
+            .map(|c| c.value)
+            .sum();
+
         Ok(Response::new(GetSubscriptionCheckoutResponse {
             checkout: Some(Checkout {
                 subscription: Some(subscription),
@@ -115,11 +147,13 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
                 logo_url,
                 trade_name: organization.trade_name,
                 payment_methods,
-                // TODO recurring_total => also check this is not prorated
-                // amount_due
                 total_amount: invoice_content.total.to_non_negative_u64(),
                 subtotal_amount: invoice_content.subtotal.to_non_negative_u64(),
-                // TODO we need to return all totals, tax etc tpp
+                tax_amount: invoice_content.tax_amount.to_non_negative_u64(),
+                discount_amount: invoice_content.discount.to_non_negative_u64(),
+                coupon_amount: coupon_amount.to_non_negative_u64(),
+                tax_breakdown,
+                applied_coupons,
             }),
         }))
     }

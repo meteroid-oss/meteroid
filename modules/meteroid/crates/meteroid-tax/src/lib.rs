@@ -193,7 +193,7 @@ impl TaxEngine for ManualTaxEngine {
         customer: CustomerForTax,
         _invoicing_entity_address: Address,
         _amount: u64,
-        _currency: &String,
+        _currency: &str,
     ) -> error_stack::Result<CustomerTax, TaxEngineError> {
         if customer.tax_exempt {
             return Ok(CustomerTax::Exempt);
