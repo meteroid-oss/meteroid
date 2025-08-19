@@ -17,7 +17,7 @@ pub(crate) async fn compute_tax(
             tax_type: world_tax::TaxType::VAT(world_tax::VatRate::ReverseCharge),
             ..
         }) => Some(VatExemptionReason::ReverseCharge),
-        CustomerTax::NoTax => Some(VatExemptionReason::TaxExempt),
+        CustomerTax::Exempt => Some(VatExemptionReason::TaxExempt),
         _ => None,
     };
 
@@ -94,7 +94,7 @@ fn determine_tax_details(
 
             let a_priority = priority(a);
             let b_priority = priority(b);
-            a_priority.cmp(&b_priority)
+            b_priority.cmp(&a_priority)
         });
 
         if let Some(tax_rule) = tax_rule.first() {
@@ -114,7 +114,7 @@ fn determine_tax_details(
 
     // Fall back to customer tax
     match customer_tax {
-        CustomerTax::NoTax => TaxDetails::Exempt(VatExemptionReason::TaxExempt),
+        CustomerTax::NoTax => TaxDetails::Exempt(VatExemptionReason::NotRegistered),
         CustomerTax::CustomTaxRate(rate) => {
             let tax_amount = (rust_decimal::Decimal::from(item.amount) * rate)
                 .round_dp_with_strategy(0, rust_decimal::RoundingStrategy::MidpointAwayFromZero)

@@ -7,6 +7,7 @@ pub struct Address {
     pub region: Option<String>, // ISO 3166-2
 }
 
+#[derive(Debug, Clone)]
 pub struct CustomerForTax {
     pub vat_number: Option<String>,
     pub vat_number_format_valid: bool,
@@ -15,6 +16,7 @@ pub struct CustomerForTax {
     pub billing_address: Address,
 }
 
+#[derive(Debug)]
 pub enum CustomerTax {
     CustomTaxRate(rust_decimal::Decimal),
     ResolvedTaxRate(world_tax::TaxRate),
@@ -22,6 +24,24 @@ pub enum CustomerTax {
     NoTax,
 }
 
+impl Clone for CustomerTax {
+    fn clone(&self) -> Self {
+        match self {
+            CustomerTax::CustomTaxRate(rate) => CustomerTax::CustomTaxRate(*rate),
+            CustomerTax::ResolvedTaxRate(tax_rate) => {
+                CustomerTax::ResolvedTaxRate(world_tax::TaxRate {
+                    rate: tax_rate.rate,
+                    tax_type: tax_rate.tax_type.clone(),
+                    compound: tax_rate.compound,
+                })
+            }
+            CustomerTax::Exempt => CustomerTax::Exempt,
+            CustomerTax::NoTax => CustomerTax::NoTax,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TaxRule {
     pub country: Option<String>,
     pub region: Option<String>,
@@ -43,6 +63,7 @@ pub struct TaxRateEntry {
     pub rate: rust_decimal::Decimal,
 }
 
+#[derive(Debug, Clone)]
 pub struct CustomTax {
     pub reference: String,
     pub name: String,

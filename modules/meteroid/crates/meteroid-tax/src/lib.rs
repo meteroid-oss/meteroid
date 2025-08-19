@@ -4,6 +4,9 @@ pub use model::*;
 mod shared;
 pub mod validation;
 
+#[cfg(test)]
+mod tests;
+
 use error_stack::{Report, ResultExt};
 use rust_decimal::prelude::ToPrimitive;
 use world_tax::{Region, TaxRate, TaxScenario};
