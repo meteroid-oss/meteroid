@@ -106,7 +106,12 @@ impl TaxEngine for MeteroidTaxEngine {
             return Ok(CustomerTax::CustomTaxRate(rate));
         }
 
-        let is_b2b = customer.vat_number.is_some() && customer.vat_number_format_valid;
+        let is_b2b = customer
+            .vat_number
+            .as_ref()
+            .map(|vat| !vat.trim().is_empty())
+            .unwrap_or(false)
+            && customer.vat_number_format_valid;
 
         let invoicing_entity_country = match &invoicing_entity_address.country {
             Some(country) => country,

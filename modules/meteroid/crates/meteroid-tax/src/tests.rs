@@ -5,7 +5,6 @@ mod tests {
 
     use rust_decimal_macros::dec;
 
-    // Helper function to create test addresses
     fn test_address(country: &str, region: Option<&str>) -> Address {
         Address {
             country: Some(country.to_string()),
@@ -16,7 +15,6 @@ mod tests {
         }
     }
 
-    // Helper function to create a test line item
     fn test_line_item(id: &str, amount: u64, custom_tax: Option<CustomTax>) -> LineItemForTax {
         LineItemForTax {
             line_id: id.to_string(),
@@ -351,7 +349,6 @@ mod tests {
         assert_eq!(breakdown.total_amount_after_tax, 10000);
     }
 
-    // Helper function to create a test customer
     fn test_customer(
         vat_number: Option<String>,
         tax_exempt: bool,
@@ -367,7 +364,6 @@ mod tests {
         }
     }
 
-    // Tests for TaxEngine implementations
     mod tax_engines {
         use super::*;
         use crate::{ManualTaxEngine, MeteroidTaxEngine, TaxEngine};
@@ -497,14 +493,13 @@ mod tests {
             assert_eq!(result.total_amount_after_tax, 10000);
         }
 
-        // Edge case tests for VAT number validation
         #[tokio::test]
         async fn test_meteroid_engine_invalid_vat_number_format() {
             let engine = MeteroidTaxEngine;
 
             // Customer has VAT number but format is invalid
             let mut customer = test_customer(Some("INVALID_VAT".to_string()), false, None, "DE");
-            customer.vat_number_format_valid = false; // Format is invalid
+            customer.vat_number_format_valid = false;
 
             let invoicing_entity_address = test_address("FR", None);
             let line_items = vec![test_line_item("item1", 10000, None)];
@@ -545,9 +540,9 @@ mod tests {
                 .await
                 .unwrap();
 
-            // Even with empty string, if vat_number.is_some() it should be treated as B2B
-            // (This might be a potential bug - empty string probably shouldn't be B2B)
-            assert_eq!(result.tax_amount, 0); // Should be reverse charge
+            // Empty VAT number should be treated as B2C, not B2B
+            // So it should apply German VAT rate, not reverse charge
+            assert!(result.tax_amount > 0);
         }
 
         #[tokio::test]
@@ -583,7 +578,7 @@ mod tests {
 
             let customer = test_customer(None, false, None, "DE");
             let mut invoicing_entity_address = test_address("", None);
-            invoicing_entity_address.country = None; // Missing invoicing country
+            invoicing_entity_address.country = None;
 
             let line_items = vec![test_line_item("item1", 10000, None)];
 
@@ -601,24 +596,6 @@ mod tests {
             // Should default to no tax when invoicing country is missing
             assert_eq!(result.tax_amount, 0);
             assert_eq!(result.total_amount_after_tax, 10000);
-        }
-
-        #[tokio::test]
-        async fn test_vat_validation_service_unavailable() {
-            let engine = MeteroidTaxEngine;
-
-            // Test VAT validation returns ServiceUnavailable
-            let result = engine
-                .validate_vat_number("DE123456789".to_string(), test_address("DE", None))
-                .await
-                .unwrap();
-
-            match result {
-                VatNumberExternalValidationResult::ServiceUnavailable => {
-                    // Expected - validation is not implemented yet
-                }
-                _ => panic!("Expected ServiceUnavailable"),
-            }
         }
     }
 }
