@@ -257,14 +257,14 @@ pub async fn validate_coupons(
             DatabaseError::ValidationError(format!("coupon {} not found", coupon_id))
         ))?;
 
-        if let Some(redemption_limit) = coupon.redemption_limit {
-            if redemption_limit < subscriptions_count as i32 + coupon.redemption_count {
-                return Err(report!(DatabaseError::ValidationError(format!(
-                    "coupon {} has reached its maximum redemptions",
-                    coupon.code
-                )))
-                .into());
-            }
+        if let Some(redemption_limit) = coupon.redemption_limit
+            && redemption_limit < subscriptions_count as i32 + coupon.redemption_count
+        {
+            return Err(report!(DatabaseError::ValidationError(format!(
+                "coupon {} has reached its maximum redemptions",
+                coupon.code
+            )))
+            .into());
         }
     }
 

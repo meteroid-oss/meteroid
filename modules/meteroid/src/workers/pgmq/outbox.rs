@@ -65,13 +65,13 @@ impl PgmqOutboxDispatch {
                             .map(|msg_new| new_messages.push(msg_new))
                             .change_context(PgmqError::HandleMessages)?;
                     }
-                } else if let EventType::SubscriptionCreated = &out_headers.event_type {
-                    if let Ok(OutboxEvent::SubscriptionCreated(evt)) = msg.try_into() {
-                        HubspotSyncRequestEvent::SubscriptionOutbox(evt)
-                            .try_into()
-                            .map(|msg_new| new_messages.push(msg_new))
-                            .change_context(PgmqError::HandleMessages)?;
-                    }
+                } else if let EventType::SubscriptionCreated = &out_headers.event_type
+                    && let Ok(OutboxEvent::SubscriptionCreated(evt)) = msg.try_into()
+                {
+                    HubspotSyncRequestEvent::SubscriptionOutbox(evt)
+                        .try_into()
+                        .map(|msg_new| new_messages.push(msg_new))
+                        .change_context(PgmqError::HandleMessages)?;
                 }
             }
         }
@@ -110,16 +110,16 @@ impl PgmqOutboxDispatch {
                         .map(|msg_new| new_messages.push(msg_new))
                         .change_context(PgmqError::HandleMessages)?;
                     }
-                } else if let EventType::InvoicePaid = &out_headers.event_type {
-                    if let Ok(OutboxEvent::InvoicePaid(evt)) = msg.try_into() {
-                        PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
-                            id: evt.invoice_id,
-                            tenant_id: evt.tenant_id,
-                        }))
-                        .try_into()
-                        .map(|msg_new| new_messages.push(msg_new))
-                        .change_context(PgmqError::HandleMessages)?;
-                    }
+                } else if let EventType::InvoicePaid = &out_headers.event_type
+                    && let Ok(OutboxEvent::InvoicePaid(evt)) = msg.try_into()
+                {
+                    PennylaneSyncRequestEvent::Invoice(Box::new(PennylaneSyncInvoice {
+                        id: evt.invoice_id,
+                        tenant_id: evt.tenant_id,
+                    }))
+                    .try_into()
+                    .map(|msg_new| new_messages.push(msg_new))
+                    .change_context(PgmqError::HandleMessages)?;
                 }
             }
         }
@@ -140,16 +140,13 @@ impl PgmqOutboxDispatch {
         for msg in msgs {
             let out_headers: StoreResult<Option<OutboxPgmqHeaders>> =
                 msg.headers.as_ref().map(TryInto::try_into).transpose();
-            if let Ok(Some(out_headers)) = out_headers {
-                if let EventType::BillableMetricCreated = &out_headers.event_type {
-                    if let Ok(OutboxEvent::BillableMetricCreated(evt)) = msg.try_into() {
-                        if let Ok(msg_new) =
-                            BillableMetricSyncRequestEvent::BillableMetricCreated(evt).try_into()
-                        {
-                            events.push(msg_new);
-                        }
-                    }
-                }
+            if let Ok(Some(out_headers)) = out_headers
+                && let EventType::BillableMetricCreated = &out_headers.event_type
+                && let Ok(OutboxEvent::BillableMetricCreated(evt)) = msg.try_into()
+                && let Ok(msg_new) =
+                    BillableMetricSyncRequestEvent::BillableMetricCreated(evt).try_into()
+            {
+                events.push(msg_new);
             }
         }
 

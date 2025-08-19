@@ -97,7 +97,7 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
         .attach_printable("Failed to create PostgreSQL connection pool")
 }
 
-fn establish_secure_connection(db_url: &str) -> BoxFuture<ConnectionResult<AsyncPgConnection>> {
+fn establish_secure_connection(db_url: &str) -> BoxFuture<'_, ConnectionResult<AsyncPgConnection>> {
     let fut = async {
         let tls = get_tls(db_url).unwrap();
         let (client, conn) = tokio_postgres::connect(db_url, tls)
