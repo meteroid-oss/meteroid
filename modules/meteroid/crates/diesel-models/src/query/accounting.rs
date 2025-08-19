@@ -123,7 +123,7 @@ impl ProductAccountingRow {
             .select(ie_dsl::id)
             .first::<InvoicingEntityId>(conn)
             .await
-            .attach_printable("Invoicing entity not found or does not belong to tenan")
+            .attach_printable("Invoicing entity not found or does not belong to tenant")
             .into_db_result()?;
 
         let query = diesel::insert_into(pa_dsl::product_accounting)

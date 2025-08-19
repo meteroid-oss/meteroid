@@ -21,7 +21,7 @@ pub struct ComputedInvoiceContent {
     pub invoice_lines: Vec<LineItem>,
     pub subtotal: i64, // before discounts, coupons, credits, taxes
     pub applied_coupons: Vec<CouponLineItem>,
-    pub discount: i64, // total tax amount applied to the invoice
+    pub discount: i64,
     pub tax_breakdown: Vec<TaxBreakdownItem>,
     pub applied_credits: i64,
 
