@@ -228,14 +228,23 @@ pub struct TypstTaxBreakdownItem {
     pub name: String,
     pub rate: f64,
     pub amount: f64,
+    pub exemption_type: Option<String>, // Simplified to string for typst
 }
 
 impl From<&TaxBreakdownItem> for TypstTaxBreakdownItem {
     fn from(item: &TaxBreakdownItem) -> Self {
+        use crate::model::TaxExemptionType;
+        let exemption_type = item.exemption_type.as_ref().map(|e| match e {
+            TaxExemptionType::ReverseCharge => "reverse_charge".to_string(),
+            TaxExemptionType::TaxExempt => "tax_exempt".to_string(),
+            TaxExemptionType::NotRegistered => "not_registered".to_string(),
+            TaxExemptionType::Other(s) => s.clone(),
+        });
         TypstTaxBreakdownItem {
             name: item.name.clone(),
             rate: item.rate.to_f64().unwrap_or(0.0),
             amount: item.amount.amount().to_f64().unwrap_or(0.0),
+            exemption_type,
         }
     }
 }

@@ -378,10 +378,23 @@ mod mapper {
         let tax_breakdown = invoice
             .tax_breakdown
             .iter()
-            .map(|t| invoicing_model::TaxBreakdownItem {
-                name: t.name.clone(),
-                rate: t.tax_rate,
-                amount: rusty_money::Money::from_minor(t.taxable_amount as i64, currency),
+            .map(|t| {
+                use meteroid_invoicing::model::TaxExemptionType as InvoicingExemption;
+                use meteroid_store::domain::invoices::TaxExemptionType as StoreExemption;
+
+                let exemption_type = t.exemption_type.as_ref().map(|e| match e {
+                    StoreExemption::ReverseCharge => InvoicingExemption::ReverseCharge,
+                    StoreExemption::TaxExempt => InvoicingExemption::TaxExempt,
+                    StoreExemption::NotRegistered => InvoicingExemption::NotRegistered,
+                    StoreExemption::Other(s) => InvoicingExemption::Other(s.clone()),
+                });
+
+                invoicing_model::TaxBreakdownItem {
+                    name: t.name.clone(),
+                    rate: t.tax_rate,
+                    amount: rusty_money::Money::from_minor(t.taxable_amount as i64, currency),
+                    exemption_type,
+                }
             })
             .collect();
 

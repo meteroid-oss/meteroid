@@ -204,6 +204,7 @@ fn create_test_invoice() -> Invoice {
                 name: "VAT 20%".to_string(),
                 rate: Decimal::from_str("20.0").unwrap(),
                 amount: Money::from_major(200, eur),
+                exemption_type: None
             },
         ],
     }

@@ -35,7 +35,7 @@ impl Services {
                         name: "Purchase credits".into(),
                         amount_total: req.cents,
                         amount_subtotal: req.cents,
-                        taxable_amount: 0,
+                        taxable_amount: req.cents,
                         tax_amount: 0,
                         unit_price: Some(req.cents.into()),
                         quantity: Some(1.into()),

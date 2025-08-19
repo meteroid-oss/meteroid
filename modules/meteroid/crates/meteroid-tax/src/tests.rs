@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::model::*;
-    use crate::shared;
+    use crate::{MeteroidTaxEngine, TaxEngine, shared};
 
     use rust_decimal_macros::dec;
 
@@ -596,6 +596,121 @@ mod tests {
             // Should default to no tax when invoicing country is missing
             assert_eq!(result.tax_amount, 0);
             assert_eq!(result.total_amount_after_tax, 10000);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reverse_charge_preserved_in_result() {
+        let engine = MeteroidTaxEngine;
+
+        // B2B transaction between different EU countries
+        let customer = CustomerForTax {
+            vat_number: Some("DE123456789".to_string()),
+            vat_number_format_valid: true,
+            tax_exempt: false,
+            custom_tax_rate: None,
+            billing_address: Address {
+                country: Some("DE".to_string()),
+                region: None,
+                city: None,
+                line1: None,
+                postal_code: None,
+            },
+        };
+
+        let invoicing_entity_address = Address {
+            country: Some("FR".to_string()),
+            region: None,
+            city: None,
+            line1: None,
+            postal_code: None,
+        };
+
+        let line_items = vec![LineItemForTax {
+            line_id: "item1".to_string(),
+            amount: 10000,
+            custom_tax: None,
+        }];
+
+        let result = engine
+            .calculate_line_items_tax(
+                "EUR".to_string(),
+                customer,
+                invoicing_entity_address,
+                line_items,
+                chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should be reverse charge
+        assert_eq!(result.tax_amount, 0);
+        assert_eq!(result.total_amount_after_tax, 10000);
+
+        // Check that breakdown contains reverse charge exemption
+        assert_eq!(result.breakdown.len(), 1);
+        match &result.breakdown[0].details {
+            TaxDetails::Exempt(VatExemptionReason::ReverseCharge) => {
+                // Success - reverse charge is preserved
+            }
+            _ => panic!("Expected reverse charge exemption in breakdown"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tax_exempt_preserved_in_result() {
+        let engine = MeteroidTaxEngine;
+
+        // Tax-exempt customer
+        let customer = CustomerForTax {
+            vat_number: None,
+            vat_number_format_valid: false,
+            tax_exempt: true,
+            custom_tax_rate: None,
+            billing_address: Address {
+                country: Some("FR".to_string()),
+                region: None,
+                city: None,
+                line1: None,
+                postal_code: None,
+            },
+        };
+
+        let invoicing_entity_address = Address {
+            country: Some("FR".to_string()),
+            region: None,
+            city: None,
+            line1: None,
+            postal_code: None,
+        };
+
+        let line_items = vec![LineItemForTax {
+            line_id: "item1".to_string(),
+            amount: 10000,
+            custom_tax: None,
+        }];
+
+        let result = engine
+            .calculate_line_items_tax(
+                "EUR".to_string(),
+                customer,
+                invoicing_entity_address,
+                line_items,
+                chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Should be tax exempt
+        assert_eq!(result.tax_amount, 0);
+
+        // Check that breakdown contains tax exempt reason
+        assert_eq!(result.breakdown.len(), 1);
+        match &result.breakdown[0].details {
+            TaxDetails::Exempt(VatExemptionReason::TaxExempt) => {
+                // Success - tax exempt is preserved
+            }
+            _ => panic!("Expected tax exempt in breakdown"),
         }
     }
 }

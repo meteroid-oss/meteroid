@@ -34,10 +34,18 @@ pub struct Invoice {
     pub tax_breakdown: Vec<TaxBreakdownItem>,
 }
 
+pub enum TaxExemptionType {
+    ReverseCharge,
+    TaxExempt,
+    NotRegistered,
+    Other(String),
+}
+
 pub struct TaxBreakdownItem {
     pub name: String,
     pub rate: Decimal,
     pub amount: Price,
+    pub exemption_type: Option<TaxExemptionType>,
 }
 
 #[derive(Default)]

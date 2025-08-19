@@ -134,7 +134,7 @@ mod tests {
             local_id: "test".to_string(),
             name: "test".to_string(),
             amount_subtotal,
-            taxable_amount: 0,
+            taxable_amount: amount_subtotal,
             tax_amount: 0,
             tax_rate: Decimal::ZERO,
             quantity: None,
@@ -172,7 +172,7 @@ mod tests {
             new_line_item(334), // 3.34€
         ];
 
-        let sum_before = items.iter().map(|item| item.taxable_amount).sum::<i64>();
+        let sum_before = items.iter().map(|item| item.amount_subtotal).sum::<i64>();
 
         let discount_amount = 100; // 1€  so 10%
 

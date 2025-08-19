@@ -235,6 +235,7 @@ async fn test_compute_invoice_with_eu_vat(
             name: "VAT".to_string(),
             tax_rate: rust_decimal::Decimal::new(20, 2),
             taxable_amount: 3500,
+            exemption_type: None
         }],
         "Tax breakdown should contain VAT at 20%"
     );

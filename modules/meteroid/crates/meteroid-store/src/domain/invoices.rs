@@ -91,10 +91,19 @@ impl Invoice {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaxExemptionType {
+    ReverseCharge,
+    TaxExempt,
+    NotRegistered,
+    Other(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaxBreakdownItem {
     pub taxable_amount: u64,
     pub tax_rate: Decimal,
     pub name: String,
+    pub exemption_type: Option<TaxExemptionType>,
 }
 impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
     fn from(item: meteroid_tax::TaxBreakdownItem) -> Self {
@@ -105,12 +114,23 @@ impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
                 taxable_amount: item.taxable_amount,
                 tax_rate,
                 name: tax_name,
+                exemption_type: None,
             },
-            TaxDetails::Exempt(_) => TaxBreakdownItem {
-                taxable_amount: item.taxable_amount,
-                tax_rate: Decimal::ZERO,
-                name: "Exempt".to_string(),
-            },
+            TaxDetails::Exempt(reason) => {
+                use meteroid_tax::VatExemptionReason;
+                let exemption_type = match reason {
+                    VatExemptionReason::ReverseCharge => TaxExemptionType::ReverseCharge,
+                    VatExemptionReason::TaxExempt => TaxExemptionType::TaxExempt,
+                    VatExemptionReason::NotRegistered => TaxExemptionType::NotRegistered,
+                    VatExemptionReason::Other(s) => TaxExemptionType::Other(s),
+                };
+                TaxBreakdownItem {
+                    taxable_amount: item.taxable_amount,
+                    tax_rate: Decimal::ZERO,
+                    name: "Exempt".to_string(),
+                    exemption_type: Some(exemption_type),
+                }
+            }
         }
     }
 }
