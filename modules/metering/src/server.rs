@@ -8,14 +8,13 @@ use crate::ingest::sinks::kafka::KafkaSink;
 
 use common_grpc::middleware::server as common_middleware;
 
+#[cfg(not(feature = "kafka"))]
+use crate::ingest::sinks::print::PrintSink;
 use common_grpc::middleware::client::{LayeredClientService, build_layered_client_service};
 use meteroid_grpc::meteroid::internal::v1::internal_service_client::InternalServiceClient;
 use std::sync::Arc;
 use tonic::transport::{Channel, Endpoint, Server};
 use tonic_tracing_opentelemetry::middleware as otel_middleware;
-
-#[cfg(not(feature = "kafka"))]
-use crate::ingest::sinks::print::PrintSink;
 
 #[cfg(feature = "clickhouse")]
 use crate::connectors::clickhouse::ClickhouseConnector;
@@ -116,8 +115,8 @@ pub async fn start_api_server(
 
     Server::builder()
         .layer(common_middleware::metric::create())
-        .layer(api_key_auth_layer.clone())
-        .layer(admin_auth_layer.clone())
+        .layer(api_key_auth_layer)
+        .layer(admin_auth_layer)
         .layer(
             otel_middleware::server::OtelGrpcLayer::default()
                 .filter(otel_middleware::filters::reject_healthcheck),
