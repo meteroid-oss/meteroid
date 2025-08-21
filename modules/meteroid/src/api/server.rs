@@ -49,11 +49,11 @@ pub async fn start_api_server(
             common_middleware::auth::create_admin(&config.internal_auth)
                 .filter(common_filters::only_internal),
         )
+        .layer(common_middleware::error_logger::create())
         .layer(
             otel_middleware::server::OtelGrpcLayer::default()
                 .filter(otel_middleware::filters::reject_healthcheck),
         )
-        .layer(common_middleware::error_logger::create())
         .add_service(health_service)
         .add_service(reflection_service)
         .add_service(api::addons::service(store.clone()))

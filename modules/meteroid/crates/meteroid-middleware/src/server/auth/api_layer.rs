@@ -18,7 +18,7 @@ use http::StatusCode;
 use meteroid_store::Store;
 use std::task::{Context, Poll};
 use tonic::Status;
-use tonic::body::{BoxBody, empty_body};
+use tonic::body::Body;
 use tower::{BoxError, Service};
 use tower_layer::Layer;
 use tracing::log;
@@ -89,11 +89,9 @@ const UNAUTHORIZED_SERVICES: [&str; 5] = [
 
 impl<S, ReqBody> Service<Request<ReqBody>> for ApiAuthMiddleware<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<BoxBody>, Error = BoxError>
-        + Clone
-        + Send
-        + 'static,
+    S: Service<Request<ReqBody>, Response = Response<Body>> + Clone + Send + 'static,
     S::Future: Send + 'static,
+    S::Error: Into<BoxError>,
     ReqBody: Send + 'static,
 {
     type Response = S::Response;
@@ -101,15 +99,17 @@ where
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
+        self.inner.poll_ready(cx).map_err(Into::into)
     }
 
     fn call(&mut self, mut request: Request<ReqBody>) -> Self::Future {
         if !self.filter.is_none_or(|f| f(request.uri().path())) {
-            return Box::pin(self.inner.call(request));
+            let mut inner = self.inner.clone();
+            return Box::pin(async move { inner.call(request).await.map_err(Into::into) });
         }
         if ANONYMOUS_SERVICES.contains(&request.uri().path()) {
-            return Box::pin(self.inner.call(request));
+            let mut inner = self.inner.clone();
+            return Box::pin(async move { inner.call(request).await.map_err(Into::into) });
         }
 
         // This is necessary because tonic internally uses `tower::buffer::Buffer`.
@@ -168,15 +168,15 @@ where
 
             request.extensions_mut().insert(authorized_state);
 
-            inner.call(request).await
+            inner.call(request).await.map_err(Into::into)
         };
 
-        // if the future is an error , we recover by providing an empty REsponse
+        // if the future is an error , we recover by providing an empty Response
         let future = future.or_else(|e: BoxError| async move {
             log::warn!("Error in auth middleware: {:?}", e);
             let response = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
-                .body(empty_body())
+                .body(Body::empty())
                 .unwrap();
             Ok(response)
         });
