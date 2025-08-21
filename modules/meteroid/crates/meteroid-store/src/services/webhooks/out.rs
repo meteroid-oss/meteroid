@@ -12,8 +12,7 @@ use crate::{Store, StoreResult};
 use backon::{ConstantBuilder, Retryable};
 use cached::proc_macro::cached;
 use common_domain::ids::TenantId;
-use diesel_models::organizations::OrganizationRow;
-use diesel_models::tenants::TenantRow;
+use diesel_models::tenants::{TenantRow, TenantWithOrganizationRow};
 use diesel_models::webhooks::WebhookInEventRowNew;
 use error_stack::{Report, ResultExt};
 use governor::middleware::NoOpMiddleware;
@@ -218,42 +217,48 @@ impl ServicesEdge {
 
     /// naive hack, will be replaced with a proper CRUD for event types
     pub async fn insert_webhook_out_event_types(&self) -> StoreResult<()> {
-        if let Some(svix_api) = &self.services.svix {
-            for event_type in WebhookOutEventTypeEnum::iter() {
-                let created = svix_api
-                    .event_type()
-                    .create(
-                        EventTypeIn {
-                            archived: None,
-                            deprecated: None,
-                            description: event_type.to_string(),
-                            feature_flag: None,
-                            group_name: Some(event_type.group()),
-                            name: event_type.to_string(),
-                            schemas: None,
-                            feature_flags: None,
-                        },
-                        None,
-                    )
-                    .await;
+        let Some(svix_api) = self.services.svix.as_ref() else {
+            tracing::warn!("Svix disabled!");
+            return Ok(());
+        };
 
-                if let Err(Error::Http(ref e)) = created
-                    && e.status.as_u16() == 409
-                {
-                    log::info!("Webhook event type {} already exists", event_type);
+        for event_type in WebhookOutEventTypeEnum::iter() {
+            let res = svix_api
+                .event_type()
+                .create(
+                    EventTypeIn {
+                        archived: None,
+                        deprecated: None,
+                        description: event_type.to_string(),
+                        feature_flag: None,
+                        group_name: Some(event_type.group()),
+                        name: event_type.to_string(),
+                        schemas: None,
+                        feature_flags: None,
+                    },
+                    None,
+                )
+                .await;
 
-                    continue;
+            match res {
+                Ok(_) => {
+                    tracing::info!("Created svix webhook event type {}", event_type);
                 }
-
-                log::info!("Webhook event type {} created", event_type);
-
-                created.change_context(StoreError::WebhookServiceError(
-                    "Failed to create svix event type".into(),
-                ))?;
+                Err(Error::Http(ref e)) if e.status.as_u16() == 409 => {
+                    tracing::info!(
+                        "Svix webhook event type {} already exists (409)",
+                        event_type
+                    );
+                }
+                Err(err) => {
+                    return Err(err).change_context(StoreError::WebhookServiceError(format!(
+                        "Failed to create svix webhook event type {}",
+                        event_type
+                    )));
+                }
             }
-        } else {
-            log::warn!("Svix disabled!");
         }
+
         Ok(())
     }
 
@@ -332,15 +337,14 @@ async fn get_endpoint_events_to_listen_cached(
 async fn svix_application_in(store: &Store, tenant_id: TenantId) -> StoreResult<ApplicationIn> {
     let mut conn = store.get_conn().await?;
 
-    let tenant = TenantRow::find_by_id(&mut conn, tenant_id)
+    let TenantWithOrganizationRow {
+        tenant,
+        organization,
+    } = TenantRow::find_by_id_with_org(&mut conn, tenant_id)
         .await
         .map_err(Into::<Report<StoreError>>::into)?;
 
-    let org = OrganizationRow::get_by_id(&mut conn, tenant.organization_id)
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-    let app_name = format!("{} | {}", org.trade_name, tenant.name);
+    let app_name = format!("{} | {}", organization.trade_name, tenant.name);
 
     Ok(ApplicationIn {
         metadata: None,

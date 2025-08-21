@@ -213,7 +213,7 @@ pub enum UnitConversionRoundingEnum {
     None,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Display, EnumIter, EnumString, Serialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Display, EnumIter, EnumString, Serialize)]
 pub enum WebhookOutEventTypeEnum {
     #[strum(serialize = "metric.created")]
     #[serde(rename = "metric.created")]
