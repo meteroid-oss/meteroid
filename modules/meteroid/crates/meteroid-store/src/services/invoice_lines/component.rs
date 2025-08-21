@@ -121,41 +121,41 @@ impl Services {
                     precision,
                 )?);
 
-                if let Some(arrear_period) = periods.arrear {
-                    if overage_rate > &Decimal::ZERO {
-                        let usage = self
-                            .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
-                            .await?
-                            .single()?;
+                if let Some(arrear_period) = periods.arrear
+                    && overage_rate > &Decimal::ZERO
+                {
+                    let usage = self
+                        .fetch_usage(arrear_period.clone(), *metric_id, subscription_details)
+                        .await?
+                        .single()?;
 
-                        let overage_units = usage - Decimal::from(*included);
+                    let overage_units = usage - Decimal::from(*included);
 
-                        if overage_units > Decimal::ZERO {
-                            let overage_price = overage_rate
-                                .to_subunit_opt(precision)
-                                .ok_or(StoreError::InvalidDecimal)
-                                .attach_printable("Failed to convert overage_rate to subunit")?;
-                            let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
+                    if overage_units > Decimal::ZERO {
+                        let overage_price = overage_rate
+                            .to_subunit_opt(precision)
+                            .ok_or(StoreError::InvalidDecimal)
+                            .attach_printable("Failed to convert overage_rate to subunit")?;
+                        let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
 
-                            let overage_line = InvoiceLineInner {
-                                quantity: None,
-                                unit_price: None,
-                                total: overage_total.to_non_negative_u64(),
-                                period: arrear_period,
-                                is_prorated: false,
-                                custom_line_name: None,
-                                sublines: vec![SubLineItem {
-                                    local_id: LocalId::no_prefix(),
-                                    name: "Overage".to_string(),
-                                    total: overage_total,
-                                    quantity: overage_units,
-                                    unit_price: *overage_rate,
-                                    attributes: None,
-                                }],
-                            };
+                        let overage_line = InvoiceLineInner {
+                            quantity: None,
+                            unit_price: None,
+                            total: overage_total.to_non_negative_u64(),
+                            period: arrear_period,
+                            is_prorated: false,
+                            custom_line_name: None,
+                            sublines: vec![SubLineItem {
+                                local_id: LocalId::no_prefix(),
+                                name: "Overage".to_string(),
+                                total: overage_total,
+                                quantity: overage_units,
+                                unit_price: *overage_rate,
+                                attributes: None,
+                            }],
+                        };
 
-                            lines.push(overage_line);
-                        }
+                        lines.push(overage_line);
                     }
                 }
             }

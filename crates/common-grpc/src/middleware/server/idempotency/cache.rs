@@ -107,14 +107,9 @@ where
                 }
             }
         }
-    });
+    })?;
 
-    if error_or_action_directive.is_err() {
-        let status = error_or_action_directive.unwrap_err();
-        return Err(status);
-    }
-
-    if let Ok(ActionDirective::GetFromCache(result)) = error_or_action_directive {
+    if let ActionDirective::GetFromCache(result) = error_or_action_directive {
         return match result {
             Ok((metadata, message)) => {
                 let res = Res::decode(message.as_slice()).unwrap();
@@ -127,7 +122,7 @@ where
 
     let result = thunk(request).await;
 
-    if let Ok(ActionDirective::LoadToCache(key)) = error_or_action_directive {
+    if let ActionDirective::LoadToCache(key) = error_or_action_directive {
         match result {
             Ok(response) => {
                 let (mut metadata, message, extension) = response.into_parts();

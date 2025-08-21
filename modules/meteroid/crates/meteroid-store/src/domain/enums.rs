@@ -66,7 +66,7 @@ impl BillingPeriodEnum {
 
 impl PartialOrd for BillingPeriodEnum {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.as_months().cmp(&other.as_months()))
+        Some(self.cmp(other))
     }
 }
 

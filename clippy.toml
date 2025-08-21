@@ -1,0 +1,1 @@
+large-error-threshold = 256 # todo remove after tonic migrates to Result<_, Box<Status>>
