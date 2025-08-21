@@ -12,7 +12,7 @@ pub async fn bootstrap_once(
     services: meteroid_store::Services,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Err(err) = services.insert_webhook_out_event_types().await {
-        log::error!("Failed to insert webhook out event types: {}", err)
+        log::error!("Failed to insert webhook out event types: {:?}", err)
     }
 
     // check if we need to setup historical rates
