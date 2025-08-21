@@ -199,7 +199,8 @@ pub async fn run(
                 alias: Some(alias),
                 name: company_name.to_string(),
                 shipping_address: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
+                is_tax_exempt: false,
             });
         });
     }
@@ -388,31 +389,30 @@ pub async fn run(
 
         // Add some variations (cancellations, reactivations, upgrades, downgrades, switch, trial conversions TODO)
         // CHURN START
-        if let Some(churn_rate) = churn_rate {
-            if plan.plan.plan_type != PlanTypeEnum::Free {
-                let months_since_start = (now.year() - subscription.start_date.year()) * 12
-                    + now.month() as i32
-                    - subscription.start_date.month() as i32;
+        if let Some(churn_rate) = churn_rate
+            && plan.plan.plan_type != PlanTypeEnum::Free
+        {
+            let months_since_start = (now.year() - subscription.start_date.year()) * 12
+                + now.month() as i32
+                - subscription.start_date.month() as i32;
 
-                let churn_probability = 1.0 - (1.0 - churn_rate).powi(months_since_start);
+            let churn_probability = 1.0 - (1.0 - churn_rate).powi(months_since_start);
 
-                if rng.random::<f64>() < churn_probability {
-                    let end_month = rng.random_range(0..=months_since_start);
-                    let end_date =
-                        billing_start_date + chrono::Duration::days(end_month as i64 * 30);
+            if rng.random::<f64>() < churn_probability {
+                let end_month = rng.random_range(0..=months_since_start);
+                let end_date = billing_start_date + chrono::Duration::days(end_month as i64 * 30);
 
-                    if end_date < now {
-                        service
-                            .cancel_subscription(
-                                subscription.id,
-                                tenant.id,
-                                Some("Not used anymore".to_string()),
-                                CancellationEffectiveAt::Date(end_date),
-                                user_id,
-                            )
-                            .await
-                            .change_context(SeederError::TempError)?;
-                    }
+                if end_date < now {
+                    service
+                        .cancel_subscription(
+                            subscription.id,
+                            tenant.id,
+                            Some("Not used anymore".to_string()),
+                            CancellationEffectiveAt::Date(end_date),
+                            user_id,
+                        )
+                        .await
+                        .change_context(SeederError::TempError)?;
                 }
             }
         }
@@ -450,16 +450,16 @@ pub async fn run(
         for invoice_date in invoice_dates {
             i += 1;
             // we get all components that need to be invoiced for this date
-            let invoice_lines = service
-                .compute_invoice_lines(&invoice_date, &subscription_details)
+            let invoice_content = service
+                .compute_invoice(&invoice_date, &subscription_details, None)
                 .await
                 .change_context(SeederError::TempError)?;
 
-            if invoice_lines.is_empty() {
+            if invoice_content.invoice_lines.is_empty() {
                 continue;
             }
 
-            let amount_cents = invoice_lines.iter().map(|c| c.total).sum();
+            let amount_cents = invoice_content.total;
 
             if amount_cents == 0 {
                 continue;
@@ -475,8 +475,8 @@ pub async fn run(
                 plan_version_id: Some(subscription.plan_version_id),
                 invoice_type: InvoiceType::Recurring,
                 currency: "EUR".to_string(),
-                line_items: invoice_lines,
-                coupons: vec![],
+                line_items: invoice_content.invoice_lines,
+                coupons: invoice_content.applied_coupons,
                 data_updated_at: None,
                 status: if is_last_invoice {
                     InvoiceStatusEnum::Draft
@@ -489,13 +489,13 @@ pub async fn run(
                 } else {
                     invoice_date.and_hms_opt(0, 0, 0)
                 },
-                subtotal: amount_cents,
-                subtotal_recurring: amount_cents, // TODO
-                discount: 0,
-                tax_rate: 0,
-                tax_amount: 0,
-                total: amount_cents,
-                amount_due: amount_cents,
+                subtotal: invoice_content.subtotal,
+                subtotal_recurring: invoice_content.subtotal_recurring,
+                discount: invoice_content.discount,
+                tax_amount: invoice_content.amount_due,
+                total: invoice_content.total,
+                amount_due: invoice_content.amount_due,
+                tax_breakdown: invoice_content.tax_breakdown,
                 net_terms: 30,
                 reference: None,
                 purchase_order: None,

@@ -3,6 +3,7 @@ use common_domain::ids::{
     AppliedCouponId, BillableMetricId, CouponId, PriceComponentId, ProductId,
 };
 use rust_decimal::Decimal;
+use rust_decimal::prelude::Zero;
 use serde::{Deserialize, Serialize};
 
 #[derive(PartialEq, Eq, Debug, Deserialize, Serialize, Clone)]
@@ -19,9 +20,18 @@ pub struct CouponLineItem {
 pub struct LineItem {
     pub local_id: String,
     pub name: String,
-    pub total: i64,
-    // before discounts/minimum
-    pub subtotal: i64,
+
+    #[serde(alias = "subtotal")]
+    pub amount_subtotal: i64, // quantity * unit_price, before discounts and tax. Displayed on invoice
+    #[serde(default = "Decimal::zero")]
+    pub tax_rate: Decimal, // Displayed on invoice
+    #[serde(default)]
+    pub taxable_amount: i64, // amount_subtotal - any discount or credit applied. Not displayed
+    #[serde(default)]
+    pub tax_amount: i64, // Not displayed
+    #[serde(alias = "total")]
+    pub amount_total: i64, // taxable_amount + tax_amount. Not displayed
+
     pub quantity: Option<Decimal>,
     pub unit_price: Option<Decimal>, // precision 8
 

@@ -15,3 +15,11 @@ pub type StoreResult<T> = error_stack::Result<T, errors::StoreError>;
 
 pub use crate::services::ServicesEdge as Services;
 pub use crate::services::clients;
+
+#[ctor::ctor]
+fn init_crypto_provider() {
+    // Initialize the crypto provider for the application
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap();
+}

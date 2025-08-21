@@ -11,7 +11,7 @@ expression: "&list"
       "billing_address": null,
       "billing_email": "fake@fake.com",
       "currency": "EUR",
-      "custom_vat_rate": null,
+      "custom_tax_rate": null,
       "id": "cus_xxx",
       "invoicing_emails": [],
       "invoicing_entity_id": "ive_xxx",
@@ -26,7 +26,7 @@ expression: "&list"
       "billing_address": null,
       "billing_email": "created_manual@meteroid.com",
       "currency": "EUR",
-      "custom_vat_rate": null,
+      "custom_tax_rate": null,
       "id": "cus_xxx",
       "invoicing_emails": [],
       "invoicing_entity_id": "ive_xxx",
@@ -46,7 +46,7 @@ expression: "&list"
       },
       "billing_email": "billing@meteroid.com",
       "currency": "EUR",
-      "custom_vat_rate": 20,
+      "custom_tax_rate": 20.0,
       "id": "cus_xxx",
       "invoicing_emails": [
         "invoicing@meteroid.com"

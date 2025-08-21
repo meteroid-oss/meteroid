@@ -65,13 +65,13 @@ pub mod invoices {
                 LineItem {
                     id: line.local_id,
                     name: line.name,
-                    subtotal: line.subtotal,
+                    tax_rate: line.tax_rate.as_proto(),
                     metric_id: line.metric_id.map(|x| x.as_proto()),
                     price_component_id: line.price_component_id.map(|x| x.as_proto()),
                     end_date: line.end_date.as_proto(),
                     start_date: line.start_date.as_proto(),
                     quantity: line.quantity.as_proto(),
-                    total: line.total,
+                    subtotal: line.amount_subtotal,
                     unit_price: line.unit_price.as_proto(),
                     is_prorated: line.is_prorated,
                     product_id: line.product_id.map(|x| x.as_proto()),
@@ -184,7 +184,6 @@ pub mod invoices {
             finalized_at: invoice.finalized_at.as_proto(),
             subtotal: invoice.subtotal,
             subtotal_recurring: invoice.subtotal_recurring,
-            tax_rate: invoice.tax_rate,
             tax_amount: invoice.tax_amount,
             total: invoice.total,
             amount_due: invoice.amount_due,
@@ -211,6 +210,17 @@ pub mod invoices {
             document_sharing_key: share_key,
             pdf_document_id: invoice.pdf_document_id.map(|id| id.as_proto()),
             xml_document_id: invoice.xml_document_id.map(|id| id.as_proto()),
+            tax_breakdown: invoice
+                .tax_breakdown
+                .iter()
+                .map(
+                    |k| meteroid_grpc::meteroid::api::invoices::v1::TaxBreakdownItem {
+                        tax_rate: k.tax_rate.as_proto(),
+                        name: k.name.clone(),
+                        amount: k.taxable_amount as i64,
+                    },
+                )
+                .collect(),
         })
     }
 
@@ -231,6 +241,7 @@ pub mod invoices {
 }
 
 pub mod transactions {
+    use common_utils::integers::ToNonNegativeU64;
     use meteroid_grpc::meteroid::api::invoices::v1::Transaction;
     use meteroid_grpc::meteroid::api::invoices::v1::transaction::{
         PaymentStatusEnum, PaymentTypeEnum,
@@ -264,7 +275,7 @@ pub mod transactions {
             currency: value.currency,
             payment_method_id: value.payment_method_id.map(|x| x.as_proto()),
             provider_transaction_id: value.provider_transaction_id,
-            amount: value.amount as u64,
+            amount: value.amount.to_non_negative_u64(),
             error: value.error_type,
             invoice_id: value.invoice_id.as_proto(),
         }

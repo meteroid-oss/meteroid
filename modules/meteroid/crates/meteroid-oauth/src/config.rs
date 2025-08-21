@@ -8,6 +8,8 @@ pub struct OauthConfig {
         default = "http://127.0.0.1:8080"
     )]
     pub rest_api_external_url: String,
+    #[envconfig(from = "METEROID_PUBLIC_URL", default = "https://meteroid.com")]
+    pub public_url: String, // todo remove me (after pennylane transitions to api redirect)
     #[envconfig(nested)]
     pub google: GoogleOauthConfig,
     #[envconfig(nested)]
@@ -20,6 +22,7 @@ impl OauthConfig {
     pub fn dummy() -> Self {
         Self {
             rest_api_external_url: "http://127.0.0.1:8080".to_owned(),
+            public_url: "https://meteroid.com".to_owned(),
             google: GoogleOauthConfig {
                 client_id: Some(SecretString::new("google_client_id".to_owned())),
                 client_secret: Some(SecretString::new("google_client_secret".to_owned())),

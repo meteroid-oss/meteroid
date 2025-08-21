@@ -66,7 +66,7 @@ impl BillingPeriodEnum {
 
 impl PartialOrd for BillingPeriodEnum {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.as_months().cmp(&other.as_months()))
+        Some(self.cmp(other))
     }
 }
 
@@ -384,4 +384,13 @@ pub enum ScheduledEventStatus {
     Completed,
     Failed,
     Cancelled,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[map_owned(diesel_enums::TaxResolverEnum)]
+pub enum TaxResolverEnum {
+    None,
+    Manual,
+    #[default]
+    MeteroidEuVat,
 }

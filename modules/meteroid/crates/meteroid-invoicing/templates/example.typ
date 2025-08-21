@@ -16,7 +16,7 @@
   email: "contact@acme.com",
   tax_id: "FR123456789",
   footer_info: "Payment to be made within 14 days",
-  footer_legal: "Acme Inc. is registered in France. All prices are in EUR and exclude VAT unless specified.",
+  footer_legal: "Acme Inc. is registered in France under company number 123456789. VAT ID: FR123456789. All prices are in EUR and include VAT where applicable. This invoice constitutes a request for payment in accordance with EU Directive 2006/112/EC. Payment terms: 14 days net. Late payment interest: 3% above the European Central Bank rate as per French Commercial Code L441-10.",
   currency_code: "EUR",
   exchange_rate: 1.08,
   accounting_currency_code: "USD",
@@ -180,10 +180,29 @@
   payment_terms_text: "Payment to be made within 14 days",
   tax_info_title: "TAX INFORMATION",
   tax_reverse_charge: "Tax to be paid on reverse charge basis",
-  tax_included_text: "All prices are in EUR and include 20% VAT",
   exchange_rate_info: "Exchange rate: 1 EUR = 1.08 USD | Converted amount = USD 1296.00",
   no_transactions: "No payments received",
   payment_info_title: "PAYMENT INFORMATION",
+  tax_breakdown_title: "TAX BREAKDOWN",
+  vat_standard: "VAT (Standard Rate)",
+  vat_reduced: "VAT (Reduced Rate)",
+  vat_exempt_notice: "VAT exempt items not included in tax calculation",
+  reverse_charge_notice: "Reverse charge applicable - customer liable for VAT",
+  intra_eu_notice: "Intra-EU supply - Art. 138 EU VAT Directive",
+  b2b_notice: "Business-to-business transaction",
+)
+
+#let example_tax_breakdown = (
+  (
+    name: "VAT (Standard Rate)",
+    rate: 20.0,
+    amount: 380.0,
+  ),
+  (
+    name: "VAT (Reduced Rate)",
+    rate: 10.0,
+    amount: 50.0,
+  ),
 )
 
 // Call the invoice function with example data
@@ -203,6 +222,8 @@
   "Thank you for your subscription!", // memo
   14,                      // payment_term
   example_lines,           // lines
+  (),                      // coupons
+  example_tax_breakdown,   // tax_breakdown
   example_translations,    // translations
   (symbol: "€"),           // formatted_currency
   pay_online_url: "https://pay.meteroid.com/inv-2025-001", // Optional payment URL

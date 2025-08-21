@@ -34,4 +34,14 @@ tax-included-text = All prices are in {$currency} and include {$rate}% VAT
 tax-reverse-charge = Tax to be paid on reverse charge basis
 pay-online = Pay online
 vat-id = VAT ID
+tax-breakdown-title = Tax Breakdown
+vat-standard = VAT (Standard Rate)
+vat-reduced = VAT (Reduced Rate)
+vat-exempt-notice = VAT exempt items not included in tax calculation
+reverse-charge-notice = Reverse charge applicable - customer liable for VAT
+intra-eu-notice = Intra-EU supply - Art. 138 EU VAT Directive
+b2b-notice = Business-to-business transaction
+eu-vat-directive-notice = This invoice complies with EU VAT Directive 2006/112/EC
+late-payment-interest = Late payment interest: 3% above ECB rate
+company-registration = Company registration number
 

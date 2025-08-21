@@ -1,3 +1,4 @@
+pub mod accounting;
 pub mod add_ons;
 pub mod api_tokens;
 pub mod applied_coupons;

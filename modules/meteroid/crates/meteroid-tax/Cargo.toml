@@ -1,0 +1,25 @@
+[package]
+name = "meteroid-tax"
+version = "0.1.0"
+rust-version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+common-domain = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+reqwest = { workspace = true, features = ["default"] }
+async-trait = { workspace = true }
+rusty-money = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+error-stack = { workspace = true }
+lazy_static =  { workspace = true }
+# TODO inline
+tax_ids = { version = "=0.1.0", git = "https://github.com/Mollemoll/tax-ids", rev = "aced11f630f50034191432121bc4b5b9b56e0534", features = ["eu_vat", "ch_vat", "no_vat", "gb_vat"] }
+world-tax = { version = "=0.5.1", git = "https://github.com/franzos/world-tax-rs", rev = "3e879fd2319a5952850f4dfd30e1f2f5cf49ef6d" }

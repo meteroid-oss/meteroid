@@ -87,9 +87,10 @@ async fn test_issuing(
                 created_by: Default::default(),
                 invoicing_entity_id: None,
                 force_created_date: None,
+                is_tax_exempt: false,
                 bank_account_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
             },
             TENANT_ID,
         )

@@ -1,6 +1,8 @@
 pub mod invoicing_entities {
     use common_domain::ids::{InvoicingEntityId, StoredDocumentId};
+
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
+    use meteroid_grpc::meteroid::api::invoicingentities::v1::TaxResolver;
     use meteroid_store::domain::invoicing_entities as domain;
 
     pub fn proto_to_domain(
@@ -24,6 +26,34 @@ pub mod invoicing_entities {
             city: proto.city,
             vat_number: proto.vat_number,
             country: proto.country,
+            tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver)
+                .unwrap_or(meteroid_store::domain::enums::TaxResolverEnum::None),
+        })
+    }
+
+    fn tax_resolver_domain_to_server(
+        value: meteroid_store::domain::enums::TaxResolverEnum,
+    ) -> TaxResolver {
+        match value {
+            meteroid_store::domain::enums::TaxResolverEnum::Manual => TaxResolver::Manual,
+            meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat => {
+                TaxResolver::MeteroidEuVat
+            }
+            meteroid_store::domain::enums::TaxResolverEnum::None => TaxResolver::None,
+        }
+    }
+
+    pub fn tax_resolver_server_to_domain(
+        tr: Option<i32>,
+    ) -> Option<meteroid_store::domain::enums::TaxResolverEnum> {
+        tr.and_then(|tr_int| {
+            TaxResolver::try_from(tr_int).ok().map(|tr| match tr {
+                TaxResolver::Manual => meteroid_store::domain::enums::TaxResolverEnum::Manual,
+                TaxResolver::MeteroidEuVat => {
+                    meteroid_store::domain::enums::TaxResolverEnum::MeteroidEuVat
+                }
+                TaxResolver::None => meteroid_store::domain::enums::TaxResolverEnum::None,
+            })
         })
     }
 
@@ -50,6 +80,7 @@ pub mod invoicing_entities {
             city: proto.city,
             vat_number: proto.vat_number,
             country: proto.country,
+            tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver),
         }
     }
 
@@ -76,6 +107,7 @@ pub mod invoicing_entities {
             vat_number: domain.vat_number,
             country: domain.country,
             accounting_currency: domain.accounting_currency,
+            tax_resolver: tax_resolver_domain_to_server(domain.tax_resolver).into(),
         }
     }
 }

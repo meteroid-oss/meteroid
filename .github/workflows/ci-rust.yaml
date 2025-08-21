@@ -32,18 +32,18 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: amannn/action-semantic-pull-request@v5
+      - uses: amannn/action-semantic-pull-request@v6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   check:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-#        if no space left on device, try https://github.com/orgs/community/discussions/25678
-#      - name: Delete huge unnecessary tools folder
-#        run: rm -rf /opt/hostedtoolcache
+      #        if no space left on device, try https://github.com/orgs/community/discussions/25678
+      #      - name: Delete huge unnecessary tools folder
+      #        run: rm -rf /opt/hostedtoolcache
 
       - name: Install dependencies
         run: |
@@ -56,7 +56,7 @@ jobs:
       - name: Setup mold linker
         uses: rui314/setup-mold@v1
       - name: Install toolchain
-        uses: dtolnay/rust-toolchain@1.86.0
+        uses: dtolnay/rust-toolchain@1.89.0
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
@@ -71,8 +71,8 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.86.0
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.89.0
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -83,7 +83,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -92,7 +92,7 @@ jobs:
           unzip protoc*.zip
           sudo mv bin/protoc /usr/local/bin
           sudo mv include/google /usr/local/include
-      - uses: dtolnay/rust-toolchain@1.86.0
+      - uses: dtolnay/rust-toolchain@1.89.0
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -105,7 +105,7 @@ jobs:
     name: Open API
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -115,7 +115,7 @@ jobs:
           sudo mv bin/protoc /usr/local/bin
           sudo mv include/google /usr/local/include
       - name: Install toolchain
-        uses: dtolnay/rust-toolchain@1.86.0
+        uses: dtolnay/rust-toolchain@1.89.0
       - uses: Swatinem/rust-cache@v2
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9

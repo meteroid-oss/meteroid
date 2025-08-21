@@ -14,15 +14,16 @@ export const createCustomerSchema = z.object({
   addressLine2: z.string().optional(),
   postalCode: z.string().optional(),
   city: z.string().optional(),
-  taxId: z.string().optional(),
+  vatNumber: z.string().optional(),
   shipping: z.boolean().optional(),
+  customTaxRate: z.coerce.number().optional(),
+  isTaxExempt: z.boolean().optional(),
 
   //invoicing
   paymentMethod: z.string().optional(),
   stripeCustomerId: z.string().optional(),
   paymentTerm: z.number().optional(),
   gracePeriod: z.number().optional(),
-  taxRate: z.number().optional(),
 
   //integrations
   connectorCustomerId: z.string().optional(),

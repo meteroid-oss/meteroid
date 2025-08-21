@@ -1,5 +1,6 @@
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
+use crate::enums::TaxResolverEnum;
 use common_domain::ids::{
     BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
 };
@@ -33,6 +34,7 @@ pub struct InvoicingEntityRow {
     pub card_provider_id: Option<ConnectorId>,
     pub direct_debit_provider_id: Option<ConnectorId>,
     pub bank_account_id: Option<BankAccountId>,
+    pub tax_resolver: TaxResolverEnum,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -56,6 +58,7 @@ pub struct InvoicingEntityRowPatch {
     pub vat_number: Option<String>,
     pub country: Option<String>,
     pub accounting_currency: Option<String>,
+    pub tax_resolver: Option<TaxResolverEnum>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -74,4 +77,11 @@ pub struct InvoicingEntityProvidersRow {
     pub card_provider: Option<ConnectorRow>,
     pub direct_debit_provider: Option<ConnectorRow>,
     pub bank_account: Option<BankAccountRow>,
+}
+#[derive(Debug, AsChangeset)]
+#[diesel(table_name = crate::schema::invoicing_entity)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct InvoicingEntityTaxPatch {
+    pub id: InvoicingEntityId,
+    pub tax_resolver: Option<TaxResolverEnum>,
 }

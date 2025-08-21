@@ -3,7 +3,7 @@ pub mod customer {
 
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::error::CustomerApiError;
-    use crate::api::shared::conversions::ProtoConv;
+    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
     use meteroid_grpc::meteroid::api::customers::v1 as server;
     use meteroid_store::domain;
@@ -110,7 +110,9 @@ pub mod customer {
                     .map(|v| v.0),
                 connection_metadata: value.conn_meta.as_ref().map(connection_metadata_to_server),
                 bank_account_id: value.bank_account_id.map(|v| v.as_proto()),
-                custom_vat_rate: value.custom_vat_rate,
+                custom_tax_rate: value.custom_tax_rate.as_proto(),
+                is_tax_exempt: value.is_tax_exempt,
+                is_vat_number_valid: value.vat_number_format_valid,
             }))
         }
     }

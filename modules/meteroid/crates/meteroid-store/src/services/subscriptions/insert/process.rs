@@ -68,7 +68,7 @@ impl Services {
         batch: &[CreateSubscription],
         context: &SubscriptionCreationContext,
     ) -> StoreResult<Vec<DetailedSubscription>> {
-        let res = batch
+        batch
             .iter()
             .map(|params| {
                 let CreateSubscription {
@@ -111,7 +111,7 @@ impl Services {
                 )?;
 
                 let coupons = if let Some(coupons) = coupons {
-                    let coupons = context
+                    context
                         .all_coupons
                         .iter()
                         .filter(|c| {
@@ -121,9 +121,7 @@ impl Services {
                                 .any(|coupon| c.id == coupon.coupon_id)
                         })
                         .cloned()
-                        .collect::<Vec<_>>();
-
-                    coupons
+                        .collect::<Vec<_>>()
                 } else {
                     vec![]
                 };
@@ -140,9 +138,7 @@ impl Services {
                     }
                 })
             })
-            .collect::<Result<Vec<DetailedSubscription>, _>>();
-
-        res
+            .collect::<Result<Vec<DetailedSubscription>, _>>()
     }
 
     pub(crate) fn process_subscription(

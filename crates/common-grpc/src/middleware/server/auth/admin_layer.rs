@@ -1,7 +1,7 @@
 use std::task::{Context, Poll};
 
-use futures_util::future;
-use futures_util::future::Ready;
+use futures_util::FutureExt;
+use futures_util::future::BoxFuture;
 use hmac::{Hmac, Mac};
 use hyper::{Request, Response};
 use secrecy::{ExposeSecret, SecretString};
@@ -57,107 +57,108 @@ pub struct AdminAuthService<S> {
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for AdminAuthService<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<ResBody>, Error = BoxError>
-        + Clone
-        + Send
-        + 'static,
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Future: Send + 'static,
+    S::Error: Into<BoxError>,
     ReqBody: Send + 'static,
 {
     type Response = S::Response;
-    type Error = S::Error;
-    type Future = future::Either<S::Future, Ready<Result<Self::Response, Self::Error>>>;
+    type Error = BoxError;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
+        self.inner.poll_ready(cx).map_err(Into::into)
     }
 
-    fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
+    fn call(&mut self, mut request: Request<ReqBody>) -> Self::Future {
+        // Fast-path: filtered out → just forward, mapping error to BoxError
         if !self.filter.is_none_or(|f| f(request.uri().path())) {
-            return future::Either::Left(self.inner.call(request));
+            let mut inner = self.inner.clone();
+            return async move { inner.call(request).await.map_err(Into::into) }.boxed();
         }
 
-        let mut request = request;
-        let path = request.uri().path().to_string().clone();
+        // Buffer workaround
+        let clone = self.inner.clone();
+        let mut inner = std::mem::replace(&mut self.inner, clone);
+
+        let path = request.uri().path().to_string();
         let headers = request.headers_mut();
 
+        // Helpers to make early error returns nice and typed
+        let err = |status: Status| -> Result<Self::Response, BoxError> {
+            Err(Box::new(status) as BoxError)
+        };
+
         let signature_header = match headers.get(HMAC_SIGNATURE_HEADER) {
-            Some(signature_header) => signature_header,
+            Some(v) => v,
             None => {
-                let error = Status::unauthenticated("Missing hmac signature");
-                return future::Either::Right(future::ready(
-                    Err(error).map_err(|e| BoxError::from(e) as BoxError),
-                ));
+                return async move { err(Status::unauthenticated("Missing hmac signature")) }
+                    .boxed();
             }
         };
 
         let signature_str = match signature_header.to_str() {
-            Ok(signature_str) => signature_str,
+            Ok(s) => s,
             Err(_) => {
-                let error = Status::unauthenticated("Invalid HMAC signature");
-                return future::Either::Right(future::ready(
-                    Err(error).map_err(|e| BoxError::from(e) as BoxError),
-                ));
+                return async move { err(Status::unauthenticated("Invalid HMAC signature")) }
+                    .boxed();
             }
         };
 
         let timestamp_header = match headers.get(HMAC_TIMESTAMP_HEADER) {
-            Some(timestamp_header) => timestamp_header,
+            Some(v) => v,
             None => {
-                let error = Status::unauthenticated("Missing hmac timestamp");
-                return future::Either::Right(future::ready(
-                    Err(error).map_err(|e| BoxError::from(e) as BoxError),
-                ));
+                return async move { err(Status::unauthenticated("Missing hmac timestamp")) }
+                    .boxed();
             }
         };
 
         let timestamp_str = match timestamp_header.to_str() {
-            Ok(timestamp_str) => timestamp_str,
+            Ok(s) => s,
             Err(_) => {
-                let error = Status::unauthenticated("Invalid HMAC timestamp");
-                return future::Either::Right(future::ready(
-                    Err(error).map_err(|e| BoxError::from(e) as BoxError),
-                ));
+                return async move { err(Status::unauthenticated("Invalid HMAC timestamp")) }
+                    .boxed();
             }
         };
 
-        // header was made with : let timestamp = format!("{}", chrono::Utc::now().timestamp());
-        // let's validate that it's not too old
-        let timestamp = timestamp_str.parse::<i64>().unwrap();
-        let now = chrono::Utc::now().timestamp();
+        // Avoid panic on bad parse
+        let timestamp = match timestamp_str.parse::<i64>() {
+            Ok(t) => t,
+            Err(_) => {
+                return async move { err(Status::unauthenticated("Invalid HMAC timestamp")) }
+                    .boxed();
+            }
+        };
 
+        let now = chrono::Utc::now().timestamp();
         if now - timestamp > 60 {
-            return future::Either::Right(future::ready(
-                Err(Status::permission_denied("HMAC signature is too old"))
-                    .map_err(|e| BoxError::from(e) as BoxError),
-            ));
+            return async move { err(Status::permission_denied("HMAC signature is too old")) }
+                .boxed();
         }
 
         let mut mac =
             match Hmac::<Sha256>::new_from_slice(self.hmac_secret.expose_secret().as_bytes()) {
                 Ok(mac) => mac,
                 Err(_) => {
-                    let error = Status::unauthenticated("Invalid hmac secret");
-                    return future::Either::Right(future::ready(
-                        Err(error).map_err(|e| BoxError::from(e) as BoxError),
-                    ));
+                    return async move { err(Status::unauthenticated("Invalid hmac secret")) }
+                        .boxed();
                 }
             };
 
         mac.update(timestamp_str.as_bytes());
         mac.update(path.as_bytes());
-
         let expected = hex::encode(mac.finalize().into_bytes());
 
-        if *signature_str != expected {
-            return future::Either::Right(future::ready(
-                Err(Status::permission_denied(
+        if signature_str != expected {
+            return async move {
+                err(Status::permission_denied(
                     "HMAC signature didn't pass validation",
                 ))
-                .map_err(|e| BoxError::from(e) as BoxError),
-            ));
+            }
+            .boxed();
         }
 
-        future::Either::Left(self.inner.call(request))
+        // Success: forward to inner, mapping error to BoxError
+        async move { inner.call(request).await.map_err(Into::into) }.boxed()
     }
 }

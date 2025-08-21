@@ -1,8 +1,9 @@
 use crate::StoreResult;
 use crate::domain::{
-    BillableMetric, ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest,
-    PaginatedVec, PaginationRequest, Schedule, Subscription, SubscriptionComponent,
-    SubscriptionComponentNew, SubscriptionDetails, SubscriptionInvoiceCandidate,
+    BillableMetric, ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, Customer,
+    InvoicingEntity, PaginatedVec, PaginationRequest, Schedule, Subscription,
+    SubscriptionComponent, SubscriptionComponentNew, SubscriptionDetails,
+    SubscriptionInvoiceCandidate,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
@@ -28,6 +29,8 @@ use crate::jwt_claims::{ResourceAccess, generate_portal_token};
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::pgmq::PgmqInterface;
 use diesel_models::PgConn;
+use diesel_models::customers::CustomerRow;
+use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
 use error_stack::Result;
 use meteroid_store_macros::with_conn_delegate;
@@ -206,6 +209,22 @@ impl SubscriptionInterface for Store {
             None
         };
 
+        let customer: Customer =
+            CustomerRow::find_by_id(conn, &subscription.customer_id, &tenant_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)?
+                .try_into()?;
+
+        let invoicing_entity: InvoicingEntity =
+            InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
+                conn,
+                customer.invoicing_entity_id,
+                tenant_id,
+            )
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?
+            .into();
+
         Ok(SubscriptionDetails {
             subscription,
             price_components: subscription_components,
@@ -214,6 +233,8 @@ impl SubscriptionInterface for Store {
             metrics: billable_metrics,
             schedules,
             checkout_token,
+            customer,
+            invoicing_entity,
         })
     }
 

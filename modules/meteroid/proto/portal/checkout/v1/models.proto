@@ -16,10 +16,26 @@ message Checkout {
 
   repeated api.invoices.v1.LineItem invoice_lines = 6;
   uint64 subtotal_amount = 7;
-  // TODO tax
+  uint64 tax_amount = 12;
+  uint64 discount_amount = 13;
+  uint64 coupon_amount = 16;     // Total from applied coupons
   uint64 total_amount = 8;
+  repeated TaxBreakdownItem tax_breakdown = 14;
+  repeated AppliedCoupon applied_coupons = 15;
   optional string logo_url = 10;
   string trade_name = 11;
+}
+
+message TaxBreakdownItem {
+  string name = 1;
+  string rate = 2; // Decimal as string
+  uint64 amount = 3;
+}
+
+message AppliedCoupon {
+  string coupon_code = 1;
+  string coupon_name = 2;
+  uint64 amount = 3;
 }
 
 message SetupIntent {

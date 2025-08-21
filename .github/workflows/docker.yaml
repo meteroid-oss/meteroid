@@ -50,7 +50,7 @@ jobs:
             runs_on: ubuntu-24.04-arm
     runs-on: ${{ matrix.runs_on }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Cargo CI config
         run: |
           mkdir -p .cargo && ln -s ../.cargo-templates/ci.toml $_/config.toml
@@ -119,7 +119,7 @@ jobs:
     steps:
 
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: /tmp/digests
           pattern: digests-${{ matrix.image_type }}-*

@@ -131,15 +131,15 @@ impl ServicesEdge {
             .list(tenant_id.to_string(), filter.map(Into::into))
             .await;
 
-        if let Err(Error::Http(ref e)) = result {
-            if e.status.as_u16() == 404 {
-                return Ok(WebhookPage {
-                    data: vec![],
-                    done: true,
-                    iterator: None,
-                    prev_iterator: None,
-                });
-            }
+        if let Err(Error::Http(ref e)) = result
+            && e.status.as_u16() == 404
+        {
+            return Ok(WebhookPage {
+                data: vec![],
+                done: true,
+                iterator: None,
+                prev_iterator: None,
+            });
         }
 
         result
@@ -237,12 +237,12 @@ impl ServicesEdge {
                     )
                     .await;
 
-                if let Err(Error::Http(ref e)) = created {
-                    if e.status.as_u16() == 409 {
-                        log::info!("Webhook event type {} already exists", event_type);
+                if let Err(Error::Http(ref e)) = created
+                    && e.status.as_u16() == 409
+                {
+                    log::info!("Webhook event type {} already exists", event_type);
 
-                        continue;
-                    }
+                    continue;
                 }
 
                 log::info!("Webhook event type {} created", event_type);

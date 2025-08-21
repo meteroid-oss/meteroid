@@ -6,6 +6,7 @@ import { GeneralTab } from '@/features/settings/tabs/GeneralTab'
 import { IntegrationsTab } from '@/features/settings/tabs/IntegrationsTab'
 import { InvoiceTab } from '@/features/settings/tabs/InvoiceTab'
 import { PaymentMethodsTab } from '@/features/settings/tabs/PaymentsTab'
+import { TaxesTab } from '@/features/settings/tabs/TaxesTab'
 import { UsersTab } from '@/features/settings/tabs/UsersTab'
 import { useQueryState } from '@/hooks/useQueryState'
 
@@ -40,7 +41,9 @@ export const TenantSettings: FunctionComponent = () => {
           <TabsContent value="payments">
             <PaymentMethodsTab />
           </TabsContent>
-          <TabsContent value="taxes">Not implemented</TabsContent>
+          <TabsContent value="taxes">
+            <TaxesTab />
+          </TabsContent>
           <TabsContent value="users">
             <UsersTab />
           </TabsContent>

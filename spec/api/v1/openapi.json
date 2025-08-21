@@ -1325,12 +1325,12 @@
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "custom_vat_rate": {
+          "custom_tax_rate": {
             "type": [
-              "integer",
+              "number",
               "null"
             ],
-            "format": "int32"
+            "format": "double"
           },
           "id": {
             "$ref": "#/components/schemas/CustomerId"
@@ -1414,12 +1414,12 @@
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "custom_vat_rate": {
+          "custom_tax_rate": {
             "type": [
-              "integer",
+              "number",
               "null"
             ],
-            "format": "int32"
+            "format": "double"
           },
           "invoicing_emails": {
             "type": "array",
@@ -1435,6 +1435,12 @@
               {
                 "$ref": "#/components/schemas/InvoicingEntityId"
               }
+            ]
+          },
+          "is_tax_exempt": {
+            "type": [
+              "boolean",
+              "null"
             ]
           },
           "name": {
@@ -1515,12 +1521,12 @@
           "currency": {
             "$ref": "#/components/schemas/Currency"
           },
-          "custom_vat_rate": {
+          "custom_tax_rate": {
             "type": [
-              "integer",
+              "number",
               "null"
             ],
-            "format": "int32"
+            "format": "double"
           },
           "invoicing_emails": {
             "type": "array",
@@ -1530,6 +1536,12 @@
           },
           "invoicing_entity_id": {
             "$ref": "#/components/schemas/InvoicingEntityId"
+          },
+          "is_tax_exempt": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "name": {
             "type": "string"
@@ -1682,12 +1694,12 @@
                 "currency": {
                   "$ref": "#/components/schemas/Currency"
                 },
-                "custom_vat_rate": {
+                "custom_tax_rate": {
                   "type": [
-                    "integer",
+                    "number",
                     "null"
                   ],
-                  "format": "int32"
+                  "format": "double"
                 },
                 "id": {
                   "$ref": "#/components/schemas/CustomerId"

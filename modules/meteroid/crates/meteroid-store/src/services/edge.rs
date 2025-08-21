@@ -4,12 +4,13 @@ use crate::domain::outbox_event::{
 };
 use crate::domain::payment_transactions::PaymentTransaction;
 use crate::domain::{
-    CreateSubscription, CreatedSubscription, DetailedInvoice, LineItem, SetupIntent, Subscription,
-    SubscriptionDetails,
+    CreateSubscription, CreatedSubscription, CustomerBuyCredits, DetailedInvoice, SetupIntent,
+    Subscription, SubscriptionDetails,
 };
 use crate::errors::StoreError;
 use crate::repositories::InvoiceInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
+use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
 use crate::services::{InvoiceBillingMode, ServicesEdge};
 use crate::store::PgConn;
 use chrono::NaiveDate;
@@ -25,16 +26,18 @@ impl ServicesEdge {
         self.services.store.get_conn().await
     }
 
-    pub async fn compute_invoice_lines(
+    pub async fn compute_invoice(
         &self,
         invoice_date: &NaiveDate,
         subscription_details: &SubscriptionDetails,
-    ) -> StoreResult<Vec<LineItem>> {
+        prepaid_amount: Option<u64>,
+    ) -> StoreResult<ComputedInvoiceContent> {
         self.services
-            .compute_invoice_lines(
+            .compute_invoice(
                 &mut self.get_conn().await?,
                 invoice_date,
                 subscription_details,
+                prepaid_amount,
             )
             .await
     }
@@ -79,6 +82,15 @@ impl ServicesEdge {
 
     pub async fn get_and_process_due_events(&self) -> StoreResult<usize> {
         self.services.get_and_process_due_events().await
+    }
+
+    pub async fn buy_customer_credits(
+        &self,
+        params: CustomerBuyCredits,
+    ) -> StoreResult<DetailedInvoice> {
+        self.services
+            .buy_customer_credits(&mut self.get_conn().await?, params)
+            .await
     }
 
     pub async fn complete_subscription_checkout(

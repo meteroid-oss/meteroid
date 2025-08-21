@@ -15,3 +15,12 @@ pub fn only_positive_decimal(price: Decimal) -> Decimal {
         Decimal::from(0)
     }
 }
+pub trait ToNonNegativeU64 {
+    fn to_non_negative_u64(self) -> u64;
+}
+
+impl ToNonNegativeU64 for i64 {
+    fn to_non_negative_u64(self) -> u64 {
+        self.max(0) as u64
+    }
+}

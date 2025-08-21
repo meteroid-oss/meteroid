@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package meteroid.api.taxes.v1;
+
+message CustomTax {
+  string id = 1;
+  string invoicing_entity_id = 2;
+  string name = 3;
+  string tax_code = 4;
+  repeated TaxRule rules = 5;
+}
+
+message TaxRule {
+  optional string country = 1;
+  optional string region = 2;
+  string rate = 3; // Decimal
+}
+
+message CustomTaxNew {
+  string invoicing_entity_id = 1;
+  string name = 2;
+  string tax_code = 3;
+  repeated TaxRule rules = 4;
+}
+
+message ProductAccounting {
+  string product_id = 1;
+  string invoicing_entity_id = 2;
+  optional string custom_tax_id = 3;
+  optional string product_code = 4;
+  optional string ledger_account_code = 5;
+}
+
+message ValidateVatNumberRequest {
+  string vat_number = 1;
+  optional string country = 2;
+}
+
+message ValidateVatNumberResponse {
+  bool is_valid = 1;
+  ValidationStatus status = 2;
+  optional string company_name = 3;
+  optional string company_address = 4;
+
+  enum ValidationStatus {
+    VALID = 0;
+    INVALID = 1;
+    SERVICE_UNAVAILABLE = 2;
+  }
+}

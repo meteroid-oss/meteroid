@@ -10,7 +10,7 @@ use tower::{BoxError, Service};
 use http::HeaderValue;
 use hyper::Request;
 
-use tonic::body::BoxBody;
+use tonic::body::Body;
 use tower::Layer;
 use tracing::log;
 
@@ -45,9 +45,9 @@ pub struct AdminAuthService<S> {
     hmac_secret: SecretString,
 }
 
-impl<S> Service<Request<BoxBody>> for AdminAuthService<S>
+impl<S> Service<Request<Body>> for AdminAuthService<S>
 where
-    S: Service<Request<BoxBody>>,
+    S: Service<Request<Body>>,
     S::Error: Into<BoxError>,
 {
     type Response = S::Response;
@@ -58,7 +58,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, request: Request<BoxBody>) -> Self::Future {
+    fn call(&mut self, request: Request<Body>) -> Self::Future {
         let mut request = request;
         let path = request.uri().path().to_string().clone();
         let headers = request.headers_mut();

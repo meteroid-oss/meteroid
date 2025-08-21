@@ -1,13 +1,13 @@
+use futures::ready;
+use http::{Request, Response};
+use pin_project::pin_project;
+use std::marker::PhantomData;
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
     time::Instant,
 };
-
-use futures::ready;
-use http::{Request, Response};
-use pin_project::pin_project;
 use tonic::{Code, Status};
 use tower::{BoxError, Layer, Service};
 
@@ -33,19 +33,17 @@ impl<S> Layer<S> for MetricLayer {
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for MetricService<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<ResBody>, Error = BoxError>
-        + Clone
-        + Send
-        + 'static,
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Future: Send + 'static,
+    S::Error: Into<BoxError>,
     ReqBody: Send,
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = ResponseFuture<S::Future>;
+    type Future = ResponseFuture<S::Future, S::Error>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
+        self.inner.poll_ready(cx).map_err(Into::into)
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
@@ -64,6 +62,7 @@ where
             future,
             started_at,
             sm,
+            _err: PhantomData,
         }
     }
 }
@@ -74,16 +73,18 @@ pub struct MetricService<S> {
 }
 
 #[pin_project]
-pub struct ResponseFuture<F> {
+pub struct ResponseFuture<F, E> {
     #[pin]
     future: F,
     started_at: Instant,
     sm: GrpcServiceMethod,
+    _err: PhantomData<E>,
 }
 
-impl<F, ResBody> Future for ResponseFuture<F>
+impl<F, E, ResBody> Future for ResponseFuture<F, E>
 where
-    F: Future<Output = Result<Response<ResBody>, BoxError>>,
+    F: Future<Output = Result<Response<ResBody>, E>> + Send + 'static,
+    E: Into<BoxError>,
 {
     type Output = Result<Response<ResBody>, BoxError>;
 
@@ -97,8 +98,9 @@ where
         let (res, grpc_status_code) = match res {
             Ok(res) => (Ok(res), Code::Ok),
             Err(err) => {
-                let status = Status::from_error(err);
-                (Err::<_, BoxError>(status.clone().into()), status.code())
+                let status = Status::from_error(err.into());
+                let code = status.code();
+                (Err::<_, BoxError>(status.into()), code)
             }
         };
 

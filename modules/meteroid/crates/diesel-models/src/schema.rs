@@ -102,6 +102,10 @@ pub mod sql_types {
     pub struct SubscriptionStatusEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "TaxResolverEnum"))]
+    pub struct TaxResolverEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "TenantEnvironmentEnum"))]
     pub struct TenantEnvironmentEnum;
 
@@ -318,6 +322,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    custom_tax (id) {
+        id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        name -> Text,
+        tax_code -> Text,
+        rules -> Jsonb,
+    }
+}
+
+diesel::table! {
     customer (id) {
         id -> Uuid,
         name -> Text,
@@ -341,9 +355,11 @@ diesel::table! {
         card_provider_id -> Nullable<Uuid>,
         direct_debit_provider_id -> Nullable<Uuid>,
         vat_number -> Nullable<Text>,
-        custom_vat_rate -> Nullable<Int4>,
         invoicing_emails -> Array<Nullable<Text>>,
         conn_meta -> Nullable<Jsonb>,
+        is_tax_exempt -> Bool,
+        custom_tax_rate -> Nullable<Numeric>,
+        vat_number_format_valid -> Bool,
     }
 }
 
@@ -483,7 +499,6 @@ diesel::table! {
         finalized_at -> Nullable<Timestamp>,
         net_terms -> Int4,
         memo -> Nullable<Text>,
-        tax_rate -> Int4,
         reference -> Nullable<Text>,
         invoice_number -> Text,
         tax_amount -> Int8,
@@ -502,13 +517,17 @@ diesel::table! {
         issued_at -> Nullable<Timestamptz>,
         payment_status -> InvoicePaymentStatus,
         paid_at -> Nullable<Timestamptz>,
-        coupons -> Jsonb,
         discount -> Int8,
         purchase_order -> Nullable<Text>,
+        tax_breakdown -> Jsonb,
+        coupons -> Jsonb,
     }
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::TaxResolverEnum;
+
     invoicing_entity (id) {
         id -> Uuid,
         is_default -> Bool,
@@ -536,6 +555,7 @@ diesel::table! {
         card_provider_id -> Nullable<Uuid>,
         bank_account_id -> Nullable<Uuid>,
         direct_debit_provider_id -> Nullable<Uuid>,
+        tax_resolver -> TaxResolverEnum,
     }
 }
 
@@ -674,6 +694,16 @@ diesel::table! {
         archived_at -> Nullable<Timestamp>,
         tenant_id -> Uuid,
         product_family_id -> Uuid,
+    }
+}
+
+diesel::table! {
+    product_accounting (product_id, invoicing_entity_id) {
+        product_id -> Uuid,
+        invoicing_entity_id -> Uuid,
+        custom_tax_id -> Nullable<Uuid>,
+        product_code -> Nullable<Text>,
+        ledger_account_code -> Nullable<Text>,
     }
 }
 
@@ -897,6 +927,7 @@ diesel::joinable!(credit_note -> customer (customer_id));
 diesel::joinable!(credit_note -> invoice (invoice_id));
 diesel::joinable!(credit_note -> plan_version (plan_version_id));
 diesel::joinable!(credit_note -> tenant (tenant_id));
+diesel::joinable!(custom_tax -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(customer -> bank_account (bank_account_id));
 diesel::joinable!(customer -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(customer -> tenant (tenant_id));
@@ -930,6 +961,9 @@ diesel::joinable!(price_component -> plan_version (plan_version_id));
 diesel::joinable!(price_component -> product (product_id));
 diesel::joinable!(product -> product_family (product_family_id));
 diesel::joinable!(product -> tenant (tenant_id));
+diesel::joinable!(product_accounting -> custom_tax (custom_tax_id));
+diesel::joinable!(product_accounting -> invoicing_entity (invoicing_entity_id));
+diesel::joinable!(product_accounting -> product (product_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
 diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(scheduled_event -> subscription (subscription_id));
@@ -962,6 +996,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     connector,
     coupon,
     credit_note,
+    custom_tax,
     customer,
     customer_balance_pending_tx,
     customer_balance_tx,
@@ -981,6 +1016,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     plan_version,
     price_component,
     product,
+    product_accounting,
     product_family,
     schedule,
     scheduled_event,
