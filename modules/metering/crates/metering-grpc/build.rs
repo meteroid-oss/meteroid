@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = prost_build::Config::new();
+    let mut config = tonic_build::Config::new();
     // config.btree_map(["."]);
     config.protoc_arg("--experimental_allow_proto3_optional");
 

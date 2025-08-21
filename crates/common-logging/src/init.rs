@@ -52,7 +52,7 @@ fn init_telemetry_tracing(config: &TelemetryConfig, service_name: &str) {
     }
 
     let (otel_layer, _guard) =
-        init_tracing_opentelemetry::tracing_subscriber_ext::build_otel_layer().unwrap();
+        init_tracing_opentelemetry::tracing_subscriber_ext::build_tracer_layer().unwrap();
 
     let log_exporter = LogExporter::builder().with_tonic().build().unwrap();
 

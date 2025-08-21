@@ -1,12 +1,12 @@
+use futures::ready;
+use http::{Request, Response};
+use pin_project::pin_project;
+use std::marker::PhantomData;
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
-
-use futures::ready;
-use http::{Request, Response};
-use pin_project::pin_project;
 use tonic::metadata::MetadataMap;
 use tonic::{Code, Status};
 use tower::{BoxError, Layer, Service};
@@ -36,19 +36,17 @@ impl<S> Layer<S> for ErrorLoggerLayer {
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for ErrorLoggerService<S>
 where
-    S: Service<Request<ReqBody>, Response = Response<ResBody>, Error = BoxError>
-        + Clone
-        + Send
-        + 'static,
+    S: Service<Request<ReqBody>, Response = Response<ResBody>> + Clone + Send + 'static,
     S::Future: Send + 'static,
+    S::Error: Into<BoxError>,
     ReqBody: Send,
 {
     type Response = S::Response;
     type Error = BoxError;
-    type Future = ResponseFuture<S::Future>;
+    type Future = ResponseFuture<S::Future, S::Error>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
+        self.inner.poll_ready(cx).map_err(Into::into)
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
@@ -62,7 +60,11 @@ where
 
         let future = inner.call(request);
 
-        ResponseFuture { future, sm }
+        ResponseFuture {
+            future,
+            sm,
+            _err: PhantomData,
+        }
     }
 }
 
@@ -72,15 +74,17 @@ pub struct ErrorLoggerService<S> {
 }
 
 #[pin_project]
-pub struct ResponseFuture<F> {
+pub struct ResponseFuture<F, E> {
     #[pin]
     future: F,
     sm: GrpcServiceMethod,
+    _err: PhantomData<E>,
 }
 
-impl<F, ResBody> Future for ResponseFuture<F>
+impl<F, E, ResBody> Future for ResponseFuture<F, E>
 where
-    F: Future<Output = Result<Response<ResBody>, BoxError>>,
+    F: Future<Output = Result<Response<ResBody>, E>>,
+    E: Into<BoxError>,
 {
     type Output = Result<Response<ResBody>, BoxError>;
 
@@ -140,8 +144,8 @@ where
                 Ok(response)
             }
             Err(err) => {
-                let status = Status::from_error(err);
-                Err::<_, BoxError>(status.clone().into())
+                let status = Status::from_error(err.into());
+                Err::<_, BoxError>(status.into())
             }
         };
 
