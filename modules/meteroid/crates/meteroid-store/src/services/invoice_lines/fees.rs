@@ -129,10 +129,10 @@ pub fn compute_tier_price(
             if let Some(flat_fee) = tier.flat_fee {
                 fee += flat_fee;
             }
-            if let Some(cap) = tier.flat_cap {
-                if fee > cap {
-                    fee = cap;
-                }
+            if let Some(cap) = tier.flat_cap
+                && fee > cap
+            {
+                fee = cap;
             }
             subtotal += fee;
 

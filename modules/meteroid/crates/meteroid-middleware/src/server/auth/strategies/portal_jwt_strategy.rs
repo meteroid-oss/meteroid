@@ -31,10 +31,10 @@ pub fn validate_portal_jwt(
         .claims;
 
     // check expiry
-    if let Some(exp) = decoded.exp {
-        if exp < chrono::Utc::now().timestamp() as usize {
-            return Err(Status::permission_denied("JWT expired"));
-        }
+    if let Some(exp) = decoded.exp
+        && exp < chrono::Utc::now().timestamp() as usize
+    {
+        return Err(Status::permission_denied("JWT expired"));
     }
 
     Ok(AuthenticatedState::Shared {

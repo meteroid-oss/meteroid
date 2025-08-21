@@ -51,7 +51,7 @@ async fn build_client(config: &AppConfig) -> Result<EventsServiceClient<LayeredA
 }
 
 trait SacctExecutor {
-    fn sacct(&self, since: DateTime<Utc>) -> Result<BoxStream<Result<SacctData>>>;
+    fn sacct(&self, since: DateTime<Utc>) -> Result<BoxStream<'_, Result<SacctData>>>;
 }
 
 struct SacctExecutorImpl;
@@ -75,7 +75,7 @@ const SACCT_FIELDS: [&str; 9] = [
 impl SacctExecutor for SacctExecutorImpl {
     // todo remove clippy ignore and call child.wait() to avoid zombie processes
     #[allow(clippy::zombie_processes)]
-    fn sacct(&self, since: DateTime<Utc>) -> Result<BoxStream<Result<SacctData>>> {
+    fn sacct(&self, since: DateTime<Utc>) -> Result<BoxStream<'_, Result<SacctData>>> {
         let since_str = since.format(SACCT_DATETIME_FORMAT).to_string();
 
         log::info!("Fetching sacct data since {}", since_str);

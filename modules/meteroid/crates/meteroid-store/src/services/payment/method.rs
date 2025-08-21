@@ -55,10 +55,10 @@ impl Services {
                     .map_err(|err| StoreError::DatabaseError(err.error))?;
 
                 let mut payment_methods = Vec::new();
-                if let Some(card_provider) = invoicing_entity_providers.card_provider {
-                    if card_provider.id == connector.id {
-                        payment_methods.push(PaymentMethodTypeEnum::Card);
-                    }
+                if let Some(card_provider) = invoicing_entity_providers.card_provider
+                    && card_provider.id == connector.id
+                {
+                    payment_methods.push(PaymentMethodTypeEnum::Card);
                 }
                 if let Some(direct_debit_provider) =
                     invoicing_entity_providers.direct_debit_provider
