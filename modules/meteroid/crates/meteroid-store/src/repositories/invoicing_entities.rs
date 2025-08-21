@@ -10,7 +10,7 @@ use crate::StoreResult;
 use crate::domain::invoicing_entities::InvoicingEntity;
 use crate::domain::{
     InvoicingEntityNew, InvoicingEntityPatch, InvoicingEntityProviders,
-    InvoicingEntityProvidersPatch,
+    InvoicingEntityProvidersPatch, TaxResolverEnum,
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
@@ -258,6 +258,7 @@ impl StoreInternal {
             card_provider_id: None,
             direct_debit_provider_id: None,
             bank_account_id: None,
+            tax_resolver: TaxResolverEnum::Manual,
         };
 
         let row: InvoicingEntityRow = entity.into();

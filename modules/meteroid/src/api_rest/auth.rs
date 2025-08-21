@@ -15,6 +15,7 @@ use common_domain::ids::{OrganizationId, TenantId};
 use common_grpc::middleware::server::auth::{AuthenticatedState, AuthorizedAsTenant};
 use meteroid_store::Store;
 use meteroid_store::repositories::api_tokens::ApiTokensInterface;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub async fn auth_middleware(

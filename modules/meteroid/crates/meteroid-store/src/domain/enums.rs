@@ -385,3 +385,12 @@ pub enum ScheduledEventStatus {
     Failed,
     Cancelled,
 }
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[map_owned(diesel_enums::TaxResolverEnum)]
+pub enum TaxResolverEnum {
+    None,
+    Manual,
+    #[default]
+    MeteroidEuVat,
+}

@@ -7,17 +7,16 @@ use crate::domain::enums::BillingType;
 use crate::domain::*;
 use crate::utils::local_id::LocalId;
 
-use crate::services::clients::usage::{GroupedUsageData, UsageData};
-use crate::services::invoice_lines::shared::{only_positive, only_positive_decimal};
-use common_utils::decimals::ToSubunit;
-
 use super::fees;
 use crate::StoreResult;
 use crate::errors::StoreError;
 use crate::repositories::subscriptions::SubscriptionSlotsInterface;
 use crate::services::Services;
+use crate::services::clients::usage::{GroupedUsageData, UsageData};
 use crate::store::PgConn;
 use common_domain::ids::BillableMetricId;
+use common_utils::decimals::ToSubunit;
+use common_utils::integers::{ToNonNegativeU64, only_positive, only_positive_decimal};
 use error_stack::{Report, ResultExt};
 
 impl Services {
@@ -141,7 +140,7 @@ impl Services {
                             let overage_line = InvoiceLineInner {
                                 quantity: None,
                                 unit_price: None,
-                                total: overage_total as u64,
+                                total: overage_total.to_non_negative_u64(),
                                 period: arrear_period,
                                 is_prorated: false,
                                 custom_line_name: None,
@@ -314,17 +313,22 @@ impl Services {
                     .unwrap_or_else(|| component.name_ref().clone()),
                 quantity: line.quantity,
                 unit_price: line.unit_price,
-                total: line.total as i64,
                 start_date: line.period.start,
                 end_date: line.period.end,
-
                 sub_lines: line.sublines,
                 is_prorated: line.is_prorated,
                 price_component_id: component.price_component_id(),
                 product_id: component.product_id(),
                 metric_id: component.fee_ref().metric_id(),
-                subtotal: line.total as i64, // TODO
                 description: None,
+
+                amount_subtotal: line.total as i64,
+
+                // tax & discount are handled later
+                tax_rate: Decimal::ZERO,
+                tax_amount: 0,
+                taxable_amount: line.total as i64,
+                amount_total: line.total as i64,
             })
             .collect())
     }

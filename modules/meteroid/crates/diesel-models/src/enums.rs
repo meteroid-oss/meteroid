@@ -296,3 +296,12 @@ pub enum ScheduledEventStatus {
     Failed,
     Cancelled,
 }
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
+#[ExistingTypePath = "crate::schema::sql_types::TaxResolverEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum TaxResolverEnum {
+    None,
+    Manual,
+    MeteroidEuVat,
+}

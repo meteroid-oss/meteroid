@@ -199,7 +199,8 @@ pub async fn run(
                 alias: Some(alias),
                 name: company_name.to_string(),
                 shipping_address: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
+                is_tax_exempt: false,
             });
         });
     }
@@ -450,16 +451,16 @@ pub async fn run(
         for invoice_date in invoice_dates {
             i += 1;
             // we get all components that need to be invoiced for this date
-            let invoice_lines = service
-                .compute_invoice_lines(&invoice_date, &subscription_details)
+            let invoice_content = service
+                .compute_invoice(&invoice_date, &subscription_details, None)
                 .await
                 .change_context(SeederError::TempError)?;
 
-            if invoice_lines.is_empty() {
+            if invoice_content.invoice_lines.is_empty() {
                 continue;
             }
 
-            let amount_cents = invoice_lines.iter().map(|c| c.total).sum();
+            let amount_cents = invoice_content.total;
 
             if amount_cents == 0 {
                 continue;
@@ -475,8 +476,8 @@ pub async fn run(
                 plan_version_id: Some(subscription.plan_version_id),
                 invoice_type: InvoiceType::Recurring,
                 currency: "EUR".to_string(),
-                line_items: invoice_lines,
-                coupons: vec![],
+                line_items: invoice_content.invoice_lines,
+                coupons: invoice_content.applied_coupons,
                 data_updated_at: None,
                 status: if is_last_invoice {
                     InvoiceStatusEnum::Draft
@@ -489,13 +490,13 @@ pub async fn run(
                 } else {
                     invoice_date.and_hms_opt(0, 0, 0)
                 },
-                subtotal: amount_cents,
-                subtotal_recurring: amount_cents, // TODO
-                discount: 0,
-                tax_rate: 0,
-                tax_amount: 0,
-                total: amount_cents,
-                amount_due: amount_cents,
+                subtotal: invoice_content.subtotal,
+                subtotal_recurring: invoice_content.subtotal_recurring,
+                discount: invoice_content.discount,
+                tax_amount: invoice_content.amount_due,
+                total: invoice_content.total,
+                amount_due: invoice_content.amount_due,
+                tax_breakdown: invoice_content.tax_breakdown,
                 net_terms: 30,
                 reference: None,
                 purchase_order: None,

@@ -345,10 +345,29 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
           </div>
         </>
       ))}
-      <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-        <span className="text-sm text-accent-foreground">Tax</span>
-      </div>
-      <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">-</div>
+      {invoice.taxBreakdown && invoice.taxBreakdown.length > 0 ? (
+        invoice.taxBreakdown.map(tax => (
+          <>
+            <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
+              <span className="text-sm text-accent-foreground">
+                {tax.name} ({tax.taxRate}%)
+              </span>
+            </div>
+            <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">
+              {formatCurrency(tax.amount, invoice.currency)}
+            </div>
+          </>
+        ))
+      ) : (
+        <>
+          <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
+            <span className="text-sm text-accent-foreground">Tax</span>
+          </div>
+          <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">
+            {invoice.taxAmount > 0 ? formatCurrency(invoice.taxAmount, invoice.currency) : '-'}
+          </div>
+        </>
+      )}
 
       <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
         <span className="text-xl text-accent-foreground">Total</span>
@@ -408,14 +427,6 @@ const InvoiceLineItemCard: React.FC<{
         <div className="grid grid-cols-3 col-span-3 gap-y-4">
           <SublinesRate line_item={line_item} invoice={invoice} />
         </div>
-        <div className="grid grid-cols-3 col-span-3 ">
-          <div>
-            <div>Subtotal</div>
-          </div>
-          <div className="col-start-3 ml-auto font-semibold">
-            {formatCurrency(line_item.total, invoice.currency)}
-          </div>
-        </div>
       </div>
     </Card>
   )
@@ -441,7 +452,13 @@ export const QuantityTimeRate: React.FC<{
         </div>
         <div className="grid flex-1 justify-end items-center col-span-1 lg:col-start-3">
           <div>
-            <>{formatCurrency(line_item.total, invoice.currency)}</>
+            {line_item.taxRate && parseFloat(line_item.taxRate) > 0 && (
+              <div className="grid grid-cols-3 col-span-3 ">
+                <div>
+                  <div className="text-muted-foreground">Tax ({line_item.taxRate}%)</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

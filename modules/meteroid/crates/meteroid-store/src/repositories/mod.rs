@@ -6,6 +6,7 @@ pub use product_families::ProductFamilyInterface;
 pub use subscriptions::SubscriptionInterface;
 pub use tenants::TenantInterface;
 
+pub mod accounting;
 pub mod customers;
 pub mod invoices;
 pub mod plans;

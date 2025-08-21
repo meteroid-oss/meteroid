@@ -5,6 +5,7 @@ pub mod subscriptions {
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::shared::conversions::*;
     use common_domain::ids::{CustomerId, PlanVersionId};
+    use common_utils::integers::ToNonNegativeU64;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
     use meteroid_store::domain::SubscriptionStatusEnum;
     use meteroid_store::domain::enums::SubscriptionActivationCondition;
@@ -139,7 +140,7 @@ pub mod subscriptions {
             invoice_memo: sub.invoice_memo,
             invoice_threshold: sub.invoice_threshold.as_proto(),
             activated_at: sub.activated_at.as_proto(),
-            mrr_cents: sub.mrr_cents as u64,
+            mrr_cents: sub.mrr_cents.to_non_negative_u64(),
             checkout_token: sub.checkout_token,
         })
     }

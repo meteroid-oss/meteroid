@@ -18,6 +18,7 @@
   inputs.payment_term,
   inputs.lines,
   inputs.coupons,
+  inputs.tax_breakdown,
   inputs.translations,
   inputs.formatted_currency,
   pay_online_url: inputs.at("pay_online_url", default: none),

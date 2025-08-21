@@ -49,11 +49,11 @@ pub async fn start_api_server(
             common_middleware::auth::create_admin(&config.internal_auth)
                 .filter(common_filters::only_internal),
         )
+        .layer(common_middleware::error_logger::create())
         .layer(
             otel_middleware::server::OtelGrpcLayer::default()
                 .filter(otel_middleware::filters::reject_healthcheck),
         )
-        .layer(common_middleware::error_logger::create())
         .add_service(health_service)
         .add_service(reflection_service)
         .add_service(api::addons::service(store.clone()))
@@ -68,6 +68,7 @@ pub async fn start_api_server(
         .add_service(api::coupons::service(store.clone()))
         .add_service(api::customers::service(
             store.clone(),
+            services.clone(),
             config.jwt_secret.clone(),
         ))
         .add_service(api::tenants::service(store.clone(), services.clone()))
@@ -87,6 +88,7 @@ pub async fn start_api_server(
         .add_service(api::stats::service(store.clone()))
         .add_service(api::users::service(store.clone()))
         .add_service(api::subscriptions::service(store.clone(), services.clone()))
+        .add_service(api::taxes::service(store.clone()))
         .add_service(api::webhooksout::service(store.clone(), services.clone()))
         .add_service(api::internal::service(store.clone()))
         .add_service(api::portal::checkout::service(

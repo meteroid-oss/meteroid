@@ -512,7 +512,6 @@ async fn test_metering_e2e() {
             subtotal: 100,
             subtotal_recurring: 100,
             discount: 0,
-            tax_rate: 0,
             tax_amount: 0,
             customer_details: InlineCustomer {
                 billing_address: None,
@@ -539,6 +538,7 @@ async fn test_metering_e2e() {
             },
             auto_advance: true,
             payment_status: InvoicePaymentStatus::Unpaid,
+            tax_breakdown: vec![],
         })
         .await
         .unwrap();

@@ -50,7 +50,8 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 bank_account_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
+                is_tax_exempt: Some(false),
             }),
         })
         .await
@@ -97,7 +98,8 @@ async fn test_customers_basic() {
                 invoicing_entity_id: None,
                 bank_account_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
+                is_tax_exempt: Some(false),
             }),
         })
         .await
@@ -202,8 +204,9 @@ async fn test_customers_basic() {
                 shipping_address: None,
                 invoicing_entity_id: None,
                 vat_number: None,
-                custom_vat_rate: None,
+                custom_tax_rate: None,
                 bank_account_id: None,
+                is_tax_exempt: None,
             }),
         })
         .await
@@ -341,7 +344,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                "same_as_billing": true
             },
             "vat_number": "VAT123456",
-            "custom_vat_rate": 20,
+            "custom_tax_rate": 20,
         }))
         .send()
         .await
@@ -427,7 +430,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                "same_as_billing": true
             },
             "vat_number": "VAT123456",
-            "custom_vat_rate": 20,
+            "custom_tax_rate": 20,
             "invoicing_entity_id": invoicing_entity_id,
         }))
         .send()

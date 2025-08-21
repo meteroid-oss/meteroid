@@ -25,7 +25,7 @@ pub fn domain_to_rest(d: domain::Customer) -> Result<Customer, RestApiError> {
         invoicing_entity_id: d.invoicing_entity_id,
         bank_account_id: d.bank_account_id,
         vat_number: d.vat_number,
-        custom_vat_rate: d.custom_vat_rate,
+        custom_tax_rate: d.custom_tax_rate,
     })
 }
 
@@ -49,7 +49,8 @@ pub fn create_req_to_domain(created_by: Uuid, req: CustomerCreateRequest) -> Cus
         force_created_date: None,
         bank_account_id: req.bank_account_id,
         vat_number: req.vat_number,
-        custom_vat_rate: req.custom_vat_rate,
+        custom_tax_rate: req.custom_tax_rate,
+        is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
     }
 }
 
@@ -73,7 +74,8 @@ pub fn update_req_to_domain(
             .shipping_address
             .map(addresses::mapping::shipping_address::rest_to_domain),
         vat_number: req.vat_number,
-        custom_vat_rate: req.custom_vat_rate,
+        custom_tax_rate: req.custom_tax_rate,
         bank_account_id: req.bank_account_id,
+        is_tax_exempt: req.is_tax_exempt.unwrap_or(false),
     }
 }

@@ -32,11 +32,13 @@ pub struct CustomerRow {
     pub card_provider_id: Option<ConnectorId>,
     pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
     pub invoicing_emails: Vec<Option<String>>,
     pub conn_meta: Option<serde_json::Value>,
     //  logo_url -> Nullable<Text>,
     //  website_url -> Nullable<Text>,
+    pub is_tax_exempt: bool,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub vat_number_format_valid: bool,
 }
 
 #[derive(Clone, Debug, Queryable, Selectable)]
@@ -71,8 +73,10 @@ pub struct CustomerRowNew {
     pub card_provider_id: Option<ConnectorId>,
     pub direct_debit_provider_id: Option<ConnectorId>,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
     pub invoicing_emails: Vec<Option<String>>,
+    pub is_tax_exempt: bool,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub vat_number_format_valid: bool,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -91,8 +95,10 @@ pub struct CustomerRowPatch {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: Option<InvoicingEntityId>,
     pub vat_number: Option<Option<String>>,
-    pub custom_vat_rate: Option<Option<i32>>,
     pub bank_account_id: Option<Option<BankAccountId>>,
+    pub is_tax_exempt: Option<bool>,
+    pub custom_tax_rate: Option<Option<rust_decimal::Decimal>>,
+    pub vat_number_format_valid: Option<bool>,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -112,6 +118,8 @@ pub struct CustomerRowUpdate {
     pub shipping_address: Option<serde_json::Value>,
     pub invoicing_entity_id: InvoicingEntityId,
     pub vat_number: Option<String>,
-    pub custom_vat_rate: Option<i32>,
     pub bank_account_id: Option<BankAccountId>,
+    pub is_tax_exempt: bool,
+    pub custom_tax_rate: Option<rust_decimal::Decimal>,
+    pub vat_number_format_valid: bool,
 }

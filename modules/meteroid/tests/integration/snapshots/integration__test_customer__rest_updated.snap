@@ -14,7 +14,7 @@ expression: "&updated"
   },
   "billing_email": "billing@meteroid.com",
   "currency": "USD",
-  "custom_vat_rate": 20,
+  "custom_tax_rate": 20.0,
   "id": "cus_xxx",
   "invoicing_emails": [
     "invoicing@meteroid.com"

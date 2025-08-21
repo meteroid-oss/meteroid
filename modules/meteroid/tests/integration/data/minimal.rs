@@ -98,6 +98,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             card_provider_id: None,
             direct_debit_provider_id: None,
             bank_account_id: None,
+            tax_resolver: diesel_models::enums::TaxResolverEnum::None,
         }.insert(tx).await?;
 
         HistoricalRatesFromUsdRowNew::insert_batch(tx, vec![

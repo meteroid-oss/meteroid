@@ -174,10 +174,8 @@ impl OauthServices {
                 client_secret: client_secret.expose_secret().to_owned(),
                 auth_url: "https://app.pennylane.com/oauth/authorize".to_owned(),
                 token_url: "https://app.pennylane.com/oauth/token".to_string(),
-                callback_url: format!(
-                    "{}/oauth-callback/pennylane",
-                    config.rest_api_external_url.as_str()
-                ),
+                // todo migrate to rest api url once pennylane app is updated
+                callback_url: format!("{}/oauth-callback/pennylane", config.public_url.as_str()),
                 user_info_url: None,
                 scopes: vec![
                     "customers:all".to_owned(),
@@ -388,6 +386,7 @@ mod tests {
     async fn test_authorize_url() -> Result<(), Box<dyn std::error::Error>> {
         let srv = OauthServices::new(OauthConfig {
             rest_api_external_url: "http://localhost:8080".to_string(),
+            public_url: "https://meteroid.com".to_string(),
             google: crate::config::GoogleOauthConfig {
                 client_id: Some(SecretString::from_str("client_id").unwrap()),
                 client_secret: Some(SecretString::from_str("client_secret").unwrap()),

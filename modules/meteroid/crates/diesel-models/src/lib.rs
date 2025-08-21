@@ -22,6 +22,7 @@ pub mod schema;
 pub mod slot_transactions;
 pub mod subscriptions;
 
+pub mod accounting;
 pub mod add_ons;
 pub mod applied_coupons;
 pub mod bank_accounts;

@@ -8,19 +8,30 @@ const formatDate = (dateString: string): string => {
 }
 
 const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutData }) => {
-  const { subscription, invoiceLines, tradeName, logoUrl } = checkoutData
-
-  // Derive total amount from invoice lines
-  const totalAmount = invoiceLines.reduce((sum, line) => sum + Number(line.total), 0)
+  const {
+    subscription,
+    invoiceLines,
+    tradeName,
+    logoUrl,
+    subtotalAmount,
+    taxAmount,
+    discountAmount,
+    totalAmount,
+    taxBreakdown,
+    appliedCoupons,
+  } = checkoutData
 
   // Get currency from subscription
   const currency = subscription?.subscription?.currency || '?'
 
-  // Calculate subtotal (before any discounts)
-  const subtotal = invoiceLines.reduce((sum, line) => sum + Number(line.subtotal), 0)
-
   // Determine if there are any applied coupons
-  const hasDiscounts = subscription?.appliedCoupons && subscription.appliedCoupons.length > 0
+  const hasCoupons = appliedCoupons && appliedCoupons.length > 0
+
+  // Determine if there are manual discounts
+  const hasDiscounts = discountAmount && discountAmount > 0
+
+  // Determine if there are taxes
+  const hasTaxes = taxBreakdown && taxBreakdown.length > 0
 
   // Check if subscription is in trial
   const isInTrial =
@@ -84,7 +95,7 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
                 </div>
               )}
             </div>
-            <div className="font-medium">{formatCurrency(line.total, currency)}</div>
+            <div className="font-medium">{formatCurrency(line.subtotal, currency)}</div>
           </div>
         ))}
       </div>
@@ -93,31 +104,67 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
       <div className="border-t border-gray-200 py-4">
         <div className="flex justify-between mb-2">
           <div>Subtotal</div>
-          <div>{formatCurrency(subtotal, currency)}</div>
+          <div>{formatCurrency(subtotalAmount, currency)}</div>
         </div>
 
-        {/* Display applied coupons if any */}
-        {/* {hasDiscounts && subscription?.appliedCoupons.map((coupon, index) => (
-          <div key={index} className="flex justify-between text-green-600">
-            <div>
-              {coupon.couponCode} ({coupon.discountType === 'percentage' ? `${coupon.discountValue}%` : formatCurrency(coupon.discountValue, currency)})
-            </div>
-            <div>-{formatCurrency(coupon.discountAmount || 0, currency)}</div>
+        {/* Display manual discounts if any */}
+        {hasDiscounts ? (
+          <div className="flex justify-between text-green-600 mb-1">
+            <div className="text-sm">Discount</div>
+            <div>-{formatCurrency(discountAmount, currency)}</div>
           </div>
-        ))} */}
+        ) : null}
+
+        {/* Display applied coupons if any */}
+        {hasCoupons &&
+          appliedCoupons.map((coupon, index) => (
+            <div key={index} className="flex justify-between text-green-600 mb-1">
+              <div className="text-sm">
+                {coupon.couponName} ({coupon.couponCode})
+              </div>
+              <div>-{formatCurrency(coupon.amount, currency)}</div>
+            </div>
+          ))}
+
+        {/* Display tax breakdown if any */}
+        {hasTaxes && (
+          <>
+            <div className="border-t border-gray-100 mt-2 pt-2">
+              {taxBreakdown.map((tax, index) => (
+                <div key={index} className="flex justify-between text-sm mb-1">
+                  <div className="text-muted-foreground">
+                    {tax.name} ({parseFloat(tax.rate).toFixed(2)}%)
+                  </div>
+                  <div className="text-muted-foreground">
+                    {formatCurrency(tax.amount, currency)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between mt-2 font-medium">
+              <div>Total Tax</div>
+              <div>{formatCurrency(taxAmount, currency)}</div>
+            </div>
+          </>
+        )}
 
         {/* Promotion code link */}
-        {!hasDiscounts && (
+        {!hasCoupons && (
           <button className="text-blue-600 text-xs font-medium mt-2">Add promotion code</button>
         )}
       </div>
 
       {/* Total */}
       <div className="border-t border-gray-200 py-4">
-        <div className="flex justify-between font-medium">
+        <div className="flex justify-between font-medium text-lg">
           <div>Total due today</div>
           <div>{formatCurrency(totalAmount, currency)}</div>
         </div>
+        {hasTaxes && (
+          <div className="text-xs text-muted-foreground mt-1">
+            Includes {formatCurrency(taxAmount, currency)} in taxes
+          </div>
+        )}
       </div>
 
       {/* Payment Schedule */}
