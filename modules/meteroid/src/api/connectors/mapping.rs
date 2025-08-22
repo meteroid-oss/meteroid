@@ -1,6 +1,5 @@
 pub mod connectors {
     use crate::api::shared::conversions::ProtoConv;
-    use itertools::Itertools;
     use meteroid_grpc::meteroid::api::connectors::v1 as server;
     use meteroid_grpc::meteroid::api::connectors::v1::HubspotConnectorData;
     use meteroid_store::domain::connectors as domain;
@@ -93,17 +92,23 @@ pub mod connectors {
 
     pub fn connection_metadata_to_server(value: &ConnectionMeta) -> server::ConnectionMetadata {
         server::ConnectionMetadata {
-            hubspot: value
-                .hubspot
-                .as_ref()
-                .unwrap_or(vec![].as_ref())
-                .iter()
-                .map(|item| server::ConnectionMetadataItem {
-                    connector_id: item.connector_id.as_proto(),
-                    external_id: item.external_id.clone(),
-                    sync_at: item.sync_at.naive_utc().as_proto(),
-                })
-                .collect_vec(),
+            hubspot: conn_meta_items_to_server(&value.hubspot),
+            pennylane: conn_meta_items_to_server(&value.pennylane),
         }
+    }
+
+    fn conn_meta_items_to_server(
+        items: &Option<Vec<domain::ConnectionMetaItem>>,
+    ) -> Vec<server::ConnectionMetadataItem> {
+        items
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|item| server::ConnectionMetadataItem {
+                connector_id: item.connector_id.as_proto(),
+                external_id: item.external_id.clone(),
+                sync_at: item.sync_at.naive_utc().as_proto(),
+            })
+            .collect()
     }
 }

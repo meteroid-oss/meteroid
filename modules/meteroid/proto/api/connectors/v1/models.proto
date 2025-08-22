@@ -47,6 +47,7 @@ message PennylaneConnectorData {
 
 message ConnectionMetadata {
   repeated ConnectionMetadataItem hubspot = 1;
+  repeated ConnectionMetadataItem pennylane = 2;
 }
 
 message ConnectionMetadataItem {
