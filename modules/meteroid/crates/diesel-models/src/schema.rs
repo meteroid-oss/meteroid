@@ -519,8 +519,8 @@ diesel::table! {
         paid_at -> Nullable<Timestamptz>,
         discount -> Int8,
         purchase_order -> Nullable<Text>,
-        tax_breakdown -> Jsonb,
         coupons -> Jsonb,
+        tax_breakdown -> Jsonb,
     }
 }
 
