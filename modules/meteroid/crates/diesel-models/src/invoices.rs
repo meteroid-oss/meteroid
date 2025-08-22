@@ -51,8 +51,8 @@ pub struct InvoiceRow {
     pub paid_at: Option<NaiveDateTime>,
     pub discount: i64,
     pub purchase_order: Option<String>,
-    pub tax_breakdown: serde_json::Value,
     pub coupons: serde_json::Value,
+    pub tax_breakdown: serde_json::Value,
 }
 
 #[derive(Debug, AsChangeset)]
