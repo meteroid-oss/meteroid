@@ -364,7 +364,10 @@ impl Display for HubspotErrorResponse {
 impl ErrorResponse for HubspotErrorResponse {}
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct PennylaneErrorResponse {}
+pub struct PennylaneErrorResponse {
+    pub error: Option<String>,
+    pub error_description: Option<String>,
+}
 
 impl Display for PennylaneErrorResponse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
