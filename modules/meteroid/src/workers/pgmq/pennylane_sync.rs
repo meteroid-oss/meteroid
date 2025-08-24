@@ -7,7 +7,8 @@ use common_domain::ids::{ConnectorId, TenantId};
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
 use common_utils::decimals::ToUnit;
-use error_stack::{ResultExt, report};
+use error_stack::{Report, ResultExt, report};
+use futures::TryFutureExt;
 use itertools::Itertools;
 use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
 use meteroid_store::domain::connectors::{Connector, ProviderSensitiveData};
@@ -626,8 +627,10 @@ async fn get_pennylane_connector(
     store: &Store,
     cache: Cache<ConnectorId, OauthAccessToken>,
     tenant_id: TenantId,
-) -> PgmqResult<Option<PennylaneConnector>> {
-    let connector = get_connector_cached(store, tenant_id).await?;
+) -> Result<Option<PennylaneConnector>, Arc<Report<PgmqError>>> {
+    let connector = get_connector_cached(store, tenant_id)
+        .await
+        .map_err(Arc::new)?;
 
     if let Some(connector) = connector {
         if let Some(ProviderSensitiveData::Pennylane(data)) = connector.sensitive {
@@ -636,16 +639,11 @@ async fn get_pennylane_connector(
             let token = cache
                 .try_get_with(
                     connector.id,
-                    store.oauth_exchange_refresh_token(OauthProvider::Pennylane, refresh_token),
+                    store
+                        .oauth_exchange_refresh_token(OauthProvider::Pennylane, refresh_token)
+                        .map_err(|x| x.change_context(PgmqError::HandleMessages)),
                 )
-                .await
-                .map_err(|x| {
-                    if let Some(e) = Arc::into_inner(x) {
-                        e.change_context(PgmqError::HandleMessages)
-                    } else {
-                        report!(PgmqError::HandleMessages)
-                    }
-                })?;
+                .await?;
 
             return Ok(Some(PennylaneConnector {
                 id: connector.id,
