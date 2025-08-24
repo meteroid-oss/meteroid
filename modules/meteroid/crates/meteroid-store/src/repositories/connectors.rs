@@ -1,7 +1,7 @@
 use crate::domain::connectors::{
-    Connector, ConnectorMeta, ConnectorNew, HubspotPublicData, HubspotSensitiveData,
-    PennylaneSensitiveData, ProviderData, ProviderSensitiveData, StripePublicData,
-    StripeSensitiveData,
+    Connector, ConnectorAccessToken, ConnectorMeta, ConnectorNew, HubspotPublicData,
+    HubspotSensitiveData, PennylaneSensitiveData, ProviderData, ProviderSensitiveData,
+    StripePublicData, StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
 use crate::domain::oauth::{OauthConnected, OauthTokens, OauthVerifierData};
@@ -9,6 +9,7 @@ use crate::domain::pgmq::{HubspotSyncRequestEvent, PgmqMessageNew, PgmqQueue};
 use crate::errors::StoreError;
 use crate::repositories::oauth::OauthInterface;
 use crate::{Store, StoreResult};
+use chrono::Utc;
 use common_domain::ids::{ConnectorId, TenantId};
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew, ConnectorRowPatch};
@@ -64,6 +65,11 @@ pub trait ConnectorsInterface {
     ) -> StoreResult<Connector>;
 
     async fn get_pennylane_connector(&self, tenant_id: TenantId) -> StoreResult<Option<Connector>>;
+
+    async fn get_pennylane_connector_access_token(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Option<ConnectorAccessToken>>;
 }
 
 #[async_trait::async_trait]
@@ -200,6 +206,7 @@ impl ConnectorsInterface for Store {
         let patch = ConnectorRowPatch {
             id: connector_id,
             data: Some(Some(ProviderData::Hubspot(data).try_into()?)),
+            sensitive: None,
         };
 
         let row = patch
@@ -218,6 +225,68 @@ impl ConnectorsInterface for Store {
             ConnectorProviderEnum::Pennylane,
         )
         .await
+    }
+
+    async fn get_pennylane_connector_access_token(
+        &self,
+        tenant_id: TenantId,
+    ) -> StoreResult<Option<ConnectorAccessToken>> {
+        let connector = self.get_pennylane_connector(tenant_id).await?;
+
+        // todo handle concurrent refreshes + refresh_token expiry (90 days)
+        if let Some(connector) = connector
+            && let Some(ProviderSensitiveData::Pennylane(sensitive)) = connector.sensitive
+        {
+            let is_expired = sensitive
+                .expires_at
+                .as_ref()
+                .map(|exp| exp <= &(Utc::now() + chrono::Duration::minutes(30)))
+                .unwrap_or(false);
+
+            let auth_token = if is_expired {
+                let tokens = self
+                    .oauth_exchange_refresh_token(
+                        OauthProvider::Pennylane,
+                        SecretString::new(sensitive.refresh_token),
+                    )
+                    .await?;
+
+                let sensitive = PennylaneSensitiveData::try_from(tokens)?;
+
+                let access_token = ConnectorAccessToken {
+                    connector_id: connector.id,
+                    access_token: SecretString::new(sensitive.access_token.clone()),
+                    expires_at: sensitive.expires_at,
+                };
+
+                let new_sensitive = ProviderSensitiveData::Pennylane(sensitive)
+                    .encrypt(&self.settings.crypt_key)?;
+
+                let patch = ConnectorRowPatch {
+                    id: connector.id,
+                    data: None,
+                    sensitive: Some(Some(new_sensitive)),
+                };
+
+                let mut conn = self.get_conn().await?;
+                patch
+                    .patch(&mut conn, tenant_id)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                access_token
+            } else {
+                ConnectorAccessToken {
+                    connector_id: connector.id,
+                    access_token: SecretString::new(sensitive.access_token),
+                    expires_at: sensitive.expires_at,
+                }
+            };
+
+            return Ok(Some(auth_token));
+        }
+
+        Ok(None)
     }
 }
 
@@ -319,6 +388,8 @@ async fn connect_pennylane(
         data: None,
         sensitive: Some(ProviderSensitiveData::Pennylane(PennylaneSensitiveData {
             refresh_token: refresh_token.expose_secret().to_owned(),
+            access_token: tokens.access_token.expose_secret().to_owned(),
+            expires_at: tokens.expires_in.map(|duration| Utc::now() + duration),
         })),
     }
     .to_row(&store.settings.crypt_key)?;

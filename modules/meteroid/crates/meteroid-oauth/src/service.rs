@@ -2,7 +2,7 @@
 use crate::errors::OauthServiceError;
 use std::fmt::{Display, Formatter};
 
-use crate::model::{AuthorizeUrl, OAuthTokens, OAuthUser, OauthAccessToken, OauthProvider};
+use crate::model::{AuthorizeUrl, OAuthTokens, OAuthUser, OauthProvider};
 use async_trait::async_trait;
 use error_stack::{ResultExt, bail};
 use oauth2::basic::{
@@ -12,7 +12,7 @@ use oauth2::basic::{
 use oauth2::{
     AuthType, AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken,
     EndpointNotSet, EndpointSet, ErrorResponse, PkceCodeChallenge, PkceCodeVerifier, RefreshToken,
-    Scope, StandardRevocableToken, TokenResponse, TokenUrl,
+    Scope, StandardRevocableToken, TokenUrl,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ pub trait OauthService: Send + Sync {
     async fn exchange_refresh_token(
         &self,
         refresh_token: SecretString,
-    ) -> error_stack::Result<OauthAccessToken, OauthServiceError>;
+    ) -> error_stack::Result<OAuthTokens, OauthServiceError>;
 
     async fn get_user_info(
         &self,
@@ -270,21 +270,17 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
     async fn exchange_refresh_token(
         &self,
         refresh_token: SecretString,
-    ) -> error_stack::Result<OauthAccessToken, OauthServiceError> {
+    ) -> error_stack::Result<OAuthTokens, OauthServiceError> {
         let client = &self.oauth_client;
 
-        let response = client
+        client
             .exchange_refresh_token(&RefreshToken::new(refresh_token.expose_secret().to_owned()))
             .request_async(&self.http_client)
             .await
             .change_context(OauthServiceError::ProviderApi(
                 "Failed to exchange refresh_token".into(),
-            ))?;
-
-        Ok(OauthAccessToken {
-            value: SecretString::new(response.access_token().secret().to_owned()),
-            expires_in: response.expires_in(),
-        })
+            ))
+            .map(From::from)
     }
 
     async fn get_user_info(

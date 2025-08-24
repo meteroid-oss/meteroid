@@ -1,10 +1,11 @@
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::{StoreResult, json_value_ser, json_value_serde};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use common_domain::ids::{BaseId, ConnectorId, TenantId};
 use diesel_models::connectors::{ConnectorRow, ConnectorRowNew};
 use error_stack::ResultExt;
+use meteroid_oauth::model::OAuthTokens;
 use o2o::o2o;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,50 @@ pub enum ProviderSensitiveData {
     Pennylane(PennylaneSensitiveData),
 }
 
+impl ProviderSensitiveData {
+    pub fn encrypt(&self, key: &SecretString) -> StoreResult<String> {
+        let s = serde_json::to_string(self).map_err(|e| {
+            StoreError::SerdeError(
+                "Failed to serialize sensitive connector data".to_string(),
+                e,
+            )
+        })?;
+
+        crate::crypt::encrypt(key, s.as_str())
+            .change_context(StoreError::CryptError("connector encryption error".into()))
+    }
+
+    pub fn decrypt(key: &SecretString, enc: &str) -> StoreResult<Self> {
+        let decrypted = crate::crypt::decrypt(key, enc)
+            .change_context(StoreError::CryptError("connector decryption error".into()))?;
+
+        let sensitive: ProviderSensitiveData = serde_json::from_str(decrypted.expose_secret())
+            .map_err(|e| {
+                StoreError::SerdeError(
+                    "Failed to deserialize sensitive connector data".to_string(),
+                    e,
+                )
+            })?;
+        Ok(sensitive)
+    }
+}
+
+impl TryFrom<OAuthTokens> for PennylaneSensitiveData {
+    type Error = StoreErrorReport;
+
+    fn try_from(value: OAuthTokens) -> Result<Self, Self::Error> {
+        Ok(PennylaneSensitiveData {
+            access_token: value.access_token.expose_secret().to_string(),
+            refresh_token: value
+                .refresh_token
+                .ok_or_else(|| StoreError::OauthError("missing refresh_token".into()))?
+                .expose_secret()
+                .to_string(),
+            expires_at: value.expires_in.map(|duration| Utc::now() + duration),
+        })
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StripeSensitiveData {
     pub api_secret_key: String,
@@ -65,23 +110,15 @@ pub struct HubspotSensitiveData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PennylaneSensitiveData {
     pub refresh_token: String,
+    pub access_token: String,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 impl Connector {
     pub fn from_row(key: &SecretString, row: ConnectorRow) -> StoreResult<Connector> {
         let sensitive = if let Some(s) = row.sensitive {
-            let decoded_sensitive_str = crate::crypt::decrypt(key, s.as_str())
-                .change_context(StoreError::CryptError("connector decryption error".into()))?
-                .expose_secret()
-                .clone();
-            let sensitive: ProviderSensitiveData = serde_json::from_str(&decoded_sensitive_str)
-                .map_err(|e| {
-                    StoreError::SerdeError(
-                        "Failed to deserialize sensitive connector data".to_string(),
-                        e,
-                    )
-                })?;
-            Some(sensitive)
+            let decrypted = ProviderSensitiveData::decrypt(key, &s)?;
+            Some(decrypted)
         } else {
             None
         };
@@ -135,15 +172,8 @@ pub struct ConnectorNew {
 impl ConnectorNew {
     pub fn to_row(&self, key: &SecretString) -> StoreResult<ConnectorRowNew> {
         let sensitive = if let Some(sensitive) = &self.sensitive {
-            let sensitive = serde_json::to_string(sensitive).map_err(|e| {
-                StoreError::SerdeError("Failed to serialize webhook_security".to_string(), e)
-            })?;
-
-            let encoded_sensitive_str = crate::crypt::encrypt(key, sensitive.as_str())
-                .change_context(StoreError::CryptError(
-                    "webhook_security encryption error".into(),
-                ))?;
-            Some(encoded_sensitive_str)
+            let encrypted = sensitive.encrypt(key)?;
+            Some(encrypted)
         } else {
             None
         };
@@ -203,3 +233,10 @@ pub struct ConnectionMetaItem {
 }
 
 json_value_serde!(ConnectionMetaItem);
+
+#[derive(Clone, Debug)]
+pub struct ConnectorAccessToken {
+    pub connector_id: ConnectorId,
+    pub access_token: SecretString,
+    pub expires_at: Option<DateTime<Utc>>,
+}

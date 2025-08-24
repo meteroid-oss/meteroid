@@ -49,27 +49,20 @@ pub struct AuthorizeUrl {
 }
 
 #[derive(Debug, Clone)]
-pub struct OauthAccessToken {
-    pub value: SecretString,
-    pub expires_in: Option<Duration>,
-}
-
-#[derive(Debug, Clone)]
 pub struct OAuthTokens {
-    pub access_token: OauthAccessToken,
+    pub access_token: SecretString,
     pub refresh_token: Option<SecretString>,
+    pub expires_in: Option<Duration>,
 }
 
 impl From<BasicTokenResponse> for OAuthTokens {
     fn from(response: BasicTokenResponse) -> Self {
         OAuthTokens {
-            access_token: OauthAccessToken {
-                value: SecretString::new(response.access_token().secret().to_owned()),
-                expires_in: response.expires_in(),
-            },
+            access_token: SecretString::new(response.access_token().secret().to_owned()),
             refresh_token: response
                 .refresh_token()
                 .map(|t| SecretString::new(t.secret().to_owned())),
+            expires_in: response.expires_in(),
         }
     }
 }

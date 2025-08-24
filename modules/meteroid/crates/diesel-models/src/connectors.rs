@@ -37,4 +37,5 @@ pub struct ConnectorRowNew {
 pub struct ConnectorRowPatch {
     pub id: ConnectorId,
     pub data: Option<Option<serde_json::Value>>,
+    pub sensitive: Option<Option<String>>,
 }

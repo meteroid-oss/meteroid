@@ -61,10 +61,22 @@ pub struct HubspotOauthConfig {
     pub client_secret: Option<SecretString>,
 }
 
+impl HubspotOauthConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.client_id.is_some() && self.client_secret.is_some()
+    }
+}
+
 #[derive(Envconfig, Debug, Clone)]
 pub struct PennylaneOauthConfig {
     #[envconfig(from = "OAUTH_PENNYLANE_CLIENT_ID")]
     pub client_id: Option<SecretString>,
     #[envconfig(from = "OAUTH_PENNYLANE_CLIENT_SECRET")]
     pub client_secret: Option<SecretString>,
+}
+
+impl PennylaneOauthConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.client_id.is_some() && self.client_secret.is_some()
+    }
 }

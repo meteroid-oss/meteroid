@@ -13,7 +13,7 @@ use hubspot_client::deals::{DealsApi, NewDeal};
 use hubspot_client::model::CompanyId;
 use hubspot_client::properties::PropertiesApi;
 use itertools::Itertools;
-use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
+use meteroid_oauth::model::{OAuthTokens, OauthProvider};
 use meteroid_store::domain::ConnectorProviderEnum;
 use meteroid_store::domain::connectors::{
     Connector, HubspotPublicData, ProviderData, ProviderSensitiveData,
@@ -36,7 +36,7 @@ use std::time::{Duration, Instant};
 pub(crate) struct HubspotSync {
     pub(crate) store: Arc<Store>,
     pub(crate) client: Arc<HubspotClient>,
-    pub(crate) token_cache: Cache<ConnectorId, OauthAccessToken>,
+    pub(crate) token_cache: Cache<ConnectorId, OAuthTokens>,
 }
 
 impl HubspotSync {
@@ -528,7 +528,7 @@ struct ConnectedTenant {
 
 async fn get_hubspot_connector(
     store: &Store,
-    cache: Cache<ConnectorId, OauthAccessToken>,
+    cache: Cache<ConnectorId, OAuthTokens>,
     tenant_id: TenantId,
 ) -> PgmqResult<Option<HubspotConnector>> {
     let connector = get_connector_cached(store, tenant_id).await?;
@@ -541,7 +541,7 @@ async fn get_hubspot_connector(
         {
             let refresh_token = SecretString::new(data.refresh_token.clone());
 
-            let token = cache
+            let tokens = cache
                 .try_get_with(
                     connector.id,
                     store.oauth_exchange_refresh_token(OauthProvider::Hubspot, refresh_token),
@@ -559,7 +559,7 @@ async fn get_hubspot_connector(
                 id: connector.id,
                 tenant_id: connector.tenant_id,
                 data: public_data,
-                access_token: token.value,
+                access_token: tokens.access_token,
             }));
         } else {
             log::warn!("Misconfigured hubspot connector {}", connector.id);
@@ -599,11 +599,11 @@ struct HubspotConnector {
 
 struct OauthAccessTokenExpiry;
 
-impl Expiry<ConnectorId, OauthAccessToken> for OauthAccessTokenExpiry {
+impl Expiry<ConnectorId, OAuthTokens> for OauthAccessTokenExpiry {
     fn expire_after_create(
         &self,
         _key: &ConnectorId,
-        value: &OauthAccessToken,
+        value: &OAuthTokens,
         _created_at: Instant,
     ) -> Option<Duration> {
         value
