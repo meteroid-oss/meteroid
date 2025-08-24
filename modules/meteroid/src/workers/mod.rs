@@ -88,17 +88,25 @@ pub async fn spawn_workers(
         });
     }
     {
-        let store = store.clone();
-        join_set.spawn(async move {
-            processors::run_hubspot_sync(store, hubspot_client).await;
-        });
+        if config.oauth.hubspot.is_enabled() {
+            let store = store.clone();
+            join_set.spawn(async move {
+                processors::run_hubspot_sync(store, hubspot_client).await;
+            });
+        } else {
+            log::warn!("Hubspot OAuth is not configured, skipping Hubspot sync worker.");
+        }
     }
     {
-        let store = store.clone();
-        let object_store_service = object_store_service.clone();
-        join_set.spawn(async move {
-            processors::run_pennylane_sync(store, pennylane_client, object_store_service).await;
-        });
+        if config.oauth.pennylane.is_enabled() {
+            let store = store.clone();
+            let object_store_service = object_store_service.clone();
+            join_set.spawn(async move {
+                processors::run_pennylane_sync(store, pennylane_client, object_store_service).await;
+            });
+        } else {
+            log::warn!("Pennylane OAuth is not configured, skipping Pennylane sync worker.");
+        }
     }
     {
         let store = store.clone();

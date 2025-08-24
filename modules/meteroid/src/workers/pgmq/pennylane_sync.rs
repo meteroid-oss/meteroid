@@ -2,23 +2,20 @@ use crate::services::storage::{ObjectStoreService, Prefix};
 use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
-use cached::proc_macro::cached;
-use common_domain::ids::{ConnectorId, TenantId};
+use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
 use common_utils::decimals::ToUnit;
-use error_stack::{Report, ResultExt, report};
+use error_stack::{ResultExt, report};
 use futures::TryFutureExt;
 use itertools::Itertools;
-use meteroid_oauth::model::{OauthAccessToken, OauthProvider};
-use meteroid_store::domain::connectors::{Connector, ProviderSensitiveData};
+use meteroid_store::domain::connectors::ConnectorAccessToken;
 use meteroid_store::domain::outbox_event::CustomerEvent;
 use meteroid_store::domain::pgmq::{
     PennylaneSyncCustomer, PennylaneSyncInvoice, PennylaneSyncRequestEvent, PgmqMessage,
 };
 use meteroid_store::domain::{Address, ConnectorProviderEnum, DetailedInvoice};
 use meteroid_store::repositories::connectors::ConnectorsInterface;
-use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::{CustomersInterface, InvoiceInterface};
 use meteroid_store::{Store, StoreResult};
 use moka::Expiry;
@@ -31,7 +28,6 @@ use pennylane_client::customer_invoices::{
 use pennylane_client::customers::{BillingAddress, CustomersApi, NewCompany, UpdateCompany};
 use pennylane_client::file_attachments::{FileAttachmentsApi, MediaType, NewAttachment};
 use rust_decimal::Decimal;
-use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -41,7 +37,7 @@ use std::time::{Duration, Instant};
 pub(crate) struct PennylaneSync {
     pub(crate) store: Arc<Store>,
     pub(crate) client: Arc<PennylaneClient>,
-    pub(crate) token_cache: Cache<ConnectorId, OauthAccessToken>,
+    pub(crate) token_cache: Cache<TenantId, Option<ConnectorAccessToken>>,
     pub(crate) storage: Arc<dyn ObjectStoreService>,
 }
 
@@ -52,7 +48,7 @@ impl PennylaneSync {
         storage: Arc<dyn ObjectStoreService>,
     ) -> Self {
         let token_cache = Cache::builder()
-            .expire_after(OauthAccessTokenExpiry)
+            .expire_after(OptConnectorAccessTokenExpiry)
             .max_capacity(500)
             .build();
 
@@ -81,7 +77,14 @@ impl PennylaneSync {
                 tenant_id,
                 events,
                 tokio::spawn(async move {
-                    get_pennylane_connector(store.as_ref(), cache, tenant_id).await
+                    cache
+                        .try_get_with(
+                            tenant_id,
+                            store
+                                .get_pennylane_connector_access_token(tenant_id)
+                                .map_err(|x| x.change_context(PgmqError::HandleMessages)),
+                        )
+                        .await
                 }),
             ));
         }
@@ -94,7 +97,10 @@ impl PennylaneSync {
         for (tenant_id, events, task) in tasks {
             match task.await {
                 Ok(Ok(Some(connector))) => {
-                    connected_tenants.push(ConnectedTenant { connector, events });
+                    connected_tenants.push(ConnectedTenant {
+                        conn_token: connector,
+                        events,
+                    });
                 }
                 Ok(Ok(None)) => {
                     orphan_msg_ids.extend(events.into_iter().map(|(_, msg_id)| msg_id));
@@ -144,7 +150,7 @@ impl PennylaneSync {
             }
         }
 
-        let conn = conn.connector;
+        let conn = conn.conn_token;
 
         let succeeded_customers = self
             .sync_customers(&conn, customers_to_sync)
@@ -168,7 +174,7 @@ impl PennylaneSync {
 
     async fn sync_customers(
         &self,
-        conn: &PennylaneConnector,
+        conn: &ConnectorAccessToken,
         customer_reqs: Vec<(Box<PennylaneSyncCustomer>, MessageId)>,
     ) -> PgmqResult<Vec<MessageId>> {
         if customer_reqs.is_empty() {
@@ -209,7 +215,7 @@ impl PennylaneSync {
 
     async fn sync_invoices(
         &self,
-        conn: &PennylaneConnector,
+        conn: &ConnectorAccessToken,
         invoice_reqs: Vec<(Box<PennylaneSyncInvoice>, MessageId)>,
     ) -> PgmqResult<Vec<MessageId>> {
         if invoice_reqs.is_empty() {
@@ -249,7 +255,7 @@ impl PennylaneSync {
 
     async fn sync_customer_outbox(
         &self,
-        conn: &PennylaneConnector,
+        conn: &ConnectorAccessToken,
         outboxes: Vec<(Box<CustomerEvent>, MessageId)>,
     ) -> PgmqResult<Vec<MessageId>> {
         if outboxes.is_empty() {
@@ -261,7 +267,7 @@ impl PennylaneSync {
         for (event, msg_id) in outboxes {
             let customer_id = event.customer_id;
 
-            let res = match event.get_pennylane_id(conn.id) {
+            let res = match event.get_pennylane_id(conn.connector_id) {
                 Some(pennylane_id) => {
                     let company = Self::convert_to_update_company(*event);
 
@@ -283,7 +289,7 @@ impl PennylaneSync {
                     self.store
                         .patch_customer_conn_meta(
                             customer_id,
-                            conn.id,
+                            conn.connector_id,
                             ConnectorProviderEnum::Pennylane,
                             res.id.to_string().as_str(),
                         )
@@ -310,7 +316,7 @@ impl PennylaneSync {
 
     async fn sync_detailed_invoices(
         &self,
-        conn: &PennylaneConnector,
+        conn: &ConnectorAccessToken,
         invoices: Vec<(DetailedInvoice, MessageId)>,
     ) -> PgmqResult<Vec<MessageId>> {
         if invoices.is_empty() {
@@ -340,7 +346,7 @@ impl PennylaneSync {
 
     async fn mark_invoice_as_paid(
         &self,
-        conn: &PennylaneConnector,
+        conn: &ConnectorAccessToken,
         pennylane_id: i64,
     ) -> PgmqResult<()> {
         let res = self
@@ -363,14 +369,14 @@ impl PennylaneSync {
 
     async fn sync_detailed_invoice(
         &self,
-        conn: &PennylaneConnector,
+        conn: &ConnectorAccessToken,
         invoice: DetailedInvoice,
         msg_id: MessageId,
     ) -> PgmqResult<MessageId> {
         let pennylane_inv_id = invoice
             .invoice
             .conn_meta
-            .and_then(|x| x.get_pennylane_id(conn.id));
+            .and_then(|x| x.get_pennylane_id(conn.connector_id));
 
         if let Some(id) = pennylane_inv_id {
             log::info!(
@@ -389,7 +395,7 @@ impl PennylaneSync {
         let pennylane_cus_id = invoice
             .customer
             .conn_meta
-            .and_then(|x| x.get_pennylane_id(conn.id));
+            .and_then(|x| x.get_pennylane_id(conn.connector_id));
 
         let pennylane_cus_id = match pennylane_cus_id {
             Some(id) => id,
@@ -496,7 +502,7 @@ impl PennylaneSync {
                     self.store
                         .patch_invoice_conn_meta(
                             invoice.invoice.id,
-                            conn.id,
+                            conn.connector_id,
                             ConnectorProviderEnum::Pennylane,
                             res.id.to_string().as_str(),
                         )
@@ -623,81 +629,34 @@ impl PgmqHandler for PennylaneSync {
     }
 }
 
-async fn get_pennylane_connector(
-    store: &Store,
-    cache: Cache<ConnectorId, OauthAccessToken>,
-    tenant_id: TenantId,
-) -> Result<Option<PennylaneConnector>, Arc<Report<PgmqError>>> {
-    let connector = get_connector_cached(store, tenant_id)
-        .await
-        .map_err(Arc::new)?;
-
-    if let Some(connector) = connector {
-        if let Some(ProviderSensitiveData::Pennylane(data)) = connector.sensitive {
-            let refresh_token = SecretString::new(data.refresh_token);
-
-            let token = cache
-                .try_get_with(
-                    connector.id,
-                    store
-                        .oauth_exchange_refresh_token(OauthProvider::Pennylane, refresh_token)
-                        .map_err(|x| x.change_context(PgmqError::HandleMessages)),
-                )
-                .await?;
-
-            return Ok(Some(PennylaneConnector {
-                id: connector.id,
-                access_token: token.value,
-            }));
-        } else {
-            log::warn!("Pennylane connector has missing/illegal sensitive data");
-        }
-    }
-
-    Ok(None)
-}
-
-#[cached(
-    result = true,
-    size = 100,
-    time = 60,
-    key = "TenantId",
-    convert = r#"{ tenant_id }"#,
-    sync_writes = "default"
-)]
-pub(crate) async fn get_connector_cached(
-    store: &Store,
-    tenant_id: TenantId,
-) -> PgmqResult<Option<Connector>> {
-    store
-        .get_pennylane_connector(tenant_id)
-        .await
-        .change_context(PgmqError::HandleMessages)
-}
-
-struct PennylaneConnector {
-    id: ConnectorId,
-    access_token: SecretString,
-}
-
 #[allow(dead_code)]
 struct ConnectedTenant {
-    connector: PennylaneConnector,
+    conn_token: ConnectorAccessToken,
     events: Vec<(PennylaneSyncRequestEvent, MessageId)>,
 }
 
-struct OauthAccessTokenExpiry;
+struct OptConnectorAccessTokenExpiry;
 
-impl Expiry<ConnectorId, OauthAccessToken> for OauthAccessTokenExpiry {
+impl Expiry<TenantId, Option<ConnectorAccessToken>> for OptConnectorAccessTokenExpiry {
     fn expire_after_create(
         &self,
-        _key: &ConnectorId,
-        value: &OauthAccessToken,
+        _key: &TenantId,
+        value: &Option<ConnectorAccessToken>,
         _created_at: Instant,
     ) -> Option<Duration> {
-        value
-            .expires_in
-            .or(Some(Duration::from_secs(86400))) // 1 day by default
-            .map(|x| x - Duration::from_secs(60)) // expire 1 minute earlier
+        if let Some(token) = value {
+            let expires_at = token
+                .expires_at
+                .unwrap_or(chrono::Utc::now() + chrono::Duration::seconds(86400));
+
+            expires_at
+                .signed_duration_since(chrono::Utc::now())
+                .to_std()
+                .ok()
+                .and_then(|x| x.checked_sub(Duration::from_secs(60))) // expire 1 minute earlier
+                .or(Some(Duration::ZERO))
+        } else {
+            Some(Duration::from_secs(60))
+        }
     }
 }
