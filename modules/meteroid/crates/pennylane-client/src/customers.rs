@@ -59,8 +59,6 @@ pub struct NewCompany {
     pub name: String,
     pub billing_address: BillingAddress,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub billing_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub external_reference: String, // meteroid customer id
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,8 +72,6 @@ pub struct NewCompany {
 pub struct UpdateCompany {
     pub name: String,
     pub billing_address: BillingAddress,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub billing_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub external_reference: String, // meteroid customer id
@@ -99,7 +95,6 @@ pub struct Company {
     pub id: i64,
     pub name: String,
     pub billing_address: BillingAddress,
-    pub billing_email: Option<String>,
     pub phone: Option<String>,
     pub reference: Option<String>, // meteroid customer id
     pub vat_number: Option<String>,

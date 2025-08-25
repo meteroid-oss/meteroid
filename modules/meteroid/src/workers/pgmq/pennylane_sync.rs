@@ -563,7 +563,6 @@ impl PennylaneSync {
         NewCompany {
             name: event.name,
             billing_address,
-            billing_email: event.billing_email,
             phone: event.phone.clone(),
             external_reference: event.customer_id.as_proto(),
             vat_number: event.vat_number,
@@ -578,7 +577,6 @@ impl PennylaneSync {
         UpdateCompany {
             name: event.name,
             billing_address,
-            billing_email: event.billing_email.clone(),
             phone: event.phone.clone(),
             external_reference: event.customer_id.as_proto(),
             vat_number: event.vat_number.clone(),
