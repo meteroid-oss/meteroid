@@ -27,7 +27,7 @@ message DisconnectConnectorRequest {
 message DisconnectConnectorResponse {}
 
 message ConnectHubspotRequest {
-  HubspotConnectorData data = 1;
+  bool auto_sync = 1;
 }
 
 message ConnectHubspotResponse {
@@ -36,7 +36,7 @@ message ConnectHubspotResponse {
 
 message UpdateHubspotConnectorRequest {
   string id = 1;
-  HubspotConnectorData data = 2;
+  bool auto_sync = 2;
 }
 
 message UpdateHubspotConnectorResponse {

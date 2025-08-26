@@ -74,16 +74,12 @@ pub struct ConnectPennylaneData {
 
 json_value_serde!(OauthVerifierData);
 
-pub struct OauthUser {
-    pub user: OAuthUser,
-    pub verifier_data: OauthVerifierData,
-}
-
-pub struct OauthTokens {
-    pub tokens: OAuthTokens,
-    pub verifier_data: OauthVerifierData,
-}
-
 pub struct OauthConnected {
     pub connector: ConnectorMeta,
+}
+
+pub struct OauthConnection {
+    pub user: OAuthUser,
+    pub tokens: OAuthTokens,
+    pub verifier_data: OauthVerifierData,
 }

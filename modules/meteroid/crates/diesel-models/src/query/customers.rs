@@ -364,6 +364,7 @@ impl CustomerRowPatch {
         customer_id: CustomerId,
         connector_id: ConnectorId,
         external_id: &str,
+        external_company_id: &str,
     ) -> DbResult<()> {
         connection_metadata::upsert(
             conn,
@@ -372,6 +373,7 @@ impl CustomerRowPatch {
             customer_id.as_uuid(),
             connector_id,
             external_id,
+            external_company_id,
         )
         .await
         .map(|_| ())

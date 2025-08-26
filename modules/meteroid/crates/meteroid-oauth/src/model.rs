@@ -15,19 +15,77 @@ pub enum OauthProvider {
     Pennylane,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct OAuthUser {
-    pub picture_url: String,
+    pub id: String,
     pub email: String,
-    pub sub: String,
+    pub company_id: String,
+    pub picture_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct GoogleUser {
+pub struct GoogleOAuthUser {
     pub email: String,
     pub email_verified: bool,
     pub picture: String,
     pub sub: String,
+}
+
+impl From<GoogleOAuthUser> for OAuthUser {
+    fn from(val: GoogleOAuthUser) -> Self {
+        OAuthUser {
+            id: val.sub,
+            email: val.email,
+            company_id: "-".to_string(),
+            picture_url: Some(val.picture),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HubspotOAuthUser {
+    pub user_id: u64,
+    pub hub_id: u64,
+    pub user: String,
+}
+
+impl From<HubspotOAuthUser> for OAuthUser {
+    fn from(val: HubspotOAuthUser) -> Self {
+        OAuthUser {
+            id: val.user_id.to_string(),
+            email: val.user,
+            company_id: val.hub_id.to_string(),
+            picture_url: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PennylaneOAuthUser {
+    pub user: PennylaneUser,
+    pub company: PennylaneCompany,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PennylaneUser {
+    pub id: u64,
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PennylaneCompany {
+    pub id: u64,
+}
+
+impl From<PennylaneOAuthUser> for OAuthUser {
+    fn from(val: PennylaneOAuthUser) -> Self {
+        OAuthUser {
+            id: val.user.id.to_string(),
+            email: val.user.email,
+            company_id: val.company.id.to_string(),
+            picture_url: None,
+        }
+    }
 }
 
 pub struct OauthProviderConfig {

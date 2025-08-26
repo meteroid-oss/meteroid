@@ -86,6 +86,7 @@ pub trait SubscriptionInterface {
         connector_id: ConnectorId,
         provider: ConnectorProviderEnum,
         external_id: &str,
+        external_company_id: &str,
     ) -> StoreResult<()>;
 
     async fn sync_subscriptions_to_hubspot(
@@ -330,6 +331,7 @@ impl SubscriptionInterface for Store {
         connector_id: ConnectorId,
         provider: ConnectorProviderEnum,
         external_id: &str,
+        external_company_id: &str,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
@@ -339,6 +341,7 @@ impl SubscriptionInterface for Store {
             subscription_id,
             connector_id,
             external_id,
+            external_company_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)

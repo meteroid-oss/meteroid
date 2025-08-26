@@ -1,4 +1,4 @@
-use crate::domain::oauth::{OauthTokens, OauthUser, OauthVerifier, OauthVerifierData};
+use crate::domain::oauth::{OauthConnection, OauthVerifier, OauthVerifierData};
 use crate::errors::StoreError;
 use crate::{Store, StoreResult};
 use async_trait::async_trait;
@@ -17,19 +17,12 @@ pub trait OauthInterface {
         data: OauthVerifierData,
     ) -> StoreResult<SecretString>;
 
-    async fn oauth_get_user(
-        &self,
-        provider: OauthProvider,
-        code: SecretString,
-        state: SecretString,
-    ) -> StoreResult<OauthUser>;
-
     async fn oauth_exchange_code(
         &self,
         provider: OauthProvider,
         code: SecretString,
         state: SecretString,
-    ) -> StoreResult<OauthTokens>;
+    ) -> StoreResult<OauthConnection>;
 
     async fn oauth_exchange_refresh_token(
         &self,
@@ -70,12 +63,12 @@ impl OauthInterface for Store {
         Ok(auth_url.url)
     }
 
-    async fn oauth_get_user(
+    async fn oauth_exchange_code(
         &self,
         provider: OauthProvider,
         code: SecretString,
         state: SecretString,
-    ) -> StoreResult<OauthUser> {
+    ) -> StoreResult<OauthConnection> {
         let verifiers = get_verifier(self, state).await?;
 
         let srv = self
@@ -93,37 +86,14 @@ impl OauthInterface for Store {
             ))?;
 
         let user = srv
-            .get_user_info(tokens.access_token)
+            .get_user_info(tokens.access_token.clone())
             .await
             .change_context(StoreError::OauthError(
                 "Failed to fetch oauth user".to_owned(),
             ))?;
 
-        Ok(OauthUser {
+        Ok(OauthConnection {
             user,
-            verifier_data: verifiers.data,
-        })
-    }
-
-    async fn oauth_exchange_code(
-        &self,
-        provider: OauthProvider,
-        code: SecretString,
-        state: SecretString,
-    ) -> StoreResult<OauthTokens> {
-        let verifiers = get_verifier(self, state).await?;
-
-        let tokens = self
-            .oauth
-            .for_provider(provider)
-            .ok_or(Report::new(StoreError::OauthError(
-                "Provider not configured".to_string(),
-            )))?
-            .exchange_code(code, verifiers.pkce_verifier)
-            .await
-            .change_context(StoreError::OauthError("Failed to exchange code".to_owned()))?;
-
-        Ok(OauthTokens {
             tokens,
             verifier_data: verifiers.data,
         })

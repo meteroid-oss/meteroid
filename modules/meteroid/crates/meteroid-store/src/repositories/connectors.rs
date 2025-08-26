@@ -1,10 +1,10 @@
 use crate::domain::connectors::{
     Connector, ConnectorAccessToken, ConnectorMeta, ConnectorNew, HubspotPublicData,
-    HubspotSensitiveData, PennylaneSensitiveData, ProviderData, ProviderSensitiveData,
-    StripePublicData, StripeSensitiveData,
+    HubspotSensitiveData, PennylanePublicData, PennylaneSensitiveData, ProviderData,
+    ProviderSensitiveData, StripePublicData, StripeSensitiveData,
 };
 use crate::domain::enums::{ConnectorProviderEnum, ConnectorTypeEnum};
-use crate::domain::oauth::{OauthConnected, OauthTokens, OauthVerifierData};
+use crate::domain::oauth::{OauthConnected, OauthConnection, OauthVerifierData};
 use crate::domain::pgmq::{HubspotSyncRequestEvent, PgmqMessageNew, PgmqQueue};
 use crate::errors::StoreError;
 use crate::repositories::oauth::OauthInterface;
@@ -236,6 +236,7 @@ impl ConnectorsInterface for Store {
         // todo handle concurrent refreshes + refresh_token expiry (90 days)
         if let Some(connector) = connector
             && let Some(ProviderSensitiveData::Pennylane(sensitive)) = connector.sensitive
+            && let Some(ProviderData::Pennylane(data)) = connector.data
         {
             let is_expired = sensitive
                 .expires_at
@@ -255,6 +256,7 @@ impl ConnectorsInterface for Store {
 
                 let access_token = ConnectorAccessToken {
                     connector_id: connector.id,
+                    external_company_id: data.external_company_id,
                     access_token: SecretString::new(sensitive.access_token.clone()),
                     expires_at: sensitive.expires_at,
                 };
@@ -278,6 +280,7 @@ impl ConnectorsInterface for Store {
             } else {
                 ConnectorAccessToken {
                     connector_id: connector.id,
+                    external_company_id: data.external_company_id,
                     access_token: SecretString::new(sensitive.access_token),
                     expires_at: sensitive.expires_at,
                 }
@@ -295,7 +298,8 @@ async fn connect_hubspot(
     oauth_code: SecretString,
     oauth_state: SecretString,
 ) -> StoreResult<OauthConnected> {
-    let OauthTokens {
+    let OauthConnection {
+        user,
         tokens,
         verifier_data,
     } = store
@@ -322,6 +326,7 @@ async fn connect_hubspot(
         provider: ConnectorProviderEnum::Hubspot,
         data: Some(ProviderData::Hubspot(HubspotPublicData {
             auto_sync: crm_data.auto_sync,
+            external_company_id: user.company_id,
         })),
         sensitive: Some(ProviderSensitiveData::Hubspot(HubspotSensitiveData {
             refresh_token: refresh_token.expose_secret().to_owned(),
@@ -360,7 +365,8 @@ async fn connect_pennylane(
     oauth_code: SecretString,
     oauth_state: SecretString,
 ) -> StoreResult<OauthConnected> {
-    let OauthTokens {
+    let OauthConnection {
+        user,
         tokens,
         verifier_data,
     } = store
@@ -385,7 +391,9 @@ async fn connect_pennylane(
         alias: "pennylane".to_owned(),
         connector_type: ConnectorTypeEnum::Accounting,
         provider: ConnectorProviderEnum::Pennylane,
-        data: None,
+        data: Some(ProviderData::Pennylane(PennylanePublicData {
+            external_company_id: user.company_id,
+        })),
         sensitive: Some(ProviderSensitiveData::Pennylane(PennylaneSensitiveData {
             refresh_token: refresh_token.expose_secret().to_owned(),
             access_token: tokens.access_token.expose_secret().to_owned(),

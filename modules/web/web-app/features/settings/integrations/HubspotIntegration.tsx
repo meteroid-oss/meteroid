@@ -37,9 +37,7 @@ export const HubspotIntegrationModal = () => {
   const onSubmit = async (data: z.infer<typeof hubspotIntegrationSchema>) => {
     try {
       await connectHubspotMutation.mutateAsync({
-        data: {
-          autoSync: data.autoSync,
-        },
+        autoSync: data.autoSync,
       })
     } catch (error) {
       toast.error(`Failed to connect. ${error instanceof Error ? error.message : 'Unknown error'}`)

@@ -313,6 +313,7 @@ impl SubscriptionRow {
         subscription_id: SubscriptionId,
         connector_id: ConnectorId,
         external_id: &str,
+        external_company_id: &str,
     ) -> DbResult<()> {
         connection_metadata::upsert(
             conn,
@@ -321,6 +322,7 @@ impl SubscriptionRow {
             subscription_id.as_uuid(),
             connector_id,
             external_id,
+            external_company_id,
         )
         .await
         .map(|_| ())

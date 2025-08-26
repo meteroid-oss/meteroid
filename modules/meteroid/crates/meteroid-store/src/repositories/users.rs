@@ -1,6 +1,6 @@
 use crate::domain::Organization;
 use crate::domain::enums::OrganizationUserRole;
-use crate::domain::oauth::{OauthUser, OauthVerifierData};
+use crate::domain::oauth::{OauthConnection, OauthVerifierData};
 use crate::domain::users::{
     InitRegistrationResponse, LoginUserRequest, LoginUserResponse, Me, RegisterUserRequest,
     RegisterUserRequestInternal, RegisterUserResponse, UpdateUser, User, UserWithRole,
@@ -454,10 +454,11 @@ impl UserInterface for Store {
         code: SecretString,
         state: SecretString,
     ) -> StoreResult<LoginUserResponse> {
-        let OauthUser {
+        let OauthConnection {
             user,
+            tokens: _,
             verifier_data,
-        } = self.oauth_get_user(provider, code, state).await?;
+        } = self.oauth_exchange_code(provider, code, state).await?;
 
         let signin_data = match verifier_data {
             OauthVerifierData::SignIn(data) => data,

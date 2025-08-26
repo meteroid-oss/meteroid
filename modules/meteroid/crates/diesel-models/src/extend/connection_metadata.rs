@@ -13,6 +13,7 @@ pub async fn upsert(
     record_id: uuid::Uuid,
     connector_id: ConnectorId,
     external_id: &str,
+    external_company_id: &str,
 ) -> DbResult<usize> {
     let sync_at = serde_json::to_string(&chrono::Utc::now())
         .map_err(|_| DatabaseError::Others("sync_at serialization failure".into()))?
@@ -33,7 +34,8 @@ pub async fn upsert(
                         WHEN elem->>'connector_id' = $1::text THEN jsonb_build_object(
                             'connector_id', $1,
                             'external_id', $2,
-                            'sync_at', $3
+                            'sync_at', $3,
+                            'external_company_id', $4
                         )
                         ELSE elem
                     END AS elem
@@ -44,7 +46,8 @@ pub async fn upsert(
                 SELECT jsonb_build_object(
                     'connector_id', $1,
                     'external_id', $2,
-                    'sync_at', $3
+                    'sync_at', $3,
+                    'external_company_id', $4
                 )
                 WHERE NOT EXISTS (
                     SELECT 1
@@ -54,7 +57,7 @@ pub async fn upsert(
             ) sub
         )
     )
-    WHERE id = $4;
+    WHERE id = $5;
     "#,
         table_name = table_name,
         integration_key = integration_name,
@@ -63,6 +66,7 @@ pub async fn upsert(
         .bind::<Uuid, _>(connector_id)
         .bind::<Text, _>(external_id)
         .bind::<Text, _>(sync_at)
+        .bind::<Text, _>(external_company_id)
         .bind::<Uuid, _>(record_id)
         .execute(conn)
         .await

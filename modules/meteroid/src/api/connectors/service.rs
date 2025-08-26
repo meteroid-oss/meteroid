@@ -114,11 +114,7 @@ impl ConnectorsService for ConnectorsServiceComponents {
     ) -> Result<Response<ConnectHubspotResponse>, Status> {
         let tenant_id = request.tenant()?;
 
-        let auto_sync = request
-            .into_inner()
-            .data
-            .map(|x| x.auto_sync)
-            .unwrap_or(false);
+        let auto_sync = request.into_inner().auto_sync;
 
         let url = self
             .store
@@ -146,9 +142,19 @@ impl ConnectorsService for ConnectorsServiceComponents {
         let req = request.into_inner();
         let connector_id: ConnectorId = ConnectorId::from_proto(&req.id)?;
 
-        let data = req.data.ok_or(ConnectorApiError::MissingArgument(
-            "Missing hubspot data".to_string(),
-        ))?;
+        let connector = self
+            .store
+            .get_connector_with_data(connector_id, tenant_id)
+            .await
+            .map_err(Into::<ConnectorApiError>::into)?;
+
+        let company_id = connector
+            .hubspot_data()
+            .ok_or(ConnectorApiError::InvalidArgument(
+                "missing hubspot data".into(),
+            ))?
+            .external_company_id
+            .clone();
 
         let connector = self
             .store
@@ -156,7 +162,8 @@ impl ConnectorsService for ConnectorsServiceComponents {
                 connector_id,
                 tenant_id,
                 HubspotPublicData {
-                    auto_sync: data.auto_sync,
+                    auto_sync: req.auto_sync,
+                    external_company_id: company_id,
                 },
             )
             .await
