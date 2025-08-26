@@ -338,6 +338,7 @@ impl HubspotSync {
                         conn.id,
                         ConnectorProviderEnum::Hubspot,
                         company_id.0.as_str(),
+                        conn.data.external_company_id.as_str(),
                     )
                     .await;
 
@@ -447,6 +448,7 @@ impl HubspotSync {
                         conn.id,
                         ConnectorProviderEnum::Hubspot,
                         deal_id.0.as_str(),
+                        conn.data.external_company_id.as_str(),
                     )
                     .await;
 

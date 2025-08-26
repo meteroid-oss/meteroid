@@ -40,9 +40,11 @@ message StripeConnector {
 
 message HubspotConnectorData {
   bool auto_sync = 1;
+  string external_company_id = 2;
 }
 
 message PennylaneConnectorData {
+  string external_company_id = 1;
 }
 
 message ConnectionMetadata {
@@ -54,4 +56,5 @@ message ConnectionMetadataItem {
   string connector_id = 1;
   string external_id = 2;
   string sync_at = 3;
+  string external_company_id = 4;
 }

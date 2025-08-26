@@ -97,16 +97,35 @@ const SectionTitle = ({ children }: { children: ReactNode }) => (
 )
 
 // Detail Row Component
-const DetailRow = ({ label, value, link }: { label: string; value: ReactNode; link?: string }) => (
+const DetailRow = ({ label, value, link, externalLink }: {
+  label: string;
+  value: ReactNode;
+  link?: string;
+  externalLink?: string
+}) => (
   <div className="flex justify-between py-2 border-b border-border last:border-0">
     <div className="text-sm text-muted-foreground">{label}</div>
-    {link ? (
-      <Link to={link}>
-        <div className="text-sm font-medium text-brand hover:underline">{value}</div>
-      </Link>
-    ) : (
-      <div className="text-sm font-medium text-foreground">{value}</div>
-    )}
+    {
+      externalLink && (
+        <a href={externalLink} target="_blank" rel="noopener noreferrer">
+          <div className="text-sm font-medium text-brand hover:underline">{value ?? 'N/A'}</div>
+        </a>
+      )
+    }
+
+    {
+      link && (
+        <Link to={link}>
+          <div className="text-sm font-medium text-brand hover:underline">{value}</div>
+        </Link>
+      )
+    }
+
+    {
+      !link && !externalLink && (
+        <div className="text-sm font-medium text-foreground">{value}</div>
+      )
+    }
   </div>
 )
 
@@ -507,7 +526,10 @@ export const Subscription = () => {
         <DetailSection title="Integrations">
           {
             data.connectionMetadata?.hubspot?.[0]?.externalId &&
-            <DetailRow label="Hubspot ID" value={data.connectionMetadata?.hubspot?.[0]?.externalId}/>
+            <DetailRow label="Hubspot ID"
+                       value={data.connectionMetadata?.hubspot?.[0]?.externalId}
+                       externalLink={`https://app.hubspot.com/contacts/${data.connectionMetadata?.hubspot?.[0]?.externalCompanyId}/deal/${data.connectionMetadata?.hubspot?.[0]?.externalId}`}
+            />
           }
         </DetailSection>
 

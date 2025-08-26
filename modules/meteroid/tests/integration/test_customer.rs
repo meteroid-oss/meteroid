@@ -67,6 +67,7 @@ async fn test_customers_basic() {
             ConnectorId::new(),
             ConnectorProviderEnum::Hubspot,
             "idk",
+            "123",
         )
         .await
         .unwrap();

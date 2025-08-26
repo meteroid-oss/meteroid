@@ -215,7 +215,12 @@ const LeftOverview: React.FC<{
           {
             invoice.connectionMetadata?.pennylane?.[0]?.externalId &&
             <div className="text-muted-foreground text-sm">
-              Pennylane ID - {invoice.connectionMetadata?.pennylane?.[0]?.externalId}
+              Pennylane ID - <a
+              href={`https://app.pennylane.com/companies/${invoice.connectionMetadata?.pennylane?.[0]?.externalCompanyId}/clients/customer_invoices?invoice_id=${invoice.connectionMetadata?.pennylane?.[0]?.externalId}`}
+              target="_blank" rel="noopener noreferrer"
+              className="text-sm font-medium text-brand hover:underline">
+              {invoice.connectionMetadata?.pennylane?.[0]?.externalId ?? 'N/A'}
+            </a>
             </div>
           }
         </div>

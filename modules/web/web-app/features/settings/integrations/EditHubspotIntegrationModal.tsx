@@ -62,9 +62,7 @@ export const EditHubspotIntegrationModal = () => {
   const onSubmit = async (data: z.infer<typeof hubspotIntegrationSchema>) => {
     await updateHubspotConnectorMutation.mutateAsync({
       id: connectionId,
-      data: {
-        autoSync: data.autoSync,
-      },
+      autoSync: data.autoSync,
     })
     navigate('..')
   }

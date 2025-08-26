@@ -96,6 +96,7 @@ pub trait InvoiceInterface {
         connector_id: ConnectorId,
         provider: ConnectorProviderEnum,
         external_id: &str,
+        external_company_id: &str,
     ) -> StoreResult<()>;
 }
 
@@ -328,6 +329,7 @@ impl InvoiceInterface for Store {
         connector_id: ConnectorId,
         provider: ConnectorProviderEnum,
         external_id: &str,
+        external_company_id: &str,
     ) -> StoreResult<()> {
         let mut conn = self.get_conn().await?;
 
@@ -337,6 +339,7 @@ impl InvoiceInterface for Store {
             invoice_id,
             connector_id,
             external_id,
+            external_company_id,
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)

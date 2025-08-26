@@ -24,10 +24,20 @@ pub struct Connector {
     pub sensitive: Option<ProviderSensitiveData>,
 }
 
+impl Connector {
+    pub fn hubspot_data(&self) -> Option<&HubspotPublicData> {
+        match &self.data {
+            Some(ProviderData::Hubspot(data)) => Some(data),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProviderData {
     Stripe(StripePublicData),
     Hubspot(HubspotPublicData),
+    Pennylane(PennylanePublicData),
 }
 
 json_value_ser!(ProviderData);
@@ -41,9 +51,17 @@ pub struct StripePublicData {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HubspotPublicData {
     pub auto_sync: bool,
+    pub external_company_id: String, // hub_id
 }
 
 json_value_ser!(HubspotPublicData);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PennylanePublicData {
+    pub external_company_id: String, // company.id
+}
+
+json_value_ser!(PennylanePublicData);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProviderSensitiveData {
@@ -230,6 +248,7 @@ pub struct ConnectionMetaItem {
     pub connector_id: ConnectorId,
     pub external_id: String,
     pub sync_at: DateTime<Utc>,
+    pub external_company_id: String, // pennylane: company.id, hubspot: hub_id
 }
 
 json_value_serde!(ConnectionMetaItem);
@@ -237,6 +256,7 @@ json_value_serde!(ConnectionMetaItem);
 #[derive(Clone, Debug)]
 pub struct ConnectorAccessToken {
     pub connector_id: ConnectorId,
+    pub external_company_id: String,
     pub access_token: SecretString,
     pub expires_at: Option<DateTime<Utc>>,
 }

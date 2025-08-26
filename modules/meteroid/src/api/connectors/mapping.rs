@@ -75,7 +75,15 @@ pub mod connectors {
                 ProviderData::Hubspot(d) => Some(server::ConnectorData {
                     data: Some(server::connector_data::Data::Hubspot(
                         HubspotConnectorData {
+                            external_company_id: d.external_company_id.clone(),
                             auto_sync: d.auto_sync,
+                        },
+                    )),
+                }),
+                ProviderData::Pennylane(d) => Some(server::ConnectorData {
+                    data: Some(server::connector_data::Data::Pennylane(
+                        server::PennylaneConnectorData {
+                            external_company_id: d.external_company_id.clone(),
                         },
                     )),
                 }),
@@ -108,6 +116,7 @@ pub mod connectors {
                 connector_id: item.connector_id.as_proto(),
                 external_id: item.external_id.clone(),
                 sync_at: item.sync_at.naive_utc().as_proto(),
+                external_company_id: item.external_company_id.clone(),
             })
             .collect()
     }

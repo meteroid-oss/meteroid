@@ -95,11 +95,19 @@ export const Customer = () => {
                   <FlexDetails title="Alias (External ID)" value={data.alias}/>
                   {
                     data.connectionMetadata?.hubspot?.[0]?.externalId &&
-                    <FlexDetails title="Hubspot ID" value={data.connectionMetadata?.hubspot?.[0]?.externalId}/>
+                    <FlexDetails
+                      title="Hubspot ID"
+                      value={data.connectionMetadata?.hubspot?.[0]?.externalId}
+                      externalLink={`https://app.hubspot.com/contacts/${data.connectionMetadata?.hubspot?.[0]?.externalCompanyId}/company/${data.connectionMetadata?.hubspot?.[0]?.externalId}`}
+                    />
                   }
                   {
                     data.connectionMetadata?.pennylane?.[0]?.externalId &&
-                    <FlexDetails title="Pennylane ID" value={data.connectionMetadata?.pennylane?.[0]?.externalId}/>
+                    <FlexDetails
+                      title="Pennylane ID"
+                      value={data.connectionMetadata?.pennylane?.[0]?.externalId}
+                      externalLink={`https://app.pennylane.com/companies/${data.connectionMetadata?.pennylane?.[0]?.externalCompanyId}/thirdparties/customers?id=${data.connectionMetadata?.pennylane?.[0]?.externalId}`}
+                    />
                   }
                   <FlexDetails title="Stripe ID" value="N/A"/>
                 </Flex>
@@ -138,9 +146,15 @@ const OverviewCard = ({ title, value }: { title: string; value?: number }) => (
   </Card>
 )
 
-const FlexDetails = ({ title, value }: { title: string; value?: string }) => (
+const FlexDetails = ({ title, value, externalLink }: { title: string; value?: string; externalLink?: string }) => (
   <Flex align="center" justify="between">
     <div className="text-[13px] text-muted-foreground">{title}</div>
-    <div className="text-[13px]">{value ?? 'N/A'}</div>
+    {externalLink ? (
+      <a href={externalLink} target="_blank" rel="noopener noreferrer">
+        <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
+      </a>
+    ) : (
+      <div className="text-[13px]">{value ?? 'N/A'}</div>
+    )}
   </Flex>
 )

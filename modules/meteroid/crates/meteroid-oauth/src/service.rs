@@ -136,7 +136,7 @@ impl OauthServices {
                     "{}/oauth-callback/hubspot",
                     config.rest_api_external_url.as_str()
                 ),
-                user_info_url: None,
+                user_info_url: Some("https://api.hubapi.com/oauth/v1/access-tokens".to_string()),
                 scopes: vec![
                     "oauth".to_owned(),
                     "crm.objects.deals.read".to_owned(),
@@ -176,7 +176,7 @@ impl OauthServices {
                 token_url: "https://app.pennylane.com/oauth/token".to_string(),
                 // todo migrate to rest api url once pennylane app is updated
                 callback_url: format!("{}/oauth-callback/pennylane", config.public_url.as_str()),
-                user_info_url: None,
+                user_info_url: Some("https://app.pennylane.com/api/external/v2/me".to_string()),
                 scopes: vec![
                     "customers:all".to_owned(),
                     "customer_invoices:all".to_owned(),
@@ -309,7 +309,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
                     ))?;
 
                 let user_profile = user_profile
-                    .json::<crate::model::GoogleUser>()
+                    .json::<crate::model::GoogleOAuthUser>()
                     .await
                     .change_context(OauthServiceError::ProviderApi(
                         "Failed to deserialize user info response".into(),
@@ -319,17 +319,57 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
                     bail!(OauthServiceError::UserEmailNotVerified);
                 }
 
-                Ok(OAuthUser {
-                    picture_url: user_profile.picture,
-                    email: user_profile.email,
-                    sub: user_profile.sub,
-                })
+                Ok(user_profile.into())
             }
             OauthProvider::Hubspot => {
-                bail!(OauthServiceError::UserInfoNotSupported)
+                let url = self
+                    .config
+                    .user_info_url
+                    .as_ref()
+                    .map(|url| format!("{url}/{}", access_token.expose_secret()))
+                    .ok_or(OauthServiceError::UserInfoNotSupported)?;
+
+                let user_profile = self.http_client.get(url).send().await.change_context(
+                    OauthServiceError::ProviderApi("Failed to fetch user info".into()),
+                )?;
+
+                let user_profile = user_profile
+                    .json::<crate::model::HubspotOAuthUser>()
+                    .await
+                    .change_context(OauthServiceError::ProviderApi(
+                        "Failed to deserialize user info response".into(),
+                    ))?;
+
+                Ok(user_profile.into())
             }
             OauthProvider::Pennylane => {
-                bail!(OauthServiceError::UserInfoNotSupported)
+                let url = self
+                    .config
+                    .user_info_url
+                    .as_ref()
+                    .ok_or(OauthServiceError::UserInfoNotSupported)?;
+
+                let user_profile = self
+                    .http_client
+                    .get(url)
+                    .header(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", access_token.expose_secret()),
+                    )
+                    .send()
+                    .await
+                    .change_context(OauthServiceError::ProviderApi(
+                        "Failed to fetch user info".into(),
+                    ))?;
+
+                let user_profile = user_profile
+                    .json::<crate::model::PennylaneOAuthUser>()
+                    .await
+                    .change_context(OauthServiceError::ProviderApi(
+                        "Failed to deserialize user info response".into(),
+                    ))?;
+
+                Ok(user_profile.into())
             }
         }
     }

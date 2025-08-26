@@ -292,6 +292,7 @@ impl PennylaneSync {
                             conn.connector_id,
                             ConnectorProviderEnum::Pennylane,
                             res.id.to_string().as_str(),
+                            conn.external_company_id.as_str(),
                         )
                         .await
                         .change_context(PgmqError::HandleMessages)?;
@@ -505,6 +506,7 @@ impl PennylaneSync {
                             conn.connector_id,
                             ConnectorProviderEnum::Pennylane,
                             res.id.to_string().as_str(),
+                            conn.external_company_id.as_str(),
                         )
                         .await
                         .change_context(PgmqError::HandleMessages)?;
