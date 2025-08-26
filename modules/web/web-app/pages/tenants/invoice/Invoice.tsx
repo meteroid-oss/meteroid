@@ -6,7 +6,7 @@ import {
   Card,
   cn,
   DropdownMenu,
-  DropdownMenuContent,
+  DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger,
   Skeleton,
 } from '@md/ui'
@@ -18,10 +18,13 @@ import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { IntegrationType, SyncInvoiceModal } from "@/features/settings/integrations/SyncInvoiceModal";
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
+import { listConnectors } from "@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery";
+import { ConnectorProviderEnum } from "@/rpc/api/connectors/v1/models_pb";
 import {
   getInvoice,
   refreshInvoiceData,
@@ -57,12 +60,12 @@ export const Invoice = () => {
       <Flex direction="column" gap={spaces.space6} fullHeight>
         {isLoading || !data ? (
           <>
-            <Skeleton height={16} width={50} />
-            <Skeleton height={44} />
+            <Skeleton height={16} width={50}/>
+            <Skeleton height={44}/>
           </>
         ) : (
           <>
-            <InvoiceView invoice={data} previewHtml={setOpenPreview} />
+            <InvoiceView invoice={data} previewHtml={setOpenPreview}/>
             {invoiceId && openPreview && (
               <PreviewInvoiceDialog
                 invoiceId={invoiceId}
@@ -112,11 +115,11 @@ export const InvoiceMeta = ({ invoice }: Props) => {
                   to={`${basePath}/customers/${invoice.customerId}`}
                   className="flex items-center text-brand hover:underline"
                 >
-                  <a>{invoice.customerDetails?.name}</a>
+                  {invoice.customerDetails?.name}
                 </Link>
               </span>
               {invoice.customerDetails?.billingAddress && (
-                <AddressLinesCompact address={invoice.customerDetails?.billingAddress} />
+                <AddressLinesCompact address={invoice.customerDetails?.billingAddress}/>
               )}
             </div>
           </div>
@@ -161,7 +164,7 @@ const LeftOverview: React.FC<{
   return (
     <div className=" h-full">
       <div className="flex flex-col items-start gap-y-2 pb-4 border-b">
-        <InvoiceStatusBadge status={invoice.status} />
+        <InvoiceStatusBadge status={invoice.status}/>
         <div className="flex items-center text-center justify-center gap-2">
           <span className="text-lg font-semibold">INVOICE {invoice.invoiceNumber ?? ''}</span>
         </div>
@@ -185,7 +188,7 @@ const LeftOverview: React.FC<{
                 rel="noreferrer"
               >
                 <Button size="md" hasIcon disabled={!invoice.pdfDocumentId} variant="ghost">
-                  Download <DownloadIcon size="12" />
+                  Download <DownloadIcon size="12"/>
                 </Button>
               </a>
             )}
@@ -205,6 +208,16 @@ const LeftOverview: React.FC<{
           <div className="text-muted-foreground text-sm">
             {parseAndFormatDate(invoice.createdAt)} - Invoice created
           </div>
+        </div>
+        <div className="py-6 space-y-6">
+          <div>Integrations</div>
+
+          {
+            invoice.connectionMetadata?.pennylane?.[0]?.externalId &&
+            <div className="text-muted-foreground text-sm">
+              Pennylane ID - {invoice.connectionMetadata?.pennylane?.[0]?.externalId}
+            </div>
+          }
         </div>
       </div>
     </div>
@@ -232,6 +245,12 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
     invoice.documentSharingKey &&
     `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
 
+  const connectorsQuery = useQuery(listConnectors, {})
+  const connectorsData = connectorsQuery.data?.connectors ?? []
+
+  const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false);
+  const isPennylaneConnected = connectorsData.some(connector => connector.provider === ConnectorProviderEnum.PENNYLANE)
+
   useEffect(() => {
     if (canRefresh) {
       doRefresh()
@@ -240,8 +259,12 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
 
   return (
     <div className="grid grid-cols-3 h-full bg-gray-10">
+      {showSyncPennylaneModal &&
+        <SyncInvoiceModal invoiceNumber={invoice.invoiceNumber} id={invoice.id}
+                          integrationType={IntegrationType.Pennylane}
+                          onClose={() => setShowSyncPennylaneModal(false)}/>}
       <div className="col-span-1 h-full">
-        <LeftOverview invoice={invoice} />
+        <LeftOverview invoice={invoice}/>
       </div>
       <div className="col-span-2 px-6 overflow-y-auto">
         <div className="w-full flex justify-end px-6 pb-4 gap-2">
@@ -252,7 +275,7 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
             onClick={doRefresh}
             disabled={!canRefresh || refresh.isPending}
           >
-            Refresh <RefreshCcw size="16" className={cn(refresh.isPending && 'animate-spin')} />
+            Refresh <RefreshCcw size="16" className={cn(refresh.isPending && 'animate-spin')}/>
           </Button>
           <Button
             size="sm"
@@ -266,7 +289,7 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="primary" className="gap-2  " size="sm" hasIcon>
-                Actions <ChevronDown className="w-4 h-4" />
+                Actions <ChevronDown className="w-4 h-4"/>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -275,6 +298,9 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
                   {option.label}
                 </DropdownMenuItem>
               ))} */}
+              <DropdownMenuItem disabled={!isPennylaneConnected} onClick={() => setShowSyncPennylaneModal(true)}>
+                Sync to Pennylane
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -285,11 +311,11 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
             rel="noreferrer"
           >
             <Button size="sm" disabled={!invoice.pdfDocumentId} variant="primary">
-              <Download size="16" />
+              <Download size="16"/>
             </Button>
           </a>
         </div>
-        <InvoiceMeta invoice={invoice} />
+        <InvoiceMeta invoice={invoice}/>
         {invoice.invoiceType === InvoiceType.RECURRING ? (
           <div className="flex flex-col mt-6">
             <div>
@@ -299,8 +325,8 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
         ) : null}
 
         <div className="flex flex-col mt-4 mb-8">
-          <InvoiceLineItems items={invoice.lineItems} invoice={invoice} />
-          <InvoiceSummaryLines invoice={invoice} />
+          <InvoiceLineItems items={invoice.lineItems} invoice={invoice}/>
+          <InvoiceSummaryLines invoice={invoice}/>
         </div>
       </div>
     </div>
@@ -388,7 +414,7 @@ export const InvoiceLineItems: React.FC<{ items: LineItem[]; invoice: DetailedIn
       {items
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(item => {
-          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice} />
+          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice}/>
         })}
     </div>
   )
@@ -422,10 +448,10 @@ const InvoiceLineItemCard: React.FC<{
       <div className="grid grid-cols-3 gap-y-4">
         <div className="col-span-1">{heading}</div>
         <div className="col-span-2">
-          <QuantityTimeRate line_item={line_item} invoice={invoice} />
+          <QuantityTimeRate line_item={line_item} invoice={invoice}/>
         </div>
         <div className="grid grid-cols-3 col-span-3 gap-y-4">
-          <SublinesRate line_item={line_item} invoice={invoice} />
+          <SublinesRate line_item={line_item} invoice={invoice}/>
         </div>
       </div>
     </Card>
