@@ -3,6 +3,7 @@ syntax = "proto3";
 package meteroid.api.invoices.v1;
 
 import "api/customers/v1/models.proto";
+import "api/connectors/v1/models.proto";
 
 enum InvoiceStatus {
   DRAFT = 0;
@@ -74,6 +75,7 @@ message DetailedInvoice {
   optional string document_sharing_key = 37;
   optional string pdf_document_id = 38;
   optional string xml_document_id = 39;
+  optional api.connectors.v1.ConnectionMetadata connection_metadata = 40;
 }
 
 message TaxBreakdownItem {
@@ -110,7 +112,6 @@ message LineItem {
   optional string product_id = 14;
   optional string metric_id = 15; // TODO same as product id ?
   optional string description = 16;
-
 
 
 }

@@ -1,4 +1,5 @@
 pub mod invoices {
+    use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::mapping::customer::ServerAddressWrapper;
     use crate::api::sharable::ShareableEntityClaims;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
@@ -221,6 +222,10 @@ pub mod invoices {
                     },
                 )
                 .collect(),
+            connection_metadata: invoice
+                .conn_meta
+                .as_ref()
+                .map(connection_metadata_to_server),
         })
     }
 
