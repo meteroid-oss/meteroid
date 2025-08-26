@@ -500,7 +500,7 @@ impl TypstInvoiceRenderer {
             .output
             .map_err(|e| {
                 InvoicingError::InvoiceGenerationError(format!(
-                    "Failed to compile Typst document: {}",
+                    "Failed to compile Typst document: {:?}",
                     e
                 ))
             })?;
