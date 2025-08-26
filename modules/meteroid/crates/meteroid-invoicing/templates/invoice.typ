@@ -10,7 +10,6 @@
   due_date,
   subtotal,
   tax_amount,
-  tax_rate,
   total_amount,
   currency_code,
   currency_symbol,
@@ -226,13 +225,14 @@
 
   // Simple table header with subtle styling and smaller font
   grid(
-    columns: (5.5fr, 1fr, 1fr, 1fr),
+    columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
     column-gutter: 2pt,
     row-gutter: 0pt,
 
     text(weight: "medium", fill: color.accent, size: 8pt, translations.description),
     align(center, text(weight: "medium", fill: color.accent, size: 8pt, translations.quantity)),
     align(right, text(weight: "medium", fill: color.accent, size: 8pt, translations.unit_price)),
+    align(right, text(weight: "medium", fill: color.accent, size: 8pt, translations.tax_rate)),
     align(right, text(weight: "medium", fill: color.accent, size: 8pt, translations.amount)),
   )
 
@@ -242,7 +242,7 @@
   // Line items with compact styling and improved sublines
   for (index, item) in lines.enumerate() {
     grid(
-      columns: (5.5fr, 1fr, 1fr, 1fr),
+      columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
       column-gutter: 6pt,
       row-gutter: 0pt, // Remove row gap
 
@@ -259,6 +259,8 @@
 
       align(right, text(weight: "regular", if item.unit_price != none { format_amount(item.unit_price) } else { "" })),
 
+      align(right, text(weight: "regular", if item.vat_rate != none { str(item.vat_rate) + "%" } else { "" })),
+
       align(right, text(weight: "regular", format_amount(item.subtotal))),
     )
 
@@ -274,7 +276,7 @@
           // Iterate through sublines
           #for (sub_index, sub_item) in item.sub_lines.enumerate() {
             grid(
-              columns: (5.5fr, 1fr, 1fr, 1fr),
+              columns: (4fr, 1fr, 1fr, 0.8fr, 1.2fr),
               column-gutter: 6pt,
               row-gutter: 0pt,
 
@@ -289,6 +291,8 @@
               align(center, text(size: 8.5pt, fill: color.accent, if sub_item.quantity != none { str(sub_item.quantity) } else { "" })),
 
               align(right, text(size: 8.5pt, fill: color.accent, if sub_item.unit_price != none { format_amount(sub_item.unit_price) } else { "" })),
+
+              [], // Empty tax rate column for sublines
 
               align(right, text(size: 8.5pt, fill: color.accent, format_amount(sub_item.total))),
             )
@@ -413,23 +417,15 @@
           )
         },
 
-        // Show either detailed tax breakdown or simple tax line
+
         ..if tax_breakdown.len() > 1 {
           // Multiple tax rates - show breakdown
           for tax_item in tax_breakdown {
             (
-              text(fill: color.accent, tax_item.name + " " + str(calc.round(tax_item.rate, digits: 1)) + "%"),
+              text(fill: color.accent, tax_item.name + " " + str(tax_item.rate) + "%"),
               align(right, text(weight: "regular", format_amount(tax_item.amount))),
             )
           }
-        } else {
-          // Single tax rate - show simple line
-          (
-            (
-              text(fill: color.accent, translations.tax + " " + str(tax_rate) + "%"),
-              align(right, text(weight: "regular", format_amount(tax_amount))),
-            ),
-          )
         },
 
         text(weight: "medium", size: 12pt, fill: color.heading, translations.total_due),
@@ -499,13 +495,13 @@
 
             #if has_reverse_charge {
               text(size: 9pt, translations.tax_reverse_charge)
-              #linebreak()
-              #text(size: 8pt, fill: color.footer_text, translations.at("reverse_charge_notice", default: ""))
+              linebreak()
+              text(size: 8pt, fill: color.footer_text, translations.at("reverse_charge_notice", default: ""))
             } else if has_tax_exempt {
               text(size: 9pt, translations.vat_exempt_legal)
-              #linebreak()
-              #text(size: 8pt, fill: color.footer_text, translations.at("vat_exempt_notice", default: ""))
-            } else if tax_rate == 0 {
+              linebreak()
+              text(size: 8pt, fill: color.footer_text, translations.at("vat_exempt_notice", default: ""))
+            } else if tax_breakdown.len() == 0 {
               text(size: 9pt, translations.at("no_tax_applied", default: "No tax applied"))
             } else {
               text(size: 9pt, translations.at("tax_included_text", default: "All prices include tax"))

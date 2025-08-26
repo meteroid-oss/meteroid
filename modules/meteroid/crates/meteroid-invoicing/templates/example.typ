@@ -3,7 +3,7 @@
 // Define example data directly in the template
 #let example_organization = (
   name: "Acme Inc.",
-  logo_url: "logo.png",
+  logo_src: "logo.png",
   legal_number: "123456789",
   address: (
     line1: "123 Main Street",
@@ -162,7 +162,7 @@
   unit_price: "Unit price",
   tax_rate: "Tax Rate",
   tax: "Tax",
-  amount: "Amount",
+  amount: "Total (excl. tax)",
   subtotal: "Subtotal",
   total_due: "Total",
   legal_info: "Legal Information",
@@ -192,6 +192,17 @@
   b2b_notice: "Business-to-business transaction",
 )
 
+#let example_coupons = (
+  (
+    name: "Spring Promotion 10% off",
+    total: 25.0,
+  ),
+  (
+    name: "Loyalty Discount",
+    total: 15.0,
+  ),
+)
+
 #let example_tax_breakdown = (
   (
     name: "VAT (Standard Rate)",
@@ -215,14 +226,13 @@
   "April 15, 2025",        // due_date
   2150.0,                  // subtotal
   430.0,                   // tax_amount
-  20.0,                    // tax_rate
   2580.0,                  // total_amount
   "EUR",                   // currency_code
   "€",                     // currency_symbol
   "Thank you for your subscription!", // memo
   14,                      // payment_term
   example_lines,           // lines
-  (),                      // coupons
+  example_coupons,         // coupons
   example_tax_breakdown,   // tax_breakdown
   example_translations,    // translations
   (symbol: "€"),           // formatted_currency

@@ -10,7 +10,6 @@
   inputs.due_date,
   inputs.subtotal,
   inputs.tax_amount,
-  inputs.tax_rate,
   inputs.total_amount,
   inputs.currency_code,
   inputs.currency_symbol,
