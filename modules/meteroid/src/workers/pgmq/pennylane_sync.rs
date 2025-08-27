@@ -269,17 +269,17 @@ impl PennylaneSync {
 
             let res = match event.get_pennylane_id(conn.connector_id) {
                 Some(pennylane_id) => {
-                    let company = Self::convert_to_update_company(*event);
+                    let company = &Self::convert_to_update_company(*event);
 
                     self.client
                         .update_company_customer(pennylane_id, company, &conn.access_token)
                         .await
                 }
                 None => {
-                    let company = Self::convert_to_new_company(*event);
+                    let company = &Self::convert_to_new_company(*event);
 
                     self.client
-                        .create_company_customer(company, &conn.access_token)
+                        .upsert_company_customer(company, &conn.access_token)
                         .await
                 }
             };
@@ -451,7 +451,7 @@ impl PennylaneSync {
             let to_sync = NewCustomerInvoiceImport {
                 file_attachment_id: created.id,
                 customer_id: pennylane_cus_id,
-                external_reference: Some(invoice.invoice.id.as_proto()),
+                external_reference: invoice.invoice.id.as_proto(),
                 invoice_number: Some(invoice.invoice.invoice_number),
                 date: invoice.invoice.invoice_date,
                 deadline: invoice
@@ -495,7 +495,7 @@ impl PennylaneSync {
 
             let res = self
                 .client
-                .import_customer_invoice(to_sync, &conn.access_token)
+                .import_or_get_customer_invoice(&to_sync, &conn.access_token)
                 .await;
 
             match res {

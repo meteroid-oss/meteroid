@@ -1,5 +1,5 @@
 ### List customers/compamies https://pennylane.readme.io/v2.0/reference/getcustomers
-GET https://app.pennylane.com/api/external/v2/customers
+GET https://app.pennylane.com/api/external/v2/customers HTTP/1.1
 Accept: application/json
 Authorization: Bearer {{api_token}}
 
@@ -38,12 +38,12 @@ Authorization: Bearer {{api_token}}
 }
 
 ### customer invoices changelog https://pennylane.readme.io/v2.0/docs/tracking-data-changes-with-pennylane-api#available-changelog-endpoints
-GET https://app.pennylane.com/api/external/v2/changelogs/customer_invoices
+GET https://app.pennylane.com/api/external/v2/changelogs/customer_invoices HTTP/1.1
 Accept: application/json
 Authorization: Bearer {{api_token}}
 
 ### Upload file https://pennylane.readme.io/v2.0/reference/postfileattachments
-POST https://app.pennylane.com/api/external/v2/file_attachments
+POST https://app.pennylane.com/api/external/v2/file_attachments HTTP/1.1
 Accept: application/json
 Content-Type: multipart/form-data; boundary=MyBoundary
 Authorization: Bearer {{api_token}}
@@ -57,7 +57,7 @@ Content-Type: application/pdf
 
 
 ### Import customer invoice https://pennylane.readme.io/v2.0/reference/importcustomerinvoices
-POST https://app.pennylane.com/api/external/v2/customer_invoices/import
+POST https://app.pennylane.com/api/external/v2/customer_invoices/import HTTP/1.1
 Content-Type: application/json
 Accept: application/json
 Authorization: Bearer {{api_token}}
@@ -93,7 +93,19 @@ PUT https://app.pennylane.com/api/external/v2/customer_invoices/1974109344/mark_
 Authorization: Bearer {{api_token}}
 
 ### List customer invoices https://pennylane.readme.io/v2.0/reference/getcustomerinvoices
-GET https://app.pennylane.com/api/external/v2/customer_invoices
+GET https://app.pennylane.com/api/external/v2/customer_invoices HTTP/1.1
+Accept: application/json
+Authorization: Bearer {{api_token}}
+
+### Get customer by external_reference https://pennylane.readme.io/v2.0/reference/getcustomers
+GET https://app.pennylane.com/api/external/v2/customers?
+  filter=[{"field": "external_reference", "operator": "eq", "value": "cus_VTNnzVXRsjJuusdcEPVtl"}] HTTP/1.1
+Accept: application/json
+Authorization: Bearer {{api_token}}
+
+### Get invoice by external_reference https://pennylane.readme.io/v2.0/reference/getcustomers
+GET https://app.pennylane.com/api/external/v2/customer_invoices?
+  filter=[{"field": "external_reference", "operator": "eq", "value": "inv_123456789"}] HTTP/1.1
 Accept: application/json
 Authorization: Bearer {{api_token}}
 

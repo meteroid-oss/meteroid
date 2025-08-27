@@ -1,5 +1,6 @@
 use crate::client::PennylaneClient;
 use crate::error::PennylaneError;
+use crate::model::{ListResponse, QueryFilter, QueryParams};
 use reqwest::Method;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -8,14 +9,26 @@ use serde::{Deserialize, Serialize};
 pub trait CustomersApi {
     async fn create_company_customer(
         &self,
-        company: NewCompany,
+        company: &NewCompany,
         access_token: &SecretString,
     ) -> Result<Company, PennylaneError>;
 
     async fn update_company_customer(
         &self,
         id: i64,
-        company: UpdateCompany,
+        company: &UpdateCompany,
+        access_token: &SecretString,
+    ) -> Result<Company, PennylaneError>;
+
+    async fn upsert_company_customer(
+        &self,
+        company: &NewCompany,
+        access_token: &SecretString,
+    ) -> Result<Company, PennylaneError>;
+
+    async fn get_company_customer(
+        &self,
+        external_reference: &str,
         access_token: &SecretString,
     ) -> Result<Company, PennylaneError>;
 }
@@ -25,7 +38,7 @@ impl CustomersApi for PennylaneClient {
     /// https://pennylane.readme.io/v2.0/reference/postcompanycustomer
     async fn create_company_customer(
         &self,
-        company: NewCompany,
+        company: &NewCompany,
         access_token: &SecretString,
     ) -> Result<Company, PennylaneError> {
         self.execute(
@@ -33,6 +46,7 @@ impl CustomersApi for PennylaneClient {
             Method::POST,
             access_token,
             Some(company),
+            None::<()>,
         )
         .await
     }
@@ -41,7 +55,7 @@ impl CustomersApi for PennylaneClient {
     async fn update_company_customer(
         &self,
         id: i64,
-        company: UpdateCompany,
+        company: &UpdateCompany,
         access_token: &SecretString,
     ) -> Result<Company, PennylaneError> {
         self.execute(
@@ -49,8 +63,63 @@ impl CustomersApi for PennylaneClient {
             Method::PUT,
             access_token,
             Some(company),
+            None::<()>,
         )
         .await
+    }
+
+    async fn upsert_company_customer(
+        &self,
+        company: &NewCompany,
+        access_token: &SecretString,
+    ) -> Result<Company, PennylaneError> {
+        let created = self.create_company_customer(company, access_token).await;
+
+        if let Err(PennylaneError::ClientError {
+            error: _,
+            status_code: Some(419 | 422),
+        }) = created
+        {
+            let existing = self
+                .get_company_customer(company.external_reference.as_str(), access_token)
+                .await?;
+
+            self.update_company_customer(existing.id, &company.into(), access_token)
+                .await
+        } else {
+            created
+        }
+    }
+
+    /// https://pennylane.readme.io/v2.0/reference/getcustomers
+    async fn get_company_customer(
+        &self,
+        external_reference: &str,
+        access_token: &SecretString,
+    ) -> Result<Company, PennylaneError> {
+        let list: ListResponse<Company> = self
+            .execute(
+                "/api/external/v2/customers",
+                Method::GET,
+                access_token,
+                None::<()>.as_ref(),
+                Some(QueryParams {
+                    filter: Some(vec![QueryFilter {
+                        field: "external_reference".to_string(),
+                        operator: "eq".to_string(),
+                        value: external_reference.to_string(),
+                    }]),
+                }),
+            )
+            .await?;
+
+        list.items
+            .into_iter()
+            .next()
+            .ok_or_else(|| PennylaneError::ClientError {
+                error: "empty items".to_string(),
+                status_code: None,
+            })
     }
 }
 
@@ -100,4 +169,18 @@ pub struct Company {
     pub vat_number: Option<String>,
     pub emails: Vec<String>, // invoicing_emails
     pub billing_iban: Option<String>,
+}
+
+impl From<&NewCompany> for UpdateCompany {
+    fn from(new: &NewCompany) -> Self {
+        UpdateCompany {
+            name: new.name.clone(),
+            billing_address: new.billing_address.clone(),
+            phone: new.phone.clone(),
+            external_reference: new.external_reference.clone(),
+            vat_number: new.vat_number.clone(),
+            emails: new.emails.clone(),
+            billing_iban: new.billing_iban.clone(),
+        }
+    }
 }
