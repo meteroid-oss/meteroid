@@ -15,6 +15,7 @@ import { IntegrationType, SyncSubscriptionModal } from "@/features/settings/inte
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
+import { getLatestConnMeta } from "@/pages/tenants/utils";
 import { listConnectors } from "@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery";
 import { ConnectorProviderEnum } from "@/rpc/api/connectors/v1/models_pb";
 import {
@@ -186,6 +187,8 @@ export const Subscription = () => {
   const isHubspotConnected = connectorsData.some(connector => connector.provider === ConnectorProviderEnum.HUBSPOT)
 
   const isLoading = subscriptionQuery.isLoading || connectorsQuery.isLoading
+
+  const hubspotConnMeta = getLatestConnMeta(data?.connectionMetadata?.hubspot)
 
   if (isLoading || !data) {
     return (
@@ -525,10 +528,10 @@ export const Subscription = () => {
 
         <DetailSection title="Integrations">
           {
-            data.connectionMetadata?.hubspot?.[0]?.externalId &&
+            hubspotConnMeta?.externalId &&
             <DetailRow label="Hubspot ID"
-                       value={data.connectionMetadata?.hubspot?.[0]?.externalId}
-                       externalLink={`https://app.hubspot.com/contacts/${data.connectionMetadata?.hubspot?.[0]?.externalCompanyId}/deal/${data.connectionMetadata?.hubspot?.[0]?.externalId}`}
+                       value={hubspotConnMeta?.externalId}
+                       externalLink={`https://app.hubspot.com/contacts/${hubspotConnMeta?.externalCompanyId}/deal/${hubspotConnMeta?.externalId}`}
             />
           }
         </DetailSection>
