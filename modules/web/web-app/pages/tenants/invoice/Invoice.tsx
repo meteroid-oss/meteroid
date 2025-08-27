@@ -23,6 +23,7 @@ import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
 import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
+import { getLatestConnMeta } from "@/pages/tenants/utils";
 import { listConnectors } from "@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery";
 import { ConnectorProviderEnum } from "@/rpc/api/connectors/v1/models_pb";
 import {
@@ -161,6 +162,8 @@ const LeftOverview: React.FC<{
     invoice.documentSharingKey &&
     `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
 
+  const pennylaneConnMeta = getLatestConnMeta(invoice.connectionMetadata?.pennylane)
+
   return (
     <div className=" h-full">
       <div className="flex flex-col items-start gap-y-2 pb-4 border-b">
@@ -213,13 +216,13 @@ const LeftOverview: React.FC<{
           <div>Integrations</div>
 
           {
-            invoice.connectionMetadata?.pennylane?.[0]?.externalId &&
+            pennylaneConnMeta?.externalId &&
             <div className="text-muted-foreground text-sm">
               Pennylane ID - <a
-              href={`https://app.pennylane.com/companies/${invoice.connectionMetadata?.pennylane?.[0]?.externalCompanyId}/clients/customer_invoices?invoice_id=${invoice.connectionMetadata?.pennylane?.[0]?.externalId}`}
+              href={`https://app.pennylane.com/companies/${pennylaneConnMeta?.externalCompanyId}/clients/customer_invoices?invoice_id=${pennylaneConnMeta?.externalId}`}
               target="_blank" rel="noopener noreferrer"
               className="text-sm font-medium text-brand hover:underline">
-              {invoice.connectionMetadata?.pennylane?.[0]?.externalId ?? 'N/A'}
+              {pennylaneConnMeta?.externalId}
             </a>
             </div>
           }

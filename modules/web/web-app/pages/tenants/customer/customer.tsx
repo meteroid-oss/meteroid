@@ -8,6 +8,7 @@ import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
 import { useQuery } from '@/lib/connectrpc'
+import { getLatestConnMeta } from "@/pages/tenants/utils";
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
@@ -27,6 +28,9 @@ export const Customer = () => {
 
   const data = customerQuery.data?.customer
   const isLoading = customerQuery.isLoading
+
+  const pennylaneConnMeta = getLatestConnMeta(data?.connectionMetadata?.pennylane)
+  const hubspotConnMeta = getLatestConnMeta(data?.connectionMetadata?.hubspot)
 
   return (
     <Fragment>
@@ -94,19 +98,19 @@ export const Customer = () => {
                   <div className="text-[15px] font-medium">Integrations</div>
                   <FlexDetails title="Alias (External ID)" value={data.alias}/>
                   {
-                    data.connectionMetadata?.hubspot?.[0]?.externalId &&
+                    hubspotConnMeta?.externalId &&
                     <FlexDetails
                       title="Hubspot ID"
-                      value={data.connectionMetadata?.hubspot?.[0]?.externalId}
-                      externalLink={`https://app.hubspot.com/contacts/${data.connectionMetadata?.hubspot?.[0]?.externalCompanyId}/company/${data.connectionMetadata?.hubspot?.[0]?.externalId}`}
+                      value={hubspotConnMeta?.externalId}
+                      externalLink={`https://app.hubspot.com/contacts/${hubspotConnMeta?.externalCompanyId}/company/${hubspotConnMeta?.externalId}`}
                     />
                   }
                   {
-                    data.connectionMetadata?.pennylane?.[0]?.externalId &&
+                    pennylaneConnMeta?.externalId &&
                     <FlexDetails
                       title="Pennylane ID"
-                      value={data.connectionMetadata?.pennylane?.[0]?.externalId}
-                      externalLink={`https://app.pennylane.com/companies/${data.connectionMetadata?.pennylane?.[0]?.externalCompanyId}/thirdparties/customers?id=${data.connectionMetadata?.pennylane?.[0]?.externalId}`}
+                      value={pennylaneConnMeta?.externalId}
+                      externalLink={`https://app.pennylane.com/companies/${pennylaneConnMeta?.externalCompanyId}/thirdparties/customers?id=${pennylaneConnMeta?.externalId}`}
                     />
                   }
                   <FlexDetails title="Stripe ID" value="N/A"/>
