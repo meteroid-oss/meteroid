@@ -297,7 +297,7 @@ impl PennylaneSync {
                         .await
                         .change_context(PgmqError::HandleMessages)?;
 
-                    log::info!("Customer {customer_id} synced to pennylane");
+                    log::info!("Customer {customer_id} synced to pennylane [id={}]", res.id);
 
                     succeeded_msgs.push(msg_id);
                 }
