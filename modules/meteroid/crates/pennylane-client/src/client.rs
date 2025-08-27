@@ -94,18 +94,12 @@ impl PennylaneClient {
     ) -> Result<Resp, PennylaneError> {
         let url = self.api_base.join(path).expect("invalid path");
 
-        let mut request = self
+        let request = self
             .client
             .request(method, url)
-            .bearer_auth(access_token.expose_secret());
-
-        if let Some(query) = query {
-            request = request.query(query);
-        }
-
-        if let Some(body) = body {
-            request = request.json(&body);
-        }
+            .query(&query)
+            .bearer_auth(access_token.expose_secret())
+            .json(&body);
 
         let response = request.send().await.map_err(PennylaneError::from)?;
         let status_code = &response.status();
