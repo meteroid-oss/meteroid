@@ -80,12 +80,17 @@ impl PennylaneClient {
         }
     }
 
-    pub(crate) async fn execute<Req: Serialize, Resp: DeserializeOwned + Send + 'static>(
+    pub(crate) async fn execute<
+        Req: Serialize,
+        Resp: DeserializeOwned + Send + 'static,
+        Q: Serialize,
+    >(
         &self,
         path: &str,
         method: Method,
         access_token: &SecretString,
-        body: Option<Req>,
+        body: Option<&Req>,
+        query: Option<&Q>,
     ) -> Result<Resp, PennylaneError> {
         let url = self.api_base.join(path).expect("invalid path");
 
@@ -93,6 +98,10 @@ impl PennylaneClient {
             .client
             .request(method, url)
             .bearer_auth(access_token.expose_secret());
+
+        if let Some(query) = query {
+            request = request.query(query);
+        }
 
         if let Some(body) = body {
             request = request.json(&body);

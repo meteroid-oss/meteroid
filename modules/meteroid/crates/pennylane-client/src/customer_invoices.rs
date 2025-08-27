@@ -1,5 +1,6 @@
 use crate::client::PennylaneClient;
 use crate::error::PennylaneError;
+use crate::model::{ListResponse, QueryFilter, QueryParams};
 use chrono::NaiveDate;
 use reqwest::Method;
 use rust_decimal::Decimal;
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub trait CustomerInvoicesApi {
     async fn import_customer_invoice(
         &self,
-        invoice: NewCustomerInvoiceImport,
+        invoice: &NewCustomerInvoiceImport,
         access_token: &SecretString,
     ) -> Result<ImportedCustomerInvoice, PennylaneError>;
 
@@ -19,6 +20,18 @@ pub trait CustomerInvoicesApi {
         invoice_id: i64,
         access_token: &SecretString,
     ) -> Result<(), PennylaneError>;
+
+    async fn get_customer_invoice(
+        &self,
+        external_reference: &str,
+        access_token: &SecretString,
+    ) -> Result<ImportedCustomerInvoice, PennylaneError>;
+
+    async fn import_or_get_customer_invoice(
+        &self,
+        invoice: &NewCustomerInvoiceImport,
+        access_token: &SecretString,
+    ) -> Result<ImportedCustomerInvoice, PennylaneError>;
 }
 
 #[async_trait::async_trait]
@@ -26,7 +39,7 @@ impl CustomerInvoicesApi for PennylaneClient {
     /// https://pennylane.readme.io/v2.0/reference/importcustomerinvoices
     async fn import_customer_invoice(
         &self,
-        invoice: NewCustomerInvoiceImport,
+        invoice: &NewCustomerInvoiceImport,
         access_token: &SecretString,
     ) -> Result<ImportedCustomerInvoice, PennylaneError> {
         self.execute(
@@ -34,6 +47,7 @@ impl CustomerInvoicesApi for PennylaneClient {
             Method::POST,
             access_token,
             Some(invoice),
+            None::<()>.as_ref(),
         )
         .await
     }
@@ -70,13 +84,63 @@ impl CustomerInvoicesApi for PennylaneClient {
 
         Ok(())
     }
+
+    /// https://app.pennylane.com/api/external/v2/customer_invoices
+    async fn get_customer_invoice(
+        &self,
+        external_reference: &str,
+        access_token: &SecretString,
+    ) -> Result<ImportedCustomerInvoice, PennylaneError> {
+        let list: ListResponse<ImportedCustomerInvoice> = self
+            .execute(
+                "/api/external/v2/customer_invoices",
+                Method::GET,
+                access_token,
+                None::<()>.as_ref(),
+                Some(&QueryParams {
+                    filter: Some(vec![QueryFilter {
+                        field: "external_reference".to_string(),
+                        operator: "eq".to_string(),
+                        value: external_reference.to_string(),
+                    }]),
+                }),
+            )
+            .await?;
+
+        list.items
+            .into_iter()
+            .next()
+            .ok_or_else(|| PennylaneError::ClientError {
+                error: "empty items".to_string(),
+                status_code: None,
+            })
+    }
+
+    async fn import_or_get_customer_invoice(
+        &self,
+        invoice: &NewCustomerInvoiceImport,
+        access_token: &SecretString,
+    ) -> Result<ImportedCustomerInvoice, PennylaneError> {
+        let imported = self.import_customer_invoice(invoice, access_token).await;
+
+        if let Err(PennylaneError::ClientError {
+            error: _,
+            status_code: Some(419 | 422),
+        }) = imported
+        {
+            self.get_customer_invoice(invoice.external_reference.as_ref(), access_token)
+                .await
+        } else {
+            imported
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct NewCustomerInvoiceImport {
     pub file_attachment_id: i64,
     pub customer_id: i64,
-    pub external_reference: Option<String>,
+    pub external_reference: String, // meteroid invoice id
     pub invoice_number: Option<String>,
     pub date: NaiveDate,
     pub deadline: NaiveDate,
