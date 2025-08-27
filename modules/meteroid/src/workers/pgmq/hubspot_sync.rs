@@ -120,6 +120,7 @@ impl HubspotSync {
         let mut subscriptions_to_sync = vec![];
         let mut customer_outbox_to_sync = vec![];
         let mut subscription_outbox_to_sync = vec![];
+        let mut ignored_messages = vec![];
 
         for (evt, msg) in conn.events {
             match evt {
@@ -135,11 +136,15 @@ impl HubspotSync {
                 HubspotSyncRequestEvent::CustomerOutbox(data) => {
                     if conn.connector.data.auto_sync {
                         customer_outbox_to_sync.push((data, msg));
+                    } else {
+                        ignored_messages.push(msg);
                     }
                 }
                 HubspotSyncRequestEvent::SubscriptionOutbox(data) => {
                     if conn.connector.data.auto_sync {
                         subscription_outbox_to_sync.push((data, msg));
+                    } else {
+                        ignored_messages.push(msg);
                     }
                 }
             }
@@ -176,6 +181,7 @@ impl HubspotSync {
             .chain(succeeded_subscriptions)
             .chain(succeeded_cus_outbox)
             .chain(succeeded_sub_outbox)
+            .chain(ignored_messages)
             .collect_vec())
     }
 
@@ -350,7 +356,7 @@ impl HubspotSync {
                     );
                 } else {
                     log::info!(
-                        "Successfully synced customer {} to company {}",
+                        "Customer {} synced to hubspot company [id={}]",
                         customer.customer_id,
                         company_id.0
                     );
@@ -460,7 +466,7 @@ impl HubspotSync {
                     );
                 } else {
                     log::info!(
-                        "Successfully synced subscription {} to deal {}",
+                        "Subscription {} synced to hubspot deal [id={}]",
                         subscription.subscription_id,
                         deal_id.0
                     );
