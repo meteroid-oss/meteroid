@@ -47,7 +47,7 @@ impl CustomerInvoicesApi for PennylaneClient {
             Method::POST,
             access_token,
             Some(invoice),
-            None::<()>,
+            None::<()>.as_ref(),
         )
         .await
     }
@@ -97,7 +97,7 @@ impl CustomerInvoicesApi for PennylaneClient {
                 Method::GET,
                 access_token,
                 None::<()>.as_ref(),
-                Some(QueryParams {
+                Some(&QueryParams {
                     filter: Some(vec![QueryFilter {
                         field: "external_reference".to_string(),
                         operator: "eq".to_string(),

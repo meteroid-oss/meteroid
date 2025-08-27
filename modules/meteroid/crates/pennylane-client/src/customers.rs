@@ -46,7 +46,7 @@ impl CustomersApi for PennylaneClient {
             Method::POST,
             access_token,
             Some(company),
-            None::<()>,
+            None::<()>.as_ref(),
         )
         .await
     }
@@ -63,7 +63,7 @@ impl CustomersApi for PennylaneClient {
             Method::PUT,
             access_token,
             Some(company),
-            None::<()>,
+            None::<()>.as_ref(),
         )
         .await
     }
@@ -103,7 +103,7 @@ impl CustomersApi for PennylaneClient {
                 Method::GET,
                 access_token,
                 None::<()>.as_ref(),
-                Some(QueryParams {
+                Some(&QueryParams {
                     filter: Some(vec![QueryFilter {
                         field: "external_reference".to_string(),
                         operator: "eq".to_string(),

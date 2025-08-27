@@ -90,7 +90,7 @@ impl PennylaneClient {
         method: Method,
         access_token: &SecretString,
         body: Option<&Req>,
-        query: Option<Q>,
+        query: Option<&Q>,
     ) -> Result<Resp, PennylaneError> {
         let url = self.api_base.join(path).expect("invalid path");
 
@@ -100,7 +100,7 @@ impl PennylaneClient {
             .bearer_auth(access_token.expose_secret());
 
         if let Some(query) = query {
-            request = request.query(&query);
+            request = request.query(query);
         }
 
         if let Some(body) = body {
