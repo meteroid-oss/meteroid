@@ -20,7 +20,7 @@ export const Products: FunctionComponent = () => {
   const productsQuery = useQuery(listProducts, /*familyLocalId ? { familyLocalId } :*/ disableQuery)
   const data = productsQuery.data?.products ?? []
   const isLoading = productsQuery.isLoading
-  const totalCount = productsQuery.data?.products?.length ?? 0 // no server pagination ? TODO
+  const totalCount = productsQuery.data?.paginationMeta?.totalItems ?? 0
 
   const refetch = () => {
     productsQuery.refetch()

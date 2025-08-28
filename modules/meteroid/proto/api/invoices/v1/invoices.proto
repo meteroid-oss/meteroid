@@ -11,6 +11,8 @@ message ListInvoicesRequest {
     DATE_ASC = 1;
     ID_DESC = 2;
     ID_ASC = 3;
+    NUMBER_ASC = 4;
+    NUMBER_DESC = 5;
   }
   SortBy sort_by = 1;
   optional string search = 2;

@@ -81,7 +81,7 @@ export const CouponsTable: FunctionComponent<CouponsTableProps> = ({
       sortable={true}
       pagination={pagination}
       setPagination={setPagination}
-      totalCount={couponsQuery.data?.coupons?.length ?? 0}
+      totalCount={couponsQuery.data?.paginationMeta?.totalItems ?? 0}
       isLoading={couponsQuery.isLoading}
       rowLink={row => `${row.original.localId}`}
       rowClassName={row =>

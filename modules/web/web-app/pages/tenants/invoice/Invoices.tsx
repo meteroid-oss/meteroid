@@ -57,7 +57,7 @@ export const Invoices = () => {
         />
         <InvoicesTable
           data={data}
-          totalCount={count}
+          totalCount={invoicesQuery.data?.paginationMeta?.totalItems || 0}
           pagination={pagination}
           setPagination={setPagination}
           isLoading={isLoading}

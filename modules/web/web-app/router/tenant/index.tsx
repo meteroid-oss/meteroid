@@ -3,11 +3,9 @@ import { RouteObject } from 'react-router-dom'
 
 import { TenantLayoutOutlet } from '@/components/layouts'
 import { NotImplemented } from '@/features/NotImplemented'
-import { EditHubspotIntegrationModal } from "@/features/settings/integrations/EditHubspotIntegrationModal";
-import {
-  HubspotIntegrationModal
-} from "@/features/settings/integrations/HubspotIntegration";
-import { PennylaneIntegrationModal } from "@/features/settings/integrations/PennylaneIntegration";
+import { EditHubspotIntegrationModal } from '@/features/settings/integrations/EditHubspotIntegrationModal'
+import { HubspotIntegrationModal } from '@/features/settings/integrations/HubspotIntegration'
+import { PennylaneIntegrationModal } from '@/features/settings/integrations/PennylaneIntegration'
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
@@ -17,44 +15,49 @@ import { billingRoutes } from 'router/tenant/billing'
 import { productCatalogRoutes } from 'router/tenant/catalog'
 import { customersRoutes } from 'router/tenant/customers'
 import { growthRoutes } from 'router/tenant/growth'
+import { PlanVersionRedirect } from 'router/tenant/planVersionRedirect'
 
 export const tenantRoutes: RouteObject = {
   path: ':tenantSlug',
   element: (
     <SidebarProvider>
-      <TenantLayoutOutlet/>
+      <TenantLayoutOutlet />
     </SidebarProvider>
   ),
   children: [
     {
       index: true,
-      element: <Dashboard/>,
+      element: <Dashboard />,
     },
     {
       path: 'settings',
-      element: <TenantSettings/>,
+      element: <TenantSettings />,
       children: [
         {
           path: 'add-stripe',
-          element: <StripeIntegrationModal/>,
+          element: <StripeIntegrationModal />,
         },
         {
           path: 'connect-pennylane',
-          element: <PennylaneIntegrationModal/>,
+          element: <PennylaneIntegrationModal />,
         },
         {
           path: 'connect-hubspot',
-          element: <HubspotIntegrationModal/>,
+          element: <HubspotIntegrationModal />,
         },
         {
           path: 'edit-hubspot-connection/:connectionId',
-          element: <EditHubspotIntegrationModal/>,
+          element: <EditHubspotIntegrationModal />,
         },
       ],
     },
     {
       path: 'developers',
-      element: <DeveloperSettings/>,
+      element: <DeveloperSettings />,
+    },
+    {
+      path: 'plan-version/:planVersionId',
+      element: <PlanVersionRedirect />,
     },
     productCatalogRoutes,
     customersRoutes,
@@ -62,11 +65,11 @@ export const tenantRoutes: RouteObject = {
     growthRoutes,
     {
       path: 'reports',
-      element: <ReportsPage/>,
+      element: <ReportsPage />,
     },
     {
       path: '*',
-      element: <NotImplemented/>,
+      element: <NotImplemented />,
     },
   ],
 }

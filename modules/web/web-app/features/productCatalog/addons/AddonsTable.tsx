@@ -52,7 +52,7 @@ export const AddonsTable: FunctionComponent<AddonsTableProps> = ({
       sortable={true}
       pagination={pagination}
       setPagination={setPagination}
-      totalCount={addonsQuery.data?.addOns?.length ?? 0}
+      totalCount={addonsQuery.data?.paginationMeta?.totalItems ?? 0}
       isLoading={addonsQuery.isLoading}
       rowLink={row => `${row.original.localId}`}
     />

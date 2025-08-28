@@ -1,3 +1,4 @@
+import { cn } from '@ui/lib'
 import { ComponentProps, useState } from 'react'
 
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -22,15 +23,20 @@ export const AddressLines = ({ address }: { address: Partial<Address> }) => {
   )
 }
 
-export const AddressLinesCompact = ({ address }: { address: Partial<Address> }) => {
+export const AddressLinesCompact = ({
+  address,
+  className,
+}: {
+  address: Partial<Address>
+  className?: string
+}) => {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className={`${cn('flex flex-col gap-0.5', className)}`}>
       <span>{address.line1}</span>
       <span>{address.line2}</span>
       <span>
         {address.city}, {address.state} {address.zipCode}
       </span>
-      <span>{address.country}</span>
     </div>
   )
 }

@@ -25,7 +25,7 @@ export const SubscriptionInvoicesCard = ({ subscriptionId }: Props) => {
       page: pagination.pageIndex,
     },
     subscriptionId,
-    sortBy: ListInvoicesRequest_SortBy.DATE_DESC,
+    sortBy: ListInvoicesRequest_SortBy.NUMBER_DESC,
   })
 
   return invoicesQuery.isLoading ? (

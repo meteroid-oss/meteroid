@@ -38,6 +38,8 @@ message InlineCustomer {
   string name = 2;
   api.customers.v1.Address billing_address = 3;
   string snapshot_at = 4;
+  optional string vat_number = 5;
+  optional string email = 6;
 }
 
 message DetailedInvoice {

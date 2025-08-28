@@ -2,9 +2,9 @@ use chrono::NaiveDate;
 use educe::Educe;
 use meteroid_store::StoreResult;
 use meteroid_store::domain::{
-    BillingMetricAggregateEnum, BillingPeriodEnum, BillingType, CapacityThreshold, DowngradePolicy,
-    PlanTypeEnum, SegmentationMatrix, TermRate, UnitConversionRoundingEnum, UpgradePolicy,
-    UsagePricingModel,
+    Address, BillingMetricAggregateEnum, BillingPeriodEnum, BillingType, CapacityThreshold,
+    DowngradePolicy, PlanTypeEnum, SegmentationMatrix, ShippingAddress, TermRate,
+    UnitConversionRoundingEnum, UpgradePolicy, UsagePricingModel,
 };
 use meteroid_store::errors::StoreError;
 
@@ -14,6 +14,7 @@ pub struct Scenario {
     pub metrics: Vec<BillableMetric>,
     pub plans: Vec<Plan>,
     pub customers: Vec<Customer>,
+    pub organization: Option<OrganizationDetails>,
 }
 
 #[derive(Clone)]
@@ -50,7 +51,23 @@ pub struct Customer {
     pub name: String,
     pub email: String,
     pub currency: String,
+    pub alias: Option<String>,
+    pub phone: Option<String>,
+    pub vat_number: Option<String>,
+    pub billing_address: Option<Address>,
+    pub shipping_address: Option<ShippingAddress>,
+    pub invoicing_emails: Vec<String>,
     pub subscription: Subscription,
+}
+
+#[derive(Clone)]
+pub struct OrganizationDetails {
+    pub vat_number: Option<String>,
+    pub address_line1: Option<String>,
+    pub city: Option<String>,
+    pub zip_code: Option<String>,
+    pub invoice_footer_info: Option<String>,
+    pub invoice_footer_legal: Option<String>,
 }
 
 #[derive(Clone)]
