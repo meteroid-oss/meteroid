@@ -158,10 +158,10 @@ impl InvoiceRow {
             query = query.filter(i_dsl::status.eq(param_status))
         }
 
-        if let Some(param_query) = param_query {
-            if !param_query.trim().is_empty() {
-                query = query.filter(c_dsl::name.ilike(format!("%{}%", param_query)))
-            }
+        if let Some(param_query) = param_query
+            && !param_query.trim().is_empty()
+        {
+            query = query.filter(c_dsl::name.ilike(format!("%{}%", param_query)))
         }
 
         match order_by {

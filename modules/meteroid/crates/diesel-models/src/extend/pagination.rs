@@ -6,18 +6,10 @@ use diesel::{
 };
 use diesel_async::{AsyncPgConnection, RunQueryDsl, methods::LoadQuery};
 
+#[derive(Default)]
 pub struct PaginationRequest {
     pub per_page: Option<u32>,
     pub page: u32,
-}
-
-impl Default for PaginationRequest {
-    fn default() -> Self {
-        PaginationRequest {
-            per_page: None,
-            page: 0,
-        }
-    }
 }
 
 pub struct PaginatedVec<T> {

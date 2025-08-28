@@ -48,22 +48,23 @@ pub async fn run_preset(
     let mut invoicing_entity = store.get_invoicing_entity(tenant.id, None).await?;
 
     // Update invoicing entity with organization details if provided, if it was not configured
-    if let Some(ref org) = scenario.organization {
-        if invoicing_entity.address_line1.is_none() && invoicing_entity.vat_number.is_none() {
-            let patch = store_domain::InvoicingEntityPatch {
-                id: invoicing_entity.id,
-                vat_number: org.vat_number.clone(),
-                address_line1: org.address_line1.clone(),
-                city: org.city.clone(),
-                zip_code: org.zip_code.clone(),
-                invoice_footer_info: org.invoice_footer_info.clone(),
-                invoice_footer_legal: org.invoice_footer_legal.clone(),
-                ..Default::default()
-            };
+    if let Some(ref org) = scenario.organization
+        && invoicing_entity.address_line1.is_none()
+        && invoicing_entity.vat_number.is_none()
+    {
+        let patch = store_domain::InvoicingEntityPatch {
+            id: invoicing_entity.id,
+            vat_number: org.vat_number.clone(),
+            address_line1: org.address_line1.clone(),
+            city: org.city.clone(),
+            zip_code: org.zip_code.clone(),
+            invoice_footer_info: org.invoice_footer_info.clone(),
+            invoice_footer_legal: org.invoice_footer_legal.clone(),
+            ..Default::default()
+        };
 
-            invoicing_entity = store.patch_invoicing_entity(patch, tenant.id).await?;
-            log::info!("Updated invoicing entity with organization details");
-        }
+        invoicing_entity = store.patch_invoicing_entity(patch, tenant.id).await?;
+        log::info!("Updated invoicing entity with organization details");
     }
 
     let product_family = store.find_default_product_family(tenant.id).await?;
