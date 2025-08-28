@@ -104,9 +104,6 @@ export const UsageBasedForm = (props: FeeFormProps) => {
   const metricsOptions =
     metrics.data?.billableMetrics?.map(metric => ({ label: metric.name, value: metric.id })) ?? []
 
-  console.log('errors', methods.formState.errors)
-  console.log('values', methods.getValues())
-
   return (
     <>
       <Form {...methods}>
@@ -464,6 +461,24 @@ const TierTable = ({
                 showCurrency={false}
                 className="max-w-xs"
                 precision={8}
+              />
+            )}
+          />
+        ),
+      },
+      {
+        header: 'Flat fee',
+        cell: ({ row }) => (
+          <GenericFormField
+            control={methods.control}
+            name={`model.data.rows.${row.index}.flatFee`}
+            render={({ field }) => (
+              <UncontrolledPriceInput
+                {...field}
+                currency={currency}
+                showCurrency={false}
+                className="max-w-xs"
+                precision={2}
               />
             )}
           />
