@@ -80,7 +80,7 @@ export const OrganizationOnboardingForm = () => {
   }
 
   return (
-    <Flex direction="column" className="w-full h-full gap-2 p-[40px] lg:p-[52px]">
+    <Flex direction="column" className="w-full h-full gap-2 p-6 sm:p-8 md:p-10 lg:p-[52px] overflow-y-auto">
       <Button
         variant="secondary"
         onClick={() => navigate('/onboarding/user')}
@@ -93,7 +93,7 @@ export const OrganizationOnboardingForm = () => {
         Tell us about your company. We’ll use this information to setup your billing journey!
       </div>
       <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col gap-2 h-full">
+        <form onSubmit={methods.handleSubmit(onSubmit)} className="flex flex-col gap-2 min-h-0">
           <Flex direction="column" className="gap-1.5">
             <InputFormField
               name="tradeName"
