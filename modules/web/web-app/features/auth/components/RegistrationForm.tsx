@@ -18,7 +18,7 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
     defaultValues: {
       email: '',
     },
-    mode: 'all',
+    mode: 'onSubmit',
   })
 
   const registerMut = useMutation(initRegistration, {

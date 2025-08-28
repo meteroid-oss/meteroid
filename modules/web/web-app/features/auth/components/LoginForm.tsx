@@ -19,7 +19,7 @@ export const LoginForm = () => {
       email: '',
       password: '',
     },
-    mode: 'all',
+    mode: 'onSubmit',
   })
 
   const loginMutation = useMutation(login, {

@@ -25,12 +25,12 @@ export const OnboardingLayout = () => {
 
   return (
     <div
-      className="dark min-h-screen flex flex-col overflow-hidden relative"
+      className="dark min-h-screen flex flex-col overflow-auto relative"
       style={{
         background: 'linear-gradient(0deg, #000 0%, #000 100%), #111',
       }}
     >
-      <Flex direction="column" className="p-6 h-full w-full">
+      <Flex direction="column" className="p-6 min-h-screen w-full">
         <Flex justify="between" align="center">
           <MeteroidTitle forceTheme="dark" />
           <div className="text-xs">
@@ -43,7 +43,7 @@ export const OnboardingLayout = () => {
         <Flex
           justify="center"
           align="center"
-          className="px-2 xl:px-12 2xl:px-44 py-24 w-full flex-grow max-w-[2200px] mx-auto"
+          className="px-2 xl:px-12 2xl:px-44 py-8 md:py-16 lg:py-24 w-full flex-grow max-w-[2200px] mx-auto"
         >
           <Flex className="w-full h-full">
             <Outlet />

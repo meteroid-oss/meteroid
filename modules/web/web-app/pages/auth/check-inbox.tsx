@@ -14,9 +14,14 @@ export const CheckInbox: FunctionComponent = () => {
         We’ve sent you a temporary login link. To continue, please check your inbox at:{' '}
         <span className="text-foreground">{state}</span>
       </div>
+
       <Button variant="secondary" className="w-full" onClick={() => navigate('/registration')}>
         Back to Sign up
       </Button>
+
+      <div className="text-muted-foreground text-[13px] mb-3 leading-[18px]">
+        Didn’t receive the email? Please check your spams
+      </div>
     </>
   )
 }
