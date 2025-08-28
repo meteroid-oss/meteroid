@@ -197,6 +197,8 @@ pub mod invoices {
             customer_details: Some(InlineCustomer {
                 id: invoice.customer_details.id.as_proto(),
                 name: invoice.customer_details.name,
+                email: invoice.customer_details.email,
+                vat_number: invoice.customer_details.vat_number,
                 snapshot_at: invoice.customer_details.snapshot_at.as_proto(),
                 billing_address: invoice
                     .customer_details

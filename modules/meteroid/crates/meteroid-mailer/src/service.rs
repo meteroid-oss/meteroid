@@ -53,6 +53,24 @@ where
     T::Error: Into<MailerServiceError>,
 {
     async fn send(&self, email: Email) -> error_stack::Result<(), MailerServiceError> {
+        // if the email is fake, we just skip sending it
+        if email
+            .to
+            .iter()
+            .any(|r| r.email.ends_with(".test") || r.email.ends_with(".invalid"))
+        {
+            log::info!(
+                "Skipping sending email to {} as it is a test email",
+                email
+                    .to
+                    .iter()
+                    .map(|r| r.email.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            return Ok(());
+        }
+
         let message: Message = email.try_into()?;
         let _ = self
             .transport

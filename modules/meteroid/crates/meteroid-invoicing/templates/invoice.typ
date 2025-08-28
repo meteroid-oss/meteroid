@@ -145,7 +145,7 @@
     if organization.logo_src != none {
       align(right, image(organization.logo_src, width: 35pt))
     } else {
-      []
+      align(right, image("logo.png", width: 35pt))
     }
   )
 

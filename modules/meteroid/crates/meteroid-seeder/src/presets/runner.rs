@@ -45,7 +45,26 @@ pub async fn run_preset(
 
     log::info!("Created tenant '{}'", &tenant.name);
 
-    let invoicing_entity = store.get_invoicing_entity(tenant.id, None).await?;
+    let mut invoicing_entity = store.get_invoicing_entity(tenant.id, None).await?;
+
+    // Update invoicing entity with organization details if provided, if it was not configured
+    if let Some(ref org) = scenario.organization {
+        if invoicing_entity.address_line1.is_none() && invoicing_entity.vat_number.is_none() {
+            let patch = store_domain::InvoicingEntityPatch {
+                id: invoicing_entity.id,
+                vat_number: org.vat_number.clone(),
+                address_line1: org.address_line1.clone(),
+                city: org.city.clone(),
+                zip_code: org.zip_code.clone(),
+                invoice_footer_info: org.invoice_footer_info.clone(),
+                invoice_footer_legal: org.invoice_footer_legal.clone(),
+                ..Default::default()
+            };
+
+            invoicing_entity = store.patch_invoicing_entity(patch, tenant.id).await?;
+            log::info!("Updated invoicing entity with organization details");
+        }
+    }
 
     let product_family = store.find_default_product_family(tenant.id).await?;
 
@@ -122,19 +141,22 @@ pub async fn run_preset(
 
         customers_to_create.push(store_domain::CustomerNew {
             invoicing_entity_id: Some(invoicing_entity.id),
-            billing_email: Some(customer.email),
-            invoicing_emails: Vec::new(),
-            phone: None,
+            billing_email: Some(customer.email.clone()),
+            invoicing_emails: customer.invoicing_emails.clone(),
+            phone: customer.phone.clone(),
             balance_value_cents: 0,
             currency: customer.currency,
-            billing_address: None,
+            billing_address: customer.billing_address.clone(),
             created_by: user_id,
             force_created_date: created_at.and_hms_opt(0, 0, 0),
             bank_account_id: None,
-            vat_number: None,
-            alias: Some(slugify(&customer.name)),
+            vat_number: customer.vat_number.clone(),
+            alias: customer
+                .alias
+                .clone()
+                .or_else(|| Some(slugify(&customer.name))),
             name: customer.name,
-            shipping_address: None,
+            shipping_address: customer.shipping_address.clone(),
             custom_tax_rate: None,
             is_tax_exempt: false,
         });

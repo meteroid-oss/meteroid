@@ -1,42 +1,38 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
-import { spaces } from '@md/foundation'
 import {
   Badge,
   Button,
-  Card,
   cn,
   DropdownMenu,
-  DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
+  Flex,
+  Separator,
   Skeleton,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { Flex } from '@ui/components/legacy'
-import { ChevronDown, Download, DownloadIcon, RefreshCcw } from 'lucide-react'
+import { ChevronDown, Download, RefreshCcw } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
-import { IntegrationType, SyncInvoiceModal } from "@/features/settings/integrations/SyncInvoiceModal";
+import {
+  IntegrationType,
+  SyncInvoiceModal,
+} from '@/features/settings/integrations/SyncInvoiceModal'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
-import { PreviewInvoiceDialog } from '@/pages/tenants/invoice/InvoicePreview'
-import { getLatestConnMeta } from "@/pages/tenants/utils";
-import { listConnectors } from "@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery";
-import { ConnectorProviderEnum } from "@/rpc/api/connectors/v1/models_pb";
+import { getLatestConnMeta } from '@/pages/tenants/utils'
+import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
+import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   getInvoice,
+  previewInvoiceHtml,
   refreshInvoiceData,
-  requestPdfGeneration,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
-import {
-  DetailedInvoice,
-  InvoiceStatus,
-  InvoiceType,
-  LineItem,
-} from '@/rpc/api/invoices/v1/models_pb'
+import { DetailedInvoice, InvoiceStatus, LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
@@ -54,27 +50,16 @@ export const Invoice = () => {
   const data = invoiceQuery.data?.invoice
   const isLoading = invoiceQuery.isLoading
 
-  const [openPreview, setOpenPreview] = useState(false)
-
   return (
     <Fragment>
-      <Flex direction="column" gap={spaces.space6} fullHeight>
+      <Flex direction="column" className="h-full">
         {isLoading || !data ? (
           <>
-            <Skeleton height={16} width={50}/>
-            <Skeleton height={44}/>
+            <Skeleton height={16} width={50} />
+            <Skeleton height={44} />
           </>
         ) : (
-          <>
-            <InvoiceView invoice={data} previewHtml={setOpenPreview}/>
-            {invoiceId && openPreview && (
-              <PreviewInvoiceDialog
-                invoiceId={invoiceId}
-                open={openPreview}
-                setOpen={setOpenPreview}
-              />
-            )}
-          </>
+          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''} />
         )}
       </Flex>
     </Fragment>
@@ -85,157 +70,118 @@ interface Props {
   invoice: DetailedInvoice
 }
 
-export const InvoiceMeta = ({ invoice }: Props) => {
-  const basePath = useBasePath()
-  return (
-    <div className="text-sm">
-      <Card className="p-6 ">
-        <div className="grid grid-cols-6 grid-flow-row lg:grid-flow-col gap-y-2 pb-2">
-          <div className="flex flex-col col-span-2 lg:col-span-2">
-            <span className="text-muted-foreground">Due date</span>
-            <span className="text-gray-90">{parseAndFormatDateOptional(invoice.dueAt)}</span>
-          </div>
-          <div className="flex flex-col col-span-2 lg:col-span-2">
-            <span className="text-muted-foreground">Invoice date</span>
-            <span className="text-gray-90">{parseAndFormatDate(invoice.invoiceDate)}</span>
-          </div>
-          <div className="col-span-4 lg:col-span-2 row-span-2 gap-y-2">
-            <div className="flex flex-col">
-              <span className="text-muted-foreground">From</span>
-              <span className="break-words">
-                <a>ACME Corp</a>
-                {/*  TODO account / invoicing entity */}
-              </span>
-            </div>
-          </div>
-          <div className="col-span-4 lg:col-span-2 row-span-2 gap-y-2">
-            <div className="flex flex-col">
-              <span className="text-muted-foreground">Bill to</span>
-              <span className="break-words">
-                <Link
-                  to={`${basePath}/customers/${invoice.customerId}`}
-                  className="flex items-center text-brand hover:underline"
-                >
-                  {invoice.customerDetails?.name}
-                </Link>
-              </span>
-              {invoice.customerDetails?.billingAddress && (
-                <AddressLinesCompact address={invoice.customerDetails?.billingAddress}/>
-              )}
-            </div>
-          </div>
-        </div>
+// Function to resize SVG content by manipulating viewBox and dimensions
+const resizeSvgContent = (html: string, scaleFactor: number = 0.8): string => {
+  // Create a temporary DOM parser to work with the HTML
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+  const svgElement = doc.querySelector('svg')
 
-        {invoice.memo ? (
-          <div className="flex flex-col col-span-1 lg:col-span-1">
-            <span className="text-muted-foreground">Memo</span>
-            <span className="text-gray-90 whitespace-pre-line">{invoice.memo}</span>
-          </div>
-        ) : null}
-      </Card>
-    </div>
-  )
-}
-
-const LeftOverview: React.FC<{
-  className?: string
-  invoice: DetailedInvoice
-}> = ({ invoice }) => {
-  const updateInvoicingEntityMut = useMutation(requestPdfGeneration, {
-    onSuccess: async () => {
-      toast.success(
-        'Generation requested. It should be processed shortly, depending on the queue length.'
-      )
-    },
-  })
-
-  const canRequestNewDocument =
-    import.meta.env.DEV && // allow on prod/stg ?
-    (invoice.status === InvoiceStatus.FINALIZED || invoice.status === InvoiceStatus.VOID) &&
-    !invoice.pdfDocumentId
-
-  const requestNewGeneration = () => {
-    updateInvoicingEntityMut.mutateAsync({ id: invoice.id })
+  if (!svgElement) {
+    console.warn('No SVG element found in the provided HTML.')
+    return html
   }
 
-  const pdf_url =
-    invoice.documentSharingKey &&
-    `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
+  // Get current dimensions
+  const width = svgElement.getAttribute('width')
+  const height = svgElement.getAttribute('height')
 
-  const pennylaneConnMeta = getLatestConnMeta(invoice.connectionMetadata?.pennylane)
+  // Scale dimensions if they exist, removing units like 'pt', 'px', etc.
+  if (width && !width.includes('%')) {
+    const numWidth = parseFloat(width)
+    if (!isNaN(numWidth)) {
+      // Remove units and set as unitless number (defaults to pixels)
+      svgElement.setAttribute('width', (numWidth * scaleFactor).toString())
+    }
+  }
+
+  if (height && !height.includes('%')) {
+    const numHeight = parseFloat(height)
+    if (!isNaN(numHeight)) {
+      // Remove units and set as unitless number (defaults to pixels)
+      svgElement.setAttribute('height', (numHeight * scaleFactor).toString())
+    }
+  }
+  return doc.documentElement.outerHTML
+}
+
+// Component for inline invoice preview with direct SVG rendering
+const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoice }> = ({
+  invoiceId,
+  invoice,
+}) => {
+  const previewQuery = useQuery(previewInvoiceHtml, { id: invoiceId }, { refetchOnMount: 'always' })
+
+  if (previewQuery.isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white">
+        <div className="text-sm text-muted-foreground">Loading preview...</div>
+      </div>
+    )
+  }
+
+  if (previewQuery.error) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white">
+        <div className="text-sm text-muted-foreground">Failed to load preview</div>
+      </div>
+    )
+  }
+
+  // Extract and resize SVG content
+  const scaledHtml = previewQuery.data?.html ? resizeSvgContent(previewQuery.data.html, 1) : ''
+
+  // Extract just the SVG from the HTML
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(scaledHtml, 'text/html')
+  const svgElement = doc.querySelector('svg')
+  const svgContent = svgElement?.outerHTML || ''
 
   return (
-    <div className=" h-full">
-      <div className="flex flex-col items-start gap-y-2 pb-4 border-b">
-        <InvoiceStatusBadge status={invoice.status}/>
-        <div className="flex items-center text-center justify-center gap-2">
-          <span className="text-lg font-semibold">INVOICE {invoice.invoiceNumber ?? ''}</span>
-        </div>
+    <div className="w-full h-full   flex flex-col">
+      <div
+        className="flex justify-center items-start bg-gray-100 py-10 relative"
+        style={{ minHeight: 'fit-content' }}
+      >
+        <div
+          className="  bg-white"
+          style={{
+            boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',
+          }}
+          dangerouslySetInnerHTML={{ __html: svgContent }}
+        />
 
-        <div className="text-sm font-medium">Total</div>
-        <span className="text-3xl">{formatCurrency(invoice.total, invoice.currency)}</span>
-      </div>
-      <div className="gap-y-4 pt-2">
-        <div className="flex content-between w-full text-sm text-muted-foreground justify-center">
-          <div className="flex-1 self-center">PDF file</div>
-          <div>
-            {canRequestNewDocument ? (
-              <Button size="md" variant="ghost" onClick={requestNewGeneration}>
-                Request
-              </Button>
-            ) : (
-              <a
-                href={pdf_url}
-                download={`invoice_${invoice.invoiceNumber}.pdf`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Button size="md" hasIcon disabled={!invoice.pdfDocumentId} variant="ghost">
-                  Download <DownloadIcon size="12"/>
-                </Button>
-              </a>
-            )}
-          </div>
-        </div>
-      </div>
-      <div className="gap-y-4">
-        <div className="py-6 space-y-6">
-          <div>Timeline</div>
-
-          {invoice.finalizedAt && (
-            <div className="text-muted-foreground text-sm">
-              {parseAndFormatDate(invoice.finalizedAt)} - Invoice finalized
-            </div>
-          )}
-
-          <div className="text-muted-foreground text-sm">
-            {parseAndFormatDate(invoice.createdAt)} - Invoice created
-          </div>
-        </div>
-        <div className="py-6 space-y-6">
-          <div>Integrations</div>
-
-          {
-            pennylaneConnMeta?.externalId &&
-            <div className="text-muted-foreground text-sm">
-              Pennylane ID - <a
-              href={`https://app.pennylane.com/companies/${pennylaneConnMeta?.externalCompanyId}/clients/customer_invoices?invoice_id=${pennylaneConnMeta?.externalId}`}
-              target="_blank" rel="noopener noreferrer"
-              className="text-sm font-medium text-brand hover:underline">
-              {pennylaneConnMeta?.externalId}
+        {/* Floating Download Button */}
+        <div className="absolute top-16 right-16">
+          <Button
+            disabled={!invoice.pdfDocumentId}
+            asChild
+            variant="flat"
+            size="icon"
+            className="shadow-lg"
+          >
+            <a
+              href={
+                invoice.pdfDocumentId && invoice.documentSharingKey
+                  ? `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
+                  : '#'
+              }
+              download={`invoice_${invoice.invoiceNumber}.pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-2"
+            >
+              <Download size="16" />
             </a>
-            </div>
-          }
+          </Button>
         </div>
       </div>
     </div>
   )
 }
 
-export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => void }> = ({
-  invoice,
-  previewHtml,
-}) => {
+export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, invoiceId }) => {
+  const basePath = useBasePath()
   const queryClient = useQueryClient()
 
   const refresh = useMutation(refreshInvoiceData, {
@@ -256,8 +202,10 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
   const connectorsQuery = useQuery(listConnectors, {})
   const connectorsData = connectorsQuery.data?.connectors ?? []
 
-  const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false);
-  const isPennylaneConnected = connectorsData.some(connector => connector.provider === ConnectorProviderEnum.PENNYLANE)
+  const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false)
+  const isPennylaneConnected = connectorsData.some(
+    connector => connector.provider === ConnectorProviderEnum.PENNYLANE
+  )
 
   useEffect(() => {
     if (canRefresh) {
@@ -266,78 +214,192 @@ export const InvoiceView: React.FC<Props & { previewHtml: (open: boolean) => voi
   }, [])
 
   return (
-    <div className="grid grid-cols-3 h-full bg-gray-10">
-      {showSyncPennylaneModal &&
-        <SyncInvoiceModal invoiceNumber={invoice.invoiceNumber} id={invoice.id}
-                          integrationType={IntegrationType.Pennylane}
-                          onClose={() => setShowSyncPennylaneModal(false)}/>}
-      <div className="col-span-1 h-full">
-        <LeftOverview invoice={invoice}/>
-      </div>
-      <div className="col-span-2 px-6 overflow-y-auto">
-        <div className="w-full flex justify-end px-6 pb-4 gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            hasIcon
-            onClick={doRefresh}
-            disabled={!canRefresh || refresh.isPending}
-          >
-            Refresh <RefreshCcw size="16" className={cn(refresh.isPending && 'animate-spin')}/>
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            hasIcon
-            onClick={() => previewHtml(true)}
-            disabled={refresh.isPending}
-          >
-            Preview
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="primary" className="gap-2  " size="sm" hasIcon>
-                Actions <ChevronDown className="w-4 h-4"/>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {/* {secondaryActions.map((option, optionIndex) => (
-                <DropdownMenuItem key={optionIndex} onClick={option.onClick}>
-                  {option.label}
-                </DropdownMenuItem>
-              ))} */}
-              <DropdownMenuItem disabled={!isPennylaneConnected} onClick={() => setShowSyncPennylaneModal(true)}>
-                Sync to Pennylane
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+    <Flex className="h-full">
+      {showSyncPennylaneModal && (
+        <SyncInvoiceModal
+          invoiceNumber={invoice.invoiceNumber}
+          id={invoice.id}
+          integrationType={IntegrationType.Pennylane}
+          onClose={() => setShowSyncPennylaneModal(false)}
+        />
+      )}
 
-          <a
-            href={invoice.pdfDocumentId ? pdf_url : '#'}
-            download={`invoice_${invoice.invoiceNumber}.pdf`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Button size="sm" disabled={!invoice.pdfDocumentId} variant="primary">
-              <Download size="16"/>
-            </Button>
-          </a>
-        </div>
-        <InvoiceMeta invoice={invoice}/>
-        {invoice.invoiceType === InvoiceType.RECURRING ? (
-          <div className="flex flex-col mt-6">
-            <div>
-              <a className="cursor-pointer text-base text-accent-1">{invoice.planName}</a>
+      {/* Left Panel - Invoice Details */}
+      <Flex direction="column" className="w-1/3 border-r border-border">
+        {/* Fixed Header - Always Visible */}
+        <Flex direction="column" className="gap-2 p-6 border-b border-border">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-3">
+              <InvoiceStatusBadge status={invoice.status} />
+              <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" hasIcon>
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={doRefresh} disabled={!canRefresh || refresh.isPending}>
+                  <RefreshCcw
+                    size="16"
+                    className={cn(refresh.isPending && 'animate-spin', 'mr-2')}
+                  />
+                  Refresh
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!isPennylaneConnected}
+                  onClick={() => setShowSyncPennylaneModal(true)}
+                >
+                  Sync to Pennylane
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
+                  <a
+                    href={invoice.pdfDocumentId ? pdf_url : '#'}
+                    download={`invoice_${invoice.invoiceNumber}.pdf`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2"
+                  >
+                    <Download size="16" />
+                    Download PDF
+                  </a>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-        ) : null}
 
-        <div className="flex flex-col mt-4 mb-8">
-          <InvoiceLineItems items={invoice.lineItems} invoice={invoice}/>
-          <InvoiceSummaryLines invoice={invoice}/>
+          <div className="text-3xl font-bold">
+            {formatCurrency(Number(invoice.total) || 0, invoice.currency)}
+          </div>
+        </Flex>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-auto">
+          <Flex direction="column" className="gap-2 p-6">
+            <FlexDetails title="Invoice number" value={invoice.invoiceNumber} />
+
+            <FlexDetails
+              title="Plan"
+              value={
+                <Link
+                  to={`${basePath}/plan-version/${invoice.planVersionId}`}
+                  className="text-[13px] text-brand hover:underline"
+                >
+                  {invoice.planName}
+                </Link>
+              }
+            />
+            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)} />
+            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)} />
+            <FlexDetails title="Currency" value={invoice.currency} />
+          </Flex>
+
+          <Separator className="-my-3" />
+
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Customer</div>
+            <FlexDetails
+              title="Customer"
+              value={invoice.customerDetails?.name}
+              link={`${basePath}/customers/${invoice.customerId}`}
+            />
+            <FlexDetails title="Email" value={invoice.customerDetails?.email} />
+            {invoice.customerDetails?.billingAddress && (
+              <>
+                <FlexDetails
+                  title="Address"
+                  value={
+                    <AddressLinesCompact
+                      address={invoice.customerDetails.billingAddress}
+                      className="text-right"
+                    />
+                  }
+                />
+                <FlexDetails
+                  title="Country"
+                  value={invoice.customerDetails.billingAddress.country}
+                />
+              </>
+            )}
+            {invoice.customerDetails?.vatNumber && (
+              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber} />
+            )}
+          </Flex>
+
+          <Separator className="-my-3" />
+
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Line Items</div>
+            <InvoiceLineItems items={invoice.lineItems} invoice={invoice} />
+            <div className="mt-4 pt-4 border-t">
+              <InvoiceSummaryLines invoice={invoice} />
+            </div>
+          </Flex>
+
+          {invoice.memo && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Memo</div>
+                <div className="text-[13px] text-muted-foreground whitespace-pre-line">
+                  {invoice.memo}
+                </div>
+              </Flex>
+            </>
+          )}
+
+          <Separator className="-my-3" />
+
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Timeline</div>
+            <div className="space-y-2">
+              <div className="flex items-start gap-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground mt-1.5 flex-shrink-0"></div>
+                <div>
+                  <div className="text-[13px] font-medium">Invoice Created</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {parseAndFormatDate(invoice.createdAt)}
+                  </div>
+                </div>
+              </div>
+              {invoice.finalizedAt && (
+                <div className="flex items-start gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-success mt-1.5 flex-shrink-0"></div>
+                  <div>
+                    <div className="text-[13px] font-medium">Invoice Finalized</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {parseAndFormatDate(invoice.finalizedAt)}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Flex>
+
+          {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
+            <>
+              <Separator className="-my-3" />
+              <Flex direction="column" className="gap-2 p-6">
+                <div className="text-[15px] font-medium">Integrations</div>
+                <FlexDetails
+                  title="Pennylane ID"
+                  value={getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId}
+                  externalLink={`https://app.pennylane.com/companies/${getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalCompanyId}/clients/customer_invoices?invoice_id=${getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId}`}
+                />
+              </Flex>
+            </>
+          )}
+        </div>
+      </Flex>
+
+      {/* Right Panel - Invoice Preview */}
+      <div className="w-2/3 flex flex-col">
+        <div className="flex-1 overflow-auto p-6">
+          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice} />
         </div>
       </div>
-    </div>
+    </Flex>
   )
 }
 
@@ -361,53 +423,54 @@ export const InvoiceStatusBadge = ({ status }: { status: InvoiceStatus }) => {
 }
 
 export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ invoice }) => {
-  return (
-    <div className="grid grid-cols-4 lg:grid-cols-6 gap-y-4 items-baseline">
-      <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-        <span className="text-sm text-accent-foreground">Subtotal</span>
-      </div>
-      <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">
-        {formatCurrency(invoice.subtotal, invoice.currency)}
-      </div>
-      {invoice.couponLineItems.map(c => (
-        <>
-          <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-            <span className="text-sm text-accent-foreground">{c.name}</span>
-          </div>
-          <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm text-success">
-            -{formatCurrency(c.total, invoice.currency)}
-          </div>
-        </>
-      ))}
-      {invoice.taxBreakdown && invoice.taxBreakdown.length > 0 ? (
-        invoice.taxBreakdown.map(tax => (
-          <>
-            <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-              <span className="text-sm text-accent-foreground">
-                {tax.name} ({tax.taxRate}%)
-              </span>
-            </div>
-            <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">
-              {formatCurrency(tax.amount, invoice.currency)}
-            </div>
-          </>
-        ))
-      ) : (
-        <>
-          <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-            <span className="text-sm text-accent-foreground">Tax</span>
-          </div>
-          <div className="col-span-2 grid flex-1 justify-end mr-4 text-sm">
-            {invoice.taxAmount > 0 ? formatCurrency(invoice.taxAmount, invoice.currency) : '-'}
-          </div>
-        </>
-      )}
+  const subtotal = Number(invoice.subtotal) || 0
+  const taxAmount = Number(invoice.taxAmount) || 0
+  const total = Number(invoice.total) || 0
 
-      <div className="col-span-2 lg:col-span-4 grid flex-1 justify-end">
-        <span className="text-xl text-accent-foreground">Total</span>
-      </div>
-      <div className="col-span-2 grid flex-1 justify-end mr-4">
-        <span className="text-xl">{formatCurrency(invoice.total, invoice.currency)}</span>
+  return (
+    <div className="space-y-1">
+      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)} />
+
+      {invoice.couponLineItems.map(c => {
+        const couponTotal = Number(c.total) || 0
+        return (
+          <FlexDetails
+            key={c.name}
+            title={c.name}
+            value={`-${formatCurrency(couponTotal, invoice.currency)}`}
+          />
+        )
+      })}
+
+      {invoice.taxBreakdown && invoice.taxBreakdown.length > 0
+        ? invoice.taxBreakdown.map(tax => {
+            const taxRate = parseFloat(tax.taxRate) || 0
+            const taxAmountValue = Number(tax.amount) || 0
+            // Only show tax breakdown if rate is greater than 0
+            if (taxRate > 0) {
+              return (
+                <FlexDetails
+                  key={tax.name}
+                  title={`${tax.name} (${tax.taxRate}%)`}
+                  value={formatCurrency(taxAmountValue, invoice.currency)}
+                />
+              )
+            }
+            return null
+          })
+        : taxAmount > 0 && (
+            <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)} />
+          )}
+
+      <div className="pt-2 border-t">
+        <FlexDetails
+          title={<span className="font-semibold">Total</span>}
+          value={
+            <span className="font-semibold text-[15px]">
+              {formatCurrency(total, invoice.currency)}
+            </span>
+          }
+        />
       </div>
     </div>
   )
@@ -418,11 +481,11 @@ export const InvoiceLineItems: React.FC<{ items: LineItem[]; invoice: DetailedIn
   invoice,
 }) => {
   return (
-    <div className={cn('flex flex-col gap-y-2 mb-6 ')}>
+    <div className="space-y-2">
       {items
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(item => {
-          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice}/>
+          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice} />
         })}
     </div>
   )
@@ -432,104 +495,85 @@ const InvoiceLineItemCard: React.FC<{
   line_item: LineItem
   invoice: DetailedInvoice
 }> = ({ line_item, invoice }) => {
-  const [isMinimized, setIsMinimized] = useState(true)
+  const [isExpanded, setIsExpanded] = useState(false)
+  const hasSubItems = line_item.subLineItems && line_item.subLineItems.length > 0
 
-  const headingText = <div className="text-accent-1">{line_item.name}</div>
+  return (
+    <div className="py-2">
+      <div
+        className={cn('flex justify-between items-start', hasSubItems && 'cursor-pointer')}
+        onClick={() => hasSubItems && setIsExpanded(!isExpanded)}
+      >
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            {hasSubItems && (
+              <ChevronDown
+                size={12}
+                className={cn(
+                  'text-muted-foreground transition-transform',
+                  isExpanded && 'rotate-180'
+                )}
+              />
+            )}
+            <div className="text-[13px] font-medium">{line_item.name}</div>
+          </div>
+          {line_item.startDate && line_item.endDate && (
+            <div className="text-[11px] text-muted-foreground mt-1 ml-4">
+              {parseAndFormatDate(line_item.startDate)} → {parseAndFormatDate(line_item.endDate)}
+            </div>
+          )}
+        </div>
+        <div className="text-right">
+          {line_item.quantity && line_item.unitPrice && (
+            <div className="text-[11px] text-muted-foreground">
+              {formatUsage(parseFloat(line_item.quantity))} ×{' '}
+              {formatCurrencyNoRounding(line_item.unitPrice, invoice.currency)}
+            </div>
+          )}
+          <div className="text-[13px] font-medium">
+            {formatCurrency(line_item.subtotal, invoice.currency)}
+          </div>
+        </div>
+      </div>
 
-  const heading = (
-    <div
-      className="text-sm w-full flex text-center gap-2 items-center cursor-pointer relative pointer-events-none lg:pointer-events-auto "
-      onClick={() => setIsMinimized(!isMinimized)}
-    >
-      <span className="font-semibold">{headingText}</span>
-
-      <span className="text-sm text-muted-foreground">
-        {line_item.startDate &&
-          line_item.endDate &&
-          `${parseAndFormatDate(line_item.startDate)} to ${parseAndFormatDate(line_item.endDate)}`}
-      </span>
+      {isExpanded && hasSubItems && (
+        <div className="mt-2 ml-4 pt-2 border-t space-y-1">
+          {line_item.subLineItems.map(subItem => (
+            <div key={subItem.id} className="flex justify-between items-center py-1">
+              <span className="text-[11px] text-muted-foreground">{subItem.name}</span>
+              <span className="text-[11px]">{formatCurrency(subItem.total, invoice.currency)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
-
-  return (
-    <Card className="  rounded-lg pl-4 py-4 pr-4 mb-2 text-sm gap-y-2 ">
-      <div className="grid grid-cols-3 gap-y-4">
-        <div className="col-span-1">{heading}</div>
-        <div className="col-span-2">
-          <QuantityTimeRate line_item={line_item} invoice={invoice}/>
-        </div>
-        <div className="grid grid-cols-3 col-span-3 gap-y-4">
-          <SublinesRate line_item={line_item} invoice={invoice}/>
-        </div>
-      </div>
-    </Card>
-  )
 }
 
-export const QuantityTimeRate: React.FC<{
-  line_item: LineItem
-  invoice: DetailedInvoice
-}> = ({ line_item, invoice }) => {
-  return (
-    line_item.quantity &&
-    line_item.unitPrice && (
-      <div className="lg:grid lg:grid-cols-3 lg:col-span-3 lg:col-start-O text-sm">
-        <div className="hidden lg:grid lg:col-span-1 lg:col-start-2">
-          <div className="flex items-center justify-end text-muted-foreground">
-            <div>
-              <>
-                {formatUsage(parseFloat(line_item.quantity))} x{' '}
-                {formatCurrencyNoRounding(line_item.unitPrice, invoice.currency)}
-              </>
-            </div>
-          </div>
-        </div>
-        <div className="grid flex-1 justify-end items-center col-span-1 lg:col-start-3">
-          <div>
-            {line_item.taxRate && parseFloat(line_item.taxRate) > 0 && (
-              <div className="grid grid-cols-3 col-span-3 ">
-                <div>
-                  <div className="text-muted-foreground">Tax ({line_item.taxRate}%)</div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  )
-}
-
-export const SublinesRate: React.FC<{
-  line_item: LineItem
-  invoice: DetailedInvoice
-}> = ({ line_item, invoice }) => {
-  return line_item.subLineItems.map(subLineItem => {
-    return (
-      <div
-        className="lg:grid lg:grid-cols-3 lg:col-span-3 lg:col-start-O text-sm"
-        key={subLineItem.id}
-      >
-        <div className="hidden lg:grid lg:col-span-1 ">
-          {subLineItem.name}
-          {parseFloat(subLineItem.unitPrice) == 0 && ' (Free)'}
-        </div>
-        <div className="hidden lg:grid lg:col-span-1 lg:col-start-2">
-          <div className="flex items-center justify-end text-muted-foreground">
-            <div>
-              <>
-                {formatUsage(parseFloat(subLineItem.quantity))} x{' '}
-                {formatCurrencyNoRounding(subLineItem.unitPrice, invoice.currency)}
-              </>
-            </div>
-          </div>
-        </div>
-        <div className="grid flex-1 justify-end items-center col-span-1 lg:col-start-3">
-          <div>
-            <>{formatCurrency(subLineItem.total, invoice.currency)}</>
-          </div>
-        </div>
-      </div>
-    )
-  })
-}
+// FlexDetails component matching the customer page pattern
+const FlexDetails = ({
+  title,
+  value,
+  externalLink,
+  link,
+}: {
+  title: string | React.ReactNode
+  value?: string | React.ReactNode
+  externalLink?: string
+  link?: string
+}) => (
+  <Flex align="start" justify="between">
+    <div className="text-[13px] text-muted-foreground">{title}</div>
+    {externalLink ? (
+      <a href={externalLink} target="_blank" rel="noopener noreferrer">
+        <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
+      </a>
+    ) : link ? (
+      <Link to={link}>
+        <div className="text-[13px] text-brand hover:underline">{value ?? 'N/A'}</div>
+      </Link>
+    ) : (
+      <div className="text-[13px]">{value ?? 'N/A'}</div>
+    )}
+  </Flex>
+)

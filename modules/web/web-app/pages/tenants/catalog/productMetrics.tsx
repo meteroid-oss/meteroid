@@ -19,7 +19,7 @@ export const ProductMetrics: FunctionComponent = () => {
   // TODO pagination (manual ?)
   const productMetricsQuery = useQuery(listBillableMetrics, {})
 
-  const totalCount = productMetricsQuery?.data?.billableMetrics?.length ?? 0
+  const totalCount = productMetricsQuery?.data?.paginationMeta?.totalItems ?? 0
   const isLoading = productMetricsQuery.isLoading
   const data = productMetricsQuery.data?.billableMetrics ?? []
 

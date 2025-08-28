@@ -15,7 +15,7 @@ impl Default for PaginationRequest {
     fn default() -> Self {
         PaginationRequest {
             per_page: None,
-            page: 1,
+            page: 0,
         }
     }
 }

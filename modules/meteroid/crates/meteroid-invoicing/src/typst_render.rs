@@ -17,6 +17,7 @@ static MAIN_TEMPLATE: &str = include_str!("../templates/main.typ");
 
 static INTER_VARIABLE_FONT: &[u8] = include_bytes!("../assets/fonts/Inter-Variable.ttf");
 static WORDMARK_LOGO: &[u8] = include_bytes!("../assets/wordmark.svg");
+static LOGO: &[u8] = include_bytes!("../assets/logo.png");
 
 // Define message bundle for localization
 #[allow(clippy::all)]
@@ -485,6 +486,7 @@ impl TypstInvoiceRenderer {
                 ("main.typ", MAIN_TEMPLATE),
             ])
             .with_static_file_resolver([("wordmark.svg", WORDMARK_LOGO)])
+            .with_static_file_resolver([("logo.png", LOGO)])
             .fonts([font])
             .build();
 

@@ -37,6 +37,8 @@ impl InvoicesService for InvoiceServiceComponents {
             Ok(SortBy::DateDesc) => OrderByRequest::DateDesc,
             Ok(SortBy::IdAsc) => OrderByRequest::IdAsc,
             Ok(SortBy::IdDesc) => OrderByRequest::IdDesc,
+            Ok(SortBy::NumberAsc) => OrderByRequest::NameAsc,
+            Ok(SortBy::NumberDesc) => OrderByRequest::NameDesc,
             Err(_) => OrderByRequest::DateDesc,
         };
 
