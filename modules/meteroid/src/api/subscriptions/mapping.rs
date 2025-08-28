@@ -429,7 +429,7 @@ mod price_components {
     }
 
     pub fn usage_pricing_model_to_grpc(
-        metric_id: &Uuid,
+        metric_id: &BillableMetricId,
         model: &domain::UsagePricingModel,
     ) -> api_components::UsageFee {
         match model {
