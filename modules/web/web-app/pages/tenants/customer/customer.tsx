@@ -6,9 +6,11 @@ import { TenantPageLayout } from '@/components/layouts'
 import { CustomerHeader, CustomersEditPanel } from '@/features/customers'
 import { InvoicesCard } from '@/features/customers/cards/InvoicesCard'
 import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
+import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
 import { useQuery } from '@/lib/connectrpc'
-import { getLatestConnMeta } from "@/pages/tenants/utils";
+import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
@@ -17,6 +19,7 @@ export const Customer = () => {
 
   const [editPanelVisible, setEditPanelVisible] = useState(false)
   const [createInvoiceVisible, setCreateInvoiceVisible] = useState(false)
+  const [editCustomerVisible, setEditCustomerVisible] = useState(false)
 
   const customerQuery = useQuery(
     getCustomerById,
@@ -42,18 +45,19 @@ export const Customer = () => {
             name={data?.name || data?.alias}
             // setShowIncoice={() => setCreateInvoiceVisible(true)}
             setShowIncoice={() => false}
+            setShowEditCustomer={() => setEditCustomerVisible(true)}
           />
           {isLoading || !data ? (
             <>
-              <Skeleton height={16} width={50}/>
-              <Skeleton height={44}/>
+              <Skeleton height={16} width={50} />
+              <Skeleton height={44} />
             </>
           ) : (
             <Flex className="h-full">
               <Flex direction="column" className="gap-4 w-2/3 border-r border-border px-12 py-6">
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
-                  <OverviewCard title="MRR" value={undefined}/>
+                  <OverviewCard title="MRR" value={undefined} />
                   <OverviewCard
                     title="Balance"
                     value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined}
@@ -62,68 +66,81 @@ export const Customer = () => {
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Subscriptions</div>
                   <Flex align="center" className="gap-1 text-sm">
-                    <Plus size={10}/> Assign subscription
+                    <Plus size={10} /> Assign subscription
                   </Flex>
                 </Flex>
                 <div className="flex-none">
-                  <SubscriptionsCard customer={data}/>
+                  <SubscriptionsCard customer={data} />
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Invoices</div>
                   <Flex align="center" className="gap-1 text-sm">
-                    <Plus size={10}/> Create invoice
+                    <Plus size={10} /> Create invoice
                   </Flex>
                 </Flex>
                 <div className="flex-none">
-                  <InvoicesCard customer={data}/>
+                  <InvoicesCard customer={data} />
                 </div>
               </Flex>
               <Flex direction="column" className="gap-2 w-1/3">
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-lg font-medium">{data.name}</div>
                   <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
-                  <FlexDetails title="Legal name" value={data.name}/>
-                  <FlexDetails title="Email" value={data.billingEmail}/>
-                  <FlexDetails title="Currency" value={data.currency}/>
-                  <FlexDetails title="Country" value={data.billingAddress?.country ?? ''}/>
+                  <FlexDetails title="Legal name" value={data.name} />
+                  <FlexDetails title="Email" value={data.billingEmail} />
+                  <FlexDetails title="Currency" value={data.currency} />
+                  {data.billingAddress && (
+                    <FlexDetails
+                      title="Address"
+                      value={
+                        <AddressLinesCompact address={data.billingAddress} className="text-right" />
+                      }
+                    />
+                  )}
+
+                  <FlexDetails title="Country" value={data.billingAddress?.country ?? ''} />
                   <Flex align="center" justify="between">
                     <div className="text-[13px] text-muted-foreground">Address</div>
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
                   </Flex>
-                  <FlexDetails title="Tax rate" value="None"/>
-                  <FlexDetails title="Tax ID" value="None"/>
+                  <FlexDetails 
+                    title="Tax rate" 
+                    value={data.customTaxRate ? `${Number(data.customTaxRate) * 100}%` : 'Default'} 
+                  />
+                  <FlexDetails 
+                    title="Tax ID" 
+                    value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')} 
+                  />
                 </Flex>
-                <Separator className="-my-3"/>
+                <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Integrations</div>
-                  <FlexDetails title="Alias (External ID)" value={data.alias}/>
-                  {
-                    hubspotConnMeta?.externalId &&
+                  <FlexDetails title="Alias (External ID)" value={data.alias} />
+                  {hubspotConnMeta?.externalId && (
                     <FlexDetails
                       title="Hubspot ID"
                       value={hubspotConnMeta?.externalId}
                       externalLink={`https://app.hubspot.com/contacts/${hubspotConnMeta?.externalCompanyId}/company/${hubspotConnMeta?.externalId}`}
                     />
-                  }
-                  {
-                    pennylaneConnMeta?.externalId &&
+                  )}
+                  {pennylaneConnMeta?.externalId && (
                     <FlexDetails
                       title="Pennylane ID"
                       value={pennylaneConnMeta?.externalId}
                       externalLink={`https://app.pennylane.com/companies/${pennylaneConnMeta?.externalCompanyId}/thirdparties/customers?id=${pennylaneConnMeta?.externalId}`}
                     />
-                  }
-                  <FlexDetails title="Stripe ID" value="N/A"/>
+                  )}
+                  <FlexDetails title="Stripe ID" value="N/A" />
                 </Flex>
-                <Separator className="-my-3"/>
+                <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Payment</div>
                   <FlexDetails
                     title="Payment method"
                     value={data.currentPaymentMethodId ?? 'None'}
                   />
-                  <FlexDetails title="Payment term" value="N/A"/>
-                  <FlexDetails title="Grace period" value="None"/>
+                  <FlexDetails title="Payment term" value="N/A" />
+                  <FlexDetails title="Grace period" value="None" />
                 </Flex>
               </Flex>
             </Flex>
@@ -134,23 +151,37 @@ export const Customer = () => {
         visible={editPanelVisible}
         closePanel={() => setEditPanelVisible(false)}
       />
-      <CustomerInvoiceModal openState={[createInvoiceVisible, setCreateInvoiceVisible]}/>
+      <CustomerInvoiceModal openState={[createInvoiceVisible, setCreateInvoiceVisible]} />
+      {data && (
+        <EditCustomerModal
+          customer={data}
+          visible={editCustomerVisible}
+          onCancel={() => setEditCustomerVisible(false)}
+        />
+      )}
     </Fragment>
   )
 }
 
 const OverviewCard = ({ title, value }: { title: string; value?: number }) => (
-  <Card
-    className="bg-[#1A1A1A] bg-gradient-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
+  <Card className="bg-[#1A1A1A] bg-gradient-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
     <Flex align="center" className="gap-1 text-muted-foreground">
       <div className="text-[13px]">{title}</div>
-      <ChevronDown size={10} className="mt-0.5"/>
+      <ChevronDown size={10} className="mt-0.5" />
     </Flex>
     <div className="mt-4 text-xl">€ {value}</div>
   </Card>
 )
 
-const FlexDetails = ({ title, value, externalLink }: { title: string; value?: string; externalLink?: string }) => (
+const FlexDetails = ({
+  title,
+  value,
+  externalLink,
+}: {
+  title: string
+  value?: string | React.ReactNode
+  externalLink?: string
+}) => (
   <Flex align="center" justify="between">
     <div className="text-[13px] text-muted-foreground">{title}</div>
     {externalLink ? (
