@@ -31,11 +31,13 @@ interface CustomerHeaderProps {
   name?: string
   setEditPanelVisible: (visible: boolean) => void
   setShowIncoice: () => void
+  setShowEditCustomer?: () => void
 }
 
 export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
   id,
   name,
+  setShowEditCustomer,
 }) => {
   const basePath = useBasePath()
   const navigate = useNavigate()
@@ -131,6 +133,9 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
             </DropdownMenu>
           </NewFlex>
           <Flex direction="row" gap={spaces.space4}>
+            <Button size="sm" variant="secondary" onClick={setShowEditCustomer}>
+              Edit Customer
+            </Button>
             <Button size="sm" variant="secondary" disabled>
               Create Invoice
             </Button>
