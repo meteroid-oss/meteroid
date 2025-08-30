@@ -179,6 +179,7 @@ pub(crate) fn to_webhook_out(evt: OutboxEvent) -> StoreResult<Option<WebhookOutM
             ))
         }
         // TODO add webhooks
+        OutboxEvent::CustomerUpdated(_) => None,
         OutboxEvent::InvoiceAccountingPdfGenerated(_) => None,
         OutboxEvent::InvoicePaid(_) => None,
         OutboxEvent::PaymentTransactionSaved(_) => None,
