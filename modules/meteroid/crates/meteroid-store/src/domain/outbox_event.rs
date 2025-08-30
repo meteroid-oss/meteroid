@@ -129,7 +129,7 @@ impl OutboxEvent {
     }
 
     pub fn customer_updated(event: CustomerEvent) -> OutboxEvent {
-        OutboxEvent::CustomerCreated(Box::new(event))
+        OutboxEvent::CustomerUpdated(Box::new(event))
     }
 
     pub fn billable_metric_created(event: BillableMetricEvent) -> OutboxEvent {
