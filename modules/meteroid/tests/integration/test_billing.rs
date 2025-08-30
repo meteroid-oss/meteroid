@@ -485,7 +485,10 @@ fn assert_subscription_state(
 
 fn assert_period(subscription: &SubscriptionRow, start: NaiveDate, end: NaiveDate) {
     assert_eq!(subscription.current_period_start, start);
-    assert_eq!(subscription.current_period_end.unwrap(), end);
+    assert_eq!(
+        subscription.current_period_end.unwrap(),
+        end.pred_opt().unwrap()
+    );
 }
 
 fn assert_prorated_invoice(invoice: &Invoice, invoice_date: NaiveDate, expected_total: i64) {

@@ -174,12 +174,17 @@ impl Services {
 
     fn activate_subscription(&self, subscription: &SubscriptionRow) -> StoreResult<NextCycle> {
         if subscription.trial_duration.is_some() {
-            let new_period_start = subscription
+            let current_period_end = subscription
                 .current_period_end
                 .unwrap_or_else(|| Utc::now().naive_utc().date());
+
+            let new_period_start = current_period_end.succ_opt().unwrap_or(current_period_end);
+
+            let trial_duration_days = subscription.trial_duration.unwrap() as u64;
             let new_period_end = new_period_start
-                .checked_add_days(Days::new(subscription.trial_duration.unwrap() as u64))
-                .unwrap_or_else(|| new_period_start + Duration::days(7));
+                .checked_add_days(Days::new(trial_duration_days - 1)) // subtract 1 because we use inclusive dates
+                .unwrap_or_else(|| new_period_start + Duration::days(6));
+
             Ok(NextCycle {
                 status: SubscriptionStatusEnum::TrialActive,
                 next_cycle_action: Some(CycleActionEnum::EndTrial),
@@ -242,9 +247,12 @@ impl Services {
 
     fn renew_subscription(&self, subscription: &SubscriptionRow) -> StoreResult<NextCycle> {
         // Calculate new period
-        let new_period_start = subscription
+        // current_period_end is inclusive
+        let current_period_end = subscription
             .current_period_end // cannot be null in this context
             .unwrap_or_else(|| Utc::now().naive_utc().date());
+
+        let new_period_start = current_period_end.succ_opt().unwrap_or(current_period_end);
 
         let period = calculate_advance_period_range(
             new_period_start,
@@ -263,9 +271,12 @@ impl Services {
     }
 
     fn end_subscription(&self, subscription: &SubscriptionRow) -> StoreResult<NextCycle> {
-        let new_period_start = subscription
+        // current_period_end is inclusive
+        let current_period_end = subscription
             .current_period_end // cannot be null in this context
             .unwrap_or_else(|| Utc::now().naive_utc().date());
+
+        let new_period_start = current_period_end.succ_opt().unwrap_or(current_period_end);
 
         Ok(NextCycle {
             status: SubscriptionStatusEnum::Completed,
