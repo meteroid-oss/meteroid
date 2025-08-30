@@ -65,6 +65,13 @@ impl PgmqOutboxDispatch {
                             .map(|msg_new| new_messages.push(msg_new))
                             .change_context(PgmqError::HandleMessages)?;
                     }
+                } else if let EventType::CustomerUpdated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::CustomerUpdated(evt)) = msg.try_into() {
+                        HubspotSyncRequestEvent::CustomerOutbox(evt)
+                            .try_into()
+                            .map(|msg_new| new_messages.push(msg_new))
+                            .change_context(PgmqError::HandleMessages)?;
+                    }
                 } else if let EventType::SubscriptionCreated = &out_headers.event_type
                     && let Ok(OutboxEvent::SubscriptionCreated(evt)) = msg.try_into()
                 {
@@ -95,6 +102,13 @@ impl PgmqOutboxDispatch {
             if let Ok(Some(out_headers)) = out_headers {
                 if let EventType::CustomerCreated = &out_headers.event_type {
                     if let Ok(OutboxEvent::CustomerCreated(evt)) = msg.try_into() {
+                        PennylaneSyncRequestEvent::CustomerOutbox(evt)
+                            .try_into()
+                            .map(|msg_new| new_messages.push(msg_new))
+                            .change_context(PgmqError::HandleMessages)?;
+                    }
+                } else if let EventType::CustomerUpdated = &out_headers.event_type {
+                    if let Ok(OutboxEvent::CustomerUpdated(evt)) = msg.try_into() {
                         PennylaneSyncRequestEvent::CustomerOutbox(evt)
                             .try_into()
                             .map(|msg_new| new_messages.push(msg_new))

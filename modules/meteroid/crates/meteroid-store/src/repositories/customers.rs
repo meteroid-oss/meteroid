@@ -335,22 +335,38 @@ impl CustomersInterface for Store {
         tenant_id: TenantId,
         customer: CustomerPatch,
     ) -> StoreResult<Option<Customer>> {
-        let mut conn = self.get_conn().await?;
-
         let is_valid_vat_number_format = customer.is_valid_vat_number_format();
         let mut patch_model: CustomerRowPatch = customer.try_into()?;
         patch_model.vat_number_format_valid = is_valid_vat_number_format;
 
-        let updated = patch_model
-            .update(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+        let updated = self
+            .transaction(|conn| {
+                async move {
+                    let updated: Option<CustomerRow> = patch_model
+                        .update(conn, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?;
+
+                    match updated {
+                        None => Ok(None),
+                        Some(updated) => {
+                            let updated: Customer = updated.try_into()?;
+                            let outbox_events =
+                                vec![OutboxEvent::customer_updated(updated.clone().into())];
+                            self.internal
+                                .insert_outbox_events_tx(conn, outbox_events)
+                                .await?;
+                            Ok(Some(updated))
+                        }
+                    }
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         match updated {
             None => Ok(None),
             Some(updated) => {
-                let updated: Customer = updated.try_into()?;
-
                 let _ = self
                     .eventbus
                     .publish(Event::customer_patched(
@@ -434,11 +450,27 @@ impl CustomersInterface for Store {
             is_tax_exempt: customer.is_tax_exempt,
         };
 
-        let updated = update_model
-            .update(&mut conn, tenant_id)
-            .await
-            .map_err(Into::<Report<StoreError>>::into)?
-            .ok_or(StoreError::ValueNotFound("Customer not found".to_string()))?;
+        let updated = self
+            .transaction(|conn| {
+                async move {
+                    let updated = update_model
+                        .update(conn, tenant_id)
+                        .await
+                        .map_err(Into::<Report<StoreError>>::into)?
+                        .ok_or(StoreError::ValueNotFound("Customer not found".to_string()))?;
+
+                    let updated: Customer = updated.try_into()?;
+
+                    let outbox_events = vec![OutboxEvent::customer_updated(updated.clone().into())];
+                    self.internal
+                        .insert_outbox_events_tx(conn, outbox_events)
+                        .await?;
+
+                    Ok(updated)
+                }
+                .scope_boxed()
+            })
+            .await?;
 
         let _ = self
             .eventbus
@@ -449,10 +481,7 @@ impl CustomersInterface for Store {
             ))
             .await;
 
-        CustomerRow::find_by_id_or_alias(&mut conn, tenant_id, customer.id_or_alias.clone())
-            .await
-            .map_err(Into::<Report<StoreError>>::into)
-            .and_then(TryInto::try_into)
+        Ok(updated)
     }
 
     async fn archive_customer(

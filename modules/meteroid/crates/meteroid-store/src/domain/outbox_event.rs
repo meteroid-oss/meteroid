@@ -25,6 +25,7 @@ use uuid::Uuid;
 #[derive(Display, Debug, Serialize, Deserialize)]
 pub enum OutboxEvent {
     CustomerCreated(Box<CustomerEvent>),
+    CustomerUpdated(Box<CustomerEvent>),
     BillableMetricCreated(Box<BillableMetricEvent>),
     InvoiceCreated(Box<InvoiceEvent>),
     InvoiceFinalized(Box<InvoiceEvent>),
@@ -38,6 +39,7 @@ pub enum OutboxEvent {
 #[derive(Display, Debug, Serialize, Deserialize, PartialEq)]
 pub enum EventType {
     CustomerCreated,
+    CustomerUpdated,
     BillableMetricCreated,
     InvoiceCreated,
     InvoiceFinalized,
@@ -53,6 +55,7 @@ impl OutboxEvent {
     pub fn event_id(&self) -> EventId {
         match self {
             OutboxEvent::CustomerCreated(event) => event.id,
+            OutboxEvent::CustomerUpdated(event) => event.id,
             OutboxEvent::BillableMetricCreated(event) => event.id,
             OutboxEvent::InvoiceCreated(event) => event.id,
             OutboxEvent::InvoiceFinalized(event) => event.id,
@@ -66,6 +69,7 @@ impl OutboxEvent {
     pub fn tenant_id(&self) -> TenantId {
         match self {
             OutboxEvent::CustomerCreated(event) => event.tenant_id,
+            OutboxEvent::CustomerUpdated(event) => event.tenant_id,
             OutboxEvent::BillableMetricCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceCreated(event) => event.tenant_id,
             OutboxEvent::InvoiceFinalized(event) => event.tenant_id,
@@ -79,6 +83,7 @@ impl OutboxEvent {
     pub fn aggregate_id(&self) -> Uuid {
         match self {
             OutboxEvent::CustomerCreated(event) => event.customer_id.as_uuid(),
+            OutboxEvent::CustomerUpdated(event) => event.customer_id.as_uuid(),
             OutboxEvent::BillableMetricCreated(event) => event.metric_id.as_uuid(),
             OutboxEvent::InvoiceCreated(event) => event.invoice_id.as_uuid(),
             OutboxEvent::InvoiceFinalized(event) => event.invoice_id.as_uuid(),
@@ -92,6 +97,7 @@ impl OutboxEvent {
     pub fn aggregate_type(&self) -> String {
         match self {
             OutboxEvent::CustomerCreated(_) => "Customer".to_string(),
+            OutboxEvent::CustomerUpdated(_) => "Customer".to_string(),
             OutboxEvent::BillableMetricCreated(_) => "BillableMetric".to_string(),
             OutboxEvent::InvoiceCreated(_) => "Invoice".to_string(),
             OutboxEvent::InvoiceFinalized(_) => "Invoice".to_string(),
@@ -105,6 +111,7 @@ impl OutboxEvent {
     pub fn event_type(&self) -> EventType {
         match self {
             OutboxEvent::CustomerCreated(_) => EventType::CustomerCreated,
+            OutboxEvent::CustomerUpdated(_) => EventType::CustomerUpdated,
             OutboxEvent::BillableMetricCreated(_) => EventType::BillableMetricCreated,
             OutboxEvent::InvoiceCreated(_) => EventType::InvoiceCreated,
             OutboxEvent::InvoiceFinalized(_) => EventType::InvoiceFinalized,
@@ -118,6 +125,10 @@ impl OutboxEvent {
     }
 
     pub fn customer_created(event: CustomerEvent) -> OutboxEvent {
+        OutboxEvent::CustomerCreated(Box::new(event))
+    }
+
+    pub fn customer_updated(event: CustomerEvent) -> OutboxEvent {
         OutboxEvent::CustomerCreated(Box::new(event))
     }
 
