@@ -22,24 +22,17 @@ services:
   # Jaeger
   #   https://www.jaegertracing.io/docs/1.65/getting-started/#all-in-one
   jaeger:
-    image: jaegertracing/all-in-one:1.65.0
+    image: jaegertracing/jaeger:2.9.0
     container_name: jaeger
-    command:
-      - "--memory.max-traces=25000"
-      - "--query.base-path=/jaeger/ui"
-      - "--prometheus.server-url=http://prometheus:9090"
-      - "--prometheus.query.normalize-calls=true"
-      - "--prometheus.query.normalize-duration=true"
+    command: [ "--config=/etc/jaeger/config.yaml" ]
     networks:
       - meteroid_net
     ports:
-      # - '5778:5778'                   # serve configs (sampling, etc.)
-      # closing ports because of using otelcol
-      # - '4318:4318'                     # OTLP over HTTP
-      - '4317'                          # OTLP over gRPC
-      - '16686:16686'                   # jaeger frontend
-    environment:
-      - METRICS_STORAGE_TYPE=prometheus # https://www.jaegertracing.io/docs/1.65/deployment/#metrics-storage-backends
+      # expose only what you need; 4317 is inside-network by default
+      - "16686:16686"      # Jaeger UI / query HTTP
+      # - "4317:4317"      # uncomment if you need OTLP gRPC from host
+    volumes:
+      - ./volume/jaeger/config.yaml:/etc/jaeger/config.yaml:ro
     deploy:
       resources:
         limits:
@@ -49,7 +42,7 @@ services:
 
   # Grafana
   grafana:
-    image: grafana/grafana:11.4.0
+    image: grafana/grafana:12.0
     container_name: grafana
     networks:
       - meteroid_net
@@ -69,7 +62,7 @@ services:
 
   # OpenTelemetry Collector
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.118.0
+    image: otel/opentelemetry-collector-contrib:0.133.0
     container_name: otel-collector
     command: [ "--config=/etc/otelcol-config.yml", "--config=/etc/otelcol-config-extras.yml" ]
     user: 0:0
@@ -99,7 +92,7 @@ services:
     logging: *logging
 
   loki:
-    image: grafana/loki:3.3.2
+    image: grafana/loki:3.4.5
     container_name: loki
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
@@ -116,7 +109,7 @@ services:
 
   # Prometheus
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.1.0
+    image: quay.io/prometheus/prometheus:v3.5.0
     container_name: prometheus
     command:
       - --web.console.templates=/etc/prometheus/consoles
@@ -141,7 +134,7 @@ services:
     logging: *logging
 
   opensearch:
-    image: opensearchproject/opensearch:2.18.0
+    image: opensearchproject/opensearch:3.2.0
     container_name: opensearch
     environment:
       - cluster.name=demo-cluster
