@@ -75,7 +75,7 @@ diesel-derive-newtype = { version = "2.1.0" }
 dotenvy = "0.15.7"
 env_logger = "0.11.5"
 envconfig = "0.11.0"
-error-stack = "0.5.0"
+error-stack = "0.6.0"
 educe = { version = "0.6.0", default-features = false, features = ["Default"] }
 fake = "4.0.0"
 fang = { version = "0.10.4", default-features = false }
