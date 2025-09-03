@@ -2,7 +2,7 @@ use envconfig::Envconfig;
 use tokio::signal;
 
 use common_build_info::BuildInfo;
-use common_logging::init::init_telemetry;
+use common_logging::telemetry;
 use metering::config::Config;
 
 #[tokio::main]
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::init_from_env()?;
 
-    init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
+    telemetry::init(&config.common.telemetry);
 
     let private_server = metering::server::start_server(config.clone());
 

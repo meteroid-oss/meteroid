@@ -1,0 +1,45 @@
+extensions:
+  jaeger_storage:
+    backends:
+      primary:
+        memory:
+          max_traces: 25000
+    metric_backends:
+      prom:
+        prometheus:
+          endpoint: http://prometheus:9090
+          normalize_calls: true
+          normalize_duration: true
+
+  jaeger_query:
+    # Tell query which storages to use
+    storage:
+      traces: primary         # from jaeger_storage.backends
+      metrics: prom           # from jaeger_storage.metric_backends
+    base_path: /jaeger/ui
+    # (optional) explicit ports – defaults are fine, but shown here for clarity
+    grpc:
+      endpoint: 0.0.0.0:16685
+    http:
+      endpoint: 0.0.0.0:16686
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch: { }
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: primary
+
+service:
+  extensions: [ jaeger_storage, jaeger_query ]
+  pipelines:
+    traces:
+      receivers: [ otlp ]
+      processors: [ batch ]
+      exporters: [ jaeger_storage_exporter ]
