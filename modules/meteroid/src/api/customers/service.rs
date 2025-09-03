@@ -139,6 +139,8 @@ impl CustomersService for CustomerServiceComponents {
             .await
             .map_err(Into::<CustomerApiError>::into)?;
 
+        tracing::info!("Customer updated: {}", customer.id);
+
         Ok(Response::new(UpdateCustomerResponse {}))
     }
 

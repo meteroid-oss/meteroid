@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::signal;
 
 use common_domain::ids::{BaseId, OrganizationId};
-use common_logging::init::init_regular_logging;
+use common_logging::logging;
 use common_utils::rng::UPPER_ALPHANUMERIC;
 use error_stack::ResultExt;
 use meteroid::eventbus::create_eventbus_noop;
@@ -31,7 +31,7 @@ use tap::TapFallible;
 async fn main() -> error_stack::Result<(), SeederError> {
     dotenvy::dotenv().ok();
 
-    init_regular_logging();
+    logging::init_regular_logging();
     let _exit = signal::ctrl_c();
 
     let store = Store::new(StoreConfig {

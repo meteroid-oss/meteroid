@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::signal;
 
 use common_build_info::BuildInfo;
-use common_logging::init::init_telemetry;
+use common_logging::telemetry;
 use meteroid::adapters::stripe::Stripe;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::get();
 
-    init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
+    telemetry::init(&config.common.telemetry);
 
     let store = singletons::get_store().await;
 

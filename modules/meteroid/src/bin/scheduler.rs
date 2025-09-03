@@ -7,7 +7,7 @@ For production use case, prefer a dedicated scheduler like kubernetes cronjob
 use std::sync::Arc;
 
 use common_build_info::BuildInfo;
-use common_logging::init::init_telemetry;
+use common_logging::telemetry;
 use meteroid::clients::usage::MeteringUsageClient;
 use meteroid::config::Config;
 use meteroid::services::currency_rates::OpenexchangeRatesService;
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = Config::get();
 
-    init_telemetry(&config.common.telemetry, env!("CARGO_BIN_NAME"));
+    telemetry::init(&config.common.telemetry);
 
     let store = Arc::new(singletons::get_store().await.clone());
     let svix = new_svix(config);

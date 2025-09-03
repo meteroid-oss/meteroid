@@ -1,0 +1,79 @@
+x-default-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "5m"
+    max-file: "2"
+    tag: "{{.Name}}"
+
+
+networks:
+  meteroid_net:
+
+volumes:
+  ch_data:
+
+name: meteroid-telemetry
+
+services:
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    container_name: clickhouse
+    ports: [ "8123:8123", "9000:9000" ]
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: default
+    networks:
+      - meteroid_net
+    volumes:
+      - ch_data:/var/lib/clickhouse
+      - ./init-db/clickhouse-otel:/docker-entrypoint-initdb.d  # creates 'otel' DB
+    restart: unless-stopped
+    logging: *logging
+
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:12.0
+    container_name: grafana
+    networks:
+      - meteroid_net
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SERVER_ROOT_URL=http://grafana:3000
+      - "GF_INSTALL_PLUGINS=grafana-clickhouse-datasource"
+    volumes:
+      - ./volume/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./volume/grafana/provisioning/:/etc/grafana/provisioning/
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+    logging: *logging
+
+  # OpenTelemetry Collector
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.133.0
+    container_name: otel-collector
+    command: [ "--config=/etc/otelcol-config-clickhouse.yml" ]
+    user: 0:0
+    volumes:
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./volume/otelcollector/otelcol-config-clickhouse.yml:/etc/otelcol-config-clickhouse.yml
+    networks:
+      - meteroid_net
+    ports:
+      # same as jaeger ports
+      - "4317:4317"                        # OTLP over gRPC receiver
+      - "4318:4318"                        # OTLP over HTTP receiver
+    depends_on:
+      clickhouse:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    logging: *logging
