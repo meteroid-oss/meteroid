@@ -272,6 +272,7 @@ impl ServicesEdge {
 
         let access_in = AppPortalAccessIn {
             application: Some(app_in),
+            capabilities: None,
             expiry: None, // 7 days by default
             feature_flags: None,
             read_only: None,
