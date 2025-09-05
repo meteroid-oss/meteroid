@@ -1,5 +1,6 @@
 import { spaces } from '@md/foundation'
 import {
+  Badge,
   FormControl,
   FormField,
   FormItem,
@@ -13,13 +14,27 @@ import {
   SelectValue,
 } from '@md/ui'
 import { Flex } from '@ui/components/legacy'
+import { useEffect } from 'react'
 import { useFormContext } from 'react-hook-form'
 
+import { Combobox } from '@/components/Combobox'
+import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { useQuery } from '@/lib/connectrpc'
 import { CreateCustomerSchema } from '@/lib/schemas/customers'
+import { listInvoicingEntities } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 
 export const CustomersGeneral = ({ activeCurrencies }: {activeCurrencies: string[]}) => {
-  const { control } = useFormContext<CreateCustomerSchema>()
+  const { control, setValue } = useFormContext<CreateCustomerSchema>()
+  const listInvoicingEntitiesQuery = useQuery(listInvoicingEntities)
 
+  useEffect(() => {
+    if (listInvoicingEntitiesQuery.data?.entities) {
+      const defaultEntity = listInvoicingEntitiesQuery.data.entities.find(entity => entity.isDefault)
+      if (defaultEntity) {
+        setValue('invoicingEntity', defaultEntity.id)
+      }
+    }
+  }, [listInvoicingEntitiesQuery.data?.entities, setValue])
 
   return (
     <Flex direction="column" gap={spaces.space4}>
@@ -55,17 +70,28 @@ export const CustomersGeneral = ({ activeCurrencies }: {activeCurrencies: string
         render={({ field }) => (
           <FormItem>
             <FormLabel>Invoicing entity</FormLabel>
-            <Select onValueChange={field.onChange} defaultValue={field.value}>
-              <FormControl>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select invoicing entity..." />
-                </SelectTrigger>
-              </FormControl>
-              <SelectContent>
-                <SelectItem value="entity1">Acme inc</SelectItem>
-                <SelectItem value="entity2">Example entity 2</SelectItem>
-              </SelectContent>
-            </Select>
+            <Combobox
+              placeholder="Select invoicing entity..."
+              value={field.value}
+              onChange={field.onChange}
+              options={
+                listInvoicingEntitiesQuery.data?.entities?.map(entity => ({
+                  label: (
+                    <div className="flex flex-row w-full">
+                      <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
+                      <div>{entity.legalName}</div>
+                      <div className="flex-grow"/>
+                      {entity.isDefault && (
+                        <Badge variant="primary" size="sm">
+                          Default
+                        </Badge>
+                      )}
+                    </div>
+                  ),
+                  value: entity.id,
+                })) ?? []
+              }
+            />
             <FormMessage />
           </FormItem>
         )}
