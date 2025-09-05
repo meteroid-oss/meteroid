@@ -67,6 +67,12 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
     }
   }
 
+  const handleConfirmClose = () => {
+    setIsClosingPanel(false)
+    methods.reset()
+    closePanel()
+  }
+
   return (
     <>
       <Sheet open={visible} onOpenChange={safeClosePanel}>
@@ -96,9 +102,9 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
               <div className="flex-1 overflow-y-auto">
                 <div className="space-y-8 p-6">
                   {activeCurrenciesQuery.isLoading ? (
-                    <Loading />
+                    <Loading/>
                   ) : (
-                    <CustomersGeneral activeCurrencies={activeCurrencies} />
+                    <CustomersGeneral activeCurrencies={activeCurrencies}/>
                   )}
 
                   {/* <CustomersBilling />
@@ -144,7 +150,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
               </div>
 
               <SheetFooter className="border-t border-border p-3">
-                <Button variant="outline">Cancel</Button>
+                <Button variant="outline" type="reset" onClick={safeClosePanel}>Cancel</Button>
                 <Button type="submit">Save changes</Button>
               </SheetFooter>
             </form>
@@ -157,11 +163,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
         header="Confirm to close"
         buttonLabel="Confirm"
         onSelectCancel={() => setIsClosingPanel(false)}
-        onSelectConfirm={() => {
-          setIsClosingPanel(false)
-          methods.reset()
-          closePanel()
-        }}
+        onSelectConfirm={handleConfirmClose}
       >
         <Modal.Content>
           <p className="py-4 text-sm text-muted-foreground">
