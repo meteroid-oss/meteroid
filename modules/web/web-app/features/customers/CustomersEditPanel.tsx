@@ -87,6 +87,7 @@ export const CustomersEditPanel = ({ visible, closePanel }: CustomersEditPanelPr
                     alias: values.alias,
                     billingEmail: values.primaryEmail,
                     currency: values.currency,
+                    invoicingEntityId: values.invoicingEntity,
                   },
                 })
                 if (res.customer?.id) {
