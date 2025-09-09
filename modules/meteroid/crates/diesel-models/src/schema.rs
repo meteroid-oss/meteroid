@@ -521,6 +521,7 @@ diesel::table! {
         purchase_order -> Nullable<Text>,
         coupons -> Jsonb,
         tax_breakdown -> Jsonb,
+        manual -> Bool,
     }
 }
 

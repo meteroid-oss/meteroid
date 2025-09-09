@@ -12,13 +12,14 @@ import {
   Skeleton,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Download, RefreshCcw } from 'lucide-react'
+import { CheckCircleIcon, ChevronDown, Download, FolderSyncIcon, RefreshCcw } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { TransactionList } from '@/features/invoices/TransactionList'
+import { FinalizeInvoiceModal } from '@/features/settings/integrations/FinalizeInvoiceModal'
 import {
   IntegrationType,
   SyncInvoiceModal,
@@ -57,11 +58,11 @@ export const Invoice = () => {
       <Flex direction="column" className="h-full">
         {isLoading || !data ? (
           <>
-            <Skeleton height={16} width={50} />
-            <Skeleton height={44} />
+            <Skeleton height={16} width={50}/>
+            <Skeleton height={44}/>
           </>
         ) : (
-          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''} />
+          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''}/>
         )}
       </Flex>
     </Fragment>
@@ -173,7 +174,7 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
               rel="noreferrer"
               className="flex items-center gap-2"
             >
-              <Download size="16" />
+              <Download size="16"/>
             </a>
           </Button>
         </div>
@@ -196,7 +197,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   })
 
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
-  const canRefresh = invoice && invoice.status === InvoiceStatus.DRAFT
+  const canRefresh = invoice && invoice.status === InvoiceStatus.DRAFT && !invoice.manual
   const pdf_url =
     invoice.documentSharingKey &&
     `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
@@ -205,9 +206,17 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const connectorsData = connectorsQuery.data?.connectors ?? []
 
   const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false)
+  const [showFinalizeInvoiceModal, setShowFinalizeInvoiceModal] = useState(false)
   const isPennylaneConnected = connectorsData.some(
     connector => connector.provider === ConnectorProviderEnum.PENNYLANE
   )
+  const isFinalizable = invoice.status === InvoiceStatus.DRAFT && invoice.manual
+
+  const onFinalizeSuccess = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+    })
+  }
 
   useEffect(() => {
     if (canRefresh) {
@@ -226,20 +235,29 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         />
       )}
 
+      {showFinalizeInvoiceModal && (
+        <FinalizeInvoiceModal
+          invoiceNumber={invoice.invoiceNumber}
+          id={invoice.id}
+          onClose={() => setShowFinalizeInvoiceModal(false)}
+          onSuccess={onFinalizeSuccess}
+        />
+      )}
+
       {/* Left Panel - Invoice Details */}
       <Flex direction="column" className="w-1/3 border-r border-border">
         {/* Fixed Header - Always Visible */}
         <Flex direction="column" className="gap-2 p-6 border-b border-border">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <InvoiceStatusBadge status={invoice.status} />
+              <InvoiceStatusBadge status={invoice.status}/>
               <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm" hasIcon>
                   Actions
-                  <ChevronDown className="w-4 h-4" />
+                  <ChevronDown className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -251,9 +269,17 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   Refresh
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={!isFinalizable}
+                  onClick={() => setShowFinalizeInvoiceModal(true)}
+                >
+                  <CheckCircleIcon size="16" className="mr-2"/>
+                  Finalize & Send
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   disabled={!isPennylaneConnected}
                   onClick={() => setShowSyncPennylaneModal(true)}
                 >
+                  <FolderSyncIcon size="16" className="mr-2"/>
                   Sync to Pennylane
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
@@ -264,7 +290,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     rel="noreferrer"
                     className="flex items-center gap-2"
                   >
-                    <Download size="16" />
+                    <Download size="16"/>
                     Download PDF
                   </a>
                 </DropdownMenuItem>
@@ -280,7 +306,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-auto">
           <Flex direction="column" className="gap-2 p-6">
-            <FlexDetails title="Invoice number" value={invoice.invoiceNumber} />
+            <FlexDetails title="Invoice number" value={invoice.invoiceNumber}/>
 
             <FlexDetails
               title="Plan"
@@ -293,12 +319,12 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </Link>
               }
             />
-            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)} />
-            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)} />
-            <FlexDetails title="Currency" value={invoice.currency} />
+            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)}/>
+            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)}/>
+            <FlexDetails title="Currency" value={invoice.currency}/>
           </Flex>
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3"/>
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Customer</div>
@@ -307,7 +333,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               value={invoice.customerDetails?.name}
               link={`${basePath}/customers/${invoice.customerId}`}
             />
-            <FlexDetails title="Email" value={invoice.customerDetails?.email} />
+            <FlexDetails title="Email" value={invoice.customerDetails?.email}/>
             {invoice.customerDetails?.billingAddress && (
               <>
                 <FlexDetails
@@ -326,33 +352,33 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               </>
             )}
             {invoice.customerDetails?.vatNumber && (
-              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber} />
+              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber}/>
             )}
           </Flex>
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3"/>
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Line Items</div>
-            <InvoiceLineItems items={invoice.lineItems} invoice={invoice} />
+            <InvoiceLineItems items={invoice.lineItems} invoice={invoice}/>
             <div className="mt-4 pt-4 border-t">
-              <InvoiceSummaryLines invoice={invoice} />
+              <InvoiceSummaryLines invoice={invoice}/>
             </div>
           </Flex>
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3"/>
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Payment Information</div>
-            <FlexDetails 
-              title="Payment Status" 
-              value={<PaymentStatusBadge status={invoice.paymentStatus} />} 
+            <FlexDetails
+              title="Payment Status"
+              value={<PaymentStatusBadge status={invoice.paymentStatus}/>}
             />
-            <FlexDetails title="Amount Due" value={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)} />
+            <FlexDetails title="Amount Due" value={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}/>
             {invoice.transactions && invoice.transactions.length > 0 && (
               <div className="mt-4">
-                <TransactionList 
-                  transactions={invoice.transactions} 
+                <TransactionList
+                  transactions={invoice.transactions}
                   currency={invoice.currency}
                   isLoading={false}
                 />
@@ -362,7 +388,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {invoice.memo && (
             <>
-              <Separator className="-my-3" />
+              <Separator className="-my-3"/>
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Memo</div>
                 <div className="text-[13px] text-muted-foreground whitespace-pre-line">
@@ -372,7 +398,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </>
           )}
 
-          <Separator className="-my-3" />
+          <Separator className="-my-3"/>
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Timeline</div>
@@ -402,7 +428,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
             <>
-              <Separator className="-my-3" />
+              <Separator className="-my-3"/>
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Integrations</div>
                 <FlexDetails
@@ -419,7 +445,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       {/* Right Panel - Invoice Preview */}
       <div className="w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
-          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice} />
+          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice}/>
         </div>
       </div>
     </Flex>
@@ -452,7 +478,7 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
   return (
     <div className="space-y-1">
-      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)} />
+      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)}/>
 
       {invoice.couponLineItems.map(c => {
         const couponTotal = Number(c.total) || 0
@@ -467,23 +493,23 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
       {invoice.taxBreakdown && invoice.taxBreakdown.length > 0
         ? invoice.taxBreakdown.map(tax => {
-            const taxRate = parseFloat(tax.taxRate) * 100 || 0
-            const taxAmountValue = Number(tax.amount) || 0
-            // Only show tax breakdown if rate is greater than 0
-            if (taxRate > 0) {
-              return (
-                <FlexDetails
-                  key={tax.name}
-                  title={`${tax.name} (${taxRate}%)`}
-                  value={formatCurrency(taxAmountValue, invoice.currency)}
-                />
-              )
-            }
-            return null
-          })
+          const taxRate = parseFloat(tax.taxRate) * 100 || 0
+          const taxAmountValue = Number(tax.amount) || 0
+          // Only show tax breakdown if rate is greater than 0
+          if (taxRate > 0) {
+            return (
+              <FlexDetails
+                key={tax.name}
+                title={`${tax.name} (${taxRate}%)`}
+                value={formatCurrency(taxAmountValue, invoice.currency)}
+              />
+            )
+          }
+          return null
+        })
         : taxAmount > 0 && (
-            <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)} />
-          )}
+        <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)}/>
+      )}
 
       <div className="pt-2 border-t">
         <FlexDetails
@@ -508,7 +534,7 @@ export const InvoiceLineItems: React.FC<{ items: LineItem[]; invoice: DetailedIn
       {items
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(item => {
-          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice} />
+          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice}/>
         })}
     </div>
   )

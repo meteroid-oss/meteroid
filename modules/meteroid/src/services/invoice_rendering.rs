@@ -38,21 +38,9 @@ impl InvoicePreviewRenderingService {
 
     pub async fn preview_invoice(
         &self,
-        invoice_id: InvoiceId,
-        tenant_id: TenantId,
+        invoice: Invoice,
+        invoicing_entity: InvoicingEntity,
     ) -> error_stack::Result<String, InvoicingRenderError> {
-        let invoice = self
-            .store
-            .get_detailed_invoice_by_id(tenant_id, invoice_id)
-            .await
-            .change_context(InvoicingRenderError::StoreError)?;
-
-        let invoicing_entity = self
-            .store
-            .get_invoicing_entity(tenant_id, Some(invoice.invoice.seller_details.id))
-            .await
-            .change_context(InvoicingRenderError::StoreError)?;
-
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
                 let res = get_logo_as_base64_for_invoice(&self.storage, *logo_id).await?;
@@ -63,24 +51,20 @@ impl InvoicePreviewRenderingService {
         };
 
         let mut rate = None;
-        if invoice.invoice.currency != invoicing_entity.accounting_currency {
+        if invoice.currency != invoicing_entity.accounting_currency {
             rate = self
                 .store
                 .get_historical_rate(
-                    &invoice.invoice.currency,
+                    &invoice.currency,
                     &invoicing_entity.accounting_currency,
-                    invoice.invoice.invoice_date,
+                    invoice.invoice_date,
                 )
                 .await
                 .change_context(InvoicingRenderError::StoreError)?;
         }
 
-        let mapped = mapper::map_invoice_to_invoicing(
-            invoice.invoice,
-            &invoicing_entity,
-            &organization_logo,
-            rate,
-        )?;
+        let mapped =
+            mapper::map_invoice_to_invoicing(invoice, &invoicing_entity, &organization_logo, rate)?;
 
         let svg_string = self
             .generator
@@ -89,6 +73,26 @@ impl InvoicePreviewRenderingService {
             .change_context(InvoicingRenderError::RenderError)?;
 
         Ok(svg_string)
+    }
+
+    pub async fn preview_invoice_by_id(
+        &self,
+        invoice_id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> error_stack::Result<String, InvoicingRenderError> {
+        let invoice = self
+            .store
+            .get_invoice_by_id(tenant_id, invoice_id)
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
+        let invoicing_entity = self
+            .store
+            .get_invoicing_entity(tenant_id, Some(invoice.seller_details.id))
+            .await
+            .change_context(InvoicingRenderError::StoreError)?;
+
+        self.preview_invoice(invoice, invoicing_entity).await
     }
 }
 

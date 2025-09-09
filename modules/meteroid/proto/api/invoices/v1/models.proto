@@ -32,6 +32,7 @@ message Invoice {
   optional string due_at = 9;
   int64 total = 10;
   InvoicePaymentStatus payment_status = 11;
+  bool manual = 12;
 }
 
 //message Account {
@@ -89,6 +90,7 @@ message DetailedInvoice {
   InvoicePaymentStatus payment_status = 41;
   repeated Transaction transactions = 42;
   optional string paid_at = 43;
+  bool manual = 44;
 }
 
 message TaxBreakdownItem {
@@ -202,11 +204,30 @@ message PaymentMethodInfo {
   optional string card_brand = 2;
   optional string card_last4 = 3;
   optional string account_number_hint = 4;
-  
+
   enum PaymentMethodTypeEnum {
     CARD = 0;
     BANK_TRANSFER = 1;
     WALLET = 2;
     OTHER = 3;
   }
+}
+
+message NewInvoiceLineItem {
+  string product = 1;
+  string start_date = 2;
+  string end_date = 3;
+  string quantity = 4;
+  string unit_price = 5;
+  string tax_rate = 6;
+}
+
+message NewInvoice {
+  string customer_id = 1;
+  string invoice_date = 2;
+  optional string due_date = 3;
+  string currency = 4;
+  optional string purchase_order = 5;
+  repeated NewInvoiceLineItem line_items = 6;
+  optional string discount = 7;
 }

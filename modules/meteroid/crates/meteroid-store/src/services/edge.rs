@@ -244,4 +244,12 @@ impl ServicesEdge {
     ) -> StoreResult<()> {
         self.services.on_payment_transaction_settled(event).await
     }
+
+    pub async fn finalize_invoice(
+        &self,
+        invoice_id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice> {
+        self.services.finalize_invoice(invoice_id, tenant_id).await
+    }
 }

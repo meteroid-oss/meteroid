@@ -8,6 +8,7 @@ use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
 use meteroid_store::errors::StoreError;
 
 #[derive(Debug, Error, ErrorAsTonic)]
+#[allow(clippy::enum_variant_names)]
 pub enum InvoiceApiError {
     #[error("Store error: {0}")]
     #[code(Internal)]
@@ -15,6 +16,9 @@ pub enum InvoiceApiError {
     #[error("Render error: {0}")]
     #[code(Internal)]
     RenderError(String, #[source] Box<dyn Error>),
+    #[error("Input error: {0}")]
+    #[code(Internal)]
+    InputError(String),
 }
 
 impl From<Report<StoreError>> for InvoiceApiError {

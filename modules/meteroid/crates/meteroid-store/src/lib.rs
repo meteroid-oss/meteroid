@@ -5,7 +5,7 @@ pub mod domain;
 pub mod errors;
 pub mod jwt_claims;
 pub mod repositories;
-mod services;
+pub mod services;
 pub mod store;
 pub mod utils;
 
