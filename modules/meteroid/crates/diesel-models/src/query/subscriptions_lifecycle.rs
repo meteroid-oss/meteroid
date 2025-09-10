@@ -16,6 +16,7 @@ use error_stack::ResultExt;
 use uuid::Uuid;
 
 impl SubscriptionRow {
+    #[allow(clippy::too_many_arguments)]
     pub async fn activate_subscription(
         conn: &mut PgConn,
         id: &SubscriptionId,
