@@ -1,6 +1,7 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { PaymentPanel } from '@/features/checkout/PaymentPanel'
 import { confirmCheckout } from '@/rpc/portal/checkout/v1/checkout-PortalCheckoutService_connectquery'
@@ -14,16 +15,13 @@ import { CheckoutFlowProps } from './types'
  */
 const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
   const [isAddressEditing, setIsAddressEditing] = useState(false)
+  const navigate = useNavigate()
   const { subscription, customer, paymentMethods, totalAmount } = checkoutData
 
   // Mutation to confirm the checkout
   const confirmCheckoutMutation = useMutation(confirmCheckout, {
-    onSuccess: () => {
-      alert('OK') //TODO
-    },
     onError: error => {
       console.error('Checkout confirmation error:', error)
-      alert('ERROR')
     },
   })
 
@@ -45,7 +43,11 @@ const CheckoutFlow: React.FC<CheckoutFlowProps> = ({ checkoutData }) => {
       })
 
       // On success, redirect to success page
-      alert('OK2') //TODO
+      const params = new URLSearchParams({
+        plan: subscription.subscription.planName || '',
+        customer: customer?.name || '',
+      })
+      navigate(`success?${params.toString()}`)
     } catch (error) {
       console.error('Payment submission error:', error)
       throw error // Let the PaymentPanel handle this error

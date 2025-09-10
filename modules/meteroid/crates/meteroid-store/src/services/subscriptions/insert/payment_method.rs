@@ -88,7 +88,7 @@ impl Services {
         conn: &mut PgConn,
         config: &Connector,
         customer: &Customer,
-        customer_connectors: &[&CustomerConnection],
+        customer_connectors: &mut Vec<CustomerConnection>,
     ) -> StoreResult<Option<CustomerConnectionId>> {
         if config.connector_type == ConnectorTypeEnum::PaymentProvider {
             // Find an existing connection to this provider
@@ -107,13 +107,24 @@ impl Services {
                         .change_context(StoreError::PaymentProviderError)?;
 
                     // Connect the customer to the payment provider in our system
-                    self.connect_customer_payment_provider(
-                        conn,
-                        &customer.id,
-                        &config.id,
-                        &external_id,
-                    )
-                    .await?
+                    let connection_id = self
+                        .connect_customer_payment_provider(
+                            conn,
+                            &customer.id,
+                            &config.id,
+                            &external_id,
+                        )
+                        .await?;
+
+                    customer_connectors.push(CustomerConnection {
+                        id: connection_id,
+                        customer_id: customer.id,
+                        connector_id: config.id,
+                        supported_payment_types: Some(vec![PaymentMethodTypeEnum::Card]),
+                        external_customer_id: external_id,
+                    });
+
+                    connection_id
                 }
                 Some(cc) => cc.id,
             };
@@ -152,9 +163,12 @@ impl Services {
 
         // Try to use or create a connection to the invoicing entity's payment provider
 
+        let mut connections: Vec<CustomerConnection> =
+            customer_connectors.into_iter().cloned().collect();
+
         let card_connection = if let Some(card_provider) = &invoicing_entity_providers.card_provider
         {
-            self.use_or_create_connection(conn, card_provider, customer, &customer_connectors)
+            self.use_or_create_connection(conn, card_provider, customer, &mut connections)
                 .await
         } else {
             Ok(None)
@@ -163,13 +177,8 @@ impl Services {
         let direct_debit_connection = if let Some(direct_debit_provider) =
             &invoicing_entity_providers.direct_debit_provider
         {
-            self.use_or_create_connection(
-                conn,
-                direct_debit_provider,
-                customer,
-                &customer_connectors,
-            )
-            .await
+            self.use_or_create_connection(conn, direct_debit_provider, customer, &mut connections)
+                .await
         } else {
             Ok(None)
         }?;

@@ -48,21 +48,13 @@ impl Services {
             .ok_or(Report::new(StoreError::BillingError))
             .attach_printable("No billing_start_date is present")?;
 
-        if subscription_details.subscription.activated_at.is_none() {
-            return Err(Report::new(StoreError::BillingError))
-                .attach_printable("Subscription is not activated, cannot compute invoice lines");
-        }
-
         let currency = Currencies::resolve_currency(&subscription_details.subscription.currency)
             .ok_or(Report::new(StoreError::ValueNotFound(format!(
                 "Currency {} not found",
                 subscription_details.subscription.currency
             ))))?;
 
-        let cycle_index = subscription_details.subscription.cycle_index.ok_or(
-            Report::new(StoreError::BillingError)
-                .attach_printable("Subscription cycle index is not set"),
-        )?;
+        let cycle_index = subscription_details.subscription.cycle_index.unwrap_or(0);
 
         let invoice_date = *invoice_date;
 
@@ -370,7 +362,8 @@ impl Services {
                     subscription_details
                         .subscription
                         .current_period_end
-                        .is_none(),
+                        .is_none()
+                        && !subscription_details.subscription.pending_checkout,
                 );
 
                 // in period is None, this means that the components are not relevant for this invoice

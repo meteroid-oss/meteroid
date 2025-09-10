@@ -1,4 +1,5 @@
 use crate::errors::IntoDbResult;
+use chrono::NaiveDate;
 
 use crate::subscriptions::{
     SubscriptionCycleErrorRowPatch, SubscriptionCycleRowPatch, SubscriptionRow,
@@ -9,16 +10,22 @@ use diesel::dsl::not;
 use diesel::{ExpressionMethods, QueryDsl, debug_query};
 use diesel_async::RunQueryDsl;
 
-use crate::enums::SubscriptionStatusEnum;
+use crate::enums::{CycleActionEnum, SubscriptionStatusEnum};
 use common_domain::ids::{SubscriptionId, TenantId};
 use error_stack::ResultExt;
 use uuid::Uuid;
 
 impl SubscriptionRow {
+    #[allow(clippy::too_many_arguments)]
     pub async fn activate_subscription(
         conn: &mut PgConn,
         id: &SubscriptionId,
         tenant_id: &TenantId,
+        current_period_start: NaiveDate,
+        current_period_end: Option<NaiveDate>,
+        next_cycle_action: Option<CycleActionEnum>,
+        cycle_index: Option<i32>,
+        status: SubscriptionStatusEnum,
     ) -> DbResult<()> {
         use crate::schema::subscription::dsl as s_dsl;
 
@@ -26,7 +33,15 @@ impl SubscriptionRow {
             .filter(s_dsl::id.eq(id))
             .filter(s_dsl::tenant_id.eq(tenant_id))
             .filter(s_dsl::activated_at.is_null())
-            .set(s_dsl::activated_at.eq(chrono::Utc::now().naive_utc()));
+            .set((
+                s_dsl::activated_at.eq(chrono::Utc::now().naive_utc()),
+                s_dsl::current_period_start.eq(current_period_start),
+                s_dsl::current_period_end.eq(current_period_end),
+                s_dsl::next_cycle_action.eq(next_cycle_action),
+                s_dsl::cycle_index.eq(cycle_index),
+                s_dsl::status.eq(status),
+                s_dsl::pending_checkout.eq(false),
+            ));
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 

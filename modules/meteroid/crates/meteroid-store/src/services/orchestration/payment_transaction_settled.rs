@@ -1,11 +1,12 @@
 use crate::StoreResult;
-use crate::domain::Invoice;
 use crate::domain::outbox_event::{OutboxEvent, PaymentTransactionEvent};
+use crate::domain::{Invoice, SubscriptionStatusEnum};
 use crate::errors::StoreError;
 use crate::repositories::outbox::OutboxInterface;
 use crate::services::Services;
+use crate::utils::periods::calculate_advance_period_range;
 use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_models::enums::SubscriptionActivationConditionEnum;
+use diesel_models::enums::{CycleActionEnum, SubscriptionActivationConditionEnum};
 use diesel_models::invoices::InvoiceRow;
 use diesel_models::subscriptions::SubscriptionRow;
 use error_stack::Report;
@@ -85,11 +86,53 @@ impl Services {
                                 && subscription.subscription.activation_condition
                                     == SubscriptionActivationConditionEnum::OnCheckout;
                             if should_activate {
+                                let billing_start_date = subscription
+                                    .subscription
+                                    .billing_start_date
+                                    .unwrap_or(chrono::Utc::now().date_naive());
+
+                                let current_period_start;
+                                let current_period_end;
+                                let next_cycle_action;
+                                let mut cycle_index = None;
+                                let status;
+
+                                if subscription.subscription.trial_duration.is_some() {
+                                    status = SubscriptionStatusEnum::TrialActive;
+                                    current_period_start = billing_start_date;
+                                    current_period_end = Some(
+                                        current_period_start
+                                            + chrono::Duration::days(
+                                                subscription.subscription.trial_duration.unwrap()
+                                                    as i64,
+                                            ),
+                                    );
+                                    next_cycle_action = Some(CycleActionEnum::EndTrial);
+                                } else {
+                                    let range = calculate_advance_period_range(
+                                        billing_start_date,
+                                        subscription.subscription.billing_day_anchor as u32,
+                                        true,
+                                        &subscription.subscription.period.into(),
+                                    );
+
+                                    status = SubscriptionStatusEnum::Active;
+                                    cycle_index = Some(0);
+                                    current_period_start = range.start;
+                                    current_period_end = Some(range.end);
+                                    next_cycle_action = Some(CycleActionEnum::RenewSubscription);
+                                }
+
                                 // TODO send a subscription_activated event
                                 SubscriptionRow::activate_subscription(
                                     conn,
                                     subscription_id,
                                     &event.tenant_id,
+                                    current_period_start,
+                                    current_period_end,
+                                    next_cycle_action,
+                                    cycle_index,
+                                    status.into(),
                                 )
                                 .await?;
                             }

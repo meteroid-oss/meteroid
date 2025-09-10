@@ -20,7 +20,6 @@ pub struct PaymentIntentRequest {
     #[serde(flatten)]
     pub setup_mandate_details: Option<StripeMandateRequest>,
     pub capture_method: StripeCaptureMethod,
-    pub setup_future_usage: FutureUsage,
     pub off_session: Option<bool>,
 }
 
@@ -62,12 +61,6 @@ pub enum StripeCaptureMethod {
     #[default]
     Automatic,
     AutomaticAsync,
-}
-
-#[derive(Clone, Eq, PartialEq, Debug, Serialize)]
-pub enum FutureUsage {
-    #[serde(rename = "off_session")]
-    OffSession,
 }
 
 #[async_trait::async_trait]
