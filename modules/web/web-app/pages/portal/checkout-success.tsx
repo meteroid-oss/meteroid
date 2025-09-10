@@ -1,4 +1,5 @@
 import { CheckCircle } from 'lucide-react'
+
 import { useForceTheme } from 'providers/ThemeProvider'
 
 export const PortalCheckoutSuccess = () => {
