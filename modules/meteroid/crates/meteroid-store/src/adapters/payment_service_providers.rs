@@ -15,7 +15,7 @@ use stripe_client::customers::{
     CreateCustomer, CustomerApi, CustomerShipping, OptionalFieldsAddress,
 };
 use stripe_client::payment_intents::{
-    FutureUsage, PaymentIntentApi, PaymentIntentRequest, StripePaymentIntent, StripePaymentStatus,
+    PaymentIntentApi, PaymentIntentRequest, StripePaymentIntent, StripePaymentStatus,
 };
 use stripe_client::payment_methods::PaymentMethodsApi;
 use stripe_client::setup_intents::{
@@ -256,7 +256,6 @@ impl PaymentProvider for StripeClient {
                     metadata,
                     off_session: Some(true),
                     return_url: None,
-                    setup_future_usage: FutureUsage::OffSession,
                     capture_method: Default::default(),
                 },
                 &secret_key,

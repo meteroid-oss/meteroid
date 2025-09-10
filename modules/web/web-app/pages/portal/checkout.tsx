@@ -17,8 +17,6 @@ export const PortalCheckout = () => {
   const error = checkoutQuery.error
   const isLoading = checkoutQuery.isLoading
 
-  console.log('customer2', data?.customer)
-
   if (error) {
     return (
       <div className="h-full w-full bg-[#00000002]">

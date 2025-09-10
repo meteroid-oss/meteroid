@@ -256,7 +256,11 @@ pub struct DetailedInvoice {
 }
 
 impl DetailedInvoice {
-    pub fn with_transactions(mut self, transactions: Vec<PaymentTransactionRow>) -> Self {
+    pub fn with_transactions(mut self, transactions: Vec<PaymentTransaction>) -> Self {
+        self.transactions = transactions;
+        self
+    }
+    pub fn with_transaction_rows(mut self, transactions: Vec<PaymentTransactionRow>) -> Self {
         self.transactions = transactions.into_iter().map(|x| x.into()).collect();
         self
     }

@@ -78,6 +78,8 @@ impl Services {
             }
         };
 
+        let mut transactions = vec![];
+
         match mode {
             InvoiceBillingMode::FinalizeAfterPayment {
                 currency_confirmation,
@@ -105,6 +107,8 @@ impl Services {
                     )
                     .await?;
 
+                transactions.push(res.clone());
+
                 if res.status == PaymentStatusEnum::Settled {
                     // we finalize the invoice directly
                     self.finalize_invoice_tx(
@@ -117,7 +121,10 @@ impl Services {
                     .await?;
                 } else {
                     // we return the draft invoice, it will be finalized later via the webhook
-                    return self.as_detailed_invoice(draft_invoice, customer).map(Some);
+                    return self
+                        .as_detailed_invoice(draft_invoice, customer)
+                        .map(|d| d.with_transactions(transactions))
+                        .map(Some);
                 }
             }
             InvoiceBillingMode::AwaitGracePeriodIfApplicable => {
@@ -170,7 +177,9 @@ impl Services {
         let updated_invoice =
             InvoiceRow::find_detailed_by_id(conn, tenant_id, draft_invoice.id).await?;
 
-        Ok(Some(DetailedInvoice::try_from(updated_invoice)?))
+        Ok(Some(
+            DetailedInvoice::try_from(updated_invoice)?.with_transactions(transactions),
+        ))
     }
 
     fn as_detailed_invoice(

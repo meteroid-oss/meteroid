@@ -115,7 +115,7 @@ export const StripeIntegrationModal = () => {
                 Endpoint URL:
                 <br/>
                 <CopyToClipboardButton
-                  text={`${restApiUrl}/v1/webhooks/${tenant?.id?.toLowerCase()}/${alias}`}
+                  text={`${restApiUrl}/webhooks/v1/${tenant?.id}/${alias}`}
                   className="whitespace-normal"
                 />
               </li>
