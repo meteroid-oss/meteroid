@@ -115,8 +115,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map(|item| TaxBreakdownItem {
                 name: item.name,
                 rate: item.tax_rate.to_string(),
-                amount: (item.taxable_amount as f64 * item.tax_rate.to_f64().unwrap_or(0.0) / 100.0)
-                    as u64,
+                amount: item.tax_amount
             })
             .collect();
 

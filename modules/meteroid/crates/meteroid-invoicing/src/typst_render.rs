@@ -155,7 +155,7 @@ impl From<&InvoiceLine> for TypstInvoiceLine {
             description: line.description.clone(),
             quantity: line.quantity.and_then(|d| d.to_f64()),
             unit_price: line.unit_price.as_ref().and_then(|d| d.amount().to_f64()),
-            vat_rate: line.tax_rate.to_f64(),
+            vat_rate: line.tax_rate.to_f64().map(|r| r * 100.0),
             subtotal: line.subtotal.amount().to_f64().unwrap_or(0.0),
             start_date,
             end_date,
@@ -243,7 +243,7 @@ impl From<&TaxBreakdownItem> for TypstTaxBreakdownItem {
         });
         TypstTaxBreakdownItem {
             name: item.name.clone(),
-            rate: item.rate.to_f64().unwrap_or(0.0),
+            rate: item.rate.to_f64().unwrap_or(0.0) * 100.0,
             amount: item.amount.amount().to_f64().unwrap_or(0.0),
             exemption_type,
         }

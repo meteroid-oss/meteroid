@@ -19,6 +19,8 @@ use error_stack::Report;
 use meteroid_tax::TaxDetails;
 use o2o::o2o;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]
@@ -101,17 +103,31 @@ pub enum TaxExemptionType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaxBreakdownItem {
     pub taxable_amount: u64,
+    #[serde(default)]
+    pub tax_amount: u64,
     pub tax_rate: Decimal,
     pub name: String,
     pub exemption_type: Option<TaxExemptionType>,
 }
+
+impl TaxBreakdownItem {
+    fn compute_tax_amount(&self) -> u64 {
+        ((self.tax_rate.to_f64().unwrap_or(0.0) * self.taxable_amount as f64) / 100.0)
+            .round()
+            .to_i64()
+            .unwrap_or(0)
+            .max(0) as u64
+    }
+}
+
 impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
     fn from(item: meteroid_tax::TaxBreakdownItem) -> Self {
         match item.details {
             TaxDetails::Tax {
-                tax_rate, tax_name, ..
+                tax_rate, tax_name,  tax_amount, ..
             } => TaxBreakdownItem {
                 taxable_amount: item.taxable_amount,
+                tax_amount,
                 tax_rate,
                 name: tax_name,
                 exemption_type: None,
@@ -126,6 +142,7 @@ impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
                 };
                 TaxBreakdownItem {
                     taxable_amount: item.taxable_amount,
+                    tax_amount: 0,
                     tax_rate: Decimal::ZERO,
                     name: "Exempt".to_string(),
                     exemption_type: Some(exemption_type),

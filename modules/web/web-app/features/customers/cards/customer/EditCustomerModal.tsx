@@ -39,10 +39,12 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
       name: customer.name,
       alias: customer.alias,
       email: customer.billingEmail,
-      invoicingEmail: customer.invoicingEmails[0] || '',
+      invoicingEmail: customer.invoicingEmails[0],
       phone: customer.phone,
       vatNumber: customer.vatNumber,
-      customTaxRate: customer.customTaxRate,
+      customTaxRate: customer.customTaxRate
+        ? (Number(customer.customTaxRate) * 100).toString()
+        : '',
       isTaxExempt: customer.isTaxExempt,
       billingAddress: customer.billingAddress,
       shippingAddress: customer.shippingAddress,
@@ -60,7 +62,9 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
         invoicingEmails: data.invoicingEmail ? { emails: [data.invoicingEmail] } : undefined,
         phone: data.phone,
         vatNumber: data.vatNumber,
-        customTaxRate: data.customTaxRate,
+        customTaxRate: data.customTaxRate
+          ? (Number(data.customTaxRate) / 100).toString()
+          : undefined,
         isTaxExempt: data.isTaxExempt,
         billingAddress: data.billingAddress,
         shippingAddress: data.shippingAddress,
@@ -108,7 +112,7 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
                   label="Invoicing email"
                   name="invoicingEmail"
                   layout="horizontal"
-                  type="email"
+                  type="invoicingEmail"
                 />
                 <InputFormField
                   control={methods.control}
@@ -130,10 +134,10 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
                 />
                 <InputFormField
                   control={methods.control}
-                  label="Custom tax rate"
+                  label="Custom tax rate (%)"
                   name="customTaxRate"
                   layout="horizontal"
-                  placeholder="0.20"
+                  placeholder="20"
                 />
                 <CheckboxFormField
                   control={methods.control}

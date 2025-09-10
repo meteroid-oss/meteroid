@@ -53,8 +53,7 @@ const PriceInput = <T extends FieldValues>({
         minimumFractionDigits: 0,
         maximumFractionDigits: precision,
       })
-      .replaceAll(',', '')
-      .replaceAll(' ', '')}` // TODO currencyjs or something
+      .replaceAll(' ', '')}`
   }
 
   const handleBlur = () => {
@@ -153,7 +152,6 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
           minimumFractionDigits: 0,
           maximumFractionDigits: precision,
         })
-        .replaceAll(',', '')
         .replaceAll(' ', '')}` // TODO currencyjs or something
     }
 
