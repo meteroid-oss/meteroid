@@ -14,7 +14,7 @@ import {
   SelectItem,
 } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
-import { useAtom, useSetAtom } from 'jotai'
+import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useWatch } from 'react-hook-form'
@@ -70,13 +70,18 @@ const MetricSetter = ({
     control: methods.control,
     name: 'metricId',
   })
+  const [previousMetricId, setPreviousMetricId] = useState<string>(metricId)
 
-  const setName = useSetAtom(componentNameAtom)
+  const [, setName] = useAtom(componentNameAtom)
 
   useEffect(() => {
-    const metric = metricsOptions.find(m => m.value === metricId)
-    metric?.label && setName(metric.label)
-  }, [setName, metricId, metricsOptions])
+    if (metricId !== previousMetricId) {
+      const metric = metricsOptions.find(m => m.value === metricId)
+      metric?.label && setName(metric.label)
+    }
+
+    setPreviousMetricId(metricId)
+  }, [metricId, previousMetricId, setPreviousMetricId, metricsOptions, setName])
 
   return null
 }
