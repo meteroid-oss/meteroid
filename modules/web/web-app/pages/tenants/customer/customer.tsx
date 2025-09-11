@@ -1,6 +1,7 @@
 import { Card, Flex, Separator, Skeleton } from '@md/ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { Fragment, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { TenantPageLayout } from '@/components/layouts'
 import { CustomerHeader, CustomersEditPanel } from '@/features/customers'
@@ -9,6 +10,7 @@ import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
@@ -16,6 +18,8 @@ import { useTypedParams } from '@/utils/params'
 
 export const Customer = () => {
   const { customerId } = useTypedParams<{ customerId: string }>()
+  const navigate = useNavigate()
+  const basePath = useBasePath()
 
   const [editPanelVisible, setEditPanelVisible] = useState(false)
   const [createInvoiceVisible, setCreateInvoiceVisible] = useState(false)
@@ -65,8 +69,14 @@ export const Customer = () => {
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Subscriptions</div>
-                  <Flex align="center" className="gap-1 text-sm">
-                    <Plus size={10} /> Assign subscription
+                  <Flex
+                    align="center"
+                    className="gap-1 text-sm cursor-pointer hover:text-primary"
+                    onClick={() =>
+                      navigate(`${basePath}/subscriptions/create?customerId=${customerId}`)
+                    }
+                  >
+                    <Plus size={10} /> New subscription
                   </Flex>
                 </Flex>
                 <div className="flex-none">
@@ -103,13 +113,13 @@ export const Customer = () => {
                     <div className="text-[13px] text-muted-foreground">Address</div>
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
                   </Flex>
-                  <FlexDetails 
-                    title="Tax rate" 
-                    value={data.customTaxRate ? `${Number(data.customTaxRate) * 100}%` : 'Default'} 
+                  <FlexDetails
+                    title="Tax rate"
+                    value={data.customTaxRate ? `${Number(data.customTaxRate) * 100}%` : 'Default'}
                   />
-                  <FlexDetails 
-                    title="Tax ID" 
-                    value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')} 
+                  <FlexDetails
+                    title="Tax ID"
+                    value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')}
                   />
                 </Flex>
                 <Separator className="-my-3" />

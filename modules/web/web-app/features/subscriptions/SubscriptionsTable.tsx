@@ -2,7 +2,6 @@ import { ColumnDef, OnChangeFn, PaginationState, Row } from '@tanstack/react-tab
 import { Badge } from '@ui/components'
 import { format } from 'date-fns'
 import { useMemo } from 'react'
-import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -39,11 +38,7 @@ export const SubscriptionsTable: FunctionComponent<SubscriptionsTableProps> = ({
       [
         {
           header: 'Customer',
-          cell: ({ row }: { row: Row<Subscription> }) => (
-            <Link to={`${basePath}/customers/${row.original.customerId}`}>
-              {row.original.customerName}
-            </Link>
-          ),
+          accessorKey: 'customerName',
         },
         {
           header: 'Plan',

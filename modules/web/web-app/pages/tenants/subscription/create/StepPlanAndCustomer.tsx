@@ -11,6 +11,7 @@ import {
 import { useAtom } from 'jotai'
 import { Gift, Plus, Search, Tag, X } from 'lucide-react'
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useWizard } from 'react-use-wizard'
 import { z } from 'zod'
 
@@ -29,18 +30,23 @@ import { ListCouponRequest_CouponFilter } from '@/rpc/api/coupons/v1/coupons_pb'
 export const StepPlanAndCustomer = () => {
   const { nextStep } = useWizard()
   const [state, setState] = useAtom(createSubscriptionAtom)
+  const [searchParams] = useSearchParams()
   const [addOnSearch, setAddOnSearch] = useState('')
   const [couponSearch, setCouponSearch] = useState('')
   const [isValid, setIsValid] = useState(true)
   const [validationErrors, setValidationErrors] = useState<string[]>([])
 
+  const customerIdFromUrl = searchParams.get('customerId')
+  const planVersionIdFromUrl = searchParams.get('planVersionId')
+
   const methods = useZodForm({
     schema: schema,
     defaultValues: {
-      customerId: state.customerId,
-      planVersionId: state.planVersionId,
+      customerId: state.customerId || customerIdFromUrl || undefined,
+      planVersionId: state.planVersionId || planVersionIdFromUrl || undefined,
     },
   })
+
   const [customerId, planVersionId] = methods.watch(['customerId', 'planVersionId'])
 
   const addOnsQuery = useQuery(listAddOns, {

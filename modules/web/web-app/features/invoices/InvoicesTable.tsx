@@ -33,17 +33,11 @@ export const InvoicesTable = ({
     () => [
       {
         header: 'Invoice Number',
-        cell: ({ row }) => (
-          <Link to={`${basePath}/invoices/${row.original.id}`}>{row.original.invoiceNumber}</Link>
-        ),
+        accessorKey: 'invoiceNumber',
       },
       {
         header: 'Customer',
-        cell: ({ row }) => (
-          <Link to={`${basePath}/customers/${row.original.customerId}`}>
-            {row.original.customerName}
-          </Link>
-        ),
+        accessorKey: 'customerName',
       },
       {
         header: 'Amount',
