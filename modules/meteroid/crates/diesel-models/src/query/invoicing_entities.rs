@@ -248,7 +248,7 @@ impl InvoicingEntityProvidersRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while fetching default invoicing entity by tenant")
+            .attach_printable("Error while resolving invoicing entity providers by tenant")
             .into_db_result()
     }
 

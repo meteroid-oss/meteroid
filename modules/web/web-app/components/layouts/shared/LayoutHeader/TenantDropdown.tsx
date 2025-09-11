@@ -9,6 +9,7 @@ import {
   Flex,
   useSidebar,
 } from '@md/ui'
+import { useQueryClient } from '@tanstack/react-query'
 import { CommandList } from 'cmdk'
 import { ChevronsUpDownIcon, PlusIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -33,6 +34,8 @@ export const TenantDropdown = () => {
   const { tenant } = useTenant()
   const org = useOrganizationSlug()
   const { state } = useSidebar()
+
+  const queryClient = useQueryClient()
 
   const tenants = useQuery(listTenants).data?.tenants ?? []
 
@@ -72,7 +75,11 @@ export const TenantDropdown = () => {
             {tenants
               .sort((a, b) => a.name.localeCompare(b.name))
               .map(tenant => (
-                <Link key={tenant.id} to={`/${org}/${tenant.slug}`}>
+                <Link
+                  key={tenant.id}
+                  to={`/${org}/${tenant.slug}`}
+                  onClick={() => queryClient.invalidateQueries()}
+                >
                   <CommandItem key={tenant.id} className="flex flex-row space-x-2 items-center ">
                     <span className={`rounded-full p-1 ${getColor(tenant?.environment)}`} />
                     <span>{tenant.name}</span>

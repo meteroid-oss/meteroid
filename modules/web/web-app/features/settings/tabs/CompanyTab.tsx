@@ -4,7 +4,6 @@ import {
   useMutation,
 } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   Card,
   cn,
@@ -19,15 +18,15 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { PlusIcon, RefreshCwIcon, UploadIcon, XIcon } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { RefreshCwIcon, UploadIcon, XIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Combobox } from '@/components/Combobox'
 import { Loading } from '@/components/Loading'
-import { CreateInvoicingEntityDialog } from '@/features/settings/CreateInvoiceEntityDialog'
+import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
+import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -53,10 +52,12 @@ const invoicingEntitySchema = z.object({
 })
 
 export const CompanyTab = () => {
-  const listInvoicingEntitiesQuery = useQuery(listInvoicingEntities)
   const queryClient = useQueryClient()
-
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const {
+    selectedEntityId: invoiceEntityId,
+    isLoading,
+    currentEntity: currentInvoicingEntity,
+  } = useInvoicingEntity()
 
   const updateInvoicingEntityMut = useMutation(updateInvoicingEntity, {
     onSuccess: async res => {
@@ -83,20 +84,6 @@ export const CompanyTab = () => {
     },
   })
 
-  const entities = listInvoicingEntitiesQuery.data?.entities
-
-  const defaultInvoicingEntity = useMemo(() => {
-    return entities?.find(entity => entity.isDefault)
-  }, [entities])
-
-  const [invoiceEntityId, setInvoiceEntityId] = useState<string | undefined>(
-    defaultInvoicingEntity?.id
-  )
-
-  const currentInvoicingEntity = useQuery(getInvoicingEntity, {
-    id: invoiceEntityId,
-  })?.data?.entity
-
   const methods = useZodForm({
     schema: invoicingEntitySchema,
   })
@@ -114,13 +101,7 @@ export const CompanyTab = () => {
     }
   }, [currentInvoicingEntity])
 
-  useEffect(() => {
-    if (defaultInvoicingEntity && !invoiceEntityId) {
-      setInvoiceEntityId(defaultInvoicingEntity.id)
-    }
-  }, [defaultInvoicingEntity])
-
-  if (listInvoicingEntitiesQuery.isLoading) {
+  if (isLoading) {
     return <Loading />
   }
 
@@ -152,40 +133,7 @@ export const CompanyTab = () => {
               </div>
               <div className="col-span-4 content-center  flex flex-row">
                 <div className="flex-grow"></div>
-                <Combobox
-                  placeholder="Select"
-                  className="max-w-[300px]"
-                  value={invoiceEntityId}
-                  onChange={setInvoiceEntityId}
-                  options={
-                    listInvoicingEntitiesQuery.data?.entities.map(entity => ({
-                      label: (
-                        <div className="flex flex-row w-full">
-                          <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
-                          <div>{entity.legalName}</div>
-                          <div className="flex-grow" />
-                          {entity.isDefault && (
-                            <Badge variant="primary" size="sm">
-                              Default
-                            </Badge>
-                          )}
-                        </div>
-                      ),
-                      value: entity.id,
-                    })) ?? []
-                  }
-                  action={
-                    <Button
-                      size="content"
-                      variant="ghost"
-                      hasIcon
-                      className="w-full border-none h-full"
-                      onClick={() => setCreateDialogOpen(true)}
-                    >
-                      <PlusIcon size="12" /> New invoicing entity
-                    </Button>
-                  }
-                />
+                <InvoicingEntitySelect />
               </div>
             </div>
             <div className="grid grid-cols-6 gap-4 pt-1 ">
@@ -291,11 +239,6 @@ export const CompanyTab = () => {
           </Card>
         </form>
       </Form>
-      <CreateInvoicingEntityDialog
-        open={createDialogOpen}
-        setOpen={setCreateDialogOpen}
-        setInvoicingEntity={setInvoiceEntityId}
-      />
     </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { Elements, useElements, useStripe } from '@stripe/react-stripe-js'
-import { loadStripe } from '@stripe/stripe-js'
+import { loadStripe } from '@stripe/stripe-js/pure' // prevents calls to stripe until used
 import { AlertCircle, Building, CreditCard } from 'lucide-react'
 import { useEffect, useState } from 'react'
 

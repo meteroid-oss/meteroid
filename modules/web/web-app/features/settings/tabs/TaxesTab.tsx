@@ -4,7 +4,6 @@ import {
   useMutation,
 } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   Card,
   Dialog,
@@ -31,10 +30,9 @@ import { toast } from 'sonner'
 import { match } from 'ts-pattern'
 import { z } from 'zod'
 
-import { Combobox } from '@/components/Combobox'
 import { Loading } from '@/components/Loading'
-import { CreateInvoicingEntityDialog } from '@/features/settings/CreateInvoiceEntityDialog'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
+import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import {
@@ -69,10 +67,9 @@ const customTaxSchema = z.object({
 })
 
 export const TaxesTab = () => {
-  const listInvoicingEntitiesQuery = useQuery(listInvoicingEntities)
   const queryClient = useQueryClient()
+  const { selectedEntityId: invoiceEntityId, entities, isLoading } = useInvoicingEntity()
 
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [customTaxDialogOpen, setCustomTaxDialogOpen] = useState(false)
   const [editingCustomTax, setEditingCustomTax] = useState<CustomTax | null>(null)
 
@@ -97,14 +94,6 @@ export const TaxesTab = () => {
       }
     },
   })
-
-  const defaultInvoicingEntity = listInvoicingEntitiesQuery.data?.entities?.find(
-    entity => entity.isDefault
-  )
-
-  const [invoiceEntityId, setInvoiceEntityId] = useState<string | undefined>(
-    defaultInvoicingEntity?.id
-  )
 
   const listCustomTaxesQuery = useQuery(
     listCustomTaxes,
@@ -177,9 +166,7 @@ export const TaxesTab = () => {
   })
 
   useEffect(() => {
-    const entity = listInvoicingEntitiesQuery.data?.entities?.find(
-      entity => entity.id === invoiceEntityId
-    )
+    const entity = entities.find(entity => entity.id === invoiceEntityId)
 
     if (entity) {
       methods.setValue(
@@ -193,15 +180,9 @@ export const TaxesTab = () => {
     } else {
       methods.reset()
     }
-  }, [invoiceEntityId])
+  }, [invoiceEntityId, entities])
 
-  useEffect(() => {
-    if (defaultInvoicingEntity && !invoiceEntityId) {
-      setInvoiceEntityId(defaultInvoicingEntity.id)
-    }
-  }, [defaultInvoicingEntity])
-
-  if (listInvoicingEntitiesQuery.isLoading) {
+  if (isLoading) {
     return <Loading />
   }
 
@@ -301,40 +282,7 @@ export const TaxesTab = () => {
               </div>
               <div className="col-span-4 content-center flex flex-row">
                 <div className="flex-grow"></div>
-                <Combobox
-                  placeholder="Select"
-                  className="max-w-[300px]"
-                  value={invoiceEntityId}
-                  onChange={setInvoiceEntityId}
-                  options={
-                    listInvoicingEntitiesQuery.data?.entities.map(entity => ({
-                      label: (
-                        <div className="flex flex-row w-full">
-                          <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
-                          <div>{entity.legalName}</div>
-                          <div className="flex-grow" />
-                          {entity.isDefault && (
-                            <Badge variant="primary" size="sm">
-                              Default
-                            </Badge>
-                          )}
-                        </div>
-                      ),
-                      value: entity.id,
-                    })) ?? []
-                  }
-                  action={
-                    <Button
-                      size="content"
-                      variant="ghost"
-                      hasIcon
-                      className="w-full border-none h-full"
-                      onClick={() => setCreateDialogOpen(true)}
-                    >
-                      <PlusIcon size="12" /> New invoicing entity
-                    </Button>
-                  }
-                />
+                <InvoicingEntitySelect />
               </div>
             </div>
 
@@ -454,11 +402,6 @@ export const TaxesTab = () => {
           )}
         </Card>
       )}
-      <CreateInvoicingEntityDialog
-        open={createDialogOpen}
-        setOpen={setCreateDialogOpen}
-        setInvoicingEntity={setInvoiceEntityId}
-      />
 
       {/* Custom Tax Dialog */}
       <Dialog open={customTaxDialogOpen} onOpenChange={setCustomTaxDialogOpen}>
