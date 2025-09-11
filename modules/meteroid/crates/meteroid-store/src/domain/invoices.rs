@@ -19,7 +19,6 @@ use error_stack::Report;
 use meteroid_tax::TaxDetails;
 use o2o::o2o;
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, o2o, PartialEq, Eq)]

@@ -230,6 +230,7 @@ async fn test_compute_invoice_with_eu_vat(
             name: "VAT".to_string(),
             tax_rate: dec!(0.2),
             taxable_amount: 3500,
+            tax_amount: 700,
             exemption_type: None
         }],
         "Tax breakdown should contain VAT at 20%"
