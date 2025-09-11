@@ -647,7 +647,7 @@ export const StepReviewAndCreate = () => {
                       )}
 
                       <div className="flex justify-between text-base font-semibold border-t pt-2">
-                        <span>First Invoice</span>
+                        <span>First Invoice (excl. tax)</span>
                         <span>
                           {finalTotal > 0
                             ? hasMetered

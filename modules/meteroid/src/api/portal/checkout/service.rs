@@ -25,7 +25,6 @@ use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::repositories::subscriptions::SubscriptionInterfaceAuto;
 use meteroid_store::repositories::{OrganizationsInterface, SubscriptionInterface};
 use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
 use secrecy::ExposeSecret;
 use std::time::Duration;
 use tonic::{Request, Response, Status};
@@ -115,8 +114,7 @@ impl PortalCheckoutService for PortalCheckoutServiceComponents {
             .map(|item| TaxBreakdownItem {
                 name: item.name,
                 rate: item.tax_rate.to_string(),
-                amount: (item.taxable_amount as f64 * item.tax_rate.to_f64().unwrap_or(0.0) / 100.0)
-                    as u64,
+                amount: item.tax_amount,
             })
             .collect();
 

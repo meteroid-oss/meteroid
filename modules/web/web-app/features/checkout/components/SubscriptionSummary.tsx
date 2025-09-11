@@ -61,7 +61,7 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
           Billed monthly
           {/* {subscription?.subscription?.billingDayAnchor &&
             `, on the ${subscription.subscription.billingDayAnchor}${getOrdinalSuffix(subscription.subscription.billingDayAnchor)} of each month`}
-         
+
          + TODO renews at X/month
          */}
         </div>
@@ -133,7 +133,7 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
               {taxBreakdown.map((tax, index) => (
                 <div key={index} className="flex justify-between text-sm mb-1">
                   <div className="text-muted-foreground">
-                    {tax.name} ({parseFloat(tax.rate).toFixed(2)}%)
+                    {tax.name} ({parseFloat(tax.rate) * 100}%)
                   </div>
                   <div className="text-muted-foreground">
                     {formatCurrency(tax.amount, currency)}
@@ -141,10 +141,7 @@ const SubscriptionSummary: React.FC<{ checkoutData: Checkout }> = ({ checkoutDat
                 </div>
               ))}
             </div>
-            <div className="flex justify-between mt-2 font-medium">
-              <div>Total Tax</div>
-              <div>{formatCurrency(taxAmount, currency)}</div>
-            </div>
+
           </>
         )}
 

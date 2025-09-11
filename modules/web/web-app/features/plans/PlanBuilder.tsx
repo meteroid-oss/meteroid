@@ -67,7 +67,7 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
                     <Link to={`../${overview.localId}/draft`} className="hover:underline">
                       draft version
                     </Link>{' '}
-                    has unsaved changes
+                    has unpublished changes
                   </span>
                   <div className="text-xs">
                     <Button size="sm" variant="link" className="h-fit" hasIcon asChild>

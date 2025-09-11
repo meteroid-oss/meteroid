@@ -101,17 +101,24 @@ pub enum TaxExemptionType {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaxBreakdownItem {
     pub taxable_amount: u64,
+    #[serde(default)]
+    pub tax_amount: u64,
     pub tax_rate: Decimal,
     pub name: String,
     pub exemption_type: Option<TaxExemptionType>,
 }
+
 impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
     fn from(item: meteroid_tax::TaxBreakdownItem) -> Self {
         match item.details {
             TaxDetails::Tax {
-                tax_rate, tax_name, ..
+                tax_rate,
+                tax_name,
+                tax_amount,
+                ..
             } => TaxBreakdownItem {
                 taxable_amount: item.taxable_amount,
+                tax_amount,
                 tax_rate,
                 name: tax_name,
                 exemption_type: None,
@@ -126,6 +133,7 @@ impl From<meteroid_tax::TaxBreakdownItem> for TaxBreakdownItem {
                 };
                 TaxBreakdownItem {
                     taxable_amount: item.taxable_amount,
+                    tax_amount: 0,
                     tax_rate: Decimal::ZERO,
                     name: "Exempt".to_string(),
                     exemption_type: Some(exemption_type),

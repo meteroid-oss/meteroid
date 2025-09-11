@@ -392,7 +392,7 @@ mod mapper {
                 invoicing_model::TaxBreakdownItem {
                     name: t.name.clone(),
                     rate: t.tax_rate,
-                    amount: rusty_money::Money::from_minor(t.taxable_amount as i64, currency),
+                    amount: rusty_money::Money::from_minor(t.tax_amount as i64, currency),
                     exemption_type,
                 }
             })

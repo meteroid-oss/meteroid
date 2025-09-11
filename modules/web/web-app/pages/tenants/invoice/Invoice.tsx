@@ -444,14 +444,14 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
       {invoice.taxBreakdown && invoice.taxBreakdown.length > 0
         ? invoice.taxBreakdown.map(tax => {
-            const taxRate = parseFloat(tax.taxRate) || 0
+            const taxRate = parseFloat(tax.taxRate) * 100 || 0
             const taxAmountValue = Number(tax.amount) || 0
             // Only show tax breakdown if rate is greater than 0
             if (taxRate > 0) {
               return (
                 <FlexDetails
                   key={tax.name}
-                  title={`${tax.name} (${tax.taxRate}%)`}
+                  title={`${tax.name} (${taxRate}%)`}
                   value={formatCurrency(taxAmountValue, invoice.currency)}
                 />
               )

@@ -418,8 +418,8 @@
         },
 
 
-        ..if tax_breakdown.len() > 1 {
-          // Multiple tax rates - show breakdown
+        ..if tax_breakdown.len() > 0 and tax_amount > 0 {
+          // Show tax breakdown for any non-zero tax
           for tax_item in tax_breakdown {
             (
               text(fill: color.accent, tax_item.name + " " + str(tax_item.rate) + "%"),
