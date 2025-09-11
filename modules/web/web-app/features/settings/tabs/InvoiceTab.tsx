@@ -3,19 +3,16 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Badge, Button, Card, Form, InputFormField, TextareaFormField } from '@md/ui'
+import { Button, Card, Form, InputFormField, TextareaFormField } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { PlusIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Combobox } from '@/components/Combobox'
 import { Loading } from '@/components/Loading'
-import { CreateInvoicingEntityDialog } from '@/features/settings/CreateInvoiceEntityDialog'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
+import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
 import {
   listInvoicingEntities,
   updateInvoicingEntity,
@@ -32,10 +29,8 @@ const invoiceDetailsSchema = z.object({
 })
 
 export const InvoiceTab = () => {
-  const listInvoicingEntitiesQuery = useQuery(listInvoicingEntities)
   const queryClient = useQueryClient()
-
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const { selectedEntityId: invoiceEntityId, isLoading, currentEntity } = useInvoicingEntity()
 
   const updateInvoicingEntityMut = useMutation(updateInvoicingEntity, {
     onSuccess: async res => {
@@ -59,44 +54,25 @@ export const InvoiceTab = () => {
     },
   })
 
-  const defaultInvoicingEntity = listInvoicingEntitiesQuery.data?.entities?.find(
-    entity => entity.isDefault
-  )
-
-  const [invoiceEntityId, setInvoiceEntityId] = useState<string | undefined>(
-    defaultInvoicingEntity?.id
-  )
-
   const methods = useZodForm({
     schema: invoiceDetailsSchema,
   })
 
   useEffect(() => {
-    const entity = listInvoicingEntitiesQuery.data?.entities?.find(
-      entity => entity.id === invoiceEntityId
-    )
-
-    if (entity) {
-      console.log('entity', entity)
-      methods.setValue('invoiceNumberPattern', entity.invoiceNumberPattern)
-      methods.setValue('gracePeriodHours', entity.gracePeriodHours)
-      methods.setValue('netTerms', entity.netTerms)
-      methods.setValue('invoiceFooterInfo', entity.invoiceFooterInfo)
-      methods.setValue('invoiceFooterLegal', entity.invoiceFooterLegal)
-      methods.setValue('logoAttachmentId', entity.logoAttachmentId)
-      methods.setValue('brandColor', entity.brandColor)
+    if (currentEntity) {
+      methods.setValue('invoiceNumberPattern', currentEntity.invoiceNumberPattern)
+      methods.setValue('gracePeriodHours', currentEntity.gracePeriodHours)
+      methods.setValue('netTerms', currentEntity.netTerms)
+      methods.setValue('invoiceFooterInfo', currentEntity.invoiceFooterInfo)
+      methods.setValue('invoiceFooterLegal', currentEntity.invoiceFooterLegal)
+      methods.setValue('logoAttachmentId', currentEntity.logoAttachmentId)
+      methods.setValue('brandColor', currentEntity.brandColor)
     } else {
       methods.reset()
     }
-  }, [invoiceEntityId])
+  }, [currentEntity])
 
-  useEffect(() => {
-    if (defaultInvoicingEntity && !invoiceEntityId) {
-      setInvoiceEntityId(defaultInvoicingEntity.id)
-    }
-  }, [defaultInvoicingEntity])
-
-  if (listInvoicingEntitiesQuery.isLoading) {
+  if (isLoading) {
     return <Loading />
   }
 
@@ -127,40 +103,7 @@ export const InvoiceTab = () => {
               </div>
               <div className="col-span-4 content-center  flex flex-row">
                 <div className="flex-grow"></div>
-                <Combobox
-                  placeholder="Select"
-                  className="max-w-[300px]"
-                  value={invoiceEntityId}
-                  onChange={setInvoiceEntityId}
-                  options={
-                    listInvoicingEntitiesQuery.data?.entities.map(entity => ({
-                      label: (
-                        <div className="flex flex-row w-full">
-                          <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
-                          <div>{entity.legalName}</div>
-                          <div className="flex-grow" />
-                          {entity.isDefault && (
-                            <Badge variant="primary" size="sm">
-                              Default
-                            </Badge>
-                          )}
-                        </div>
-                      ),
-                      value: entity.id,
-                    })) ?? []
-                  }
-                  action={
-                    <Button
-                      size="content"
-                      variant="ghost"
-                      hasIcon
-                      className="w-full border-none h-full"
-                      onClick={() => setCreateDialogOpen(true)}
-                    >
-                      <PlusIcon size="12" /> New invoicing entity
-                    </Button>
-                  }
-                />
+                <InvoicingEntitySelect />
               </div>
             </div>
             <div className="grid grid-cols-6 gap-4 pt-1 ">
@@ -224,11 +167,6 @@ export const InvoiceTab = () => {
           </Card>
         </form>
       </Form>
-      <CreateInvoicingEntityDialog
-        open={createDialogOpen}
-        setOpen={setCreateDialogOpen}
-        setInvoicingEntity={setInvoiceEntityId}
-      />
     </div>
   )
 }

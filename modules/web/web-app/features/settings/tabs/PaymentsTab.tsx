@@ -4,7 +4,6 @@ import {
   useMutation,
 } from '@connectrpc/connect-query'
 import {
-  Badge,
   Button,
   Card,
   Form,
@@ -16,16 +15,16 @@ import {
   SelectValue,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { siStripe } from 'simple-icons'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { Combobox } from '@/components/Combobox'
 import { Loading } from '@/components/Loading'
+import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { BankAccountsCard } from '@/features/settings/components/bankaccounts'
+import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { BrandIcon } from '@/features/settings/tabs/IntegrationsTab'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { listBankAccounts } from '@/rpc/api/bankaccounts/v1/bankaccounts-BankAccountsService_connectquery'
@@ -33,7 +32,6 @@ import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsSer
 import { ConnectorProviderEnum, ConnectorTypeEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
   getInvoicingEntityProviders,
-  listInvoicingEntities,
   updateInvoicingEntityProviders,
 } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 
@@ -45,22 +43,13 @@ const paymentMethodsSchema = z.object({
 
 export const PaymentMethodsTab = () => {
   const queryClient = useQueryClient()
-
-  const listInvoicingEntitiesQuery = useQuery(listInvoicingEntities)
+  const { selectedEntityId: invoiceEntityId } = useInvoicingEntity()
 
   const connectorsQuery = useQuery(listConnectors, {
     connectorType: ConnectorTypeEnum.PAYMENT_PROVIDER,
   })
 
   const bankAccountsQuery = useQuery(listBankAccounts)
-
-  const defaultInvoicingEntity = listInvoicingEntitiesQuery.data?.entities?.find(
-    entity => entity.isDefault
-  )
-
-  const [invoiceEntityId, setInvoiceEntityId] = useState<string | undefined>(
-    defaultInvoicingEntity?.id
-  )
 
   const providersQuery = useQuery(
     getInvoicingEntityProviders,
@@ -96,21 +85,14 @@ export const PaymentMethodsTab = () => {
   })
 
   useEffect(() => {
-    if (defaultInvoicingEntity && !invoiceEntityId) {
-      setInvoiceEntityId(defaultInvoicingEntity.id)
-    }
-  }, [defaultInvoicingEntity])
-
-  useEffect(() => {
-    if (providersQuery.data) {
+    if (providersQuery.data && !methods.formState.isDirty) {
       methods.setValue('cardProviderId', providersQuery.data.cardProvider?.id)
       methods.setValue('directDebitProviderId', providersQuery.data.directDebitProvider?.id)
       methods.setValue('bankAccountId', providersQuery.data.bankAccount?.id)
     }
-  }, [providersQuery.data])
+  }, [providersQuery.data, methods.formState.isDirty, invoiceEntityId])
 
   if (
-    listInvoicingEntitiesQuery.isLoading ||
     connectorsQuery.isLoading ||
     (invoiceEntityId && providersQuery.isLoading) ||
     bankAccountsQuery.isLoading
@@ -134,12 +116,13 @@ export const PaymentMethodsTab = () => {
       connector => connector.connectorType === ConnectorTypeEnum.PAYMENT_PROVIDER
     ) || []
 
-  const bankAccounts = bankAccountsQuery.data?.accounts.map(account => ({
-    id: account.id,
-    name: account.data?.bankName || 'Unknown Bank',
-    currency: account.data?.currency || '',
-    displayName: `${account.data?.bankName || 'Unknown Bank'} (${account.data?.currency})`
-  })) || []
+  const bankAccounts =
+    bankAccountsQuery.data?.accounts.map(account => ({
+      id: account.id,
+      name: account.data?.bankName || 'Unknown Bank',
+      currency: account.data?.currency || '',
+      displayName: `${account.data?.bankName || 'Unknown Bank'} (${account.data?.currency})`,
+    })) || []
 
   return (
     <div className="flex flex-col gap-4">
@@ -155,29 +138,7 @@ export const PaymentMethodsTab = () => {
               </div>
               <div className="col-span-4 content-center flex flex-row">
                 <div className="flex-grow"></div>
-                <Combobox
-                  placeholder="Select"
-                  className="max-w-[300px]"
-                  value={invoiceEntityId}
-                  onChange={setInvoiceEntityId}
-                  options={
-                    listInvoicingEntitiesQuery.data?.entities.map(entity => ({
-                      label: (
-                        <div className="flex flex-row w-full">
-                          <div className="pr-2">{getCountryFlagEmoji(entity.country)}</div>
-                          <div>{entity.legalName}</div>
-                          <div className="flex-grow" />
-                          {entity.isDefault && (
-                            <Badge variant="primary" size="sm">
-                              Default
-                            </Badge>
-                          )}
-                        </div>
-                      ),
-                      value: entity.id,
-                    })) ?? []
-                  }
-                />
+                <InvoicingEntitySelect />
               </div>
             </div>
 
@@ -322,7 +283,7 @@ export const PaymentMethodsTab = () => {
           </Card>
         </form>
       </Form>
-      
+
       <BankAccountsCard />
     </div>
   )
