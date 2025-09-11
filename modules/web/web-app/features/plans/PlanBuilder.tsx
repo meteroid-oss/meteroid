@@ -3,10 +3,9 @@ import { InfoIcon } from '@md/icons'
 import { Alert, Button, Tabs, TabsContent, TabsList, TabsTrigger } from '@md/ui'
 import { PaginationState } from '@tanstack/react-table'
 import { ScopeProvider } from 'jotai-scope'
-import { ChevronLeftIcon, ExternalLinkIcon } from 'lucide-react'
+import { ChevronLeftIcon, ExternalLinkIcon, Plus } from 'lucide-react'
 import { ReactNode, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
 
 import { Loading } from '@/components/Loading'
 import { PageSection } from '@/components/layouts/shared/PageSection'
@@ -23,6 +22,7 @@ import { PriceComponentSection } from '@/features/plans/pricecomponents/PriceCom
 import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { PlanTrial } from '@/features/plans/trial/PlanTrial'
 import { SubscriptionsTable } from '@/features/subscriptions'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { PlanType } from '@/rpc/api/plans/v1/models_pb'
 import { listSubscriptions } from '@/rpc/api/subscriptions/v1/subscriptions-SubscriptionsService_connectquery'
@@ -109,6 +109,10 @@ export const PlanBuilder: React.FC<Props> = ({ children }) => {
 
 const SubscriptionsTab = () => {
   const overview = usePlanOverview()
+  const planData = usePlanWithVersion()
+
+  const navigate = useNavigate()
+  const basePath = useBasePath()
 
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
@@ -135,8 +139,14 @@ const SubscriptionsTab = () => {
   return (
     <div>
       <div className="flex py-2 justify-end">
-        <Button variant="secondary" onClick={() => toast('Unimplemented')}>
-          + New subscription
+        <Button
+          variant="secondary"
+          hasIcon
+          onClick={() =>
+            navigate(`${basePath}/subscriptions/create?planVersionId=${planData?.version?.id}`)
+          }
+        >
+          <Plus size={10} /> New subscription
         </Button>
       </div>
 

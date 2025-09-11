@@ -25,7 +25,7 @@ export const SubscriptionsHeader: FunctionComponent<SubscriptionsProps> = ({
         <PageHeading count={count}>Subscriptions</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
           <Link to="create">
-            <Button variant="primary">
+            <Button variant="primary" hasIcon>
               <PlusIcon size={10} fill={colors.white1} /> New subscription
             </Button>
           </Link>

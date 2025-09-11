@@ -235,7 +235,8 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" hasIcon>
+                <Button variant="secondary" size="sm" hasIcon>
+                  Actions
                   <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
