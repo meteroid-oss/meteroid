@@ -539,6 +539,7 @@ async fn test_metering_e2e() {
             auto_advance: true,
             payment_status: InvoicePaymentStatus::Unpaid,
             tax_breakdown: vec![],
+            manual: false,
         })
         .await
         .unwrap();
