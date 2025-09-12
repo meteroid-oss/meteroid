@@ -74,12 +74,14 @@ pub fn calculate_component_period_for_invoice_date(
 }
 
 fn calculate_proration_factor(period: &Period) -> Option<f64> {
-    let days_in_period = period.end.signed_duration_since(period.start).num_days() as u64; // +1 ?
+    // +1 because inclusive
+    let days_in_period = period.end.signed_duration_since(period.start).num_days() as u64 + 1;
     let days_in_month_from = period.start.days_in_month() as u64;
     let days_in_month_to = period.end.days_in_month() as u64;
 
-    // if from is end of month and from.day <= to.day. Ex: 2023-02-28 -> 2023-03-28+
-    if period.start.day() == days_in_month_from as u32 && period.end.day() >= period.start.day() {
+    // if from is end of month and from.day <= to.day. Ex: 2023-02-28 -> 2023-03-27+
+    if period.start.day() == days_in_month_from as u32 && period.end.day() >= period.start.day() - 1
+    {
         return None;
     }
 
@@ -87,8 +89,8 @@ fn calculate_proration_factor(period: &Period) -> Option<f64> {
         return None;
     }
 
-    // if to is end of month and from.day >= to.day. Ex: 2023-01-28+ -> 2023-02-28
-    if period.end.day() == days_in_month_to as u32 && period.start.day() >= period.end.day() {
+    // if to is end of month and from.day >= to.day. Ex: 2023-01-28+ -> 2023-02-27
+    if period.end.day() == days_in_month_to as u32 && period.start.day() > period.end.day() {
         return None;
     }
 
@@ -122,17 +124,19 @@ pub fn calculate_advance_period_range(
     let period_end = {
         let should_add_full_period = started_after_billing_day || !is_partial;
 
-        if should_add_full_period {
+        let next_period_start = if should_add_full_period {
             add_months_at_billing_day(period_start, months_per_period, billing_day)
                 .expect("Failed to calculate period end date")
         } else {
             // For the first period when billing started before the billing day,
-            // end on the billing day of the current month
+            // end on the day before the billing day of the current month
             let target_day = period_start.days_in_month().min(billing_day);
             period_start
                 .with_day(target_day)
                 .expect("Failed to set period end day")
-        }
+        };
+        //  subtract one day to make the end date inclusive
+        next_period_start.pred_opt().unwrap_or(next_period_start)
     };
 
     Period {
@@ -150,9 +154,10 @@ pub fn calculate_arrear_period_range(
     let months_per_period = billing_period.as_months();
 
     // For arrear billing, we're billing for a period that has already ended
-    let period_end = invoice_date;
+    // The period ends the day before the invoice date (inclusive)
+    let period_end = invoice_date.pred_opt().unwrap_or(invoice_date);
 
-    let period_start = subtract_months_at_billing_day(period_end, months_per_period, billing_day)
+    let period_start = subtract_months_at_billing_day(invoice_date, months_per_period, billing_day)
         .expect("Failed to calculate arrear period start")
         .max(billing_start_or_resume_date);
 
@@ -200,7 +205,7 @@ mod test {
             1,
             true,  // is_first_period
             "2021-01-01",
-            "2021-02-01"
+            "2021-01-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -208,7 +213,7 @@ mod test {
             1,
             false, // not first period
             "2021-02-01",
-            "2021-03-01"
+            "2021-02-28"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -216,7 +221,7 @@ mod test {
             1,
             false,
             "2021-03-01",
-            "2021-04-01"
+            "2021-03-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -224,7 +229,7 @@ mod test {
             1,
             true,  // first period
             "2021-01-10",
-            "2021-02-01"
+            "2021-01-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -232,7 +237,7 @@ mod test {
             1,
             false,
             "2021-02-01",
-            "2021-03-01"
+            "2021-02-28"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -240,7 +245,7 @@ mod test {
             1,
             false,
             "2021-03-01",
-            "2021-04-01"
+            "2021-03-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -248,7 +253,7 @@ mod test {
             10,
             true,  // first period
             "2021-01-01",
-            "2021-01-10"
+            "2021-01-09"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -256,7 +261,7 @@ mod test {
             10,
             false,
             "2021-01-10",
-            "2021-02-10"
+            "2021-02-09"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -264,7 +269,7 @@ mod test {
             10,
             false,
             "2021-02-10",
-            "2021-03-10"
+            "2021-03-09"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -272,7 +277,7 @@ mod test {
             1,
             true,
             "2021-01-10",
-            "2021-04-01"
+            "2021-03-31"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -280,7 +285,7 @@ mod test {
             1,
             false,
             "2021-04-01",
-            "2021-07-01"
+            "2021-06-30"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -288,7 +293,7 @@ mod test {
             1,
             false,
             "2021-07-01",
-            "2021-10-01"
+            "2021-09-30"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -296,7 +301,7 @@ mod test {
             10,
             true,
             "2021-01-01",
-            "2021-01-10"
+            "2021-01-09"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -304,7 +309,7 @@ mod test {
             10,
             false,
             "2021-01-10",
-            "2021-04-10"
+            "2021-04-09"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -312,7 +317,7 @@ mod test {
             10,
             false,
             "2021-04-10",
-            "2021-07-10"
+            "2021-07-09"
         )]
         #[case(
             BillingPeriodEnum::Annual,
@@ -320,7 +325,7 @@ mod test {
             1,
             true,
             "2021-01-10",
-            "2022-01-01"
+            "2021-12-31"
         )]
         #[case(
             BillingPeriodEnum::Annual,
@@ -328,7 +333,7 @@ mod test {
             1,
             false,
             "2022-01-01",
-            "2023-01-01"
+            "2022-12-31"
         )]
         #[case(
             BillingPeriodEnum::Annual,
@@ -336,7 +341,7 @@ mod test {
             1,
             false,
             "2023-01-01",
-            "2024-01-01"
+            "2023-12-31"
         )]
         fn test_calculate_advance_period_range(
             #[case] billing_period: BillingPeriodEnum,
@@ -364,7 +369,7 @@ mod test {
             "2021-01-01", // billing_start_date
             1,
             "2021-01-01", // max(calculated_start, billing_start) = max(2021-01-01, 2021-01-01)
-            "2021-02-01"
+            "2021-01-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -372,7 +377,7 @@ mod test {
             "2021-01-01", // billing_start_date
             1,
             "2021-02-01", // calculated back 1 month from 2021-03-01
-            "2021-03-01"
+            "2021-02-28"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -380,7 +385,7 @@ mod test {
             "2021-01-01", // billing_start_date
             1,
             "2021-03-01", // calculated back 1 month from 2021-04-01
-            "2021-04-01"
+            "2021-03-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -388,7 +393,7 @@ mod test {
             "2021-01-10", // billing_start_date (service started mid-month)
             1,
             "2021-01-10", // max(2021-01-01, 2021-01-10) = 2021-01-10
-            "2021-02-01"
+            "2021-01-31"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -396,7 +401,7 @@ mod test {
             "2021-01-01", // billing_start_date
             10,
             "2021-01-01", // max(2020-12-10, 2021-01-01) = 2021-01-01
-            "2021-01-10"
+            "2021-01-09"
         )]
         #[case(
             BillingPeriodEnum::Monthly,
@@ -404,7 +409,7 @@ mod test {
             "2021-01-01", // billing_start_date
             10,
             "2021-01-10", // calculated back 1 month from 2021-02-10
-            "2021-02-10"
+            "2021-02-09"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -412,7 +417,7 @@ mod test {
             "2021-01-10", // billing_start_date
             1,
             "2021-01-10", // max(2021-01-01, 2021-01-10) = 2021-01-10
-            "2021-04-01"
+            "2021-03-31"
         )]
         #[case(
             BillingPeriodEnum::Quarterly,
@@ -420,7 +425,7 @@ mod test {
             "2021-01-10", // billing_start_date
             1,
             "2021-04-01", // calculated back 3 months from 2021-07-01
-            "2021-07-01"
+            "2021-06-30"
         )]
         #[case(
             BillingPeriodEnum::Annual,
@@ -428,7 +433,7 @@ mod test {
             "2021-01-10", // billing_start_date
             1,
             "2021-01-10", // max(2021-01-01, 2021-01-10) = 2021-01-10
-            "2022-01-01"
+            "2021-12-31"
         )]
         #[case(
             BillingPeriodEnum::Annual,
@@ -436,7 +441,7 @@ mod test {
             "2021-01-10", // billing_start_date
             1,
             "2022-01-01", // calculated back 12 months from 2023-01-01
-            "2023-01-01"
+            "2022-12-31"
         )]
         fn test_calculate_arrear_period_range(
             #[case] billing_period: BillingPeriodEnum,
