@@ -13,6 +13,7 @@ use meteroid_grpc::meteroid::api::invoices::v1::{
 use meteroid_store::domain::OrderByRequest;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
 use meteroid_store::repositories::InvoiceInterface;
+use meteroid_store::repositories::payment_transactions::PaymentTransactionInterface;
 use meteroid_store::repositories::pgmq::PgmqInterface;
 use tonic::{Request, Response, Status};
 
@@ -79,9 +80,20 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let req = request.into_inner();
 
-        let invoice = self
+        let invoice_id = InvoiceId::from_proto(&req.id)?;
+
+        let transactions = self
             .store
-            .get_detailed_invoice_by_id(tenant_id, InvoiceId::from_proto(&req.id)?)
+            .list_payment_tx_by_invoice_id(tenant_id, invoice_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?
+            .into_iter()
+            .map(mapping::transactions::domain_with_method_to_server)
+            .collect::<Vec<_>>();
+
+        let mut invoice = self
+            .store
+            .get_detailed_invoice_by_id(tenant_id, invoice_id)
             .await
             .and_then(|inv| {
                 mapping::invoices::domain_invoice_with_plan_details_to_server(
@@ -90,6 +102,8 @@ impl InvoicesService for InvoiceServiceComponents {
                 )
             })
             .map_err(Into::<InvoiceApiError>::into)?;
+
+        invoice.transactions = transactions;
 
         let response = GetInvoiceResponse {
             invoice: Some(invoice),

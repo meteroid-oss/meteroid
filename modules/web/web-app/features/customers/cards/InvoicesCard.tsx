@@ -5,6 +5,7 @@ import { Flex } from '@ui/components/legacy'
 import { useState } from 'react'
 
 import { InvoicesTable } from '@/features/invoices'
+import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { Customer } from '@/rpc/api/customers/v1/models_pb'
 import { listInvoices } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
@@ -19,6 +20,8 @@ export const InvoicesCard = ({ customer }: Props) => {
     pageIndex: 0,
     pageSize: 5,
   })
+
+  const basePath = useBasePath()
 
   const invoicesQuery = useQuery(listInvoices, {
     pagination: {
@@ -41,7 +44,7 @@ export const InvoicesCard = ({ customer }: Props) => {
       pagination={pagination}
       setPagination={setPagination}
       isLoading={invoicesQuery.isLoading}
-      linkPrefix="../../billing/invoices/"
+      linkPrefix={`${basePath}/invoices/`}
     />
   )
 }

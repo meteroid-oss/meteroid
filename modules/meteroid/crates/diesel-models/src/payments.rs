@@ -1,3 +1,4 @@
+use crate::customer_payment_methods::CustomerPaymentMethodRow;
 use crate::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
 use common_domain::ids::{
@@ -52,4 +53,13 @@ pub struct PaymentTransactionRowPatch {
     pub error_type: Option<Option<String>>,
     pub processed_at: Option<Option<NaiveDateTime>>,
     pub refunded_at: Option<Option<NaiveDateTime>>,
+}
+
+#[derive(Debug, Queryable, Selectable)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct PaymentTransactionWithMethodRow {
+    #[diesel(embed)]
+    pub transaction: PaymentTransactionRow,
+    #[diesel(embed)]
+    pub method: Option<CustomerPaymentMethodRow>,
 }

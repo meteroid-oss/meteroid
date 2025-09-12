@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { StandardTable } from '@/components/table/StandardTable'
+import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { StatusPill } from '@/features/invoices/StatusPill'
 import { amountFormat } from '@/features/invoices/amountFormat'
 import { useBasePath } from '@/hooks/useBasePath'
@@ -54,6 +55,10 @@ export const InvoicesTable = ({
       {
         header: 'Status',
         cell: ({ row }) => <StatusPill status={row.original.status} />,
+      },
+      {
+        header: 'Payment Status',
+        cell: ({ row }) => <PaymentStatusBadge status={row.original.paymentStatus} />,
       },
       {
         accessorKey: 'id',

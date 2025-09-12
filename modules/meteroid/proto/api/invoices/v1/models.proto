@@ -13,6 +13,13 @@ enum InvoiceStatus {
   VOID = 3;
 }
 
+enum InvoicePaymentStatus {
+  UNPAID = 0;
+  PARTIALLY_PAID = 1;
+  PAID = 2;
+  ERRORED = 3;
+}
+
 message Invoice {
   string id = 1;
   string invoice_number = 2;
@@ -24,6 +31,7 @@ message Invoice {
   string currency = 8;
   optional string due_at = 9;
   int64 total = 10;
+  InvoicePaymentStatus payment_status = 11;
 }
 
 //message Account {
@@ -78,6 +86,9 @@ message DetailedInvoice {
   optional string pdf_document_id = 38;
   optional string xml_document_id = 39;
   optional api.connectors.v1.ConnectionMetadata connection_metadata = 40;
+  InvoicePaymentStatus payment_status = 41;
+  repeated Transaction transactions = 42;
+  optional string paid_at = 43;
 }
 
 message TaxBreakdownItem {
@@ -169,6 +180,8 @@ message Transaction {
   optional string error = 7;
   PaymentStatusEnum status = 8;
   PaymentTypeEnum payment_type = 9;
+  optional string processed_at = 10;
+  optional PaymentMethodInfo payment_method_info = 11;
 
   enum PaymentStatusEnum {
     READY = 0;
@@ -181,5 +194,19 @@ message Transaction {
   enum PaymentTypeEnum {
     PAYMENT = 0;
     REFUND = 1;
+  }
+}
+
+message PaymentMethodInfo {
+  PaymentMethodTypeEnum payment_method_type = 1;
+  optional string card_brand = 2;
+  optional string card_last4 = 3;
+  optional string account_number_hint = 4;
+  
+  enum PaymentMethodTypeEnum {
+    CARD = 0;
+    BANK_TRANSFER = 1;
+    WALLET = 2;
+    OTHER = 3;
   }
 }

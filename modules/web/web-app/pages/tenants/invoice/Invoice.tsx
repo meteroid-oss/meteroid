@@ -17,6 +17,8 @@ import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
+import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
+import { TransactionList } from '@/features/invoices/TransactionList'
 import {
   IntegrationType,
   SyncInvoiceModal,
@@ -336,6 +338,26 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             <div className="mt-4 pt-4 border-t">
               <InvoiceSummaryLines invoice={invoice} />
             </div>
+          </Flex>
+
+          <Separator className="-my-3" />
+
+          <Flex direction="column" className="gap-2 p-6">
+            <div className="text-[15px] font-medium">Payment Information</div>
+            <FlexDetails 
+              title="Payment Status" 
+              value={<PaymentStatusBadge status={invoice.paymentStatus} />} 
+            />
+            <FlexDetails title="Amount Due" value={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)} />
+            {invoice.transactions && invoice.transactions.length > 0 && (
+              <div className="mt-4">
+                <TransactionList 
+                  transactions={invoice.transactions} 
+                  currency={invoice.currency}
+                  isLoading={false}
+                />
+              </div>
+            )}
           </Flex>
 
           {invoice.memo && (

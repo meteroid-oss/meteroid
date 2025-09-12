@@ -1,13 +1,16 @@
 use crate::errors::IntoDbResult;
 use crate::payments::{
     PaymentTransactionRow, PaymentTransactionRowNew, PaymentTransactionRowPatch,
+    PaymentTransactionWithMethodRow,
 };
 use crate::{DbResult, PgConn};
 
 use crate::enums::PaymentStatusEnum;
 use common_domain::ids::{InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId};
-use diesel::debug_query;
-use diesel::prelude::{ExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper};
+use diesel::prelude::{
+    ExpressionMethods, NullableExpressionMethods, OptionalExtension, QueryDsl, SelectableHelper,
+};
+use diesel::{JoinOnDsl, debug_query};
 use error_stack::ResultExt;
 
 impl PaymentTransactionRowNew {
@@ -75,13 +78,18 @@ impl PaymentTransactionRow {
         conn: &mut PgConn,
         inv_uid: InvoiceId,
         tenant_uid: TenantId,
-    ) -> DbResult<Vec<PaymentTransactionRow>> {
-        use crate::schema::payment_transaction::dsl::*;
+    ) -> DbResult<Vec<PaymentTransactionWithMethodRow>> {
+        use crate::schema::customer_payment_method::dsl as cpm_dsl;
+        use crate::schema::payment_transaction::dsl as pt_dsl;
         use diesel_async::RunQueryDsl;
 
-        let query = payment_transaction
-            .filter(invoice_id.eq(inv_uid))
-            .filter(tenant_id.eq(tenant_uid));
+        let query = pt_dsl::payment_transaction
+            .filter(pt_dsl::invoice_id.eq(inv_uid))
+            .filter(pt_dsl::tenant_id.eq(tenant_uid))
+            .left_join(
+                cpm_dsl::customer_payment_method
+                    .on(pt_dsl::payment_method_id.eq(cpm_dsl::id.nullable())),
+            );
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
 
