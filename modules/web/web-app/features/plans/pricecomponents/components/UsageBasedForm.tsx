@@ -22,7 +22,7 @@ import { useNavigate } from 'react-router-dom'
 import { match } from 'ts-pattern'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
-import PriceInput, { UncontrolledPriceInput } from '@/components/form/PriceInput'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPriceComponentCard'
@@ -287,12 +287,17 @@ const MatrixForm = ({ methods }: { methods: Methods<typeof UsageFeeSchema> }) =>
         header: 'Unit price',
         accessor: 'price',
         cell: ({ row }) => (
-          <PriceInput
-            {...methods.withControl(`model.data.dimensionRates.${row.index}.price`)}
-            {...methods.withError(`model.data.dimensionRates.${row.index}.price`)}
-            currency={currency}
-            showCurrency={true}
-            precision={8}
+          <GenericFormField
+            control={methods.control}
+            name={`model.data.dimensionRates.${row.index}.price`}
+            render={({ field }) => (
+              <UncontrolledPriceInput
+                {...field}
+                currency={currency}
+                showCurrency={true}
+                precision={8}
+              />
+            )}
           />
         ),
       },
