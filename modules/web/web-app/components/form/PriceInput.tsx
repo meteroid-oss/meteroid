@@ -79,7 +79,6 @@ export const UncontrolledPriceInput = forwardRef<HTMLInputElement, UncontrolledP
           ref={ref}
           value={value}
           type="number"
-          step={1}
           min="0"
           className={cn(
             displaySymbol ? 'pl-8' : '',
