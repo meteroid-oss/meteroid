@@ -2,9 +2,9 @@ use crate::store::{PgConn, Store};
 use crate::{StoreResult, domain};
 use diesel_async::scoped_futures::ScopedFutureExt;
 
-use crate::domain::PaymentIntent;
 use crate::domain::outbox_event::OutboxEvent;
 use crate::domain::payment_transactions::PaymentTransaction;
+use crate::domain::{PaymentIntent, PaymentTransactionWithMethod};
 use crate::errors::StoreError;
 use common_domain::ids::{InvoiceId, PaymentTransactionId, TenantId};
 use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowPatch};
@@ -16,7 +16,7 @@ pub trait PaymentTransactionInterface {
         &self,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
-    ) -> StoreResult<Vec<PaymentTransaction>>;
+    ) -> StoreResult<Vec<PaymentTransactionWithMethod>>;
 
     async fn last_settled_payment_tx_by_invoice_id(
         &self,
@@ -45,7 +45,7 @@ impl PaymentTransactionInterface for Store {
         &self,
         tenant_id: TenantId,
         invoice_id: InvoiceId,
-    ) -> StoreResult<Vec<PaymentTransaction>> {
+    ) -> StoreResult<Vec<PaymentTransactionWithMethod>> {
         let mut conn = self.get_conn().await?;
         PaymentTransactionRow::list_by_invoice_id(&mut conn, invoice_id, tenant_id)
             .await
@@ -53,7 +53,7 @@ impl PaymentTransactionInterface for Store {
             .map(|rows| {
                 rows.into_iter()
                     .map(|row| row.into())
-                    .collect::<Vec<PaymentTransaction>>()
+                    .collect::<Vec<PaymentTransactionWithMethod>>()
             })
     }
 

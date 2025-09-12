@@ -6,8 +6,8 @@ pub mod invoices {
     use common_domain::ids::BaseId;
     use error_stack::ResultExt;
     use meteroid_grpc::meteroid::api::invoices::v1::{
-        CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoiceStatus, InvoiceType,
-        LineItem,
+        CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
+        InvoiceStatus, InvoiceType, LineItem,
     };
     use meteroid_store::domain;
     use meteroid_store::domain::invoice_lines as domain_invoice_lines;
@@ -36,6 +36,19 @@ pub mod invoices {
                     InvoiceStatus::Void => domain::enums::InvoiceStatusEnum::Void,
                 })
         })
+    }
+
+    fn payment_status_domain_to_server(
+        value: domain::enums::InvoicePaymentStatus,
+    ) -> InvoicePaymentStatus {
+        match value {
+            domain::enums::InvoicePaymentStatus::Paid => InvoicePaymentStatus::Paid,
+            domain::enums::InvoicePaymentStatus::PartiallyPaid => {
+                InvoicePaymentStatus::PartiallyPaid
+            }
+            domain::enums::InvoicePaymentStatus::Errored => InvoicePaymentStatus::Errored,
+            domain::enums::InvoicePaymentStatus::Unpaid => InvoicePaymentStatus::Unpaid,
+        }
     }
 
     fn invoicing_type_domain_to_server(value: domain::enums::InvoiceType) -> InvoiceType {
@@ -139,7 +152,11 @@ pub mod invoices {
         value: domain::DetailedInvoice,
         jwt_secret: SecretString,
     ) -> error_stack::Result<DetailedInvoice, StoreError> {
-        let domain::DetailedInvoice { invoice, .. } = value;
+        let domain::DetailedInvoice {
+            invoice,
+            transactions,
+            ..
+        } = value;
 
         let share_key = if invoice.pdf_document_id.is_some() || invoice.xml_document_id.is_some() {
             let exp = chrono::Utc::now().timestamp() as usize + 60 * 60 * 24 * 7; // 7 days
@@ -228,6 +245,12 @@ pub mod invoices {
                 .conn_meta
                 .as_ref()
                 .map(connection_metadata_to_server),
+            payment_status: payment_status_domain_to_server(invoice.payment_status).into(),
+            paid_at: invoice.paid_at.as_proto(),
+            transactions: transactions
+                .into_iter()
+                .map(super::transactions::domain_to_server)
+                .collect(),
         })
     }
 
@@ -243,13 +266,17 @@ pub mod invoices {
             currency: value.invoice.currency,
             due_at: value.invoice.due_at.as_proto(),
             total: value.invoice.total,
+            payment_status: payment_status_domain_to_server(value.invoice.payment_status).into(),
         }
     }
 }
 
 pub mod transactions {
+    use crate::api::shared::conversions::AsProtoOpt;
     use common_utils::integers::ToNonNegativeU64;
+    use meteroid_grpc::meteroid::api::invoices::v1::PaymentMethodInfo;
     use meteroid_grpc::meteroid::api::invoices::v1::Transaction;
+    use meteroid_grpc::meteroid::api::invoices::v1::payment_method_info::PaymentMethodTypeEnum;
     use meteroid_grpc::meteroid::api::invoices::v1::transaction::{
         PaymentStatusEnum, PaymentTypeEnum,
     };
@@ -272,6 +299,24 @@ pub mod transactions {
         }
     }
 
+    fn method_type_domain_to_server(
+        value: domain::enums::PaymentMethodTypeEnum,
+    ) -> PaymentMethodTypeEnum {
+        match value {
+            domain::enums::PaymentMethodTypeEnum::Card => PaymentMethodTypeEnum::Card,
+            domain::enums::PaymentMethodTypeEnum::Other => PaymentMethodTypeEnum::Other,
+            domain::enums::PaymentMethodTypeEnum::DirectDebitAch => {
+                PaymentMethodTypeEnum::BankTransfer
+            }
+            domain::enums::PaymentMethodTypeEnum::DirectDebitBacs => {
+                PaymentMethodTypeEnum::BankTransfer
+            }
+            domain::enums::PaymentMethodTypeEnum::DirectDebitSepa => {
+                PaymentMethodTypeEnum::BankTransfer
+            }
+            domain::enums::PaymentMethodTypeEnum::Transfer => PaymentMethodTypeEnum::BankTransfer,
+        }
+    }
     pub fn domain_to_server(
         value: domain::payment_transactions::PaymentTransaction,
     ) -> Transaction {
@@ -285,6 +330,21 @@ pub mod transactions {
             amount: value.amount.to_non_negative_u64(),
             error: value.error_type,
             invoice_id: value.invoice_id.as_proto(),
+            payment_method_info: None,
+            processed_at: value.processed_at.as_proto(),
         }
+    }
+
+    pub fn domain_with_method_to_server(
+        value: domain::payment_transactions::PaymentTransactionWithMethod,
+    ) -> Transaction {
+        let mut tx = domain_to_server(value.transaction);
+        tx.payment_method_info = value.method.map(|m| PaymentMethodInfo {
+            account_number_hint: m.account_number_hint,
+            card_brand: m.card_brand,
+            card_last4: m.card_last4,
+            payment_method_type: method_type_domain_to_server(m.payment_method_type).into(),
+        });
+        tx
     }
 }

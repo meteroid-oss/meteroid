@@ -1,10 +1,13 @@
 use super::enums::{PaymentStatusEnum, PaymentTypeEnum};
 use chrono::NaiveDateTime;
 
+use crate::domain::CustomerPaymentMethod;
 use common_domain::ids::{
     CustomerPaymentMethodId, InvoiceId, PaymentTransactionId, StoredDocumentId, TenantId,
 };
-use diesel_models::payments::{PaymentTransactionRow, PaymentTransactionRowNew};
+use diesel_models::payments::{
+    PaymentTransactionRow, PaymentTransactionRowNew, PaymentTransactionWithMethodRow,
+};
 use o2o::o2o;
 use serde::Deserialize;
 
@@ -60,4 +63,13 @@ pub struct PaymentIntent {
     pub status: PaymentStatusEnum,
     pub last_payment_error: Option<String>,
     pub processed_at: Option<NaiveDateTime>,
+}
+
+#[derive(Clone, Debug, o2o)]
+#[from_owned(PaymentTransactionWithMethodRow)]
+pub struct PaymentTransactionWithMethod {
+    #[map(~.into())]
+    pub transaction: PaymentTransaction,
+    #[map(~.map(|m| m.into()))]
+    pub method: Option<CustomerPaymentMethod>,
 }
