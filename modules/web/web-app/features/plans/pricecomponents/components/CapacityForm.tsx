@@ -1,13 +1,13 @@
 import { disableQuery } from '@connectrpc/connect-query'
-import { Button, ComboboxFormField, Form, Input } from '@md/ui'
+import { Button, ComboboxFormField, Form, GenericFormField, Input } from '@md/ui'
 import { ColumnDef } from '@tanstack/react-table'
 import { useAtom } from 'jotai'
 import { PlusIcon, XIcon } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
-import { useFieldArray, useWatch } from 'react-hook-form'
+import { forwardRef, useCallback, useMemo } from 'react'
+import { useFieldArray } from 'react-hook-form'
 import { useNavigate } from 'react-router-dom'
 
-import PriceInput from '@/components/form/PriceInput'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
 import { SimpleTable } from '@/components/table/SimpleTable'
 import { usePlanOverview } from '@/features/plans/hooks/usePlan'
 import { EditPriceComponentCard } from '@/features/plans/pricecomponents/EditPriceComponentCard'
@@ -99,7 +99,8 @@ const ThresholdTable = ({
   const addThreshold = () => {
     const thresholds = [...fields]
 
-    const maxIncluded = (thresholds[thresholds.length - 1]?.includedAmount ?? 0) + 1
+    const lastIncluded = thresholds[thresholds.length - 1]?.includedAmount
+    const maxIncluded = lastIncluded ? BigInt(lastIncluded) + BigInt(1) : BigInt(0)
 
     append({
       includedAmount: maxIncluded,
@@ -108,36 +109,53 @@ const ThresholdTable = ({
     })
   }
 
-  const removeThreshold = (idx: number) => {
-    remove(idx)
-  }
+  const removeThreshold = useCallback(
+    (idx: number) => {
+      remove(idx)
+    },
+    [remove]
+  )
 
   const columns = useMemo<ColumnDef<CapacityThreshold>[]>(() => {
     return [
       {
         header: 'Included ',
-        cell: ({ row }) => <IncludedAmountInput methods={methods} rowIndex={row.index} />,
+        cell: ({ row }) => (
+          <GenericFormField
+            control={methods.control}
+            name={`thresholds.${row.index}.includedAmount`}
+            render={({ field }) => (
+              <IncludedAmountInput {...field} methods={methods} rowIndex={row.index} />
+            )}
+          />
+        ),
       },
       {
         header: 'Tier price',
         cell: ({ row }) => (
-          <PriceInput
-            {...methods.withControl(`thresholds.${row.index}.price`)}
-            {...methods.withError(`thresholds.${row.index}.price`)}
-            currency={currency}
-            showCurrency={false}
+          <GenericFormField
+            control={methods.control}
+            name={`thresholds.${row.index}.price`}
+            render={({ field }) => (
+              <UncontrolledPriceInput {...field} currency={currency} showCurrency={false} />
+            )}
           />
         ),
       },
       {
         header: 'Per unit overage',
         cell: ({ row }) => (
-          <PriceInput
-            {...methods.withControl(`thresholds.${row.index}.perUnitOverage`)}
-            {...methods.withError(`thresholds.${row.index}.perUnitOverage`)}
-            currency={currency}
-            showCurrency={false}
-            precision={8}
+          <GenericFormField
+            control={methods.control}
+            name={`thresholds.${row.index}.perUnitOverage`}
+            render={({ field }) => (
+              <UncontrolledPriceInput
+                {...field}
+                currency={currency}
+                showCurrency={false}
+                precision={8}
+              />
+            )}
           />
         ),
       },
@@ -151,7 +169,7 @@ const ThresholdTable = ({
         ),
       },
     ]
-  }, [methods])
+  }, [methods.control, currency, removeThreshold])
 
   return (
     <>
@@ -163,37 +181,33 @@ const ThresholdTable = ({
   )
 }
 
-const IncludedAmountInput = ({
-  methods,
-  rowIndex,
-}: {
-  methods: Methods<typeof CapacityFeeSchema>
-  rowIndex: number
-}) => {
-  const { setValue, control } = methods
-  const prevRowValue = useWatch({
-    control,
-    name: `thresholds.${rowIndex - 1}.includedAmount`,
-  })
-  const thisValue = useWatch({
-    control,
-    name: `thresholds.${rowIndex}.includedAmount`,
-  })
-
-  useEffect(() => {
-    if (rowIndex > 0 && prevRowValue >= thisValue) {
-      const updatedValue = prevRowValue + 1
-      setValue(`thresholds.${rowIndex}.includedAmount`, updatedValue)
-    }
-  }, [prevRowValue, rowIndex, setValue])
-
+const IncludedAmountInput = forwardRef<
+  HTMLInputElement,
+  {
+    methods: Methods<typeof CapacityFeeSchema>
+    rowIndex: number
+    value?: string | number | bigint
+    onChange?: (value: string | number | bigint) => void
+    onBlur?: () => void
+    name?: string
+  }
+>(({ value, onChange, onBlur, name }, ref) => {
   return (
     <Input
+      ref={ref}
+      name={name}
       type="number"
-      {...methods.register(`thresholds.${rowIndex}.includedAmount`, {
-        valueAsNumber: true,
-      })}
-      {...methods.withError(`thresholds.${rowIndex}.includedAmount`)}
+      step="1"
+      min="0"
+      value={value?.toString() || ''}
+      onChange={e => onChange?.(e.target.value)}
+      onBlur={e => {
+        // Ensure it's an integer on blur
+        const num = Math.floor(parseFloat(e.target.value) || 0)
+        e.target.value = num.toString()
+        onChange?.(num.toString())
+        onBlur?.()
+      }}
     />
   )
-}
+})

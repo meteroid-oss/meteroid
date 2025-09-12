@@ -14,13 +14,11 @@ export const editPlanSchema = z.object({
 })
 
 const isValidNumber = (str: string) => {
-  const replacedStr = str.replace(',', '.')
-  return !isNaN(parseFloat(replacedStr)) && isFinite(parseFloat(replacedStr))
+  return !isNaN(parseFloat(str)) && isFinite(parseFloat(str))
 }
 
 const isPreciseString = (str: string, precision: number) => {
-  const replacedStr = str.replace(',', '.')
-  const parts = replacedStr.split('.')
+  const parts = str.split('.')
   return parts.length < 2 || parts[1].length <= precision
 }
 
@@ -77,7 +75,7 @@ const BillableMetricSchema = z.object({
 export type BillableMetric = z.infer<typeof BillableMetricSchema>
 
 const CapacityThresholdSchema = z.object({
-  includedAmount: z.coerce.string(),
+  includedAmount: z.coerce.bigint().nonnegative(),
   price: pricePrecision2Schema,
   perUnitOverage: pricePrecision8Schema,
 })

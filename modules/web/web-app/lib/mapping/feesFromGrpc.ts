@@ -99,7 +99,7 @@ const mapSlotFee = (fee: grpc.Fee_SlotFee): api.SlotFee => ({
 const mapCapacityFee = (fee: grpc.Fee_CapacityFee): api.CapacityFee => ({
   metricId: fee.metricId,
   thresholds: fee.thresholds.map(threshold => ({
-    includedAmount: threshold.includedAmount.toString(),
+    includedAmount: threshold.includedAmount ,
     price: threshold.price,
     perUnitOverage: threshold.perUnitOverage,
   })),

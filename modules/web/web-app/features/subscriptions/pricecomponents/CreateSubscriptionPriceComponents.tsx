@@ -727,9 +727,12 @@ const CompactPriceComponentCard = ({
             </SelectTrigger>
             <SelectContent>
               {component.fee.data.thresholds.map(threshold => (
-                <SelectItem key={threshold.includedAmount} value={threshold.includedAmount}>
+                <SelectItem
+                  key={threshold.includedAmount}
+                  value={threshold.includedAmount.toString()}
+                >
                   <div className="flex justify-between items-center w-full">
-                    <span>{threshold.includedAmount} included</span>
+                    <span>{threshold.includedAmount.toString()} included</span>
                     <span className="text-muted-foreground ml-2">
                       {formatPrice(threshold.price)}
                     </span>
