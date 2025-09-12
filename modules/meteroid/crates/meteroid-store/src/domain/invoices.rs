@@ -2,9 +2,9 @@ use super::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::{Address, CouponLineItem, Customer, PlanVersionOverview};
+use crate::domain::{Address, CouponLineItem, Customer, InvoicingEntity, PlanVersionOverview};
 use crate::errors::{StoreError, StoreErrorReport};
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
     BaseId, CustomerId, InvoiceId, InvoicingEntityId, PlanVersionId, StoredDocumentId,
     SubscriptionId, TenantId,
@@ -82,6 +82,7 @@ pub struct Invoice {
     StoreError::SerdeError("Failed to deserialize tax_breakdown".to_string(), e)
     }) ?)]
     pub tax_breakdown: Vec<TaxBreakdownItem>,
+    pub manual: bool,
 }
 
 impl Invoice {
@@ -195,6 +196,7 @@ pub struct InvoiceNew {
     StoreError::SerdeError("Failed to serialize tax_breakdown".to_string(), e)
     }) ?)]
     pub tax_breakdown: Vec<TaxBreakdownItem>,
+    pub manual: bool,
 }
 
 #[derive(Debug, o2o)]
@@ -229,6 +231,20 @@ pub struct InlineCustomer {
     pub snapshot_at: NaiveDateTime,
 }
 
+impl From<Customer> for InlineCustomer {
+    fn from(value: Customer) -> Self {
+        InlineCustomer {
+            id: value.id,
+            name: value.name.clone(),
+            email: value.billing_email.clone(),
+            alias: value.alias.clone(),
+            vat_number: value.vat_number.clone(),
+            billing_address: value.billing_address.clone(),
+            snapshot_at: chrono::Utc::now().naive_utc(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct InlineInvoicingEntity {
     pub id: InvoicingEntityId,
@@ -236,6 +252,18 @@ pub struct InlineInvoicingEntity {
     pub vat_number: Option<String>,
     pub address: Address,
     pub snapshot_at: NaiveDateTime,
+}
+
+impl From<InvoicingEntity> for InlineInvoicingEntity {
+    fn from(value: InvoicingEntity) -> Self {
+        InlineInvoicingEntity {
+            id: value.id,
+            legal_name: value.legal_name.clone(),
+            vat_number: value.vat_number.clone(),
+            address: value.address(),
+            snapshot_at: chrono::Utc::now().naive_utc(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -284,5 +312,52 @@ impl TryFrom<DetailedInvoiceRow> for DetailedInvoice {
             plan: value.plan.map(|x| x.into()),
             transactions: vec![],
         })
+    }
+}
+
+impl From<InvoiceNew> for Invoice {
+    fn from(value: InvoiceNew) -> Self {
+        Invoice {
+            id: InvoiceId::new(),
+            status: value.status,
+            created_at: Utc::now().naive_utc(),
+            updated_at: None,
+            tenant_id: value.tenant_id,
+            customer_id: value.customer_id,
+            subscription_id: None,
+            currency: value.currency,
+            invoice_number: value.invoice_number,
+            line_items: value.line_items,
+            data_updated_at: None,
+            invoice_date: value.invoice_date,
+            plan_version_id: None,
+            invoice_type: value.invoice_type,
+            finalized_at: None,
+            subtotal: value.subtotal,
+            subtotal_recurring: value.subtotal_recurring,
+            tax_amount: value.tax_amount,
+            total: value.total,
+            amount_due: value.amount_due,
+            applied_credits: 0,
+            net_terms: value.net_terms,
+            reference: value.reference,
+            memo: value.memo,
+            due_at: value.due_at,
+            plan_name: value.plan_name,
+            customer_details: value.customer_details,
+            seller_details: value.seller_details,
+            pdf_document_id: None,
+            xml_document_id: None,
+            conn_meta: None,
+            auto_advance: value.auto_advance,
+            issued_at: None,
+            payment_status: value.payment_status,
+            paid_at: None,
+            coupons: value.coupons,
+            discount: value.discount,
+            purchase_order: value.purchase_order,
+            tax_breakdown: value.tax_breakdown,
+            manual: value.manual,
+        }
     }
 }

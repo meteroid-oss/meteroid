@@ -34,7 +34,7 @@ pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<Line
 
         let item_discount = (discount * item.amount_subtotal as u64) / total_excl_vat;
         let amount_after_discount = item.amount_subtotal - item_discount as i64;
-        item.taxable_amount = amount_after_discount;
+        item.taxable_amount = amount_after_discount.max(0); // Ensure non-negative
         remaining_discount = remaining_discount.saturating_sub(item_discount);
     }
 
@@ -54,7 +54,7 @@ pub fn distribute_discount(line_items: Vec<LineItem>, discount: u64) -> Vec<Line
 
         // Distribute remaining
         for (item, _) in remainders.iter_mut().take(remaining_discount as usize) {
-            item.taxable_amount -= 1;
+            item.taxable_amount = (item.taxable_amount - 1).max(0); // Ensure non-negative
         }
     }
 
@@ -185,5 +185,41 @@ mod tests {
         assert_eq!(items[0].taxable_amount, 300); // 3.33€ - 0.33€
         assert_eq!(items[1].taxable_amount, 300); // 3.33€ - 0.33€
         assert_eq!(items[2].taxable_amount, 300); // 3.34€ - 0.34€
+    }
+
+    #[test]
+    fn test_discount_eq_sub_total() {
+        let items = vec![
+            new_line_item(1000), // 10.00€
+            new_line_item(2000), // 20.00€
+        ];
+
+        let discount_amount = 3000; // 30.00€
+
+        let items = distribute_discount(items, discount_amount);
+
+        let sum_after = items.iter().map(|item| item.taxable_amount).sum::<i64>();
+
+        assert_eq!(sum_after, 0);
+        assert_eq!(items[0].taxable_amount, 0);
+        assert_eq!(items[1].taxable_amount, 0);
+    }
+
+    #[test]
+    fn test_discount_gt_sub_total() {
+        let items = vec![
+            new_line_item(1000), // 10.00€
+            new_line_item(2000), // 20.00€
+        ];
+
+        let discount_amount = 4000; // 40.00€
+
+        let items = distribute_discount(items, discount_amount);
+
+        let sum_after = items.iter().map(|item| item.taxable_amount).sum::<i64>();
+
+        assert_eq!(sum_after, 0);
+        assert_eq!(items[0].taxable_amount, 0);
+        assert_eq!(items[1].taxable_amount, 0);
     }
 }

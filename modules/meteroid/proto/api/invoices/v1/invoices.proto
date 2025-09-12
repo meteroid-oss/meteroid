@@ -65,6 +65,30 @@ message SyncToPennylaneRequest {
 message SyncToPennylaneResponse {
 }
 
+message CreateInvoiceRequest {
+  NewInvoice invoice = 1;
+}
+
+message CreateInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
+message PreviewNewInvoiceRequest {
+  NewInvoice invoice = 1;
+}
+
+message PreviewNewInvoiceResponse {
+  string html = 1;
+}
+
+message FinalizeInvoiceRequest {
+  string id = 1;
+}
+
+message FinalizeInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
@@ -72,4 +96,7 @@ service InvoicesService {
   rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
+  rpc CreateInvoice(CreateInvoiceRequest) returns (CreateInvoiceResponse) {}
+  rpc PreviewNewInvoiceHtml(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
+  rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
 }

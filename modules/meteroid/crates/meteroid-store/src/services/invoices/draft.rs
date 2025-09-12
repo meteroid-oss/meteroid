@@ -72,27 +72,14 @@ impl Services {
             due_at: Some(due_date),
             plan_name: Some(subscription.plan_name.clone()),
             invoice_number: invoice_number.to_string(),
-            customer_details: InlineCustomer {
-                id: subscription.customer_id,
-                name: customer.name.clone(),
-                billing_address: customer.billing_address.clone(),
-                vat_number: customer.vat_number.clone(),
-                email: customer.billing_email.clone(),
-                alias: customer.alias.clone(),
-                snapshot_at: chrono::Utc::now().naive_utc(),
-            },
-            seller_details: InlineInvoicingEntity {
-                id: invoicing_entity.id,
-                legal_name: invoicing_entity.legal_name.clone(),
-                vat_number: invoicing_entity.vat_number.clone(),
-                address: invoicing_entity.address(),
-                snapshot_at: chrono::Utc::now().naive_utc(),
-            },
+            customer_details: customer.into(),
+            seller_details: invoicing_entity.into(),
             auto_advance: true,
             payment_status: InvoicePaymentStatus::Unpaid,
             discount: invoice_content.discount,
             tax_breakdown: invoice_content.tax_breakdown,
             tax_amount: invoice_content.tax_amount,
+            manual: false,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -182,6 +169,7 @@ impl Services {
             discount: invoice_content.discount,
             tax_breakdown: invoice_content.tax_breakdown,
             tax_amount: invoice_content.tax_amount,
+            manual: false,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;

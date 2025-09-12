@@ -28,12 +28,6 @@ impl Services {
 
                     let invoice: Invoice = invoice_lock.invoice.try_into()?;
 
-                    if !invoice.can_edit() {
-                        bail!(StoreError::InvalidArgument(
-                            "Cannot refresh invoice that is not in draft or pending status".into(),
-                        ));
-                    }
-
                     let patch = self
                         .build_invoice_lines_patch(
                             conn,

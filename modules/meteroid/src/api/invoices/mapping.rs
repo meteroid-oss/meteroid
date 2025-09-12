@@ -251,6 +251,7 @@ pub mod invoices {
                 .into_iter()
                 .map(super::transactions::domain_to_server)
                 .collect(),
+            manual: invoice.manual,
         })
     }
 
@@ -267,6 +268,7 @@ pub mod invoices {
             due_at: value.invoice.due_at.as_proto(),
             total: value.invoice.total,
             payment_status: payment_status_domain_to_server(value.invoice.payment_status).into(),
+            manual: value.invoice.manual,
         }
     }
 }

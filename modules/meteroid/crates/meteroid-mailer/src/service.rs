@@ -126,10 +126,7 @@ where
         let tpl = InvoiceReadyTemplate::from(data.clone()).tpl;
 
         let title = tpl.title.clone();
-        let from = format!(
-            "{} (via Meteroid.com) <billing@meteroid.com>",
-            data.company_name
-        );
+        let from = format!("{} <billing@meteroid.com>", data.company_name);
         let body_html = tpl.render_once().map_err(|e| Report::new(e.into()))?;
 
         let email = Email {

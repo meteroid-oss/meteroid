@@ -1,9 +1,10 @@
-import { spaces } from '@md/foundation'
+import { colors, spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
 import { Button, InputWithIcon } from '@md/ui'
 import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
+import { Link } from 'react-router-dom'
 
 import PageHeading from '@/components/PageHeading/PageHeading'
 import { FilterDropdown } from '@/features/invoices/FilterDropdown'
@@ -22,7 +23,6 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
   count,
   isLoading,
   refetch,
-  setEditPanelVisible,
   setSearch,
   search,
 }) => {
@@ -34,21 +34,23 @@ export const InvoicesHeader: FunctionComponent<InvoicesProps> = ({
           <Button variant="secondary" disabled size="sm">
             Import / Export
           </Button>
-          <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
-            <PlusIcon size={10} /> New invoice
-          </Button>
+          <Link to="create">
+            <Button variant="primary" size="sm">
+              <PlusIcon size={10} fill={colors.white1}/> New invoice
+            </Button>
+          </Link>
         </Flex>
       </Flex>
       <Flex direction="row" align="center" gap={spaces.space4}>
         <InputWithIcon
           placeholder="Search by customer"
-          icon={<SearchIcon size={16} />}
+          icon={<SearchIcon size={16}/>}
           width="fit-content"
           value={search.text}
           onChange={e => setSearch({ ...search, text: e.target.value })}
         />
         <Button variant="secondary" disabled={isLoading} onClick={refetch}>
-          <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
+          <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''}/>
         </Button>
         <FilterDropdown
           status={search.status}

@@ -10,7 +10,7 @@ pub mod clients;
 mod connectors;
 mod credits;
 mod edge;
-mod invoice_lines;
+pub mod invoice_lines;
 mod invoices;
 mod lifecycle;
 mod orchestration;

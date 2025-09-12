@@ -8,6 +8,7 @@ use crate::services::utils::format_invoice_number;
 use common_domain::ids::{AppliedCouponId, BaseId, InvoiceId, InvoicingEntityId, TenantId};
 use common_eventbus::Event;
 use common_utils::decimals::ToUnit;
+use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::applied_coupons::{AppliedCouponDetailedRow, AppliedCouponRow};
 use diesel_models::invoices::{InvoiceRow, InvoiceRowLinesPatch};
 use diesel_models::invoicing_entities::InvoicingEntityRow;
@@ -15,6 +16,19 @@ use diesel_models::{DbResult, PgConn};
 use error_stack::Report;
 
 impl Services {
+    pub async fn finalize_invoice(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice> {
+        self.store
+            .transaction(|conn| {
+                self.finalize_invoice_tx(conn, id, tenant_id, false, &None)
+                    .scope_boxed()
+            })
+            .await
+    }
+
     /// Mark an invoice as finalized, incrementing the invoice number counter and applying attached coupons
     pub async fn finalize_invoice_tx(
         &self,

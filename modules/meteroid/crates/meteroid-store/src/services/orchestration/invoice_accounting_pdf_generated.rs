@@ -1,7 +1,9 @@
 use crate::StoreResult;
 use crate::domain::outbox_event::InvoicePdfGeneratedEvent;
 use crate::domain::pgmq::{PaymentRequestEvent, PgmqMessageNew, PgmqQueue, SendEmailRequest};
-use crate::domain::{InvoicePaymentStatus, ResolvedPaymentMethod};
+use crate::domain::{
+    Customer, Invoice, InvoicePaymentStatus, InvoicingEntity, ResolvedPaymentMethod,
+};
 use crate::repositories::customer_payment_methods::CustomerPaymentMethodsInterface;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::repositories::payment_transactions::PaymentTransactionInterface;
@@ -25,21 +27,21 @@ impl Services {
             return Ok(());
         }
 
+        let customer = self
+            .store
+            .find_customer_by_id(invoice.customer_id, tenant_id)
+            .await?;
+
+        let invoicing_entity = self
+            .store
+            .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
+            .await?;
+
         if let Some(subscription_id) = invoice.subscription_id {
             // 3 cases here :
             // - Already paid (checkout flow). We send the initial email with receipt and invoice
             // - collection_method == SendInvoice . We send the invoice, with a payment link if applicable
             // - collection_method == ChargeAutomatically . Depending on the payment method, we trigger the payment (Invoice will be sent after receipt is generated) or fallback on payment link
-
-            let customer = self
-                .store
-                .find_customer_by_id(invoice.customer_id, tenant_id)
-                .await?;
-
-            let invoicing_entity = self
-                .store
-                .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
-                .await?;
 
             if invoice.payment_status == InvoicePaymentStatus::Paid {
                 let receipt = self
@@ -107,34 +109,48 @@ impl Services {
                 // in all other cases, we send the invoice with the means to pay (bank account, payment link, or "contact your account manager"))
                 _ => {
                     // we send bank transfer details with invoice
-                    let issue_event = SendEmailRequest::InvoiceReady {
-                        tenant_id,
-                        invoice_id: event.invoice_id,
-                        invoicing_entity_id: invoicing_entity.id,
-                        invoice_number: invoice.invoice_number,
-                        invoice_date: invoice.invoice_date,
-                        invoice_due_date: invoice.due_at.map_or(invoice.invoice_date, |d| d.date()),
-                        label: invoice
-                            .plan_name
-                            .unwrap_or(invoice.customer_details.name.clone()), // TODO company name
-                        currency: invoice.currency,
-                        company_name: invoice.customer_details.name.clone(),
-                        logo_attachment_id: invoicing_entity.logo_attachment_id,
-                        invoicing_emails: customer.invoicing_emails,
-                        invoice_pdf_id: event.pdf_id,
-                        amount_due: invoice.amount_due,
-                    };
-
-                    let evt: StoreResult<PgmqMessageNew> = issue_event.try_into();
-
-                    self.store
-                        .pgmq_send_batch(PgmqQueue::SendEmailRequest, vec![evt?])
+                    self.send_invoice_ready_mail(event, invoice, customer, invoicing_entity)
                         .await?;
                 }
             }
-        } else {
-            // One-off invoice, we do not issue automatically (TODO)
+        } else if invoice.manual {
+            self.send_invoice_ready_mail(event, invoice, customer, invoicing_entity)
+                .await?;
         }
+        Ok(())
+    }
+
+    async fn send_invoice_ready_mail(
+        &self,
+        event: InvoicePdfGeneratedEvent,
+        invoice: Invoice,
+        customer: Customer,
+        invoicing_entity: InvoicingEntity,
+    ) -> StoreResult<()> {
+        let issue_event = SendEmailRequest::InvoiceReady {
+            tenant_id: invoice.tenant_id,
+            invoice_id: invoice.id,
+            invoicing_entity_id: invoice.seller_details.id,
+            invoice_number: invoice.invoice_number,
+            invoice_date: invoice.invoice_date,
+            invoice_due_date: invoice.due_at.map_or(invoice.invoice_date, |d| d.date()),
+            label: invoice
+                .plan_name
+                .unwrap_or(invoice.customer_details.name.clone()), // TODO company name
+            currency: invoice.currency,
+            company_name: invoice.customer_details.name.clone(),
+            logo_attachment_id: invoicing_entity.logo_attachment_id,
+            invoicing_emails: customer.invoicing_emails,
+            invoice_pdf_id: event.pdf_id,
+            amount_due: invoice.amount_due,
+        };
+
+        let evt: StoreResult<PgmqMessageNew> = issue_event.try_into();
+
+        self.store
+            .pgmq_send_batch(PgmqQueue::SendEmailRequest, vec![evt?])
+            .await?;
+
         Ok(())
     }
 }

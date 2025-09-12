@@ -53,6 +53,7 @@ pub struct InvoiceRow {
     pub purchase_order: Option<String>,
     pub coupons: serde_json::Value,
     pub tax_breakdown: serde_json::Value,
+    pub manual: bool,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -103,6 +104,7 @@ pub struct InvoiceRowNew {
     pub discount: i64,
     pub purchase_order: Option<String>,
     pub tax_breakdown: serde_json::Value,
+    pub manual: bool,
 }
 
 #[derive(Debug, Queryable, Selectable)]
