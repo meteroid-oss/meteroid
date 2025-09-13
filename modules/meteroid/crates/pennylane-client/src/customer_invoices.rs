@@ -25,7 +25,7 @@ pub trait CustomerInvoicesApi {
         &self,
         external_reference: &str,
         access_token: &SecretString,
-    ) -> Result<ImportedCustomerInvoice, PennylaneError>;
+    ) -> Result<Option<ImportedCustomerInvoice>, PennylaneError>;
 
     async fn import_or_get_customer_invoice(
         &self,
@@ -90,7 +90,7 @@ impl CustomerInvoicesApi for PennylaneClient {
         &self,
         external_reference: &str,
         access_token: &SecretString,
-    ) -> Result<ImportedCustomerInvoice, PennylaneError> {
+    ) -> Result<Option<ImportedCustomerInvoice>, PennylaneError> {
         let list: ListResponse<ImportedCustomerInvoice> = self
             .execute(
                 "/api/external/v2/customer_invoices",
@@ -107,13 +107,7 @@ impl CustomerInvoicesApi for PennylaneClient {
             )
             .await?;
 
-        list.items
-            .into_iter()
-            .next()
-            .ok_or_else(|| PennylaneError::ClientError {
-                error: "empty items".to_string(),
-                status_code: None,
-            })
+        Ok(list.items.into_iter().next())
     }
 
     async fn import_or_get_customer_invoice(
@@ -123,13 +117,16 @@ impl CustomerInvoicesApi for PennylaneClient {
     ) -> Result<ImportedCustomerInvoice, PennylaneError> {
         let imported = self.import_customer_invoice(invoice, access_token).await;
 
-        if let Err(PennylaneError::ClientError {
-            error: _,
-            status_code: Some(419 | 422),
-        }) = imported
+        if let Err(
+            err @ PennylaneError::ClientError {
+                error: _,
+                status_code: Some(409 | 422),
+            },
+        ) = imported
         {
             self.get_customer_invoice(invoice.external_reference.as_ref(), access_token)
-                .await
+                .await?
+                .ok_or(err)
         } else {
             imported
         }

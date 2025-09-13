@@ -30,7 +30,7 @@ pub trait CustomersApi {
         &self,
         external_reference: &str,
         access_token: &SecretString,
-    ) -> Result<Company, PennylaneError>;
+    ) -> Result<Option<Company>, PennylaneError>;
 }
 
 #[async_trait::async_trait]
@@ -75,14 +75,17 @@ impl CustomersApi for PennylaneClient {
     ) -> Result<Company, PennylaneError> {
         let created = self.create_company_customer(company, access_token).await;
 
-        if let Err(PennylaneError::ClientError {
-            error: _,
-            status_code: Some(419 | 422),
-        }) = created
+        if let Err(
+            err @ PennylaneError::ClientError {
+                error: _,
+                status_code: Some(409 | 422),
+            },
+        ) = created
         {
             let existing = self
                 .get_company_customer(company.external_reference.as_str(), access_token)
-                .await?;
+                .await?
+                .ok_or(err)?;
 
             self.update_company_customer(existing.id, &company.into(), access_token)
                 .await
@@ -96,7 +99,7 @@ impl CustomersApi for PennylaneClient {
         &self,
         external_reference: &str,
         access_token: &SecretString,
-    ) -> Result<Company, PennylaneError> {
+    ) -> Result<Option<Company>, PennylaneError> {
         let list: ListResponse<Company> = self
             .execute(
                 "/api/external/v2/customers",
@@ -113,13 +116,7 @@ impl CustomersApi for PennylaneClient {
             )
             .await?;
 
-        list.items
-            .into_iter()
-            .next()
-            .ok_or_else(|| PennylaneError::ClientError {
-                error: "empty items".to_string(),
-                status_code: None,
-            })
+        Ok(list.items.into_iter().next())
     }
 }
 

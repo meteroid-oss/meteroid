@@ -86,8 +86,17 @@ const DateRangeCell = memo(({ control, rowIndex, methods }: {
     <DatePickerWithRange
       range={{ from: startDate, to: endDate }}
       setRange={(dateRange) => {
-        methods.setValue(`lines.${rowIndex}.startDate`, dateRange?.from || new Date())
-        methods.setValue(`lines.${rowIndex}.endDate`, dateRange?.to || new Date())
+        const newStartDate = dateRange?.from || new Date()
+        let newEndDate = dateRange?.to || new Date()
+
+        // If endDate is not after startDate, set it to startDate + 1 day
+        if (newEndDate <= newStartDate) {
+          newEndDate = new Date(newStartDate)
+          newEndDate.setDate(newEndDate.getDate() + 1)
+        }
+
+        methods.setValue(`lines.${rowIndex}.startDate`, newStartDate)
+        methods.setValue(`lines.${rowIndex}.endDate`, newEndDate)
       }}
     />
   )
@@ -106,13 +115,17 @@ const InvoiceLineTable = ({
   })
 
   const addInvoiceLine = useCallback(() => {
+    const startDate = new Date()
+    const endDate = new Date(startDate)
+    endDate.setDate(endDate.getDate() + 1)
+
     append({
       product: '',
-      startDate: new Date(),
-      endDate: new Date(),
+      startDate,
+      endDate,
       quantity: 1.00,
-      unitPrice: 0.01,
-      taxRate: 0.00,
+      unitPrice: 1.00,
+      taxRate: 20.00,
     })
   }, [append])
 

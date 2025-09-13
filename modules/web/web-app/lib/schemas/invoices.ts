@@ -7,7 +7,13 @@ export const invoiceLineSchema = z.object({
   quantity: z.number().min(0.01, "Quantity must be greater than 0"),
   unitPrice: z.number().min(0.01, "Unit price must be greater than 0"),
   taxRate: z.number().min(0).max(100, "Tax rate must be between 0 and 100"),
-})
+}).refine(
+  (data) => data.endDate > data.startDate,
+  {
+    message: "End date must be after start date",
+    path: ["endDate"],
+  }
+)
 
 export const createInvoiceSchema = z.object({
   customerId: z.string(),
