@@ -151,7 +151,8 @@ fn create_test_invoice() -> Invoice {
                 show_tax_info: Some(true),
                 show_legal_info: Some(true),
                 whitelabel: None
-            }
+            },
+            discount: Money::from_major(0, eur),
         },
         lines: vec![
             InvoiceLine {
