@@ -141,6 +141,7 @@ fn create_minimal_invoice() -> Invoice {
                 show_legal_info: Some(false),
                 whitelabel: Some(false),
             },
+            discount: Money::from_major(0, eur),
         },
         lines: vec![InvoiceLine {
             name: "Test Service".to_string(),
@@ -236,6 +237,7 @@ fn create_full_invoice() -> Invoice {
                 show_legal_info: Some(true),
                 whitelabel: Some(false),
             },
+            discount: Money::from_major(0, eur),
         },
         lines: vec![
             InvoiceLine {
