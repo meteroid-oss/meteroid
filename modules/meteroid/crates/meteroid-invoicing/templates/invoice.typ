@@ -17,6 +17,7 @@
   payment_term,
   lines,
   coupons,
+  discount,
   tax_breakdown,
   translations,
   formatted_currency,
@@ -409,6 +410,14 @@
 
         text(fill: color.accent, translations.subtotal),
         align(right, text(weight: "regular", format_amount(subtotal))),
+
+        // Show discount if applicable
+        ..if discount > 0 {
+          (
+            text(fill: color.accent, translations.discount),
+            align(right, text(weight: "regular", "-" + format_amount(discount))),
+          )
+        },
 
         ..for coupon in coupons {
           (

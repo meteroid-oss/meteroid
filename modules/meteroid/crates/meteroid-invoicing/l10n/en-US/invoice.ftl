@@ -44,4 +44,4 @@ b2b-notice = Business-to-business transaction
 eu-vat-directive-notice = This invoice complies with EU VAT Directive 2006/112/EC
 late-payment-interest = Late payment interest: 3% above ECB rate
 company-registration = Company registration number
-
+discount = Discount
