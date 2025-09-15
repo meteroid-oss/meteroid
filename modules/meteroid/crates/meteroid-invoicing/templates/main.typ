@@ -17,6 +17,7 @@
   inputs.payment_term,
   inputs.lines,
   inputs.coupons,
+  inputs.discount,
   inputs.tax_breakdown,
   inputs.translations,
   inputs.formatted_currency,

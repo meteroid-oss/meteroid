@@ -318,9 +318,10 @@ impl InvoicesService for InvoiceServiceComponents {
     }
 }
 
-fn parse_as_minor(s: &str, currency: &rusty_money::iso::Currency) -> Result<i64, InvoiceApiError> {
-    let money = rusty_money::Money::from_str(s, currency)
-        .map_err(|x| InvoiceApiError::InputError(format!("Invalid money format: {}", x)))?;
+fn parse_as_minor(s: &String, currency: &rusty_money::iso::Currency) -> Result<i64, Status> {
+    let decimal = rust_decimal::Decimal::from_proto_ref(s)?;
+
+    let money = rusty_money::Money::from_decimal(decimal, currency);
 
     let minor_units = money
         .amount()
@@ -333,13 +334,12 @@ fn parse_as_minor(s: &str, currency: &rusty_money::iso::Currency) -> Result<i64,
 }
 
 fn parse_as_minor_opt(
-    s: Option<&String>,
+    str_ref: Option<&String>,
     currency: &rusty_money::iso::Currency,
-) -> Result<Option<i64>, InvoiceApiError> {
-    match s {
-        Some(str_val) => Ok(Some(parse_as_minor(str_val, currency)?)),
-        None => Ok(None),
-    }
+) -> Result<Option<i64>, Status> {
+    str_ref
+        .map(|str_val| parse_as_minor(str_val, currency))
+        .transpose()
 }
 
 async fn to_domain_invoice_new(

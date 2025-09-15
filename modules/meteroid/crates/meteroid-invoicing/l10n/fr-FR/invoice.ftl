@@ -45,3 +45,4 @@ b2b-notice = Transaction entre entreprises
 eu-vat-directive-notice = Cette facture est conforme à la Directive TVA UE 2006/112/CE
 late-payment-interest = Intérêts de retard: 3% au-dessus du taux BCE
 company-registration = Numéro d'immatriculation
+discount = Remise

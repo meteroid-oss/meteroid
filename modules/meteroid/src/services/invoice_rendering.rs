@@ -298,6 +298,7 @@ mod mapper {
             total_amount: rusty_money::Money::from_minor(invoice.total, currency),
             tax_amount: rusty_money::Money::from_minor(invoice.tax_amount, currency),
             subtotal: rusty_money::Money::from_minor(invoice.subtotal, currency),
+            discount: rusty_money::Money::from_minor(invoice.discount, currency),
             memo: invoice.memo.clone(),
             payment_url: None, // TODO
             flags: Flags::default(),

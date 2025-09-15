@@ -282,6 +282,7 @@ pub struct TypstInvoiceContent {
     pub whitelabel: bool,
     pub coupons: Vec<TypstCoupon>,
     pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
+    pub discount: f64,
 }
 
 impl From<&Invoice> for TypstInvoiceContent {
@@ -337,6 +338,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             "eu_vat_directive_notice" => invoice_l10n.eu_vat_directive_notice().into_value(),
             "late_payment_interest" => invoice_l10n.late_payment_interest().into_value(),
             "company_registration" => invoice_l10n.company_registration().into_value(),
+            "discount" => invoice_l10n.discount().into_value(),
         };
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
@@ -420,6 +422,8 @@ impl From<&Invoice> for TypstInvoiceContent {
             .to_f64()
             .unwrap_or(0.0);
 
+        let discount = invoice.metadata.discount.amount().to_f64().unwrap_or(0.0);
+
         TypstInvoiceContent {
             lang: invoice.lang.clone(),
             // Use the new methods with language parameter
@@ -452,6 +456,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             show_legal_info: invoice.metadata.flags.show_legal_info.unwrap_or(true),
             whitelabel: invoice.metadata.flags.whitelabel.unwrap_or(false),
             tax_breakdown,
+            discount,
         }
     }
 }

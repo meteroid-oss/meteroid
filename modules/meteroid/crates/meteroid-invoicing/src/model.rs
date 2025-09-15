@@ -86,6 +86,7 @@ pub struct InvoiceMetadata {
     pub subtotal: Price,
     pub tax_amount: Price,
     pub total_amount: Price,
+    pub discount: Price,
     pub currency: &'static iso::Currency,
     pub due_date: chrono::NaiveDate,
     pub memo: Option<String>,
