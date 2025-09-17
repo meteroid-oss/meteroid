@@ -1,6 +1,5 @@
 import { useMutation } from '@connectrpc/connect-query'
 import { useQueryClient } from '@tanstack/react-query'
-import { ColumnDef } from '@tanstack/react-table'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,22 +13,25 @@ import {
   DatePicker,
   Dialog,
   DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Flex,
   Form,
   GenericFormField,
   Input,
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue
 } from "@ui/components";
-import { XIcon } from "lucide-react";
-import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
-import { useFieldArray, useWatch, Control } from 'react-hook-form'
+import { Edit, XIcon } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useFieldArray } from 'react-hook-form'
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from 'sonner'
 import { z } from 'zod'
 
 import PageHeading from "@/components/PageHeading/PageHeading";
 import { UncontrolledPriceInput } from "@/components/form/PriceInput";
-import { SimpleTable } from "@/components/table/SimpleTable";
 import { CustomerSelect } from "@/features/customers/CustomerSelect";
 import { DatePickerWithRange } from "@/features/dashboard/DateRangePicker";
 import { useBasePath } from "@/hooks/useBasePath";
@@ -59,48 +61,323 @@ const formatCurrency = (amount: number, currency: string) => {
   }).format(amount)
 }
 
-const TotalCell = memo(({ control, rowIndex, currency }: {
-  control: Control<z.infer<typeof schemas.invoices.createInvoiceSchema>>,
-  rowIndex: number,
+
+const AddLineItemModal = ({
+  isOpen,
+  onClose,
+  onAdd,
+  currency,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onAdd: (item: InvoiceLineSchema) => void
   currency: string
 }) => {
-  const quantity = useWatch({ control, name: `lines.${rowIndex}.quantity` }) || 0
-  const unitPrice = useWatch({ control, name: `lines.${rowIndex}.unitPrice` }) || 0
+  const [formData, setFormData] = useState<InvoiceLineSchema>(() => {
+    const startDate = new Date()
+    const endDate = new Date(startDate)
+    endDate.setDate(endDate.getDate() + 1)
+    return {
+      product: '',
+      startDate,
+      endDate,
+      quantity: 1.00,
+      unitPrice: 1.00,
+      taxRate: 20.00,
+    }
+  })
+
+  const handleSubmit = () => {
+    if (formData.product.trim()) {
+      onAdd(formData)
+      onClose()
+      // Reset form for next use
+      const startDate = new Date()
+      const endDate = new Date(startDate)
+      endDate.setDate(endDate.getDate() + 1)
+      setFormData({
+        product: '',
+        startDate,
+        endDate,
+        quantity: 1.00,
+        unitPrice: 1.00,
+        taxRate: 20.00,
+      })
+    }
+  }
+
+  const handleDateRangeChange = (dateRange: { from?: Date; to?: Date } | undefined) => {
+    const newStartDate = dateRange?.from || new Date()
+    let newEndDate = dateRange?.to || new Date()
+
+    if (newEndDate <= newStartDate) {
+      newEndDate = new Date(newStartDate)
+      newEndDate.setDate(newEndDate.getDate() + 1)
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      startDate: newStartDate,
+      endDate: newEndDate,
+    }))
+  }
 
   return (
-    <div className="text-right font-medium">
-      {formatCurrency(Number(quantity) * Number(unitPrice), currency)}
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add Line Item</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">Product</label>
+            <Input
+              placeholder="Product name"
+              value={formData.product}
+              onChange={(e) => setFormData(prev => ({ ...prev, product: e.target.value }))}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Date Range</label>
+            <DatePickerWithRange
+              range={{ from: formData.startDate, to: formData.endDate }}
+              setRange={(range) => handleDateRangeChange(range)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Quantity</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={formData.quantity}
+              onChange={(e) => setFormData(prev => ({ ...prev, quantity: Number(e.target.value) || 0.0 }))}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Unit Price</label>
+            <UncontrolledPriceInput
+              currency={currency}
+              showCurrency={false}
+              precision={2}
+              value={formData.unitPrice}
+              onChange={(e) => setFormData(prev => ({ ...prev, unitPrice: Number(e.target.value) || 0.0 }))}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Tax Rate (%)</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              value={formData.taxRate}
+              onChange={(e) => setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) || 0 }))}
+              autoComplete="off"
+            />
+          </div>
+          <div className="pt-2">
+            <div className="text-sm font-medium mb-2">Total (excl. tax)</div>
+            <div className="text-right font-medium">
+              {formatCurrency(Number(formData.quantity) * Number(formData.unitPrice), currency)}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={!formData.product.trim()}>
+            Add Item
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const EditLineItemModal = ({
+  isOpen,
+  onClose,
+  onSave,
+  currency,
+  initialData,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onSave: (item: InvoiceLineSchema) => void
+  currency: string
+  initialData: InvoiceLineSchema
+}) => {
+  const [formData, setFormData] = useState<InvoiceLineSchema>(initialData)
+
+  useEffect(() => {
+    setFormData(initialData)
+  }, [initialData])
+
+  const handleSubmit = () => {
+    if (formData.product.trim()) {
+      onSave(formData)
+      onClose()
+    }
+  }
+
+  const handleDateRangeChange = (dateRange: { from?: Date; to?: Date } | undefined) => {
+    const newStartDate = dateRange?.from || new Date()
+    let newEndDate = dateRange?.to || new Date()
+
+    if (newEndDate <= newStartDate) {
+      newEndDate = new Date(newStartDate)
+      newEndDate.setDate(newEndDate.getDate() + 1)
+    }
+
+    setFormData(prev => ({
+      ...prev,
+      startDate: newStartDate,
+      endDate: newEndDate,
+    }))
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit Line Item</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium mb-2 block">Product</label>
+            <Input
+              placeholder="Product name"
+              value={formData.product}
+              onChange={(e) => setFormData(prev => ({ ...prev, product: e.target.value }))}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Date Range</label>
+            <DatePickerWithRange
+              range={{ from: formData.startDate, to: formData.endDate }}
+              setRange={(range) => handleDateRangeChange(range)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Quantity</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={formData.quantity}
+              onChange={(e) => setFormData(prev => ({ ...prev, quantity: Number(e.target.value) || 0.0 }))}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Unit Price</label>
+            <UncontrolledPriceInput
+              currency={currency}
+              showCurrency={false}
+              precision={2}
+              value={formData.unitPrice}
+              onChange={(e) => setFormData(prev => ({ ...prev, unitPrice: Number(e.target.value) || 0.0 }))}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium mb-2 block">Tax Rate (%)</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              max="100"
+              value={formData.taxRate}
+              onChange={(e) => setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) || 0 }))}
+              autoComplete="off"
+            />
+          </div>
+          <div className="pt-2">
+            <div className="text-sm font-medium mb-2">Total (excl. tax)</div>
+            <div className="text-right font-medium">
+              {formatCurrency(Number(formData.quantity) * Number(formData.unitPrice), currency)}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={!formData.product.trim()}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const InvoiceLineItemDisplay = ({
+  item,
+  index,
+  currency,
+  onRemove,
+  onEdit,
+}: {
+  item: InvoiceLineSchema
+  index: number
+  currency: string
+  onRemove: (index: number) => void
+  onEdit: (index: number) => void
+}) => {
+  return (
+    <div className="py-2">
+      <div className="flex justify-between items-start">
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <div className="text-[13px] font-medium">{item.product}</div>
+          </div>
+          {item.startDate && item.endDate && (
+            <div className="text-[11px] text-muted-foreground mt-1">
+              {item.startDate.toLocaleDateString()} → {item.endDate.toLocaleDateString()}
+            </div>
+          )}
+        </div>
+        <div className="text-right flex items-center gap-2">
+          <div>
+            <div className="text-[11px] text-muted-foreground">
+              {item.quantity} × {formatCurrency(item.unitPrice, currency)}
+            </div>
+            <div className="text-[13px] font-medium">
+              {formatCurrency(Number(item.quantity) * Number(item.unitPrice), currency)}
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="link"
+              size="icon"
+              onClick={() => onEdit(index)}
+              className="h-6 w-6 p-0"
+            >
+              <Edit size={14}/>
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              size="icon"
+              onClick={() => onRemove(index)}
+              className="h-6 w-6 p-0"
+            >
+              <XIcon size={14}/>
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   )
-})
-
-const DateRangeCell = memo(({ control, rowIndex, methods }: {
-  control: Control<z.infer<typeof schemas.invoices.createInvoiceSchema>>,
-  rowIndex: number,
-  methods: ReturnType<typeof useZodForm<typeof schemas.invoices.createInvoiceSchema>>
-}) => {
-  const startDate = useWatch({ control, name: `lines.${rowIndex}.startDate` })
-  const endDate = useWatch({ control, name: `lines.${rowIndex}.endDate` })
-
-  return (
-    <DatePickerWithRange
-      range={{ from: startDate, to: endDate }}
-      setRange={(dateRange) => {
-        const newStartDate = dateRange?.from || new Date()
-        let newEndDate = dateRange?.to || new Date()
-
-        // If endDate is not after startDate, set it to startDate + 1 day
-        if (newEndDate <= newStartDate) {
-          newEndDate = new Date(newStartDate)
-          newEndDate.setDate(newEndDate.getDate() + 1)
-        }
-
-        methods.setValue(`lines.${rowIndex}.startDate`, newStartDate)
-        methods.setValue(`lines.${rowIndex}.endDate`, newEndDate)
-      }}
-    />
-  )
-})
+}
 
 const InvoiceLineTable = ({
   methods,
@@ -109,157 +386,168 @@ const InvoiceLineTable = ({
   methods: ReturnType<typeof useZodForm<typeof schemas.invoices.createInvoiceSchema>>
   currency: string
 }) => {
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, update } = useFieldArray({
     control: methods.control,
     name: 'lines',
   })
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
-  const addInvoiceLine = useCallback(() => {
-    const startDate = new Date()
-    const endDate = new Date(startDate)
-    endDate.setDate(endDate.getDate() + 1)
-
-    append({
-      product: '',
-      startDate,
-      endDate,
-      quantity: 1.00,
-      unitPrice: 1.00,
-      taxRate: 20.00,
-    })
+  const addInvoiceLine = useCallback((item: InvoiceLineSchema) => {
+    append(item)
   }, [append])
 
-  const columns = useMemo<ColumnDef<InvoiceLineSchema>[]>(
-    () => [
-      {
-        header: 'Product',
-        cell: ({ row }) => (
-          <GenericFormField
-            control={methods.control}
-            name={`lines.${row.index}.product`}
-            render={({ field }) => (
-              <Input
-                {...field}
-                placeholder="Product name"
-                autoComplete="off"
-              />
-            )}
-          />
-        ),
-      },
-      {
-        header: 'Date Range',
-        cell: ({ row }) => (
-          <DateRangeCell
-            control={methods.control}
-            rowIndex={row.index}
-            methods={methods}
-          />
-        ),
-      },
-      {
-        header: 'Quantity',
-        cell: ({ row }) => (
-          <GenericFormField
-            control={methods.control}
-            name={`lines.${row.index}.quantity`}
-            render={({ field }) => (
-              <Input
-                {...field}
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={field.value || 0}
-                onChange={(e) => field.onChange(Number(e.target.value) || 0.0)}
-                autoComplete="off"
-              />
-            )}
-          />
-        ),
-      },
-      {
-        header: 'Unit Price',
-        cell: ({ row }) => (
-          <GenericFormField
-            control={methods.control}
-            name={`lines.${row.index}.unitPrice`}
-            render={({ field }) => (
-              <UncontrolledPriceInput
-                {...field}
-                currency={currency}
-                showCurrency={false}
-                className="max-w-xs"
-                precision={2}
-                onChange={(e) => field.onChange(Number(e.target.value) || 0.0)}
-                autoComplete="off"
-              />
-            )}
-          />
-        ),
-      },
-      {
-        header: 'Tax Rate (%)',
-        cell: ({ row }) => (
-          <GenericFormField
-            control={methods.control}
-            name={`lines.${row.index}.taxRate`}
-            render={({ field }) => (
-              <Input
-                {...field}
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={field.value || 0.00}
-                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                autoComplete="off"
-              />
-            )}
-          />
-        ),
-      },
-      {
-        header: 'Total (excl. tax)',
-        cell: ({ row }) => <TotalCell control={methods.control} rowIndex={row.index} currency={currency}/>,
-      },
-      {
-        header: '',
-        id: 'remove',
-        cell: ({ row }) => (
-          <Button
-            type="button"
-            variant="link"
-            size="icon"
-            onClick={() => remove(row.index)}
-          >
-            <XIcon size={16}/>
-          </Button>
-        ),
-      },
-    ],
-    [methods.control, remove, currency]
-  )
+  const editInvoiceLine = useCallback((index: number) => {
+    setEditingIndex(index)
+    setIsEditModalOpen(true)
+  }, [])
+
+  const saveEditedLine = useCallback((item: InvoiceLineSchema) => {
+    if (editingIndex !== null) {
+      update(editingIndex, item)
+      setEditingIndex(null)
+    }
+  }, [editingIndex, update])
 
   return (
     <>
-      {fields.length > 0 ? (
-        <>
-          <SimpleTable columns={columns} data={fields}/>
-          <Button variant="link" onClick={addInvoiceLine}>
-            + Add Line
-          </Button>
-        </>
-      ) : (
-        <Button variant="link" onClick={addInvoiceLine}>
-          + Add Line
-        </Button>
+      <div className="space-y-2">
+        {fields.map((field, index) => (
+          <InvoiceLineItemDisplay
+            key={field.id}
+            item={field}
+            index={index}
+            currency={currency}
+            onRemove={remove}
+            onEdit={editInvoiceLine}
+          />
+        ))}
+      </div>
+
+      <Button
+        type="button"
+        variant="link"
+        onClick={() => setIsModalOpen(true)}
+        className="mt-2"
+      >
+        + Add Line
+      </Button>
+
+      <AddLineItemModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onAdd={addInvoiceLine}
+        currency={currency}
+      />
+
+      {editingIndex !== null && (
+        <EditLineItemModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false)
+            setEditingIndex(null)
+          }}
+          onSave={saveEditedLine}
+          currency={currency}
+          initialData={fields[editingIndex]}
+        />
       )}
     </>
   )
 }
 
+const CreateInvoicePreview = ({
+  methods,
+}: {
+  methods: ReturnType<typeof useZodForm<typeof schemas.invoices.createInvoiceSchema>>
+}) => {
+  const watchedCustomerId = methods.watch('customerId')
+  const watchedLines = methods.watch('lines')
+  const watchedCurrency = methods.watch('currency')
+  const watchedInvoiceDate = methods.watch('invoiceDate')
+  const watchedDueDate = methods.watch('dueDate')
+  const watchedDiscount = methods.watch('discount')
+  const watchedPurchaseOrder = methods.watch('purchaseOrder')
+
+  const [previewHtml, setPreviewHtml] = useState<string>('')
+  const previewInvoiceMutation = useMutation(previewNewInvoiceHtml)
+
+  const generatePreview = useCallback(async () => {
+    if (!watchedCustomerId || !watchedCurrency || !watchedInvoiceDate || !watchedLines?.length) {
+      setPreviewHtml('')
+      return
+    }
+
+    try {
+      const response = await previewInvoiceMutation.mutateAsync({
+        invoice: {
+          customerId: watchedCustomerId,
+          invoiceDate: mapDatev2(watchedInvoiceDate),
+          dueDate: watchedDueDate ? mapDatev2(watchedDueDate) : undefined,
+          currency: watchedCurrency,
+          purchaseOrder: methods.getValues('purchaseOrder') || undefined,
+          discount: watchedDiscount ? watchedDiscount.toString() : undefined,
+          lineItems: watchedLines?.map(line => ({
+            product: line.product,
+            startDate: mapDatev2(line.startDate),
+            endDate: mapDatev2(line.endDate),
+            quantity: line.quantity.toString(),
+            unitPrice: line.unitPrice.toString(),
+            taxRate: ((line.taxRate || 0) / 100).toString(),
+          }))
+        },
+      })
+      setPreviewHtml(response.html || '')
+    } catch (error) {
+      setPreviewHtml('')
+    }
+  }, [watchedCustomerId, watchedLines, watchedDiscount, watchedCurrency, watchedInvoiceDate, watchedDueDate, watchedPurchaseOrder])
+
+  useEffect(() => {
+    const timeoutId = setTimeout(generatePreview, 500)
+    return () => clearTimeout(timeoutId)
+  }, [generatePreview])
+
+  if (!watchedCustomerId || !watchedCurrency || !watchedInvoiceDate || !watchedLines?.length) {
+    return (
+      <div
+        className="h-full flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+        <div className="text-center">
+          <div className="text-lg font-medium text-gray-500 mb-2">Invoice Preview</div>
+          <div className="text-sm text-gray-400">Fill in the form on the left to preview the invoice</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (previewInvoiceMutation.isPending) {
+    return (
+      <div className="h-full flex items-center justify-center bg-white rounded-lg border">
+        <div className="text-sm text-muted-foreground">Generating preview...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col">
+      <div
+        className="flex-1 flex justify-center items-start bg-gray-100 p-4 rounded-lg overflow-auto"
+        style={{ minHeight: 'fit-content' }}
+      >
+        <div
+          className="bg-white transform scale-75 origin-top"
+          style={{
+            boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',
+          }}
+          dangerouslySetInnerHTML={{ __html: previewHtml }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export const InvoiceCreate = () => {
-  // add discount
   // make taxRate a number instead of text and prepopulate it with customer tax (see TaxEngine and expose it in grpc api)
   const navigate = useNavigate()
   const basePath = useBasePath()
@@ -281,13 +569,10 @@ export const InvoiceCreate = () => {
 
   const watchedCustomerId = methods.watch('customerId')
   const watchedInvoiceDate = methods.watch('invoiceDate')
-  const watchedLines = methods.watch('lines')
 
   const prevCustomerIdRef = useRef(watchedCustomerId)
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [pendingCustomerId, setPendingCustomerId] = useState<string | null>(null)
-  const [showPreviewModal, setShowPreviewModal] = useState(false)
-  const [previewHtml, setPreviewHtml] = useState<string>('')
 
   const handleCustomerChange = (newCustomerId: string) => {
     const currentCustomerId = methods.getValues('customerId')
@@ -383,7 +668,6 @@ export const InvoiceCreate = () => {
     customerQuery.data?.customer?.invoicingEntityId,
     customerQuery.data?.customer?.currency,
     invoicingEntityQuery.data?.entity?.netTerms,
-    methods
   ])
 
   const createInvoiceMutation = useMutation(createInvoice, {
@@ -392,228 +676,157 @@ export const InvoiceCreate = () => {
     },
   })
 
-  const previewInvoiceMutation = useMutation(previewNewInvoiceHtml)
-
-  const handlePreview = async () => {
-    const formData = methods.getValues()
-    const isValid = await methods.trigger() // Validate the form
-
-    if (!isValid) {
-      toast.error('Please fix form errors before previewing')
-      return
-    }
-
-    try {
-      const response = await previewInvoiceMutation.mutateAsync({
-        invoice: {
-          customerId: formData.customerId,
-          invoiceDate: mapDatev2(formData.invoiceDate),
-          dueDate: formData.dueDate ? mapDatev2(formData.dueDate) : undefined,
-          currency: formData.currency,
-          purchaseOrder: formData.purchaseOrder || undefined,
-          discount: formData.discount ? formData.discount.toString() : undefined,
-          lineItems: formData.lines?.map(line => ({
-            product: line.product,
-            startDate: mapDatev2(line.startDate),
-            endDate: mapDatev2(line.endDate),
-            quantity: line.quantity.toString(),
-            unitPrice: line.unitPrice.toString(),
-            taxRate: ((line.taxRate || 0) / 100).toString(),
-          }))
-        },
-      })
-
-      setPreviewHtml(response.html || '')
-      setShowPreviewModal(true)
-    } catch (error) {
-      toast.error('Failed to generate preview')
-      console.error(error)
-    }
-  }
 
   return (
     <>
       <PageHeading>Create invoice</PageHeading>
-      <Form {...methods}>
-        <form onSubmit={methods.handleSubmit(onSubmit)}>
-          <div className="flex flex-col gap-4 max-w-6xl">
-            <GenericFormField
-              control={methods.control}
-              layout="horizontal"
-              label="Customer"
-              name="customerId"
-              render={({ field }) => (
-                <CustomerSelect value={field.value} onChange={handleCustomerChange}/>
-              )}
-            />
-            <GenericFormField
-              control={methods.control}
-              layout="horizontal"
-              label="Currency"
-              name="currency"
-              render={({ field }) => (
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <SelectTrigger className="min-w-[13em]">
-                    <SelectValue placeholder="Select a currency"/>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {
-                      activeCurrencies.map((a, i) => <SelectItem value={a} key={`item` + i}>{a}</SelectItem>)
-                    }
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            <GenericFormField
-              control={methods.control}
-              layout="horizontal"
-              label="Invoice date"
-              name="invoiceDate"
-              render={({ field }) => (
-                <DatePicker
-                  mode="single"
-                  captionLayout="dropdown"
-                  className="min-w-[13em]"
-                  date={field.value}
-                  onSelect={field.onChange}
-                />
-              )}
-            />
-            <GenericFormField
-              control={methods.control}
-              layout="horizontal"
-              label="Due date"
-              name="dueDate"
-              render={({ field }) => (
-                <DatePicker
-                  mode="single"
-                  captionLayout="dropdown"
-                  className="min-w-[13em]"
-                  date={field.value}
-                  onSelect={field.onChange}
-                />
-              )}
-            />
-            <GenericFormField
-              control={methods.control}
-              layout="horizontal"
-              label="Purchase Order"
-              name="purchaseOrder"
-              render={({ field }) => (
-                <Input
-                  {...field}
-                  placeholder="Order № (optional)"
-                  className="min-w-[13em]"
-                />
-              )}
-            />
+      <Flex className="h-full">
+        {/* Left Panel - Invoice Form */}
+        <Flex direction="column" className="w-1/3 border-r border-border">
+          <div className="flex-1 overflow-auto p-6">
+            <Form {...methods}>
+              <form onSubmit={methods.handleSubmit(onSubmit)}>
+                <div className="flex flex-col gap-4">
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Customer"
+                    name="customerId"
+                    render={({ field }) => (
+                      <CustomerSelect value={field.value} onChange={handleCustomerChange}/>
+                    )}
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Currency"
+                    name="currency"
+                    render={({ field }) => (
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <SelectTrigger className="min-w-[13em]">
+                          <SelectValue placeholder="Select a currency"/>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {
+                            activeCurrencies.map((a, i) => <SelectItem value={a} key={`item` + i}>{a}</SelectItem>)
+                          }
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Invoice date"
+                    name="invoiceDate"
+                    render={({ field }) => (
+                      <DatePicker
+                        mode="single"
+                        captionLayout="dropdown"
+                        className="min-w-[13em]"
+                        date={field.value}
+                        onSelect={field.onChange}
+                      />
+                    )}
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Due date"
+                    name="dueDate"
+                    render={({ field }) => (
+                      <DatePicker
+                        mode="single"
+                        captionLayout="dropdown"
+                        className="min-w-[13em]"
+                        date={field.value}
+                        onSelect={field.onChange}
+                      />
+                    )}
+                  />
+                  <GenericFormField
+                    control={methods.control}
+                    layout="horizontal"
+                    label="Purchase Order"
+                    name="purchaseOrder"
+                    render={({ field }) => (
+                      <Input
+                        {...field}
+                        placeholder="Order № (optional)"
+                        className="min-w-[13em]"
+                        autoComplete="off"
+                      />
+                    )}
+                  />
 
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-lg font-medium">Invoice Lines</h3>
-                {methods.formState.errors.lines && (
-                  <div className="text-[0.8rem] font-medium text-destructive mt-1">
-                    {methods.formState.errors.lines.message}
-                  </div>
-                )}
-              </div>
-
-              <InvoiceLineTable
-                methods={methods}
-                currency={methods.watch('currency') || 'USD'}
-              />
-
-              {watchedLines?.length > 0 && (() => {
-                const currency = methods.watch('currency') || 'USD'
-                const discount = Number(methods.watch('discount')) || 0
-                const subtotal = watchedLines.reduce((sum, line) => {
-                  const quantity = Number(line?.quantity) || 0
-                  const unitPrice = Number(line?.unitPrice) || 0
-                  return sum + (quantity * unitPrice)
-                }, 0)
-                const discountedSubtotal = Math.max(0, subtotal - discount)
-                const totalTax = watchedLines.reduce((sum, line) => {
-                  const quantity = Number(line?.quantity) || 0
-                  const unitPrice = Number(line?.unitPrice) || 0
-                  const taxRate = Number(line?.taxRate) || 0
-                  const lineSubtotal = quantity * unitPrice
-                  const lineDiscountProportion = subtotal > 0 ? lineSubtotal / subtotal : 0
-                  const lineDiscountAmount = discount * lineDiscountProportion
-                  const discountedLineAmount = Math.max(0, lineSubtotal - lineDiscountAmount)
-                  return sum + (discountedLineAmount * (taxRate / 100))
-                }, 0)
-                const total = discountedSubtotal + totalTax
-
-                return (
-                  <div className="flex justify-end">
-                    <div className="w-80 space-y-2 border-t pt-4">
-                      <div className="flex justify-between">
-                        <span>Subtotal:</span>
-                        <span>{formatCurrency(subtotal, currency)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Discount:</span>
-                        <div className="flex items-center gap-2">
-                          <GenericFormField
-                            control={methods.control}
-                            name="discount"
-                            render={({ field }) => (
-                              <UncontrolledPriceInput
-                                {...field}
-                                currency={currency}
-                                showCurrency={false}
-                                className="w-26 text-right"
-                                precision={2}
-                                onChange={(e) => field.onChange(Number(e.target.value) || 0)}
-                                autoComplete="off"
-                              />
-                            )}
-                          />
+                  <div className="space-y-2 border-t pt-4">
+                    <div>
+                      <h3 className="text-lg font-medium">Line Items</h3>
+                      {methods.formState.errors.lines && (
+                        <div className="text-[0.8rem] font-medium text-destructive mt-1">
+                          {methods.formState.errors.lines.message}
                         </div>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Tax:</span>
-                        <span>{formatCurrency(totalTax, currency)}</span>
-                      </div>
-                      <div className="flex justify-between font-semibold border-t pt-2">
-                        <span>Total:</span>
-                        <span>{formatCurrency(total, currency)}</span>
-                      </div>
+                      )}
+                    </div>
+
+                    <InvoiceLineTable
+                      methods={methods}
+                      currency={methods.watch('currency') || 'USD'}
+                    />
+
+                    <div className="border-t pt-4">
+                      <GenericFormField
+                        control={methods.control}
+                        layout="horizontal"
+                        label="Discount"
+                        name="discount"
+                        render={({ field }) => (
+                          <UncontrolledPriceInput
+                            {...field}
+                            currency={methods.watch('currency') || 'USD'}
+                            showCurrency={false}
+                            className="min-w-[13em]"
+                            step="0.1"
+                            precision={2}
+                            onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                            autoComplete="off"
+                          />
+                        )}
+                      />
                     </div>
                   </div>
-                )
-              })()}
-            </div>
 
-            <div className="flex gap-2">
-              <Link to={`${basePath}/invoices`}>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  title="Cancel"
-                >
-                  Cancel
-                </Button>
-              </Link>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handlePreview}
-                disabled={previewInvoiceMutation.isPending}
-              >
-                {previewInvoiceMutation.isPending ? 'Loading...' : 'Preview'}
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={createInvoiceMutation.isPending}
-              >
-                {createInvoiceMutation.isPending ? 'Creating...' : 'Create'}
-              </Button>
-            </div>
+                  <div className="flex gap-2 pt-4">
+                    <Link to={`${basePath}/invoices`}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        title="Cancel"
+                      >
+                        Cancel
+                      </Button>
+                    </Link>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={createInvoiceMutation.isPending}
+                    >
+                      {createInvoiceMutation.isPending ? 'Creating...' : 'Create'}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            </Form>
           </div>
-        </form>
-      </Form>
+        </Flex>
+
+        {/* Right Panel - Invoice Preview */}
+        <div className="w-2/3 flex flex-col">
+          <div className="flex-1 overflow-auto p-6">
+            <CreateInvoicePreview methods={methods}/>
+          </div>
+        </div>
+      </Flex>
 
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
         <AlertDialogContent>
@@ -631,21 +844,6 @@ export const InvoiceCreate = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={showPreviewModal} onOpenChange={setShowPreviewModal}>
-        <DialogContent className="w-full min-h-[870px] max-w-[824px] p-2 bg-muted">
-          {previewInvoiceMutation.isPending ? (
-            <div className="flex items-center justify-center h-full">
-              <span>Loading preview...</span>
-            </div>
-          ) : (
-            <iframe
-              srcDoc={previewHtml}
-              className="w-full h-full border border-border rounded-sm bg-white mt-12"
-              title="Invoice Preview"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   )
 }
