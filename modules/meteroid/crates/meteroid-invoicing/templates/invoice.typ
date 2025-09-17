@@ -6,6 +6,7 @@
   organization,
   customer,
   number,
+  purchase_order,
   issue_date,
   due_date,
   subtotal,
@@ -131,6 +132,14 @@
 
         [#text(fill: color.accent, weight: "medium", translations.due_date)],
         [#text(weight: "medium", due_date)],
+
+        if purchase_order != none [
+          #text(fill: color.accent, weight: "medium", translations.purchase_order)
+        ] else [],
+
+       if purchase_order != none [
+          #text(weight: "medium", purchase_order)
+       ] else [],
 
         if organization.tax_id != none [
           #text(fill: color.accent, weight: "medium", translations.vat_id)

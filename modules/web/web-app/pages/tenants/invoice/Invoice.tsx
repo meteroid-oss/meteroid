@@ -155,29 +155,30 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
         />
 
         {/* Floating Download Button */}
-        <div className="absolute top-16 right-16">
-          <Button
-            disabled={!invoice.pdfDocumentId}
-            asChild
-            variant="flat"
-            size="icon"
-            className="shadow-lg"
-          >
-            <a
-              href={
-                invoice.pdfDocumentId && invoice.documentSharingKey
-                  ? `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
-                  : '#'
-              }
-              download={`invoice_${invoice.invoiceNumber}.pdf`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-2"
+        {invoice.pdfDocumentId &&
+          <div className="absolute top-16 right-16">
+            <Button
+              asChild
+              variant="flat"
+              size="icon"
+              className="shadow-lg"
             >
-              <Download size="16"/>
-            </a>
-          </Button>
-        </div>
+              <a
+                href={
+                  invoice.pdfDocumentId && invoice.documentSharingKey
+                    ? `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
+                    : '#'
+                }
+                download={`invoice_${invoice.invoiceNumber}.pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2"
+              >
+                <Download size="16"/>
+              </a>
+            </Button>
+          </div>
+        }
       </div>
     </div>
   )
@@ -321,6 +322,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             />
             <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)}/>
             <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)}/>
+            {invoice.purchaseOrder && <FlexDetails title="Purchase order" value={invoice.purchaseOrder}/>}
             <FlexDetails title="Currency" value={invoice.currency}/>
           </Flex>
 

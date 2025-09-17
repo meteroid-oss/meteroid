@@ -46,3 +46,4 @@ eu-vat-directive-notice = Cette facture est conforme à la Directive TVA UE 2006
 late-payment-interest = Intérêts de retard: 3% au-dessus du taux BCE
 company-registration = Numéro d'immatriculation
 discount = Remise
+purchase-order = Bon de commande

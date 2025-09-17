@@ -6,6 +6,7 @@
   inputs.organization,
   inputs.customer,
   inputs.number,
+  inputs.purchase_order,
   inputs.issue_date,
   inputs.due_date,
   inputs.subtotal,

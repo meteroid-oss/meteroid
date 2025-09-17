@@ -92,6 +92,7 @@ pub struct InvoiceMetadata {
     pub memo: Option<String>,
     pub payment_url: Option<String>,
     pub flags: Flags,
+    pub purchase_order: Option<String>,
 }
 
 #[derive(Default)]

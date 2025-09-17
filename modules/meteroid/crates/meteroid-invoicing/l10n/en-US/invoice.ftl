@@ -1,9 +1,9 @@
 invoice-title = Invoice
 invoice-number = Invoice n°
 company-logo-alt = Company Logo
-issue-date = Issue Date:
+issue-date = Issue Date
 amount-due = Amount Due
-due-date = Due Date:
+due-date = Due Date
 bill-from = Bill From
 bill-to = Bill To
 invoice-lines = Invoice Lines
@@ -45,3 +45,4 @@ eu-vat-directive-notice = This invoice complies with EU VAT Directive 2006/112/E
 late-payment-interest = Late payment interest: 3% above ECB rate
 company-registration = Company registration number
 discount = Discount
+purchase-order = Purchase Order

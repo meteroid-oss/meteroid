@@ -302,6 +302,7 @@ mod mapper {
             memo: invoice.memo.clone(),
             payment_url: None, // TODO
             flags: Flags::default(),
+            purchase_order: invoice.purchase_order.clone(),
         };
 
         fn map_address(address: store_model::Address) -> invoicing_model::Address {

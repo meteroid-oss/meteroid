@@ -252,6 +252,7 @@ pub mod invoices {
                 .map(super::transactions::domain_to_server)
                 .collect(),
             manual: invoice.manual,
+            purchase_order: invoice.purchase_order,
         })
     }
 

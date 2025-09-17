@@ -91,6 +91,7 @@ message DetailedInvoice {
   repeated Transaction transactions = 42;
   optional string paid_at = 43;
   bool manual = 44;
+  optional string purchase_order = 45;
 }
 
 message TaxBreakdownItem {
