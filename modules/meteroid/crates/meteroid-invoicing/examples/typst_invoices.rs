@@ -153,6 +153,7 @@ fn create_test_invoice() -> Invoice {
                 whitelabel: None
             },
             discount: Money::from_major(0, eur),
+            purchase_order: Some("Order #210".to_string()),
         },
         lines: vec![
             InvoiceLine {

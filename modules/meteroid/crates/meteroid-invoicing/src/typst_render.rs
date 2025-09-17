@@ -283,6 +283,7 @@ pub struct TypstInvoiceContent {
     pub coupons: Vec<TypstCoupon>,
     pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
     pub discount: f64,
+    pub purchase_order: Option<String>,
 }
 
 impl From<&Invoice> for TypstInvoiceContent {
@@ -339,6 +340,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             "late_payment_interest" => invoice_l10n.late_payment_interest().into_value(),
             "company_registration" => invoice_l10n.company_registration().into_value(),
             "discount" => invoice_l10n.discount().into_value(),
+            "purchase_order" => invoice_l10n.purchase_order().into_value()
         };
 
         if let Some(exchange_rate) = invoice.organization.exchange_rate {
@@ -457,6 +459,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             whitelabel: invoice.metadata.flags.whitelabel.unwrap_or(false),
             tax_breakdown,
             discount,
+            purchase_order: invoice.metadata.purchase_order.clone(),
         }
     }
 }
