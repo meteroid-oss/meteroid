@@ -98,6 +98,8 @@ pub trait InvoiceInterface {
         external_id: &str,
         external_company_id: &str,
     ) -> StoreResult<()>;
+
+    async fn delete_invoice(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -343,6 +345,14 @@ impl InvoiceInterface for Store {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn delete_invoice(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::delete(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)
     }
 }
 

@@ -7,13 +7,13 @@ use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
 use common_grpc::middleware::server::auth::RequestExt;
 use common_utils::decimals::ToSubunit;
 use meteroid_grpc::meteroid::api::invoices::v1::{
-    CreateInvoiceRequest, CreateInvoiceResponse, FinalizeInvoiceRequest, FinalizeInvoiceResponse,
-    GetInvoiceRequest, GetInvoiceResponse, Invoice, ListInvoicesRequest, ListInvoicesResponse,
-    NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse, PreviewNewInvoiceRequest,
-    PreviewNewInvoiceResponse, RefreshInvoiceDataRequest, RefreshInvoiceDataResponse,
-    RequestPdfGenerationRequest, RequestPdfGenerationResponse, SyncToPennylaneRequest,
-    SyncToPennylaneResponse, invoices_service_server::InvoicesService,
-    list_invoices_request::SortBy,
+    CreateInvoiceRequest, CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
+    FinalizeInvoiceRequest, FinalizeInvoiceResponse, GetInvoiceRequest, GetInvoiceResponse,
+    Invoice, ListInvoicesRequest, ListInvoicesResponse, NewInvoice, PreviewInvoiceRequest,
+    PreviewInvoiceResponse, PreviewNewInvoiceRequest, PreviewNewInvoiceResponse,
+    RefreshInvoiceDataRequest, RefreshInvoiceDataResponse, RequestPdfGenerationRequest,
+    RequestPdfGenerationResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
+    invoices_service_server::InvoicesService, list_invoices_request::SortBy,
 };
 use meteroid_store::Store;
 use meteroid_store::domain::pgmq::{InvoicePdfRequestEvent, PgmqMessageNew, PgmqQueue};
@@ -315,6 +315,24 @@ impl InvoicesService for InvoiceServiceComponents {
         Ok(Response::new(FinalizeInvoiceResponse {
             invoice: Some(finalized),
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn delete_invoice(
+        &self,
+        request: Request<DeleteInvoiceRequest>,
+    ) -> Result<Response<DeleteInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let invoice_id = InvoiceId::from_proto(&req.id)?;
+
+        self.store
+            .delete_invoice(invoice_id, tenant_id)
+            .await
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(DeleteInvoiceResponse {}))
     }
 }
 
