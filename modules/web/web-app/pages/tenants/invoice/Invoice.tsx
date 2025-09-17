@@ -1,5 +1,13 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   cn,
@@ -12,9 +20,10 @@ import {
   Skeleton,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckCircleIcon, ChevronDown, Download, FolderSyncIcon, RefreshCcw } from 'lucide-react'
+import { CheckCircleIcon, ChevronDown, Download, FolderSyncIcon, RefreshCcw, Trash2 } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
@@ -31,7 +40,9 @@ import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
+  deleteInvoice,
   getInvoice,
+  listInvoices,
   previewInvoiceHtml,
   refreshInvoiceData,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
@@ -187,6 +198,7 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
 export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, invoiceId }) => {
   const basePath = useBasePath()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
 
   const refresh = useMutation(refreshInvoiceData, {
     onSuccess: async res => {
@@ -197,8 +209,28 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
     },
   })
 
+  const deleteInvoiceMutation = useMutation(deleteInvoice, {
+    onSuccess: async () => {
+      // Show success toast
+      toast.success(`Invoice deleted`)
+      // Invalidate the list invoices query to refresh the list
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(listInvoices, {}),
+      })
+      // Navigate back to the invoices list after successful deletion
+      navigate(`${basePath}/invoices`)
+    },
+  })
+
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
+  const doDelete = () => deleteInvoiceMutation.mutateAsync({ id: invoice?.id ?? '' })
+  const handleDeleteClick = () => setShowDeleteConfirmation(true)
+  const handleDeleteConfirm = () => {
+    setShowDeleteConfirmation(false)
+    doDelete()
+  }
   const canRefresh = invoice && invoice.status === InvoiceStatus.DRAFT && !invoice.manual
+  const canDelete = invoice && invoice.status === InvoiceStatus.DRAFT
   const pdf_url =
     invoice.documentSharingKey &&
     `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
@@ -208,6 +240,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
   const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false)
   const [showFinalizeInvoiceModal, setShowFinalizeInvoiceModal] = useState(false)
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
   const isPennylaneConnected = connectorsData.some(
     connector => connector.provider === ConnectorProviderEnum.PENNYLANE
   )
@@ -244,6 +277,26 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
           onSuccess={onFinalizeSuccess}
         />
       )}
+
+      <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle> Delete Invoice</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete invoice {invoice.invoiceNumber}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Left Panel - Invoice Details */}
       <Flex direction="column" className="w-1/3 border-r border-border">
@@ -294,6 +347,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     <Download size="16"/>
                     Download PDF
                   </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canDelete}
+                  onClick={handleDeleteClick}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 size="16" className="mr-2"/>
+                  Delete
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

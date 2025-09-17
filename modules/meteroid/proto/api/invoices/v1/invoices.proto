@@ -89,6 +89,12 @@ message FinalizeInvoiceResponse {
   DetailedInvoice invoice = 1;
 }
 
+message DeleteInvoiceRequest {
+  string id = 1;
+}
+
+message DeleteInvoiceResponse {}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
@@ -99,4 +105,5 @@ service InvoicesService {
   rpc CreateInvoice(CreateInvoiceRequest) returns (CreateInvoiceResponse) {}
   rpc PreviewNewInvoiceHtml(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
+  rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
 }

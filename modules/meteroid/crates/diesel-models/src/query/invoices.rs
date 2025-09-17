@@ -455,6 +455,25 @@ impl InvoiceRow {
         .await
         .map(|_| ())
     }
+
+    pub async fn delete(conn: &mut PgConn, id: InvoiceId, tenant_id: TenantId) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::delete(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Draft));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach_printable("Error while deleting invoice")
+            .into_db_result()
+    }
 }
 
 impl InvoiceRowLinesPatch {
