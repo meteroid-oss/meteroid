@@ -1,7 +1,5 @@
 use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as Base64Engine;
 use common_domain::ids::{InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
 use error_stack::ResultExt;
 use image::ImageFormat::Png;
@@ -43,8 +41,7 @@ impl InvoicePreviewRenderingService {
     ) -> error_stack::Result<String, InvoicingRenderError> {
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let res = get_logo_as_base64_for_invoice(&self.storage, *logo_id).await?;
-
+                let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
                 Some(res)
             }
             None => None,
@@ -64,7 +61,7 @@ impl InvoicePreviewRenderingService {
         }
 
         let mapped =
-            mapper::map_invoice_to_invoicing(invoice, &invoicing_entity, &organization_logo, rate)?;
+            mapper::map_invoice_to_invoicing(invoice, &invoicing_entity, organization_logo, rate)?;
 
         let svg_string = self
             .generator
@@ -202,10 +199,10 @@ impl PdfRenderingService {
         let invoice_id = invoice.id;
         let tenant_id = invoice.tenant_id;
 
-        // let's resolve the logo and encode it to a base64 url
+        // let's resolve the logo as raw bytes
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
-                let res = get_logo_as_base64_for_invoice(&self.storage, *logo_id).await?;
+                let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
                 Some(res)
             }
             None => None,
@@ -227,7 +224,7 @@ impl PdfRenderingService {
         let customer_id = invoice.customer_id;
 
         let mapped_invoice =
-            mapper::map_invoice_to_invoicing(invoice, invoicing_entity, &organization_logo, rate)?;
+            mapper::map_invoice_to_invoicing(invoice, invoicing_entity, organization_logo, rate)?;
 
         let pdf = self
             .pdf
@@ -265,7 +262,7 @@ mod mapper {
     pub fn map_invoice_to_invoicing(
         invoice: store_model::Invoice,
         invoicing_entity: &store_model::InvoicingEntity,
-        organization_logo_base64: &Option<String>,
+        organization_logo_bytes: Option<Vec<u8>>,
         accounting_rate: Option<HistoricalRate>,
     ) -> error_stack::Result<invoicing_model::Invoice, InvoicingRenderError> {
         let finalized_date = invoice
@@ -320,7 +317,7 @@ mod mapper {
             address: map_address(invoice.seller_details.address),
             email: None,        // TODO
             legal_number: None, // TODO
-            logo_src: organization_logo_base64.clone(),
+            logo_src: organization_logo_bytes,
             name: invoice.seller_details.legal_name,
             tax_id: invoice.seller_details.vat_number,
             footer_info: invoicing_entity.invoice_footer_info.clone(),
@@ -419,10 +416,10 @@ mod mapper {
     }
 }
 
-async fn get_logo_as_base64_for_invoice(
+async fn get_logo_bytes_for_invoice(
     storage: &Arc<dyn ObjectStoreService>,
     logo_id: StoredDocumentId,
-) -> error_stack::Result<String, InvoicingRenderError> {
+) -> error_stack::Result<Vec<u8>, InvoicingRenderError> {
     let logo = storage
         .retrieve(logo_id, Prefix::ImageLogo)
         .await
@@ -435,8 +432,5 @@ async fn get_logo_as_base64_for_invoice(
     img.write_to(&mut Cursor::new(&mut buffer), Png)
         .change_context(InvoicingRenderError::RenderError)?;
 
-    Ok(format!(
-        "data:image/png;base64,{}",
-        Base64Engine.encode(&buffer)
-    ))
+    Ok(buffer)
 }

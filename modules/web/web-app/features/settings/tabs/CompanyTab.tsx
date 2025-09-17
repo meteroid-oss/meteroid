@@ -90,19 +90,23 @@ export const CompanyTab = () => {
 
   useEffect(() => {
     if (currentInvoicingEntity) {
-      methods.setValue('legalName', currentInvoicingEntity.legalName)
-      methods.setValue('addressLine1', currentInvoicingEntity.addressLine1)
-      methods.setValue('addressLine2', currentInvoicingEntity.addressLine2)
-      methods.setValue('zipCode', currentInvoicingEntity.zipCode)
-      methods.setValue('state', currentInvoicingEntity.state)
-      methods.setValue('country', currentInvoicingEntity.country)
+      methods.reset({
+        legalName: currentInvoicingEntity.legalName || '',
+        addressLine1: currentInvoicingEntity.addressLine1 || '',
+        addressLine2: currentInvoicingEntity.addressLine2 || '',
+        zipCode: currentInvoicingEntity.zipCode || '',
+        state: currentInvoicingEntity.state || '',
+        country: currentInvoicingEntity.country || '',
+        city: currentInvoicingEntity.city || '',
+        vatNumber: currentInvoicingEntity.vatNumber || '',
+      })
     } else {
       methods.reset()
     }
   }, [currentInvoicingEntity])
 
   if (isLoading) {
-    return <Loading />
+    return <Loading/>
   }
 
   const onSubmit = async (values: z.infer<typeof invoicingEntitySchema>) => {
@@ -133,7 +137,7 @@ export const CompanyTab = () => {
               </div>
               <div className="col-span-4 content-center  flex flex-row">
                 <div className="flex-grow"></div>
-                <InvoicingEntitySelect />
+                <InvoicingEntitySelect/>
               </div>
             </div>
             <div className="grid grid-cols-6 gap-4 pt-1 ">
@@ -159,7 +163,7 @@ export const CompanyTab = () => {
                 placeholder="Line 2"
                 containerClassName="col-span-3"
               />
-              <CountrySelect className="col-span-2" methods={methods} />
+              <CountrySelect className="col-span-2" methods={methods}/>
               <InputFormField
                 name="zipCode"
                 control={methods.control}
@@ -202,7 +206,7 @@ export const CompanyTab = () => {
               </div>
               <div className="col-span-1 "></div>
               <div className="col-span-1 content-end">
-                {currentInvoicingEntity && <FileUpload entity={currentInvoicingEntity} />}
+                {currentInvoicingEntity && <FileUpload entity={currentInvoicingEntity}/>}
               </div>
             </div>
             <div className="pt-4">
@@ -219,7 +223,7 @@ export const CompanyTab = () => {
               </div>
               <div className="col-span-1 "></div>
               <div className="col-span-1 content-center">
-                <AccountingCurrencySelect methods={methods} />
+                <AccountingCurrencySelect methods={methods}/>
               </div>
             </div>
             <div className="pt-10 flex justify-end items-center ">
@@ -324,7 +328,7 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
               className="absolute top-0 right-0 w-6 h-6 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={clearFile}
             >
-              <XIcon size="16" />
+              <XIcon size="16"/>
             </Button>
           </div>
         )}
@@ -339,9 +343,9 @@ const FileUpload = ({ entity }: { entity: InvoicingEntity }) => {
       <Button size="icon" variant="ghost" type="button" className="self-end">
         <Label htmlFor="file-upload" className="cursor-pointer w-full h-full flex">
           {isUploading ? (
-            <RefreshCwIcon size="16" className="animate-spin m-auto" />
+            <RefreshCwIcon size="16" className="animate-spin m-auto"/>
           ) : (
-            <UploadIcon size="16" className="m-auto" />
+            <UploadIcon size="16" className="m-auto"/>
           )}
         </Label>
       </Button>
@@ -366,7 +370,7 @@ const AccountingCurrencySelect = ({
   return (
     <Select value={countryData?.currency}>
       <SelectTrigger disabled={true}>
-        <SelectValue placeholder="Select a country" />
+        <SelectValue placeholder="Select a country"/>
       </SelectTrigger>
       <SelectContent hideWhenDetached>
         {countryData?.currency && (
@@ -398,7 +402,7 @@ const CountrySelect = ({
       <Label>Country</Label>
       <Select value={country}>
         <SelectTrigger disabled={true}>
-          <SelectValue placeholder="Select a country" />
+          <SelectValue placeholder="Select a country"/>
         </SelectTrigger>
         <SelectContent hideWhenDetached>
           {countryData?.currency && (

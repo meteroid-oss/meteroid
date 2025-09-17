@@ -48,7 +48,7 @@ pub struct TaxBreakdownItem {
     pub exemption_type: Option<TaxExemptionType>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Address {
     pub line1: Option<String>,
     pub line2: Option<String>,
@@ -58,8 +58,9 @@ pub struct Address {
     pub zip_code: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct Organization {
-    pub logo_src: Option<String>,
+    pub logo_src: Option<Vec<u8>>,
     pub name: String,
     pub legal_number: Option<String>,
     pub address: Address,
