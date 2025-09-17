@@ -79,7 +79,7 @@ impl TypstAddress {
 #[derive(Debug, Clone, IntoValue, IntoDict)]
 pub struct TypstOrganization {
     pub name: String,
-    pub logo_src: Option<String>,
+    pub logo_src: Option<Bytes>,
     pub legal_number: Option<String>,
     pub address: TypstAddress,
     pub email: Option<String>,
@@ -92,18 +92,18 @@ pub struct TypstOrganization {
 }
 
 impl TypstOrganization {
-    pub fn from_org_with_lang(org: &Organization, lang: &str) -> Self {
+    pub fn from_org_with_lang(org: Organization, lang: &str) -> Self {
         let currency_code = org.accounting_currency.code().to_string();
 
         TypstOrganization {
-            name: org.name.clone(),
-            logo_src: org.logo_src.clone(),
-            legal_number: org.legal_number.clone(),
+            name: org.name,
+            logo_src: org.logo_src.map(Bytes::new),
+            legal_number: org.legal_number,
             address: TypstAddress::from_address(&org.address, lang),
-            email: org.email.clone(),
-            tax_id: org.tax_id.clone(),
-            footer_info: org.footer_info.clone(),
-            footer_legal: org.footer_legal.clone(),
+            email: org.email,
+            tax_id: org.tax_id,
+            footer_info: org.footer_info,
+            footer_legal: org.footer_legal,
             currency_code: currency_code.clone(),
             exchange_rate: org.exchange_rate.and_then(|d| d.to_f64()),
             accounting_currency_code: Some(currency_code),
@@ -429,7 +429,7 @@ impl From<&Invoice> for TypstInvoiceContent {
         TypstInvoiceContent {
             lang: invoice.lang.clone(),
             // Use the new methods with language parameter
-            organization: TypstOrganization::from_org_with_lang(&invoice.organization, lang),
+            organization: TypstOrganization::from_org_with_lang(invoice.organization.clone(), lang),
             customer: TypstCustomer::from_customer_with_lang(&invoice.customer, lang),
             number: invoice.metadata.number.clone(),
             issue_date: formatted_issue_date,
