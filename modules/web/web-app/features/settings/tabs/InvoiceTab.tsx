@@ -60,20 +60,22 @@ export const InvoiceTab = () => {
 
   useEffect(() => {
     if (currentEntity) {
-      methods.setValue('invoiceNumberPattern', currentEntity.invoiceNumberPattern)
-      methods.setValue('gracePeriodHours', currentEntity.gracePeriodHours)
-      methods.setValue('netTerms', currentEntity.netTerms)
-      methods.setValue('invoiceFooterInfo', currentEntity.invoiceFooterInfo)
-      methods.setValue('invoiceFooterLegal', currentEntity.invoiceFooterLegal)
-      methods.setValue('logoAttachmentId', currentEntity.logoAttachmentId)
-      methods.setValue('brandColor', currentEntity.brandColor)
+      methods.reset({
+        invoiceNumberPattern: currentEntity.invoiceNumberPattern || '',
+        gracePeriodHours: currentEntity.gracePeriodHours,
+        netTerms: currentEntity.netTerms,
+        invoiceFooterInfo: currentEntity.invoiceFooterInfo || '',
+        invoiceFooterLegal: currentEntity.invoiceFooterLegal || '',
+        logoAttachmentId: currentEntity.logoAttachmentId || '',
+        brandColor: currentEntity.brandColor || '',
+      })
     } else {
       methods.reset()
     }
   }, [currentEntity])
 
   if (isLoading) {
-    return <Loading />
+    return <Loading/>
   }
 
   const onSubmit = async (values: z.infer<typeof invoiceDetailsSchema>) => {
@@ -103,7 +105,7 @@ export const InvoiceTab = () => {
               </div>
               <div className="col-span-4 content-center  flex flex-row">
                 <div className="flex-grow"></div>
-                <InvoicingEntitySelect />
+                <InvoicingEntitySelect/>
               </div>
             </div>
             <div className="grid grid-cols-6 gap-4 pt-1 ">
