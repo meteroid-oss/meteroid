@@ -21,9 +21,7 @@
   inputs.discount,
   inputs.tax_breakdown,
   inputs.translations,
-  inputs.formatted_currency,
   pay_online_url: inputs.at("pay_online_url", default: none),
-  footer_custom_message: inputs.at("footer_custom_message", default: none),
   payment_status: inputs.at("payment_status", default: "unpaid"),
   transactions: inputs.at("transactions", default: ()),
   payment_info: inputs.at("payment_info", default: none),
@@ -31,5 +29,6 @@
   show_payment_info: inputs.at("show_payment_info", default: true),
   show_terms: inputs.at("show_terms", default: true),
   show_tax_info: inputs.at("show_tax_info", default: true),
-  show_legal_info: inputs.at("show_legal_info", default: true)
+  show_legal_info: inputs.at("show_legal_info", default: true),
+  show_footer_custom_info: inputs.at("show_footer_custom_info", default: true)
 )

@@ -268,9 +268,7 @@ pub struct TypstInvoiceContent {
     pub payment_term: u32,
     pub lines: Vec<TypstInvoiceLine>,
     pub translations: Dict,
-    pub formatted_currency: Dict,
     pub pay_online_url: Option<String>,
-    pub footer_custom_message: Option<String>,
     pub payment_status: String,
     pub transactions: Vec<TypstTransaction>,
     pub payment_info: Option<Dict>,
@@ -279,6 +277,7 @@ pub struct TypstInvoiceContent {
     pub show_terms: bool,
     pub show_tax_info: bool,
     pub show_legal_info: bool,
+    pub show_footer_custom_info: bool,
     pub whitelabel: bool,
     pub coupons: Vec<TypstCoupon>,
     pub tax_breakdown: Vec<TypstTaxBreakdownItem>,
@@ -337,7 +336,6 @@ impl From<&Invoice> for TypstInvoiceContent {
             "intra_eu_notice" => invoice_l10n.intra_eu_notice().into_value(),
             "b2b_notice" => invoice_l10n.b_2_b_notice().into_value(),
             "eu_vat_directive_notice" => invoice_l10n.eu_vat_directive_notice().into_value(),
-            "late_payment_interest" => invoice_l10n.late_payment_interest().into_value(),
             "company_registration" => invoice_l10n.company_registration().into_value(),
             "discount" => invoice_l10n.discount().into_value(),
             "purchase_order" => invoice_l10n.purchase_order().into_value()
@@ -367,10 +365,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             );
         }
 
-        let mut formatted_currency = Dict::new();
-
         let currency_symbol = invoice.metadata.currency.symbol();
-        formatted_currency.insert("symbol".into(), currency_symbol.into_value());
 
         let formatted_issue_date = format_date(lang, &invoice.metadata.issue_date)
             .unwrap_or_else(|_| invoice.metadata.issue_date.format("%Y-%m-%d").to_string());
@@ -443,9 +438,7 @@ impl From<&Invoice> for TypstInvoiceContent {
             payment_term: invoice.metadata.payment_term,
             lines,
             translations,
-            formatted_currency,
             pay_online_url: invoice.metadata.payment_url.clone(),
-            footer_custom_message: None,
             payment_status,
             transactions,
             coupons,
@@ -456,6 +449,11 @@ impl From<&Invoice> for TypstInvoiceContent {
             show_terms: invoice.metadata.flags.show_terms.unwrap_or(false),
             show_tax_info: invoice.metadata.flags.show_tax_info.unwrap_or(false),
             show_legal_info: invoice.metadata.flags.show_legal_info.unwrap_or(true),
+            show_footer_custom_info: invoice
+                .metadata
+                .flags
+                .show_footer_custom_info
+                .unwrap_or(true),
             whitelabel: invoice.metadata.flags.whitelabel.unwrap_or(false),
             tax_breakdown,
             discount,
