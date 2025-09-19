@@ -26,7 +26,7 @@ import {
 import { Edit, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useFieldArray } from 'react-hook-form'
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from 'sonner'
 import { z } from 'zod'
 
@@ -552,14 +552,18 @@ export const InvoiceCreate = () => {
   const navigate = useNavigate()
   const basePath = useBasePath()
   const queryClient = useQueryClient()
+  const [searchParams] = useSearchParams()
 
   const activeCurrenciesQuery = useQuery(listTenantCurrencies)
   const activeCurrencies = activeCurrenciesQuery.data?.currencies ?? []
+
+  const customerIdFromQuery = searchParams.get('customerId')
 
   const defaultValues = {
     invoiceDate: new Date(),
     lines: [],
     discount: 0,
+    ...(customerIdFromQuery && customerIdFromQuery.trim() !== '' ? { customerId: customerIdFromQuery } : {}),
   }
 
   const methods = useZodForm({
@@ -656,9 +660,9 @@ export const InvoiceCreate = () => {
       methods.setValue('dueDate', dueDate)
     }
 
-    // Only auto-set currency when customer changes
+    // Auto-set currency when customer changes or when customer is initially loaded from query param
     if (customerQuery.data?.customer?.currency &&
-      watchedCustomerId !== prevCustomerIdRef.current) {
+      (watchedCustomerId !== prevCustomerIdRef.current || !methods.getValues('currency'))) {
       methods.setValue('currency', customerQuery.data.customer.currency)
       prevCustomerIdRef.current = watchedCustomerId
     }
