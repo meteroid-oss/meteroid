@@ -95,6 +95,22 @@ message DeleteInvoiceRequest {
 
 message DeleteInvoiceResponse {}
 
+message VoidInvoiceRequest {
+  string id = 1;
+}
+
+message VoidInvoiceResponse {
+  DetailedInvoice invoice = 1;
+}
+
+message MarkInvoiceAsUncollectibleRequest {
+  string id = 1;
+}
+
+message MarkInvoiceAsUncollectibleResponse {
+  DetailedInvoice invoice = 1;
+}
+
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
@@ -106,4 +122,6 @@ service InvoicesService {
   rpc PreviewNewInvoiceHtml(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
   rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
+  rpc VoidInvoice(VoidInvoiceRequest) returns (VoidInvoiceResponse) {}
+  rpc MarkInvoiceAsUncollectible(MarkInvoiceAsUncollectibleRequest) returns (MarkInvoiceAsUncollectibleResponse) {}
 }

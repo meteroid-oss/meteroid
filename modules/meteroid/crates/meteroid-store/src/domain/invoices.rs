@@ -83,6 +83,8 @@ pub struct Invoice {
     }) ?)]
     pub tax_breakdown: Vec<TaxBreakdownItem>,
     pub manual: bool,
+    pub voided_at: Option<NaiveDateTime>,
+    pub marked_as_uncollectible_at: Option<NaiveDateTime>,
 }
 
 impl Invoice {
@@ -358,6 +360,8 @@ impl From<InvoiceNew> for Invoice {
             purchase_order: value.purchase_order,
             tax_breakdown: value.tax_breakdown,
             manual: value.manual,
+            voided_at: None,
+            marked_as_uncollectible_at: None,
         }
     }
 }

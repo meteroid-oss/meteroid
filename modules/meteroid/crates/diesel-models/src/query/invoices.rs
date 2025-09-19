@@ -474,6 +474,58 @@ impl InvoiceRow {
             .attach_printable("Error while deleting invoice")
             .into_db_result()
     }
+
+    pub async fn void(conn: &mut PgConn, id: InvoiceId, tenant_id: TenantId) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .set((
+                i_dsl::status.eq(InvoiceStatusEnum::Void),
+                i_dsl::updated_at.eq(diesel::dsl::now),
+                i_dsl::voided_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach_printable("Error while voiding invoice")
+            .into_db_result()
+    }
+
+    pub async fn mark_as_uncollectible(
+        conn: &mut PgConn,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use crate::schema::invoice::dsl as i_dsl;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(i_dsl::invoice)
+            .filter(i_dsl::id.eq(id))
+            .filter(i_dsl::tenant_id.eq(tenant_id))
+            .filter(i_dsl::status.eq(InvoiceStatusEnum::Finalized))
+            .set((
+                i_dsl::status.eq(InvoiceStatusEnum::Uncollectible),
+                i_dsl::updated_at.eq(diesel::dsl::now),
+                i_dsl::marked_as_uncollectible_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .map(|_| ())
+            .attach_printable("Error while marking invoice as uncollectible")
+            .into_db_result()
+    }
 }
 
 impl InvoiceRowLinesPatch {

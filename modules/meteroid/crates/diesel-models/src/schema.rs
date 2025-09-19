@@ -526,6 +526,8 @@ diesel::table! {
         coupons -> Jsonb,
         tax_breakdown -> Jsonb,
         manual -> Bool,
+        voided_at -> Nullable<Timestamp>,
+        marked_as_uncollectible_at -> Nullable<Timestamp>,
     }
 }
 
