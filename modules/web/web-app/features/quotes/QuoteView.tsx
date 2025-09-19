@@ -82,6 +82,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
                     line1: quote.invoicingEntity.addressLine1,
                     line2: quote.invoicingEntity.addressLine2,
                     state: quote.invoicingEntity.state,
+                    zipCode: quote.invoicingEntity.zipCode,
                   }}
                 />
               )}
