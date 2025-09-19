@@ -31,8 +31,6 @@ export const QuoteView: FC<QuoteViewProps> = ({
   className = '',
   subscriptionComponents,
 }) => {
-  console.log('__quote', quote)
-
   const renderQuoteHeader = () => (
     <div className="mb-8">
       <div className="flex justify-between items-start mb-4">
@@ -101,7 +99,7 @@ export const QuoteView: FC<QuoteViewProps> = ({
               <p className="font-medium text-foreground">{quote.customer.name}</p>
               <p>{quote.customer.billingEmail}</p>
               {quote.customer.billingAddress && (
-                <AddressLinesCompact address={quote.customer.billingAddress} />
+                <AddressLinesCompact address={quote.customer.billingAddress}/>
               )}
             </>
           ) : quote.quote?.customerId ? (

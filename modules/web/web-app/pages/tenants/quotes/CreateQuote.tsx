@@ -36,7 +36,9 @@ import { useQuery } from '@/lib/connectrpc'
 import { mapDatev2 } from '@/lib/mapping'
 import { ComponentParameterization } from '@/pages/tenants/subscription/create/state'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import { getInvoicingEntity } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import {
+  getInvoicingEntity
+} from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { getPlanWithVersionByVersionId } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 import { PriceComponent } from '@/rpc/api/pricecomponents/v1/models_pb'
 import { listPriceComponents } from '@/rpc/api/pricecomponents/v1/pricecomponents-PriceComponentsService_connectquery'
@@ -299,7 +301,17 @@ export const CreateQuote = () => {
       return mapParameterizedComponentToSubscriptionComponent(c, pc)
     }
 
+    // Create default components for plan components that haven't been configured
+    const defaultPlanComponents = priceComponentsData
+      .filter(pc =>
+        !configuredComponents.removedComponentIds.includes(pc.id) &&
+        !configuredComponents.parameterizedComponents.some(c => c.componentId === pc.id) &&
+        !configuredComponents.overriddenComponents.some(c => c.componentId === pc.id)
+      )
+      .map(pc => mapDefaultComponentToSubscriptionComponent(pc))
+
     const allSubscriptionComponents = [
+      ...defaultPlanComponents,
       ...configuredComponents.parameterizedComponents
         .map(mapParameterized)
         .filter((c): c is SubscriptionComponentNewInternal => c !== null),
@@ -333,12 +345,12 @@ export const CreateQuote = () => {
               onClick={methods.handleSubmit(onSubmit)}
               disabled={createQuoteMutation.isPending}
             >
-              <Save className="w-4 h-4 mr-2" />
+              <Save className="w-4 h-4 mr-2"/>
               {createQuoteMutation.isPending ? 'Creating...' : 'Create Quote'}
             </Button>
           </div>
         </div>
-        <QuoteView quote={previewQuote} mode="preview" subscriptionComponents={previewComponents} />
+        <QuoteView quote={previewQuote} mode="preview" subscriptionComponents={previewComponents}/>
       </div>
     )
   }
@@ -361,7 +373,7 @@ export const CreateQuote = () => {
               priceComponentsQuery.isLoading
             }
           >
-            <Eye className="w-4 h-4 mr-2" />
+            <Eye className="w-4 h-4 mr-2"/>
             Preview
           </Button>
           <Button
@@ -373,7 +385,7 @@ export const CreateQuote = () => {
               !pricingValidation.isValid
             }
           >
-            <Save className="w-4 h-4 mr-2" />
+            <Save className="w-4 h-4 mr-2"/>
             {createQuoteMutation.isPending ? 'Creating...' : 'Create Quote'}
           </Button>
         </div>
@@ -398,7 +410,7 @@ export const CreateQuote = () => {
                       label="Customer"
                       name="customer_id"
                       render={({ field }) => (
-                        <CustomerSelect value={field.value} onChange={field.onChange} />
+                        <CustomerSelect value={field.value} onChange={field.onChange}/>
                       )}
                     />
 
@@ -591,7 +603,7 @@ export const CreateQuote = () => {
                           onClick={() => removeRecipientAt(index)}
                           disabled={recipientFields.length === 1}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4"/>
                         </Button>
                       </div>
 
@@ -617,7 +629,7 @@ export const CreateQuote = () => {
                   ))}
 
                   <Button type="button" variant="outline" onClick={addRecipient} className="w-full">
-                    <Plus className="w-4 h-4 mr-2" />
+                    <Plus className="w-4 h-4 mr-2"/>
                     Add Recipient
                   </Button>
                 </CardContent>
@@ -694,6 +706,95 @@ const extractConfiguredComponents = (state: PriceComponentsState) => {
   }
 }
 
+// Common fee mapping logic shared between parameterized and default components
+const createSubscriptionFee = (
+  priceComponent: PriceComponent,
+  config?: {
+    billingPeriod?: BillingPeriod
+    committedCapacity?: bigint
+    initialSlotCount?: number
+  }
+): SubscriptionFee => {
+  const fee = new SubscriptionFee()
+
+  if (priceComponent.fee?.feeType?.case === 'capacity') {
+    const capacityFee = priceComponent.fee.feeType.value
+    let selectedThreshold = capacityFee.thresholds?.[0] // Default to first threshold
+
+    // If specific capacity is configured, find matching threshold
+    if (config?.committedCapacity !== undefined) {
+      const matchingThreshold = capacityFee.thresholds.find(
+        t => t.includedAmount === config.committedCapacity
+      )
+      if (matchingThreshold) {
+        selectedThreshold = matchingThreshold
+      }
+    }
+
+    if (selectedThreshold) {
+      fee.fee = {
+        case: 'capacity',
+        value: new SubscriptionFee_CapacitySubscriptionFee({
+          rate: selectedThreshold.price,
+          included: selectedThreshold.includedAmount,
+          overageRate: selectedThreshold.perUnitOverage,
+          metricId: capacityFee.metricId,
+        }),
+      }
+    }
+  } else if (priceComponent.fee?.feeType?.case === 'rate') {
+    const rateFee = priceComponent.fee.feeType.value
+    let selectedRate = rateFee.rates?.[0] // Default to first rate
+
+    // If specific billing period is configured, find matching rate
+    if (config?.billingPeriod !== undefined) {
+      const matchingRate = rateFee.rates.find(r => {
+        return r.term === config.billingPeriod
+      })
+      if (matchingRate) {
+        selectedRate = matchingRate
+      }
+    }
+
+    if (selectedRate) {
+      fee.fee = {
+        case: 'rate',
+        value: new SubscriptionFee_RateSubscriptionFee({
+          rate: selectedRate.price,
+        }),
+      }
+    }
+  } else if (priceComponent.fee?.feeType?.case === 'slot') {
+    const slotFee = priceComponent.fee.feeType.value
+    let unitRate = slotFee.rates?.[0]?.price || '0'
+
+    // If specific billing period is configured and multiple rates exist, find matching rate
+    if (config?.billingPeriod !== undefined && slotFee.rates.length > 1) {
+      const matchingRate = slotFee.rates.find(r => {
+        return r.term === config.billingPeriod
+      })
+      if (matchingRate) {
+        unitRate = matchingRate.price
+      }
+    }
+
+    const initialSlots = config?.initialSlotCount ?? slotFee.minimumCount ?? 1
+
+    fee.fee = {
+      case: 'slot',
+      value: new SubscriptionFee_SlotSubscriptionFee({
+        unit: slotFee.slotUnitName,
+        unitRate,
+        initialSlots,
+        minSlots: slotFee.minimumCount,
+        maxSlots: slotFee.quota,
+      }),
+    }
+  }
+
+  return fee
+}
+
 const mapParameterizedComponentToSubscriptionComponent = (
   component: ComponentParameterization,
   priceComponent: PriceComponent
@@ -713,71 +814,23 @@ const mapParameterizedComponentToSubscriptionComponent = (
         : SubscriptionFeeBillingPeriod.MONTHLY,
   })
 
-  const fee = new SubscriptionFee()
+  subscriptionComponent.fee = createSubscriptionFee(priceComponent, {
+    billingPeriod: component.billingPeriod,
+    committedCapacity: component.committedCapacity,
+    initialSlotCount: component.initialSlotCount,
+  })
+  return subscriptionComponent
+}
 
-  if (
-    priceComponent.fee?.feeType?.case === 'capacity' &&
-    component.committedCapacity !== undefined
-  ) {
-    const capacityFee = priceComponent.fee.feeType.value
-    const selectedThreshold = capacityFee.thresholds.find(
-      t => t.includedAmount === component.committedCapacity
-    )
-    if (selectedThreshold) {
-      fee.fee = {
-        case: 'capacity',
-        value: new SubscriptionFee_CapacitySubscriptionFee({
-          rate: selectedThreshold.price,
-          included: selectedThreshold.includedAmount,
-          overageRate: selectedThreshold.perUnitOverage,
-          metricId: capacityFee.metricId,
-        }),
-      }
-    }
-  } else if (
-    priceComponent.fee?.feeType?.case === 'rate' &&
-    component.billingPeriod !== undefined
-  ) {
-    const rateFee = priceComponent.fee.feeType.value
-    const selectedRate = rateFee.rates.find(r => {
-      return r.term === component.billingPeriod
-    })
-    if (selectedRate) {
-      fee.fee = {
-        case: 'rate',
-        value: new SubscriptionFee_RateSubscriptionFee({
-          rate: selectedRate.price,
-        }),
-      }
-    }
-  } else if (
-    priceComponent.fee?.feeType?.case === 'slot' &&
-    component.initialSlotCount !== undefined
-  ) {
-    const slotFee = priceComponent.fee.feeType.value
-    let unitRate = '0'
+const mapDefaultComponentToSubscriptionComponent = (
+  priceComponent: PriceComponent
+): SubscriptionComponentNewInternal => {
+  const subscriptionComponent = new SubscriptionComponentNewInternal({
+    priceComponentId: priceComponent.id,
+    name: priceComponent.name,
+    period: SubscriptionFeeBillingPeriod.MONTHLY, // Default billing period
+  })
 
-    if (slotFee.rates.length > 1 && component.billingPeriod !== undefined) {
-      const selectedRate = slotFee.rates.find(r => {
-        return r.term === component.billingPeriod
-      })
-      unitRate = selectedRate?.price || slotFee.rates[0].price || '0'
-    } else if (slotFee.rates.length > 0) {
-      unitRate = slotFee.rates[0].price
-    }
-
-    fee.fee = {
-      case: 'slot',
-      value: new SubscriptionFee_SlotSubscriptionFee({
-        unit: slotFee.slotUnitName,
-        unitRate,
-        initialSlots: component.initialSlotCount,
-        minSlots: slotFee.minimumCount,
-        maxSlots: slotFee.quota,
-      }),
-    }
-  }
-
-  subscriptionComponent.fee = fee
+  subscriptionComponent.fee = createSubscriptionFee(priceComponent) // No config = use defaults
   return subscriptionComponent
 }
