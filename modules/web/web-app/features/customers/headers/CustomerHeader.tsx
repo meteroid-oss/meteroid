@@ -136,7 +136,8 @@ export const CustomerHeader: FunctionComponent<CustomerHeaderProps> = ({
             <Button size="sm" variant="secondary" onClick={setShowEditCustomer}>
               Edit Customer
             </Button>
-            <Button size="sm" variant="secondary" disabled>
+            <Button size="sm" variant="secondary"
+                    onClick={() => navigate(`${basePath}/invoices/create?customerId=${id}`)}>
               Create Invoice
             </Button>
             <DropdownMenu>

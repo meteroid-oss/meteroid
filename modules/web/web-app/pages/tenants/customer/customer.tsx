@@ -97,8 +97,14 @@ export const Customer = () => {
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Invoices</div>
-                  <Flex align="center" className="gap-1 text-sm">
-                    <Plus size={10}/> Create invoice
+                  <Flex
+                    align="center"
+                    className="gap-1 text-sm cursor-pointer hover:text-primary"
+                    onClick={() =>
+                      navigate(`${basePath}/invoices/create?customerId=${customerId}`)
+                    }
+                  >
+                    <Plus size={10}/> New invoice
                   </Flex>
                 </Flex>
                 <div className="flex-none">
