@@ -21,9 +21,7 @@
   discount,
   tax_breakdown,
   translations,
-  formatted_currency,
   pay_online_url: none,
-  footer_custom_message: none,
   payment_status: "unpaid",  // "paid", "partially_paid", or "unpaid"
   transactions: (),  // list of transactions
   payment_info: none,  // key-value pairs for payment information
@@ -33,6 +31,7 @@
   show_terms: true,          // Show payment terms section
   show_tax_info: true,       // Show tax information section
   show_legal_info: true,     // Show legal information section
+  show_footer_custom_info: true,   // Show footer custom information section
   whitelabel: false,         // Hide meteroid branding
 ) = {
   // Define color palette with named variables
@@ -581,12 +580,14 @@
             #translations.at("company_registration", default: "Registration"): #organization.legal_number
           ])
         }
-
-        // Add late payment interest notice for EU invoices
-        #v(4pt)
-        #text(size: 8pt, fill: color.footer_text, translations.at("late_payment_interest", default: ""))
       ]
     )
+  }
+
+  // Footer custom information - only if enabled
+  if show_footer_custom_info and organization.footer_info != none {
+    v(16pt)
+    text(size: 8pt, fill: color.footer_text, organization.footer_info)
   }
 
   // Add exchange rate info if available

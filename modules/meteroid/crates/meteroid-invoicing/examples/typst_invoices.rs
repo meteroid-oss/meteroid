@@ -150,6 +150,7 @@ fn create_test_invoice() -> Invoice {
                 show_terms: Some(true),
                 show_tax_info: Some(true),
                 show_legal_info: Some(true),
+                show_footer_custom_info: Some(true),
                 whitelabel: None
             },
             discount: Money::from_major(0, eur),

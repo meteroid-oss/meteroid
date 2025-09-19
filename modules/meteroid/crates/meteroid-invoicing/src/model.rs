@@ -103,6 +103,7 @@ pub struct Flags {
     pub show_terms: Option<bool>,
     pub show_tax_info: Option<bool>,
     pub show_legal_info: Option<bool>,
+    pub show_footer_custom_info: Option<bool>,
     pub whitelabel: Option<bool>,
 }
 
