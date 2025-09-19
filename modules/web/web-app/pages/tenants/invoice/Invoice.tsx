@@ -1,13 +1,5 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
   Button,
   cn,
@@ -20,7 +12,16 @@ import {
   Skeleton,
 } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
-import { CheckCircleIcon, ChevronDown, Download, FolderSyncIcon, RefreshCcw, Trash2 } from 'lucide-react'
+import {
+  BanIcon,
+  CheckCircleIcon,
+  ChevronDown,
+  Download,
+  FileX2Icon,
+  FolderSyncIcon,
+  RefreshCcw,
+  Trash2
+} from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -28,7 +29,6 @@ import { toast } from 'sonner'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { PaymentStatusBadge } from '@/features/invoices/PaymentStatusBadge'
 import { TransactionList } from '@/features/invoices/TransactionList'
-import { FinalizeInvoiceModal } from '@/features/settings/integrations/FinalizeInvoiceModal'
 import {
   IntegrationType,
   SyncInvoiceModal,
@@ -40,16 +40,18 @@ import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
-  deleteInvoice,
+  deleteInvoice, finalizeInvoice,
   getInvoice,
-  listInvoices,
+  listInvoices, markInvoiceAsUncollectible,
   previewInvoiceHtml,
-  refreshInvoiceData,
+  refreshInvoiceData, voidInvoice,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, InvoiceStatus, LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
 import { formatCurrency, formatCurrencyNoRounding, formatUsage } from '@/utils/numbers'
 import { useTypedParams } from '@/utils/params'
+
+import { InvoiceConfirmationDialog } from './InvoiceConfirmationDialog'
 
 export const Invoice = () => {
   const { invoiceId } = useTypedParams<{ invoiceId: string }>()
@@ -220,17 +222,72 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       // Navigate back to the invoices list after successful deletion
       navigate(`${basePath}/invoices`)
     },
+    onError: (error) => {
+      toast.error(`Failed to delete invoice: ${error.message}`)
+    }
+  })
+
+  const finalizeInvoiceMutation = useMutation(finalizeInvoice, {
+    onSuccess: async () => {
+      toast.success('Invoice finalized')
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+      })
+    },
+    onError: (error) => {
+      toast.error(`Failed to finalize invoice: ${error.message}`)
+    }
+  })
+
+  const voidInvoiceMutation = useMutation(voidInvoice, {
+    onSuccess: async () => {
+      toast.success('Invoice voided')
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+      })
+    },
+    onError: (error) => {
+      toast.error(`Failed to void invoice: ${error.message}`)
+    }
+  })
+
+  const markInvoiceAsUncollectibleMutation = useMutation(markInvoiceAsUncollectible, {
+    onSuccess: async () => {
+      toast.success('Invoice marked as uncollectible')
+      await queryClient.invalidateQueries({
+        queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
+      })
+    },
+    onError: (error) => {
+      toast.error(`Failed to mark invoice as uncollectible: ${error.message}`)
+    }
   })
 
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
-  const doDelete = () => deleteInvoiceMutation.mutateAsync({ id: invoice?.id ?? '' })
-  const handleDeleteClick = () => setShowDeleteConfirmation(true)
+
   const handleDeleteConfirm = () => {
     setShowDeleteConfirmation(false)
-    doDelete()
+    deleteInvoiceMutation.mutateAsync({ id: invoice?.id ?? '' })
   }
-  const canRefresh = invoice && invoice.status === InvoiceStatus.DRAFT && !invoice.manual
-  const canDelete = invoice && invoice.status === InvoiceStatus.DRAFT
+
+  const handleFinalizeConfirm = () => {
+    setShowFinalizeConfirmation(false)
+    finalizeInvoiceMutation.mutateAsync({ id: invoice?.id ?? '' })
+  }
+
+  const handleVoidConfirm = () => {
+    setShowVoidConfirmation(false)
+    voidInvoiceMutation.mutateAsync({ id: invoice?.id ?? '' })
+  }
+
+  const handleMarkAsUncollectibleConfirm = () => {
+    setShowMarkAsUncollectibleConfirmation(false)
+    markInvoiceAsUncollectibleMutation.mutateAsync({ id: invoice?.id ?? '' })
+  }
+
+  const isDraft = invoice && invoice.status === InvoiceStatus.DRAFT
+  const isFinalized = invoice && invoice.status === InvoiceStatus.FINALIZED
+
   const pdf_url =
     invoice.documentSharingKey &&
     `${env.meteroidRestApiUri}/files/v1/invoice/pdf/${invoice.localId}?token=${invoice.documentSharingKey}`
@@ -239,18 +296,21 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const connectorsData = connectorsQuery.data?.connectors ?? []
 
   const [showSyncPennylaneModal, setShowSyncPennylaneModal] = useState(false)
-  const [showFinalizeInvoiceModal, setShowFinalizeInvoiceModal] = useState(false)
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
+  const [showFinalizeConfirmation, setShowFinalizeConfirmation] = useState(false)
+  const [showVoidConfirmation, setShowVoidConfirmation] = useState(false)
+  const [showMarkAsUncollectibleConfirmation, setShowMarkAsUncollectibleConfirmation] = useState(false)
   const isPennylaneConnected = connectorsData.some(
     connector => connector.provider === ConnectorProviderEnum.PENNYLANE
   )
-  const isFinalizable = invoice.status === InvoiceStatus.DRAFT && invoice.manual
 
-  const onFinalizeSuccess = async () => {
-    await queryClient.invalidateQueries({
-      queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
-    })
-  }
+  const canRefresh = isDraft && !invoice.manual
+  const canDelete = isDraft
+  const canFinalize = isDraft
+  const canSendToPennylane = isDraft && isPennylaneConnected
+
+  const canVoid = isFinalized
+  const canMarkAsUncollectible = isFinalized
 
   useEffect(() => {
     if (canRefresh) {
@@ -269,34 +329,44 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         />
       )}
 
-      {showFinalizeInvoiceModal && (
-        <FinalizeInvoiceModal
-          invoiceNumber={invoice.invoiceNumber}
-          id={invoice.id}
-          onClose={() => setShowFinalizeInvoiceModal(false)}
-          onSuccess={onFinalizeSuccess}
-        />
-      )}
+      <InvoiceConfirmationDialog
+        open={showDeleteConfirmation}
+        onOpenChange={setShowDeleteConfirmation}
+        onConfirm={handleDeleteConfirm}
+        icon={Trash2}
+        title="Delete invoice"
+        description="Are you sure you want to delete this draft invoice? This action cannot be undone."
+      />
 
-      <AlertDialog open={showDeleteConfirmation} onOpenChange={setShowDeleteConfirmation}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle> Delete Invoice</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete invoice {invoice.invoiceNumber}? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <InvoiceConfirmationDialog
+        open={showFinalizeConfirmation}
+        onOpenChange={setShowFinalizeConfirmation}
+        onConfirm={handleFinalizeConfirm}
+        icon={CheckCircleIcon}
+        title="Finalize & Send invoice"
+        description="Finalize this invoice and send it to the customer. Once finalized, the invoice cannot be edited."
+        invoiceNumber={invoice.invoiceNumber}
+      />
+
+      <InvoiceConfirmationDialog
+        open={showVoidConfirmation}
+        onOpenChange={setShowVoidConfirmation}
+        onConfirm={handleVoidConfirm}
+        icon={BanIcon}
+        title="Void invoice"
+        description="Are you sure you want to void this invoice? This action cannot be undone."
+        invoiceNumber={invoice.invoiceNumber}
+      />
+
+      <InvoiceConfirmationDialog
+        open={showMarkAsUncollectibleConfirmation}
+        onOpenChange={setShowMarkAsUncollectibleConfirmation}
+        onConfirm={handleMarkAsUncollectibleConfirm}
+        icon={FileX2Icon}
+        title="Mark invoice as Uncollectible"
+        description="Are you sure you want to mark this invoice as uncollectible? This action cannot be undone."
+        invoiceNumber={invoice.invoiceNumber}
+      />
 
       {/* Left Panel - Invoice Details */}
       <Flex direction="column" className="w-1/3 border-r border-border">
@@ -323,14 +393,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   Refresh
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={!isFinalizable}
-                  onClick={() => setShowFinalizeInvoiceModal(true)}
+                  disabled={!canFinalize}
+                  onClick={() => setShowFinalizeConfirmation(true)}
                 >
                   <CheckCircleIcon size="16" className="mr-2"/>
                   Finalize & Send
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={!isPennylaneConnected}
+                  disabled={!canSendToPennylane}
                   onClick={() => setShowSyncPennylaneModal(true)}
                 >
                   <FolderSyncIcon size="16" className="mr-2"/>
@@ -350,11 +420,27 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!canDelete}
-                  onClick={handleDeleteClick}
+                  onClick={() => setShowDeleteConfirmation(true)}
                   className="text-destructive focus:text-destructive"
                 >
                   <Trash2 size="16" className="mr-2"/>
                   Delete
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canVoid}
+                  onClick={() => setShowVoidConfirmation(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <BanIcon size="16" className="mr-2"/>
+                  Void
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canMarkAsUncollectible}
+                  onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <FileX2Icon size="16" className="mr-2"/>
+                  Mark As Uncollectible
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -482,6 +568,28 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     <div className="text-[13px] font-medium">Invoice Finalized</div>
                     <div className="text-[11px] text-muted-foreground">
                       {parseAndFormatDate(invoice.finalizedAt)}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {invoice.voidedAt && (
+                <div className="flex items-start gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></div>
+                  <div>
+                    <div className="text-[13px] font-medium">Invoice Voided</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {parseAndFormatDate(invoice.voidedAt)}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {invoice.markedAsUncollectibleAt && (
+                <div className="flex items-start gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-warning mt-1.5 flex-shrink-0"></div>
+                  <div>
+                    <div className="text-[13px] font-medium">Invoice marked as Uncollectible</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {parseAndFormatDate(invoice.markedAsUncollectibleAt)}
                     </div>
                   </div>
                 </div>

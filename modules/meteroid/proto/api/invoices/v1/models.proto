@@ -92,6 +92,8 @@ message DetailedInvoice {
   optional string paid_at = 43;
   bool manual = 44;
   optional string purchase_order = 45;
+  optional string voided_at = 46;
+  optional string marked_as_uncollectible_at = 47;
 }
 
 message TaxBreakdownItem {

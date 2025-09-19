@@ -100,6 +100,18 @@ pub trait InvoiceInterface {
     ) -> StoreResult<()>;
 
     async fn delete_invoice(&self, id: InvoiceId, tenant_id: TenantId) -> StoreResult<()>;
+
+    async fn void_invoice(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice>;
+
+    async fn mark_invoice_as_uncollectible(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice>;
 }
 
 #[async_trait::async_trait]
@@ -353,6 +365,40 @@ impl InvoiceInterface for Store {
         InvoiceRow::delete(&mut conn, id, tenant_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
+    }
+
+    async fn void_invoice(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::void(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, id)
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
+    }
+
+    async fn mark_invoice_as_uncollectible(
+        &self,
+        id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice> {
+        let mut conn = self.get_conn().await?;
+
+        InvoiceRow::mark_as_uncollectible(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, id)
+            .await
+            .map_err(Into::into)
+            .and_then(TryInto::try_into)
     }
 }
 

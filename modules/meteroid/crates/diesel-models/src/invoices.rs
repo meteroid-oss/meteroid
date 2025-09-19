@@ -54,6 +54,8 @@ pub struct InvoiceRow {
     pub coupons: serde_json::Value,
     pub tax_breakdown: serde_json::Value,
     pub manual: bool,
+    pub voided_at: Option<NaiveDateTime>,
+    pub marked_as_uncollectible_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, AsChangeset)]

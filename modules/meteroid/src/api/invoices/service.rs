@@ -9,10 +9,11 @@ use common_utils::decimals::ToSubunit;
 use meteroid_grpc::meteroid::api::invoices::v1::{
     CreateInvoiceRequest, CreateInvoiceResponse, DeleteInvoiceRequest, DeleteInvoiceResponse,
     FinalizeInvoiceRequest, FinalizeInvoiceResponse, GetInvoiceRequest, GetInvoiceResponse,
-    Invoice, ListInvoicesRequest, ListInvoicesResponse, NewInvoice, PreviewInvoiceRequest,
-    PreviewInvoiceResponse, PreviewNewInvoiceRequest, PreviewNewInvoiceResponse,
-    RefreshInvoiceDataRequest, RefreshInvoiceDataResponse, RequestPdfGenerationRequest,
-    RequestPdfGenerationResponse, SyncToPennylaneRequest, SyncToPennylaneResponse,
+    Invoice, ListInvoicesRequest, ListInvoicesResponse, MarkInvoiceAsUncollectibleRequest,
+    MarkInvoiceAsUncollectibleResponse, NewInvoice, PreviewInvoiceRequest, PreviewInvoiceResponse,
+    PreviewNewInvoiceRequest, PreviewNewInvoiceResponse, RefreshInvoiceDataRequest,
+    RefreshInvoiceDataResponse, RequestPdfGenerationRequest, RequestPdfGenerationResponse,
+    SyncToPennylaneRequest, SyncToPennylaneResponse, VoidInvoiceRequest, VoidInvoiceResponse,
     invoices_service_server::InvoicesService, list_invoices_request::SortBy,
 };
 use meteroid_store::Store;
@@ -333,6 +334,60 @@ impl InvoicesService for InvoiceServiceComponents {
             .map_err(Into::<InvoiceApiError>::into)?;
 
         Ok(Response::new(DeleteInvoiceResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn void_invoice(
+        &self,
+        request: Request<VoidInvoiceRequest>,
+    ) -> Result<Response<VoidInvoiceResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let invoice_id = InvoiceId::from_proto(&req.id)?;
+
+        let invoice = self
+            .store
+            .void_invoice(invoice_id, tenant_id)
+            .await
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(VoidInvoiceResponse {
+            invoice: Some(invoice),
+        }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn mark_invoice_as_uncollectible(
+        &self,
+        request: Request<MarkInvoiceAsUncollectibleRequest>,
+    ) -> Result<Response<MarkInvoiceAsUncollectibleResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let invoice_id = InvoiceId::from_proto(&req.id)?;
+
+        let invoice = self
+            .store
+            .mark_invoice_as_uncollectible(invoice_id, tenant_id)
+            .await
+            .and_then(|inv| {
+                mapping::invoices::domain_invoice_with_plan_details_to_server(
+                    inv,
+                    self.jwt_secret.clone(),
+                )
+            })
+            .map_err(Into::<InvoiceApiError>::into)?;
+
+        Ok(Response::new(MarkInvoiceAsUncollectibleResponse {
+            invoice: Some(invoice),
+        }))
     }
 }
 

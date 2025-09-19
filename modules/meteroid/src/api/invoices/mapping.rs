@@ -253,6 +253,8 @@ pub mod invoices {
                 .collect(),
             manual: invoice.manual,
             purchase_order: invoice.purchase_order,
+            voided_at: invoice.voided_at.as_proto(),
+            marked_as_uncollectible_at: invoice.marked_as_uncollectible_at.as_proto(),
         })
     }
 
