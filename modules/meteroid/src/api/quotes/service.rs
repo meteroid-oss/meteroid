@@ -96,7 +96,7 @@ impl QuotesService for QuoteServiceComponents {
             recipients,
         };
 
-        // Create the quote first
+        // Create the quote first TODO transaction in store
         let created_quote = self
             .store
             .insert_quote(quote_new)
@@ -223,11 +223,7 @@ impl QuotesService for QuoteServiceComponents {
         &self,
         _request: Request<SendQuoteRequest>,
     ) -> Result<Response<SendQuoteResponse>, Status> {
-        // TODO: Implement email sending logic
-        Ok(Response::new(SendQuoteResponse {
-            success: true,
-            message: Some("Quote sent successfully".to_string()),
-        }))
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]
@@ -235,80 +231,31 @@ impl QuotesService for QuoteServiceComponents {
         &self,
         _request: Request<PreviewQuoteRequest>,
     ) -> Result<Response<PreviewQuoteResponse>, Status> {
-        // TODO: Implement HTML preview generation
-        Ok(Response::new(PreviewQuoteResponse {
-            html: "<html><body>Quote Preview</body></html>".to_string(),
-        }))
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]
     async fn expire_quote(
         &self,
-        request: Request<ExpireQuoteRequest>,
+        _request: Request<ExpireQuoteRequest>,
     ) -> Result<Response<ExpireQuoteResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let inner = request.into_inner();
-
-        let quote_id = QuoteId::from_proto(&inner.id)?;
-
-        // TODO
-
-        let detailed_quote = self
-            .store
-            .get_detailed_quote_by_id(tenant_id, quote_id)
-            .await
-            .map_err(Into::<QuoteApiError>::into)
-            .map(|q| mapping::quotes::detailed_quote_domain_to_proto(&q))?;
-
-        Ok(Response::new(ExpireQuoteResponse {
-            quote: Some(detailed_quote),
-        }))
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]
     async fn cancel_quote(
         &self,
-        request: Request<CancelQuoteRequest>,
+        _request: Request<CancelQuoteRequest>,
     ) -> Result<Response<CancelQuoteResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let inner = request.into_inner();
-
-        let quote_id = QuoteId::from_proto(&inner.id)?;
-
-        // TODO
-
-        let detailed_quote = self
-            .store
-            .get_detailed_quote_by_id(tenant_id, quote_id)
-            .await
-            .map_err(Into::<QuoteApiError>::into)
-            .map(|q| mapping::quotes::detailed_quote_domain_to_proto(&q))?;
-
-        Ok(Response::new(CancelQuoteResponse {
-            quote: Some(detailed_quote),
-        }))
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]
     async fn duplicate_quote(
         &self,
-        request: Request<DuplicateQuoteRequest>,
+        _request: Request<DuplicateQuoteRequest>,
     ) -> Result<Response<DuplicateQuoteResponse>, Status> {
-        let tenant_id = request.tenant()?;
-        let inner = request.into_inner();
-
-        let quote_id = QuoteId::from_proto(&inner.id)?;
-
-        let detailed_quote = self
-            .store
-            .get_detailed_quote_by_id(tenant_id, quote_id)
-            .await
-            .map_err(Into::<QuoteApiError>::into)
-            .map(|q| mapping::quotes::detailed_quote_domain_to_proto(&q))?;
-
-        Ok(Response::new(DuplicateQuoteResponse {
-            quote: Some(detailed_quote),
-        }))
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]
@@ -316,7 +263,7 @@ impl QuotesService for QuoteServiceComponents {
         &self,
         _request: Request<UpdateQuoteRequest>,
     ) -> Result<Response<UpdateQuoteResponse>, Status> {
-        todo!()
+        unimplemented!()
     }
 
     #[tracing::instrument(skip_all)]
@@ -358,8 +305,6 @@ impl QuotesService for QuoteServiceComponents {
         )
         .map_err(Into::<QuoteApiError>::into)?;
 
-        // TODO: Get portal URL from config
-
         Ok(Response::new(GenerateQuotePortalTokenResponse { token }))
     }
 
@@ -392,7 +337,6 @@ impl QuotesService for QuoteServiceComponents {
     }
 }
 
-// Process quote components similar to subscription components
 fn process_quote_components(
     components: &CreateSubscriptionComponents,
     price_components: &[PriceComponent],

@@ -6,23 +6,6 @@ import { DatePicker } from '..'
 import { GenericFormField, GenericFormFieldVariantProps } from './generic-form-field'
 import { destructuredFormProps } from './utils'
 
-/*
-  <GenericFormField
-                  control={methods.control}
-                  layout="vertical"
-                  label="Start date"
-                  name="fromDate"
-                  render={({ field }) => (
-                    <DatePicker
-                      mode="single"
-                      captionLayout="dropdown"
-                      className="min-w-[12em]"
-                      date={field.value}
-                      onSelect={field.onChange}
-                    />
-                  )}
-                />
-                */
 interface DateFormFieldProps<
   TFieldValues extends FieldValues,
   TName extends FieldPath<TFieldValues>,
