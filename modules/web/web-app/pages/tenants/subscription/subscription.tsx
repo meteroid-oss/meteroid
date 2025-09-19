@@ -17,6 +17,7 @@ import {
   SyncSubscriptionModal,
 } from '@/features/settings/integrations/SyncSubscriptionModal'
 import { SubscriptionInvoicesCard } from '@/features/subscriptions/InvoicesCard'
+import { formatSubscriptionFee } from '@/features/subscriptions/utils/fees'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
@@ -343,7 +344,7 @@ export const Subscription = () => {
                         {formatFeeType(component.fee)}
                       </td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">
-                        <SubscriptionFeeDetail fee={component.fee} />
+                        <SubscriptionFeeDetail fee={component.fee} currency={data.currency} />
                       </td>
                     </tr>
                   ))}
@@ -567,141 +568,24 @@ export const Subscription = () => {
   )
 }
 
-export const formatSubscriptionFee = (
-  fee: SubscriptionFee | undefined
-): {
-  type: string
-  details: string
-  amount: string
-} => {
-  if (!fee || !fee.fee.case) {
-    return {
-      type: 'N/A',
-      details: 'No fee information',
-      amount: '-',
-    }
-  }
-
-  switch (fee.fee.case) {
-    case 'rate': {
-      return {
-        type: 'Rate',
-        details: 'Flat rate fee',
-        amount: fee.fee.value.rate,
-      }
-    }
-
-    case 'oneTime': {
-      const oneTimeFee = fee.fee.value
-      return {
-        type: 'One-time',
-        details:
-          oneTimeFee.quantity > 1
-            ? `${oneTimeFee.quantity}x @ ${oneTimeFee.rate}`
-            : 'Single payment',
-        amount: oneTimeFee.total || oneTimeFee.rate,
-      }
-    }
-
-    case 'recurring': {
-      const recurringFee = fee.fee.value
-      const billingType = recurringFee.billingType === 0 ? 'in arrears' : 'in advance'
-      return {
-        type: 'Recurring',
-        details:
-          recurringFee.quantity > 1
-            ? `${recurringFee.quantity}x @ ${recurringFee.rate} (${billingType})`
-            : `Recurring ${billingType}`,
-        amount: recurringFee.total || recurringFee.rate,
-      }
-    }
-
-    case 'capacity': {
-      const capacityFee = fee.fee.value
-      return {
-        type: 'Capacity',
-        details: `${capacityFee.included.toString()} included, ${capacityFee.overageRate} per unit over`,
-        amount: capacityFee.rate,
-      }
-    }
-
-    case 'slot': {
-      const slotFee = fee.fee.value
-      const limits = []
-
-      if (slotFee.minSlots !== undefined) {
-        limits.push(`min: ${slotFee.minSlots}`)
-      }
-
-      if (slotFee.maxSlots !== undefined) {
-        limits.push(`max: ${slotFee.maxSlots}`)
-      }
-
-      const limitStr = limits.length > 0 ? ` (${limits.join(', ')})` : ''
-
-      return {
-        type: 'Slot',
-        details: `${slotFee.initialSlots} ${slotFee.unit}(s)${limitStr}`,
-        amount: `${slotFee.unitRate} per ${slotFee.unit}`,
-      }
-    }
-
-    case 'usage': {
-      const usageFee = fee.fee.value
-      let pricingModel = 'Usage-based'
-
-      // Check for common usage pricing models that might be in the UsageFee
-      if ('tiered' in usageFee) {
-        pricingModel = 'Tiered'
-      } else if ('volume' in usageFee) {
-        pricingModel = 'Volume'
-      } else if ('package' in usageFee) {
-        pricingModel = 'Package'
-      }
-
-      return {
-        type: 'Usage',
-        details: pricingModel,
-        amount: 'Variable',
-      }
-    }
-
-    default:
-      return {
-        type: 'Unknown',
-        details: `Unknown Fee type `,
-        amount: '-',
-      }
-  }
-}
-
-/**
- * Formats a subscription fee directly for table display
- *
- * @param fee The subscription fee to format
- * @returns A compact string representation of the fee
- */
-export const formatSubscriptionFeeCompact = (fee: SubscriptionFee | undefined): string => {
-  if (!fee || !fee.fee.case) {
-    return 'N/A'
-  }
-
-  const formatted = formatSubscriptionFee(fee)
-  return `${formatted.type}: ${formatted.amount}`
-}
-
 /**
  * Enhanced display component for subscription fees (for tooltips or expanded views)
  *
  * @param fee The subscription fee to display
  * @returns JSX for a detailed view of the fee
  */
-export const SubscriptionFeeDetail = ({ fee }: { fee: SubscriptionFee | undefined }) => {
+export const SubscriptionFeeDetail = ({
+  fee,
+  currency,
+}: {
+  fee: SubscriptionFee | undefined
+  currency: string
+}) => {
   if (!fee || !fee.fee.case) {
     return <span className="text-muted-foreground">No fee information</span>
   }
 
-  const formatted = formatSubscriptionFee(fee)
+  const formatted = formatSubscriptionFee(fee, currency)
 
   return (
     <div className="space-y-1">

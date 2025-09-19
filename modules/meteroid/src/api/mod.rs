@@ -23,6 +23,7 @@ pub mod portal;
 pub mod pricecomponents;
 pub mod productfamilies;
 pub mod productitems;
+pub mod quotes;
 pub mod schedules;
 pub mod sharable;
 pub mod stats;

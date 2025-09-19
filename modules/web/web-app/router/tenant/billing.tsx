@@ -3,32 +3,33 @@ import { RouteObject } from 'react-router-dom'
 import { NotImplemented } from '@/features/NotImplemented'
 import { Billing, BillingOutlet } from '@/pages/tenants/billing'
 import { Invoice, Invoices } from '@/pages/tenants/invoice'
-import { InvoiceCreate } from "@/pages/tenants/invoice/invoiceCreate";
+import { InvoiceCreate } from '@/pages/tenants/invoice/invoiceCreate'
+import { CreateQuote, Quote, Quotes } from '@/pages/tenants/quotes'
 import { Subscriptions } from '@/pages/tenants/subscription'
 import { Subscription } from '@/pages/tenants/subscription/subscription'
 import { SubscriptionCreate } from '@/pages/tenants/subscription/subscriptionCreate'
 
 export const billingRoutes: RouteObject = {
-  element: <BillingOutlet/>,
+  element: <BillingOutlet />,
   children: [
     {
       index: true,
-      element: <Billing/>,
+      element: <Billing />,
     },
     {
       path: 'subscriptions',
       children: [
         {
           index: true,
-          element: <Subscriptions/>,
+          element: <Subscriptions />,
         },
         {
           path: ':subscriptionId',
-          element: <Subscription/>,
+          element: <Subscription />,
         },
         {
           path: 'create',
-          element: <SubscriptionCreate/>,
+          element: <SubscriptionCreate />,
         },
       ],
     },
@@ -37,21 +38,38 @@ export const billingRoutes: RouteObject = {
       children: [
         {
           index: true,
-          element: <Invoices/>,
+          element: <Invoices />,
         },
         {
           path: ':invoiceId',
-          element: <Invoice/>,
+          element: <Invoice />,
         },
         {
           path: 'create',
-          element: <InvoiceCreate/>,
+          element: <InvoiceCreate />,
+        },
+      ],
+    },
+    {
+      path: 'quotes',
+      children: [
+        {
+          index: true,
+          element: <Quotes />,
+        },
+        {
+          path: 'create',
+          element: <CreateQuote />,
+        },
+        {
+          path: ':quoteId',
+          element: <Quote />,
         },
       ],
     },
     {
       path: '*',
-      element: <NotImplemented/>,
+      element: <NotImplemented />,
     },
   ],
 }

@@ -210,7 +210,7 @@ pub mod subscriptions {
     }
 }
 
-mod price_components {
+pub mod price_components {
     // In meteroid/src/subscription/mod.rs
 
     use crate::api::shared::conversions::*;

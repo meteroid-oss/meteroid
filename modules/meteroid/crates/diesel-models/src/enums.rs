@@ -70,6 +70,18 @@ pub enum InvoiceStatusEnum {
 }
 
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
+#[ExistingTypePath = "crate::schema::sql_types::QuoteStatusEnum"]
+#[DbValueStyle = "SCREAMING_SNAKE_CASE"]
+pub enum QuoteStatusEnum {
+    Draft,
+    Pending,
+    Accepted,
+    Declined,
+    Expired,
+    Cancelled,
+}
+
+#[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoicePaymentStatus"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]
 pub enum InvoicePaymentStatus {

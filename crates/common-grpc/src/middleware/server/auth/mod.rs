@@ -4,7 +4,9 @@ use uuid::Uuid;
 pub use admin_layer::AdminAuthLayer;
 pub use admin_layer::AdminAuthService;
 use common_config::auth::InternalAuthConfig;
-use common_domain::ids::{CustomerId, InvoiceId, OrganizationId, SubscriptionId, TenantId};
+use common_domain::ids::{
+    CustomerId, InvoiceId, OrganizationId, QuoteId, SubscriptionId, TenantId,
+};
 
 mod admin_layer;
 pub mod api_token_validator;
@@ -136,6 +138,10 @@ pub enum ResourceAccess {
     SubscriptionCheckout(SubscriptionId),
     CustomerPortal(CustomerId),
     InvoicePortal(InvoiceId),
+    QuotePortal {
+        quote_id: QuoteId,
+        recipient_email: String,
+    },
 }
 #[derive(Clone)]
 pub enum AuthenticatedState {
@@ -191,6 +197,22 @@ impl AuthorizedAsPortalUser {
             _ => Err(Status::invalid_argument(
                 "Resource is not an invoice portal.",
             )),
+        }
+    }
+
+    pub fn quote(&self) -> Result<QuoteId, Status> {
+        match &self.resource_access {
+            ResourceAccess::QuotePortal { quote_id, .. } => Ok(*quote_id),
+            _ => Err(Status::invalid_argument("Resource is not a quote portal.")),
+        }
+    }
+
+    pub fn quote_recipient_email(&self) -> Result<String, Status> {
+        match &self.resource_access {
+            ResourceAccess::QuotePortal {
+                recipient_email, ..
+            } => Ok(recipient_email.clone()),
+            _ => Err(Status::invalid_argument("Resource is not a quote portal.")),
         }
     }
 }

@@ -256,9 +256,10 @@ impl WebhookOutEventTypeEnum {
     }
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[map_owned(diesel_enums::SubscriptionActivationConditionEnum)]
 pub enum SubscriptionActivationCondition {
+    #[default]
     OnStart,
     OnCheckout,
     Manual,
@@ -393,4 +394,15 @@ pub enum TaxResolverEnum {
     Manual,
     #[default]
     MeteroidEuVat,
+}
+
+#[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
+#[map_owned(diesel_enums::QuoteStatusEnum)]
+pub enum QuoteStatusEnum {
+    Draft,
+    Pending,
+    Accepted,
+    Declined,
+    Expired,
+    Cancelled,
 }

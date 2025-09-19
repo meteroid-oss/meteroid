@@ -1,5 +1,6 @@
 export { CheckboxFormField } from './checkbox-form-field'
 export { ComboboxFormField } from './combobox-form-field'
+export { DateFormField } from './date-form-field'
 export * from './form'
 export { GenericFormField } from './generic-form-field'
 export { InputFormField } from './input-form-field'

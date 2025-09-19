@@ -49,6 +49,13 @@ pub fn validate_portal_jwt(
             ResourceAccess::Invoice(id) => {
                 common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal(id)
             }
+            ResourceAccess::Quote {
+                quote_id,
+                recipient_email,
+            } => common_grpc::middleware::server::auth::ResourceAccess::QuotePortal {
+                quote_id,
+                recipient_email,
+            },
         },
     })
 }
@@ -71,6 +78,11 @@ pub async fn authorize_portal(
         }
         common_grpc::middleware::server::auth::ResourceAccess::InvoicePortal(_) => {
             if !gm.service.starts_with("meteroid.portal.invoice.") {
+                return Err(Status::permission_denied("Unauthorized"));
+            }
+        }
+        common_grpc::middleware::server::auth::ResourceAccess::QuotePortal { .. } => {
+            if !gm.service.starts_with("meteroid.portal.quotes.") {
                 return Err(Status::permission_denied("Unauthorized"));
             }
         }

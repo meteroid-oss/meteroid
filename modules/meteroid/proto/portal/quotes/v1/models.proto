@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package meteroid.portal.quotes.v1;
+
+import "api/quotes/v1/models.proto";
+import "api/customers/v1/models.proto";
+import "api/invoicingentities/v1/models.proto";
+import "common/v1/date.proto";
+
+message QuotePortalDetails {
+  api.quotes.v1.Quote quote = 1;
+  api.customers.v1.Customer customer = 2;
+  api.invoicingentities.v1.InvoicingEntityPublic entity = 4;
+  repeated api.quotes.v1.QuoteComponent components = 5;
+  repeated QuoteSignature signatures = 6;
+  repeated QuoteRecipient recipients = 7;
+  optional string logo_url = 8;
+  string current_recipient_email = 12;
+  string current_recipient_name = 13;
+}
+
+message QuoteSignature {
+  string id = 1;
+  string signed_by_name = 2;
+  string signed_by_email = 3;
+  optional string signed_by_title = 4;
+  string signed_at = 5;
+  string signature_method = 6;
+}
+
+message QuoteRecipient {
+  string email = 1;
+  string name = 2;
+  optional string title = 3;
+  bool has_signed = 5;
+}

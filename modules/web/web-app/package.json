@@ -52,6 +52,7 @@
     "react-hook-form": "^7.54.2",
     "react-resizable-panels": "^2.1.7",
     "react-router-dom": "^6.30.0",
+    "react-signature-canvas": "1.1.0-alpha.2",
     "sass": "^1.86.0",
     "simple-icons": "^13.21.0",
     "sonner": "^1.7.4",

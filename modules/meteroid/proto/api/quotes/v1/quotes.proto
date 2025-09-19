@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package meteroid.api.quotes.v1;
+
+import "api/quotes/v1/models.proto";
+import "api/subscriptions/v1/models.proto";
+import "common/v1/pagination.proto";
+
+message CreateQuoteRequest {
+  CreateQuote quote = 1;
+}
+
+message CreateQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+message GetQuoteRequest {
+  string id = 1;
+}
+
+message GetQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+message ListQuotesRequest {
+  enum SortBy {
+    CREATED_AT_DESC = 0;
+    CREATED_AT_ASC = 1;
+    QUOTE_NUMBER_DESC = 2;
+    QUOTE_NUMBER_ASC = 3;
+    EXPIRES_AT_DESC = 6;
+    EXPIRES_AT_ASC = 7;
+  }
+  SortBy sort_by = 1;
+  optional string search = 2;
+  meteroid.common.v1.Pagination pagination = 3;
+  optional QuoteStatus status = 4;
+  optional string customer_id = 5;
+}
+
+message ListQuotesResponse {
+  repeated Quote quotes = 1;
+  meteroid.common.v1.PaginationResponse pagination_meta = 2;
+}
+
+message UpdateQuoteRequest {
+  string id = 1;
+  optional QuoteStatus status = 2;
+
+  optional uint32 trial_duration = 3;
+  optional string start_date = 4;
+  optional string billing_start_date = 5;
+  optional string end_date = 6;
+  optional uint32 billing_day_anchor = 7;
+  optional meteroid.api.subscriptions.v1.ActivationCondition activation_condition = 8;
+
+  optional string valid_until = 9;
+  optional string expires_at = 10;
+
+  optional string internal_notes = 11;
+  optional string cover_image = 12;
+  optional string overview = 13;
+  optional string terms_and_services = 14;
+  optional int32 net_terms = 15;
+  repeated string attachments = 16;
+  repeated RecipientDetails recipients = 17;
+
+  optional meteroid.api.subscriptions.v1.CreateSubscriptionComponents components = 18;
+}
+
+message UpdateQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+
+message SendQuoteRequest {
+  string id = 1;
+  optional string recipient_email = 2;
+  optional string message = 3;
+  optional bool send_copy_to_sender = 4;
+}
+
+message SendQuoteResponse {
+  bool success = 1;
+  optional string message = 2;
+}
+
+message PreviewQuoteRequest {
+  string id = 1;
+}
+
+message PreviewQuoteResponse {
+  string html = 1;
+}
+
+
+message ExpireQuoteRequest {
+  string id = 1;
+}
+
+message ExpireQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+message CancelQuoteRequest {
+  string id = 1;
+  optional string reason = 2;
+}
+
+message CancelQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+message DuplicateQuoteRequest {
+  string id = 1;
+  optional string new_customer_id = 2;
+}
+
+message DuplicateQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+message GenerateQuotePortalTokenRequest {
+  string quote_id = 1;
+  string recipient_email = 2;
+}
+
+message GenerateQuotePortalTokenResponse {
+  string token = 1;
+}
+
+message PublishQuoteRequest {
+  string id = 1;
+}
+
+message PublishQuoteResponse {
+  DetailedQuote quote = 1;
+}
+
+service QuotesService {
+  // Internal quote management
+  rpc CreateQuote(CreateQuoteRequest) returns (CreateQuoteResponse) {}
+  rpc GetQuote(GetQuoteRequest) returns (GetQuoteResponse) {}
+  rpc ListQuotes(ListQuotesRequest) returns (ListQuotesResponse) {}
+  rpc SendQuote(SendQuoteRequest) returns (SendQuoteResponse) {}
+  rpc PublishQuote(PublishQuoteRequest) returns (PublishQuoteResponse) {}
+  rpc PreviewQuoteHtml(PreviewQuoteRequest) returns (PreviewQuoteResponse) {}
+  rpc ExpireQuote(ExpireQuoteRequest) returns (ExpireQuoteResponse) {}
+  rpc CancelQuote(CancelQuoteRequest) returns (CancelQuoteResponse) {}
+  rpc DuplicateQuote(DuplicateQuoteRequest) returns (DuplicateQuoteResponse) {}
+  rpc UpdateQuote(UpdateQuoteRequest) returns (UpdateQuoteResponse) {}
+
+  // Token generation for portal access
+  rpc GenerateQuotePortalToken(GenerateQuotePortalTokenRequest) returns (GenerateQuotePortalTokenResponse) {}
+}

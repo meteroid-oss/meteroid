@@ -25,6 +25,7 @@ pub mod plans;
 pub mod price_components;
 pub mod product_families;
 pub mod products;
+pub mod quotes;
 pub mod scheduled_events;
 pub mod schedules;
 pub mod slot_transactions;

@@ -78,6 +78,10 @@ pub mod sql_types {
     pub struct PlanTypeEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "QuoteStatusEnum"))]
+    pub struct QuoteStatusEnum;
+
+    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "ScheduledEventStatus"))]
     pub struct ScheduledEventStatus;
 
@@ -721,6 +725,93 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
+    use super::sql_types::QuoteStatusEnum;
+    use super::sql_types::SubscriptionActivationConditionEnum;
+
+    quote (id) {
+        id -> Uuid,
+        status -> QuoteStatusEnum,
+        created_at -> Timestamptz,
+        updated_at -> Nullable<Timestamptz>,
+        tenant_id -> Uuid,
+        customer_id -> Uuid,
+        plan_version_id -> Uuid,
+        currency -> Varchar,
+        quote_number -> Varchar,
+        trial_duration_days -> Nullable<Int4>,
+        billing_start_date -> Date,
+        billing_end_date -> Nullable<Date>,
+        billing_day_anchor -> Nullable<Int4>,
+        activation_condition -> SubscriptionActivationConditionEnum,
+        valid_until -> Nullable<Timestamptz>,
+        expires_at -> Nullable<Timestamptz>,
+        accepted_at -> Nullable<Timestamptz>,
+        declined_at -> Nullable<Timestamptz>,
+        internal_notes -> Nullable<Text>,
+        cover_image -> Nullable<Uuid>,
+        overview -> Nullable<Text>,
+        terms_and_services -> Nullable<Text>,
+        net_terms -> Int4,
+        attachments -> Array<Nullable<Uuid>>,
+        pdf_document_id -> Nullable<Uuid>,
+        sharing_key -> Nullable<Varchar>,
+        converted_to_invoice_id -> Nullable<Uuid>,
+        converted_to_subscription_id -> Nullable<Uuid>,
+        converted_at -> Nullable<Timestamptz>,
+        recipients -> Jsonb,
+    }
+}
+
+diesel::table! {
+    quote_activity (id) {
+        id -> Uuid,
+        quote_id -> Uuid,
+        activity_type -> Varchar,
+        description -> Text,
+        actor_type -> Varchar,
+        actor_id -> Nullable<Varchar>,
+        actor_name -> Nullable<Varchar>,
+        created_at -> Timestamptz,
+        ip_address -> Nullable<Varchar>,
+        user_agent -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::SubscriptionFeeBillingPeriod;
+
+    quote_component (id) {
+        id -> Uuid,
+        name -> Text,
+        quote_id -> Uuid,
+        price_component_id -> Nullable<Uuid>,
+        product_id -> Nullable<Uuid>,
+        period -> SubscriptionFeeBillingPeriod,
+        fee -> Jsonb,
+        is_override -> Bool,
+    }
+}
+
+diesel::table! {
+    quote_signature (id) {
+        id -> Uuid,
+        quote_id -> Uuid,
+        signed_by_name -> Varchar,
+        signed_by_email -> Varchar,
+        signed_by_title -> Nullable<Varchar>,
+        signature_data -> Nullable<Text>,
+        signature_method -> Varchar,
+        signed_at -> Timestamptz,
+        ip_address -> Nullable<Varchar>,
+        user_agent -> Nullable<Text>,
+        verification_token -> Nullable<Varchar>,
+        verified_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
     use super::sql_types::BillingPeriodEnum;
 
     schedule (id) {
@@ -966,6 +1057,16 @@ diesel::joinable!(product_accounting -> custom_tax (custom_tax_id));
 diesel::joinable!(product_accounting -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(product_accounting -> product (product_id));
 diesel::joinable!(product_family -> tenant (tenant_id));
+diesel::joinable!(quote -> customer (customer_id));
+diesel::joinable!(quote -> invoice (converted_to_invoice_id));
+diesel::joinable!(quote -> plan_version (plan_version_id));
+diesel::joinable!(quote -> subscription (converted_to_subscription_id));
+diesel::joinable!(quote -> tenant (tenant_id));
+diesel::joinable!(quote_activity -> quote (quote_id));
+diesel::joinable!(quote_component -> price_component (price_component_id));
+diesel::joinable!(quote_component -> product (product_id));
+diesel::joinable!(quote_component -> quote (quote_id));
+diesel::joinable!(quote_signature -> quote (quote_id));
 diesel::joinable!(schedule -> plan_version (plan_version_id));
 diesel::joinable!(scheduled_event -> subscription (subscription_id));
 diesel::joinable!(slot_transaction -> subscription (subscription_id));
@@ -1019,6 +1120,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     product,
     product_accounting,
     product_family,
+    quote,
+    quote_activity,
+    quote_component,
+    quote_signature,
     schedule,
     scheduled_event,
     slot_transaction,
