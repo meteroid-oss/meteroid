@@ -17,6 +17,7 @@ pub mod price_components;
 pub mod product_families;
 pub mod products;
 pub mod query;
+pub mod quotes;
 pub mod schedules;
 pub mod schema;
 pub mod slot_transactions;

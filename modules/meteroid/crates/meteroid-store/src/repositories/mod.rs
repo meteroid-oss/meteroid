@@ -3,6 +3,7 @@ pub use invoices::InvoiceInterface;
 pub use organizations::OrganizationsInterface;
 pub use plans::PlansInterface;
 pub use product_families::ProductFamilyInterface;
+pub use quotes::QuotesInterface;
 pub use subscriptions::SubscriptionInterface;
 pub use tenants::TenantInterface;
 
@@ -30,6 +31,7 @@ pub mod pgmq;
 pub mod price_components;
 pub mod product_families;
 pub mod products;
+pub mod quotes;
 pub mod schedules;
 pub mod stats;
 pub mod subscriptions;

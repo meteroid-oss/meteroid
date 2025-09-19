@@ -14,6 +14,7 @@ types:
     - meteroid.api.components.v1.PriceComponentsService
     - meteroid.api.productfamilies.v1.ProductFamiliesService
     - meteroid.api.products.v1.ProductsService
+    - meteroid.api.quotes.v1.QuotesService
     - meteroid.api.schedules.v1.SchedulesService
     - meteroid.api.stats.v1.StatsService
     - meteroid.api.subscriptions.v1.SubscriptionsService
@@ -23,6 +24,7 @@ types:
     - meteroid.api.invoicingentities.v1.InvoicingEntitiesService
     - meteroid.api.taxes.v1.TaxesService
     - meteroid.portal.checkout.v1.PortalCheckoutService
+    - meteroid.portal.quotes.v1.PortalQuoteService
 plugins:
   - plugin: buf.build/bufbuild/es:v1.7.1
     opt:

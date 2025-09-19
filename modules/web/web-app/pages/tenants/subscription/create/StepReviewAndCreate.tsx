@@ -11,7 +11,7 @@ import { PageSection } from '@/components/layouts/shared/PageSection'
 import {
   mapExtraComponentToSubscriptionComponent,
   mapOverrideComponentToSubscriptionComponent,
-} from '@/features/subscriptions/pricecomponents/CreateSubscriptionPriceComponents'
+} from '@/features/subscriptions/pricecomponents/PriceComponentsLogic'
 import {
   getApiComponentBillingPeriodLabel,
   getExtraComponentBillingPeriodLabel,

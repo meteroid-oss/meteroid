@@ -2,6 +2,7 @@ import { RouteObject } from 'react-router-dom'
 
 import { PortalCheckout } from '@/pages/portal/checkout'
 import { PortalCheckoutSuccess } from '@/pages/portal/checkout-success'
+import { PortalQuote } from '@/pages/portal/quote'
 
 export const portalRoutes: RouteObject = {
   children: [
@@ -15,6 +16,15 @@ export const portalRoutes: RouteObject = {
         {
           path: 'success',
           element: <PortalCheckoutSuccess />,
+        },
+      ],
+    },
+    {
+      path: 'quote',
+      children: [
+        {
+          index: true,
+          element: <PortalQuote />,
         },
       ],
     },

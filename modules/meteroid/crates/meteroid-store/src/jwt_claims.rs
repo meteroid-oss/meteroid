@@ -1,6 +1,6 @@
 use crate::StoreResult;
 use crate::errors::StoreError;
-use common_domain::ids::{CustomerId, InvoiceId, SubscriptionId, TenantId};
+use common_domain::ids::{CustomerId, InvoiceId, QuoteId, SubscriptionId, TenantId};
 use secrecy::{ExposeSecret, SecretString};
 // todo reuse in common-grpc as well
 
@@ -10,6 +10,10 @@ pub enum ResourceAccess {
     // OneTimeCheckout
     Customer(CustomerId),
     Invoice(InvoiceId),
+    Quote {
+        quote_id: QuoteId,
+        recipient_email: String,
+    },
 }
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct PortalJwtClaims {

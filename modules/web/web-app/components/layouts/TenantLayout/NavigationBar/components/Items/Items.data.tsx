@@ -19,7 +19,7 @@ export const NAVIGATION_ITEMS: NavigationItemType[] = [
   },
   {
     label: 'Billing',
-    to: 'subscriptions',
+    to: 'billing',
     icon: <BillingIcon size={22} className="ml-[-2px]" />,
   },
   {

@@ -14,6 +14,7 @@ pub use plans::*;
 pub use price_components::*;
 pub use product_families::*;
 pub use products::*;
+pub use quotes::*;
 pub use schedules::*;
 pub use subscription_add_ons::*;
 pub use subscription_components::*;
@@ -51,6 +52,7 @@ pub mod payment_transactions;
 pub mod pgmq;
 pub mod product_families;
 pub mod products;
+pub mod quotes;
 pub mod scheduled_events;
 pub mod schedules;
 

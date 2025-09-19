@@ -78,6 +78,11 @@ pub async fn start_api_server(
         .add_service(api::schedules::service(store.clone()))
         .add_service(api::productitems::service(store.clone()))
         .add_service(api::productfamilies::service(store.clone()))
+        .add_service(api::quotes::service(
+            store.clone(),
+            services.clone(),
+            config.jwt_secret.clone(),
+        ))
         .add_service(api::instance::service(store.clone()))
         .add_service(api::invoices::service(
             store.clone(),
@@ -92,6 +97,11 @@ pub async fn start_api_server(
         .add_service(api::webhooksout::service(store.clone(), services.clone()))
         .add_service(api::internal::service(store.clone()))
         .add_service(api::portal::checkout::service(
+            store.clone(),
+            services.clone(),
+            object_store.clone(),
+        ))
+        .add_service(api::portal::quotes::service(
             store.clone(),
             services.clone(),
             object_store.clone(),

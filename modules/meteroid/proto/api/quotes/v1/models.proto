@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package meteroid.api.quotes.v1;
+
+import "api/customers/v1/models.proto";
+import "api/invoicingentities/v1/models.proto";
+import "api/connectors/v1/models.proto";
+import "api/subscriptions/v1/models.proto";
+import "api/shared/v1/shared.proto";
+
+enum QuoteStatus {
+  DRAFT = 0;
+  PENDING = 1;
+  ACCEPTED = 2;
+  DECLINED = 3;
+  EXPIRED = 4;
+  CANCELLED = 5;
+}
+
+message Quote {
+  string id = 1;
+  string quote_number = 2;
+  QuoteStatus status = 3;
+  string created_at = 4;
+  optional string updated_at = 5;
+  string customer_id = 6;
+  optional string customer_name = 7;
+  string plan_version_id = 8;
+  string currency = 9;
+
+  // Subscription-like fields
+  optional uint32 trial_duration = 10;
+  string start_date = 11;
+  optional string billing_start_date = 12;
+  optional string end_date = 13;
+  optional uint32 billing_day_anchor = 14;
+  meteroid.api.subscriptions.v1.ActivationCondition activation_condition = 15;
+
+  // Quote-specific fields
+  optional string valid_until = 16;
+  optional string expires_at = 17;
+  optional string accepted_at = 18;
+  optional string declined_at = 19;
+
+  // Documentation fields
+  optional string internal_notes = 20;
+  optional string cover_image = 21;
+  optional string overview = 22;
+  optional string terms_and_services = 23;
+  repeated string attachments = 24;
+  repeated RecipientDetails recipients = 25;
+
+  int32 net_terms = 26;
+}
+
+message RecipientDetails {
+  string name = 1;
+  string email = 2;
+}
+
+
+
+message DetailedQuote {
+  Quote quote = 1;
+  meteroid.api.customers.v1.Customer customer = 2;
+  meteroid.api.invoicingentities.v1.InvoicingEntity invoicing_entity = 3;
+  repeated QuoteComponent components = 5;
+  repeated QuoteSignature signatures = 6;
+  repeated QuoteActivity activities = 7;
+}
+
+
+message QuoteComponent {
+  string id = 1;
+  optional string price_component_id = 2;
+  optional string product_id = 3;
+  string name = 4;
+  meteroid.api.subscriptions.v1.SubscriptionFeeBillingPeriod period = 5;
+  meteroid.api.subscriptions.v1.SubscriptionFee fee = 6;
+  bool is_override = 7;
+}
+
+message QuoteSignature {
+  string id = 1;
+  string quote_id = 2;
+  string signed_by_name = 3;
+  string signed_by_email = 4;
+  optional string signed_by_title = 5;
+  optional string signature_data = 6;
+  string signature_method = 7;
+  string signed_at = 8;
+  optional string ip_address = 9;
+  optional string user_agent = 10;
+  optional string verification_token = 11;
+  optional string verified_at = 12;
+}
+
+message QuoteActivity {
+  string id = 1;
+  string quote_id = 2;
+  string activity_type = 3;
+  string description = 4;
+  string actor_type = 5;
+  optional string actor_id = 6;
+  optional string actor_name = 7;
+  string created_at = 9;
+  optional string ip_address = 10;
+  optional string user_agent = 11;
+}
+
+message CreateQuote {
+  string plan_version_id = 1;
+  string customer_id = 2;
+  string currency = 3;
+  optional string quote_number = 4;
+
+  // Subscription-like fields
+  optional uint32 trial_duration = 5;
+  string start_date = 6;
+  optional string billing_start_date = 7;
+  optional string end_date = 8;
+  optional uint32 billing_day_anchor = 9;
+  meteroid.api.subscriptions.v1.ActivationCondition activation_condition = 10;
+
+  // Quote-specific fields
+  optional string valid_until = 11;
+  optional string expires_at = 12;
+
+  // Documentation fields
+  optional string internal_notes = 13;
+  optional string cover_image = 14;
+  optional string overview = 15;
+  optional string terms_and_services = 16;
+  optional int32 net_terms = 17;
+  repeated string attachments = 18;
+  repeated RecipientDetails recipients = 19;
+
+  meteroid.api.subscriptions.v1.CreateSubscriptionComponents components = 20;
+}

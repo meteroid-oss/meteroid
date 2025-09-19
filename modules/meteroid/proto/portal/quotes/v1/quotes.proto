@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package meteroid.portal.quotes.v1;
+
+import "portal/quotes/v1/models.proto";
+import "api/quotes/v1/models.proto";
+
+message GetQuotePortalRequest {
+}
+
+message GetQuotePortalResponse {
+  QuotePortalDetails quote = 1;
+}
+
+message SignQuoteRequest {
+  string recipient_email = 1;
+  string signed_by_name = 2;
+  string signed_by_title = 3;
+  string signature_data = 4;
+  string signature_method = 5;
+}
+
+message SignQuoteResponse {
+  bool success = 1;
+  string signature_id = 2;
+}
+
+service PortalQuoteService {
+  rpc GetQuotePortal(GetQuotePortalRequest) returns (GetQuotePortalResponse) {}
+  rpc SignQuote(SignQuoteRequest) returns (SignQuoteResponse) {}
+}

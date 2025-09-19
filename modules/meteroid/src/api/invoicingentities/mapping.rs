@@ -110,4 +110,24 @@ pub mod invoicing_entities {
             tax_resolver: tax_resolver_domain_to_server(domain.tax_resolver).into(),
         }
     }
+
+    pub fn domain_to_public_proto(
+        domain: domain::InvoicingEntity,
+    ) -> server::InvoicingEntityPublic {
+        server::InvoicingEntityPublic {
+            legal_name: domain.legal_name,
+            net_terms: domain.net_terms,
+            invoice_footer_info: domain.invoice_footer_info,
+            invoice_footer_legal: domain.invoice_footer_legal,
+            logo_attachment_id: domain.logo_attachment_id.map(|id| id.as_proto()),
+            brand_color: domain.brand_color,
+            address_line1: domain.address_line1,
+            address_line2: domain.address_line2,
+            zip_code: domain.zip_code,
+            state: domain.state,
+            city: domain.city,
+            vat_number: domain.vat_number,
+            country: domain.country,
+        }
+    }
 }

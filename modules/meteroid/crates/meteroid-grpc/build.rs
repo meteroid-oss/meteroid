@@ -27,6 +27,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
         "pricecomponents",
         "productfamilies",
         "products",
+        "quotes",
         "schedules",
         "stats",
         "subscriptions",
@@ -44,6 +45,7 @@ fn generate_grpc_types(root: &Path) -> Result<(), BuildError> {
     // Add additional paths as needed
     proto_files.push(root.join("proto/internal/v1/internal.proto"));
     proto_files.push(root.join("proto/portal/checkout/v1/checkout.proto"));
+    proto_files.push(root.join("proto/portal/quotes/v1/quotes.proto"));
 
     for proto_file in &proto_files {
         println!("cargo:rerun-if-changed={}", proto_file.display());
