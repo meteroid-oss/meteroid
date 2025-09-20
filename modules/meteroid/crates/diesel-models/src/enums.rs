@@ -48,17 +48,6 @@ pub enum CreditNoteStatus {
     Voided,
 }
 
-#[derive(diesel_derive_enum::DbEnum, Debug, Clone)]
-#[ExistingTypePath = "crate::schema::sql_types::FangTaskState"]
-#[DbValueStyle = "snake_case"]
-pub enum FangTaskState {
-    New,
-    InProgress,
-    Failed,
-    Finished,
-    Retried,
-}
-
 #[derive(diesel_derive_enum::DbEnum, Debug, Clone, Eq, PartialEq)]
 #[ExistingTypePath = "crate::schema::sql_types::InvoiceStatusEnum"]
 #[DbValueStyle = "SCREAMING_SNAKE_CASE"]

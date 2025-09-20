@@ -34,10 +34,6 @@ pub mod sql_types {
     pub struct CycleActionEnum;
 
     #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
-    #[diesel(postgres_type(name = "fang_task_state"))]
-    pub struct FangTaskState;
-
-    #[derive(diesel::query_builder::QueryId, diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "InvoicePaymentStatus"))]
     pub struct InvoicePaymentStatus;
 
@@ -428,45 +424,6 @@ diesel::table! {
         card_last4 -> Nullable<Text>,
         card_exp_month -> Nullable<Int4>,
         card_exp_year -> Nullable<Int4>,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::FangTaskState;
-
-    fang_tasks (id) {
-        id -> Uuid,
-        metadata -> Jsonb,
-        error_message -> Nullable<Text>,
-        state -> FangTaskState,
-        task_type -> Varchar,
-        #[max_length = 64]
-        uniq_hash -> Nullable<Bpchar>,
-        retries -> Int4,
-        scheduled_at -> Timestamptz,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::FangTaskState;
-
-    fang_tasks_archive (id) {
-        id -> Uuid,
-        metadata -> Jsonb,
-        error_message -> Nullable<Text>,
-        state -> FangTaskState,
-        task_type -> Varchar,
-        #[max_length = 64]
-        uniq_hash -> Nullable<Bpchar>,
-        retries -> Int4,
-        scheduled_at -> Timestamptz,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        archived_at -> Timestamptz,
     }
 }
 
@@ -1106,8 +1063,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     customer_balance_tx,
     customer_connection,
     customer_payment_method,
-    fang_tasks,
-    fang_tasks_archive,
     historical_rates_from_usd,
     invoice,
     invoicing_entity,

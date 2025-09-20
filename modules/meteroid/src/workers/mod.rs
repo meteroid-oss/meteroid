@@ -12,8 +12,6 @@ use std::sync::Arc;
 
 pub mod billing;
 pub mod clients;
-pub mod fang;
-mod metrics;
 pub mod misc;
 pub mod pgmq;
 pub mod webhook_out;

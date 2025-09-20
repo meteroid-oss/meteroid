@@ -3,7 +3,6 @@ use secrecy::SecretString;
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use crate::workers::fang::ext::FangExtConfig;
 use common_config::analytics::AnalyticsConfig;
 use common_config::auth::InternalAuthConfig;
 use common_config::common::CommonConfig;
@@ -68,9 +67,6 @@ pub struct Config {
         default = "00000000000000000000000000000000"
     )]
     pub secrets_crypt_key: CryptKey,
-
-    #[envconfig(nested)]
-    pub fang_ext: FangExtConfig,
 
     #[envconfig(from = "SVIX_SERVER_URL")]
     pub svix_server_url: Option<String>,

@@ -5,7 +5,6 @@ use crate::errors::RestApiError;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use error_stack::Report;
-use fang::Deserialize;
 use meteroid_oauth::model::OauthProvider;
 use meteroid_store::domain::oauth::{OauthVerifierData, SignInData};
 use meteroid_store::errors::StoreError;
@@ -14,6 +13,7 @@ use meteroid_store::repositories::connectors::ConnectorsInterface;
 use meteroid_store::repositories::oauth::OauthInterface;
 use meteroid_store::repositories::users::UserInterface;
 use secrecy::{ExposeSecret, SecretString};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct GetCallbackUrlParams {

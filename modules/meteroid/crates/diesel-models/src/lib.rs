@@ -7,7 +7,6 @@ pub mod customer_connection;
 pub mod customers;
 pub mod enums;
 pub mod errors;
-pub mod fang;
 pub mod invoices;
 pub mod organization_members;
 pub mod organizations;

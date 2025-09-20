@@ -14,11 +14,11 @@ use crate::api::sharable::ShareableEntityClaims;
 use crate::services::storage::Prefix;
 use common_domain::ids::{InvoiceId, StoredDocumentId};
 use error_stack::{Report, Result, ResultExt};
-use fang::Deserialize;
 use image::ImageFormat::Png;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
 use secrecy::ExposeSecret;
+use serde::Deserialize;
 use utoipa::OpenApi;
 
 #[derive(OpenApi)]

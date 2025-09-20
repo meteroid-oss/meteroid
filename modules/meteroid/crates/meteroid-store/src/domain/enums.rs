@@ -84,16 +84,6 @@ pub enum CreditNoteStatus {
     Voided,
 }
 
-#[derive(o2o, Serialize, Deserialize, Debug, Clone)]
-#[map_owned(diesel_enums::FangTaskState)]
-pub enum FangTaskState {
-    New,
-    InProgress,
-    Failed,
-    Finished,
-    Retried,
-}
-
 #[derive(o2o, Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq)]
 #[map_owned(diesel_enums::InvoiceStatusEnum)]
 pub enum InvoiceStatusEnum {
