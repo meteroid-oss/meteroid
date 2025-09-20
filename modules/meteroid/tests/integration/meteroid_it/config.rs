@@ -8,7 +8,6 @@ use common_config::common::CommonConfig;
 use common_config::idempotency::IdempotencyConfig;
 use common_config::telemetry::TelemetryConfig;
 use meteroid::config::{Config, CryptKey};
-use meteroid::workers::fang::ext::FangExtConfig;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
 
@@ -48,7 +47,6 @@ pub fn mocked_config(
         jwt_secret: "secret".to_string().into(),
         multi_organization_enabled: false,
         secrets_crypt_key: CryptKey("00000000000000000000000000000000".to_string().into()),
-        fang_ext: FangExtConfig::init_from_env().unwrap(),
         openexchangerates_api_key: None,
         svix_server_url: Some("http://localhost:8071".to_owned()),
         svix_jwt_token: "fake".to_owned().into(),
