@@ -5,7 +5,6 @@ use futures_lite::stream::StreamExt;
 use lapin::{Channel, Consumer, options::*, types::FieldTable};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
-use std::fmt;
 use tonic::Request;
 
 use crate::error::OpenstackAdapterError;
@@ -249,26 +248,6 @@ pub struct CeilometerOsloMessage {
                                          // pub priority: String,
                                          // pub publisher_id: String,
                                          // pub timestamp: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub enum CounterType {
-    #[serde(rename = "gauge")]
-    Gauge,
-    #[serde(rename = "delta")]
-    Delta,
-    #[serde(rename = "cumulative")]
-    Cumulative,
-}
-
-impl fmt::Display for CounterType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CounterType::Gauge => write!(f, "gauge"),
-            CounterType::Delta => write!(f, "delta"),
-            CounterType::Cumulative => write!(f, "cumulative"),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
