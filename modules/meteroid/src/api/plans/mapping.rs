@@ -126,7 +126,7 @@ pub mod plans {
                     active_version_id: value.plan.active_version_id.map(|x| x.as_proto()),
                     draft_version_id: value.plan.draft_version_id.map(|x| x.as_proto()),
                 }),
-                version: value.version.map(|v| (PlanVersionWrapper::from(v).0)),
+                version: value.version.map(|v| PlanVersionWrapper::from(v).0),
             })
         }
     }
