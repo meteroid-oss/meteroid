@@ -14,6 +14,7 @@ use diesel_models::customers::{CustomerBriefRow, CustomerRowNew, CustomerRowPatc
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use uuid::Uuid;
 
 #[derive(Clone, Debug, PartialEq, Eq, o2o)]
@@ -176,19 +177,14 @@ impl CustomerPatch {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Address {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub line1: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub line2: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub country: Option<String>, // TODO mandatory ?
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub zip_code: Option<String>,
 }
 
@@ -206,9 +202,9 @@ impl From<Address> for meteroid_tax::Address {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShippingAddress {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<Address>,
     pub same_as_billing: bool,
 }

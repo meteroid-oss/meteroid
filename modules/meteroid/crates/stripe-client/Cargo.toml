@@ -13,6 +13,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_qs = { workspace = true }
 serde_json = { workspace = true }
 serde_path_to_error = { workspace = true }
+serde_with = { workspace = true }
 common-domain = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }

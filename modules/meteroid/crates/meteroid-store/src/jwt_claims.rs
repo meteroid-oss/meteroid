@@ -2,6 +2,7 @@ use crate::StoreResult;
 use crate::errors::StoreError;
 use common_domain::ids::{CustomerId, InvoiceId, QuoteId, SubscriptionId, TenantId};
 use secrecy::{ExposeSecret, SecretString};
+use serde_with::skip_serializing_none;
 // todo reuse in common-grpc as well
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -15,10 +16,11 @@ pub enum ResourceAccess {
         recipient_email: String,
     },
 }
+
+#[skip_serializing_none]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct PortalJwtClaims {
     iat: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub exp: Option<usize>,
     pub tenant_id: TenantId,
     pub resource: ResourceAccess,

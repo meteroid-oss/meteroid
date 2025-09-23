@@ -19,6 +19,7 @@ use diesel_models::pgmq::PgmqMessageRowNew;
 use error_stack::Report;
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use strum::Display;
 use uuid::Uuid;
 
@@ -184,6 +185,7 @@ impl TryInto<OutboxEventRowNew> for OutboxEvent {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(Customer)]
 pub struct CustomerEvent {
@@ -193,24 +195,16 @@ pub struct CustomerEvent {
     pub customer_id: CustomerId,
     pub tenant_id: TenantId,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_email: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub invoicing_emails: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub currency: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_address: Option<Address>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub shipping_address: Option<ShippingAddress>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub vat_number: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub bank_account_id: Option<BankAccountId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub conn_meta: Option<ConnectionMeta>,
 }
 
@@ -223,6 +217,7 @@ impl CustomerEvent {
 }
 
 // TODO golden tests
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(BillableMetric)]
 #[ghosts(archived_at: None, updated_at: None)]
@@ -233,27 +228,21 @@ pub struct BillableMetricEvent {
     pub metric_id: BillableMetricId,
     pub tenant_id: TenantId,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub code: String,
     pub aggregation_type: BillingMetricAggregateEnum,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub aggregation_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_conversion_factor: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub unit_conversion_rounding: Option<UnitConversionRoundingEnum>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub segmentation_matrix: Option<SegmentationMatrix>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage_group_key: Option<String>,
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub product_family_id: ProductFamilyId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub product_id: Option<ProductId>,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_owned(Subscription)]
 pub struct SubscriptionEvent {
@@ -263,17 +252,13 @@ pub struct SubscriptionEvent {
     pub subscription_id: SubscriptionId,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_alias: Option<String>,
     pub customer_name: String,
     pub billing_day_anchor: u16,
     pub currency: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub trial_duration: Option<u32>,
     pub start_date: NaiveDate,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub end_date: Option<NaiveDate>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_start_date: Option<NaiveDate>,
     pub plan_id: PlanId,
     pub plan_name: String,
@@ -282,17 +267,15 @@ pub struct SubscriptionEvent {
     pub created_at: NaiveDateTime,
     pub created_by: Uuid,
     pub net_terms: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub invoice_memo: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub invoice_threshold: Option<rust_decimal::Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub activated_at: Option<NaiveDateTime>,
     pub mrr_cents: u64,
     pub period: BillingPeriodEnum,
     pub status: SubscriptionStatusEnum,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[from_ref(Invoice)]
 pub struct InvoiceEvent {
@@ -304,7 +287,6 @@ pub struct InvoiceEvent {
     pub status: InvoiceStatusEnum,
     pub tenant_id: TenantId,
     pub customer_id: CustomerId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub subscription_id: Option<SubscriptionId>,
     #[map(@.currency.clone())]
     pub currency: String,
@@ -326,6 +308,7 @@ pub struct InvoicePdfGeneratedEvent {
     pub pdf_id: StoredDocumentId,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[map_owned(PaymentTransaction)]
 pub struct PaymentTransactionEvent {
@@ -335,21 +318,15 @@ pub struct PaymentTransactionEvent {
     pub payment_transaction_id: PaymentTransactionId,
     pub tenant_id: TenantId,
     pub invoice_id: InvoiceId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_transaction_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub processed_at: Option<NaiveDateTime>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub refunded_at: Option<NaiveDateTime>,
     pub amount: i64,
     pub currency: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_method_id: Option<CustomerPaymentMethodId>,
     pub status: PaymentStatusEnum,
     pub payment_type: PaymentTypeEnum,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub receipt_pdf_id: Option<StoredDocumentId>,
 }
 

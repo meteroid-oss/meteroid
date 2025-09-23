@@ -100,7 +100,7 @@ impl Services {
     // can we batch more ? ex: group by event type before
     /// Process a scheduled event
     async fn process_event(&self, conn: &mut PgConn, event: ScheduledEventRow) -> StoreResult<()> {
-        let event: ScheduledEvent = event.clone().try_into().map_err(|_| {
+        let event: ScheduledEvent = event.try_into().map_err(|_| {
             StoreError::InvalidArgument("Failed to convert ScheduledEventRow".into())
         })?;
 

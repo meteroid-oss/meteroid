@@ -3,6 +3,7 @@ use crate::domain::{Period, SubLineAttributes, SubLineItem, TierRow};
 use crate::errors::StoreError;
 use crate::services::invoice_lines::component::InvoiceLineInner;
 use crate::utils::local_id::LocalId;
+use common_domain::ids::BillableMetricId;
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::ToNonNegativeU64;
 use error_stack::{Report, ResultExt};
@@ -13,6 +14,7 @@ pub fn compute_volume_price(
     tiers: &[TierRow],
     period: Period,
     precision: u8,
+    metric_id: BillableMetricId,
     _block_size: &Option<u64>,
 ) -> StoreResult<InvoiceLineInner> {
     let mut applicable_price_per_unit = Decimal::new(0, 0);
@@ -83,6 +85,7 @@ pub fn compute_volume_price(
             unit_price: applicable_price_per_unit,
             attributes: subline_attr,
         }],
+        metric_id: Some(metric_id),
     })
 }
 
@@ -91,6 +94,7 @@ pub fn compute_tier_price(
     tiers: &[TierRow],
     period: Period,
     precision: u8,
+    metric_id: BillableMetricId,
     _block_size: &Option<u64>,
 ) -> StoreResult<InvoiceLineInner> {
     let mut subtotal = Decimal::new(0, 0);
@@ -172,5 +176,6 @@ pub fn compute_tier_price(
         custom_line_name: None,
         is_prorated: false,
         sublines: sub_lines,
+        metric_id: Some(metric_id),
     })
 }

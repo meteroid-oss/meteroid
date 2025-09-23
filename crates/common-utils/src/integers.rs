@@ -12,7 +12,7 @@ pub fn only_positive_decimal(price: Decimal) -> Decimal {
     if price.is_sign_positive() {
         price
     } else {
-        Decimal::from(0)
+        Decimal::ZERO
     }
 }
 pub trait ToNonNegativeU64 {

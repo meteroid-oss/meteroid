@@ -366,7 +366,7 @@ impl Services {
                         && !subscription_details.subscription.pending_checkout,
                 );
 
-                // in period is None, this means that the components are not relevant for this invoice
+                // if period is None - the components are not relevant for this invoice
                 period.map(|period| (period, components))
             })
             .collect();

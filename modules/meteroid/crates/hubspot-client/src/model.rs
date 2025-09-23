@@ -1,12 +1,14 @@
 use chrono::{DateTime, Utc};
 use common_domain::ids::{CustomerId, SubscriptionId};
 use serde::{Deserialize, Serialize, Serializer};
+use serde_with::skip_serializing_none;
 use std::fmt::Debug;
 use std::str::FromStr;
 
 pub struct CompanyId(pub String);
 pub struct DealId(pub String);
 
+#[skip_serializing_none]
 #[derive(Serialize)]
 pub struct BatchUpsertItemRequest {
     /// The ID of the object to update
@@ -19,13 +21,12 @@ pub struct BatchUpsertItemRequest {
     #[serde(rename = "objectWriteTraceId")]
     pub object_write_trace_id: Option<String>,
     pub properties: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub associations: Option<Vec<Association>>,
 }
 
+#[skip_serializing_none]
 #[derive(Serialize)]
 pub struct Association {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<Associate>,
     pub to: Associate,
     pub types: Vec<AssociationType>,

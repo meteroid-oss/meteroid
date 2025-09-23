@@ -9,6 +9,7 @@ license.workspace = true
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_with = { workspace = true }
 common-domain = { workspace = true }
 secrecy = { workspace = true }
 thiserror = { workspace = true }

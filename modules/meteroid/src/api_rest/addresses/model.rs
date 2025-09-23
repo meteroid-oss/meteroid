@@ -1,24 +1,20 @@
+use serde_with::skip_serializing_none;
 use utoipa::ToSchema;
 
+#[skip_serializing_none]
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct Address {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub line1: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub line2: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub city: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub country: Option<String>, // TODO mandatory ?
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub state: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub zip_code: Option<String>,
 }
 
+#[skip_serializing_none]
 #[derive(Clone, ToSchema, serde::Serialize, serde::Deserialize, Debug)]
 pub struct ShippingAddress {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<Address>,
     pub same_as_billing: bool,
 }

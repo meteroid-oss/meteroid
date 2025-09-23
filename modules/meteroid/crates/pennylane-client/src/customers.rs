@@ -4,6 +4,7 @@ use crate::model::{ListResponse, QueryFilter, QueryParams};
 use reqwest::Method;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 
 #[async_trait::async_trait]
 pub trait CustomersApi {
@@ -120,31 +121,27 @@ impl CustomersApi for PennylaneClient {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize)]
 pub struct NewCompany {
     pub name: String,
     pub billing_address: BillingAddress,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub external_reference: String, // meteroid customer id
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub vat_number: Option<String>,
     pub emails: Vec<String>, // invoicing_emails
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_iban: Option<String>,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateCompany {
     pub name: String,
     pub billing_address: BillingAddress,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub phone: Option<String>,
     pub external_reference: String, // meteroid customer id
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub vat_number: Option<String>,
     pub emails: Vec<String>, // invoicing_emails
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub billing_iban: Option<String>,
 }
 

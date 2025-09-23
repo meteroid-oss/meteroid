@@ -144,6 +144,8 @@ mod tests {
             sub_lines: vec![],
             is_prorated: false,
             price_component_id: None,
+            sub_component_id: None,
+            sub_add_on_id: None,
             product_id: None,
             metric_id: None,
             description: None,
