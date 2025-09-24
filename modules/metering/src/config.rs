@@ -100,5 +100,8 @@ pub struct ClickhouseConfig {
 
     #[envconfig(from = "CLICKHOUSE_PASSWORD", default = "default")]
     pub password: String,
+
+    #[envconfig(from = "CLICKHOUSE_CLUSTER_NAME")]
+    pub cluster_name: Option<String>,
     // TODO TLS
 }
