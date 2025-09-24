@@ -107,6 +107,6 @@ pub fn migration() -> String {
         CREATE MATERIALIZED VIEW IF NOT EXISTS meteroid.preprocessed_kafka_events_mv TO meteroid.preprocessed_events AS
             SELECT * FROM meteroid.preprocessed_kafka_events;
     "#,
-        raw_kafka_settings, preprocessed_kafka_settings_str
+        raw_kafka_settings, preprocessed_kafka_settings
     )
 }
