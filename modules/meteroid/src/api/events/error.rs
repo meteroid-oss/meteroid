@@ -1,35 +1,34 @@
-use meteroid_store::errors::StoreError;
+use error_stack::Report;
+use std::error::Error;
 use thiserror::Error;
-use tonic::{Code, Status};
 
-#[derive(Debug, Error)]
+use common_grpc_error_as_tonic_macros_impl::ErrorAsTonic;
+use meteroid_store::errors::StoreError;
+
+#[derive(Debug, Error, ErrorAsTonic)]
 pub enum EventsApiError {
     #[error("Invalid argument: {0}")]
+    #[code(InvalidArgument)]
     InvalidArgument(String),
 
     #[error("CSV parsing error: {0}")]
+    #[code(InvalidArgument)]
     CsvParsingError(String),
 
     #[error("Store error: {0}")]
-    StoreError(#[from] StoreError),
+    #[code(Internal)]
+    StoreError(String, #[source] Box<dyn Error>),
 
     #[error("Metering service error: {0}")]
+    #[code(Internal)]
     MeteringServiceError(String),
 }
 
-impl From<EventsApiError> for Status {
-    fn from(error: EventsApiError) -> Self {
-        match error {
-            EventsApiError::InvalidArgument(msg) => Status::new(Code::InvalidArgument, msg),
-            EventsApiError::CsvParsingError(msg) => {
-                Status::new(Code::InvalidArgument, format!("CSV parsing error: {}", msg))
-            }
-            EventsApiError::StoreError(err) => match err {
-                _ => Status::new(Code::Internal, format!("Store error: {}", err)),
-            },
-            EventsApiError::MeteringServiceError(msg) => {
-                Status::new(Code::Internal, format!("Metering service error: {}", msg))
-            }
-        }
+impl From<Report<StoreError>> for EventsApiError {
+    fn from(value: Report<StoreError>) -> Self {
+        Self::StoreError(
+            "Error in events service".to_string(),
+            Box::new(value.into_error()),
+        )
     }
 }

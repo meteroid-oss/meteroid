@@ -40,10 +40,6 @@ impl Connector for PrintConnector {
         params: QueryRawEventsParams,
     ) -> Result<QueryRawEventsResult, ConnectorError> {
         println!("Querying raw events: {:?}", params);
-        Ok(QueryRawEventsResult {
-            events: vec![],
-            total_count: 0,
-            has_more: false,
-        })
+        Ok(QueryRawEventsResult { events: vec![] })
     }
 }

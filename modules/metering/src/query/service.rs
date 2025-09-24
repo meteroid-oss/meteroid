@@ -154,8 +154,6 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             })
             .collect();
 
-        Ok(Response::new(QueryRawEventsResponse {
-            events,
-        }))
+        Ok(Response::new(QueryRawEventsResponse { events }))
     }
 }

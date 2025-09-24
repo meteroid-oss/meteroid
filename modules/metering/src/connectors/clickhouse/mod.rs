@@ -199,14 +199,6 @@ impl Connector for ClickhouseConnector {
             });
         }
 
-        // Get total count (this is a simplified approach, in production you might want to optimize)
-        let total_count = events.len() as u32;
-        let has_more = events.len() as u32 >= params.limit;
-
-        Ok(QueryRawEventsResult {
-            events,
-            total_count,
-            has_more,
-        })
+        Ok(QueryRawEventsResult { events })
     }
 }

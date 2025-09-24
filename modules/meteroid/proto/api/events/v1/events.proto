@@ -6,10 +6,9 @@ import "google/protobuf/timestamp.proto";
 
 message IngestEventsFromCsvRequest {
   FileData file = 1;
-  // CSV format options
-  string delimiter = 2; // default ","
+  string delimiter = 2;
   bool allow_backfilling = 3;
-  bool fail_on_error = 4; // If true, fail the entire import on any error
+  bool fail_on_error = 4;
 }
 
 message IngestEventsFromCsvResponse {
@@ -31,11 +30,11 @@ message FileData {
 message SearchEventsRequest {
   google.protobuf.Timestamp from = 1;
   google.protobuf.Timestamp to = 2;
-  uint32 limit = 3; // max 1000
+  uint32 limit = 3;
   uint32 offset = 4;
 
   // Filters
-  optional string search = 5; // search in event_id, code, or properties
+  optional string search = 5;
   repeated string event_codes = 6;
   repeated string customer_ids = 7;
 

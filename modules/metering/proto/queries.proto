@@ -54,23 +54,22 @@ message QueryRawEventsRequest {
   string tenant_id = 1;
   google.protobuf.Timestamp from = 2;
   google.protobuf.Timestamp to = 3;
-  // max 1000
   uint32 limit = 4;
   uint32 offset = 5;
 
   // Filters
-  optional string search = 6; // search in event_id, code, or properties
-  repeated string event_codes = 7; // filter by event codes
-  repeated string customer_ids = 8; // filter by customer IDs
+  optional string search = 6;
+  repeated string event_codes = 7;
+  repeated string customer_ids = 8;
 
   // Sorting
   SortOrder sort_order = 9;
 
   enum SortOrder {
-    TIMESTAMP_DESC = 0; // most recent first (default)
-    TIMESTAMP_ASC = 1;  // oldest first
-    INGESTED_DESC = 2;  // most recently ingested first
-    INGESTED_ASC = 3;   // oldest ingested first
+    TIMESTAMP_DESC = 0;
+    TIMESTAMP_ASC = 1;
+    INGESTED_DESC = 2;
+    INGESTED_ASC = 3;
   }
 }
 

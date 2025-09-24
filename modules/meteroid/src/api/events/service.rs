@@ -262,7 +262,6 @@ impl EventsIngestionService for EventsServiceComponents {
             }
         }
 
-        // If fail_on_error is true and we have any failures (parsing or ingestion), return with 0 successful
         if fail_on_error && !failures.is_empty() {
             return Ok(Response::new(IngestEventsFromCsvResponse {
                 total_rows: total_rows as i32,
@@ -333,14 +332,12 @@ impl EventsIngestionService for EventsServiceComponents {
                                 nanos: dt.timestamp_subsec_nanos() as i32,
                             })
                             .ok(),
-                        ingested_at: None, // TODO: Add ingested_at to Event proto if needed
+                        ingested_at: None, // TODO: Add ingested_at to Event proto
                         properties: event.properties,
                     })
                     .collect();
 
-                Ok(Response::new(SearchEventsResponse {
-                    events,
-                }))
+                Ok(Response::new(SearchEventsResponse { events }))
             }
             Err(e) => Err(Status::internal(format!("Failed to search events: {}", e))),
         }
