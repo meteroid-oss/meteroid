@@ -4,18 +4,18 @@ use crate::request::RetryStrategy;
 use crate::setup_intents::StripeMandateRequest;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use std::collections::HashMap;
 
+#[skip_serializing_none]
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct PaymentIntentRequest {
     pub amount: i64,
     pub currency: String,
     pub metadata: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub return_url: Option<String>,
     pub confirm: bool,
     pub payment_method: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer: Option<String>,
     #[serde(flatten)]
     pub setup_mandate_details: Option<StripeMandateRequest>,

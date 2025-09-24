@@ -1,11 +1,10 @@
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 
+#[skip_serializing_none]
 #[derive(Debug, Serialize)]
 pub struct QueryParams {
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "as_json_string"
-    )]
+    #[serde(serialize_with = "as_json_string")]
     pub filter: Option<Vec<QueryFilter>>,
 }
 

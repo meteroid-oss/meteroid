@@ -3,6 +3,7 @@ use crate::error::StripeError;
 use crate::request::RetryStrategy;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -39,17 +40,15 @@ pub enum StripePaymentMethodType {
 }
 
 // setup intents are used to create a payment method that can be used to create a payment intent
+#[skip_serializing_none]
 #[derive(Clone, Debug, Serialize)]
 pub struct CreateSetupIntent {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer: Option<String>,
     #[serde(flatten)]
     pub setup_mandate_details: Option<StripeMandateRequest>,
     // payment_method_options : should we allow more customization here ?
     // livemode
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_method_types: Option<Vec<StripePaymentMethodType>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<CreateSetupIntentUsage>,
     pub metadata: HashMap<String, String>,
 }

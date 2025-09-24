@@ -3,7 +3,7 @@ use crate::domain::UsagePricingModel;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use common_domain::ids::{
-    BaseId, BillableMetricId, PriceComponentId, ProductId, SubscriptionId,
+    BaseId, BillableMetricId, PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionId,
     SubscriptionPriceComponentId,
 };
 use diesel_models::subscription_components::{
@@ -18,6 +18,8 @@ pub trait SubscriptionFeeInterface {
     fn name_ref(&self) -> &String;
     fn period_ref(&self) -> &SubscriptionFeeBillingPeriod;
     fn fee_ref(&self) -> &SubscriptionFee;
+    fn sub_component_id(&self) -> Option<SubscriptionPriceComponentId>;
+    fn sub_add_on_id(&self) -> Option<SubscriptionAddOnId>;
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -60,6 +62,16 @@ impl SubscriptionFeeInterface for SubscriptionComponent {
     #[inline]
     fn fee_ref(&self) -> &SubscriptionFee {
         &self.fee
+    }
+
+    #[inline]
+    fn sub_component_id(&self) -> Option<SubscriptionPriceComponentId> {
+        Some(self.id)
+    }
+
+    #[inline]
+    fn sub_add_on_id(&self) -> Option<SubscriptionAddOnId> {
+        None
     }
 }
 

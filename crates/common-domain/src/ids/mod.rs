@@ -36,6 +36,7 @@ id_type!(ProductFamilyId, "pf_");
 id_type!(ProductId, "prd_");
 id_type!(PriceComponentId, "price_");
 id_type!(SubscriptionPriceComponentId, "sub_price_");
+id_type!(SubscriptionAddOnId, "sub_add_");
 id_type!(PlanId, "plan_");
 id_type!(PlanVersionId, "plv_");
 id_type!(StoredDocumentId, "doc_");

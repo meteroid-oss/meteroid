@@ -2,14 +2,16 @@ use crate::domain::enums::{BillingPeriodEnum, SubscriptionFeeBillingPeriod};
 use crate::domain::{SubscriptionFee, SubscriptionFeeInterface};
 use crate::errors::StoreErrorReport;
 use chrono::NaiveDateTime;
-use common_domain::ids::{AddOnId, PriceComponentId, ProductId, SubscriptionId};
+use common_domain::ids::{
+    AddOnId, BaseId, PriceComponentId, ProductId, SubscriptionAddOnId, SubscriptionId,
+    SubscriptionPriceComponentId,
+};
 use diesel_models::subscription_add_ons::{SubscriptionAddOnRow, SubscriptionAddOnRowNew};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SubscriptionAddOn {
-    pub id: Uuid,
+    pub id: SubscriptionAddOnId,
     pub subscription_id: SubscriptionId,
     pub add_on_id: AddOnId,
     pub name: String,
@@ -47,6 +49,16 @@ impl SubscriptionFeeInterface for SubscriptionAddOn {
     #[inline]
     fn fee_ref(&self) -> &SubscriptionFee {
         &self.fee
+    }
+
+    #[inline]
+    fn sub_component_id(&self) -> Option<SubscriptionPriceComponentId> {
+        None
+    }
+
+    #[inline]
+    fn sub_add_on_id(&self) -> Option<SubscriptionAddOnId> {
+        Some(self.id)
     }
 }
 
@@ -89,7 +101,7 @@ impl TryInto<SubscriptionAddOnRowNew> for SubscriptionAddOnNew {
         let fee = self.internal.fee.try_into()?;
 
         Ok(SubscriptionAddOnRowNew {
-            id: Uuid::now_v7(),
+            id: SubscriptionAddOnId::new(),
             subscription_id: self.subscription_id,
             add_on_id: self.internal.add_on_id,
             name: self.internal.name,

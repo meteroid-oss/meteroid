@@ -9,6 +9,7 @@ use meteroid_oauth::model::OAuthTokens;
 use o2o::o2o;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 use std::str::FromStr;
 
 #[derive(Clone, Debug)]
@@ -217,11 +218,10 @@ impl ConnectorNew {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct ConnectionMeta {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub hubspot: Option<Vec<ConnectionMetaItem>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pennylane: Option<Vec<ConnectionMetaItem>>,
 }
 

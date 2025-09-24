@@ -19,6 +19,7 @@ use meteroid_store::domain::{
 use meteroid_store::errors::StoreError;
 use o2o::o2o;
 use serde::{Serialize, Serializer};
+use serde_with::skip_serializing_none;
 
 #[derive(Debug, Serialize, o2o)]
 #[from_owned(CustomerEvent)]
@@ -36,6 +37,7 @@ pub struct Customer {
     pub shipping_address: Option<ShippingAddress>,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Serialize, o2o)]
 #[from_owned(BillableMetricEvent)]
 pub struct BillableMetric {
@@ -54,7 +56,6 @@ pub struct BillableMetric {
     pub created_at: NaiveDateTime,
     #[serde(serialize_with = "string_serde::serialize")]
     pub product_family_id: ProductFamilyId,
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "string_serde_opt::serialize")]
     pub product_id: Option<ProductId>,
 }

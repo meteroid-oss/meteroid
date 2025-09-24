@@ -388,7 +388,6 @@ pub fn process_create_subscription_components(
     // basically a top level params with period, initial slots, committed capacity, that can be overriden at the component level
 
     for c in plan_price_components {
-        let c = c.clone();
         let component_id = c.id;
 
         // Check parameterized_components
@@ -456,14 +455,10 @@ impl SubscriptionDetails {
         // if there is a commitment, use that commitment (currently no commitment so let's ignore)
         // else, we take the longest period from the main components (rate/slots/capacity), as that's what the user has already paid
         // else, that mean we're arrear and it's monthly. TODO
-
-        let standard_components = self
+        let period = self
             .price_components
             .iter()
             .filter(|c| c.is_standard())
-            .collect::<Vec<_>>();
-        let period = standard_components
-            .iter()
             .map(|c| c.period.clone())
             .max_by(|a, b| a.as_months().cmp(&b.as_months()))
             .and_then(|p| p.as_billing_period_opt())

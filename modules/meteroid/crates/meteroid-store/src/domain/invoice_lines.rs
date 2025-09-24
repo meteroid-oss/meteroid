@@ -1,6 +1,7 @@
 use crate::domain::coupons::CouponDiscount;
 use common_domain::ids::{
-    AppliedCouponId, BillableMetricId, CouponId, PriceComponentId, ProductId,
+    AppliedCouponId, BillableMetricId, CouponId, PriceComponentId, ProductId, SubscriptionAddOnId,
+    SubscriptionPriceComponentId,
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
@@ -41,8 +42,10 @@ pub struct LineItem {
     pub sub_lines: Vec<SubLineItem>,
 
     pub is_prorated: bool,
-
-    pub price_component_id: Option<PriceComponentId>, // local_id ?
+    // todo remove?
+    pub price_component_id: Option<PriceComponentId>,
+    pub sub_component_id: Option<SubscriptionPriceComponentId>,
+    pub sub_add_on_id: Option<SubscriptionAddOnId>,
     pub product_id: Option<ProductId>,
     pub metric_id: Option<BillableMetricId>,
 

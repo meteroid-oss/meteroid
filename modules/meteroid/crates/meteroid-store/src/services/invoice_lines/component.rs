@@ -46,6 +46,7 @@ impl Services {
                     fixed_period,
                     periods.proration_factor,
                     precision,
+                    None,
                 )?);
             }
             SubscriptionFee::OneTime { rate, quantity } => {
@@ -57,6 +58,7 @@ impl Services {
                         fixed_period,
                         periods.proration_factor,
                         precision,
+                        None,
                     )?);
                 }
             }
@@ -72,6 +74,7 @@ impl Services {
                         fixed_period,
                         periods.proration_factor,
                         precision,
+                        None,
                     )?);
                 }
                 BillingType::Arrears => {
@@ -82,6 +85,7 @@ impl Services {
                             arrears,
                             periods.proration_factor,
                             precision,
+                            None,
                         )?);
                     }
                 }
@@ -105,6 +109,7 @@ impl Services {
                     fixed_period,
                     periods.proration_factor,
                     precision,
+                    None,
                 )?);
             }
             SubscriptionFee::Capacity {
@@ -119,6 +124,7 @@ impl Services {
                     fixed_period,
                     None, // no proration on capacity, as it provides a fixed amount
                     precision,
+                    None,
                 )?);
 
                 if let Some(arrear_period) = periods.arrear
@@ -131,32 +137,36 @@ impl Services {
 
                     let overage_units = usage - Decimal::from(*included);
 
-                    if overage_units > Decimal::ZERO {
-                        let overage_price = overage_rate
-                            .to_subunit_opt(precision)
-                            .ok_or(StoreError::InvalidDecimal)
-                            .attach_printable("Failed to convert overage_rate to subunit")?;
-                        let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
+                    // we would like to save the line even if the usage is 0 or negative,
+                    // so on invoice refresh we refresh that line too as the usage might have changed
+                    let overage_units = only_positive_decimal(overage_units);
 
-                        let overage_line = InvoiceLineInner {
-                            quantity: None,
-                            unit_price: None,
-                            total: overage_total.to_non_negative_u64(),
-                            period: arrear_period,
-                            is_prorated: false,
-                            custom_line_name: None,
-                            sublines: vec![SubLineItem {
-                                local_id: LocalId::no_prefix(),
-                                name: "Overage".to_string(),
-                                total: overage_total,
-                                quantity: overage_units,
-                                unit_price: *overage_rate,
-                                attributes: None,
-                            }],
-                        };
+                    let overage_price = overage_rate
+                        .to_subunit_opt(precision)
+                        .ok_or(StoreError::InvalidDecimal)
+                        .attach_printable("Failed to convert overage_rate to subunit")?;
 
-                        lines.push(overage_line);
-                    }
+                    let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
+
+                    let overage_line = InvoiceLineInner {
+                        quantity: None,
+                        unit_price: None,
+                        total: overage_total.to_non_negative_u64(),
+                        period: arrear_period,
+                        is_prorated: false,
+                        custom_line_name: None,
+                        sublines: vec![SubLineItem {
+                            local_id: LocalId::no_prefix(),
+                            name: "Overage".to_string(),
+                            total: overage_total,
+                            quantity: overage_units,
+                            unit_price: *overage_rate,
+                            attributes: None,
+                        }],
+                        metric_id: Some(*metric_id),
+                    };
+
+                    lines.push(overage_line);
                 }
             }
             SubscriptionFee::Usage { metric_id, model } => {
@@ -200,7 +210,7 @@ impl Services {
                                 );
 
                                 if price_cents > 0 {
-                                    // we concat rate.dimension1.value and rate.dimension2.value (if defined), separed by a coma. No coma if rate.dimension2 is None
+                                    // we concat rate.dimension1.value and rate.dimension2.value (if defined), separated by a coma. No coma if rate.dimension2 is None
                                     let name = format!(
                                         "{}{}",
                                         rate.dimension1.value,
@@ -231,10 +241,11 @@ impl Services {
                                 }
                             }
 
-                            lines.push(InvoiceLineInner::from_sublines(
+                            lines.push(InvoiceLineInner::from_usage_sublines(
                                 sublines,
                                 arrear_period,
                                 None,
+                                *metric_id,
                             )?);
                         }
                         model => {
@@ -244,11 +255,12 @@ impl Services {
 
                             match model {
                                 UsagePricingModel::PerUnit { rate } => {
-                                    lines.push(InvoiceLineInner::simple(
+                                    lines.push(InvoiceLineInner::usage_simple(
                                         rate,
                                         &usage_units,
                                         arrear_period,
                                         precision,
+                                        *metric_id,
                                     )?);
                                 }
                                 UsagePricingModel::Tiered { tiers, block_size } => {
@@ -257,6 +269,7 @@ impl Services {
                                         tiers,
                                         arrear_period,
                                         precision,
+                                        *metric_id,
                                         block_size,
                                     )?);
                                 }
@@ -266,6 +279,7 @@ impl Services {
                                         tiers,
                                         arrear_period,
                                         precision,
+                                        *metric_id,
                                         block_size,
                                     )?);
                                 }
@@ -277,7 +291,7 @@ impl Services {
 
                                     let price_total = total_packages * *rate;
 
-                                    lines.push(InvoiceLineInner::from_sublines(
+                                    lines.push(InvoiceLineInner::from_usage_sublines(
                                         vec![SubLineItem {
                                             local_id: LocalId::no_prefix(),
                                             name: "Package".to_string(),
@@ -295,6 +309,7 @@ impl Services {
                                         }],
                                         arrear_period,
                                         None,
+                                        *metric_id,
                                     )?);
                                 }
                                 UsagePricingModel::Matrix { .. } => unreachable!(),
@@ -318,8 +333,10 @@ impl Services {
                 sub_lines: line.sublines,
                 is_prorated: line.is_prorated,
                 price_component_id: component.price_component_id(),
+                sub_component_id: component.sub_component_id(),
+                sub_add_on_id: component.sub_add_on_id(),
                 product_id: component.product_id(),
-                metric_id: component.fee_ref().metric_id(),
+                metric_id: line.metric_id,
                 description: None,
 
                 amount_subtotal: line.total as i64,
@@ -408,6 +425,7 @@ pub struct InvoiceLineInner {
     pub custom_line_name: Option<String>,
     pub is_prorated: bool,
     pub sublines: Vec<SubLineItem>,
+    pub metric_id: Option<BillableMetricId>,
 }
 
 impl InvoiceLineInner {
@@ -417,6 +435,7 @@ impl InvoiceLineInner {
         period: Period,
         proration_factor: Option<f64>,
         precision: u8,
+        metric_id: Option<BillableMetricId>,
     ) -> StoreResult<InvoiceLineInner> {
         let unit_price_cents = prorate_dec(*rate, proration_factor);
 
@@ -438,22 +457,25 @@ impl InvoiceLineInner {
             custom_line_name: None,
             is_prorated: proration_factor.is_some_and(|f| f < 1.0),
             sublines: Vec::new(),
+            metric_id,
         })
     }
 
-    pub fn simple(
+    pub fn usage_simple(
         rate: &Decimal,
         quantity: &Decimal,
         period: Period,
         precision: u8,
+        metric_id: BillableMetricId,
     ) -> StoreResult<InvoiceLineInner> {
-        Self::simple_prorated(rate, quantity, period, None, precision)
+        Self::simple_prorated(rate, quantity, period, None, precision, Some(metric_id))
     }
 
-    pub fn from_sublines(
+    pub fn from_usage_sublines(
         sublines: Vec<SubLineItem>,
         period: Period,
         proration_factor: Option<f64>,
+        metric_id: BillableMetricId,
     ) -> StoreResult<InvoiceLineInner> {
         let total = sublines.iter().map(|subline| subline.total).sum::<i64>();
         let total_cents = prorate(total, proration_factor);
@@ -466,6 +488,7 @@ impl InvoiceLineInner {
             custom_line_name: None,
             is_prorated: proration_factor.is_some_and(|f| f < 1.0),
             sublines,
+            metric_id: Some(metric_id),
         })
     }
 }
