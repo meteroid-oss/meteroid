@@ -1,32 +1,23 @@
-use metering_grpc::meteroid::metering::v1::internal_events_service_client::InternalEventsServiceClient;
-use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use meteroid_grpc::meteroid::api::events::v1::events_ingestion_service_server::EventsIngestionServiceServer;
-use meteroid_store::Store;
+use meteroid_store::clients::usage::UsageClient;
+use meteroid_store::{Services, Store};
+use std::sync::Arc;
 
 mod error;
 mod service;
 
 pub struct EventsServiceComponents {
     pub store: Store,
-    pub metering_internal_client:
-        InternalEventsServiceClient<common_grpc::middleware::client::LayeredClientService>,
-    pub metering_query_client:
-        UsageQueryServiceClient<common_grpc::middleware::client::LayeredClientService>,
+    pub usage_client: Arc<dyn UsageClient>,
 }
 
 pub fn service(
     store: Store,
-    metering_internal_client: InternalEventsServiceClient<
-        common_grpc::middleware::client::LayeredClientService,
-    >,
-    metering_query_client: UsageQueryServiceClient<
-        common_grpc::middleware::client::LayeredClientService,
-    >,
+    services: Services,
 ) -> EventsIngestionServiceServer<EventsServiceComponents> {
     let inner = EventsServiceComponents {
         store,
-        metering_internal_client,
-        metering_query_client,
+        usage_client: services.usage_clients(),
     };
     EventsIngestionServiceServer::new(inner)
 }

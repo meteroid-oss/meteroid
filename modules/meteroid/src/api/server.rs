@@ -11,7 +11,6 @@ use crate::api;
 use crate::api::cors::cors;
 use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
-use crate::workers::clients::metering::{get_internal_events_client, get_usage_query_client};
 
 use super::super::config::Config;
 
@@ -32,10 +31,6 @@ pub async fn start_api_server(
         .register_encoded_file_descriptor_set(meteroid_grpc::_reflection::FILE_DESCRIPTOR_SET)
         .build_v1()
         .unwrap();
-
-    // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel
-    // the pools are incompatible, without some refacto
-    // let store = meteroid_store::Store::from_pool(pool.clone());
 
     Server::builder()
         .accept_http1(true)
@@ -72,11 +67,7 @@ pub async fn start_api_server(
             services.clone(),
             config.jwt_secret.clone(),
         ))
-        .add_service(api::events::service(
-            store.clone(),
-            get_internal_events_client(),
-            get_usage_query_client(),
-        ))
+        .add_service(api::events::service(store.clone(), services.clone()))
         .add_service(api::tenants::service(store.clone(), services.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(store.clone()))
