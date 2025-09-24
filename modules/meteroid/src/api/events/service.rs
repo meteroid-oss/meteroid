@@ -83,7 +83,7 @@ impl EventsIngestionService for EventsServiceComponents {
                 Ok(r) => r,
                 Err(e) => {
                     failures.push(EventIngestionFailure {
-                        row_number: row_number as i32,
+                        row_number,
                         event_id: String::new(),
                         reason: format!("Failed to parse row: {}", e),
                     });
@@ -102,7 +102,7 @@ impl EventsIngestionService for EventsServiceComponents {
                 Some(code) if !code.is_empty() => code.to_string(),
                 _ => {
                     failures.push(EventIngestionFailure {
-                        row_number: row_number as i32,
+                        row_number,
                         event_id: event_id.clone(),
                         reason: "Event code is required and cannot be empty".to_string(),
                     });
@@ -115,7 +115,7 @@ impl EventsIngestionService for EventsServiceComponents {
                 Some(id) if !id.is_empty() => id.to_string(),
                 _ => {
                     failures.push(EventIngestionFailure {
-                        row_number: row_number as i32,
+                        row_number,
                         event_id: event_id.clone(),
                         reason: "Customer ID is required and cannot be empty".to_string(),
                     });
@@ -130,7 +130,7 @@ impl EventsIngestionService for EventsServiceComponents {
                     Ok(AliasOr::Alias(alias)) => Some(CustomerId::ExternalCustomerAlias(alias)),
                     Err(_) => {
                         failures.push(EventIngestionFailure {
-                            row_number: row_number as i32,
+                            row_number,
                             event_id: event_id.clone(),
                             reason: "Customer ID must be a valid UUID or alias".to_string(),
                         });
@@ -182,7 +182,7 @@ impl EventsIngestionService for EventsServiceComponents {
         // If fail_on_error is true and we have parsing failures, return error immediately
         if fail_on_error && !failures.is_empty() {
             return Ok(Response::new(IngestEventsFromCsvResponse {
-                total_rows: total_rows as i32,
+                total_rows,
                 successful_events: 0,
                 failures,
             }));
@@ -194,7 +194,7 @@ impl EventsIngestionService for EventsServiceComponents {
         tracing::info!(
             "Processing {} events in {} batches",
             events.len(),
-            (events.len() + MAX_BATCH_SIZE - 1) / MAX_BATCH_SIZE
+            events.len().div_ceil(MAX_BATCH_SIZE)
         );
 
         for (batch_idx, chunk) in events.chunks(MAX_BATCH_SIZE).enumerate() {
@@ -264,14 +264,14 @@ impl EventsIngestionService for EventsServiceComponents {
 
         if fail_on_error && !failures.is_empty() {
             return Ok(Response::new(IngestEventsFromCsvResponse {
-                total_rows: total_rows as i32,
+                total_rows,
                 successful_events: 0,
                 failures,
             }));
         }
 
         Ok(Response::new(IngestEventsFromCsvResponse {
-            total_rows: total_rows as i32,
+            total_rows,
             successful_events: total_successful as i32,
             failures,
         }))
