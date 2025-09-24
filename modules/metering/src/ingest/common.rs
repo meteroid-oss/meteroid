@@ -86,7 +86,7 @@ impl EventProcessor {
                             None => {
                                 unresolved_by_alias
                                     .entry(alias)
-                                    .or_insert_with(Vec::new)
+                                    .or_default()
                                     .push((event, ts));
                             }
                         }
