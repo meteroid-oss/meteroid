@@ -42,8 +42,8 @@ jobs:
       - uses: actions/checkout@v5
 
       #        if no space left on device, try https://github.com/orgs/community/discussions/25678
-      #      - name: Delete huge unnecessary tools folder
-      #        run: rm -rf /opt/hostedtoolcache
+      - name: Delete huge unnecessary tools folder
+        run: rm -rf /opt/hostedtoolcache
 
       - name: Install dependencies
         run: |
