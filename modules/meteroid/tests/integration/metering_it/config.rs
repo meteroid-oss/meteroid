@@ -23,6 +23,7 @@ pub fn mocked_config(
             tcp_address: format!("127.0.0.1:{clickhouse_tcp_port}"),
             username: "default".to_string(),
             password: "default".to_string(),
+            cluster_name: None,
         },
         listen_addr: format!("127.0.0.1:{}", metering_port).parse().unwrap(),
         meteroid_endpoint: format!("http://127.0.0.1:{}", meteroid_port),
