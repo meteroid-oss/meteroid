@@ -1,5 +1,4 @@
-import { EventsIcon } from '@md/icons'
-import { Box, ChartPie, Flag, Home, LifeBuoy, ReceiptText, Settings, User } from 'lucide-react'
+import { Box, ChartPie, Flag, Home, LifeBuoy, ReceiptText, Settings, User, Zap } from 'lucide-react'
 
 export const sidebarItems = {
   mainNav: [
@@ -80,7 +79,7 @@ export const sidebarItems = {
     {
       title: 'Events',
       url: 'events',
-      icon: EventsIcon,
+      icon: Zap,
     },
   ],
   navSecondary: [
