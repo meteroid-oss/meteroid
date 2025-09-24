@@ -29,6 +29,7 @@ use crate::preprocessor::run_raw_preprocessor;
 fn only_internal(path: &str) -> bool {
     path.starts_with("/meteroid.metering.v1.UsageQueryService")
         || path.starts_with("/meteroid.metering.v1.MetersService")
+        || path.starts_with("/meteroid.metering.v1.InternalEventsService")
 }
 
 fn only_api(path: &str) -> bool {
@@ -106,10 +107,11 @@ pub async fn start_api_server(
 
     let api_key_auth_layer = ExternalApiAuthLayer::new(internal_client.clone()).filter(only_api);
 
-    // Ingest => Api key only (though we may want a way to ingest from the  for debugging, later)
+    // Ingest for Api key
     let event_service = ingest::service(internal_client.clone(), sink.clone());
 
-    // Meters & queries => Admin only. Some passthrough is possible via admin
+    // Meters & queries & ingest => Admin
+    let internal_event_service = ingest::internal_service(internal_client.clone(), sink.clone());
     let meter_service = crate::meters::service(connector.clone());
     let query_service = crate::query::service(connector.clone());
 
@@ -126,6 +128,7 @@ pub async fn start_api_server(
         .add_service(meter_service)
         .add_service(query_service)
         .add_service(event_service)
+        .add_service(internal_event_service)
         .serve(config.listen_addr)
         .await?;
 

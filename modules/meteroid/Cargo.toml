@@ -73,6 +73,7 @@ object_store = { workspace = true, features = ["aws", "azure", "gcp", "http", "f
 bytes.workspace = true
 async-trait.workspace = true
 url.workspace = true
+csv = "1.3"
 typetag = { workspace = true }
 jsonwebtoken.workspace = true
 once_cell.workspace = true

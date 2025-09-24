@@ -81,9 +81,12 @@ export const PlanActions = () => {
   }
 
   const publishPlanMutation = useMutation(publishPlanVersion, {
-    onSuccess: async () => {
+    onSuccess: async res => {
       await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
       await queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
+      const version = res.planVersion?.version
+      setIsBusy(false)
+      navigate(`${basePath}/plans/${planWithVersion.plan?.id}/${version}`)
     },
   })
 
@@ -92,13 +95,10 @@ export const PlanActions = () => {
 
     if (!overview || !planWithVersion.plan || !planWithVersion.version) return
 
-    const res = await publishPlanMutation.mutateAsync({
+    await publishPlanMutation.mutateAsync({
       planId: planWithVersion.plan.id,
       planVersionId: planWithVersion.version.id,
     })
-    const version = res.planVersion?.version
-    setIsBusy(false)
-    navigate(`${basePath}/plans/${planWithVersion.plan.id}/${version}`)
   }
 
   const copyToDraftMutation = useMutation(copyVersionToDraft, {

@@ -12,9 +12,10 @@ import { CustomerBrief } from '@/rpc/api/customers/v1/models_pb'
 interface Props {
   value?: CustomerBrief['id']
   onChange: (id: CustomerBrief['id']) => void
+  placeholder?: string
 }
 
-export const CustomerSelect = ({ value, onChange }: Props) => {
+export const CustomerSelect = ({ value, onChange, placeholder }: Props) => {
   const [search, setSearch] = useState('')
 
   const getCustomerQuery = useQuery(
@@ -35,7 +36,7 @@ export const CustomerSelect = ({ value, onChange }: Props) => {
   return (
     <Select value={value} onValueChange={onValueChange}>
       <SelectTrigger className="w-[180px]">
-        {customer ? customer.customer?.name : 'Choose one'}
+        {customer ? customer.customer?.name : (placeholder ?? 'Choose one')}
       </SelectTrigger>
       <SelectContent>
         <Input

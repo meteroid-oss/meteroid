@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package meteroid.metering.v1;
+
+import "models.proto";
+
+message InternalIngestRequest {
+  string tenant_id = 1;
+  repeated Event events = 2;
+  // allow ingesting events with a timestamp in the past (with a larger diff than the grace period)
+  bool allow_backfilling = 3;
+  // If true, fail the entire batch if any event fails validation
+  bool fail_on_error = 4;
+}
+
+message InternalIngestResponse {
+  repeated IngestFailure failures = 1;
+}
+
+service InternalEventsService {
+  rpc IngestInternal(InternalIngestRequest) returns (InternalIngestResponse);
+}

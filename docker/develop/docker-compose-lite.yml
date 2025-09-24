@@ -2,6 +2,7 @@ name: meteroid-lite
 
 volumes:
   pg_data:
+  clickhouse_data:
   minio_data:
   redpanda_data:
 

@@ -11,6 +11,7 @@ use crate::api;
 use crate::api::cors::cors;
 use crate::services::invoice_rendering::InvoicePreviewRenderingService;
 use crate::services::storage::ObjectStoreService;
+use crate::workers::clients::metering::{get_internal_events_client, get_usage_query_client};
 
 use super::super::config::Config;
 
@@ -70,6 +71,11 @@ pub async fn start_api_server(
             store.clone(),
             services.clone(),
             config.jwt_secret.clone(),
+        ))
+        .add_service(api::events::service(
+            store.clone(),
+            get_internal_events_client(),
+            get_usage_query_client(),
         ))
         .add_service(api::tenants::service(store.clone(), services.clone()))
         .add_service(api::apitokens::service(store.clone()))

@@ -10,10 +10,7 @@ message IngestRequest {
   bool allow_backfilling = 2;
 }
 
-message IngestFailure {
-  string event_id = 1;
-  string reason = 2;
-}
+
 message IngestResponse {
   repeated IngestFailure failures = 1;
 }

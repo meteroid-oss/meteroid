@@ -67,3 +67,29 @@ pub struct Usage {
     pub customer_id: String,
     pub group_by: HashMap<String, Option<String>>,
 }
+
+#[derive(Debug, Clone)]
+pub enum EventSortOrder {
+    TimestampDesc,
+    TimestampAsc,
+    IngestedDesc,
+    IngestedAsc,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryRawEventsParams {
+    pub tenant_id: String,
+    pub from: DateTime<Utc>,
+    pub to: Option<DateTime<Utc>>,
+    pub limit: u32,
+    pub offset: u32,
+    pub search: Option<String>,
+    pub event_codes: Vec<String>,
+    pub customer_ids: Vec<String>,
+    pub sort_order: EventSortOrder,
+}
+
+#[derive(Debug)]
+pub struct QueryRawEventsResult {
+    pub events: Vec<crate::ingest::domain::RawEvent>,
+}

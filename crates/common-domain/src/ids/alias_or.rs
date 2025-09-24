@@ -28,9 +28,13 @@ where
     type Err = Infallible;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ID::from_str(s)
-            .map(AliasOr::Id)
-            .unwrap_or(AliasOr::Alias(s.to_owned())))
+        if s.starts_with(ID::PREFIX) {
+            Ok(ID::from_str(s)
+                .map(AliasOr::Id)
+                .unwrap_or(AliasOr::Alias(s.to_owned())))
+        } else {
+            Ok(AliasOr::Alias(s.to_owned()))
+        }
     }
 }
 
@@ -120,6 +124,13 @@ mod tests {
         assert_eq!(
             or_alias,
             AliasOr::Alias("hello2zAL4dEXftiMkNjwxwiwI".to_owned())
+        );
+
+        let or_alias: AliasOr<CustomerId> =
+            AliasOr::from_str("3e016721-bb0b-4c05-b1ba-f40f74d4f680").unwrap();
+        assert_eq!(
+            or_alias,
+            AliasOr::Alias("3e016721-bb0b-4c05-b1ba-f40f74d4f680".to_owned())
         );
     }
 

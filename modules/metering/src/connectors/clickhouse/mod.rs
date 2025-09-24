@@ -1,7 +1,7 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
 use crate::connectors::Connector;
 use crate::connectors::errors::ConnectorError;
-use crate::domain::{Meter, QueryMeterParams, Usage};
+use crate::domain::{Meter, QueryMeterParams, QueryRawEventsParams, QueryRawEventsResult, Usage};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -138,5 +138,75 @@ impl Connector for ClickhouseConnector {
         }
 
         Ok(parsed)
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn query_raw_events(
+        &self,
+        params: QueryRawEventsParams,
+    ) -> Result<QueryRawEventsResult, ConnectorError> {
+        let query = sql::query_raw::query_raw_events_sql(params.clone())
+            .map_err(ConnectorError::InvalidQuery)?;
+
+        let mut lines = self
+            .client
+            .query(query.as_str())
+            .fetch_bytes("JSONEachRow")
+            .change_context(ConnectorError::QueryError)?
+            .lines();
+
+        let mut events = Vec::new();
+
+        while let Some(line) = lines
+            .next_line()
+            .await
+            .change_context(ConnectorError::QueryError)?
+        {
+            let row: serde_json::Value =
+                serde_json::from_str(&line).change_context(ConnectorError::QueryError)?;
+
+            let id = row.get_string("id").ok_or(ConnectorError::QueryError)?;
+            let code = row.get_string("code").ok_or(ConnectorError::QueryError)?;
+            let customer_id = row
+                .get_string("customer_id")
+                .ok_or(ConnectorError::QueryError)?;
+            let tenant_id = row
+                .get_string("tenant_id")
+                .ok_or(ConnectorError::QueryError)?;
+            let timestamp = row
+                .get_timestamp_utc("timestamp")
+                .ok_or(ConnectorError::QueryError)?;
+            let ingested_at = row
+                .get_timestamp_utc("ingested_at")
+                .ok_or(ConnectorError::QueryError)?;
+
+            let properties: HashMap<String, String> = row
+                .get("properties")
+                .and_then(|v| v.as_object())
+                .unwrap_or(&serde_json::Map::new())
+                .iter()
+                .filter_map(|(key, value)| Some((key.clone(), value.as_str()?.to_string())))
+                .collect();
+
+            events.push(crate::ingest::domain::RawEvent {
+                id,
+                code,
+                customer_id,
+                tenant_id,
+                timestamp: timestamp.naive_utc(),
+                ingested_at: ingested_at.naive_utc(),
+                properties,
+            });
+        }
+
+        // Get total count (this is a simplified approach, in production you might want to optimize)
+        let total_count = events.len() as u32;
+        let has_more = events.len() as u32 >= params.limit;
+
+        Ok(QueryRawEventsResult {
+            events,
+            total_count,
+            has_more,
+        })
     }
 }
