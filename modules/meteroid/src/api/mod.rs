@@ -13,6 +13,7 @@ pub mod coupons;
 pub mod customers;
 mod domain_mapping;
 pub mod errors;
+pub mod events;
 pub mod instance;
 pub mod internal;
 pub mod invoices;

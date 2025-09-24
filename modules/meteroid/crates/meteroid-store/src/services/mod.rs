@@ -64,4 +64,8 @@ impl ServicesEdge {
             store,
         }
     }
+
+    pub fn usage_clients(&self) -> Arc<dyn UsageClient> {
+        self.services.usage_client.clone()
+    }
 }

@@ -60,6 +60,12 @@ pub mod meteroid {
             }
         }
 
+        pub mod events {
+            pub mod v1 {
+                tonic::include_proto!("meteroid.api.events.v1");
+            }
+        }
+
         pub mod instance {
             pub mod v1 {
                 tonic::include_proto!("meteroid.api.instance.v1");

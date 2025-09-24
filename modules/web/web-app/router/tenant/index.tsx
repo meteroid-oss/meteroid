@@ -9,6 +9,7 @@ import { PennylaneIntegrationModal } from '@/features/settings/integrations/Penn
 import { StripeIntegrationModal } from '@/features/settings/integrations/StripeIntegration'
 import { DashboardPage as Dashboard } from '@/pages/tenants/dashboard'
 import { DeveloperSettings } from '@/pages/tenants/developers'
+import { EventsPage } from '@/pages/tenants/events'
 import { ReportsPage } from '@/pages/tenants/reports'
 import { TenantSettings } from '@/pages/tenants/settings'
 import { billingRoutes } from 'router/tenant/billing'
@@ -54,6 +55,10 @@ export const tenantRoutes: RouteObject = {
     {
       path: 'developers',
       element: <DeveloperSettings />,
+    },
+    {
+      path: 'events',
+      element: <EventsPage />,
     },
     {
       path: 'plan-version/:planVersionId',

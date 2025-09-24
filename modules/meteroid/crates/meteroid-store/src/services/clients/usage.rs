@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-
 use crate::StoreResult;
 use crate::domain::{BillableMetric, Period};
 use crate::errors::StoreError;
 use chrono::NaiveDate;
 use common_domain::ids::{BillableMetricId, CustomerId, TenantId};
-use error_stack::Report;
+use error_stack::{Report, bail};
 use rust_decimal::Decimal;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct UsageData {
@@ -41,6 +40,44 @@ pub struct Metadata {
     pub value: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct CsvIngestionOptions {
+    pub delimiter: char,
+    pub allow_backfilling: bool,
+    pub fail_on_error: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CsvIngestionFailure {
+    pub row_number: i32,
+    pub event_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug)]
+pub struct CsvIngestionResult {
+    pub total_rows: i32,
+    pub successful_events: i32,
+    pub failures: Vec<CsvIngestionFailure>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventSearchOptions {
+    pub from: Option<prost_types::Timestamp>,
+    pub to: Option<prost_types::Timestamp>,
+    pub limit: u32,
+    pub offset: u32,
+    pub search: Option<String>,
+    pub event_codes: Vec<String>,
+    pub customer_ids: Vec<String>,
+    pub sort_order: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct EventSearchResult {
+    pub events: Vec<metering_grpc::meteroid::metering::v1::Event>,
+}
+
 #[async_trait::async_trait]
 pub trait UsageClient: Send + Sync {
     async fn register_meter(
@@ -56,6 +93,17 @@ pub trait UsageClient: Send + Sync {
         metric: &BillableMetric,
         period: Period,
     ) -> StoreResult<UsageData>;
+    async fn ingest_events_from_csv(
+        &self,
+        tenant_id: &TenantId,
+        file_data: &[u8],
+        options: CsvIngestionOptions,
+    ) -> StoreResult<CsvIngestionResult>;
+    async fn search_events(
+        &self,
+        tenant_id: &TenantId,
+        options: EventSearchOptions,
+    ) -> StoreResult<EventSearchResult>;
 }
 
 #[derive(Eq, Hash, PartialEq)]
@@ -98,6 +146,27 @@ impl UsageClient for MockUsageClient {
                 period: period.clone(),
             });
         Ok(usage_data)
+    }
+
+    async fn ingest_events_from_csv(
+        &self,
+        _tenant_id: &TenantId,
+        _file_data: &[u8],
+        _options: CsvIngestionOptions,
+    ) -> StoreResult<CsvIngestionResult> {
+        bail!(StoreError::InvalidArgument(
+            "Mock client does not support CSV ingestion".to_string()
+        ));
+    }
+
+    async fn search_events(
+        &self,
+        _tenant_id: &TenantId,
+        _options: EventSearchOptions,
+    ) -> StoreResult<EventSearchResult> {
+        bail!(StoreError::InvalidArgument(
+            "Mock client does not support event search".to_string()
+        ));
     }
 }
 

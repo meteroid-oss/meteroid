@@ -32,10 +32,6 @@ pub async fn start_api_server(
         .build_v1()
         .unwrap();
 
-    // meteroid_store is intended as a replacement for meteroid_repository. It adds an extra domain layer, and replaces cornucopia with diesel
-    // the pools are incompatible, without some refacto
-    // let store = meteroid_store::Store::from_pool(pool.clone());
-
     Server::builder()
         .accept_http1(true)
         .layer(cors())
@@ -71,6 +67,7 @@ pub async fn start_api_server(
             services.clone(),
             config.jwt_secret.clone(),
         ))
+        .add_service(api::events::service(store.clone(), services.clone()))
         .add_service(api::tenants::service(store.clone(), services.clone()))
         .add_service(api::apitokens::service(store.clone()))
         .add_service(api::pricecomponents::service(store.clone()))

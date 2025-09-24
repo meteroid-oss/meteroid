@@ -52,16 +52,29 @@ message QueryMeterResponse {
 
 message QueryRawEventsRequest {
   string tenant_id = 1;
-  // TODO filters, pagination etc etc
   google.protobuf.Timestamp from = 2;
   google.protobuf.Timestamp to = 3;
-  // max 100
   uint32 limit = 4;
+  uint32 offset = 5;
+
+  // Filters
+  optional string search = 6;
+  repeated string event_codes = 7;
+  repeated string customer_ids = 8;
+
+  // Sorting
+  SortOrder sort_order = 9;
+
+  enum SortOrder {
+    TIMESTAMP_DESC = 0;
+    TIMESTAMP_ASC = 1;
+    INGESTED_DESC = 2;
+    INGESTED_ASC = 3;
+  }
 }
 
 message QueryRawEventsResponse {
   repeated Event events = 1;
-  uint32 total_count = 2;
 }
 
 service UsageQueryService {

@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package meteroid.api.events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message IngestEventsFromCsvRequest {
+  FileData file = 1;
+  string delimiter = 2;
+  bool allow_backfilling = 3;
+  bool fail_on_error = 4;
+}
+
+message IngestEventsFromCsvResponse {
+  int32 total_rows = 1;
+  int32 successful_events = 2;
+  repeated EventIngestionFailure failures = 3;
+}
+
+message EventIngestionFailure {
+  int32 row_number = 1;
+  string event_id = 2;
+  string reason = 3;
+}
+
+message FileData {
+  bytes data = 1;
+}
+
+message SearchEventsRequest {
+  google.protobuf.Timestamp from = 1;
+  google.protobuf.Timestamp to = 2;
+  uint32 limit = 3;
+  uint32 offset = 4;
+
+  // Filters
+  optional string search = 5;
+  repeated string event_codes = 6;
+  repeated string customer_ids = 7;
+
+  // Sorting
+  SortOrder sort_order = 8;
+
+  enum SortOrder {
+    TIMESTAMP_DESC = 0;
+    TIMESTAMP_ASC = 1;
+    INGESTED_DESC = 2;
+    INGESTED_ASC = 3;
+  }
+}
+
+message SearchEventsResponse {
+  repeated EventSummary events = 1;
+}
+
+message EventSummary {
+  string id = 1;
+  string code = 2;
+  string customer_id = 3;
+  google.protobuf.Timestamp timestamp = 4;
+  google.protobuf.Timestamp ingested_at = 5;
+  map<string, string> properties = 6;
+}
+
+service EventsIngestionService {
+  rpc IngestEventsFromCsv(IngestEventsFromCsvRequest) returns (IngestEventsFromCsvResponse) {}
+  rpc SearchEvents(SearchEventsRequest) returns (SearchEventsResponse) {}
+}

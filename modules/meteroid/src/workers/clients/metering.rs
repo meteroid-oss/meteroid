@@ -8,6 +8,7 @@ use common_grpc::middleware::client::build_layered_client_service;
 use metering_grpc::meteroid::metering::v1::meters_service_client::MetersServiceClient;
 
 use crate::clients::usage::MeteringUsageClient;
+use metering_grpc::meteroid::metering::v1::internal_events_service_client::InternalEventsServiceClient;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 
 static METERING_CLIENT: OnceLock<MeteringUsageClient> = OnceLock::new();
@@ -19,6 +20,7 @@ impl MeteringUsageClient {
         Self::new(
             UsageQueryServiceClient::new(service.clone()),
             MetersServiceClient::new(service.clone()),
+            InternalEventsServiceClient::new(service),
         )
     }
 

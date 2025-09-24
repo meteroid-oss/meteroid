@@ -55,6 +55,8 @@ meteroid-mailer = { workspace = true }
 meteroid-oauth = { workspace = true }
 stripe-client = { workspace = true }
 common-domain = { workspace = true }
+metering-grpc = { workspace = true }
+prost-types = { workspace = true }
 log.workspace = true
 golden.workspace = true
 paste.workspace = true

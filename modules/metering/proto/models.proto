@@ -53,3 +53,8 @@ message Meter {
   // unit conversions
   // segmentation matrix (or that's just the group_by_dimensions ?)
 }
+
+message IngestFailure {
+  string event_id = 1;
+  string reason = 2;
+}

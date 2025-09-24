@@ -8,12 +8,14 @@ use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::query_meter_response as grpc;
 use metering_grpc::meteroid::metering::v1::{
     QueryMeterRequest, QueryMeterResponse, QueryRawEventsRequest, QueryRawEventsResponse,
+    query_raw_events_request::SortOrder,
 };
 use tonic::{Request, Response, Status};
 
 use crate::connectors::Connector;
-use crate::domain::{QueryMeterParams, WindowSize};
+use crate::domain::{EventSortOrder, QueryMeterParams, QueryRawEventsParams, WindowSize};
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
+use metering_grpc::meteroid::metering::v1::Event;
 
 #[derive(Clone)]
 pub struct UsageQueryService {
@@ -104,8 +106,54 @@ impl UsageQueryServiceGrpc for UsageQueryService {
     #[tracing::instrument(skip_all)]
     async fn query_raw_events(
         &self,
-        _request: Request<QueryRawEventsRequest>,
+        request: Request<QueryRawEventsRequest>,
     ) -> Result<Response<QueryRawEventsResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+
+        let sort_order = match req.sort_order() {
+            SortOrder::TimestampDesc => EventSortOrder::TimestampDesc,
+            SortOrder::TimestampAsc => EventSortOrder::TimestampAsc,
+            SortOrder::IngestedDesc => EventSortOrder::IngestedDesc,
+            SortOrder::IngestedAsc => EventSortOrder::IngestedAsc,
+        };
+
+        let params = QueryRawEventsParams {
+            tenant_id: req.tenant_id,
+            from: req
+                .from
+                .map(timestamp_to_datetime)
+                .ok_or(Status::invalid_argument("from is required"))?,
+            to: req.to.map(timestamp_to_datetime),
+            limit: req.limit.min(1000), // Cap at 1000
+            offset: req.offset,
+            search: req.search,
+            event_codes: req.event_codes,
+            customer_ids: req.customer_ids,
+            sort_order,
+        };
+
+        let result = self
+            .connector
+            .query_raw_events(params)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to query raw events: {}", e)))?;
+
+        let events = result
+            .events
+            .into_iter()
+            .map(|raw_event| Event {
+                id: raw_event.id,
+                code: raw_event.code,
+                customer_id: Some(
+                    metering_grpc::meteroid::metering::v1::event::CustomerId::MeteroidCustomerId(
+                        raw_event.customer_id,
+                    ),
+                ),
+                timestamp: raw_event.timestamp.and_utc().to_rfc3339(),
+                properties: raw_event.properties,
+            })
+            .collect();
+
+        Ok(Response::new(QueryRawEventsResponse { events }))
     }
 }

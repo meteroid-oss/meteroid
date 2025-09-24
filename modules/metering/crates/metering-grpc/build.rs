@@ -20,6 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             config,
             &[
                 "proto/events.proto",
+                "proto/events_internal.proto",
                 "proto/meters.proto",
                 "proto/queries.proto",
             ],
