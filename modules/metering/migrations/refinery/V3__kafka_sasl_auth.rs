@@ -29,7 +29,7 @@ fn build_kafka_settings(
 
     if let Some(ref sasl_mechanism) = kafka_connection.sasl_mechanism {
         if !sasl_mechanism.is_empty() {
-            settings.push(format!("kafka_sasl_mechanisms = '{}'", sasl_mechanism));
+            settings.push(format!("kafka_sasl_mechanism = '{}'", sasl_mechanism));
         }
     }
 
