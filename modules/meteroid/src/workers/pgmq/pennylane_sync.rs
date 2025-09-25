@@ -27,6 +27,7 @@ use pennylane_client::customer_invoices::{
 };
 use pennylane_client::customers::{BillingAddress, CustomersApi, NewCompany, UpdateCompany};
 use pennylane_client::file_attachments::{FileAttachmentsApi, MediaType, NewAttachment};
+use pennylane_client::vat_rate::VatRate;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -441,12 +442,15 @@ impl PennylaneSync {
                 .await
                 .change_context(PgmqError::HandleMessages)?;
 
-            // let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
-            // todo revisit me
-            let tax_amount = Decimal::ZERO;
+            let tax_amount = invoice.invoice.tax_amount.to_unit(currency.exponent as u8);
             let total_amount = invoice.invoice.total.to_unit(currency.exponent as u8);
             let total_before_tax = total_amount - tax_amount;
-            //let tax_rate = (invoice.invoice.tax_rate as i64).to_unit(currency.exponent as u8);
+
+            let billing_country = invoice
+                .customer
+                .billing_address
+                .as_ref()
+                .and_then(|x| x.country.as_ref());
 
             let to_sync = NewCustomerInvoiceImport {
                 file_attachment_id: created.id,
@@ -472,6 +476,13 @@ impl PennylaneSync {
                         let total_amount = x.amount_total.to_unit(currency.exponent as u8);
                         let tax_amount = x.tax_amount;
 
+                        let vat_rate = if let Some(country) = billing_country {
+                            VatRate::from_decimal(x.tax_rate, country.as_str())
+                                .unwrap_or(VatRate::EXEMPT)
+                        } else {
+                            VatRate::EXEMPT
+                        };
+
                         CustomerInvoiceLine {
                             currency_amount: total_amount.to_string(),
                             currency_tax: tax_amount.to_string(),
@@ -482,7 +493,7 @@ impl PennylaneSync {
                                 .unwrap_or(x.amount_subtotal.to_unit(currency.exponent as u8))
                                 .to_string(),
                             unit: "".to_string(),
-                            vat_rate: "exempt".to_string(), // todo update me after we have tax implemented
+                            vat_rate,
                             description: None,
                             imputation_dates: Some(CustomerInvoiceLineImputationDates {
                                 start_date: x.start_date,
