@@ -13,7 +13,10 @@ use metering_grpc::meteroid::metering::v1::query_meter_request::QueryWindowSize;
 use metering_grpc::meteroid::metering::v1::usage_query_service_client::UsageQueryServiceClient;
 use metering_grpc::meteroid::metering::v1::{
     Event, Filter, InternalIngestRequest, QueryMeterRequest, QueryMeterResponse,
-    QueryRawEventsRequest, RegisterMeterRequest,
+    QueryRawEventsRequest, RegisterMeterRequest, SegmentationFilter, segmentation_filter,
+    segmentation_filter::{
+        IndependentFilters, LinkedFilters, linked_filters::LinkedDimensionValues,
+    },
 };
 use meteroid_store::clients::usage::{
     CsvIngestionFailure, CsvIngestionOptions, CsvIngestionResult, EventSearchOptions,
@@ -108,47 +111,58 @@ impl UsageClient for MeteringUsageClient {
             }
         } as i32;
 
-        let filter_properties = match metric.segmentation_matrix.clone() {
+        // Build segmentation filter based on the metric's segmentation matrix
+        let segmentation_filter = match metric.segmentation_matrix.clone() {
             Some(domain::SegmentationMatrix::Single(domain::Dimension { key, values })) => {
-                vec![Filter {
-                    property_name: key,
-                    property_value: values,
-                }]
+                Some(SegmentationFilter {
+                    filter: Some(segmentation_filter::Filter::Independent(
+                        IndependentFilters {
+                            filters: vec![Filter {
+                                property_name: key,
+                                property_value: values,
+                            }],
+                        },
+                    )),
+                })
             }
             Some(domain::SegmentationMatrix::Double {
                 dimension1,
                 dimension2,
-            }) => {
-                vec![
-                    Filter {
-                        property_name: dimension1.key,
-                        property_value: dimension1.values,
+            }) => Some(SegmentationFilter {
+                filter: Some(segmentation_filter::Filter::Independent(
+                    IndependentFilters {
+                        filters: vec![
+                            Filter {
+                                property_name: dimension1.key,
+                                property_value: dimension1.values,
+                            },
+                            Filter {
+                                property_name: dimension2.key,
+                                property_value: dimension2.values,
+                            },
+                        ],
                     },
-                    Filter {
-                        property_name: dimension2.key,
-                        property_value: dimension2.values,
-                    },
-                ]
-            }
+                )),
+            }),
             Some(domain::SegmentationMatrix::Linked {
                 dimension1_key,
                 dimension2_key,
                 values,
             }) => {
-                let mut filter_properties = vec![];
-                for (key, values) in values.into_iter() {
-                    filter_properties.push(Filter {
-                        property_name: dimension1_key.clone(),
-                        property_value: vec![key],
-                    });
-                    filter_properties.push(Filter {
-                        property_name: dimension2_key.clone(),
-                        property_value: values,
-                    });
-                }
-                filter_properties
+                let linked_values = values
+                    .into_iter()
+                    .map(|(k, v)| (k, LinkedDimensionValues { values: v }))
+                    .collect();
+
+                Some(SegmentationFilter {
+                    filter: Some(segmentation_filter::Filter::Linked(LinkedFilters {
+                        dimension1_key,
+                        dimension2_key,
+                        linked_values,
+                    })),
+                })
             }
-            None => vec![],
+            None => None,
         };
 
         let request = QueryMeterRequest {
@@ -161,10 +175,9 @@ impl UsageClient for MeteringUsageClient {
             to: Some(date_to_timestamp(period.end)), // exclusive TODO check
             // not used here, defaults to customer_id
             group_by_properties: vec![],
-            // the segmentation dimensions TODO
-            filter_properties,
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
+            segmentation_filter,
         };
 
         let mut metering_client_mut = self.usage_grpc_client.clone();
@@ -179,10 +192,8 @@ impl UsageClient for MeteringUsageClient {
             .usage
             .into_iter()
             .map(|usage| {
-                let value: Decimal = usage
-                    .value
-                    .and_then(|v| v.try_into().ok())
-                    .unwrap_or(Decimal::ZERO);
+                let value: Decimal = usage.value.and_then(|v| v.try_into().ok()).unwrap();
+
                 GroupedUsageData {
                     value,
                     dimensions: usage

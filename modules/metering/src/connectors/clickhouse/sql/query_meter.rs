@@ -1,5 +1,5 @@
 use crate::connectors::clickhouse::sql::get_meter_view_name;
-use crate::domain::{MeterAggregation, QueryMeterParams, WindowSize};
+use crate::domain::{MeterAggregation, QueryMeterParams, SegmentationFilter, WindowSize};
 
 pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> {
     let view_name = get_meter_view_name(&params.namespace, &params.meter_slug);
@@ -103,17 +103,60 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
         select_columns.push("customer_id".to_string());
     }
 
-    // FilterGroupBy clauses
-    for (column, values) in &params.filter_group_by {
-        if values.is_empty() {
-            return Err(format!("Empty filter for group by: {}", column));
+    if let Some(ref segmentation) = params.segmentation_filter {
+        match segmentation {
+            SegmentationFilter::Independent(filters) => {
+                // Independent filters are ANDed together
+                for (column, values) in filters {
+                    if values.is_empty() {
+                        return Err(format!("Empty filter for dimension: {}", column));
+                    }
+                    let column_condition = values
+                        .iter()
+                        .map(|value| format!("{} = '{}'", column, value))
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                    where_clauses.push(format!("({})", column_condition));
+                    group_by_columns.push(column.clone());
+                    select_columns.push(column.clone());
+                }
+            }
+            SegmentationFilter::Linked {
+                dimension1_key,
+                dimension2_key,
+                values,
+            } => {
+                // Linked filters create an OR condition for each linked pair
+                let mut linked_conditions = Vec::new();
+
+                for (dim1_value, dim2_values) in values {
+                    if dim2_values.is_empty() {
+                        // If no dim2 values, just filter on dim1
+                        linked_conditions.push(format!("{} = '{}'", dimension1_key, dim1_value));
+                    } else {
+                        // Create condition: (dim1 = 'val1' AND dim2 IN ('val2a', 'val2b'))
+                        let dim2_condition = dim2_values
+                            .iter()
+                            .map(|v| format!("'{}'", v))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        linked_conditions.push(format!(
+                            "({} = '{}' AND {} IN ({}))",
+                            dimension1_key, dim1_value, dimension2_key, dim2_condition
+                        ));
+                    }
+                }
+
+                if !linked_conditions.is_empty() {
+                    // Combine all linked conditions with OR
+                    where_clauses.push(format!("({})", linked_conditions.join(" OR ")));
+                    group_by_columns.push(dimension1_key.clone());
+                    group_by_columns.push(dimension2_key.clone());
+                    select_columns.push(dimension1_key.clone());
+                    select_columns.push(dimension2_key.clone());
+                }
+            }
         }
-        let column_condition = values
-            .iter()
-            .map(|value| format!("{} = '{}'", column, value))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        where_clauses.push(format!("({})", column_condition));
     }
 
     // Time filter clauses

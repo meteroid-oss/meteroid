@@ -11,6 +11,27 @@ message Filter {
   repeated string property_value = 2;
 }
 
+message SegmentationFilter {
+  oneof filter {
+    IndependentFilters independent = 1;
+    LinkedFilters linked = 2;
+  }
+
+  message IndependentFilters {
+    repeated Filter filters = 1;
+  }
+
+  message LinkedFilters {
+    string dimension1_key = 1;
+    string dimension2_key = 2;
+    map<string, LinkedDimensionValues> linked_values = 3;
+
+    message LinkedDimensionValues {
+      repeated string values = 1;
+    }
+  }
+}
+
 // TODO this is for Usage meters. Does Cost meters have a different format ? (do we have subjects ?)
 message QueryMeterRequest {
   string tenant_id = 1;
@@ -21,10 +42,10 @@ message QueryMeterRequest {
   google.protobuf.Timestamp to = 6;
   // If null, default to WindowSize.AGGREGATE_ALL
   repeated string group_by_properties = 7;
-  repeated Filter filter_properties = 8;
   QueryWindowSize window_size = 9;
   optional string timezone = 10;
   string code = 11;  // billable metric code
+  optional SegmentationFilter segmentation_filter = 12;
 
   enum QueryWindowSize {
     MINUTE = 0;
