@@ -27,7 +27,7 @@ pub async fn run(
     .await
     .change_context(MigrationsError::Execution)?;
 
-    if let Some(_) = &clickhouse_config.cluster_name {
+    if clickhouse_config.cluster_name.is_some() {
         // Create a cluster-aware migration client
         struct MeteroidCluster;
         impl ClusterName for MeteroidCluster {
