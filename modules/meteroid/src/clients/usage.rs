@@ -151,6 +151,8 @@ impl UsageClient for MeteringUsageClient {
             None => vec![],
         };
 
+        let exclusive_end = period.end.succ_opt().unwrap_or(period.end);
+
         let request = QueryMeterRequest {
             tenant_id: tenant_id.as_proto(),
             meter_slug: metric.id.to_string(),
@@ -158,7 +160,7 @@ impl UsageClient for MeteringUsageClient {
             meter_aggregation_type: aggregation_type,
             customer_ids: vec![customer_id.to_string()],
             from: Some(date_to_timestamp(period.start)),
-            to: Some(date_to_timestamp(period.end)), // exclusive TODO check
+            to: Some(date_to_timestamp(exclusive_end)),
             // not used here, defaults to customer_id
             group_by_properties: vec![],
             // the segmentation dimensions TODO
