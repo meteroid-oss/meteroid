@@ -114,6 +114,7 @@ impl Services {
                 } else {
                     None
                 },
+                Some(invoice),
             )
             .await
             .change_context(StoreError::InvoiceComputationError)?
