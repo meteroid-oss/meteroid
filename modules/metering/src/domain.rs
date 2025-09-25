@@ -45,13 +45,23 @@ pub struct Meter {
 }
 
 #[derive(Debug, Clone)]
+pub enum SegmentationFilter {
+    Independent(Vec<(String, Vec<String>)>),
+    Linked {
+        dimension1_key: String,
+        dimension2_key: String,
+        values: HashMap<String, Vec<String>>,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct QueryMeterParams {
     pub aggregation: MeterAggregation,
     pub namespace: String,
     pub meter_slug: String,
     pub code: String,
     pub customer_ids: Vec<String>,
-    pub filter_group_by: HashMap<String, Vec<String>>,
+    pub segmentation_filter: Option<SegmentationFilter>,
     pub group_by: Vec<String>,
     pub window_size: Option<WindowSize>,
     pub window_time_zone: Option<String>,

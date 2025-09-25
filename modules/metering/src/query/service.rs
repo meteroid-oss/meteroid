@@ -13,7 +13,9 @@ use metering_grpc::meteroid::metering::v1::{
 use tonic::{Request, Response, Status};
 
 use crate::connectors::Connector;
-use crate::domain::{EventSortOrder, QueryMeterParams, QueryRawEventsParams, WindowSize};
+use crate::domain::{
+    EventSortOrder, QueryMeterParams, QueryRawEventsParams, SegmentationFilter, WindowSize,
+};
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
 use metering_grpc::meteroid::metering::v1::Event;
 
@@ -56,6 +58,43 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             QueryWindowSize::AggregateAll => None,
         };
 
+        // Convert proto segmentation filter to domain segmentation filter
+        let segmentation_filter = if let Some(sf) = req.segmentation_filter {
+            match sf.filter {
+                Some(
+                    metering_grpc::meteroid::metering::v1::segmentation_filter::Filter::Independent(
+                        ind,
+                    ),
+                ) => {
+                    let filters = ind
+                        .filters
+                        .into_iter()
+                        .map(|f| (f.property_name, f.property_value))
+                        .collect();
+                    Some(SegmentationFilter::Independent(filters))
+                }
+                Some(
+                    metering_grpc::meteroid::metering::v1::segmentation_filter::Filter::Linked(
+                        linked,
+                    ),
+                ) => {
+                    let values = linked
+                        .linked_values
+                        .into_iter()
+                        .map(|(k, v)| (k, v.values))
+                        .collect();
+                    Some(SegmentationFilter::Linked {
+                        dimension1_key: linked.dimension1_key,
+                        dimension2_key: linked.dimension2_key,
+                        values,
+                    })
+                }
+                None => None,
+            }
+        } else {
+            None
+        };
+
         let meter = QueryMeterParams {
             aggregation: meter_aggregation,
             namespace: req.tenant_id,
@@ -65,11 +104,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             group_by: req.group_by_properties,
             window_size,
             window_time_zone: req.timezone,
-            filter_group_by: req
-                .filter_properties
-                .into_iter()
-                .map(|filter| (filter.property_name, filter.property_value))
-                .collect(),
+            segmentation_filter,
             from: req
                 .from
                 .map(timestamp_to_datetime)
