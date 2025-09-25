@@ -1,6 +1,7 @@
 use crate::client::PennylaneClient;
 use crate::error::PennylaneError;
 use crate::model::{ListResponse, QueryFilter, QueryParams};
+use crate::vat_rate::VatRate;
 use chrono::NaiveDate;
 use reqwest::Method;
 use rust_decimal::Decimal;
@@ -156,7 +157,7 @@ pub struct CustomerInvoiceLine {
     pub quantity: Decimal,
     pub raw_currency_unit_price: String,
     pub unit: String,
-    pub vat_rate: String, // an enum
+    pub vat_rate: VatRate,
     pub description: Option<String>,
     pub imputation_dates: Option<CustomerInvoiceLineImputationDates>,
 }

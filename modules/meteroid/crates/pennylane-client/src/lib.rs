@@ -4,3 +4,4 @@ pub mod customers;
 pub mod error;
 pub mod file_attachments;
 mod model;
+pub mod vat_rate;
