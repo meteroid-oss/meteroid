@@ -385,6 +385,7 @@ async fn test_metering_e2e() {
             description: None,
             product_family_local_id: "default".to_string(),
             plan_type: PlanType::Standard as i32,
+            currency: "EUR".to_string(),
         }))
         .await
         .unwrap();

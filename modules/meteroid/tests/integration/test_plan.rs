@@ -31,6 +31,7 @@ async fn test_plans_basic() {
             product_family_local_id: "default".into(),
             description: Some("plan_description".into()),
             plan_type: api::plans::v1::PlanType::Standard as i32,
+            currency: "EUR".to_string(),
         })
         .await
         .unwrap()
