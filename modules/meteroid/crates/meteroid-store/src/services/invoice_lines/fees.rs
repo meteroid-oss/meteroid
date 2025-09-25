@@ -86,6 +86,7 @@ pub fn compute_volume_price(
             attributes: subline_attr,
         }],
         metric_id: Some(metric_id),
+        group_by_dimensions: None,
     })
 }
 
@@ -177,5 +178,6 @@ pub fn compute_tier_price(
         is_prorated: false,
         sublines: sub_lines,
         metric_id: Some(metric_id),
+        group_by_dimensions: None,
     })
 }

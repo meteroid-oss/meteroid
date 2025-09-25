@@ -112,7 +112,7 @@ export const createBillableMetricSchema = z.object({
     .string()
     .optional()
     .nullable()
-    .transform(flow(O.map(S.trim), O.filter(S.isEmpty))),
+    .transform(flow(O.map(S.trim), O.filter(s => !S.isEmpty(s)))),
 })
 export type CreateBillableMetricSchema = typeof createBillableMetricSchema
 export type CreateBillableMetricFormData = z.infer<CreateBillableMetricSchema>

@@ -9,6 +9,7 @@ use tonic::{Request, Response, Status};
 
 use crate::connectors::Connector;
 use crate::domain::Meter;
+use crate::error::MeteringApiError;
 
 #[derive(Clone)]
 pub struct MetersService {
@@ -50,11 +51,10 @@ impl MetersServiceGrpc for MetersService {
             group_by: meter.dimensions,
         };
 
-        self.connector.register_meter(meter).await.map_err(|e| {
-            Status::internal("Failed to register meter")
-                .set_source(Arc::new(e.into_error()))
-                .clone()
-        })?;
+        self.connector
+            .register_meter(meter)
+            .await
+            .map_err(Into::<MeteringApiError>::into)?;
 
         Ok(Response::new(RegisterMeterResponse { metadata: vec![] }))
     }

@@ -131,6 +131,11 @@ impl Connector for ClickhouseConnector {
 
             let mut group_by: HashMap<String, Option<String>> = HashMap::new();
 
+            for column_name in &params.group_by {
+                let column_value: Option<String> = row.get_string(column_name.as_str());
+                group_by.insert(column_name.clone(), column_value);
+            }
+
             if let Some(ref segmentation) = params.segmentation_filter {
                 match segmentation {
                     crate::domain::SegmentationFilter::Independent(filters) => {
