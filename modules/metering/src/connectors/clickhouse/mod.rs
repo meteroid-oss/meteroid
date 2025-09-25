@@ -89,11 +89,14 @@ impl Connector for ClickhouseConnector {
                 .map_err(ConnectorError::InvalidQuery)?,
         };
 
+        tracing::debug!("Generated query: {}", query.as_str());
+
         let mut lines = self
             .client
             .query(query.as_str())
             .fetch_bytes("JSONEachRow")
-            .change_context(ConnectorError::QueryError)?
+            .change_context(ConnectorError::QueryError)
+            .attach_printable("Failed to execute query with JSONEachRow")?
             .lines();
 
         let mut parsed = Vec::new();
@@ -103,21 +106,28 @@ impl Connector for ClickhouseConnector {
             .await
             .change_context(ConnectorError::QueryError)?
         {
-            let row: serde_json::Value =
-                serde_json::from_str(&line).change_context(ConnectorError::QueryError)?;
+            let row: serde_json::Value = serde_json::from_str(&line)
+                .change_context(ConnectorError::QueryError)
+                .attach_printable("Failed to parse JSON row")?;
 
             let window_start = row
                 .get_timestamp_utc("window_start")
-                .ok_or(ConnectorError::QueryError)?;
+                .ok_or(ConnectorError::QueryError)
+                .attach_printable("Missing window_start field")?;
 
             let window_end = row
                 .get_timestamp_utc("window_end")
-                .ok_or(ConnectorError::QueryError)?;
-            let value = row.get_f64("value").ok_or(ConnectorError::QueryError)?;
+                .ok_or(ConnectorError::QueryError)
+                .attach_printable("Missing window_end field")?;
+            let value = row
+                .get_f64("value")
+                .ok_or(ConnectorError::QueryError)
+                .attach_printable("Missing value field")?;
 
             let customer_id = row
                 .get_string("customer_id")
-                .ok_or(ConnectorError::QueryError)?;
+                .ok_or(ConnectorError::QueryError)
+                .attach_printable("Missing customer_id field")?;
 
             let mut group_by: HashMap<String, Option<String>> = HashMap::new();
 
