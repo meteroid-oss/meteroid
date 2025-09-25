@@ -1,6 +1,6 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
 use error_stack::ResultExt;
-use klickhouse::{Client, ClientOptions};
+use klickhouse::{Client, ClientOptions, ClusterMigration, ClusterName};
 use thiserror::Error;
 
 static KAFKA_CONFIG: std::sync::OnceLock<KafkaConfig> = std::sync::OnceLock::new();
@@ -26,6 +26,37 @@ pub async fn run(
     )
     .await
     .change_context(MigrationsError::Execution)?;
+
+    if let Some(_) = &clickhouse_config.cluster_name {
+        // Create a cluster-aware migration client
+        struct MeteroidCluster;
+        impl ClusterName for MeteroidCluster {
+            fn cluster_name() -> String {
+                get_clickhouse_config()
+                    .cluster_name
+                    .as_ref()
+                    .expect("cluster_name should be set for cluster migrations")
+                    .clone()
+            }
+
+            fn database() -> String {
+                get_clickhouse_config().database.clone()
+            }
+        }
+
+        let mut cluster_client = ClusterMigration::<MeteroidCluster>::new(client);
+
+        let report = migrations::runner()
+            .run_async(&mut cluster_client)
+            .await
+            .change_context(MigrationsError::Execution)?;
+
+        for migration in report.applied_migrations() {
+            log::info!("Migration {} has been applied", migration);
+        }
+
+        return Ok(());
+    }
 
     let report = migrations::runner()
         .run_async(&mut client)
