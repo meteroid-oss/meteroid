@@ -5,6 +5,7 @@ export const createPlanSchema = z.object({
   description: z.string().max(2048).optional(),
   productFamilyLocalId: z.string().min(1, 'A product family is required'),
   planType: z.enum(['FREE', 'STANDARD', 'CUSTOM']).default('STANDARD'),
+  currency: z.string().min(1, 'Currency is required'),
 })
 
 export const editPlanSchema = z.object({

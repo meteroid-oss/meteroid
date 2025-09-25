@@ -19,6 +19,7 @@ import { ControllerRenderProps, FieldPath, FieldValues, useController } from 're
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
+import { CurrencySelect } from '@/components/CurrencySelect'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { createPlanSchema } from '@/lib/schemas/plans'
@@ -77,6 +78,7 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
       description: data.description,
       planType: PlanType[data.planType],
       productFamilyLocalId: data.productFamilyLocalId,
+      currency: data.currency,
     })
     if (data.planType === 'FREE') {
       navigate(`../${plan.plan?.plan?.localId}`)
@@ -128,6 +130,15 @@ export const DetailsForm: FC<Props> = ({ onCancel }) => {
                 name="productFamilyLocalId"
               />
             )}
+
+            <CurrencySelect
+              name="currency"
+              label="Currency"
+              control={methods.control}
+              required
+              layout="horizontal"
+              className="max-w-[320px]"
+            />
 
             {/* TODO */}
             <div className="hidden">

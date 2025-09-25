@@ -68,7 +68,7 @@ impl PlansService for PlanServiceComponents {
                 trial: None,
                 period_start_day: None,
                 net_terms: 0,
-                currency: None,
+                currency: Some(req.currency),
                 billing_cycles: None,
             },
             price_components: vec![],
