@@ -18,6 +18,7 @@ use common_domain::ids::BillableMetricId;
 use common_utils::decimals::ToSubunit;
 use common_utils::integers::{ToNonNegativeU64, only_positive, only_positive_decimal};
 use error_stack::{Report, ResultExt};
+use std::collections::{HashMap, HashSet};
 
 impl Services {
     pub(super) async fn compute_component<T: SubscriptionFeeInterface>(
@@ -164,6 +165,7 @@ impl Services {
                             attributes: None,
                         }],
                         metric_id: Some(*metric_id),
+                        group_by_dimensions: None,
                     };
 
                     lines.push(overage_line);
@@ -177,143 +179,230 @@ impl Services {
 
                     match model {
                         UsagePricingModel::Matrix { rates } => {
-                            let mut sublines = vec![];
-
+                            // First, identify matrix dimension keys
+                            let mut matrix_dimension_keys = HashSet::new();
                             for rate in rates {
-                                // for each rate, we get the quantity matching that rate
-                                let quantity = usage
-                                    .data
-                                    .iter()
-                                    .find(|usage| {
-                                        let d1 = usage.dimensions.get(&rate.dimension1.key)
-                                            == Some(&rate.dimension1.value);
-
-                                        if let Some(dimension2) = &rate.dimension2 {
-                                            d1 && usage.dimensions.get(&dimension2.key)
-                                                == Some(&dimension2.value)
-                                        } else {
-                                            d1
-                                        }
-                                    })
-                                    .map(|usage| usage.value)
-                                    .unwrap_or(Decimal::ZERO);
-
-                                let price_total = rate.per_unit_price * quantity;
-
-                                let price_cents = only_positive(
-                                    price_total
-                                        .to_subunit_opt(precision)
-                                        .ok_or(Report::new(StoreError::InvalidDecimal))
-                                        .attach_printable(
-                                            "Failed to convert price_total to subunit",
-                                        )?,
-                                );
-
-                                if price_cents > 0 {
-                                    // we concat rate.dimension1.value and rate.dimension2.value (if defined), separated by a coma. No coma if rate.dimension2 is None
-                                    let name = format!(
-                                        "{}{}",
-                                        rate.dimension1.value,
-                                        rate.dimension2
-                                            .as_ref()
-                                            .map(|d| format!(",{}", d.value))
-                                            .unwrap_or_default()
-                                    );
-                                    sublines.push(SubLineItem {
-                                        local_id: LocalId::no_prefix(),
-                                        name, // TODO
-                                        total: price_cents as i64,
-                                        quantity,
-                                        unit_price: rate.per_unit_price,
-                                        attributes: Some(SubLineAttributes::Matrix {
-                                            dimension1_key: rate.dimension1.key.clone(),
-                                            dimension1_value: rate.dimension1.value.clone(),
-                                            dimension2_key: rate
-                                                .dimension2
-                                                .as_ref()
-                                                .map(|d| d.key.clone()),
-                                            dimension2_value: rate
-                                                .dimension2
-                                                .as_ref()
-                                                .map(|d| d.value.clone()),
-                                        }),
-                                    });
+                                matrix_dimension_keys.insert(&rate.dimension1.key);
+                                if let Some(dimension2) = &rate.dimension2 {
+                                    matrix_dimension_keys.insert(&dimension2.key);
                                 }
                             }
 
-                            lines.push(InvoiceLineInner::from_usage_sublines(
-                                sublines,
-                                arrear_period,
-                                None,
-                                *metric_id,
-                            )?);
-                        }
-                        model => {
-                            let usage_units = usage.single()?;
+                            // Group usage data by non-matrix dimensions (usage_group_key dimensions)
+                            let mut groups: HashMap<
+                                String,
+                                (HashMap<String, String>, Vec<&GroupedUsageData>),
+                            > = HashMap::new();
 
-                            //TODO only if price > 0 & usage > 0
+                            for grouped_usage in &usage.data {
+                                let group_dimensions: HashMap<String, String> = grouped_usage
+                                    .dimensions
+                                    .iter()
+                                    .filter(|(key, _)| !matrix_dimension_keys.contains(key))
+                                    .map(|(k, v)| (k.clone(), v.clone()))
+                                    .collect();
 
-                            match model {
-                                UsagePricingModel::PerUnit { rate } => {
-                                    lines.push(InvoiceLineInner::usage_simple(
-                                        rate,
-                                        &usage_units,
-                                        arrear_period,
-                                        precision,
-                                        *metric_id,
-                                    )?);
+                                // Create a stable string key for grouping
+                                let mut sorted_group_keys: Vec<_> =
+                                    group_dimensions.iter().collect();
+                                sorted_group_keys.sort_by_key(|(k, _)| *k);
+                                let group_key = sorted_group_keys
+                                    .iter()
+                                    .map(|(k, v)| format!("{}:{}", k, v))
+                                    .collect::<Vec<_>>()
+                                    .join("|");
+
+                                groups
+                                    .entry(group_key)
+                                    .or_insert_with(|| (group_dimensions.clone(), Vec::new()))
+                                    .1
+                                    .push(grouped_usage);
+                            }
+
+                            // Create one line item per group with matrix sublines
+                            for (_, (group_dimensions, group_usage_data)) in groups {
+                                let mut sublines = vec![];
+
+                                for rate in rates {
+                                    // Find usage data that matches this matrix rate within this group
+                                    let matching_usage =
+                                        group_usage_data.iter().find(|usage_data| {
+                                            let d1_match =
+                                                usage_data.dimensions.get(&rate.dimension1.key)
+                                                    == Some(&rate.dimension1.value);
+
+                                            let d2_match =
+                                                if let Some(dimension2) = &rate.dimension2 {
+                                                    usage_data.dimensions.get(&dimension2.key)
+                                                        == Some(&dimension2.value)
+                                                } else {
+                                                    true
+                                                };
+
+                                            d1_match && d2_match
+                                        });
+
+                                    if let Some(usage_data) = matching_usage {
+                                        let quantity = usage_data.value;
+
+                                        if quantity > Decimal::ZERO {
+                                            let price_total = rate.per_unit_price * quantity;
+
+                                            let price_cents = only_positive(
+                                                price_total
+                                                    .to_subunit_opt(precision)
+                                                    .ok_or(Report::new(StoreError::InvalidDecimal))
+                                                    .attach_printable(
+                                                        "Failed to convert price_total to subunit",
+                                                    )?,
+                                            );
+
+                                            if price_cents > 0 {
+                                                // we concat rate.dimension1.value and rate.dimension2.value (if defined), separated by a comma
+                                                let name = format!(
+                                                    "{}{}",
+                                                    rate.dimension1.value,
+                                                    rate.dimension2
+                                                        .as_ref()
+                                                        .map(|d| format!(",{}", d.value))
+                                                        .unwrap_or_default()
+                                                );
+                                                sublines.push(SubLineItem {
+                                                    local_id: LocalId::no_prefix(),
+                                                    name,
+                                                    total: price_cents as i64,
+                                                    quantity,
+                                                    unit_price: rate.per_unit_price,
+                                                    attributes: Some(SubLineAttributes::Matrix {
+                                                        dimension1_key: rate.dimension1.key.clone(),
+                                                        dimension1_value: rate
+                                                            .dimension1
+                                                            .value
+                                                            .clone(),
+                                                        dimension2_key: rate
+                                                            .dimension2
+                                                            .as_ref()
+                                                            .map(|d| d.key.clone()),
+                                                        dimension2_value: rate
+                                                            .dimension2
+                                                            .as_ref()
+                                                            .map(|d| d.value.clone()),
+                                                    }),
+                                                });
+                                            }
+                                        }
+                                    }
                                 }
-                                UsagePricingModel::Tiered { tiers, block_size } => {
-                                    lines.push(fees::compute_tier_price(
-                                        usage_units,
-                                        tiers,
-                                        arrear_period,
-                                        precision,
-                                        *metric_id,
-                                        block_size,
-                                    )?);
-                                }
-                                UsagePricingModel::Volume { tiers, block_size } => {
-                                    lines.push(fees::compute_volume_price(
-                                        usage_units,
-                                        tiers,
-                                        arrear_period,
-                                        precision,
-                                        *metric_id,
-                                        block_size,
-                                    )?);
-                                }
-                                UsagePricingModel::Package { block_size, rate } => {
-                                    // TODO we want some additional data in the frontend to display that "x$ per 20", total usage and block usage
-                                    let package_size_decimal = Decimal::from(*block_size);
-                                    let total_packages =
-                                        (usage_units / package_size_decimal).ceil();
 
-                                    let price_total = total_packages * *rate;
-
-                                    lines.push(InvoiceLineInner::from_usage_sublines(
-                                        vec![SubLineItem {
-                                            local_id: LocalId::no_prefix(),
-                                            name: "Package".to_string(),
-                                            total: price_total
-                                                .to_subunit_opt(precision)
-                                                .ok_or(Report::new(StoreError::InvalidDecimal))
-                                                .attach_printable(
-                                                    "Failed to convert price_total to subunit",
-                                                )?,
-                                            quantity: total_packages,
-                                            unit_price: *rate,
-                                            attributes: Some(SubLineAttributes::Package {
-                                                raw_usage: usage_units,
-                                            }),
-                                        }],
-                                        arrear_period,
+                                // Only create a line item if there are sublines for this group
+                                if !sublines.is_empty() {
+                                    let mut line = InvoiceLineInner::from_usage_sublines(
+                                        sublines,
+                                        arrear_period.clone(),
                                         None,
                                         *metric_id,
-                                    )?);
+                                    )?;
+
+                                    line.group_by_dimensions = if group_dimensions.is_empty() {
+                                        None
+                                    } else {
+                                        Some(group_dimensions)
+                                    };
+
+                                    lines.push(line);
                                 }
-                                UsagePricingModel::Matrix { .. } => unreachable!(),
-                            };
+                            }
+                        }
+                        model => {
+                            // Handle grouped usage data - create separate line items for each group
+                            for grouped_usage in &usage.data {
+                                let usage_units = grouped_usage.value;
+
+                                // Skip zero usage
+                                if usage_units <= Decimal::ZERO {
+                                    continue;
+                                }
+
+                                match model {
+                                    UsagePricingModel::PerUnit { rate } => {
+                                        let mut line = InvoiceLineInner::usage_simple(
+                                            rate,
+                                            &usage_units,
+                                            arrear_period.clone(),
+                                            precision,
+                                            *metric_id,
+                                        )?;
+
+                                        // Store group_by dimensions for later use in line name generation
+                                        line.group_by_dimensions =
+                                            Some(grouped_usage.dimensions.clone());
+
+                                        lines.push(line);
+                                    }
+                                    UsagePricingModel::Tiered { tiers, block_size } => {
+                                        let mut line = fees::compute_tier_price(
+                                            usage_units,
+                                            tiers,
+                                            arrear_period.clone(),
+                                            precision,
+                                            *metric_id,
+                                            block_size,
+                                        )?;
+
+                                        line.group_by_dimensions =
+                                            Some(grouped_usage.dimensions.clone());
+                                        lines.push(line);
+                                    }
+                                    UsagePricingModel::Volume { tiers, block_size } => {
+                                        let mut line = fees::compute_volume_price(
+                                            usage_units,
+                                            tiers,
+                                            arrear_period.clone(),
+                                            precision,
+                                            *metric_id,
+                                            block_size,
+                                        )?;
+
+                                        line.group_by_dimensions =
+                                            Some(grouped_usage.dimensions.clone());
+                                        lines.push(line);
+                                    }
+                                    UsagePricingModel::Package { block_size, rate } => {
+                                        // TODO we want some additional data in the frontend to display that "x$ per 20", total usage and block usage
+                                        let package_size_decimal = Decimal::from(*block_size);
+                                        let total_packages =
+                                            (usage_units / package_size_decimal).ceil();
+
+                                        let price_total = total_packages * *rate;
+
+                                        let mut line = InvoiceLineInner::from_usage_sublines(
+                                            vec![SubLineItem {
+                                                local_id: LocalId::no_prefix(),
+                                                name: "Package".to_string(),
+                                                total: price_total
+                                                    .to_subunit_opt(precision)
+                                                    .ok_or(Report::new(StoreError::InvalidDecimal))
+                                                    .attach_printable(
+                                                        "Failed to convert price_total to subunit",
+                                                    )?,
+                                                quantity: total_packages,
+                                                unit_price: *rate,
+                                                attributes: Some(SubLineAttributes::Package {
+                                                    raw_usage: usage_units,
+                                                }),
+                                            }],
+                                            arrear_period.clone(),
+                                            None,
+                                            *metric_id,
+                                        )?;
+
+                                        line.group_by_dimensions =
+                                            Some(grouped_usage.dimensions.clone());
+                                        lines.push(line);
+                                    }
+                                    UsagePricingModel::Matrix { .. } => unreachable!(),
+                                }
+                            }
                         }
                     }
                 }
@@ -321,31 +410,52 @@ impl Services {
         }
         Ok(lines
             .into_iter()
-            .map(|line| LineItem {
-                local_id: LocalId::no_prefix(),
-                name: line
+            .map(|line| {
+                let base_name = line
                     .custom_line_name
-                    .unwrap_or_else(|| component.name_ref().clone()),
-                quantity: line.quantity,
-                unit_price: line.unit_price,
-                start_date: line.period.start,
-                end_date: line.period.end,
-                sub_lines: line.sublines,
-                is_prorated: line.is_prorated,
-                price_component_id: component.price_component_id(),
-                sub_component_id: component.sub_component_id(),
-                sub_add_on_id: component.sub_add_on_id(),
-                product_id: component.product_id(),
-                metric_id: line.metric_id,
-                description: None,
+                    .unwrap_or_else(|| component.name_ref().clone());
 
-                amount_subtotal: line.total as i64,
+                let name = if let Some(ref dimensions) = line.group_by_dimensions {
+                    if dimensions.is_empty() {
+                        base_name
+                    } else {
+                        // Sort dimensions by key for consistent ordering
+                        let mut sorted_dimensions: Vec<_> = dimensions.iter().collect();
+                        sorted_dimensions.sort_by_key(|(k, _)| *k);
+                        let dimension_values: Vec<String> = sorted_dimensions
+                            .into_iter()
+                            .map(|(_, v)| v.clone())
+                            .collect();
+                        format!("{} ({})", base_name, dimension_values.join(", "))
+                    }
+                } else {
+                    base_name
+                };
 
-                // tax & discount are handled later
-                tax_rate: Decimal::ZERO,
-                tax_amount: 0,
-                taxable_amount: line.total as i64,
-                amount_total: line.total as i64,
+                LineItem {
+                    local_id: LocalId::no_prefix(),
+                    name,
+                    quantity: line.quantity,
+                    unit_price: line.unit_price,
+                    start_date: line.period.start,
+                    end_date: line.period.end,
+                    sub_lines: line.sublines,
+                    is_prorated: line.is_prorated,
+                    price_component_id: component.price_component_id(),
+                    sub_component_id: component.sub_component_id(),
+                    sub_add_on_id: component.sub_add_on_id(),
+                    product_id: component.product_id(),
+                    metric_id: line.metric_id,
+                    description: None,
+
+                    amount_subtotal: line.total as i64,
+
+                    // tax & discount are handled later
+                    tax_rate: Decimal::ZERO,
+                    tax_amount: 0,
+                    taxable_amount: line.total as i64,
+                    amount_total: line.total as i64,
+                }
             })
             .collect())
     }
@@ -426,6 +536,7 @@ pub struct InvoiceLineInner {
     pub is_prorated: bool,
     pub sublines: Vec<SubLineItem>,
     pub metric_id: Option<BillableMetricId>,
+    pub group_by_dimensions: Option<HashMap<String, String>>,
 }
 
 impl InvoiceLineInner {
@@ -458,6 +569,7 @@ impl InvoiceLineInner {
             is_prorated: proration_factor.is_some_and(|f| f < 1.0),
             sublines: Vec::new(),
             metric_id,
+            group_by_dimensions: None,
         })
     }
 
@@ -489,6 +601,7 @@ impl InvoiceLineInner {
             is_prorated: proration_factor.is_some_and(|f| f < 1.0),
             sublines,
             metric_id: Some(metric_id),
+            group_by_dimensions: None,
         })
     }
 }

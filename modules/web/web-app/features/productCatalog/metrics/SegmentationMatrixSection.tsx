@@ -10,7 +10,6 @@ import { ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { forwardRef, useEffect, useState } from 'react'
 import { useWatch } from 'react-hook-form'
 
-import { AccordionPanel } from '@/components/AccordionPanel'
 import { JsonEditor } from '@/components/form/JsonEditor'
 import { Methods } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
@@ -25,7 +24,7 @@ interface BillingMatrixProps {
   methods: Methods<schemas.billableMetrics.CreateBillableMetricSchema>
 }
 
-export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
+export const SegmentationMatrixContent = ({ methods }: BillingMatrixProps) => {
   const mode = useWatch({ name: 'segmentationMatrix.matrixType', control: methods.control })
 
   useEffect(() => {
@@ -35,26 +34,8 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
   }, [mode, methods])
 
   return (
-    <>
-      <AccordionPanel
-        title={
-          <div className="space-x-4 items-center flex pr-4">
-            <h3>Segmentation</h3>
-            <span className="text-xs text-muted-foreground">optional</span>
-          </div>
-        }
-        defaultOpen={false}
-      >
-        <div className="space-y-6">
-          <FormDescription>
-            <p>
-              Specify different pricing based on one or two dimensions with fixed values.
-              <br/>
-              For example, you could have different pricing for a Compute metric per cloud provider
-              and region.
-            </p>
-          </FormDescription>
-          <div>
+    <div className="space-y-6">
+      <div>
             <div>
               <div className="space-y-6 ">
                 <SelectFormField
@@ -187,11 +168,10 @@ export const SegmentationMatrixSection = ({ methods }: BillingMatrixProps) => {
               </div>
             </div>
           </div>
-        </div>
-      </AccordionPanel>
-    </>
+    </div>
   )
 }
+
 
 const jsonMapSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',

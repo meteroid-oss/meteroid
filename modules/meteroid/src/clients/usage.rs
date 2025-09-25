@@ -173,8 +173,11 @@ impl UsageClient for MeteringUsageClient {
             customer_ids: vec![customer_id.to_string()],
             from: Some(date_to_timestamp(period.start)),
             to: Some(date_to_timestamp(period.end)), // exclusive TODO check
-            // not used here, defaults to customer_id
-            group_by_properties: vec![],
+            group_by_properties: metric
+                .usage_group_key
+                .as_ref()
+                .map(|k| vec![k.clone()])
+                .unwrap_or_default(),
             window_size: QueryWindowSize::AggregateAll.into(),
             timezone: None,
             segmentation_filter,

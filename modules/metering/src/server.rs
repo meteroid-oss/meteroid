@@ -119,6 +119,7 @@ pub async fn start_api_server(
         .layer(common_middleware::metric::create())
         .layer(api_key_auth_layer)
         .layer(admin_auth_layer)
+        .layer(common_middleware::error_logger::create())
         .layer(
             otel_middleware::server::OtelGrpcLayer::default()
                 .filter(otel_middleware::filters::reject_healthcheck),

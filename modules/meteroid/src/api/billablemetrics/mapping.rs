@@ -235,7 +235,7 @@ pub mod metric {
         let segmentation: Option<server::SegmentationMatrix> =
             map_segmentation_matrix(metric.segmentation_matrix);
 
-        let dimensions = segmentation
+        let mut group_by = segmentation
             .and_then(|s| s.matrix)
             .map(|matrix| match matrix {
                 // TODO improve the asref & cloning
@@ -267,13 +267,19 @@ pub mod metric {
             })
             .unwrap_or_default();
 
+        if let Some(usage_key) = metric.usage_group_key
+            && !usage_key.is_empty()
+        {
+            group_by.push(usage_key);
+        }
+
         metering::Meter {
             id: metric.id.as_proto(), // we could allow optional external_id if the metric is defined externally
             code: metric.code.to_string(),
             aggregation_key: metric.aggregation_key,
             aggregation: super::aggregation_type::domain_to_metering(metric.aggregation_type)
                 .into(),
-            dimensions,
+            dimensions: group_by,
         }
     }
 

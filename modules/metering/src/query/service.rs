@@ -16,6 +16,7 @@ use crate::connectors::Connector;
 use crate::domain::{
     EventSortOrder, QueryMeterParams, QueryRawEventsParams, SegmentationFilter, WindowSize,
 };
+use crate::error::MeteringApiError;
 use crate::utils::{datetime_to_timestamp, timestamp_to_datetime};
 use metering_grpc::meteroid::metering::v1::Event;
 
@@ -116,7 +117,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             .connector
             .query_meter(meter)
             .await
-            .map_err(|e| Status::internal(format!("Failed to query meter : {}", e)))?;
+            .map_err(Into::<MeteringApiError>::into)?;
 
         let usage = results
             .into_iter()
@@ -171,7 +172,7 @@ impl UsageQueryServiceGrpc for UsageQueryService {
             .connector
             .query_raw_events(params)
             .await
-            .map_err(|e| Status::internal(format!("Failed to query raw events: {}", e)))?;
+            .map_err(Into::<MeteringApiError>::into)?;
 
         let events = result
             .events

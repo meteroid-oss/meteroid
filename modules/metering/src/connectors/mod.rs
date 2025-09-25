@@ -1,4 +1,4 @@
-mod errors;
+pub(crate) mod errors;
 
 pub mod clickhouse;
 pub mod json;

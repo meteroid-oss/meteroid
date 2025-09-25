@@ -24,7 +24,7 @@ import { toast } from 'sonner'
 
 import { AccordionPanel } from '@/components/AccordionPanel'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
-import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
+import { SegmentationMatrixContent } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -247,43 +247,62 @@ export const ProductMetricsEditPanel = () => {
                   <Separator />
                   <UnitConversionSection methods={methods} />
                   <Separator />
-                  <SegmentationMatrixSection methods={methods} />
-
-                  <Separator />
 
                   <AccordionPanel
                     title={
                       <div className="space-x-4 items-center flex pr-4">
-                        <h3>Analytics Grouping Key</h3>
+                        <h3>Segmentation</h3>
                         <span className="text-xs text-muted-foreground">optional</span>
                       </div>
                     }
                     defaultOpen={false}
                   >
-                    <div className="space-y-6">
+                    <div className="space-y-8">
                       <FormDescription>
                         <p>
-                          Specify a dimension to group items by in the API endpoints.
-                          <br />
-                          For example, a tenant, a workspace or a cluster identifier can be used.
+                          Control how usage data is organized and aggregated for pricing and analytics.
                         </p>
-                        <p className="font-bold">This does not impact pricing.</p>
-
-                        {/* <p>TODO how does tier pricing work with this ?</p>
-                  <p>
-                    TODO : should we allow dynamic grouping for billing as well ? to have tiered
-                    pricing per tenant for example. Or should it be separate plans ? (ex: cloudflare
-                    sites, chargebee sites)
-                  </p> */}
                       </FormDescription>
-                      <div>
-                        <InputFormField
-                          name="usageGroupKey"
-                          label="Group key"
-                          control={methods.control}
-                          placeholder="dimension"
-                          className="max-w-xs"
-                        />
+
+                      {/* Matrix Segmentation */}
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-sm font-medium">Matrix</h4>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Define different pricing based on one or two dimensions with fixed values.
+                            <br />
+                            For example, different pricing per cloud provider and region.
+                          </p>
+                        </div>
+                        <div className="pl-4 border-l-2 border-border">
+                          <SegmentationMatrixContent methods={methods} />
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      {/* Group Key */}
+                      <div className="space-y-4">
+                        <div>
+                          <h4 className="text-sm font-medium">Group Key</h4>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Group usage data by a dynamic dimension for detailed analytics.
+                            <br />
+                            For example, separate usage by cluster, tenant, or workspace.
+                          </p>
+                          <p className="text-xs text-muted-foreground font-medium mt-2">
+                            This does not impact pricing, only data organization.
+                          </p>
+                        </div>
+                        <div className="pl-4 border-l-2 border-border">
+                          <InputFormField
+                            name="usageGroupKey"
+                            label="Group key"
+                            control={methods.control}
+                            placeholder="cluster_id"
+                            className="max-w-xs"
+                          />
+                        </div>
                       </div>
                     </div>
                   </AccordionPanel>

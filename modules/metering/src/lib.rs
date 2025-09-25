@@ -3,6 +3,7 @@ pub mod cache;
 pub mod config;
 pub mod connectors;
 pub mod domain;
+mod error;
 pub mod ingest;
 pub mod meters;
 pub mod migrations;
