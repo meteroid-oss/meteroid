@@ -43,12 +43,6 @@ jobs:
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-          sudo docker image prune --all --force
-          sudo docker builder prune -a
-      - name: Free disk space 2
-        uses: rokibhasansagar/slimhub_actions@9c45d9bb75dc7097612cc0189ed64b4bebb1a881
-        with:
-          retain: "rust,docker_buildkit,container_tools"
       - name: Install dependencies
         run: |
           sudo apt-get update
