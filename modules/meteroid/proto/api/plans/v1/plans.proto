@@ -13,6 +13,7 @@ message CreateDraftPlanRequest {
   optional string description = 3;
   string product_family_local_id = 4;
   PlanType plan_type = 5;
+  string currency = 6;
 }
 
 message CreateDraftPlanResponse {
