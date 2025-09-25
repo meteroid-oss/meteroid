@@ -210,7 +210,7 @@ export const EventsPage: FunctionComponent = () => {
         header: 'View',
         cell: ({ row }) => (
           <Button variant="ghost" size="sm" onClick={() => setSelectedEvent(row.original)}>
-            <EyeIcon className="h-4 w-4" />
+            <EyeIcon className="h-4 w-4"/>
           </Button>
         ),
         className: 'w-4',
@@ -249,7 +249,7 @@ export const EventsPage: FunctionComponent = () => {
         <div className="flex items-center space-x-4">
           {/* Search */}
           <div className="relative">
-            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground"/>
             <Input
               placeholder="Search events..."
               value={search}
@@ -270,7 +270,7 @@ export const EventsPage: FunctionComponent = () => {
               onValueChange={value => setSortOrder(parseInt(value))}
             >
               <SelectTrigger className="w-40">
-                <SelectValue />
+                <SelectValue/>
               </SelectTrigger>
               <SelectContent>
                 {SORT_ORDER_OPTIONS.map(option => (
@@ -292,12 +292,12 @@ export const EventsPage: FunctionComponent = () => {
           >
             {isLive ? (
               <>
-                <PauseIcon className="h-4 w-4 mr-2" />
+                <PauseIcon className="h-4 w-4 mr-2"/>
                 Pause
               </>
             ) : (
               <>
-                <PlayIcon className="h-4 w-4 mr-2" />
+                <PlayIcon className="h-4 w-4 mr-2"/>
                 Live
               </>
             )}
@@ -310,21 +310,21 @@ export const EventsPage: FunctionComponent = () => {
             onClick={() => eventsQuery.refetch()}
             disabled={eventsQuery.isFetching}
           >
-            <RefreshCcwIcon className={`h-4 w-4 ${eventsQuery.isFetching ? 'animate-spin' : ''}`} />
+            <RefreshCcwIcon className={`h-4 w-4 ${eventsQuery.isFetching ? 'animate-spin' : ''}`}/>
           </Button>
 
           {/* CSV Import */}
           <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
-                <FileUpIcon className="h-4 w-4 mr-2" />
+                <FileUpIcon className="h-4 w-4 mr-2"/>
                 Import CSV
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-2xl max-h-[90vh]">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <FileSpreadsheetIcon className="h-5 w-5" />
+                  <FileSpreadsheetIcon className="h-5 w-5"/>
                   Import Events from CSV
                 </DialogTitle>
                 <DialogDescription>
@@ -338,7 +338,8 @@ export const EventsPage: FunctionComponent = () => {
                     {/* File Upload */}
                     <div className="space-y-3">
                       <Label className="text-sm font-medium">CSV File</Label>
-                      <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 hover:border-muted-foreground/50 transition-colors">
+                      <div
+                        className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-4 hover:border-muted-foreground/50 transition-colors">
                         <Input
                           id="file"
                           type="file"
@@ -441,12 +442,12 @@ export const EventsPage: FunctionComponent = () => {
                       >
                         {uploadMutation.isPending ? (
                           <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"/>
                             Processing...
                           </>
                         ) : (
                           <>
-                            <FileUpIcon className="h-4 w-4 mr-2" />
+                            <FileUpIcon className="h-4 w-4 mr-2"/>
                             Import Events
                           </>
                         )}
@@ -465,11 +466,11 @@ export const EventsPage: FunctionComponent = () => {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               {importResult.failures.length === 0 ? (
-                                <CheckCircleIcon className="h-5 w-5 text-green-500" />
+                                <CheckCircleIcon className="h-5 w-5 text-green-500"/>
                               ) : importResult.successful === 0 ? (
-                                <XCircleIcon className="h-5 w-5 text-red-500" />
+                                <XCircleIcon className="h-5 w-5 text-red-500"/>
                               ) : (
-                                <AlertCircleIcon className="h-5 w-5 text-yellow-500" />
+                                <AlertCircleIcon className="h-5 w-5 text-yellow-500"/>
                               )}
                               <div>
                                 <h3 className="font-medium">
@@ -581,7 +582,9 @@ export const EventsPage: FunctionComponent = () => {
                 </div>
                 <div>
                   <Label>Event Code</Label>
-                  <Badge variant="outline">{selectedEvent.code}</Badge>
+                  <div>
+                    <Badge variant="outline">{selectedEvent.code}</Badge>
+                  </div>
                 </div>
                 <div>
                   <Label>Customer ID</Label>
