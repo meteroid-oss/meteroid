@@ -21,6 +21,7 @@ message GetTenantByIdResponse {
 message CreateTenantRequest {
   string name = 1;
   TenantEnvironmentEnum environment = 2;
+  optional bool disable_emails = 3;
 }
 
 message CreateTenantResponse {

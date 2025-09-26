@@ -82,6 +82,7 @@ impl OrganizationsInterface for Store {
         let dev_tenant_new = TenantNew {
             name: "Development".to_string(),
             environment: TenantEnvironmentEnum::Development,
+            disable_emails: None,
         };
 
         let (org_created, tenant_created) = self

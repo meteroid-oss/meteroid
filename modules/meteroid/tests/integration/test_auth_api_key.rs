@@ -96,6 +96,7 @@ pub(crate) async fn generate_api_key(channel: &Channel) -> CreateApiTokenRespons
             meteroid_grpc::meteroid::api::tenants::v1::CreateTenantRequest {
                 name: "Test Tenant".to_string(),
                 environment: 0,
+                disable_emails: None,
             },
         ))
         .await

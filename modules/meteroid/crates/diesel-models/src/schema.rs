@@ -928,6 +928,7 @@ diesel::table! {
         reporting_currency -> Text,
         environment -> TenantEnvironmentEnum,
         available_currencies -> Array<Nullable<Text>>,
+        disable_emails -> Bool,
     }
 }
 

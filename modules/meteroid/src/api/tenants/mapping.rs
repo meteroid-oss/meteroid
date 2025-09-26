@@ -12,6 +12,7 @@ pub mod tenants {
             slug: tenant.slug,
             reporting_currency: tenant.reporting_currency,
             environment: environment_to_grpc(tenant.environment).into(),
+            disable_emails: tenant.disable_emails,
         }
     }
 
@@ -28,6 +29,7 @@ pub mod tenants {
             trade_name: req.trade_name,
             reporting_currency: req.reporting_currency,
             environment,
+            disable_emails: req.disable_emails,
         }
     }
 
@@ -37,6 +39,7 @@ pub mod tenants {
         domain::TenantNew {
             name: req.name,
             environment,
+            disable_emails: req.disable_emails,
         }
     }
 

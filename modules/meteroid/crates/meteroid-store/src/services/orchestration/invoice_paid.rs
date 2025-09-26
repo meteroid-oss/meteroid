@@ -55,6 +55,7 @@ impl Services {
             .await?;
 
         let event: StoreResult<PgmqMessageNew> = SendEmailRequest::InvoicePaid {
+            tenant_id,
             invoice_id: invoice.id,
             invoice_number: invoice.invoice_number,
             invoicing_entity_id: invoicing_entity.id,

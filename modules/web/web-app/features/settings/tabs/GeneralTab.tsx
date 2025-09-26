@@ -2,6 +2,7 @@ import { useMutation } from '@connectrpc/connect-query'
 import {
   Button,
   Card,
+  CheckboxFormField,
   ComboboxFormField,
   Form,
   InputFormField,
@@ -31,6 +32,7 @@ const generalSchema = z.object({
   tenantName: z.string().min(1, 'Tenant name is required'),
   slug: z.string().min(1, 'Tenant name is required'),
   reportingCurrency: z.string().min(1, 'Tenant name is required'),
+  disableEmails: z.boolean(),
 })
 
 const currencySchema = z.object({
@@ -99,6 +101,7 @@ export const GeneralTab = () => {
       tenantName: '',
       slug: '',
       reportingCurrency: '',
+      disableEmails: false,
     },
     mode: 'onSubmit',
   })
@@ -110,6 +113,7 @@ export const GeneralTab = () => {
         tenantName: activeTenantData.tenant.name,
         slug: activeTenantData.tenant.slug,
         reportingCurrency: activeTenantData.tenant.reportingCurrency,
+        disableEmails: activeTenantData.tenant.disableEmails || false,
       })
     }
   }, [activeTenantData, currencies])
@@ -137,6 +141,7 @@ export const GeneralTab = () => {
         slug: values.slug,
         reportingCurrency: values.reportingCurrency,
         name: values.tenantName,
+        disableEmails: values.disableEmails,
       },
     })
   }
@@ -258,6 +263,17 @@ export const GeneralTab = () => {
                   })) ?? []
                 }
               />
+
+              <div className="col-span-6">
+                <div className="pt-4 text-sm">Advanced</div>
+
+                <CheckboxFormField
+                  name="disableEmails"
+                  label="Disable all email notifications"
+                  control={methods.control}
+                  description="Invoices, receipts, payment reminders etc will not be sent to your customers."
+                />
+              </div>
             </div>
 
             <div className="pt-10 flex justify-end items-center ">

@@ -1,11 +1,11 @@
 import { VariantProps, cva } from 'class-variance-authority'
-import { FieldValues, FieldPath, UseControllerProps, Control } from 'react-hook-form'
+import { Control, FieldPath, FieldValues, UseControllerProps } from 'react-hook-form'
 
 import { cn } from '@ui/lib'
 
 import { Checkbox } from '..'
 
-import { FormField, FormItem, FormControl, FormLabel, FormMessage } from './form'
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from './form'
 
 interface CheckboxFieldProps<
   TFieldValues extends FieldValues,
@@ -14,6 +14,7 @@ interface CheckboxFieldProps<
     UseControllerProps<TFieldValues, TName> {
   label: string
   key?: string
+  description?: string
   containerClassName?: string
   labelClassName?: string
   control: Control<TFieldValues>
@@ -43,6 +44,7 @@ export const CheckboxFormField = <
   containerClassName,
   labelClassName,
   className,
+  description,
   variant = 'default',
   ...props
 }: CheckboxFieldProps<TFieldValues, TName> & VariantProps<typeof checkboxVariants>) => {
@@ -68,6 +70,7 @@ export const CheckboxFormField = <
 
           <div className="space-y-1 leading-none">
             <FormLabel className={cn('', labelClassName)}>{label}</FormLabel>
+            {description && <FormDescription>{description}</FormDescription>}
             <FormMessage />
           </div>
         </FormItem>

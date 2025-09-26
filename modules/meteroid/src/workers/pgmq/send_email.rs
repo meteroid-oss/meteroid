@@ -3,15 +3,17 @@ use crate::workers::pgmq::PgmqResult;
 use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::ids::BaseId;
+use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
 use error_stack::ResultExt;
 use itertools::Itertools;
 use meteroid_mailer::model::{EmailAttachmentType, EmailRecipient, InvoicePaid, InvoiceReady};
 use meteroid_mailer::service::MailerService;
-use meteroid_store::StoreResult;
 use meteroid_store::domain::pgmq::{PgmqMessage, SendEmailRequest};
 use meteroid_store::errors::StoreError;
 use meteroid_store::jwt_claims::{ResourceAccess, generate_portal_token};
+use meteroid_store::repositories::TenantInterface;
+use meteroid_store::{Store, StoreResult};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -21,6 +23,7 @@ pub struct EmailSender {
     rest_api_url: String,
     object_store: Arc<dyn ObjectStoreService>,
     jwt_secret: secrecy::SecretString,
+    store: Arc<Store>,
 }
 
 impl EmailSender {
@@ -30,6 +33,7 @@ impl EmailSender {
         public_url: String,
         rest_api_url: String,
         jwt_secret: secrecy::SecretString,
+        store: Arc<Store>,
     ) -> Self {
         Self {
             mailer,
@@ -37,7 +41,28 @@ impl EmailSender {
             rest_api_url,
             jwt_secret,
             object_store,
+            store,
         }
+    }
+
+    fn get_tenant_id_from_request(
+        &self,
+        request: &SendEmailRequest,
+    ) -> error_stack::Result<TenantId, StoreError> {
+        match request {
+            SendEmailRequest::InvoiceReady { tenant_id, .. } => Ok(*tenant_id),
+            SendEmailRequest::InvoicePaid { tenant_id, .. } => Ok(*tenant_id),
+            SendEmailRequest::PaymentReminder { tenant_id, .. } => Ok(*tenant_id),
+            SendEmailRequest::PaymentRejected { tenant_id, .. } => Ok(*tenant_id),
+        }
+    }
+
+    async fn is_email_disabled_for_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> error_stack::Result<bool, StoreError> {
+        let tenant = self.store.find_tenant_by_id(tenant_id).await?;
+        Ok(tenant.tenant.disable_emails)
     }
 
     fn convert_to_events(
@@ -54,6 +79,11 @@ impl EmailSender {
     }
 
     async fn send_email(&self, ev: SendEmailRequest) -> error_stack::Result<(), StoreError> {
+        // Check if emails are disabled for this tenant
+        let tenant_id = self.get_tenant_id_from_request(&ev)?;
+        if self.is_email_disabled_for_tenant(tenant_id).await? {
+            return Ok(());
+        }
         match ev {
             SendEmailRequest::InvoiceReady {
                 tenant_id,
@@ -146,6 +176,7 @@ impl EmailSender {
                 invoicing_emails,
                 invoice_pdf_id,
                 receipt_pdf_id,
+                ..
             } => {
                 if invoicing_emails.is_empty() {
                     log::warn!("No invoicing emails found for invoice {}", invoice_id);

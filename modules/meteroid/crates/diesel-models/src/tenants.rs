@@ -21,6 +21,7 @@ pub struct TenantRow {
     pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
     pub available_currencies: Vec<Option<String>>,
+    pub disable_emails: bool,
 }
 
 #[derive(Debug, Insertable)]
@@ -34,6 +35,7 @@ pub struct TenantRowNew {
     pub reporting_currency: String,
     pub environment: TenantEnvironmentEnum,
     pub available_currencies: Vec<Option<String>>,
+    pub disable_emails: bool,
 }
 
 #[derive(Debug, AsChangeset)]
@@ -44,6 +46,7 @@ pub struct TenantRowPatch {
     pub slug: Option<String>,
     pub reporting_currency: Option<String>,
     pub environment: Option<TenantEnvironmentEnum>,
+    pub disable_emails: Option<bool>,
 }
 
 #[derive(Debug, Queryable, Selectable)]

@@ -127,6 +127,7 @@ pub enum SendEmailRequest {
     },
 
     InvoicePaid {
+        tenant_id: TenantId,
         invoice_id: InvoiceId,
         invoicing_entity_id: InvoicingEntityId,
         invoice_number: String,
@@ -144,9 +145,13 @@ pub enum SendEmailRequest {
     },
 
     /// check once a day, then
-    PaymentReminder { invoice_id: InvoiceId },
+    PaymentReminder {
+        tenant_id: TenantId,
+        invoice_id: InvoiceId,
+    },
 
     PaymentRejected {
+        tenant_id: TenantId,
         invoice_id: InvoiceId,
         invoice_pdf_url: String,
         receipt_pdf_url: Option<String>, // or tx details ?

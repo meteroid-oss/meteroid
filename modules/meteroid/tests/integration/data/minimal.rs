@@ -59,6 +59,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             reporting_currency: "EUR".to_string(),
             environment: TenantEnvironmentEnum::Development,
             available_currencies: vec![Some("EUR".to_string()), Some("USD".to_string())],
+            disable_emails: true
         }.insert(tx).await?;
 
         // create api token

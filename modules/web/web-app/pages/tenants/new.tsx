@@ -1,5 +1,13 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { Button, Card, Form, InputFormField, SelectFormField, SelectItem } from '@md/ui'
+import {
+  Button,
+  Card,
+  CheckboxFormField,
+  Form,
+  InputFormField,
+  SelectFormField,
+  SelectItem,
+} from '@md/ui'
 import { ChevronLeft } from 'lucide-react'
 import { FunctionComponent } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -22,6 +30,7 @@ const tenantSchema = z.object({
       })
     }
   }),
+  disableEmails: z.boolean(),
 })
 
 export const TenantNew: FunctionComponent = () => {
@@ -30,6 +39,7 @@ export const TenantNew: FunctionComponent = () => {
     defaultValues: {
       name: '',
       environment: `${TenantEnvironmentEnum.PRODUCTION}` as unknown as TenantEnvironmentEnum,
+      disableEmails: false,
     },
   })
 
@@ -61,6 +71,7 @@ export const TenantNew: FunctionComponent = () => {
                 await mut.mutateAsync({
                   name: values.name,
                   environment: values.environment,
+                  disableEmails: values.disableEmails,
                 })
               })}
             >
@@ -88,12 +99,23 @@ export const TenantNew: FunctionComponent = () => {
                     <SelectItem value={`${TenantEnvironmentEnum.DEVELOPMENT}`}>
                       Development
                     </SelectItem>
-                    <SelectItem value={`${TenantEnvironmentEnum.SANDBOX}`}>Sandbox (with data)</SelectItem>
+                    <SelectItem value={`${TenantEnvironmentEnum.SANDBOX}`}>
+                      Sandbox (with data)
+                    </SelectItem>
                   </SelectFormField>
+
+                  <div className="pt-4 text-sm">Advanced</div>
+
+                  <CheckboxFormField
+                    name="disableEmails"
+                    label="Disable all email notifications"
+                    control={methods.control}
+                    description="Invoices, receipts, payment reminders etc will not be sent to your customers."
+                  />
                 </div>
 
                 <div className="w-full flex justify-end items-center pt-6">
-                  <Button variant="ghost" className="!rounded-r-none" size="sm">
+                  <Button variant="ghost" className="!rounded-r-none" size="sm" type="button">
                     Cancel
                   </Button>
                   <Button
