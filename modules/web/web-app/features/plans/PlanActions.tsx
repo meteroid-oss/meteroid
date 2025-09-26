@@ -1,10 +1,18 @@
 import { useMutation } from '@connectrpc/connect-query'
-import { Button, Modal } from '@md/ui'
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Modal,
+} from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAtom, useSetAtom } from 'jotai'
-import { PencilIcon } from 'lucide-react'
+import { ArchiveIcon, ArchiveRestoreIcon, ChevronDown, PencilIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 import ConfirmationModal from '@/components/ConfirmationModal'
 import {
@@ -14,12 +22,16 @@ import {
 } from '@/features/plans/hooks/usePlan'
 import { addedComponentsAtom, editedComponentsAtom } from '@/features/plans/pricecomponents/utils'
 import { useBasePath } from '@/hooks/useBasePath'
+import { PlanStatus } from '@/rpc/api/plans/v1/models_pb'
 import {
+  archivePlan,
   copyVersionToDraft,
   discardDraftVersion,
+  getPlanOverview,
   getPlanWithVersion,
   listPlans,
   publishPlanVersion,
+  unarchivePlan,
 } from '@/rpc/api/plans/v1/plans-PlansService_connectquery'
 
 export const PlanActions = () => {
@@ -117,6 +129,42 @@ export const PlanActions = () => {
     navigate(`${basePath}/plans/${planWithVersion.plan.id}/draft`)
   }
 
+  const archiveMutation = useMutation(archivePlan, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
+      toast.success('Plan archived successfully')
+    },
+    onError: () => {
+      toast.error('Failed to archive plan')
+    },
+  })
+
+  const unarchiveMutation = useMutation(unarchivePlan, {
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: [listPlans.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getPlanWithVersion.service.typeName] })
+      await queryClient.invalidateQueries({ queryKey: [getPlanOverview.service.typeName] })
+      toast.success('Plan unarchived successfully')
+    },
+    onError: () => {
+      toast.error('Failed to unarchive plan')
+    },
+  })
+
+  const handleArchive = () => {
+    if (planWithVersion.plan) {
+      archiveMutation.mutate({ id: planWithVersion.plan.id })
+    }
+  }
+
+  const handleUnarchive = () => {
+    if (planWithVersion.plan) {
+      unarchiveMutation.mutate({ id: planWithVersion.plan.id })
+    }
+  }
+
   return isDraft ? (
     <>
       <div className="text-muted-foreground text-xs  self-center">
@@ -161,9 +209,31 @@ export const PlanActions = () => {
     </>
   ) : (
     <>
-      <Button variant="outline" hasIcon className=" py-1.5" onClick={copyToDraft}>
-        <PencilIcon size="12" /> New version
-      </Button>
+      <div className="flex gap-2">
+        <Button variant="outline" hasIcon className="py-1.5" onClick={copyToDraft}>
+          <PencilIcon size="12" /> New version
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="gap-2 py-1.5" size="sm" hasIcon>
+              Actions <ChevronDown className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {planWithVersion.plan?.planStatus === PlanStatus.ARCHIVED ? (
+              <DropdownMenuItem onClick={handleUnarchive}>
+                <ArchiveRestoreIcon size={16} className="mr-2" />
+                Unarchive
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={handleArchive}>
+                <ArchiveIcon size={16} className="mr-2" />
+                Archive
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </>
   )
 }
