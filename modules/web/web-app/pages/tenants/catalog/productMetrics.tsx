@@ -15,9 +15,17 @@ export const ProductMetrics: FunctionComponent = () => {
     pageIndex: 0,
     pageSize: 20,
   })
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'archived'>('active')
 
-  // TODO pagination (manual ?)
-  const productMetricsQuery = useQuery(listBillableMetrics, {})
+  const archivedParam = statusFilter === 'all' ? undefined : statusFilter === 'archived'
+
+  const productMetricsQuery = useQuery(listBillableMetrics, {
+    archived: archivedParam,
+    pagination: {
+      page: pagination.pageIndex,
+      perPage: pagination.pageSize,
+    },
+  })
 
   const totalCount = productMetricsQuery?.data?.paginationMeta?.totalItems ?? 0
   const isLoading = productMetricsQuery.isLoading
@@ -34,6 +42,9 @@ export const ProductMetrics: FunctionComponent = () => {
           setEditPanelVisible={() => navigate('add-metric')}
           isLoading={isLoading}
           refetch={refetch}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          totalCount={totalCount}
         />
         <BillableMetricTable
           data={data}

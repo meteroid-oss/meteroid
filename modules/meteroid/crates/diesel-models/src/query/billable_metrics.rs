@@ -69,6 +69,7 @@ impl BillableMetricRow {
         param_tenant_id: TenantId,
         pagination: PaginationRequest,
         param_product_family_id: Option<ProductFamilyId>,
+        param_archived: Option<bool>,
     ) -> DbResult<PaginatedVec<BillableMetricMetaRow>> {
         use crate::schema::billable_metric::dsl as bm_dsl;
         use crate::schema::product_family::dsl as pf_dsl;
@@ -81,6 +82,11 @@ impl BillableMetricRow {
         if let Some(id) = param_product_family_id {
             query = query.filter(pf_dsl::id.eq(id));
         }
+
+        query = match param_archived {
+            Some(true) => query.filter(bm_dsl::archived_at.is_not_null()),
+            _ => query.filter(bm_dsl::archived_at.is_null()),
+        };
 
         let query = query
             .order(bm_dsl::created_at.asc())
@@ -112,5 +118,54 @@ impl BillableMetricRow {
             .await
             .attach_printable("Error while listing billable metrics by code")
             .into_db_result()
+    }
+
+    pub async fn archive(
+        conn: &mut PgConn,
+        param_billable_metric_id: BillableMetricId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use crate::schema::billable_metric::dsl::*;
+        use chrono::Utc;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(billable_metric)
+            .filter(id.eq(param_billable_metric_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set(archived_at.eq(Some(Utc::now().naive_utc())));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while archiving billable metric")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
+    pub async fn unarchive(
+        conn: &mut PgConn,
+        param_billable_metric_id: BillableMetricId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use crate::schema::billable_metric::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(billable_metric)
+            .filter(id.eq(param_billable_metric_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set(archived_at.eq::<Option<chrono::NaiveDateTime>>(None));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while unarchiving billable metric")
+            .into_db_result()?;
+
+        Ok(())
     }
 }
