@@ -59,6 +59,7 @@ pub async fn run(
             store_domain::TenantNew {
                 name: scenario.tenant.name,
                 environment: TenantEnvironmentEnum::Sandbox,
+                disable_emails: None,
             },
             organization_id,
         )

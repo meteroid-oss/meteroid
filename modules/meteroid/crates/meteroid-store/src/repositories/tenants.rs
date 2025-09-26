@@ -129,6 +129,9 @@ impl TenantInterface for Store {
             })
             .await?;
 
+        invalidate_reporting_currency_cache(&tenant_id).await;
+        invalidate_tenant_cache(&tenant_id).await;
+
         Ok(res)
     }
 
@@ -205,18 +208,19 @@ impl TenantInterface for Store {
         currencies: Vec<String>,
     ) -> StoreResult<Vec<String>> {
         let mut conn = self.get_conn().await?;
-        TenantRow::update_available_currencies(&mut conn, tenant_id, currencies)
+        let res = TenantRow::update_available_currencies(&mut conn, tenant_id, currencies)
             .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+
+        invalidate_reporting_currency_cache(&tenant_id).await;
+        invalidate_tenant_cache(&tenant_id).await;
+
+        res
     }
 
     async fn find_tenant_by_id(&self, tenant_id: TenantId) -> StoreResult<TenantWithOrganization> {
         let mut conn = self.get_conn().await?;
-
-        TenantRow::find_by_id_with_org(&mut conn, tenant_id)
-            .await
-            .map_err(Into::into)
-            .map(Into::into)
+        find_tenant_by_id_cached(&mut conn, tenant_id).await
     }
 }
 
@@ -258,6 +262,7 @@ impl StoreInternal {
             slug,
             organization_id,
             available_currencies: vec![Some(currency)],
+            disable_emails: tenant.disable_emails.unwrap_or(false),
         };
 
         let inserted: Tenant = insertable_tenant
@@ -319,6 +324,30 @@ async fn get_reporting_currency_by_tenant_id_cached(
 
 pub async fn invalidate_reporting_currency_cache(tenant_id: &TenantId) {
     GET_REPORTING_CURRENCY_BY_TENANT_ID_CACHED
+        .lock()
+        .await
+        .cache_remove(tenant_id);
+}
+
+#[cached(
+    result = true,
+    size = 200,
+    time = 300, // 5 min
+    key = "TenantId",
+    convert = r#"{ tenant_id }"#
+)]
+async fn find_tenant_by_id_cached(
+    conn: &mut PgConn,
+    tenant_id: TenantId,
+) -> StoreResult<TenantWithOrganization> {
+    TenantRow::find_by_id_with_org(conn, tenant_id)
+        .await
+        .map_err(Into::into)
+        .map(Into::into)
+}
+
+pub async fn invalidate_tenant_cache(tenant_id: &TenantId) {
+    FIND_TENANT_BY_ID_CACHED
         .lock()
         .await
         .cache_remove(tenant_id);

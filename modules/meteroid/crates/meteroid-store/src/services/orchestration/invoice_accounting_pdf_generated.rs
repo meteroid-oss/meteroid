@@ -52,6 +52,7 @@ impl Services {
                 if let Some(receipt) = receipt {
                     // TODO we send invoice paid twice without making sure we have the tx receipt. LEt's check the flow one more time
                     let event: StoreResult<PgmqMessageNew> = SendEmailRequest::InvoicePaid {
+                        tenant_id,
                         invoice_id: invoice.id,
                         invoice_number: invoice.invoice_number,
                         invoicing_entity_id: invoicing_entity.id,

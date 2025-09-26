@@ -28,6 +28,7 @@ pub async fn run_preset(
     organization_id: OrganizationId,
     user_id: Uuid,
     tenant_name: Option<String>,
+    disable_emails: Option<bool>,
 ) -> StoreResult<Tenant> {
     // TODO tenant archiving. Make sure all apis & more important, processors, do not run
 
@@ -38,6 +39,7 @@ pub async fn run_preset(
             store_domain::TenantNew {
                 name: tenant_name.unwrap_or(scenario.name),
                 environment: TenantEnvironmentEnum::Sandbox,
+                disable_emails,
             },
             organization_id,
         )

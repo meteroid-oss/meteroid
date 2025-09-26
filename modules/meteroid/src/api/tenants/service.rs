@@ -14,7 +14,6 @@ use meteroid_grpc::meteroid::api::tenants::v1::{
 use meteroid_middleware::server::auth::strategies::jwt_strategy::invalidate_resolve_slugs_cache;
 use meteroid_seeder::presets;
 use meteroid_store::domain::TenantEnvironmentEnum;
-use meteroid_store::repositories::tenants::invalidate_reporting_currency_cache;
 use meteroid_store::repositories::{OrganizationsInterface, TenantInterface};
 use tonic::{Request, Response, Status};
 
@@ -53,7 +52,6 @@ impl TenantsService for TenantServiceComponents {
             .map_err(Into::<TenantApiError>::into)?;
 
         invalidate_resolve_slugs_cache(&organization.slug, &res.slug).await;
-        invalidate_reporting_currency_cache(&tenant_id).await;
 
         Ok(Response::new(UpdateTenantResponse { tenant: Some(res) }))
     }
@@ -146,6 +144,7 @@ impl TenantsService for TenantServiceComponents {
                 organization_id,
                 actor,
                 Some(req.name),
+                req.disable_emails,
             )
             .await
             .map_err(Into::<TenantApiError>::into)?

@@ -8,6 +8,7 @@ message Tenant {
   string slug = 3;
   string reporting_currency = 4;
   TenantEnvironmentEnum environment = 5;
+  bool disable_emails = 6;
 }
 
 message TenantUpdate {
@@ -16,6 +17,7 @@ message TenantUpdate {
   optional string slug = 3;
   optional string reporting_currency = 4;
   optional TenantEnvironmentEnum environment = 5;
+  optional bool disable_emails = 6;
 }
 
 enum TenantEnvironmentEnum {

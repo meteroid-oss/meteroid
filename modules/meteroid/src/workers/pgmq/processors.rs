@@ -169,6 +169,7 @@ pub async fn run_email_sender(
         public_url,
         rest_api_url,
         jwt_secret,
+        store.clone(),
     ));
 
     run(ProcessorConfig {

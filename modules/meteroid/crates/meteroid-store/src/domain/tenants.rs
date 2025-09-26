@@ -20,6 +20,7 @@ pub struct Tenant {
     #[map(~.into())]
     pub environment: TenantEnvironmentEnum,
     pub available_currencies: Vec<Option<String>>,
+    pub disable_emails: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +41,7 @@ impl From<FullTenantNew> for TenantRowNew {
             id: TenantId::new(),
             available_currencies: vec![Some(val.reporting_currency)],
             environment: val.environment.into(),
+            disable_emails: false,
         }
     }
 }
@@ -48,6 +50,7 @@ impl From<FullTenantNew> for TenantRowNew {
 pub struct TenantNew {
     pub name: String,
     pub environment: TenantEnvironmentEnum,
+    pub disable_emails: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o)]
@@ -60,6 +63,7 @@ pub struct TenantUpdate {
     #[map(~.map(| x | x.into()))]
     pub environment: Option<TenantEnvironmentEnum>,
     pub reporting_currency: Option<String>,
+    pub disable_emails: Option<bool>,
 }
 
 #[derive(Clone, Debug, o2o)]
