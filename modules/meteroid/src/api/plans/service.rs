@@ -9,16 +9,17 @@ use common_domain::ids::{PlanId, PlanVersionId, ProductFamilyId};
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::plans::v1::get_plan_with_version_request::Filter;
 use meteroid_grpc::meteroid::api::plans::v1::{
-    CopyVersionToDraftRequest, CopyVersionToDraftResponse, CreateDraftPlanRequest,
-    CreateDraftPlanResponse, DiscardDraftVersionRequest, DiscardDraftVersionResponse,
-    GetPlanOverviewRequest, GetPlanOverviewResponse, GetPlanParametersRequest,
-    GetPlanParametersResponse, GetPlanWithVersionByVersionIdRequest,
+    ArchivePlanRequest, ArchivePlanResponse, CopyVersionToDraftRequest, CopyVersionToDraftResponse,
+    CreateDraftPlanRequest, CreateDraftPlanResponse, DiscardDraftVersionRequest,
+    DiscardDraftVersionResponse, GetPlanOverviewRequest, GetPlanOverviewResponse,
+    GetPlanParametersRequest, GetPlanParametersResponse, GetPlanWithVersionByVersionIdRequest,
     GetPlanWithVersionByVersionIdResponse, GetPlanWithVersionRequest, GetPlanWithVersionResponse,
     ListPlanVersionByIdRequest, ListPlanVersionByIdResponse, ListPlansRequest, ListPlansResponse,
-    PublishPlanVersionRequest, PublishPlanVersionResponse, UpdateDraftPlanOverviewRequest,
-    UpdateDraftPlanOverviewResponse, UpdatePlanTrialRequest, UpdatePlanTrialResponse,
-    UpdatePublishedPlanOverviewRequest, UpdatePublishedPlanOverviewResponse,
-    list_plans_request::SortBy, plans_service_server::PlansService,
+    PublishPlanVersionRequest, PublishPlanVersionResponse, UnarchivePlanRequest,
+    UnarchivePlanResponse, UpdateDraftPlanOverviewRequest, UpdateDraftPlanOverviewResponse,
+    UpdatePlanTrialRequest, UpdatePlanTrialResponse, UpdatePublishedPlanOverviewRequest,
+    UpdatePublishedPlanOverviewResponse, list_plans_request::SortBy,
+    plans_service_server::PlansService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::{
@@ -444,4 +445,40 @@ impl PlansService for PlanServiceComponents {
     //         parameters: plan_parameters,
     //     }))
     // }
+
+    #[tracing::instrument(skip_all)]
+    async fn archive_plan(
+        &self,
+        request: Request<ArchivePlanRequest>,
+    ) -> Result<Response<ArchivePlanResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_id = PlanId::from_proto(&req.id)?;
+
+        self.store
+            .archive_plan(plan_id, tenant_id)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(ArchivePlanResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn unarchive_plan(
+        &self,
+        request: Request<UnarchivePlanRequest>,
+    ) -> Result<Response<UnarchivePlanResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let plan_id = PlanId::from_proto(&req.id)?;
+
+        self.store
+            .unarchive_plan(plan_id, tenant_id)
+            .await
+            .map_err(Into::<PlanApiError>::into)?;
+
+        Ok(Response::new(UnarchivePlanResponse {}))
+    }
 }

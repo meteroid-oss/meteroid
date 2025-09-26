@@ -154,6 +154,20 @@ message GetPlanOverviewResponse {
   PlanOverview plan_overview = 1;
 }
 
+message ArchivePlanRequest {
+  string id = 1;
+}
+
+message ArchivePlanResponse {
+}
+
+message UnarchivePlanRequest {
+  string id = 1;
+}
+
+message UnarchivePlanResponse {
+}
+
 // Response message for all RPCs returning EmptyResponse
 message EmptyResponse {}
 
@@ -175,4 +189,6 @@ service PlansService {
   rpc DiscardDraftVersion(DiscardDraftVersionRequest) returns (DiscardDraftVersionResponse) {}
 
   rpc GetPlanParameters(GetPlanParametersRequest) returns (GetPlanParametersResponse) {}
+  rpc ArchivePlan(ArchivePlanRequest) returns (ArchivePlanResponse) {}
+  rpc UnarchivePlan(UnarchivePlanRequest) returns (UnarchivePlanResponse) {}
 }

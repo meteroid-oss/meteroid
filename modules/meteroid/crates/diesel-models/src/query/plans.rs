@@ -233,6 +233,63 @@ impl PlanRow {
             .attach_printable("Error while getting plan with version by local_id")
             .into_db_result()
     }
+
+    pub async fn archive(
+        conn: &mut PgConn,
+        param_plan_id: PlanId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use crate::schema::plan::dsl::*;
+        use chrono::Utc;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(plan)
+            .filter(id.eq(param_plan_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set((
+                status.eq(PlanStatusEnum::Archived),
+                archived_at.eq(Some(Utc::now().naive_utc())),
+                updated_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while archiving plan")
+            .into_db_result()?;
+
+        Ok(())
+    }
+
+    pub async fn unarchive(
+        conn: &mut PgConn,
+        param_plan_id: PlanId,
+        param_tenant_id: TenantId,
+    ) -> DbResult<()> {
+        use crate::schema::plan::dsl::*;
+        use diesel_async::RunQueryDsl;
+
+        let query = diesel::update(plan)
+            .filter(id.eq(param_plan_id))
+            .filter(tenant_id.eq(param_tenant_id))
+            .set((
+                status.eq(PlanStatusEnum::Active),
+                archived_at.eq::<Option<chrono::NaiveDateTime>>(None),
+                updated_at.eq(diesel::dsl::now),
+            ));
+
+        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
+
+        query
+            .execute(conn)
+            .await
+            .attach_printable("Error while unarchiving plan")
+            .into_db_result()?;
+
+        Ok(())
+    }
 }
 
 impl PlanRowOverview {

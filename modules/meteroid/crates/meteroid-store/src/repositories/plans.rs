@@ -103,6 +103,8 @@ pub trait PlansInterface {
     async fn patch_draft_plan(&self, patch: PlanAndVersionPatch) -> StoreResult<PlanWithVersion>;
 
     async fn patch_trial(&self, patch: TrialPatch) -> StoreResult<PlanWithVersion>;
+    async fn archive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()>;
+    async fn unarchive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -634,5 +636,21 @@ impl PlansInterface for Store {
             .await
             .map_err(Into::into)
             .map(Into::into)
+    }
+
+    async fn archive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        PlanRow::archive(&mut conn, id, auth_tenant_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn unarchive_plan(&self, id: PlanId, auth_tenant_id: TenantId) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        PlanRow::unarchive(&mut conn, id, auth_tenant_id)
+            .await
+            .map_err(Into::into)
     }
 }

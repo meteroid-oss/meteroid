@@ -11,11 +11,11 @@ import { Plan, PlanStatus, PlanType, PlanVersion } from '@/rpc/api/plans/v1/mode
 const getStatusBadge = (status: PlanStatus): JSX.Element | null => {
   switch (status) {
     case PlanStatus.ACTIVE:
-      return <Badge variant="default">Active</Badge>
+      return <Badge variant="success">Active</Badge>
     case PlanStatus.DRAFT:
       return <Badge variant="primary">Draft</Badge>
     case PlanStatus.ARCHIVED:
-      return <Badge variant="warning">Archived</Badge>
+      return <Badge variant="secondary">Archived</Badge>
     default:
       return null
   }
