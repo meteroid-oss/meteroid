@@ -23,6 +23,7 @@ message CreateBillableMetricResponse {
 message ListBillableMetricsRequest {
   optional string family_local_id = 1;
   meteroid.common.v1.Pagination pagination = 2;
+  optional bool archived = 3;
 }
 
 message ListBillableMetricsResponse {
@@ -38,8 +39,24 @@ message GetBillableMetricResponse {
   BillableMetric billable_metric = 1;
 }
 
+message ArchiveBillableMetricRequest {
+  string id = 1;
+}
+
+message ArchiveBillableMetricResponse {
+}
+
+message UnarchiveBillableMetricRequest {
+  string id = 1;
+}
+
+message UnarchiveBillableMetricResponse {
+}
+
 service BillableMetricsService {
   rpc CreateBillableMetric (CreateBillableMetricRequest) returns (CreateBillableMetricResponse) {}
   rpc ListBillableMetrics (ListBillableMetricsRequest) returns (ListBillableMetricsResponse) {}
   rpc GetBillableMetric (GetBillableMetricRequest) returns (GetBillableMetricResponse) {}
+  rpc ArchiveBillableMetric (ArchiveBillableMetricRequest) returns (ArchiveBillableMetricResponse) {}
+  rpc UnarchiveBillableMetric (UnarchiveBillableMetricRequest) returns (UnarchiveBillableMetricResponse) {}
 }

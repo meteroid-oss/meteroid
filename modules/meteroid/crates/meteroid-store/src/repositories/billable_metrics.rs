@@ -24,6 +24,7 @@ pub trait BillableMetricInterface {
         tenant_id: TenantId,
         pagination: PaginationRequest,
         product_family_id: Option<ProductFamilyId>,
+        archived: Option<bool>,
     ) -> StoreResult<PaginatedVec<domain::BillableMetricMeta>>;
 
     async fn insert_billable_metric(
@@ -36,6 +37,18 @@ pub trait BillableMetricInterface {
         tenant_id: TenantId,
         code: String,
     ) -> StoreResult<Vec<BillableMetric>>;
+
+    async fn archive_billable_metric(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
+
+    async fn unarchive_billable_metric(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()>;
 }
 
 #[async_trait::async_trait]
@@ -58,13 +71,19 @@ impl BillableMetricInterface for Store {
         tenant_id: TenantId,
         pagination: PaginationRequest,
         product_family_id: Option<ProductFamilyId>,
+        archived: Option<bool>,
     ) -> StoreResult<PaginatedVec<BillableMetricMeta>> {
         let mut conn = self.get_conn().await?;
 
-        let rows =
-            BillableMetricRow::list(&mut conn, tenant_id, pagination.into(), product_family_id)
-                .await
-                .map_err(Into::<Report<StoreError>>::into)?;
+        let rows = BillableMetricRow::list(
+            &mut conn,
+            tenant_id,
+            pagination.into(),
+            product_family_id,
+            archived,
+        )
+        .await
+        .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<BillableMetricMeta> = PaginatedVec {
             items: rows.items.into_iter().map(|s| s.into()).collect(),
@@ -165,5 +184,29 @@ impl BillableMetricInterface for Store {
             .into_iter()
             .map(TryInto::try_into)
             .collect()
+    }
+
+    async fn archive_billable_metric(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::archive(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn unarchive_billable_metric(
+        &self,
+        id: BillableMetricId,
+        tenant_id: TenantId,
+    ) -> StoreResult<()> {
+        let mut conn = self.get_conn().await?;
+
+        BillableMetricRow::unarchive(&mut conn, id, tenant_id)
+            .await
+            .map_err(Into::into)
     }
 }

@@ -15,6 +15,7 @@ import { PlanOnboardingComponent } from '@/pages/tenants/billing/plans/onboardin
 import { CatalogOutlet } from '@/pages/tenants/catalog'
 import { CreateBillableMetric } from '@/pages/tenants/catalog/createBillableMetric'
 import { Products } from '@/pages/tenants/catalog/productItems'
+import { ProductMetricDetail } from '@/pages/tenants/catalog/productMetricDetail'
 import { ProductMetrics } from '@/pages/tenants/catalog/productMetrics'
 
 export const productCatalogRoutes: RouteObject = {
@@ -39,6 +40,10 @@ export const productCatalogRoutes: RouteObject = {
               element: <CreateBillableMetric />,
             },
           ],
+        },
+        {
+          path: 'metrics/:metricId',
+          element: <ProductMetricDetail />,
         },
         {
           path: 'plans',

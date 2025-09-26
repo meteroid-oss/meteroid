@@ -1,9 +1,9 @@
 import {
   Badge,
+  FormDescription,
+  InputFormField,
   SelectFormField,
   SelectItem,
-  InputFormField,
-  FormDescription,
   Separator,
 } from '@md/ui'
 import { useWatch } from 'react-hook-form'
@@ -18,8 +18,15 @@ interface Props {
 export const AggregationSection = ({ methods }: Props) => {
   return (
     <>
-      <section>
-        <div className="space-y-6 py-6">
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">Aggregation</h3>
+          <p className="text-xs text-muted-foreground">
+            Define how usage events should be aggregated for billing
+          </p>
+        </div>
+
+        <div className="space-y-4 pl-4 border-l-2 border-muted">
           <SelectFormField
             name="aggregation.aggregationType"
             label="Aggregation type"
@@ -51,7 +58,7 @@ export const AggregationSection = ({ methods }: Props) => {
           </SelectFormField>
           <AggregationData methods={methods} />
         </div>
-      </section>
+      </div>
     </>
   )
 }

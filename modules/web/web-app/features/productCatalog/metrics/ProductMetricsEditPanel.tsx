@@ -18,13 +18,12 @@ import {
 } from '@md/ui'
 import { D, pipe } from '@mobily/ts-belt'
 import { useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { AccordionPanel } from '@/components/AccordionPanel'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
-import { SegmentationMatrixContent } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
+import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
@@ -43,10 +42,15 @@ import { useConfirmationModal } from 'providers/ConfirmationProvider'
 
 export const ProductMetricsEditPanel = () => {
   const queryClient = useQueryClient()
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const createBillableMetricMut = useMutation(createBillableMetric, {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [listBillableMetrics.service.typeName] })
+      toast.success('Metric created successfully')
+    },
+    onError: error => {
+      toast.error('Failed to create metric: ' + error.message)
     },
   })
 
@@ -56,7 +60,6 @@ export const ProductMetricsEditPanel = () => {
   )
 
   const navigate = useNavigate()
-
   const showConfirmation = useConfirmationModal()
 
   const methods = useZodForm({
@@ -74,10 +77,6 @@ export const ProductMetricsEditPanel = () => {
     },
     mode: 'all',
   })
-
-  useEffect(() => {
-    console.log('errors', JSON.stringify(methods.formState.errors))
-  }, [methods.formState.errors])
 
   const safeClosePanel = () => {
     methods.trigger()
@@ -113,58 +112,64 @@ export const ProductMetricsEditPanel = () => {
 
   const submit = useCallback(
     async (input: CreateBillableMetricFormData) => {
-      const res = await createBillableMetricMut.mutateAsync({
-        name: input.metricName,
-        code: input.eventCode,
-        description: input.metricDescription,
-        aggregation: {
-          aggregationType: Aggregation_AggregationType[input.aggregation.aggregationType],
-          aggregationKey: input.aggregation.aggregationKey,
-          unitConversion: input.aggregation.unitConversion && {
-            factor: input.aggregation.unitConversion.factor,
-            rounding:
-              Aggregation_UnitConversion_UnitConversionRounding[
-                input.aggregation.unitConversion.rounding
-              ],
+      setIsSubmitting(true)
+      try {
+        await createBillableMetricMut.mutateAsync({
+          name: input.metricName,
+          code: input.eventCode,
+          description: input.metricDescription,
+          aggregation: {
+            aggregationType: Aggregation_AggregationType[input.aggregation.aggregationType],
+            aggregationKey: input.aggregation.aggregationKey,
+            unitConversion: input.aggregation.unitConversion && {
+              factor: input.aggregation.unitConversion.factor,
+              rounding:
+                Aggregation_UnitConversion_UnitConversionRounding[
+                  input.aggregation.unitConversion.rounding
+                ],
+            },
           },
-        },
-        segmentationMatrix: {
-          matrix:
-            input.segmentationMatrix &&
-            (input.segmentationMatrix.single
-              ? {
-                  case: 'single',
-                  value: {
-                    dimension: input.segmentationMatrix.single,
-                  },
-                }
-              : input.segmentationMatrix.double
+          segmentationMatrix: {
+            matrix:
+              input.segmentationMatrix &&
+              (input.segmentationMatrix.single
                 ? {
-                    case: 'double',
-                    value: input.segmentationMatrix.double,
+                    case: 'single',
+                    value: {
+                      dimension: input.segmentationMatrix.single,
+                    },
                   }
-                : input.segmentationMatrix.linked
+                : input.segmentationMatrix.double
                   ? {
-                      case: 'linked',
-                      value: {
-                        ...input.segmentationMatrix.linked,
-                        values: pipe(
-                          input.segmentationMatrix.linked.values,
-                          D.map(values => ({ values }))
-                        ),
-                      },
+                      case: 'double',
+                      value: input.segmentationMatrix.double,
                     }
-                  : undefined),
-        },
-        usageGroupKey: input.usageGroupKey ?? undefined,
-        familyLocalId: input.productFamilyId,
-      })
+                  : input.segmentationMatrix.linked
+                    ? {
+                        case: 'linked',
+                        value: {
+                          ...input.segmentationMatrix.linked,
+                          values: pipe(
+                            input.segmentationMatrix.linked.values,
+                            D.map(values => ({ values }))
+                          ),
+                        },
+                      }
+                    : undefined),
+          },
+          usageGroupKey: input.usageGroupKey ?? undefined,
+          familyLocalId: input.productFamilyId,
+        })
 
-      res.billableMetric?.id && toast.success('Metric created')
-      methods.reset()
-      navigate('..')
+        methods.reset()
+        navigate('..')
+      } catch (error) {
+        console.error('Failed to create metric:', error)
+      } finally {
+        setIsSubmitting(false)
+      }
     },
-    [methods, navigate]
+    [createBillableMetricMut, methods, navigate]
   )
 
   useEffect(() => {
@@ -185,133 +190,88 @@ export const ProductMetricsEditPanel = () => {
                 </SheetDescription>
               </SheetHeader>
               <ScrollArea className="flex grow pr-2 -mr-4">
-                <div className="px-2 relative">
-                  <section className="mb-2 space-y-6 ">
-                    <InputFormField
-                      name="metricName"
-                      label="Metric name"
-                      control={methods.control}
-                      placeholder="Compute (CPU-seconds)"
-                      className="max-w-sm"
-                    />
-
-                    {families.length > 1 ? (
-                      <SelectFormField
-                        name="productFamilyId"
-                        label="Product line"
-                        layout="vertical"
-                        placeholder="Select a product line"
-                        className="max-w-sm"
-                        empty={families.length === 0}
-                        control={methods.control}
-                      >
-                        {families.map(f => (
-                          <SelectItem value={f.localId} key={f.localId}>
-                            {f.name}
-                          </SelectItem>
-                        ))}
-                      </SelectFormField>
-                    ) : (
-                      <InputFormField
-                        hidden
-                        className="hidden"
-                        value={families[0]?.localId}
-                        control={methods.control}
-                        name="productFamilyId"
-                      />
-                    )}
-
-                    <div className="space-y-2">
-                      <InputFormField
-                        name="eventCode"
-                        label="Event Code"
-                        control={methods.control}
-                        placeholder="compute_usage"
-                        className="max-w-sm"
-                      />
-                      <FormDescription>
-                        Qualifies an event stream, ex: page_views.
-                        <br />A single usage event can be processed by multiple metrics !
-                      </FormDescription>
+                <div className="px-2 relative space-y-6">
+                  {/* Basic Information */}
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <h3 className="text-sm font-medium">Basic Information</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Define the core properties of your billable metric
+                      </p>
                     </div>
-                    <TextareaFormField
-                      name="metricDescription"
-                      label="Description"
-                      className="max-w-sm "
-                      control={methods.control}
-                      placeholder="Serverless compute usage for ..."
-                    />
-                  </section>
-                  <Separator />
+
+                    <div className="space-y-4 pl-4 border-l-2 border-muted">
+                      <InputFormField
+                        name="metricName"
+                        label="Metric name"
+                        control={methods.control}
+                        placeholder="Compute (CPU-seconds)"
+                        className="max-w-sm"
+                      />
+
+                      {families.length > 1 ? (
+                        <SelectFormField
+                          name="productFamilyId"
+                          label="Product line"
+                          layout="vertical"
+                          placeholder="Select a product line"
+                          className="max-w-sm"
+                          empty={families.length === 0}
+                          control={methods.control}
+                        >
+                          {families.map(f => (
+                            <SelectItem value={f.localId} key={f.localId}>
+                              {f.name}
+                            </SelectItem>
+                          ))}
+                        </SelectFormField>
+                      ) : (
+                        <InputFormField
+                          hidden
+                          className="hidden"
+                          value={families[0]?.localId}
+                          control={methods.control}
+                          name="productFamilyId"
+                        />
+                      )}
+
+                      <div className="space-y-2">
+                        <InputFormField
+                          name="eventCode"
+                          label="Event Code"
+                          control={methods.control}
+                          placeholder="compute_usage"
+                          className="max-w-sm"
+                        />
+                        <FormDescription>
+                          Qualifies an event stream, ex: page_views.
+                          <br />A single usage event can be processed by multiple metrics !
+                        </FormDescription>
+                      </div>
+                      <TextareaFormField
+                        name="metricDescription"
+                        label="Description"
+                        className="max-w-sm"
+                        control={methods.control}
+                        placeholder="Serverless compute usage for ..."
+                      />
+                    </div>
+                  </div>
+
+                  {/* Configuration Sections */}
                   <AggregationSection methods={methods} />
-                  <Separator />
                   <UnitConversionSection methods={methods} />
                   <Separator />
-
-                  <AccordionPanel
-                    title={
-                      <div className="space-x-4 items-center flex pr-4">
-                        <h3>Segmentation</h3>
-                        <span className="text-xs text-muted-foreground">optional</span>
-                      </div>
-                    }
-                    defaultOpen={false}
-                  >
-                    <div className="space-y-8">
-                      <FormDescription>
-                        <p>
-                          Control how usage data is organized and aggregated for pricing and analytics.
-                        </p>
-                      </FormDescription>
-
-                      {/* Matrix Segmentation */}
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="text-sm font-medium">Matrix</h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Define different pricing based on one or two dimensions with fixed values.
-                            <br />
-                            For example, different pricing per cloud provider and region.
-                          </p>
-                        </div>
-                        <div className="pl-4 border-l-2 border-border">
-                          <SegmentationMatrixContent methods={methods} />
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      {/* Group Key */}
-                      <div className="space-y-4">
-                        <div>
-                          <h4 className="text-sm font-medium">Group Key</h4>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            Group usage data by a dynamic dimension for detailed analytics.
-                            <br />
-                            For example, separate usage by cluster, tenant, or workspace.
-                          </p>
-                          <p className="text-xs text-muted-foreground font-medium mt-2">
-                            This does not impact pricing, only data organization.
-                          </p>
-                        </div>
-                        <div className="pl-4 border-l-2 border-border">
-                          <InputFormField
-                            name="usageGroupKey"
-                            label="Group key"
-                            control={methods.control}
-                            placeholder="cluster_id"
-                            className="max-w-xs"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </AccordionPanel>
+                  <SegmentationMatrixSection methods={methods} />
                 </div>
               </ScrollArea>
               <Separator />
-              <SheetFooter className="pt-3">
-                <Button disabled={!methods.formState.isValid} type="submit">
-                  Create
+              <SheetFooter className="pt-3 space-x-3">
+                <Button variant="outline" onClick={safeClosePanel} disabled={isSubmitting}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!methods.formState.isValid || isSubmitting}>
+                  {isSubmitting ? 'Creating...' : 'Create Metric'}
                 </Button>
               </SheetFooter>
             </form>

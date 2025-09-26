@@ -7,9 +7,11 @@ use common_domain::ids::{BillableMetricId, ProductFamilyId, ProductId};
 use common_grpc::middleware::server::auth::RequestExt;
 use error_stack::Report;
 use meteroid_grpc::meteroid::api::billablemetrics::v1::{
-    BillableMetricMeta, CreateBillableMetricRequest, CreateBillableMetricResponse,
-    GetBillableMetricRequest, GetBillableMetricResponse, ListBillableMetricsRequest,
-    ListBillableMetricsResponse, billable_metrics_service_server::BillableMetricsService,
+    ArchiveBillableMetricRequest, ArchiveBillableMetricResponse, BillableMetricMeta,
+    CreateBillableMetricRequest, CreateBillableMetricResponse, GetBillableMetricRequest,
+    GetBillableMetricResponse, ListBillableMetricsRequest, ListBillableMetricsResponse,
+    UnarchiveBillableMetricRequest, UnarchiveBillableMetricResponse,
+    billable_metrics_service_server::BillableMetricsService,
 };
 use meteroid_store::domain;
 use meteroid_store::domain::BillableMetric;
@@ -93,6 +95,7 @@ impl BillableMetricsService for BillableMetricsComponents {
                 tenant_id,
                 pagination_req,
                 ProductFamilyId::from_proto_opt(inner.family_local_id)?,
+                inner.archived,
             )
             .await
             .map_err(Into::<crate::api::customers::error::CustomerApiError>::into)?;
@@ -135,5 +138,41 @@ impl BillableMetricsService for BillableMetricsComponents {
         Ok(Response::new(GetBillableMetricResponse {
             billable_metric: Some(billable_metric),
         }))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn archive_billable_metric(
+        &self,
+        request: Request<ArchiveBillableMetricRequest>,
+    ) -> Result<Response<ArchiveBillableMetricResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let billable_metric_id = BillableMetricId::from_proto(&req.id)?;
+
+        self.store
+            .archive_billable_metric(billable_metric_id, tenant_id)
+            .await
+            .map_err(Into::<BillableMetricApiError>::into)?;
+
+        Ok(Response::new(ArchiveBillableMetricResponse {}))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn unarchive_billable_metric(
+        &self,
+        request: Request<UnarchiveBillableMetricRequest>,
+    ) -> Result<Response<UnarchiveBillableMetricResponse>, Status> {
+        let tenant_id = request.tenant()?;
+        let req = request.into_inner();
+
+        let billable_metric_id = BillableMetricId::from_proto(&req.id)?;
+
+        self.store
+            .unarchive_billable_metric(billable_metric_id, tenant_id)
+            .await
+            .map_err(Into::<BillableMetricApiError>::into)?;
+
+        Ok(Response::new(UnarchiveBillableMetricResponse {}))
     }
 }

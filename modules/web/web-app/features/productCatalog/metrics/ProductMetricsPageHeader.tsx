@@ -1,6 +1,14 @@
 import { spaces } from '@md/foundation'
 import { PlusIcon, SearchIcon } from '@md/icons'
-import { Button, InputWithIcon } from '@md/ui'
+import {
+  Button,
+  InputWithIcon,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@md/ui'
 import { Flex } from '@ui/components/legacy'
 import { RefreshCwIcon } from 'lucide-react'
 import { FunctionComponent } from 'react'
@@ -11,17 +19,23 @@ interface MetricsHeaderProps {
   isLoading: boolean
   refetch: () => void
   setEditPanelVisible: (visible: boolean) => void
+  statusFilter: 'all' | 'active' | 'archived'
+  onStatusFilterChange: (status: 'all' | 'active' | 'archived') => void
+  totalCount: number
 }
 
 export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = ({
   isLoading,
   refetch,
   setEditPanelVisible,
+  statusFilter,
+  onStatusFilterChange,
+  totalCount,
 }) => {
   return (
     <Flex direction="column" gap={spaces.space9}>
       <Flex direction="row" align="center" justify="space-between">
-        <PageHeading>Metrics</PageHeading>
+        <PageHeading count={totalCount}>Metrics</PageHeading>
         <Flex direction="row" gap={spaces.space4}>
           <Button variant="primary" hasIcon onClick={() => setEditPanelVisible(true)} size="sm">
             <PlusIcon size={10} /> New metric
@@ -34,6 +48,15 @@ export const ProductMetricsPageHeader: FunctionComponent<MetricsHeaderProps> = (
           icon={<SearchIcon size={16} />}
           width="fit-content"
         />
+        <Select value={statusFilter} onValueChange={onStatusFilterChange}>
+          <SelectTrigger className="w-[140px]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="archived">Archived</SelectItem>
+          </SelectContent>
+        </Select>
         <Button variant="secondary" disabled={isLoading} onClick={refetch}>
           <RefreshCwIcon size={14} className={isLoading ? 'animate-spin' : ''} />
         </Button>
