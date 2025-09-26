@@ -37,6 +37,7 @@ async fn test_main() {
         .create_tenant(tonic::Request::new(api::tenants::v1::CreateTenantRequest {
             name: "Test - usage".to_string(),
             environment: 0,
+            disable_emails: None,
         }))
         .await
         .unwrap()

@@ -33,6 +33,7 @@ async fn test_tenants_basic() {
         .create_tenant(api::tenants::v1::CreateTenantRequest {
             name: tenant_name.to_string(),
             environment: 0,
+            disable_emails: None,
         })
         .await
         .unwrap()
