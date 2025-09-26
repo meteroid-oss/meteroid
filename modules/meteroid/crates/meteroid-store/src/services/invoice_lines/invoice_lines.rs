@@ -40,7 +40,31 @@ impl Services {
         invoice_date: &NaiveDate,
         subscription_details: &SubscriptionDetails,
         prepaid_amount: Option<u64>,
+        invoice: Option<&Invoice>, // for refresh purposes
     ) -> StoreResult<ComputedInvoiceContent> {
+        let is_usage_based_line = |line: &LineItem| {
+            line.metric_id.is_some()
+                && (line.sub_component_id.is_some() || line.sub_add_on_id.is_some())
+        };
+
+        // do not recompute if invoice has no usage-based lines
+        if let Some(invoice) = invoice
+            && !invoice.line_items.iter().any(is_usage_based_line)
+        {
+            return Ok(ComputedInvoiceContent {
+                invoice_lines: invoice.line_items.clone(),
+                subtotal: invoice.subtotal,
+                applied_coupons: invoice.coupons.clone(),
+                discount: invoice.discount,
+                tax_breakdown: invoice.tax_breakdown.clone(),
+                applied_credits: invoice.applied_credits,
+                total: invoice.total,
+                amount_due: invoice.amount_due,
+                subtotal_recurring: invoice.subtotal_recurring,
+                tax_amount: invoice.tax_amount,
+            });
+        }
+
         let billing_start_date = subscription_details
             .subscription
             .billing_start_date
@@ -86,6 +110,34 @@ impl Services {
             .into_iter()
             .chain(add_ons_lines)
             .collect_vec();
+
+        // refresh only usage-based line items if invoice is set
+        let invoice_lines = if let Some(invoice) = invoice {
+            invoice
+                .line_items
+                .iter()
+                .map(|invoice_line| {
+                    if is_usage_based_line(invoice_line)
+                        && let Some(computed_line) = invoice_lines.iter().find(|line| {
+                            line.metric_id == invoice_line.metric_id
+                                && (line.sub_component_id == invoice_line.sub_component_id
+                                    || line.sub_add_on_id == invoice_line.sub_add_on_id)
+                        })
+                    {
+                        return LineItem {
+                            amount_subtotal: computed_line.amount_subtotal,
+                            quantity: computed_line.quantity,
+                            unit_price: computed_line.unit_price,
+                            sub_lines: computed_line.sub_lines.clone(),
+                            ..invoice_line.clone()
+                        };
+                    }
+                    invoice_line.clone()
+                })
+                .collect()
+        } else {
+            invoice_lines
+        };
 
         let subtotal = invoice_lines
             .iter()

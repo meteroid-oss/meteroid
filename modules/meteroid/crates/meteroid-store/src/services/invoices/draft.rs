@@ -25,7 +25,7 @@ impl Services {
 
         // Compute invoice lines for the period
         let invoice_content = self
-            .compute_invoice(conn, &invoice_date, subscription_details, None)
+            .compute_invoice(conn, &invoice_date, subscription_details, None, None)
             .await
             .change_context(StoreError::InvoiceComputationError)?;
 
