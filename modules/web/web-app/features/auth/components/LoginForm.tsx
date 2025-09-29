@@ -25,7 +25,10 @@ export const LoginForm = () => {
   const loginMutation = useMutation(login, {
     onSuccess: data => {
       setSession(data)
-      navigate('/')
+      // Small delay to ensure session is persisted before navigation
+      setTimeout(() => {
+        navigate('/')
+      }, 50)
     },
   })
 

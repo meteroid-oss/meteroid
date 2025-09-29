@@ -485,6 +485,7 @@ diesel::table! {
         manual -> Bool,
         voided_at -> Nullable<Timestamp>,
         marked_as_uncollectible_at -> Nullable<Timestamp>,
+        invoicing_entity_id -> Uuid,
     }
 }
 
@@ -997,6 +998,7 @@ diesel::joinable!(customer_connection -> customer (customer_id));
 diesel::joinable!(customer_payment_method -> customer_connection (connection_id));
 diesel::joinable!(customer_payment_method -> tenant (tenant_id));
 diesel::joinable!(invoice -> customer (customer_id));
+diesel::joinable!(invoice -> invoicing_entity (invoicing_entity_id));
 diesel::joinable!(invoice -> plan_version (plan_version_id));
 diesel::joinable!(invoice -> tenant (tenant_id));
 diesel::joinable!(invoicing_entity -> bank_account (bank_account_id));

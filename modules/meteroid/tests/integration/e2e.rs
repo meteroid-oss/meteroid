@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::data::ids::INVOICING_ENTITY_ID;
 use crate::metering_it;
 use crate::{helpers, meteroid_it};
 use chrono::{Datelike, Days, Months};
@@ -541,6 +542,7 @@ async fn test_metering_e2e() {
             payment_status: InvoicePaymentStatus::Unpaid,
             tax_breakdown: vec![],
             manual: false,
+            invoicing_entity_id: INVOICING_ENTITY_ID,
         })
         .await
         .unwrap();

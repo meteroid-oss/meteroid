@@ -544,6 +544,7 @@ async fn to_domain_invoice_new(
         payment_status: meteroid_store::domain::InvoicePaymentStatus::Unpaid,
         tax_breakdown,
         manual: true,
+        invoicing_entity_id: invoicing_entity.id,
     };
     Ok((invoice_new, invoicing_entity))
 }
