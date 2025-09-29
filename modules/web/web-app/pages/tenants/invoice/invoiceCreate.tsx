@@ -20,37 +20,38 @@ import {
   Form,
   GenericFormField,
   Input,
-  Select, SelectContent, SelectItem,
-  SelectTrigger, SelectValue
-} from "@ui/components";
-import { Edit, XIcon } from "lucide-react";
-import { useEffect, useRef, useState, useCallback } from "react";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@ui/components'
+import { Edit, XIcon } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useFieldArray } from 'react-hook-form'
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import PageHeading from "@/components/PageHeading/PageHeading";
-import { UncontrolledPriceInput } from "@/components/form/PriceInput";
-import { CustomerSelect } from "@/features/customers/CustomerSelect";
-import { DatePickerWithRange } from "@/features/dashboard/DateRangePicker";
-import { useBasePath } from "@/hooks/useBasePath";
-import { useZodForm } from "@/hooks/useZodForm";
-import { useQuery } from "@/lib/connectrpc";
-import { mapDatev2 } from "@/lib/mapping";
-import { schemas } from "@/lib/schemas";
-import { InvoiceLineSchema } from "@/lib/schemas/invoices";
-import { getCustomerById } from "@/rpc/api/customers/v1/customers-CustomersService_connectquery";
+import PageHeading from '@/components/PageHeading/PageHeading'
+import { UncontrolledPriceInput } from '@/components/form/PriceInput'
+import { CustomerSelect } from '@/features/customers/CustomerSelect'
+import { DatePickerWithRange } from '@/features/dashboard/DateRangePicker'
+import { useBasePath } from '@/hooks/useBasePath'
+import { useZodForm } from '@/hooks/useZodForm'
+import { useQuery } from '@/lib/connectrpc'
+import { mapDatev2 } from '@/lib/mapping'
+import { schemas } from '@/lib/schemas'
+import { InvoiceLineSchema } from '@/lib/schemas/invoices'
+import { resizeSvgContent } from '@/pages/tenants/invoice'
+import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
 import {
   createInvoice,
   listInvoices,
-  previewNewInvoiceHtml
-} from "@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery";
-import {
-  getInvoicingEntity
-} from "@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery";
-import { listTenantCurrencies } from "@/rpc/api/tenants/v1/tenants-TenantsService_connectquery";
-
+  previewNewInvoiceSvg,
+} from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
+import { getInvoicingEntity } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { listTenantCurrencies } from '@/rpc/api/tenants/v1/tenants-TenantsService_connectquery'
 
 const formatCurrency = (amount: number, currency: string) => {
   return new Intl.NumberFormat('en-US', {
@@ -60,7 +61,6 @@ const formatCurrency = (amount: number, currency: string) => {
     maximumFractionDigits: 2,
   }).format(amount)
 }
-
 
 const AddLineItemModal = ({
   isOpen,
@@ -81,9 +81,9 @@ const AddLineItemModal = ({
       product: '',
       startDate,
       endDate,
-      quantity: 1.00,
-      unitPrice: 1.00,
-      taxRate: 20.00,
+      quantity: 1.0,
+      unitPrice: 1.0,
+      taxRate: 20.0,
     }
   })
 
@@ -99,9 +99,9 @@ const AddLineItemModal = ({
         product: '',
         startDate,
         endDate,
-        quantity: 1.00,
-        unitPrice: 1.00,
-        taxRate: 20.00,
+        quantity: 1.0,
+        unitPrice: 1.0,
+        taxRate: 20.0,
       })
     }
   }
@@ -134,7 +134,7 @@ const AddLineItemModal = ({
             <Input
               placeholder="Product name"
               value={formData.product}
-              onChange={(e) => setFormData(prev => ({ ...prev, product: e.target.value }))}
+              onChange={e => setFormData(prev => ({ ...prev, product: e.target.value }))}
               autoComplete="off"
             />
           </div>
@@ -142,7 +142,7 @@ const AddLineItemModal = ({
             <label className="text-sm font-medium mb-2 block">Date Range</label>
             <DatePickerWithRange
               range={{ from: formData.startDate, to: formData.endDate }}
-              setRange={(range) => handleDateRangeChange(range)}
+              setRange={range => handleDateRangeChange(range)}
             />
           </div>
           <div>
@@ -152,7 +152,9 @@ const AddLineItemModal = ({
               step="0.01"
               min="0.01"
               value={formData.quantity}
-              onChange={(e) => setFormData(prev => ({ ...prev, quantity: Number(e.target.value) || 0.0 }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, quantity: Number(e.target.value) || 0.0 }))
+              }
               autoComplete="off"
             />
           </div>
@@ -163,7 +165,9 @@ const AddLineItemModal = ({
               showCurrency={false}
               precision={2}
               value={formData.unitPrice}
-              onChange={(e) => setFormData(prev => ({ ...prev, unitPrice: Number(e.target.value) || 0.0 }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, unitPrice: Number(e.target.value) || 0.0 }))
+              }
               autoComplete="off"
             />
           </div>
@@ -175,7 +179,9 @@ const AddLineItemModal = ({
               min="0"
               max="100"
               value={formData.taxRate}
-              onChange={(e) => setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) || 0 }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) || 0 }))
+              }
               autoComplete="off"
             />
           </div>
@@ -253,7 +259,7 @@ const EditLineItemModal = ({
             <Input
               placeholder="Product name"
               value={formData.product}
-              onChange={(e) => setFormData(prev => ({ ...prev, product: e.target.value }))}
+              onChange={e => setFormData(prev => ({ ...prev, product: e.target.value }))}
               autoComplete="off"
             />
           </div>
@@ -261,7 +267,7 @@ const EditLineItemModal = ({
             <label className="text-sm font-medium mb-2 block">Date Range</label>
             <DatePickerWithRange
               range={{ from: formData.startDate, to: formData.endDate }}
-              setRange={(range) => handleDateRangeChange(range)}
+              setRange={range => handleDateRangeChange(range)}
             />
           </div>
           <div>
@@ -271,7 +277,9 @@ const EditLineItemModal = ({
               step="0.01"
               min="0.01"
               value={formData.quantity}
-              onChange={(e) => setFormData(prev => ({ ...prev, quantity: Number(e.target.value) || 0.0 }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, quantity: Number(e.target.value) || 0.0 }))
+              }
               autoComplete="off"
             />
           </div>
@@ -282,7 +290,9 @@ const EditLineItemModal = ({
               showCurrency={false}
               precision={2}
               value={formData.unitPrice}
-              onChange={(e) => setFormData(prev => ({ ...prev, unitPrice: Number(e.target.value) || 0.0 }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, unitPrice: Number(e.target.value) || 0.0 }))
+              }
               autoComplete="off"
             />
           </div>
@@ -294,7 +304,9 @@ const EditLineItemModal = ({
               min="0"
               max="100"
               value={formData.taxRate}
-              onChange={(e) => setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) || 0 }))}
+              onChange={e =>
+                setFormData(prev => ({ ...prev, taxRate: Number(e.target.value) || 0 }))
+              }
               autoComplete="off"
             />
           </div>
@@ -361,7 +373,7 @@ const InvoiceLineItemDisplay = ({
               onClick={() => onEdit(index)}
               className="h-6 w-6 p-0"
             >
-              <Edit size={14}/>
+              <Edit size={14} />
             </Button>
             <Button
               type="button"
@@ -370,7 +382,7 @@ const InvoiceLineItemDisplay = ({
               onClick={() => onRemove(index)}
               className="h-6 w-6 p-0"
             >
-              <XIcon size={14}/>
+              <XIcon size={14} />
             </Button>
           </div>
         </div>
@@ -394,21 +406,27 @@ const InvoiceLineTable = ({
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
 
-  const addInvoiceLine = useCallback((item: InvoiceLineSchema) => {
-    append(item)
-  }, [append])
+  const addInvoiceLine = useCallback(
+    (item: InvoiceLineSchema) => {
+      append(item)
+    },
+    [append]
+  )
 
   const editInvoiceLine = useCallback((index: number) => {
     setEditingIndex(index)
     setIsEditModalOpen(true)
   }, [])
 
-  const saveEditedLine = useCallback((item: InvoiceLineSchema) => {
-    if (editingIndex !== null) {
-      update(editingIndex, item)
-      setEditingIndex(null)
-    }
-  }, [editingIndex, update])
+  const saveEditedLine = useCallback(
+    (item: InvoiceLineSchema) => {
+      if (editingIndex !== null) {
+        update(editingIndex, item)
+        setEditingIndex(null)
+      }
+    },
+    [editingIndex, update]
+  )
 
   return (
     <>
@@ -425,12 +443,7 @@ const InvoiceLineTable = ({
         ))}
       </div>
 
-      <Button
-        type="button"
-        variant="link"
-        onClick={() => setIsModalOpen(true)}
-        className="mt-2"
-      >
+      <Button type="button" variant="link" onClick={() => setIsModalOpen(true)} className="mt-2">
         + Add Line
       </Button>
 
@@ -470,12 +483,12 @@ const CreateInvoicePreview = ({
   const watchedDiscount = methods.watch('discount')
   const watchedPurchaseOrder = methods.watch('purchaseOrder')
 
-  const [previewHtml, setPreviewHtml] = useState<string>('')
-  const previewInvoiceMutation = useMutation(previewNewInvoiceHtml)
+  const [previewSvgs, setPreviewSvgs] = useState<string[]>([])
+  const previewInvoiceMutation = useMutation(previewNewInvoiceSvg)
 
   const generatePreview = useCallback(async () => {
     if (!watchedCustomerId || !watchedCurrency || !watchedInvoiceDate || !watchedLines?.length) {
-      setPreviewHtml('')
+      setPreviewSvgs([])
       return
     }
 
@@ -495,14 +508,34 @@ const CreateInvoicePreview = ({
             quantity: line.quantity.toString(),
             unitPrice: line.unitPrice.toString(),
             taxRate: ((line.taxRate || 0) / 100).toString(),
-          }))
+          })),
         },
       })
-      setPreviewHtml(response.html || '')
+
+      const svgContents =
+        response.svgs.map(svg => {
+          const scaledHtml = svg ? resizeSvgContent(svg, 1) : ''
+
+          // Extract just the SVG from the HTML
+          const parser = new DOMParser()
+          const doc = parser.parseFromString(scaledHtml, 'text/html')
+          const svgElement = doc.querySelector('svg')
+          return svgElement?.outerHTML || ''
+        }) ?? []
+
+      setPreviewSvgs(svgContents || [])
     } catch (error) {
-      setPreviewHtml('')
+      setPreviewSvgs([])
     }
-  }, [watchedCustomerId, watchedLines, watchedDiscount, watchedCurrency, watchedInvoiceDate, watchedDueDate, watchedPurchaseOrder])
+  }, [
+    watchedCustomerId,
+    watchedLines,
+    watchedDiscount,
+    watchedCurrency,
+    watchedInvoiceDate,
+    watchedDueDate,
+    watchedPurchaseOrder,
+  ])
 
   useEffect(() => {
     const timeoutId = setTimeout(generatePreview, 500)
@@ -511,11 +544,12 @@ const CreateInvoicePreview = ({
 
   if (!watchedCustomerId || !watchedCurrency || !watchedInvoiceDate || !watchedLines?.length) {
     return (
-      <div
-        className="h-full flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+      <div className="h-full flex items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
         <div className="text-center">
           <div className="text-lg font-medium text-gray-500 mb-2">Invoice Preview</div>
-          <div className="text-sm text-gray-400">Fill in the form on the left to preview the invoice</div>
+          <div className="text-sm text-gray-400">
+            Fill in the form on the left to preview the invoice
+          </div>
         </div>
       </div>
     )
@@ -532,16 +566,19 @@ const CreateInvoicePreview = ({
   return (
     <div className="w-full h-full flex flex-col">
       <div
-        className="flex-1 flex justify-center items-start bg-gray-100 p-4 rounded-lg overflow-auto"
+        className="flex flex-col items-center justify-center gap-5 bg-gray-100 py-10 relative"
         style={{ minHeight: 'fit-content' }}
       >
-        <div
-          className="bg-white transform scale-75 origin-top"
-          style={{
-            boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',
-          }}
-          dangerouslySetInnerHTML={{ __html: previewHtml }}
-        />
+        {previewSvgs.map((svgContent, i) => (
+          <div
+            className="  bg-white"
+            key={`svg-${i}`}
+            style={{
+              boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',
+            }}
+            dangerouslySetInnerHTML={{ __html: svgContent }}
+          />
+        ))}
       </div>
     </div>
   )
@@ -563,7 +600,9 @@ export const InvoiceCreate = () => {
     invoiceDate: new Date(),
     lines: [],
     discount: 0,
-    ...(customerIdFromQuery && customerIdFromQuery.trim() !== '' ? { customerId: customerIdFromQuery } : {}),
+    ...(customerIdFromQuery && customerIdFromQuery.trim() !== ''
+      ? { customerId: customerIdFromQuery }
+      : {}),
   }
 
   const methods = useZodForm({
@@ -607,7 +646,6 @@ export const InvoiceCreate = () => {
     setShowConfirmDialog(false)
   }
 
-
   const onSubmit = async (data: z.infer<typeof schemas.invoices.createInvoiceSchema>) => {
     try {
       const res = await createInvoiceMutation.mutateAsync({
@@ -625,7 +663,7 @@ export const InvoiceCreate = () => {
             quantity: line.quantity.toString(),
             unitPrice: line.unitPrice.toString(),
             taxRate: ((line.taxRate || 0) / 100).toString(),
-          }))
+          })),
         },
       })
       toast.success('Invoice created')
@@ -661,8 +699,10 @@ export const InvoiceCreate = () => {
     }
 
     // Auto-set currency when customer changes or when customer is initially loaded from query param
-    if (customerQuery.data?.customer?.currency &&
-      (watchedCustomerId !== prevCustomerIdRef.current || !methods.getValues('currency'))) {
+    if (
+      customerQuery.data?.customer?.currency &&
+      (watchedCustomerId !== prevCustomerIdRef.current || !methods.getValues('currency'))
+    ) {
       methods.setValue('currency', customerQuery.data.customer.currency)
       prevCustomerIdRef.current = watchedCustomerId
     }
@@ -680,7 +720,6 @@ export const InvoiceCreate = () => {
     },
   })
 
-
   return (
     <>
       <PageHeading>Create invoice</PageHeading>
@@ -697,7 +736,7 @@ export const InvoiceCreate = () => {
                     label="Customer"
                     name="customerId"
                     render={({ field }) => (
-                      <CustomerSelect value={field.value} onChange={handleCustomerChange}/>
+                      <CustomerSelect value={field.value} onChange={handleCustomerChange} />
                     )}
                   />
                   <GenericFormField
@@ -708,12 +747,14 @@ export const InvoiceCreate = () => {
                     render={({ field }) => (
                       <Select onValueChange={field.onChange} value={field.value}>
                         <SelectTrigger className="min-w-[13em]">
-                          <SelectValue placeholder="Select a currency"/>
+                          <SelectValue placeholder="Select a currency" />
                         </SelectTrigger>
                         <SelectContent>
-                          {
-                            activeCurrencies.map((a, i) => <SelectItem value={a} key={`item` + i}>{a}</SelectItem>)
-                          }
+                          {activeCurrencies.map((a, i) => (
+                            <SelectItem value={a} key={`item` + i}>
+                              {a}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     )}
@@ -792,7 +833,7 @@ export const InvoiceCreate = () => {
                             className="min-w-[13em]"
                             step="0.1"
                             precision={2}
-                            onChange={(e) => field.onChange(Number(e.target.value) || 0)}
+                            onChange={e => field.onChange(Number(e.target.value) || 0)}
                             autoComplete="off"
                           />
                         )}
@@ -802,11 +843,7 @@ export const InvoiceCreate = () => {
 
                   <div className="flex gap-2 pt-4">
                     <Link to={`${basePath}/invoices`}>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        title="Cancel"
-                      >
+                      <Button type="button" variant="secondary" title="Cancel">
                         Cancel
                       </Button>
                     </Link>
@@ -827,7 +864,7 @@ export const InvoiceCreate = () => {
         {/* Right Panel - Invoice Preview */}
         <div className="w-2/3 flex flex-col">
           <div className="flex-1 overflow-auto p-6">
-            <CreateInvoicePreview methods={methods}/>
+            <CreateInvoicePreview methods={methods} />
           </div>
         </div>
       </Flex>
@@ -837,8 +874,8 @@ export const InvoiceCreate = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Customer Change</AlertDialogTitle>
             <AlertDialogDescription>
-              Changing the customer will reset the currency and due date to match the new customer&apos;s settings.
-              Are you sure you want to continue?
+              Changing the customer will reset the currency and due date to match the new
+              customer&apos;s settings. Are you sure you want to continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -847,8 +884,6 @@ export const InvoiceCreate = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </>
   )
 }
-

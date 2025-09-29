@@ -20,7 +20,7 @@ import {
   FileX2Icon,
   FolderSyncIcon,
   RefreshCcw,
-  Trash2
+  Trash2,
 } from 'lucide-react'
 import { Fragment, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -40,11 +40,14 @@ import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { listConnectors } from '@/rpc/api/connectors/v1/connectors-ConnectorsService_connectquery'
 import { ConnectorProviderEnum } from '@/rpc/api/connectors/v1/models_pb'
 import {
-  deleteInvoice, finalizeInvoice,
+  deleteInvoice,
+  finalizeInvoice,
   getInvoice,
-  listInvoices, markInvoiceAsUncollectible,
-  previewInvoiceHtml,
-  refreshInvoiceData, voidInvoice,
+  listInvoices,
+  markInvoiceAsUncollectible,
+  previewInvoiceSvg,
+  refreshInvoiceData,
+  voidInvoice,
 } from '@/rpc/api/invoices/v1/invoices-InvoicesService_connectquery'
 import { DetailedInvoice, InvoiceStatus, LineItem } from '@/rpc/api/invoices/v1/models_pb'
 import { parseAndFormatDate, parseAndFormatDateOptional } from '@/utils/date'
@@ -71,11 +74,11 @@ export const Invoice = () => {
       <Flex direction="column" className="h-full">
         {isLoading || !data ? (
           <>
-            <Skeleton height={16} width={50}/>
-            <Skeleton height={44}/>
+            <Skeleton height={16} width={50} />
+            <Skeleton height={44} />
           </>
         ) : (
-          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''}/>
+          <InvoiceView invoice={data} invoiceId={invoiceId ?? ''} />
         )}
       </Flex>
     </Fragment>
@@ -87,7 +90,7 @@ interface Props {
 }
 
 // Function to resize SVG content by manipulating viewBox and dimensions
-const resizeSvgContent = (html: string, scaleFactor: number = 0.8): string => {
+export const resizeSvgContent = (html: string, scaleFactor: number = 0.8): string => {
   // Create a temporary DOM parser to work with the HTML
   const parser = new DOMParser()
   const doc = parser.parseFromString(html, 'text/html')
@@ -126,7 +129,7 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
   invoiceId,
   invoice,
 }) => {
-  const previewQuery = useQuery(previewInvoiceHtml, { id: invoiceId }, { refetchOnMount: 'always' })
+  const previewQuery = useQuery(previewInvoiceSvg, { id: invoiceId }, { refetchOnMount: 'always' })
 
   if (previewQuery.isLoading) {
     return (
@@ -145,37 +148,38 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
   }
 
   // Extract and resize SVG content
-  const scaledHtml = previewQuery.data?.html ? resizeSvgContent(previewQuery.data.html, 1) : ''
+  const svgContents =
+    previewQuery.data?.svgs.map(svg => {
+      const scaledHtml = svg ? resizeSvgContent(svg, 1) : ''
 
-  // Extract just the SVG from the HTML
-  const parser = new DOMParser()
-  const doc = parser.parseFromString(scaledHtml, 'text/html')
-  const svgElement = doc.querySelector('svg')
-  const svgContent = svgElement?.outerHTML || ''
+      // Extract just the SVG from the HTML
+      const parser = new DOMParser()
+      const doc = parser.parseFromString(scaledHtml, 'text/html')
+      const svgElement = doc.querySelector('svg')
+      return svgElement?.outerHTML || ''
+    }) ?? []
 
   return (
     <div className="w-full h-full   flex flex-col">
       <div
-        className="flex justify-center items-start bg-gray-100 py-10 relative"
+        className="flex flex-col items-center justify-center gap-5 bg-gray-100 py-10 relative"
         style={{ minHeight: 'fit-content' }}
       >
-        <div
-          className="  bg-white"
-          style={{
-            boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',
-          }}
-          dangerouslySetInnerHTML={{ __html: svgContent }}
-        />
+        {svgContents.map((svgContent, i) => (
+          <div
+            className="  bg-white"
+            key={`svg-${i}`}
+            style={{
+              boxShadow: '0px 4px 12px rgba(89, 85, 101, .2)',
+            }}
+            dangerouslySetInnerHTML={{ __html: svgContent }}
+          />
+        ))}
 
         {/* Floating Download Button */}
-        {invoice.pdfDocumentId &&
+        {invoice.pdfDocumentId && (
           <div className="absolute top-16 right-16">
-            <Button
-              asChild
-              variant="flat"
-              size="icon"
-              className="shadow-lg"
-            >
+            <Button asChild variant="flat" size="icon" className="shadow-lg">
               <a
                 href={
                   invoice.pdfDocumentId && invoice.documentSharingKey
@@ -187,11 +191,11 @@ const InvoicePreviewFrame: React.FC<{ invoiceId: string; invoice: DetailedInvoic
                 rel="noreferrer"
                 className="flex items-center gap-2"
               >
-                <Download size="16"/>
+                <Download size="16" />
               </a>
             </Button>
           </div>
-        }
+        )}
       </div>
     </div>
   )
@@ -222,9 +226,9 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       // Navigate back to the invoices list after successful deletion
       navigate(`${basePath}/invoices`)
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Failed to delete invoice: ${error.message}`)
-    }
+    },
   })
 
   const finalizeInvoiceMutation = useMutation(finalizeInvoice, {
@@ -234,9 +238,9 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
       })
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Failed to finalize invoice: ${error.message}`)
-    }
+    },
   })
 
   const voidInvoiceMutation = useMutation(voidInvoice, {
@@ -246,9 +250,9 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
       })
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Failed to void invoice: ${error.message}`)
-    }
+    },
   })
 
   const markInvoiceAsUncollectibleMutation = useMutation(markInvoiceAsUncollectible, {
@@ -258,9 +262,9 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         queryKey: createConnectQueryKey(getInvoice, { id: invoice?.id ?? '' }),
       })
     },
-    onError: (error) => {
+    onError: error => {
       toast.error(`Failed to mark invoice as uncollectible: ${error.message}`)
-    }
+    },
   })
 
   const doRefresh = () => refresh.mutateAsync({ id: invoice?.id ?? '' })
@@ -299,7 +303,8 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false)
   const [showFinalizeConfirmation, setShowFinalizeConfirmation] = useState(false)
   const [showVoidConfirmation, setShowVoidConfirmation] = useState(false)
-  const [showMarkAsUncollectibleConfirmation, setShowMarkAsUncollectibleConfirmation] = useState(false)
+  const [showMarkAsUncollectibleConfirmation, setShowMarkAsUncollectibleConfirmation] =
+    useState(false)
   const isPennylaneConnected = connectorsData.some(
     connector => connector.provider === ConnectorProviderEnum.PENNYLANE
   )
@@ -374,14 +379,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         <Flex direction="column" className="gap-2 p-6 border-b border-border">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <InvoiceStatusBadge status={invoice.status}/>
+              <InvoiceStatusBadge status={invoice.status} />
               <div className="text-lg font-medium">Invoice {invoice.invoiceNumber}</div>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="secondary" size="sm" hasIcon>
                   Actions
-                  <ChevronDown className="w-4 h-4"/>
+                  <ChevronDown className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
@@ -396,14 +401,14 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   disabled={!canFinalize}
                   onClick={() => setShowFinalizeConfirmation(true)}
                 >
-                  <CheckCircleIcon size="16" className="mr-2"/>
+                  <CheckCircleIcon size="16" className="mr-2" />
                   Finalize & Send
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={!canSendToPennylane}
                   onClick={() => setShowSyncPennylaneModal(true)}
                 >
-                  <FolderSyncIcon size="16" className="mr-2"/>
+                  <FolderSyncIcon size="16" className="mr-2" />
                   Sync to Pennylane
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!invoice.pdfDocumentId}>
@@ -414,7 +419,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                     rel="noreferrer"
                     className="flex items-center gap-2"
                   >
-                    <Download size="16"/>
+                    <Download size="16" />
                     Download PDF
                   </a>
                 </DropdownMenuItem>
@@ -423,7 +428,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   onClick={() => setShowDeleteConfirmation(true)}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Trash2 size="16" className="mr-2"/>
+                  <Trash2 size="16" className="mr-2" />
                   Delete
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -431,7 +436,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   onClick={() => setShowVoidConfirmation(true)}
                   className="text-destructive focus:text-destructive"
                 >
-                  <BanIcon size="16" className="mr-2"/>
+                  <BanIcon size="16" className="mr-2" />
                   Void
                 </DropdownMenuItem>
                 <DropdownMenuItem
@@ -439,7 +444,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                   onClick={() => setShowMarkAsUncollectibleConfirmation(true)}
                   className="text-destructive focus:text-destructive"
                 >
-                  <FileX2Icon size="16" className="mr-2"/>
+                  <FileX2Icon size="16" className="mr-2" />
                   Mark As Uncollectible
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -454,7 +459,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-auto">
           <Flex direction="column" className="gap-2 p-6">
-            <FlexDetails title="Invoice number" value={invoice.invoiceNumber}/>
+            <FlexDetails title="Invoice number" value={invoice.invoiceNumber} />
 
             <FlexDetails
               title="Plan"
@@ -467,13 +472,15 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 </Link>
               }
             />
-            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)}/>
-            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)}/>
-            {invoice.purchaseOrder && <FlexDetails title="Purchase order" value={invoice.purchaseOrder}/>}
-            <FlexDetails title="Currency" value={invoice.currency}/>
+            <FlexDetails title="Invoice date" value={parseAndFormatDate(invoice.invoiceDate)} />
+            <FlexDetails title="Due date" value={parseAndFormatDateOptional(invoice.dueAt)} />
+            {invoice.purchaseOrder && (
+              <FlexDetails title="Purchase order" value={invoice.purchaseOrder} />
+            )}
+            <FlexDetails title="Currency" value={invoice.currency} />
           </Flex>
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Customer</div>
@@ -482,7 +489,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               value={invoice.customerDetails?.name}
               link={`${basePath}/customers/${invoice.customerId}`}
             />
-            <FlexDetails title="Email" value={invoice.customerDetails?.email}/>
+            <FlexDetails title="Email" value={invoice.customerDetails?.email} />
             {invoice.customerDetails?.billingAddress && (
               <>
                 <FlexDetails
@@ -501,29 +508,32 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
               </>
             )}
             {invoice.customerDetails?.vatNumber && (
-              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber}/>
+              <FlexDetails title="VAT Number" value={invoice.customerDetails.vatNumber} />
             )}
           </Flex>
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Line Items</div>
-            <InvoiceLineItems items={invoice.lineItems} invoice={invoice}/>
+            <InvoiceLineItems items={invoice.lineItems} invoice={invoice} />
             <div className="mt-4 pt-4 border-t">
-              <InvoiceSummaryLines invoice={invoice}/>
+              <InvoiceSummaryLines invoice={invoice} />
             </div>
           </Flex>
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Payment Information</div>
             <FlexDetails
               title="Payment Status"
-              value={<PaymentStatusBadge status={invoice.paymentStatus}/>}
+              value={<PaymentStatusBadge status={invoice.paymentStatus} />}
             />
-            <FlexDetails title="Amount Due" value={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}/>
+            <FlexDetails
+              title="Amount Due"
+              value={formatCurrency(Number(invoice.amountDue) || 0, invoice.currency)}
+            />
             {invoice.transactions && invoice.transactions.length > 0 && (
               <div className="mt-4">
                 <TransactionList
@@ -537,7 +547,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {invoice.memo && (
             <>
-              <Separator className="-my-3"/>
+              <Separator className="-my-3" />
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Memo</div>
                 <div className="text-[13px] text-muted-foreground whitespace-pre-line">
@@ -547,7 +557,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
             </>
           )}
 
-          <Separator className="-my-3"/>
+          <Separator className="-my-3" />
 
           <Flex direction="column" className="gap-2 p-6">
             <div className="text-[15px] font-medium">Timeline</div>
@@ -599,7 +609,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
 
           {getLatestConnMeta(invoice.connectionMetadata?.pennylane)?.externalId && (
             <>
-              <Separator className="-my-3"/>
+              <Separator className="-my-3" />
               <Flex direction="column" className="gap-2 p-6">
                 <div className="text-[15px] font-medium">Integrations</div>
                 <FlexDetails
@@ -616,7 +626,7 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
       {/* Right Panel - Invoice Preview */}
       <div className="w-2/3 flex flex-col">
         <div className="flex-1 overflow-auto p-6">
-          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice}/>
+          <InvoicePreviewFrame invoiceId={invoiceId} invoice={invoice} />
         </div>
       </div>
     </Flex>
@@ -649,7 +659,7 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
   return (
     <div className="space-y-1">
-      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)}/>
+      <FlexDetails title="Subtotal" value={formatCurrency(subtotal, invoice.currency)} />
 
       {invoice.couponLineItems.map(c => {
         const couponTotal = Number(c.total) || 0
@@ -664,23 +674,23 @@ export const InvoiceSummaryLines: React.FC<{ invoice: DetailedInvoice }> = ({ in
 
       {invoice.taxBreakdown && invoice.taxBreakdown.length > 0
         ? invoice.taxBreakdown.map(tax => {
-          const taxRate = parseFloat(tax.taxRate) * 100 || 0
-          const taxAmountValue = Number(tax.amount) || 0
-          // Only show tax breakdown if rate is greater than 0
-          if (taxRate > 0) {
-            return (
-              <FlexDetails
-                key={tax.name}
-                title={`${tax.name} (${taxRate}%)`}
-                value={formatCurrency(taxAmountValue, invoice.currency)}
-              />
-            )
-          }
-          return null
-        })
+            const taxRate = parseFloat(tax.taxRate) * 100 || 0
+            const taxAmountValue = Number(tax.amount) || 0
+            // Only show tax breakdown if rate is greater than 0
+            if (taxRate > 0) {
+              return (
+                <FlexDetails
+                  key={tax.name}
+                  title={`${tax.name} (${taxRate}%)`}
+                  value={formatCurrency(taxAmountValue, invoice.currency)}
+                />
+              )
+            }
+            return null
+          })
         : taxAmount > 0 && (
-        <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)}/>
-      )}
+            <FlexDetails title="Tax" value={formatCurrency(taxAmount, invoice.currency)} />
+          )}
 
       <div className="pt-2 border-t">
         <FlexDetails
@@ -705,7 +715,7 @@ export const InvoiceLineItems: React.FC<{ items: LineItem[]; invoice: DetailedIn
       {items
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(item => {
-          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice}/>
+          return <InvoiceLineItemCard key={item.id} line_item={item} invoice={invoice} />
         })}
     </div>
   )

@@ -48,8 +48,7 @@ message PreviewInvoiceRequest {
 }
 
 message PreviewInvoiceResponse {
-  // TODO could be too big for a single response, use streaming ? or not grpc
-  string html = 1;
+  repeated string svgs = 1;
 }
 
 message RequestPdfGenerationRequest {
@@ -78,7 +77,7 @@ message PreviewNewInvoiceRequest {
 }
 
 message PreviewNewInvoiceResponse {
-  string html = 1;
+  repeated string svgs = 1;
 }
 
 message FinalizeInvoiceRequest {
@@ -114,12 +113,12 @@ message MarkInvoiceAsUncollectibleResponse {
 service InvoicesService {
   rpc ListInvoices(ListInvoicesRequest) returns (ListInvoicesResponse) {}
   rpc GetInvoice(GetInvoiceRequest) returns (GetInvoiceResponse) {}
-  rpc PreviewInvoiceHtml(PreviewInvoiceRequest) returns (PreviewInvoiceResponse) {}
+  rpc PreviewInvoiceSvg(PreviewInvoiceRequest) returns (PreviewInvoiceResponse) {}
   rpc RequestPdfGeneration(RequestPdfGenerationRequest) returns (RequestPdfGenerationResponse) {}
   rpc RefreshInvoiceData(RefreshInvoiceDataRequest) returns (RefreshInvoiceDataResponse) {}
   rpc SyncToPennylane(SyncToPennylaneRequest) returns (SyncToPennylaneResponse) {}
   rpc CreateInvoice(CreateInvoiceRequest) returns (CreateInvoiceResponse) {}
-  rpc PreviewNewInvoiceHtml(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
+  rpc PreviewNewInvoiceSvg(PreviewNewInvoiceRequest) returns (PreviewNewInvoiceResponse) {}
   rpc FinalizeInvoice(FinalizeInvoiceRequest) returns (FinalizeInvoiceResponse) {}
   rpc DeleteInvoice(DeleteInvoiceRequest) returns (DeleteInvoiceResponse) {}
   rpc VoidInvoice(VoidInvoiceRequest) returns (VoidInvoiceResponse) {}

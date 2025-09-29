@@ -38,7 +38,7 @@ impl InvoicePreviewRenderingService {
         &self,
         invoice: Invoice,
         invoicing_entity: InvoicingEntity,
-    ) -> error_stack::Result<String, InvoicingRenderError> {
+    ) -> error_stack::Result<Vec<String>, InvoicingRenderError> {
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
                 let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
@@ -63,20 +63,20 @@ impl InvoicePreviewRenderingService {
         let mapped =
             mapper::map_invoice_to_invoicing(invoice, &invoicing_entity, organization_logo, rate)?;
 
-        let svg_string = self
+        let svgs = self
             .generator
             .generate_svg(&mapped)
             .await
             .change_context(InvoicingRenderError::RenderError)?;
 
-        Ok(svg_string)
+        Ok(svgs)
     }
 
     pub async fn preview_invoice_by_id(
         &self,
         invoice_id: InvoiceId,
         tenant_id: TenantId,
-    ) -> error_stack::Result<String, InvoicingRenderError> {
+    ) -> error_stack::Result<Vec<String>, InvoicingRenderError> {
         let invoice = self
             .store
             .get_invoice_by_id(tenant_id, invoice_id)
