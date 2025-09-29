@@ -104,7 +104,7 @@ pub async fn get_invoice_pdf(
     match get_invoice_pdf_handler(uid, params, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling invoice PDF: {}", e);
+            log::error!("Error handling invoice PDF: {:?}", e);
             e.current_context().clone().into_response()
         }
     }

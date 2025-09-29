@@ -2,11 +2,10 @@ use crate::errors::InvoicingResult;
 use crate::model::Invoice;
 use crate::typst_render::TypstInvoiceRenderer;
 use async_trait::async_trait;
-use typst::layout::Abs;
 
 #[async_trait]
 pub trait SvgGenerator: Send + Sync {
-    async fn generate_svg(&self, invoice: &Invoice) -> InvoicingResult<String>;
+    async fn generate_svg(&self, invoice: &Invoice) -> InvoicingResult<Vec<String>>;
 }
 
 pub struct TypstSvgGenerator {
@@ -23,11 +22,15 @@ impl TypstSvgGenerator {
 
 #[async_trait]
 impl SvgGenerator for TypstSvgGenerator {
-    async fn generate_svg(&self, invoice: &Invoice) -> InvoicingResult<String> {
+    async fn generate_svg(&self, invoice: &Invoice) -> InvoicingResult<Vec<String>> {
         let result = self.renderer.render_invoice(invoice)?;
 
-        // TODO maybe separate
-        let svg = typst_svg::svg_merged(&result, Abs::mm(10.0));
-        Ok(svg)
+        let svgs = result
+            .pages
+            .iter()
+            .map(typst_svg::svg)
+            .collect::<Vec<String>>();
+
+        Ok(svgs)
     }
 }

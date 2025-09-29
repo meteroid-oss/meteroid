@@ -125,7 +125,7 @@ impl InvoicesService for InvoiceServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn preview_invoice_html(
+    async fn preview_invoice_svg(
         &self,
         request: Request<PreviewInvoiceRequest>,
     ) -> Result<Response<PreviewInvoiceResponse>, Status> {
@@ -133,13 +133,13 @@ impl InvoicesService for InvoiceServiceComponents {
 
         let req = request.into_inner();
 
-        let html = self
+        let svgs = self
             .preview_rendering
             .preview_invoice_by_id(InvoiceId::from_proto(&req.id)?, tenant_id)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
-        let response = PreviewInvoiceResponse { html };
+        let response = PreviewInvoiceResponse { svgs };
 
         Ok(Response::new(response))
     }
@@ -264,7 +264,7 @@ impl InvoicesService for InvoiceServiceComponents {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn preview_new_invoice_html(
+    async fn preview_new_invoice_svg(
         &self,
         request: Request<PreviewNewInvoiceRequest>,
     ) -> Result<Response<PreviewNewInvoiceResponse>, Status> {
@@ -279,13 +279,13 @@ impl InvoicesService for InvoiceServiceComponents {
         let (new_invoice, inv_entity) =
             to_domain_invoice_new(tenant_id, invoice_req, &self.store).await?;
 
-        let html = self
+        let svgs = self
             .preview_rendering
             .preview_invoice(new_invoice.into(), inv_entity)
             .await
             .map_err(Into::<InvoiceApiError>::into)?;
 
-        let response = PreviewNewInvoiceResponse { html };
+        let response = PreviewNewInvoiceResponse { svgs };
 
         Ok(Response::new(response))
     }
