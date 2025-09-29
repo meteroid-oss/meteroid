@@ -523,6 +523,7 @@ pub async fn run(
                 auto_advance: true,
                 payment_status: InvoicePaymentStatus::Unpaid,
                 manual: false,
+                invoicing_entity_id: invoicing_entity.id,
             };
 
             invoices_to_create.push(invoice);

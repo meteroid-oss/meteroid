@@ -85,6 +85,7 @@ pub struct Invoice {
     pub manual: bool,
     pub voided_at: Option<NaiveDateTime>,
     pub marked_as_uncollectible_at: Option<NaiveDateTime>,
+    pub invoicing_entity_id: InvoicingEntityId,
 }
 
 impl Invoice {
@@ -199,6 +200,7 @@ pub struct InvoiceNew {
     }) ?)]
     pub tax_breakdown: Vec<TaxBreakdownItem>,
     pub manual: bool,
+    pub invoicing_entity_id: InvoicingEntityId,
 }
 
 #[derive(Debug, o2o)]
@@ -362,6 +364,7 @@ impl From<InvoiceNew> for Invoice {
             manual: value.manual,
             voided_at: None,
             marked_as_uncollectible_at: None,
+            invoicing_entity_id: value.invoicing_entity_id,
         }
     }
 }
