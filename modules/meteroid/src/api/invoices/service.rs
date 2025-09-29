@@ -471,6 +471,7 @@ async fn to_domain_invoice_new(
             product_id: None,
             metric_id: None,
             description: None,
+            group_by_dimensions: None,
         };
 
         lines.push(item);

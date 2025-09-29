@@ -6,6 +6,7 @@ use common_domain::ids::{
 use rust_decimal::Decimal;
 use rust_decimal::prelude::Zero;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(PartialEq, Eq, Debug, Deserialize, Serialize, Clone)]
 pub struct CouponLineItem {
@@ -50,6 +51,9 @@ pub struct LineItem {
     pub metric_id: Option<BillableMetricId>,
 
     pub description: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_by_dimensions: Option<HashMap<String, String>>,
 }
 
 #[derive(PartialEq, Debug, Deserialize, Serialize, Eq, Clone)]

@@ -150,6 +150,7 @@ mod tests {
             metric_id: None,
             description: None,
             amount_total: amount_subtotal,
+            group_by_dimensions: None,
         }
     }
 

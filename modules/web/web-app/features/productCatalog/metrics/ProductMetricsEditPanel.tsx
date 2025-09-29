@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 import { AggregationSection } from '@/features/productCatalog/metrics/AggregationSection'
 import { SegmentationMatrixSection } from '@/features/productCatalog/metrics/SegmentationMatrixSection'
 import { UnitConversionSection } from '@/features/productCatalog/metrics/UnitConversionSection'
+import { UsageGroupKeySection } from '@/features/productCatalog/metrics/UsageGroupKeySection'
 import { useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { schemas } from '@/lib/schemas'
@@ -262,6 +263,7 @@ export const ProductMetricsEditPanel = () => {
                   <AggregationSection methods={methods} />
                   <UnitConversionSection methods={methods} />
                   <Separator />
+                  <UsageGroupKeySection methods={methods} />
                   <SegmentationMatrixSection methods={methods} />
                 </div>
               </ScrollArea>

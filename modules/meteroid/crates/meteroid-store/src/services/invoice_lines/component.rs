@@ -447,6 +447,7 @@ impl Services {
                     product_id: component.product_id(),
                     metric_id: line.metric_id,
                     description: None,
+                    group_by_dimensions: line.group_by_dimensions,
 
                     amount_subtotal: line.total as i64,
 

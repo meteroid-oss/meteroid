@@ -306,6 +306,12 @@ export const ProductMetricDetail = () => {
           )}
         </DetailSection>
 
+        {data.usageGroupKey && (
+          <DetailSection title="Usage Grouping">
+            <DetailRow label="Group Key" value={data.usageGroupKey} />
+          </DetailSection>
+        )}
+
         {data.segmentationMatrix && data.segmentationMatrix.matrix && (
           <DetailSection title="Segmentation">
             <DetailRow

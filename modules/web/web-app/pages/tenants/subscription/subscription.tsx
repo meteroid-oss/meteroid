@@ -420,9 +420,6 @@ export const Subscription = () => {
                     <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       Alias
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      ID
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -433,11 +430,10 @@ export const Subscription = () => {
                         index % 2 === 0 ? 'bg-card' : 'bg-muted/10 border-t border-b border-border'
                       }
                     >
-                      <td className="px-4 py-3 text-sm font-medium text-foreground">
-                        {metric.name}
+                      <td className="px-4 py-3 text-sm font-medium text-brand hover:underline">
+                        <Link to={`${basePath}/metrics/${metric.id}`}>{metric.name}</Link>
                       </td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">{metric.alias}</td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">{metric.id}</td>
                     </tr>
                   ))}
                 </tbody>

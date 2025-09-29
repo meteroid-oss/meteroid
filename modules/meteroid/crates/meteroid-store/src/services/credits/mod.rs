@@ -50,6 +50,7 @@ impl Services {
                         metric_id: None,
                         description: None,
                         tax_rate: Default::default(),
+                        group_by_dimensions: None,
                     }];
 
                     let invoice = self

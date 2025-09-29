@@ -1,9 +1,8 @@
 use crate::StoreResult;
 use crate::domain::{
-    BillableMetric, ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, Customer,
-    InvoicingEntity, PaginatedVec, PaginationRequest, Schedule, Subscription,
-    SubscriptionComponent, SubscriptionComponentNew, SubscriptionDetails,
-    SubscriptionInvoiceCandidate,
+    BillableMetric, ConnectorProviderEnum, Customer, InvoicingEntity, PaginatedVec,
+    PaginationRequest, Schedule, Subscription, SubscriptionComponent, SubscriptionComponentNew,
+    SubscriptionDetails,
 };
 use chrono::NaiveDate;
 use common_domain::ids::{ConnectorId, CustomerId, PlanId, SubscriptionId, TenantId};
@@ -73,12 +72,6 @@ pub trait SubscriptionInterface {
         plan_id: Option<PlanId>,
         pagination: PaginationRequest,
     ) -> StoreResult<PaginatedVec<Subscription>>;
-
-    async fn list_subscription_invoice_candidates(
-        &self,
-        date: NaiveDate,
-        pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>>;
 
     async fn patch_subscription_conn_meta(
         &self,
@@ -293,33 +286,6 @@ impl SubscriptionInterface for Store {
                 .collect::<Result<Vec<_>, _>>()?,
             total_pages: db_subscriptions.total_pages,
             total_results: db_subscriptions.total_results,
-        };
-
-        Ok(res)
-    }
-
-    async fn list_subscription_invoice_candidates(
-        &self,
-        date: NaiveDate,
-        pagination: CursorPaginationRequest,
-    ) -> StoreResult<CursorPaginatedVec<SubscriptionInvoiceCandidate>> {
-        let mut conn = self.get_conn().await?;
-
-        let db_subscriptions = SubscriptionRow::list_subscription_to_invoice_candidates(
-            &mut conn,
-            date,
-            pagination.into(),
-        )
-        .await
-        .map_err(Into::<Report<StoreError>>::into)?;
-
-        let res: CursorPaginatedVec<SubscriptionInvoiceCandidate> = CursorPaginatedVec {
-            items: db_subscriptions
-                .items
-                .into_iter()
-                .map(|s| s.into())
-                .collect(),
-            next_cursor: db_subscriptions.next_cursor,
         };
 
         Ok(res)
