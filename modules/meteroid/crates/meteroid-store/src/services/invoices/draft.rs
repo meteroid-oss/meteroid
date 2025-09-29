@@ -80,7 +80,7 @@ impl Services {
             tax_breakdown: invoice_content.tax_breakdown,
             tax_amount: invoice_content.tax_amount,
             manual: false,
-            invoicing_entity_id: subscription.invoicing_entity_id
+            invoicing_entity_id: subscription.invoicing_entity_id,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
@@ -171,8 +171,7 @@ impl Services {
             tax_breakdown: invoice_content.tax_breakdown,
             tax_amount: invoice_content.tax_amount,
             manual: false,
-            invoicing_entity_id: invoicing_entity.id
-
+            invoicing_entity_id: invoicing_entity.id,
         };
 
         let inserted_invoice = insert_invoice_tx(&self.store, conn, invoice_new).await?;
