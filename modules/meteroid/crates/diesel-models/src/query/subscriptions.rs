@@ -1,22 +1,16 @@
 use crate::errors::IntoDbResult;
-use chrono::NaiveDate;
 
-use crate::subscriptions::{
-    SubscriptionForDisplayRow, SubscriptionInvoiceCandidateRow, SubscriptionRow, SubscriptionRowNew,
-};
+use crate::subscriptions::{SubscriptionForDisplayRow, SubscriptionRow, SubscriptionRowNew};
 use crate::{DbResult, PgConn};
 
 use diesel::{
-    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, NullableExpressionMethods,
-    OptionalExtension, QueryDsl, SelectableHelper, debug_query,
+    ExpressionMethods, JoinOnDsl, NullableExpressionMethods, OptionalExtension, QueryDsl,
+    SelectableHelper, debug_query,
 };
 use diesel_async::RunQueryDsl;
 
-use crate::enums::{ConnectorProviderEnum, InvoiceType};
+use crate::enums::ConnectorProviderEnum;
 use crate::extend::connection_metadata;
-use crate::extend::cursor_pagination::{
-    CursorPaginate, CursorPaginatedVec, CursorPaginationRequest,
-};
 use crate::extend::pagination::{Paginate, PaginatedVec, PaginationRequest};
 use common_domain::ids::{
     BaseId, ConnectorId, CustomerId, CustomerPaymentMethodId, PlanId, SubscriptionId, TenantId,
@@ -122,6 +116,7 @@ impl SubscriptionRow {
             .inner_join(
                 pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
             )
+            .order(id.desc())
             .select(SubscriptionForDisplayRow::as_select());
 
         log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
@@ -243,6 +238,8 @@ impl SubscriptionRow {
         //     .inner_join(crate::schema::customer::table)
         //     .inner_join(crate::schema::plan_version::table.inner_join(crate::schema::plan::table));
 
+        query = query.order(id.desc());
+
         let paginated_query = query
             .select(SubscriptionForDisplayRow::as_select())
             .paginate(pagination);
@@ -253,57 +250,6 @@ impl SubscriptionRow {
             .load_and_count_pages::<SubscriptionForDisplayRow>(conn)
             .await
             .attach_printable("Error while fetching subscriptions")
-            .into_db_result()
-    }
-
-    pub async fn list_subscription_to_invoice_candidates(
-        conn: &mut PgConn,
-        input_date_param: NaiveDate,
-        pagination: CursorPaginationRequest,
-    ) -> DbResult<CursorPaginatedVec<SubscriptionInvoiceCandidateRow>> {
-        use crate::schema::invoice::dsl as i_dsl;
-
-        use crate::schema::customer::dsl as c_dsl;
-        use crate::schema::plan::dsl as p_dsl;
-        use crate::schema::plan_version::dsl as pv_dsl;
-        use crate::schema::subscription::dsl as s_dsl;
-        use crate::schema::subscription_component::dsl as sc_dsl;
-
-        let query = s_dsl::subscription
-            // only if not already ended
-            .filter(
-                s_dsl::end_date
-                    .is_null()
-                    .or(s_dsl::end_date.gt(input_date_param)),
-            )
-            // only if started. lt => we consider that initial invoice was already created TODO start_date or billing_start_date?
-            .filter(s_dsl::billing_start_date.lt(input_date_param))
-            // only if no future recurring invoice exist.
-            // (requires a single recurring invoice in parallel. For now, this is true)
-            .left_join(
-                i_dsl::invoice.on(s_dsl::id
-                    .nullable()
-                    .eq(i_dsl::subscription_id)
-                    .and(i_dsl::invoice_type.eq(InvoiceType::Recurring))
-                    .and(i_dsl::invoice_date.gt(input_date_param))),
-            )
-            .filter(i_dsl::id.is_null())
-            .inner_join(
-                pv_dsl::plan_version.inner_join(p_dsl::plan.on(p_dsl::id.eq(pv_dsl::plan_id))),
-            )
-            .left_join(sc_dsl::subscription_component)
-            .inner_join(c_dsl::customer.on(c_dsl::id.eq(s_dsl::customer_id)))
-            // only if customer is not archived
-            .filter(c_dsl::archived_at.is_null())
-            .select(SubscriptionInvoiceCandidateRow::as_select())
-            .cursor_paginate(pagination, "id");
-
-        log::debug!("{}", debug_query::<diesel::pg::Pg, _>(&query));
-
-        query
-            .load_and_get_next_cursor(conn, |a| a.subscription.id.as_uuid())
-            .await
-            .attach_printable("Error while fetching subscriptions to invoice")
             .into_db_result()
     }
 

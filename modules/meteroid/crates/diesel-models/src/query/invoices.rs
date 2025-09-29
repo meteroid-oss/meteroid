@@ -167,10 +167,18 @@ impl InvoiceRow {
         match order_by {
             OrderByRequest::IdAsc => query = query.order(i_dsl::id.asc()),
             OrderByRequest::IdDesc => query = query.order(i_dsl::id.desc()),
-            OrderByRequest::DateAsc => query = query.order(i_dsl::invoice_date.asc()),
-            OrderByRequest::DateDesc => query = query.order(i_dsl::invoice_date.desc()),
-            OrderByRequest::NameAsc => query = query.order(i_dsl::invoice_number.asc()),
-            OrderByRequest::NameDesc => query = query.order(i_dsl::invoice_number.desc()),
+            OrderByRequest::DateAsc => {
+                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()))
+            }
+            OrderByRequest::DateDesc => {
+                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()))
+            }
+            OrderByRequest::NameAsc => {
+                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()))
+            }
+            OrderByRequest::NameDesc => {
+                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()))
+            }
         }
 
         let paginated_query = query.paginate(pagination);

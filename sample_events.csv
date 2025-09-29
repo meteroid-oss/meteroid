@@ -1,5 +1,5 @@
-event_code,customer_id,timestamp,value
-bandwidth,cobalt,2025-09-23T10:00:00Z,1024
-bandwidth,cobalt,2025-09-23T11:00:00Z,2048
-bandwidth,cobalt,2025-09-23T12:00:00Z,512
-bandwidth,cobalt,2025-09-23T13:00:00Z,4096
+event_code,customer_id,timestamp,value,projectid
+bg3,cobalt,2025-08-23T10:00:00Z,1024,projectA
+bg3,cobalt,2025-08-23T11:00:00Z,2048,projectA
+bg3,cobalt,2025-08-23T12:00:00Z,512,projectA
+bg3,cobalt,2025-08-23T13:00:00Z,4096,projectB

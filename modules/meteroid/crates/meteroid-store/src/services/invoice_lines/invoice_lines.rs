@@ -122,6 +122,7 @@ impl Services {
                             line.metric_id == invoice_line.metric_id
                                 && (line.sub_component_id == invoice_line.sub_component_id
                                     || line.sub_add_on_id == invoice_line.sub_add_on_id)
+                                && line.group_by_dimensions == invoice_line.group_by_dimensions
                         })
                     {
                         return LineItem {

@@ -72,8 +72,8 @@ export const UnitConversionSection = ({ methods }: Props) => {
                 <SelectItem value="UP">Up</SelectItem>
                 <SelectItem value="DOWN">Down</SelectItem>
                 <SelectItem value="NEAREST">Nearest</SelectItem>
-                <SelectItem value="NEAREST_1">Nearest .1</SelectItem>
-                <SelectItem value="NEAREST_5">Nearest .5</SelectItem>
+                {/*<SelectItem value="NEAREST_1">Nearest .1</SelectItem>*/}
+                {/*<SelectItem value="NEAREST_5">Nearest .5</SelectItem>*/}
               </SelectFormField>
             </div>
           )}

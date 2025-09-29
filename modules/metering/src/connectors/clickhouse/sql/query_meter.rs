@@ -81,8 +81,6 @@ pub fn query_meter_view_sql(params: QueryMeterParams) -> Result<String, String> 
     };
     select_columns.push(aggregation_column.to_string());
 
-    let mut group_by_columns = Vec::new();
-
     // Add customer_id if we have customer filtering and it's not already in group_by
     if !params.customer_ids.is_empty() && !params.group_by.contains(&"customer_id".to_string()) {
         group_by_columns.push("customer_id".to_string());
