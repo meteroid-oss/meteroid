@@ -3,7 +3,6 @@ syntax = "proto3";
 package meteroid.portal.quotes.v1;
 
 import "portal/quotes/v1/models.proto";
-import "api/quotes/v1/models.proto";
 
 message GetQuotePortalRequest {
 }
