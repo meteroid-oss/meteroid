@@ -5,7 +5,6 @@ package meteroid.portal.quotes.v1;
 import "api/quotes/v1/models.proto";
 import "api/customers/v1/models.proto";
 import "api/invoicingentities/v1/models.proto";
-import "common/v1/date.proto";
 
 message QuotePortalDetails {
   api.quotes.v1.Quote quote = 1;

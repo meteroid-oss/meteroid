@@ -4,9 +4,7 @@ package meteroid.api.quotes.v1;
 
 import "api/customers/v1/models.proto";
 import "api/invoicingentities/v1/models.proto";
-import "api/connectors/v1/models.proto";
 import "api/subscriptions/v1/models.proto";
-import "api/shared/v1/shared.proto";
 
 enum QuoteStatus {
   DRAFT = 0;
