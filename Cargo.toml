@@ -96,7 +96,7 @@ image = "0.25.2"
 init-tracing-opentelemetry = { version = "0.31.0", features = ["tracing_subscriber_ext"] }
 insta = { version = "1.43.1", features = ["json"] }
 itertools = "0.14.0"
-jsonwebtoken = "9.2.0"
+jsonwebtoken = "10.0.0"
 klickhouse = { default-features = false, version = "0.14.0" }
 lapin = "3.2.0"
 lazy_static = "1.5.0"
