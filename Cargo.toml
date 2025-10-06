@@ -167,7 +167,7 @@ tonic = "0.13.1"
 tonic-build = "0.13.1"
 tonic-health = "0.13.1"
 tonic-reflection = "0.13.1"
-tonic-tracing-opentelemetry = "0.30.0"
+tonic-tracing-opentelemetry = "0.32.0"
 tonic-web = "0.13.1"
 tower = { version = "0.5.0" }
 tower-http = { version = "0.6.1", features = ["full"] }
