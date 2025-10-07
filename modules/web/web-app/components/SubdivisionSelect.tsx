@@ -8,7 +8,6 @@ interface Props<TFieldValues extends FieldValues, TName extends FieldPath<TField
   name: TName
   control: Control<TFieldValues>
   countryFieldName: FieldPath<TFieldValues>
-  required?: boolean
   label?: string
   placeholder?: string
   className?: string
@@ -21,7 +20,6 @@ export function SubdivisionSelect<
   name,
   control,
   countryFieldName,
-  required,
   placeholder = 'Select a subdivision',
   label = 'Subdivision',
   className,
@@ -49,7 +47,6 @@ export function SubdivisionSelect<
       className={className}
       placeholder={placeholder}
       hasSearch
-      required={required}
       disabled={!countryCode || subdivisions.length === 0}
       options={subdivisions.map(subdivision => ({
         label: subdivision.name,
