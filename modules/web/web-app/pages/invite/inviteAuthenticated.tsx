@@ -16,12 +16,10 @@ export const InviteAuthenticated = () => {
 
   const acceptInviteMut = useMutation(acceptInvite, {
     onSuccess: async data => {
-      // Clear the invite token from sessionStorage
       sessionStorage.removeItem(INVITE_TOKEN_KEY)
 
       toast.success('Successfully joined organization!', { id: 'invite' })
 
-      // Invalidate the me query to refetch user's organizations
       await queryClient.invalidateQueries({ queryKey: createConnectQueryKey(me) })
 
       // Force a full page reload to refresh the session and organization list
@@ -34,7 +32,6 @@ export const InviteAuthenticated = () => {
     onError: error => {
       console.error('Error accepting invite:', error)
 
-      // Clear the token
       sessionStorage.removeItem(INVITE_TOKEN_KEY)
 
       // If user is already a member, just redirect to home

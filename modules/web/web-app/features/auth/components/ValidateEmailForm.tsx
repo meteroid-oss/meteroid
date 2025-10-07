@@ -36,8 +36,6 @@ export const ValidateEmailForm = () => {
     },
   })
 
-  // http://localhost:5173/invite?token=G3F5R3eEHV8lQkjVg3HbSk66qdm3jWm6
-
   const onSubmit = async (data: z.infer<typeof schemas.me.validateEmailSchema>) => {
     await registerMut.mutateAsync({
       //If validation is skipped, we get back the email from the state
