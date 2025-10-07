@@ -2,7 +2,9 @@
 mod tests {
     use crate::model::*;
     use crate::{MeteroidTaxEngine, TaxEngine, shared};
+    use std::str::FromStr;
 
+    use common_domain::country::CountryCode;
     use rust_decimal_macros::dec;
 
     fn test_address(country: &str, region: Option<&str>) -> Address {
@@ -108,7 +110,7 @@ mod tests {
             reference: "custom_vat".to_string(),
             name: "French VAT".to_string(),
             tax_rules: vec![TaxRule {
-                country: Some("FR".to_string()),
+                country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
                 region: None,
                 rate: dec!(0.20),
             }],
@@ -167,19 +169,25 @@ mod tests {
             tax_rules: vec![
                 // Generic US rate
                 TaxRule {
-                    country: Some("US".to_string()),
+                    country: Some(
+                        CountryCode::from_str("US").expect("failed to parse country code"),
+                    ),
                     region: None,
                     rate: dec!(0.05),
                 },
                 // Specific California rate (should be selected)
                 TaxRule {
-                    country: Some("US".to_string()),
+                    country: Some(
+                        CountryCode::from_str("US").expect("failed to parse country code"),
+                    ),
                     region: Some("CA".to_string()),
                     rate: dec!(0.0725),
                 },
                 // Specific New York rate (should not be selected)
                 TaxRule {
-                    country: Some("US".to_string()),
+                    country: Some(
+                        CountryCode::from_str("US").expect("failed to parse country code"),
+                    ),
                     region: Some("NY".to_string()),
                     rate: dec!(0.08),
                 },
@@ -215,7 +223,7 @@ mod tests {
             reference: "vat_standard".to_string(),
             name: "Standard VAT".to_string(),
             tax_rules: vec![TaxRule {
-                country: Some("US".to_string()),
+                country: Some(CountryCode::from_str("US").expect("failed to parse country code")),
                 region: Some("CA".to_string()),
                 rate: dec!(0.20),
             }],
@@ -225,7 +233,7 @@ mod tests {
             reference: "vat_reduced".to_string(),
             name: "Reduced VAT".to_string(),
             tax_rules: vec![TaxRule {
-                country: Some("US".to_string()),
+                country: Some(CountryCode::from_str("US").expect("failed to parse country code")),
                 region: Some("CA".to_string()),
                 rate: dec!(0.05),
             }],
@@ -610,7 +618,7 @@ mod tests {
             tax_exempt: false,
             custom_tax_rate: None,
             billing_address: Address {
-                country: Some("DE".to_string()),
+                country: Some(CountryCode::from_str("DE").expect("failed to parse country code")),
                 region: None,
                 city: None,
                 line1: None,
@@ -619,7 +627,7 @@ mod tests {
         };
 
         let invoicing_entity_address = Address {
-            country: Some("FR".to_string()),
+            country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
             region: None,
             city: None,
             line1: None,
@@ -668,7 +676,7 @@ mod tests {
             tax_exempt: true,
             custom_tax_rate: None,
             billing_address: Address {
-                country: Some("FR".to_string()),
+                country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
                 region: None,
                 city: None,
                 line1: None,
@@ -677,7 +685,7 @@ mod tests {
         };
 
         let invoicing_entity_address = Address {
-            country: Some("FR".to_string()),
+            country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
             region: None,
             city: None,
             line1: None,

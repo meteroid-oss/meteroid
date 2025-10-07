@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use common_domain::country::CountryCode;
 use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus, TaxBreakdownItem};
 use meteroid_invoicing::pdf::PdfGenerator;
 use meteroid_invoicing::{
@@ -108,7 +109,7 @@ fn create_test_invoice() -> Invoice {
                 line1: Some("123 Main St".to_string()),
                 line2: None,
                 city: Some("Paris".to_string()),
-                country: Some("FR".to_string()),
+                country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
                 state: None,
                 zip_code: Some("75001".to_string()),
             },
@@ -126,7 +127,7 @@ fn create_test_invoice() -> Invoice {
                 line1: Some("456 Client Avenue".to_string()),
                 line2: None,
                 city: Some("New York".to_string()),
-                country: Some("US".to_string()),
+                country: Some(CountryCode::from_str("US").expect("failed to parse country code")),
                 state: Some("NY".to_string()),
                 zip_code: Some("10001".to_string()),
             },
