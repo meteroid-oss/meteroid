@@ -6,6 +6,7 @@ import { ComponentProps, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CountrySelect } from '@/components/CountrySelect'
 import { customerSchema } from '@/features/customers/cards/customer/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
@@ -180,10 +181,11 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
                   name="billingAddress.zipCode"
                   layout="horizontal"
                 />
-                <InputFormField
+                <CountrySelect
                   control={methods.control}
                   label="Country"
                   name="billingAddress.country"
+                  className="col-span-8 bg-input text-muted-foreground"
                   layout="horizontal"
                 />
               </div>
@@ -246,10 +248,11 @@ export const EditCustomerModal = ({ customer, ...props }: Props) => {
                           name="shippingAddress.address.zipCode"
                           layout="horizontal"
                         />
-                        <InputFormField
+                        <CountrySelect
                           control={methods.control}
                           label="Country"
                           name="shippingAddress.address.country"
+                          className="col-span-8 bg-input text-muted-foreground"
                           layout="horizontal"
                         />
                       </>

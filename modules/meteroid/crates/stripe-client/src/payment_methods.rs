@@ -1,6 +1,7 @@
 use crate::client::StripeClient;
 use crate::error::StripeError;
 use crate::request::RetryStrategy;
+use common_domain::country::CountryCode;
 use secrecy::SecretString;
 use serde::Deserialize;
 
@@ -28,7 +29,7 @@ pub struct PaymentMethod {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct PaymentMethodCard {
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub fingerprint: Option<String>,
     pub last4: Option<String>,
     pub exp_month: i32,
@@ -40,7 +41,7 @@ pub struct PaymentMethodCard {
 pub struct PaymentMethodSepaDebit {
     pub bank_code: Option<String>,
     pub branch_code: Option<String>,
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub fingerprint: Option<String>,
     pub last4: Option<String>,
 }

@@ -339,7 +339,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                 "line1": "123 Test St",
                 "city": "Test City",
                 "zip_code": "12345",
-                "country": "Testland"
+                "country": "FR"
             },
             "shipping_address": {
                "same_as_billing": true
@@ -425,7 +425,7 @@ async fn rest_api_test(setup: &MeteroidSetup, clients: &AllClients) {
                 "line1": "123 Test St",
                 "city": "Test City",
                 "zip_code": "12345",
-                "country": "Testland"
+                "country": "FR"
             },
             "shipping_address": {
                "same_as_billing": true

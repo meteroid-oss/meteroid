@@ -26,11 +26,14 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { EditIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Control } from 'react-hook-form'
 import { toast } from 'sonner'
 import { match } from 'ts-pattern'
 import { z } from 'zod'
 
+import { CountrySelect } from '@/components/CountrySelect'
 import { Loading } from '@/components/Loading'
+import { SubdivisionSelect } from '@/components/SubdivisionSelect'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
 import { useZodForm } from '@/hooks/useZodForm'
@@ -65,6 +68,49 @@ const customTaxSchema = z.object({
     )
     .min(1, 'At least one tax rule is required'),
 })
+
+const TaxRuleRow = ({
+  index,
+  control,
+  onRemove,
+  showRemove,
+}: {
+  index: number
+  control: Control<z.infer<typeof customTaxSchema>>
+  onRemove: (index: number) => void
+  showRemove: boolean
+}) => {
+  return (
+    <div className="flex gap-2">
+      <CountrySelect
+        name={`rules.${index}.country`}
+        placeholder="Country (optional)"
+        control={control}
+        className="flex-1"
+        label=""
+      />
+      <SubdivisionSelect
+        name={`rules.${index}.region`}
+        countryFieldName={`rules.${index}.country`}
+        placeholder="Region (optional)"
+        control={control}
+        className="flex-1"
+        label=""
+      />
+      <InputFormField
+        name={`rules.${index}.rate`}
+        placeholder="Rate (%)"
+        control={control}
+        containerClassName="w-24"
+      />
+      {showRemove && (
+        <Button type="button" size="icon" variant="ghost" onClick={() => onRemove(index)}>
+          <Trash2Icon className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  )
+}
 
 export const TaxesTab = () => {
   const queryClient = useQueryClient()
@@ -432,36 +478,13 @@ export const TaxesTab = () => {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Tax Rules</label>
                 {customTaxMethods.watch('rules').map((_, index) => (
-                  <div key={index} className="flex gap-2">
-                    <InputFormField
-                      name={`rules.${index}.country`}
-                      placeholder="Country (optional)"
-                      control={customTaxMethods.control}
-                      containerClassName="flex-1"
-                    />
-                    <InputFormField
-                      name={`rules.${index}.region`}
-                      placeholder="Region (optional)"
-                      control={customTaxMethods.control}
-                      containerClassName="flex-1"
-                    />
-                    <InputFormField
-                      name={`rules.${index}.rate`}
-                      placeholder="Rate (%)"
-                      control={customTaxMethods.control}
-                      containerClassName="w-24"
-                    />
-                    {customTaxMethods.watch('rules').length > 1 && (
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleRemoveTaxRule(index)}
-                      >
-                        <Trash2Icon className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
+                  <TaxRuleRow
+                    key={index}
+                    index={index}
+                    control={customTaxMethods.control}
+                    onRemove={handleRemoveTaxRule}
+                    showRemove={customTaxMethods.watch('rules').length > 1}
+                  />
                 ))}
                 <Button type="button" size="sm" variant="outline" onClick={handleAddTaxRule}>
                   <PlusIcon className="h-4 w-4 mr-2" />

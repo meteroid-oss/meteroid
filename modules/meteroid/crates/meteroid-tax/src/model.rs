@@ -1,6 +1,8 @@
+use common_domain::country::CountryCode;
+
 #[derive(Debug, Clone)]
 pub struct Address {
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub postal_code: Option<String>,
     pub line1: Option<String>,
     pub city: Option<String>,
@@ -43,7 +45,7 @@ impl Clone for CustomerTax {
 
 #[derive(Debug, Clone)]
 pub struct TaxRule {
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub region: Option<String>,
     pub rate: rust_decimal::Decimal,
 }

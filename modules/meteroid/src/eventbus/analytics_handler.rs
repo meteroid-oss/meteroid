@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::constants::OSS_API;
 use common_build_info::BuildInfo;
 use common_config::analytics::AnalyticsConfig;
+use common_domain::country::CountryCode;
 use common_eventbus::{
     Event, EventData, EventDataDetails, EventDataWithMetadataDetails, TenantEventDataDetails,
 };
@@ -30,7 +31,7 @@ pub struct AnalyticsHandler {
 }
 
 impl AnalyticsHandler {
-    pub fn new(config: AnalyticsConfig, store: Store, country: Option<String>) -> Self {
+    pub fn new(config: AnalyticsConfig, store: Store, country: Option<CountryCode>) -> Self {
         let build_info = BuildInfo::get();
 
         // https://segment.com/docs/connections/spec/common/#context
@@ -43,7 +44,7 @@ impl AnalyticsHandler {
                 "arch": build_info.target_arch,
             },
             "git_info": build_info.git_info,
-            "country": country.unwrap_or_else(|| "unknown".to_string()),
+            "country": country.unwrap_or_default(),
         });
 
         AnalyticsHandler {
@@ -649,7 +650,7 @@ impl EventHandler<Event> for AnalyticsHandler {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct GeoIp {
-    pub country: String,
+    pub country: CountryCode,
 }
 
 pub async fn get_geoip() -> Result<GeoIp, String> {

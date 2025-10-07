@@ -1,11 +1,3 @@
-use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
-use diesel_models::invoicing_entities::{
-    InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
-    InvoicingEntityRowProvidersPatch,
-};
-use diesel_models::organizations::OrganizationRow;
-use error_stack::Report;
-
 use crate::StoreResult;
 use crate::domain::invoicing_entities::InvoicingEntity;
 use crate::domain::{
@@ -14,6 +6,14 @@ use crate::domain::{
 };
 use crate::errors::StoreError;
 use crate::store::{PgConn, Store, StoreInternal};
+use common_domain::country::CountryCode;
+use common_domain::ids::{BaseId, InvoicingEntityId, OrganizationId, TenantId};
+use diesel_models::invoicing_entities::{
+    InvoicingEntityProvidersRow, InvoicingEntityRow, InvoicingEntityRowPatch,
+    InvoicingEntityRowProvidersPatch,
+};
+use diesel_models::organizations::OrganizationRow;
+use error_stack::Report;
 
 #[async_trait::async_trait]
 pub trait InvoicingEntityInterface {
@@ -217,7 +217,7 @@ impl StoreInternal {
         conn: &mut PgConn,
         invoicing_entity: InvoicingEntityNew,
         tenant_id: TenantId,
-        default_country: String,
+        default_country: CountryCode,
         trade_name: String,
     ) -> StoreResult<InvoicingEntity> {
         let other_exists = InvoicingEntityRow::exists_any_for_tenant(conn, tenant_id)

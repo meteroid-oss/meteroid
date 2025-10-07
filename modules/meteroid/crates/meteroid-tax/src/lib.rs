@@ -124,9 +124,9 @@ impl TaxEngine for MeteroidTaxEngine {
         };
 
         let scenario = TaxScenario::new(
-            Region::new(invoicing_entity_country.clone(), None)
+            Region::new(invoicing_entity_country.code.clone(), None)
                 .change_context(TaxEngineError::InvalidCountryOrRegion)?,
-            Region::new(customer_billing_country.clone(), None)
+            Region::new(customer_billing_country.code.clone(), None)
                 .change_context(TaxEngineError::InvalidCountryOrRegion)?,
             match is_b2b {
                 true => world_tax::TransactionType::B2B,

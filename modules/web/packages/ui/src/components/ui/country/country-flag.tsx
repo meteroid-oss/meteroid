@@ -1,19 +1,31 @@
-import { countries } from '@ui/components/ui/country/data'
 import { Flex } from '@ui/components/ui/flex'
 
-export const CountryFlag = ({ name }: { name?: string }) => {
-  const country = name ? Object.values(countries).find(c => c.name === name) : undefined
+const getCountryName = (code: string): string => {
+  try {
+    const displayNames = new Intl.DisplayNames(['en'], { type: 'region' })
+    return displayNames.of(code) ?? code
+  } catch {
+    return code
+  }
+}
 
-  return country ? (
+export const CountryFlag = ({ name }: { name?: string }) => {
+  if (!name) {
+    return null
+  }
+
+  // Assume it's a country code (2 letters)
+  const countryCode = name.toUpperCase()
+  const countryName = getCountryName(countryCode)
+
+  return (
     <Flex align="center" className="gap-2">
       <img
-        src={`https://flagcdn.com/w40/${country.code.toLowerCase()}.png`}
+        src={`https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`}
         width="14"
-        alt={country.name}
+        alt={countryName}
       />
-      <div>{country.name}</div>
+      <div>{countryName}</div>
     </Flex>
-  ) : (
-    <div>{name}</div>
   )
 }

@@ -28,6 +28,7 @@ typst-svg = { workspace = true }
 typst-as-lib = { workspace = true }
 derive_typst_intoval = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+common-domain.workspace = true
 
 [build-dependencies]
 serde.workspace = true

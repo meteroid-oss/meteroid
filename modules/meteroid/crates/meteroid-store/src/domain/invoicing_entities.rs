@@ -3,6 +3,7 @@ use secrecy::SecretString;
 use crate::StoreResult;
 use crate::domain::connectors::{Connector, ConnectorMeta};
 use crate::domain::{Address, BankAccount, TaxResolverEnum};
+use common_domain::country::CountryCode;
 use common_domain::ids::{
     BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
 };
@@ -39,7 +40,7 @@ pub struct InvoicingEntity {
     pub vat_number: Option<String>,
 
     // immutable
-    pub country: String,
+    pub country: CountryCode,
     // immutable
     pub accounting_currency: String,
     pub tenant_id: TenantId,
@@ -66,7 +67,7 @@ impl InvoicingEntity {
 
 #[derive(Clone, Debug, Default)]
 pub struct InvoicingEntityNew {
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub legal_name: Option<String>,
     pub invoice_number_pattern: Option<String>,
     pub next_invoice_number: Option<i64>,
@@ -105,7 +106,7 @@ pub struct InvoicingEntityPatch {
     pub state: Option<String>,
     pub city: Option<String>,
     pub vat_number: Option<String>,
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     #[map(~.map(|x| x.into()))]
     pub tax_resolver: Option<TaxResolverEnum>,
 }

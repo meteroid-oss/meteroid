@@ -1,5 +1,6 @@
 use super::ids;
 use chrono::{NaiveDate, NaiveDateTime};
+use common_domain::country::CountryCode;
 use diesel_async::AsyncConnection;
 use diesel_async::scoped_futures::ScopedFutureExt;
 use diesel_models::api_tokens::ApiTokenRowNew;
@@ -28,7 +29,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             id: ids::ORGANIZATION_ID,
             trade_name: "Local Org".to_string(),
             slug: "TESTORG".to_string(),
-            default_country: "FR".to_string(),
+            default_country: CountryCode::from_str("FR").expect("failed to parse country code"),
         }.insert(tx).await?;
 
         OrganizationRow::update_invite_link(
@@ -93,7 +94,7 @@ pub async fn run_minimal_seed(pool: &PgPool) {
             state: None,
             city: None,
             vat_number: None,
-            country: "FR".to_string(),
+            country: CountryCode::from_str("FR").expect("failed to parse country code"),
             accounting_currency: "EUR".to_string(),
             tenant_id: ids::TENANT_ID,
             card_provider_id: None,

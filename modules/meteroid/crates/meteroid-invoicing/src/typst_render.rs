@@ -63,7 +63,8 @@ impl TypstAddress {
         let country_name = address
             .country
             .as_ref()
-            .and_then(|code| l10n::get_country_local_name(lang, code).map(|name| name.to_string()));
+            .map(|code| l10n::get_country_local_name(lang, &code.code).unwrap_or(&code.name))
+            .map(|name| name.to_string());
 
         TypstAddress {
             line1: address.line1.clone().unwrap_or_default(),

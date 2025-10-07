@@ -33,6 +33,7 @@ import {
   IntegrationType,
   SyncInvoiceModal,
 } from '@/features/settings/integrations/SyncInvoiceModal'
+import { getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -503,7 +504,10 @@ export const InvoiceView: React.FC<Props & { invoiceId: string }> = ({ invoice, 
                 />
                 <FlexDetails
                   title="Country"
-                  value={invoice.customerDetails.billingAddress.country}
+                  value={
+                    invoice.customerDetails.billingAddress.country &&
+                    getCountryName(invoice.customerDetails.billingAddress.country)
+                  }
                 />
               </>
             )}

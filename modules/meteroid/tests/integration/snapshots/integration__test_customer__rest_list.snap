@@ -1,6 +1,5 @@
 ---
 source: modules/meteroid/tests/integration/test_customer.rs
-assertion_line: 393
 expression: "&list"
 ---
 {
@@ -40,7 +39,7 @@ expression: "&list"
       "bank_account_id": null,
       "billing_address": {
         "city": "Test City",
-        "country": "Testland",
+        "country": "FR",
         "line1": "123 Test St",
         "zip_code": "12345"
       },

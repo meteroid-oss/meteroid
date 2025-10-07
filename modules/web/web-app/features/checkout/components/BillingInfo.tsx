@@ -3,18 +3,17 @@ import {
   createProtobufSafeUpdater,
   useMutation,
 } from '@connectrpc/connect-query'
-import { Button, Card, ComboboxFormField, Form, InputFormField, Label } from '@md/ui'
+import { Button, Card, Form, InputFormField, Label } from '@md/ui'
 import { useQueryClient } from '@tanstack/react-query'
 import { Edit2, PlusIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { CountrySelect } from '@/components/CountrySelect'
+import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
-import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import {
   getSubscriptionCheckout,
   updateCustomer,
@@ -63,9 +62,6 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
     },
   })
 
-  const getCountriesQuery = useQuery(getCountries)
-  const countries = getCountriesQuery.data?.countries || []
-
   const methods = useZodForm({
     schema: billingInfoSchema,
     defaultValues: {
@@ -112,9 +108,6 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
     })
   }
 
-  const countryCode = methods.watch('country')
-  const selectedCountry = countries.find(c => c.code === countryCode)
-
   if (!isEditing) {
     return (
       <>
@@ -134,12 +127,11 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
                   {customer.billingAddress.city}, {customer.billingAddress.state}{' '}
                   {customer.billingAddress.zipCode}
                   <br />
-                  {selectedCountry ? (
+                  {customer.billingAddress.country && (
                     <span>
-                      {getCountryFlagEmoji(selectedCountry.code)} {selectedCountry.name}
+                      {getCountryFlagEmoji(customer.billingAddress.country)}{' '}
+                      {getCountryName(customer.billingAddress.country)}
                     </span>
-                  ) : (
-                    customer.billingAddress.country
                   )}
                 </div>
               )}
@@ -197,24 +189,12 @@ export const BillingInfo = ({ customer, isEditing, setIsEditing }: BillingInfoPr
           <div className="">
             <Label className="font-normal text-xs mb-3">Billing address</Label>
 
-            <ComboboxFormField
+            <CountrySelect
               name="country"
               control={methods.control}
               className="rounded-b-none border-b-0 mt-1 text-xs"
               placeholder="Country"
-              hasSearch
-              options={
-                getCountriesQuery.data?.countries.map(country => ({
-                  label: (
-                    <span className="flex flex-row">
-                      <span className="pr-2">{getCountryFlagEmoji(country.code)}</span>
-                      <span>{country.name}</span>
-                    </span>
-                  ),
-                  value: country.code,
-                  keywords: [country.name, country.code],
-                })) ?? []
-              }
+              label=""
             />
 
             <InputFormField

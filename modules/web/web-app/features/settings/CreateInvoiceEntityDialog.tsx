@@ -5,7 +5,6 @@ import {
 } from '@connectrpc/connect-query'
 import {
   Button,
-  ComboboxFormField,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -19,10 +18,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
-import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { CountrySelect } from '@/components/CountrySelect'
 import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
-import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import {
   createInvoicingEntity,
   listInvoicingEntities,
@@ -62,8 +59,6 @@ export const CreateInvoicingEntityDialog = ({
     },
   })
 
-  const getCountriesQuery = useQuery(getCountries)
-
   const methods = useZodForm({
     schema: createInvoicingEntitySchema,
   })
@@ -98,24 +93,11 @@ export const CreateInvoicingEntityDialog = ({
                 containerClassName="col-span-4"
               />
 
-              <ComboboxFormField
+              <CountrySelect
                 name="country"
                 label="Incorporation country"
                 control={methods.control}
                 placeholder="Select"
-                hasSearch
-                options={
-                  getCountriesQuery.data?.countries.map(country => ({
-                    label: (
-                      <span className="flex flex-row">
-                        <span className="pr-2">{getCountryFlagEmoji(country.code)}</span>
-                        <span>{country.name}</span>
-                      </span>
-                    ),
-                    value: country.code,
-                    keywords: [country.name, country.code],
-                  })) ?? []
-                }
               />
             </div>
             <DialogFooter>

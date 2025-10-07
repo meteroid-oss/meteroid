@@ -1,7 +1,6 @@
 import { createConnectQueryKey, useMutation } from '@connectrpc/connect-query'
 import {
   Button,
-  ComboboxFormField,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -17,10 +16,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CountrySelect } from '@/components/CountrySelect'
 import { CurrencySelect } from '@/components/CurrencySelect'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
 import {
   createBankAccount,
   listBankAccounts,
@@ -32,7 +30,6 @@ import {
   IbanBicSwift,
   SortCodeAccountNumber,
 } from '@/rpc/api/bankaccounts/v1/models_pb'
-import { getCountries } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 
 const baseSchema = z.object({
   currency: z.string().min(3, 'Currency is required'),
@@ -81,7 +78,6 @@ interface AddBankAccountModalProps {
 
 export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps) => {
   const queryClient = useQueryClient()
-  const getCountriesQuery = useQuery(getCountries)
 
   const createBankAccountMut = useMutation(createBankAccount, {
     onSuccess: () => {
@@ -181,25 +177,11 @@ export const AddBankAccountModal = ({ open, onClose }: AddBankAccountModalProps)
                 className="uppercase"
               />
 
-              <ComboboxFormField
+              <CountrySelect
                 name="country"
                 label="Country"
                 control={methods.control}
-                className="rounded-b-none   text-xs"
                 placeholder="Country"
-                hasSearch
-                options={
-                  getCountriesQuery.data?.countries.map(country => ({
-                    label: (
-                      <span className="flex flex-row">
-                        <span className="pr-2">{getCountryFlagEmoji(country.code)}</span>
-                        <span>{country.name}</span>
-                      </span>
-                    ),
-                    value: country.code,
-                    keywords: [country.name, country.code],
-                  })) ?? []
-                }
               />
             </div>
 

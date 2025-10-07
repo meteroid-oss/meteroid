@@ -27,7 +27,7 @@ import { z } from 'zod'
 import { Loading } from '@/components/Loading'
 import { InvoicingEntitySelect } from '@/features/settings/components/InvoicingEntitySelect'
 import { useInvoicingEntity } from '@/features/settings/hooks/useInvoicingEntity'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { Methods, useZodForm } from '@/hooks/useZodForm'
 import { useQuery } from '@/lib/connectrpc'
 import { env } from '@/lib/env'
@@ -407,7 +407,7 @@ const CountrySelect = ({
         <SelectContent hideWhenDetached>
           {countryData?.currency && (
             <SelectItem value={countryData.code}>
-              {getCountryFlagEmoji(countryData.code)} {countryData.name}{' '}
+              {getCountryFlagEmoji(countryData.code)} {getCountryName(countryData.code)}{' '}
             </SelectItem>
           )}
         </SelectContent>

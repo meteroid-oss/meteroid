@@ -1,4 +1,5 @@
 pub mod invoicing_entities {
+    use common_domain::country::CountryCode;
     use common_domain::ids::{InvoicingEntityId, StoredDocumentId};
 
     use meteroid_grpc::meteroid::api::invoicingentities::v1 as server;
@@ -25,7 +26,7 @@ pub mod invoicing_entities {
             state: proto.state,
             city: proto.city,
             vat_number: proto.vat_number,
-            country: proto.country,
+            country: CountryCode::from_proto_opt(proto.country)?,
             tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver)
                 .unwrap_or(meteroid_store::domain::enums::TaxResolverEnum::None),
         })
@@ -79,7 +80,7 @@ pub mod invoicing_entities {
             state: proto.state,
             city: proto.city,
             vat_number: proto.vat_number,
-            country: proto.country,
+            country: None, // country is not editable, TODO remove from proto
             tax_resolver: tax_resolver_server_to_domain(proto.tax_resolver),
         }
     }
@@ -105,7 +106,7 @@ pub mod invoicing_entities {
             state: domain.state,
             city: domain.city,
             vat_number: domain.vat_number,
-            country: domain.country,
+            country: domain.country.as_proto(),
             accounting_currency: domain.accounting_currency,
             tax_resolver: tax_resolver_domain_to_server(domain.tax_resolver).into(),
         }
@@ -127,7 +128,7 @@ pub mod invoicing_entities {
             state: domain.state,
             city: domain.city,
             vat_number: domain.vat_number,
-            country: domain.country,
+            country: domain.country.as_proto(),
         }
     }
 }

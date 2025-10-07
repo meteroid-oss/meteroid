@@ -1,6 +1,7 @@
 use crate::client::StripeClient;
 use crate::error::StripeError;
 use crate::request::RetryStrategy;
+use common_domain::country::CountryCode;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_with::skip_serializing_none;
@@ -27,7 +28,7 @@ pub struct OptionalFieldsAddress {
     /// City, district, suburb, town, or village.
     pub city: Option<String>,
     /// Two-letter country code ([ISO 3166-1 alpha-2](https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2)).
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     /// Address line 1 (e.g., street, PO Box, or company name).
     pub line1: Option<String>,
     /// Address line 2 (e.g., apartment, suite, unit, or building).

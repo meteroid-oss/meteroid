@@ -5,6 +5,7 @@ use meteroid_store::domain::{
     ShippingAddress, TermRate, UsagePricingModel,
 };
 
+use common_domain::country::CountryCode;
 use rust_decimal_macros::dec;
 
 const ENTERPRISE_PLAN: &str = "Enterprise Platform Plan";
@@ -121,7 +122,7 @@ pub fn basic_scenario_1() -> Scenario {
                     line1: Some("42 Rue de la Innovation".to_string()),
                     line2: Some("Bâtiment C, 3ème étage".to_string()),
                     city: Some("Paris".to_string()),
-                    country: Some("FR".to_string()),
+                    country: CountryCode::parse_as_opt("FR"),
                     state: None,
                     zip_code: Some("75008".to_string()),
                 }),
@@ -146,7 +147,7 @@ pub fn basic_scenario_1() -> Scenario {
                     line1: Some("Friedrichstraße 123".to_string()),
                     line2: None,
                     city: Some("Berlin".to_string()),
-                    country: Some("DE".to_string()),
+                    country: CountryCode::parse_as_opt("DE"),
                     state: None,
                     zip_code: Some("10117".to_string()),
                 }),
@@ -155,7 +156,7 @@ pub fn basic_scenario_1() -> Scenario {
                         line1: Some("Warehouse District 45".to_string()),
                         line2: Some("Unit 12B".to_string()),
                         city: Some("Hamburg".to_string()),
-                        country: Some("DE".to_string()),
+                        country: CountryCode::parse_as_opt("DE"),
                         state: None,
                         zip_code: Some("20457".to_string()),
                     }),
@@ -178,7 +179,7 @@ pub fn basic_scenario_1() -> Scenario {
                     line1: Some("15 Canary Wharf".to_string()),
                     line2: Some("Tower 2, Floor 25".to_string()),
                     city: Some("London".to_string()),
-                    country: Some("UK".to_string()),
+                    country: CountryCode::parse_as_opt("GB"),
                     state: None,
                     zip_code: Some("E14 5AB".to_string()),
                 }),

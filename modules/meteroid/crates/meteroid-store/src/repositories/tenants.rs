@@ -12,6 +12,7 @@ use crate::errors::StoreError;
 use crate::repositories::OrganizationsInterface;
 use crate::store::{PgConn, Store, StoreInternal};
 use crate::{StoreResult, domain};
+use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, OrganizationId, TenantId};
 use diesel_models::organizations::OrganizationRow;
 use diesel_models::tenants::{TenantRow, TenantRowNew, TenantRowPatch};
@@ -232,7 +233,7 @@ impl StoreInternal {
         tenant: TenantNew,
         organization_id: OrganizationId,
         trade_name: String,
-        country: String,
+        country: CountryCode,
         existing_tenant_slugs: Vec<String>,
         invoicing_entity: InvoicingEntityNew,
     ) -> StoreResult<Tenant> {

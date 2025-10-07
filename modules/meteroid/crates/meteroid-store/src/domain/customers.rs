@@ -4,6 +4,7 @@ use crate::errors::StoreError;
 use crate::errors::StoreErrorReport;
 use crate::json_value_serde;
 use chrono::NaiveDateTime;
+use common_domain::country::CountryCode;
 use common_domain::ids::{
     AliasOr, BankAccountId, BaseId, ConnectorId, CustomerConnectionId, CustomerId,
     CustomerPaymentMethodId, InvoicingEntityId, TenantId,
@@ -183,7 +184,7 @@ pub struct Address {
     pub line1: Option<String>,
     pub line2: Option<String>,
     pub city: Option<String>,
-    pub country: Option<String>, // TODO mandatory ?
+    pub country: Option<CountryCode>, // TODO mandatory ?
     pub state: Option<String>,
     pub zip_code: Option<String>,
 }

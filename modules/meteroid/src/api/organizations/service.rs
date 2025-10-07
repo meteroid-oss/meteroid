@@ -1,5 +1,4 @@
-use tonic::{Request, Response, Status};
-
+use common_domain::country::CountryCode;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::organizations::v1::{
     CreateOrganizationRequest, CreateOrganizationResponse, GetCurrentOrganizationRequest,
@@ -9,6 +8,7 @@ use meteroid_grpc::meteroid::api::organizations::v1::{
 use meteroid_seeder::presets;
 use meteroid_store::domain::OrganizationNew;
 use meteroid_store::repositories::organizations::OrganizationsInterface;
+use tonic::{Request, Response, Status};
 
 use crate::api::organizations::error::OrganizationApiError;
 
@@ -69,7 +69,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
 
         let organization_new = OrganizationNew {
             trade_name: request.trade_name.clone(),
-            country: request.country.clone(),
+            country: CountryCode::from_proto(request.country.clone())?,
             invoicing_entity: None,
         };
 

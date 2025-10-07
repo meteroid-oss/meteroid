@@ -933,9 +933,13 @@
             ]
           },
           "country": {
-            "type": [
-              "string",
-              "null"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CountryCode"
+              }
             ]
           },
           "line1": {
@@ -1053,6 +1057,15 @@
             "minimum": 0
           }
         }
+      },
+      "CountryCode": {
+        "type": "string",
+        "format": "CountryCode",
+        "examples": [
+          "US",
+          "GB",
+          "FR"
+        ]
       },
       "CreateSubscriptionAddOn": {
         "type": "object",
