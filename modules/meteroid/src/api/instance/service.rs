@@ -9,8 +9,8 @@ use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::Instanc
 use meteroid_grpc::meteroid::api::instance::v1::{
     GetCountriesRequest, GetCountriesResponse, GetCurrenciesRequest, GetCurrenciesResponse,
     GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
-    GetSubdivisionsRequest, GetSubdivisionsResponse,
     GetOrganizationByInviteLinkRequest, GetOrganizationByInviteLinkResponse,
+    GetSubdivisionsRequest, GetSubdivisionsResponse,
 };
 use meteroid_store::constants::{COUNTRIES, CURRENCIES};
 use meteroid_store::repositories::OrganizationsInterface;
