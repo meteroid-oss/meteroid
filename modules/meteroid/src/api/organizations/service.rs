@@ -86,7 +86,7 @@ impl OrganizationsService for OrganizationsServiceComponents {
             organization.organization.id,
             user,
             Some("Sandbox".to_string()),
-            Some(false),
+            Some(true),
         )
         .await
         .map_err(Into::<OrganizationApiError>::into)?;
