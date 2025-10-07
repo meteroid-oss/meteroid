@@ -26,6 +26,7 @@ export const ValidateEmailForm = () => {
       password: '',
       confirmPassword: '',
     },
+    mode: 'onTouched',
   })
 
   const registerMut = useMutation(completeRegistration, {
@@ -34,6 +35,8 @@ export const ValidateEmailForm = () => {
       setSession(res)
     },
   })
+
+  // http://localhost:5173/invite?token=G3F5R3eEHV8lQkjVg3HbSk66qdm3jWm6
 
   const onSubmit = async (data: z.infer<typeof schemas.me.validateEmailSchema>) => {
     await registerMut.mutateAsync({

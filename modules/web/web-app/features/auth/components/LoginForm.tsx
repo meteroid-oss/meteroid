@@ -25,9 +25,17 @@ export const LoginForm = () => {
   const loginMutation = useMutation(login, {
     onSuccess: data => {
       setSession(data)
+
+      // Check if there's a pending invite token
+      const pendingInvite = sessionStorage.getItem('pending_invite_token')
+
       // Small delay to ensure session is persisted before navigation
       setTimeout(() => {
-        navigate('/')
+        if (pendingInvite) {
+          navigate(`/invite-authenticated?token=${pendingInvite}`)
+        } else {
+          navigate('/')
+        }
       }, 50)
     },
   })

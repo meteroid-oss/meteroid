@@ -54,7 +54,7 @@ export const errorInterceptor: Interceptor = next => async req => {
             setTimeout(() => {
               isRedirecting = false;
             }, 1000);
-            window.location.href = "/logout"
+            // window.location.href = "/logout"
           }, 2000)
         }
         throw e

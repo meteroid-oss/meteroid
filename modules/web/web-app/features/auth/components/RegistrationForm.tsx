@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 import { useZodForm } from '@/hooks/useZodForm'
 import { schemas } from '@/lib/schemas'
+import { INVITE_TOKEN_KEY } from '@/pages/invite/acceptInvite'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { initRegistration } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
@@ -37,6 +38,13 @@ export const RegistrationForm = ({ invite }: { invite?: string }) => {
       email: data.email,
       inviteKey: invite,
     })
+
+    // Clear invite token from sessionStorage after successful registration init
+    // The invite will be handled during completeRegistration
+    if (invite) {
+      sessionStorage.removeItem(INVITE_TOKEN_KEY)
+    }
+
     res.validationRequired
       ? navigate('/check-inbox', {
           state: data.email,

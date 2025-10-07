@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { OnboardingLayout } from '@/components/layouts/OnboardingLayout'
 import { ProtectedRoutes } from '@/features/auth/sessionRoutes'
 import { Logout } from '@/pages/auth'
+import { AcceptInvite, InviteAuthenticated } from '@/pages/invite'
 import { InviteOnboarding, OrganizationOnboarding, UserOnboarding } from '@/pages/onboarding'
 import { OrganizationRoot } from '@/pages/organizationRoot'
 import { Root } from '@/pages/root'
@@ -24,6 +25,10 @@ const router = createBrowserRouter(
             {
               index: true,
               element: <Root />,
+            },
+            {
+              path: '/invite-authenticated',
+              element: <InviteAuthenticated />,
             },
             {
               path: '/onboarding',
@@ -64,6 +69,10 @@ const router = createBrowserRouter(
         {
           path: '/logout',
           element: <Logout />,
+        },
+        {
+          path: '/invite',
+          element: <AcceptInvite />,
         },
       ],
     },
