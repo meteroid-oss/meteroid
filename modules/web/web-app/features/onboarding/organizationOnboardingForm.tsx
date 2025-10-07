@@ -8,7 +8,6 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  ComboboxFormField,
   Flex,
   Form,
   InputFormField,
@@ -19,22 +18,16 @@ import { ArrowLeft, ChevronDown } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 
+import { CountrySelect } from '@/components/CountrySelect'
 import { AccountingCurrencySelect } from '@/features/onboarding/accountingCurrencySelect'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
 import { useZodForm } from '@/hooks/useZodForm'
-import { useQuery } from '@/lib/connectrpc'
 import { queryClient } from '@/lib/react-query'
 import { schemas } from '@/lib/schemas'
-import {
-  getCountries,
-  getInstance,
-} from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
+import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 import { createOrganization } from '@/rpc/api/organizations/v1/organizations-OrganizationsService_connectquery'
 import { me } from '@/rpc/api/users/v1/users-UsersService_connectquery'
 
 export const OrganizationOnboardingForm = () => {
-  const getCountriesQuery = useQuery(getCountries)
-
   const navigate = useNavigate()
 
   const methods = useZodForm({
@@ -107,24 +100,11 @@ export const OrganizationOnboardingForm = () => {
           </Flex>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-5">
-            <ComboboxFormField
+            <CountrySelect
               name="country"
               label="Incorporation country"
               control={methods.control}
               placeholder="Select"
-              hasSearch
-              options={
-                getCountriesQuery.data?.countries.map(country => ({
-                  label: (
-                    <span className="flex flex-row">
-                      <span className="pr-2">{getCountryFlagEmoji(country.code)}</span>
-                      <span>{country.name}</span>
-                    </span>
-                  ),
-                  value: country.code,
-                  keywords: [country.name, country.code],
-                })) ?? []
-              }
             />
 
             <div className="space-y-1">

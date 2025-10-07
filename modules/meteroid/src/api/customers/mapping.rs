@@ -1,10 +1,10 @@
 pub mod customer {
-    use error_stack::Report;
-
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::error::CustomerApiError;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use crate::api::shared::mapping::datetime::chrono_to_timestamp;
+    use common_domain::country::CountryCode;
+    use error_stack::Report;
     use meteroid_grpc::meteroid::api::customers::v1 as server;
     use meteroid_store::domain;
     use meteroid_store::errors::StoreError;
@@ -19,7 +19,7 @@ pub mod customer {
                 line1: value.line1,
                 line2: value.line2,
                 city: value.city,
-                country: value.country,
+                country: value.country.map(|c| c.as_proto()),
                 state: value.state,
                 zip_code: value.zip_code,
             }))
@@ -36,7 +36,9 @@ pub mod customer {
                 line1: value.line1,
                 line2: value.line2,
                 city: value.city,
-                country: value.country,
+                country: CountryCode::from_proto_opt(value.country).map_err(|_| {
+                    CustomerApiError::InvalidArgument("Invalid country code".into())
+                })?,
                 state: value.state,
                 zip_code: value.zip_code,
             }))
@@ -131,7 +133,8 @@ pub mod customer {
                 country: value
                     .billing_address
                     .as_ref()
-                    .and_then(|v| v.country.clone()),
+                    .and_then(|v| v.country.clone())
+                    .map(|c| c.as_proto()),
                 billing_email: value.billing_email,
                 created_at: value.created_at.as_proto(),
             }))

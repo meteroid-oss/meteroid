@@ -1,5 +1,6 @@
 use crate::domain::{InvoicingEntityNew, Tenant};
 use chrono::NaiveDateTime;
+use common_domain::country::CountryCode;
 use common_domain::ids::OrganizationId;
 use common_utils::rng::UPPER_ALPHANUMERIC;
 use diesel_models::organizations::OrganizationRow;
@@ -14,7 +15,7 @@ pub struct Organization {
     // when a trade name gets changed, or an accounting entity gets set as default and has a different country, we update the defaults
     // This is just to simplify creating more tenants
     pub trade_name: String,
-    pub default_country: String,
+    pub default_country: CountryCode,
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
     // pub invite_link_hash: Option<String>,
@@ -34,7 +35,7 @@ impl Organization {
 #[derive(Clone, Debug)]
 pub struct OrganizationNew {
     pub trade_name: String,
-    pub country: String,
+    pub country: CountryCode,
     pub invoicing_entity: Option<InvoicingEntityNew>,
 }
 

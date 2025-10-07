@@ -1,5 +1,6 @@
 use chrono::NaiveDateTime;
 
+use common_domain::country::CountryCode;
 use common_domain::ids::OrganizationId;
 use diesel::{Identifiable, Insertable, Queryable, Selectable};
 
@@ -13,7 +14,7 @@ pub struct OrganizationRow {
     pub created_at: NaiveDateTime,
     pub archived_at: Option<NaiveDateTime>,
     pub invite_link_hash: Option<String>,
-    pub default_country: String,
+    pub default_country: CountryCode,
 }
 
 #[derive(Debug, Insertable)]
@@ -23,5 +24,5 @@ pub struct OrganizationRowNew {
     pub id: OrganizationId,
     pub slug: String,
     pub trade_name: String,
-    pub default_country: String,
+    pub default_country: CountryCode,
 }

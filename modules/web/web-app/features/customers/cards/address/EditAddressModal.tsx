@@ -5,6 +5,7 @@ import { ComponentProps } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { CountrySelect } from '@/components/CountrySelect'
 import { addressesSchema } from '@/features/customers/cards/address/schema'
 import { useZodForm } from '@/hooks/useZodForm'
 import {
@@ -67,7 +68,7 @@ export const EditAddressModal = ({customer, ...props}: Props) => {
               <InputFormField label="Line 1" name="billing_address.line1" {...inputProps} />
               <InputFormField label="Line 2" name="billing_address.line2" {...inputProps} />
               <InputFormField label="City" name="billing_address.city" {...inputProps} />
-              <InputFormField label="Country" name="billing_address.country" {...inputProps} />
+              <CountrySelect name="billing_address.country" control={methods.control} />
               <InputFormField label="State" name="billing_address.state" {...inputProps} />
               <InputFormField label="Zip Code" name="billing_address.zipcode" {...inputProps} />
 
@@ -96,11 +97,7 @@ export const EditAddressModal = ({customer, ...props}: Props) => {
                     name="shipping_address.address.city"
                     {...inputProps}
                   />
-                  <InputFormField
-                    label="Country"
-                    name="shipping_address.address.country"
-                    {...inputProps}
-                  />
+                  <CountrySelect name="shipping_address.address.country" control={methods.control} />
                   <InputFormField
                     label="State"
                     name="shipping_address.address.state"

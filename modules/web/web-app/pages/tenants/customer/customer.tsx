@@ -10,14 +10,12 @@ import { SubscriptionsCard } from '@/features/customers/cards/SubscriptionsCard'
 import { AddressLinesCompact } from '@/features/customers/cards/address/AddressCard'
 import { EditCustomerModal } from '@/features/customers/cards/customer/EditCustomerModal'
 import { CustomerInvoiceModal } from '@/features/customers/modals/CustomerInvoiceModal'
-import { getCountryFlagEmoji } from '@/features/settings/utils'
+import { getCountryFlagEmoji, getCountryName } from '@/features/settings/utils'
 import { useBasePath } from '@/hooks/useBasePath'
 import { useQuery } from '@/lib/connectrpc'
 import { getLatestConnMeta } from '@/pages/tenants/utils'
 import { getCustomerById } from '@/rpc/api/customers/v1/customers-CustomersService_connectquery'
-import {
-  getInvoicingEntity
-} from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
+import { getInvoicingEntity } from '@/rpc/api/invoicingentities/v1/invoicingentities-InvoicingEntitiesService_connectquery'
 import { useTypedParams } from '@/utils/params'
 
 export const Customer = () => {
@@ -66,15 +64,15 @@ export const Customer = () => {
           />
           {isLoading || !data ? (
             <>
-              <Skeleton height={16} width={50}/>
-              <Skeleton height={44}/>
+              <Skeleton height={16} width={50} />
+              <Skeleton height={44} />
             </>
           ) : (
             <Flex className="h-full">
               <Flex direction="column" className="gap-4 w-2/3 border-r border-border px-12 py-6">
                 <div className="text-lg font-medium">Overview</div>
                 <div className="grid grid-cols-2 gap-x-4">
-                  <OverviewCard title="MRR" value={undefined}/>
+                  <OverviewCard title="MRR" value={undefined} />
                   <OverviewCard
                     title="Balance"
                     value={data?.balanceValueCents ? Number(data.balanceValueCents) : undefined}
@@ -89,42 +87,42 @@ export const Customer = () => {
                       navigate(`${basePath}/subscriptions/create?customerId=${customerId}`)
                     }
                   >
-                    <Plus size={10}/> New subscription
+                    <Plus size={10} /> New subscription
                   </Flex>
                 </Flex>
                 <div className="flex-none">
-                  <SubscriptionsCard customer={data}/>
+                  <SubscriptionsCard customer={data} />
                 </div>
                 <Flex align="center" justify="between" className="mt-4">
                   <div className="text-lg font-medium">Invoices</div>
                   <Flex
                     align="center"
                     className="gap-1 text-sm cursor-pointer hover:text-primary"
-                    onClick={() =>
-                      navigate(`${basePath}/invoices/create?customerId=${customerId}`)
-                    }
+                    onClick={() => navigate(`${basePath}/invoices/create?customerId=${customerId}`)}
                   >
-                    <Plus size={10}/> New invoice
+                    <Plus size={10} /> New invoice
                   </Flex>
                 </Flex>
                 <div className="flex-none">
-                  <InvoicesCard customer={data}/>
+                  <InvoicesCard customer={data} />
                 </div>
               </Flex>
               <Flex direction="column" className="gap-2 w-1/3">
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-lg font-medium">{data.name}</div>
                   <div className="text-muted-foreground text-[13px] mb-3">{data.alias}</div>
-                  <FlexDetails title="Legal name" value={data.name}/>
-                  <FlexDetails title="Email" value={data.billingEmail}/>
-                  <FlexDetails title="Currency" value={data.currency}/>
+                  <FlexDetails title="Legal name" value={data.name} />
+                  <FlexDetails title="Email" value={data.billingEmail} />
+                  <FlexDetails title="Currency" value={data.currency} />
                   <FlexDetails
                     title="Invoicing Entity"
                     value={
                       invoicingEntityQuery.data?.entity ? (
                         <div className="flex items-center gap-1">
                           {invoicingEntityQuery.data.entity.country && (
-                            <span>{getCountryFlagEmoji(invoicingEntityQuery.data.entity.country)}</span>
+                            <span>
+                              {getCountryFlagEmoji(invoicingEntityQuery.data.entity.country)}
+                            </span>
                           )}
                           <span>{invoicingEntityQuery.data.entity.legalName}</span>
                         </div>
@@ -137,12 +135,24 @@ export const Customer = () => {
                     <FlexDetails
                       title="Address"
                       value={
-                        <AddressLinesCompact address={data.billingAddress} className="text-right"/>
+                        <AddressLinesCompact address={data.billingAddress} className="text-right" />
                       }
                     />
                   )}
 
-                  <FlexDetails title="Country" value={data.billingAddress?.country ?? ''}/>
+                  <FlexDetails
+                    title="Country"
+                    value={
+                      data.billingAddress?.country ? (
+                        <span className="flex items-center gap-1 justify-end">
+                          <span>{getCountryFlagEmoji(data.billingAddress.country)}</span>
+                          <span>{getCountryName(data.billingAddress.country)}</span>
+                        </span>
+                      ) : (
+                        ''
+                      )
+                    }
+                  />
                   <Flex align="center" justify="between">
                     <div className="text-[13px] text-muted-foreground">Address</div>
                     <div className="text-[13px]">{data.billingAddress?.city}</div>
@@ -156,10 +166,10 @@ export const Customer = () => {
                     value={data.vatNumber || (data.isTaxExempt ? 'Tax Exempt' : 'None')}
                   />
                 </Flex>
-                <Separator className="-my-3"/>
+                <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Integrations</div>
-                  <FlexDetails title="Alias (External ID)" value={data.alias}/>
+                  <FlexDetails title="Alias (External ID)" value={data.alias} />
                   {hubspotConnMeta?.externalId && (
                     <FlexDetails
                       title="Hubspot ID"
@@ -174,17 +184,17 @@ export const Customer = () => {
                       externalLink={`https://app.pennylane.com/companies/${pennylaneConnMeta?.externalCompanyId}/thirdparties/customers?id=${pennylaneConnMeta?.externalId}`}
                     />
                   )}
-                  <FlexDetails title="Stripe ID" value="N/A"/>
+                  <FlexDetails title="Stripe ID" value="N/A" />
                 </Flex>
-                <Separator className="-my-3"/>
+                <Separator className="-my-3" />
                 <Flex direction="column" className="gap-2 p-6">
                   <div className="text-[15px] font-medium">Payment</div>
                   <FlexDetails
                     title="Payment method"
                     value={data.currentPaymentMethodId ?? 'None'}
                   />
-                  <FlexDetails title="Payment term" value="N/A"/>
-                  <FlexDetails title="Grace period" value="None"/>
+                  <FlexDetails title="Payment term" value="N/A" />
+                  <FlexDetails title="Grace period" value="None" />
                 </Flex>
               </Flex>
             </Flex>
@@ -195,7 +205,7 @@ export const Customer = () => {
         visible={editPanelVisible}
         closePanel={() => setEditPanelVisible(false)}
       />
-      <CustomerInvoiceModal openState={[createInvoiceVisible, setCreateInvoiceVisible]}/>
+      <CustomerInvoiceModal openState={[createInvoiceVisible, setCreateInvoiceVisible]} />
       {data && (
         <EditCustomerModal
           customer={data}
@@ -208,11 +218,10 @@ export const Customer = () => {
 }
 
 const OverviewCard = ({ title, value }: { title: string; value?: number }) => (
-  <Card
-    className="bg-[#1A1A1A] bg-gradient-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
+  <Card className="bg-[#1A1A1A] bg-gradient-to-t from-[rgba(243,242,241,0.00)] to-[rgba(243,242,241,0.02)] rounded-md p-5">
     <Flex align="center" className="gap-1 text-muted-foreground">
       <div className="text-[13px]">{title}</div>
-      <ChevronDown size={10} className="mt-0.5"/>
+      <ChevronDown size={10} className="mt-0.5" />
     </Flex>
     <div className="mt-4 text-xl">€ {value}</div>
   </Card>

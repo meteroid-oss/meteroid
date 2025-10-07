@@ -1,6 +1,7 @@
 use crate::client::HubspotClient;
 use crate::error::HubspotError;
 use crate::model::{BatchActionRequest, BatchUpsertItemRequest, BatchUpsertResponse};
+use common_domain::country::CountryCode;
 use common_domain::ids::CustomerId;
 use secrecy::SecretString;
 use serde_json::json;
@@ -65,7 +66,7 @@ pub struct CompanyAddress {
     pub line1: Option<String>,
     pub line2: Option<String>,
     pub city: Option<String>,
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub state: Option<String>,
     pub zip_code: Option<String>,
 }

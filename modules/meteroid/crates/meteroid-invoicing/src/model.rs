@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use common_domain::country::CountryCode;
 use rust_decimal::Decimal;
 use rusty_money::iso;
 use rusty_money::iso::Currency;
@@ -53,7 +54,7 @@ pub struct Address {
     pub line1: Option<String>,
     pub line2: Option<String>,
     pub city: Option<String>,
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub state: Option<String>,
     pub zip_code: Option<String>,
 }

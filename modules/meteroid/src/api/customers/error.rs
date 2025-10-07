@@ -15,6 +15,10 @@ pub enum CustomerApiError {
     #[code(InvalidArgument)]
     SerializationError(String, #[source] serde_json::Error),
 
+    #[error("Invalid argument: {0}")]
+    #[code(InvalidArgument)]
+    InvalidArgument(String),
+
     #[error("Mapping error: {0}")]
     #[code(Internal)]
     MappingError(String, #[source] crate::api::errors::DatabaseError),

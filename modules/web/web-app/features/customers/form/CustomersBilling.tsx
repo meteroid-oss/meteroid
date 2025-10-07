@@ -7,16 +7,12 @@ import {
   FormLabel,
   FormMessage,
   InputFormField,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from '@md/ui'
 import { ChevronRight } from 'lucide-react'
 import { useState } from 'react'
 import { useFormContext } from 'react-hook-form'
 
+import { CountrySelect } from '@/components/CountrySelect'
 import { CreateCustomerSchema } from '@/lib/schemas/customers'
 
 export const CustomersBilling = () => {
@@ -41,30 +37,7 @@ export const CustomersBilling = () => {
       </Flex>
       {visible && (
         <>
-
-          <FormField
-            control={control}
-            name="country"
-            render={({ field }) => (
-              <FormItem className="mb-2">
-                <FormLabel>Billing details</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Choose a country..." />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="US">United States</SelectItem>
-                    <SelectItem value="UK">United Kingdom</SelectItem>
-                    <SelectItem value="FR">France</SelectItem>
-                    <SelectItem value="DE">Germany</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          <CountrySelect name="country" control={control} label="Billing details" />
           <Flex direction="column" className="gap-1.5">
             <InputFormField
               name="addressLine1"

@@ -1,10 +1,10 @@
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::json_value_serde;
+use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, CustomTaxId, InvoicingEntityId, ProductId};
 use diesel_models::accounting::{CustomTaxRow, ProductAccountingRow, ProductAccountingWithTaxRow};
 use o2o::o2o;
 use serde::{Deserialize, Serialize};
-
-use crate::errors::{StoreError, StoreErrorReport};
 
 #[derive(Debug, Clone, o2o)]
 #[try_map_owned(CustomTaxRow, StoreErrorReport)]
@@ -48,7 +48,7 @@ pub struct CustomTaxNew {
 #[derive(Debug, Clone, Serialize, Deserialize, o2o)]
 #[owned_into(meteroid_tax::TaxRule)]
 pub struct CustomTaxRule {
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub region: Option<String>,
     pub rate: rust_decimal::Decimal,
 }

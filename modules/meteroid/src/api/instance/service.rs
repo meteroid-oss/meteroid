@@ -1,12 +1,15 @@
 use tonic::{Request, Response, Status};
 
+use common_domain::country::CountryCode;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::api::instance::v1::get_countries_response::Country as GrpcCountry;
 use meteroid_grpc::meteroid::api::instance::v1::get_currencies_response::Currency as GrpcCurrency;
+use meteroid_grpc::meteroid::api::instance::v1::get_subdivisions_response::Subdivision as GrpcSubdivision;
 use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::InstanceService;
 use meteroid_grpc::meteroid::api::instance::v1::{
     GetCountriesRequest, GetCountriesResponse, GetCurrenciesRequest, GetCurrenciesResponse,
     GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
+    GetSubdivisionsRequest, GetSubdivisionsResponse,
     GetOrganizationByInviteLinkRequest, GetOrganizationByInviteLinkResponse,
 };
 use meteroid_store::constants::{COUNTRIES, CURRENCIES};
@@ -101,5 +104,25 @@ impl InstanceService for InstanceServiceComponents {
             .collect();
 
         Ok(Response::new(GetCurrenciesResponse { currencies }))
+    }
+
+    async fn get_subdivisions(
+        &self,
+        request: Request<GetSubdivisionsRequest>,
+    ) -> Result<Response<GetSubdivisionsResponse>, Status> {
+        let country_code = request.into_inner().country_code;
+
+        let country = CountryCode::from_proto(&country_code)?;
+
+        let subdivisions = country
+            .subdivisions()
+            .into_iter()
+            .map(|subdivision| GrpcSubdivision {
+                code: subdivision.code,
+                name: subdivision.name,
+            })
+            .collect();
+
+        Ok(Response::new(GetSubdivisionsResponse { subdivisions }))
     }
 }

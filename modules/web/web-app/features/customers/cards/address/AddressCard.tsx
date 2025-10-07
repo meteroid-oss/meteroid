@@ -4,6 +4,7 @@ import { ComponentProps, useState } from 'react'
 import { PageSection } from '@/components/layouts/shared/PageSection'
 import { CardAction } from '@/features/customers/cards/CardAction'
 import { EditAddressModal } from '@/features/customers/cards/address/EditAddressModal'
+import { getCountryName } from '@/features/settings/utils'
 import { Address, Customer } from '@/rpc/api/customers/v1/models_pb'
 
 type Props = Pick<ComponentProps<typeof PageSection>, 'className'> & {
@@ -17,7 +18,7 @@ export const AddressLines = ({ address }: { address: Partial<Address> }) => {
       <span>{address.line2}</span>
       <span>{address.city}</span>
       <span>{address.state}</span>
-      <span>{address.country}</span>
+      <span>{address.country && getCountryName(address.country)}</span>
       <span>{address.zipCode}</span>
     </div>
   )

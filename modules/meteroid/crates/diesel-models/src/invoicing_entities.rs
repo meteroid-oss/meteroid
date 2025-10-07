@@ -1,6 +1,7 @@
 use crate::bank_accounts::BankAccountRow;
 use crate::connectors::ConnectorRow;
 use crate::enums::TaxResolverEnum;
+use common_domain::country::CountryCode;
 use common_domain::ids::{
     BankAccountId, ConnectorId, InvoicingEntityId, StoredDocumentId, TenantId,
 };
@@ -28,7 +29,7 @@ pub struct InvoicingEntityRow {
     pub state: Option<String>,
     pub city: Option<String>,
     pub vat_number: Option<String>,
-    pub country: String,
+    pub country: CountryCode,
     pub accounting_currency: String,
     pub tenant_id: TenantId,
     pub card_provider_id: Option<ConnectorId>,
@@ -56,7 +57,7 @@ pub struct InvoicingEntityRowPatch {
     pub state: Option<String>,
     pub city: Option<String>,
     pub vat_number: Option<String>,
-    pub country: Option<String>,
+    pub country: Option<CountryCode>,
     pub accounting_currency: Option<String>,
     pub tax_resolver: Option<TaxResolverEnum>,
 }

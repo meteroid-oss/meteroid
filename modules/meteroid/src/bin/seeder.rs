@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, HashMap};
 use std::env;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use tokio::signal;
 
+use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, OrganizationId};
 use common_logging::logging;
 use common_utils::rng::UPPER_ALPHANUMERIC;
@@ -69,7 +71,8 @@ async fn main() -> error_stack::Result<(), SeederError> {
         .change_context(SeederError::InitializationError)?;
 
     let tenant_currency = "EUR".to_string();
-    let tenant_country = "FR".to_string();
+    let tenant_country =
+        CountryCode::from_str("FR").change_context(SeederError::InitializationError)?;
 
     let now = chrono::Utc::now().naive_utc();
 
@@ -96,7 +99,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
             slug: slugify(&tenant_name),
             name: tenant_name,
             currency: tenant_currency.clone(),
-            country: tenant_country.to_string(),
+            country: tenant_country,
         },
         plans: vec![
             domain::Plan {

@@ -4,6 +4,7 @@ pub mod bank_accounts {
 
     use meteroid_store::domain::bank_accounts as domain;
 
+    use common_domain::country::CountryCode;
     use common_domain::ids::{BankAccountId, BaseId, TenantId};
     use uuid::Uuid;
 
@@ -157,7 +158,9 @@ pub mod bank_accounts {
             id: BankAccountId::new(),
             created_by: actor,
             tenant_id,
-            country: proto.country,
+            country: CountryCode::from_proto(proto.country).map_err(|e| {
+                BankAccountsApiError::InvalidArgument(format!("Invalid country code: {e}"))
+            })?,
             bank_name: proto.bank_name,
             format,
             currency: proto.currency,
@@ -170,7 +173,7 @@ pub mod bank_accounts {
             id: domain.id.as_proto(),
             local_id: domain.id.as_proto(), //todo remove me
             data: Some(server::BankAccountData {
-                country: domain.country,
+                country: domain.country.as_proto(),
                 bank_name: domain.bank_name,
                 format: Some(format::domain_to_proto(
                     domain.format,
@@ -197,7 +200,9 @@ pub mod bank_accounts {
         Ok(domain::BankAccountPatch {
             id: BankAccountId::from_proto(proto.id).unwrap(),
             tenant_id,
-            country: Some(data.country),
+            country: Some(CountryCode::from_proto(data.country).map_err(|e| {
+                BankAccountsApiError::InvalidArgument(format!("Invalid country code, {e}"))
+            })?),
             bank_name: Some(data.bank_name),
             format: Some(format),
             currency: Some(data.currency),

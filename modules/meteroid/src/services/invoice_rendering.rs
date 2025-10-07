@@ -374,7 +374,7 @@ mod mapper {
             })
             .collect();
 
-        let lang = Countries::resolve_country(&invoicing_entity.country)
+        let lang = Countries::resolve_country(&invoicing_entity.country.code)
             .map(|c| c.locale)
             .unwrap_or_else(|| "en-US");
 

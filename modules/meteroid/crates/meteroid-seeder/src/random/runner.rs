@@ -24,6 +24,7 @@ use rand_chacha::ChaCha8Rng;
 
 use chrono::Utc;
 
+use common_domain::country::CountryCode;
 use common_domain::ids::OrganizationId;
 use meteroid_store::domain::{
     Address, InlineCustomer, InlineInvoicingEntity, InvoicePaymentStatus, OrderByRequest,
@@ -189,7 +190,10 @@ pub async fn run(
                     line1: Some(fake_address::StreetName().fake()),
                     line2: None,
                     city: Some(fake_address::CityName().fake()),
-                    country: Some(fake_address::CountryName().fake()),
+                    country: Some(
+                        CountryCode::parse_as_opt(fake_address::CountryCode().fake())
+                            .unwrap_or_default(),
+                    ),
                     state: None,
                     zip_code: Some(fake_address::PostCode().fake()),
                 }),

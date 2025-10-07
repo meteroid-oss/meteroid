@@ -3,6 +3,7 @@ use crate::helpers;
 use crate::meteroid_it;
 use crate::meteroid_it::container::SeedLevel;
 use chrono::NaiveDate;
+use common_domain::country::CountryCode;
 use meteroid_mailer::service::MockMailerService;
 use meteroid_store::Services;
 use meteroid_store::clients::usage::MockUsageClient;
@@ -17,6 +18,7 @@ use meteroid_store::repositories::coupons::CouponInterface;
 use meteroid_store::repositories::invoicing_entities::InvoicingEntityInterface;
 use meteroid_store::store::PgConn;
 use rust_decimal_macros::dec;
+use std::str::FromStr;
 use std::sync::Arc;
 
 #[tokio::test]
@@ -260,7 +262,7 @@ async fn create_french_b2b_customer(
         line1: Some("123 Avenue des Champs-Élysées".to_string()),
         line2: None,
         city: Some("Paris".to_string()),
-        country: Some("FR".to_string()),
+        country: Some(CountryCode::from_str("FR").expect("failed to parse country code")),
         state: Some("Île-de-France".to_string()),
         zip_code: Some("75008".to_string()),
     };
@@ -488,7 +490,7 @@ async fn create_german_b2b_customer(
         line1: Some("Unter den Linden 1".to_string()),
         line2: None,
         city: Some("Berlin".to_string()),
-        country: Some("DE".to_string()),
+        country: Some(CountryCode::from_str("DE").expect("failed to parse country code")),
         state: Some("Berlin".to_string()),
         zip_code: Some("10117".to_string()),
     };
@@ -537,7 +539,7 @@ async fn create_customer_with_custom_tax_rate(
         line1: Some("123 Main Street".to_string()),
         line2: None,
         city: Some("New York".to_string()),
-        country: Some("US".to_string()),
+        country: Some(CountryCode::from_str("US").expect("failed to parse country code")),
         state: Some("NY".to_string()),
         zip_code: Some("10001".to_string()),
     };

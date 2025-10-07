@@ -51,10 +51,24 @@ message GetCurrenciesResponse {
   }
 }
 
+message GetSubdivisionsRequest {
+  string country_code = 1;
+}
+
+message GetSubdivisionsResponse {
+  repeated Subdivision subdivisions = 1;
+
+  message Subdivision {
+    string code = 1;
+    string name = 2;
+  }
+}
+
 service InstanceService {
   rpc GetInstance(GetInstanceRequest) returns (GetInstanceResponse) {}
   rpc GetInvite(GetInviteRequest) returns (GetInviteResponse) {}
   rpc GetOrganizationByInviteLink(GetOrganizationByInviteLinkRequest) returns (GetOrganizationByInviteLinkResponse) {}
   rpc GetCountries(GetCountriesRequest) returns (GetCountriesResponse) {}
   rpc GetCurrencies(GetCurrenciesRequest) returns (GetCurrenciesResponse) {}
+  rpc GetSubdivisions(GetSubdivisionsRequest) returns (GetSubdivisionsResponse) {}
 }

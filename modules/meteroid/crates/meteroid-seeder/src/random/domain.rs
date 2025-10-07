@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use common_domain::country::CountryCode;
 use meteroid_store::domain::PlanTrial;
 use meteroid_store::domain::enums::PlanTypeEnum;
 
@@ -15,7 +16,7 @@ pub struct Tenant {
     pub name: String,
     pub slug: String,
     pub currency: String,
-    pub country: String,
+    pub country: CountryCode,
 }
 
 #[derive(Clone)]

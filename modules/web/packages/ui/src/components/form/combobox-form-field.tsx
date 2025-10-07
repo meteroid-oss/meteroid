@@ -83,7 +83,7 @@ export function ComboboxFormField<
                 </Button>
               </FormControl>
             </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 max-h-9 ">
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
               <Command className="border border-border ">
                 {hasSearch && (
                   <>

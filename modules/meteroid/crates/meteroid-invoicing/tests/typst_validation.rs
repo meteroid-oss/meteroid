@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use common_domain::country::CountryCode;
 use meteroid_invoicing::model::{Coupon, Flags, PaymentStatus, TaxBreakdownItem};
 use meteroid_invoicing::pdf::PdfGenerator;
 use meteroid_invoicing::{
@@ -97,7 +98,7 @@ fn create_minimal_invoice() -> Invoice {
                 line1: Some("123 Test St".to_string()),
                 line2: None,
                 city: Some("Test City".to_string()),
-                country: Some("US".to_string()),
+                country: CountryCode::parse_as_opt("US"),
                 state: None,
                 zip_code: Some("12345".to_string()),
             },
@@ -115,7 +116,7 @@ fn create_minimal_invoice() -> Invoice {
                 line1: Some("456 Customer Ave".to_string()),
                 line2: None,
                 city: Some("Customer City".to_string()),
-                country: Some("US".to_string()),
+                country: CountryCode::parse_as_opt("US"),
                 state: None,
                 zip_code: Some("54321".to_string()),
             },
@@ -195,7 +196,7 @@ fn create_full_invoice() -> Invoice {
                 line1: Some("789 Corporate Blvd".to_string()),
                 line2: Some("Suite 100".to_string()),
                 city: Some("Business City".to_string()),
-                country: Some("US".to_string()),
+                country: CountryCode::parse_as_opt("US"),
                 state: Some("CA".to_string()),
                 zip_code: Some("90210".to_string()),
             },
@@ -213,7 +214,7 @@ fn create_full_invoice() -> Invoice {
                 line1: Some("321 Premium Plaza".to_string()),
                 line2: Some("Floor 25".to_string()),
                 city: Some("Metro City".to_string()),
-                country: Some("GB".to_string()),
+                country: CountryCode::parse_as_opt("US"),
                 state: None,
                 zip_code: Some("SW1A 1AA".to_string()),
             },

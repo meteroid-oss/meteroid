@@ -477,7 +477,7 @@ impl PennylaneSync {
                         let tax_amount = x.tax_amount;
 
                         let vat_rate = if let Some(country) = billing_country {
-                            VatRate::from_decimal(x.tax_rate, country.as_str())
+                            VatRate::from_decimal(x.tax_rate, &country.code)
                                 .unwrap_or(VatRate::EXEMPT)
                         } else {
                             VatRate::EXEMPT
@@ -559,8 +559,10 @@ impl PennylaneSync {
         let postal_code = ba.and_then(|x| x.zip_code.clone()).unwrap_or_default();
         let city = ba.and_then(|x| x.city.clone()).unwrap_or_default();
 
-        // todo check if country is 2 letters
-        let country_alpha2 = ba.and_then(|x| x.country.clone()).unwrap_or_default();
+        let country_alpha2 = ba
+            .and_then(|x| x.country.clone())
+            .map(|c| c.code)
+            .unwrap_or_default();
 
         BillingAddress {
             address,
