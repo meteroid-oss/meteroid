@@ -9,7 +9,7 @@ mod tests {
 
     fn test_address(country: &str, region: Option<&str>) -> Address {
         Address {
-            country: Some(country.to_string()),
+            country: CountryCode::parse_as_opt(country),
             region: region.map(|s| s.to_string()),
             city: None,
             line1: None,
