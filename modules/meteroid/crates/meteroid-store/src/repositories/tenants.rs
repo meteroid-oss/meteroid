@@ -262,7 +262,7 @@ impl StoreInternal {
             slug,
             organization_id,
             available_currencies: vec![Some(currency)],
-            disable_emails: tenant.disable_emails.unwrap_or(false),
+            disable_emails: tenant.disable_emails.unwrap_or(true),
         };
 
         let inserted: Tenant = insertable_tenant
