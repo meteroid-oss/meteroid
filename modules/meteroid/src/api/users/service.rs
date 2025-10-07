@@ -1,13 +1,15 @@
 use common_grpc::middleware::server::auth::RequestExt;
 use common_grpc::middleware::server::idempotency::idempotency_cache;
 use meteroid_grpc::meteroid::api::users::v1::{
-    CompleteRegistrationRequest, CompleteRegistrationResponse, GetUserByIdRequest,
-    GetUserByIdResponse, InitRegistrationRequest, InitRegistrationResponse,
-    InitResetPasswordRequest, InitResetPasswordResponse, ListUsersRequest, ListUsersResponse,
-    LoginRequest, LoginResponse, MeRequest, MeResponse, OnboardMeRequest, OnboardMeResponse,
-    ResetPasswordRequest, ResetPasswordResponse, users_service_server::UsersService,
+    AcceptInviteRequest, AcceptInviteResponse, CompleteRegistrationRequest,
+    CompleteRegistrationResponse, GetUserByIdRequest, GetUserByIdResponse, InitRegistrationRequest,
+    InitRegistrationResponse, InitResetPasswordRequest, InitResetPasswordResponse,
+    ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, MeRequest, MeResponse,
+    OnboardMeRequest, OnboardMeResponse, ResetPasswordRequest, ResetPasswordResponse,
+    users_service_server::UsersService,
 };
 use meteroid_store::domain::users::{LoginUserRequest, RegisterUserRequest, UpdateUser};
+use meteroid_store::repositories::organizations::OrganizationsInterface;
 use meteroid_store::repositories::users::UserInterface;
 use secrecy::{ExposeSecret, SecretString};
 use tonic::{Request, Response, Status};
@@ -234,5 +236,26 @@ impl UsersService for UsersServiceComponents {
             }))
         })
         .await
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn accept_invite(
+        &self,
+        request: Request<AcceptInviteRequest>,
+    ) -> Result<Response<AcceptInviteResponse>, Status> {
+        let actor = request.actor()?;
+        let req = request.into_inner();
+
+        let organization = self
+            .store
+            .accept_invite(actor, req.invite_key)
+            .await
+            .map_err(Into::<UserApiError>::into)?;
+
+        Ok(Response::new(AcceptInviteResponse {
+            organization: Some(
+                super::super::organizations::mapping::organization::domain_to_proto(organization),
+            ),
+        }))
     }
 }

@@ -7,6 +7,7 @@ use meteroid_grpc::meteroid::api::instance::v1::instance_service_server::Instanc
 use meteroid_grpc::meteroid::api::instance::v1::{
     GetCountriesRequest, GetCountriesResponse, GetCurrenciesRequest, GetCurrenciesResponse,
     GetInstanceRequest, GetInstanceResponse, GetInviteRequest, GetInviteResponse,
+    GetOrganizationByInviteLinkRequest, GetOrganizationByInviteLinkResponse,
 };
 use meteroid_store::constants::{COUNTRIES, CURRENCIES};
 use meteroid_store::repositories::OrganizationsInterface;
@@ -50,6 +51,23 @@ impl InstanceService for InstanceServiceComponents {
             .map_err(Into::<InstanceApiError>::into)?;
 
         Ok(Response::new(GetInviteResponse { invite_hash }))
+    }
+
+    async fn get_organization_by_invite_link(
+        &self,
+        request: Request<GetOrganizationByInviteLinkRequest>,
+    ) -> Result<Response<GetOrganizationByInviteLinkResponse>, Status> {
+        let req = request.into_inner();
+
+        let organization = self
+            .store
+            .get_organization_by_invite_link(req.invite_key)
+            .await
+            .map_err(Into::<InstanceApiError>::into)?;
+
+        Ok(Response::new(GetOrganizationByInviteLinkResponse {
+            organization_name: organization.trade_name,
+        }))
     }
 
     async fn get_countries(

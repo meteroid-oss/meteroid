@@ -85,6 +85,14 @@ message ResetPasswordRequest {
 
 message ResetPasswordResponse {}
 
+message AcceptInviteRequest {
+  string invite_key = 1;
+}
+
+message AcceptInviteResponse {
+  meteroid.api.organizations.v1.Organization organization = 1;
+}
+
 service UsersService {
   rpc Me(MeRequest) returns (MeResponse) {}
   rpc OnboardMe(OnboardMeRequest) returns (OnboardMeResponse) {}
@@ -98,4 +106,6 @@ service UsersService {
 
   rpc InitResetPassword(InitResetPasswordRequest) returns (InitResetPasswordResponse) {}
   rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse) {}
+
+  rpc AcceptInvite(AcceptInviteRequest) returns (AcceptInviteResponse) {}
 }

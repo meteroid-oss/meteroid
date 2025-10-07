@@ -32,11 +32,11 @@ export const UsersTab = () => {
     if (!invite?.data?.inviteHash) {
       return undefined
     }
-    return `${window.location.origin}/registration?invite=${invite.data.inviteHash}`
+    return `${window.location.origin}/invite?token=${invite.data.inviteHash}`
   }, [invite?.data?.inviteHash])
 
   return (
-    <Card className="px-8 py-6">
+    <Card className="px-8 py-6 space-y-2">
       <div className="flex justify-end ">
         <Button variant="secondary" onClick={() => setVisible(true)}>
           Invite users

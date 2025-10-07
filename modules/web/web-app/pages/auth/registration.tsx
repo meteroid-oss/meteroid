@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { Loader } from '@/features/auth/components/Loader'
 import { RegistrationForm } from '@/features/auth/components/RegistrationForm'
 import { useQuery } from '@/lib/connectrpc'
+import { INVITE_TOKEN_KEY } from '@/pages/invite/acceptInvite'
 import { getInstance } from '@/rpc/api/instance/v1/instance-InstanceService_connectquery'
 
 import type { FunctionComponent } from 'react'
@@ -14,7 +15,9 @@ export const Registration: FunctionComponent = () => {
 
   const [searchParams] = useSearchParams()
 
-  const invite = searchParams.get('invite') ?? undefined
+  // Check URL params first, then sessionStorage
+  const invite =
+    searchParams.get('invite') ?? sessionStorage.getItem(INVITE_TOKEN_KEY) ?? undefined
 
   if (isLoading) {
     return <Loader />

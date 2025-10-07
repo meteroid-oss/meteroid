@@ -32,6 +32,13 @@ pub trait OrganizationsInterface {
         organization_id: OrganizationId,
     ) -> StoreResult<String>;
 
+    async fn accept_invite(&self, user_id: Uuid, invite_key: String) -> StoreResult<Organization>;
+
+    async fn get_organization_by_invite_link(
+        &self,
+        invite_key: String,
+    ) -> StoreResult<Organization>;
+
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>>;
     async fn get_organization_by_id(&self, id: OrganizationId) -> StoreResult<Organization>;
     async fn get_organization_by_tenant_id(&self, id: &TenantId) -> StoreResult<Organization>;
@@ -178,6 +185,57 @@ impl OrganizationsInterface for Store {
                 Ok(invite_hash)
             }
         }
+    }
+
+    async fn accept_invite(&self, user_id: Uuid, invite_key: String) -> StoreResult<Organization> {
+        let mut conn = self.get_conn().await?;
+
+        self.transaction_with(&mut conn, |conn| {
+            async move {
+                let org = OrganizationRow::find_by_invite_link(conn, invite_key)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                let existing_member =
+                    OrganizationMemberRow::find_by_user_and_org(conn, user_id, org.id)
+                        .await
+                        .ok();
+
+                if existing_member.is_some() {
+                    return Err(StoreError::InvalidArgument(
+                        "User is already a member of this organization".to_string(),
+                    )
+                    .into());
+                }
+
+                let org_member = OrganizationMemberRow {
+                    user_id,
+                    organization_id: org.id,
+                    role: OrganizationUserRole::Member,
+                };
+
+                OrganizationMemberRow::insert(&org_member, conn)
+                    .await
+                    .map_err(Into::<Report<StoreError>>::into)?;
+
+                Ok(org.into())
+            }
+            .scope_boxed()
+        })
+        .await
+    }
+
+    async fn get_organization_by_invite_link(
+        &self,
+        invite_key: String,
+    ) -> StoreResult<Organization> {
+        let mut conn = self.get_conn().await?;
+
+        let org = OrganizationRow::find_by_invite_link(&mut conn, invite_key)
+            .await
+            .map_err(Into::<Report<StoreError>>::into)?;
+
+        Ok(org.into())
     }
 
     async fn list_organizations_for_user(&self, user_id: Uuid) -> StoreResult<Vec<Organization>> {

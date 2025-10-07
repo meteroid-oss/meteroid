@@ -103,7 +103,7 @@ export const TenantLayoutOutlet = () => {
                       <div
                         className="flex aspect-square h-8 w-8 rounded-md"
                         style={{
-                          background: `linear-gradient(0deg, #C7B3FE, #C7B3FE), 
+                          background: `linear-gradient(0deg, #C7B3FE, #C7B3FE),
                       linear-gradient(0deg, #B69EF0, #B69EF0)`,
                         }}
                       />
@@ -114,6 +114,32 @@ export const TenantLayoutOutlet = () => {
                         </div>
                       </Flex>
                     </DropdownMenuItem>
+                    <Separator />
+                    {meData?.organizations && meData.organizations.length > 1 && (
+                      <>
+                        {meData.organizations
+                          .filter(org => org.slug !== organizationData?.slug)
+                          .map(org => (
+                            <DropdownMenuItem
+                              key={org.id}
+                              className="cursor-pointer"
+                              onClick={() => {
+                                window.location.href = `/${org.slug}`
+                              }}
+                            >
+                              <div
+                                className="flex aspect-square h-5 w-5 rounded-md mr-2"
+                                style={{
+                                  background: `linear-gradient(0deg, #C7B3FE, #C7B3FE),
+                                linear-gradient(0deg, #B69EF0, #B69EF0)`,
+                                }}
+                              />
+                              {org.tradeName}
+                            </DropdownMenuItem>
+                          ))}
+                        <Separator />
+                      </>
+                    )}
                     <DropdownMenuItem>
                       <Plus size={16} className="mr-2" />
                       New organization

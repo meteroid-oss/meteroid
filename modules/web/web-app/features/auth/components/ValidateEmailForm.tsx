@@ -26,6 +26,7 @@ export const ValidateEmailForm = () => {
       password: '',
       confirmPassword: '',
     },
+    mode: 'onTouched',
   })
 
   const registerMut = useMutation(completeRegistration, {
