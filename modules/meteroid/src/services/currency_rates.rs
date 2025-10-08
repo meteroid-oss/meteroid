@@ -69,7 +69,7 @@ impl OpenexchangeRatesService {
         &self,
         base: Currency,
     ) -> error_stack::Result<ExchangeRates, CurrencyRatesError> {
-        let symbols = Currency::iter().filter(|x| *x != base).format(",");
+        let symbols = Currency::iter().format(",");
 
         let url = match self.api_key.as_ref() {
             None =>
