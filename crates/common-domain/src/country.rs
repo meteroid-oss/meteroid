@@ -53,7 +53,7 @@ where
             // soft failure on decode
             .unwrap_or(CountryCode {
                 code: "00".to_string(),
-                name: "Unknown".to_string(),
+                name: format!("Unknown code : {}", &code).to_string(),
             }))
     }
 }
@@ -149,8 +149,12 @@ impl<'de> serde::Deserialize<'de> for CountryCode {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        CountryCode::parse_as_opt(&s)
-            .ok_or_else(|| serde::de::Error::custom("invalid country code"))
+        Ok(CountryCode::parse_as_opt(&s)
+            // soft failure on decode
+            .unwrap_or(CountryCode {
+                code: "00".to_string(),
+                name: format!("Unknown code : {}", &s).to_string(),
+            }))
     }
 }
 
