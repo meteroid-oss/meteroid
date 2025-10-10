@@ -47,19 +47,19 @@ pub trait PaymentProvider: Send + Sync {
         &self,
         customer: &Customer,
         connector: &Connector,
-    ) -> error_stack::Result<String, PaymentProviderError>;
+    ) -> Result<String, Report<PaymentProviderError>>;
     async fn get_payment_method_from_provider(
         &self,
         connector: &Connector,
         payment_method_id: &str,
         customer_id: &str,
-    ) -> error_stack::Result<stripe_client::payment_methods::PaymentMethod, PaymentProviderError>;
+    ) -> Result<stripe_client::payment_methods::PaymentMethod, Report<PaymentProviderError>>;
     async fn create_setup_intent_in_provider(
         &self,
         connection: &CustomerConnection,
         connector: &Connector,
         payment_methods: Vec<PaymentMethodTypeEnum>,
-    ) -> error_stack::Result<SetupIntent, PaymentProviderError>;
+    ) -> Result<SetupIntent, Report<PaymentProviderError>>;
 
     async fn create_payment_intent_in_provider(
         &self,
@@ -69,12 +69,12 @@ pub trait PaymentProvider: Send + Sync {
         payment_method_external_id: &str,
         amount: i64,
         currency: &str,
-    ) -> error_stack::Result<PaymentIntent, PaymentProviderError>;
+    ) -> Result<PaymentIntent, Report<PaymentProviderError>>;
 }
 
 pub fn initialize_payment_provider(
     config: &Connector,
-) -> error_stack::Result<Box<dyn PaymentProvider>, PaymentProviderError> {
+) -> Result<Box<dyn PaymentProvider>, Report<PaymentProviderError>> {
     match config.provider {
         ConnectorProviderEnum::Stripe => Ok(Box::new(StripeClient::new())),
         _ => bail!(PaymentProviderError::Configuration(
@@ -89,7 +89,7 @@ impl PaymentProvider for StripeClient {
         &self,
         customer: &Customer,
         connector: &Connector,
-    ) -> error_stack::Result<String, PaymentProviderError> {
+    ) -> Result<String, Report<PaymentProviderError>> {
         let secret_key = extract_stripe_secret_key(connector)?;
         fn map_address(a: &Address) -> OptionalFieldsAddress {
             OptionalFieldsAddress {
@@ -152,8 +152,7 @@ impl PaymentProvider for StripeClient {
         connector: &Connector,
         payment_method_id: &str,
         customer_id: &str,
-    ) -> error_stack::Result<stripe_client::payment_methods::PaymentMethod, PaymentProviderError>
-    {
+    ) -> Result<stripe_client::payment_methods::PaymentMethod, Report<PaymentProviderError>> {
         let secret_key = extract_stripe_secret_key(connector)?;
 
         self.get_payment_method(payment_method_id, customer_id, &secret_key)
@@ -166,7 +165,7 @@ impl PaymentProvider for StripeClient {
         connection: &CustomerConnection,
         connector: &Connector,
         payment_methods: Vec<PaymentMethodTypeEnum>,
-    ) -> error_stack::Result<SetupIntent, PaymentProviderError> {
+    ) -> Result<SetupIntent, Report<PaymentProviderError>> {
         let secret_key = extract_stripe_secret_key(connector)?;
         let public_key = extract_stripe_public_key(connector)?;
 
@@ -230,7 +229,7 @@ impl PaymentProvider for StripeClient {
         payment_method_external_id: &str,
         amount: i64,
         currency: &str,
-    ) -> error_stack::Result<PaymentIntent, PaymentProviderError> {
+    ) -> Result<PaymentIntent, Report<PaymentProviderError>> {
         let secret_key = extract_stripe_secret_key(connector)?;
 
         let metadata = HashMap::from([
@@ -340,7 +339,7 @@ impl TryFrom<StripePaymentIntent> for PaymentIntent {
 
 fn extract_stripe_secret_key(
     connector: &Connector,
-) -> error_stack::Result<SecretString, PaymentProviderError> {
+) -> Result<SecretString, Report<PaymentProviderError>> {
     match &connector.sensitive {
         Some(ProviderSensitiveData::Stripe(data)) => {
             Ok(SecretString::new(data.api_secret_key.clone()))
@@ -356,7 +355,7 @@ fn extract_stripe_secret_key(
 
 fn extract_stripe_public_key(
     connector: &Connector,
-) -> error_stack::Result<SecretString, PaymentProviderError> {
+) -> Result<SecretString, Report<PaymentProviderError>> {
     match &connector.data {
         Some(ProviderData::Stripe(data)) => Ok(SecretString::new(data.api_publishable_key.clone())),
         Some(_) => Err(Report::new(PaymentProviderError::Configuration(

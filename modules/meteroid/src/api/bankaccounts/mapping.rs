@@ -28,7 +28,7 @@ pub mod bank_accounts {
             if part2.is_empty() {
                 part1
             } else {
-                format!("{} {}", part1, part2)
+                format!("{part1} {part2}")
             }
         }
 

@@ -82,15 +82,14 @@ impl Services {
             .transaction_with(conn, |conn| {
                 async move {
                     // filter terminal states just in case ?
-                    let next_action = match &subscription.next_cycle_action {
-                        Some(action) => action,
-                        None => {
-                            log::warn!(
-                                "No next cycle action for subscription {}. Skipping processing.",
-                                subscription.id
-                            );
-                            return Ok(());
-                        }
+                    let next_action = if let Some(action) = &subscription.next_cycle_action {
+                        action
+                    } else {
+                        log::warn!(
+                            "No next cycle action for subscription {}. Skipping processing.",
+                            subscription.id
+                        );
+                        return Ok(());
                     };
 
                     let mut next_cycle = match next_action {
@@ -228,7 +227,7 @@ impl Services {
             }
             // even downgrade as it is to free plan (and it should be resolved via the plan_version.downgrade_plan_id)
             // TODO check & validate that downgrade is always to free plan
-            None | Some(ActionAfterTrialEnum::Block) | Some(ActionAfterTrialEnum::Downgrade) => {
+            None | Some(ActionAfterTrialEnum::Block | ActionAfterTrialEnum::Downgrade) => {
                 Ok(NextCycle {
                     status: SubscriptionStatusEnum::TrialExpired,
                     next_cycle_action: None,

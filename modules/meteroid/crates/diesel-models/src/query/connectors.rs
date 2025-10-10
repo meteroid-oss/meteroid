@@ -9,7 +9,7 @@ use error_stack::ResultExt;
 
 impl ConnectorRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ConnectorRow> {
-        use crate::schema::connector::dsl::*;
+        use crate::schema::connector::dsl::connector;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(connector).values(self);
@@ -19,7 +19,7 @@ impl ConnectorRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting connector")
+            .attach("Error while inserting connector")
             .into_db_result()
     }
 }
@@ -44,7 +44,7 @@ impl ConnectorRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting connector")
+            .attach("Error while deleting connector")
             .into_db_result()
     }
 
@@ -65,7 +65,7 @@ impl ConnectorRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding connector")
+            .attach("Error while finding connector")
             .into_db_result()
     }
 
@@ -74,7 +74,7 @@ impl ConnectorRow {
         connector_alias: String,
         tenant_uid: TenantId,
     ) -> DbResult<ConnectorRow> {
-        use crate::schema::connector::dsl::*;
+        use crate::schema::connector::dsl::{alias, connector, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = connector
@@ -86,7 +86,7 @@ impl ConnectorRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding connector")
+            .attach("Error while finding connector")
             .into_db_result()
     }
 
@@ -96,7 +96,7 @@ impl ConnectorRow {
         connector_type_filter: Option<crate::enums::ConnectorTypeEnum>,
         provider_filter: Option<crate::enums::ConnectorProviderEnum>,
     ) -> DbResult<Vec<ConnectorRow>> {
-        use crate::schema::connector::dsl::*;
+        use crate::schema::connector::dsl::{connector, connector_type, provider, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let mut query = connector.filter(tenant_id.eq(tenant_uid)).into_boxed();
@@ -114,7 +114,7 @@ impl ConnectorRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing connectors")
+            .attach("Error while listing connectors")
             .into_db_result()
     }
 }
@@ -134,7 +134,7 @@ impl ConnectorRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while patching connector")
+            .attach("Error while patching connector")
             .into_db_result()
     }
 }

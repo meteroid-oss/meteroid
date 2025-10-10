@@ -175,7 +175,7 @@ where
 
         // if the future is an error , we recover by providing an empty Response
         let future = future.or_else(|e: BoxError| async move {
-            log::warn!("Error in auth middleware: {:?}", e);
+            log::warn!("Error in auth middleware: {e:?}");
             let response = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
                 .body(Body::empty())

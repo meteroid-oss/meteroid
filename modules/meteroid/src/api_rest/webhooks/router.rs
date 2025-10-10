@@ -10,7 +10,7 @@ use axum::{
 use crate::api_rest::AppState;
 use crate::services::storage::Prefix;
 use common_domain::ids::{BaseId, TenantId};
-use error_stack::{Result, ResultExt, bail};
+use error_stack::{Report, ResultExt, bail};
 use meteroid_store::domain::connectors::ProviderSensitiveData;
 use meteroid_store::domain::enums::ConnectorProviderEnum;
 use meteroid_store::domain::webhooks::WebhookInEventNew;
@@ -26,7 +26,7 @@ pub async fn axum_handler(
     match handler(tenant_id, connection_alias, req, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling webhook: {}", e);
+            log::error!("Error handling webhook: {e}");
             e.current_context().clone().into_response()
         }
     }
@@ -37,14 +37,10 @@ async fn handler(
     connection_alias: String,
     req: Request<Body>,
     app_state: AppState,
-) -> Result<Response, errors::AdapterWebhookError> {
+) -> Result<Response, Report<errors::AdapterWebhookError>> {
     let received_at = chrono::Utc::now().naive_utc();
 
-    log::trace!(
-        "Received webhook for tenant: {}, connection: {}",
-        tenant_id,
-        connection_alias
-    );
+    log::trace!("Received webhook for tenant: {tenant_id}, connection: {connection_alias}");
 
     // - get webhook from storage (db, optional redis cache)
     let connector = app_state
@@ -111,11 +107,11 @@ async fn handler(
         .change_context(errors::AdapterWebhookError::BodyDecodingFailed)?;
 
     let parsed_request = ParsedRequest {
-        headers,
         method,
+        headers,
+        raw_body,
         json_body,
         query_params,
-        raw_body,
     };
 
     // verify webhook source (signature, origin ip address, bearer ..)
@@ -126,7 +122,7 @@ async fn handler(
                 &SecretString::new(sensitive_data.webhook_secret.clone()),
             )
             .await?;
-    };
+    }
 
     // TODO save errors in webhook_events db
 

@@ -16,7 +16,7 @@ impl OauthVerifierRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting oauth_verifier")
+            .attach("Error while inserting oauth_verifier")
             .into_db_result()
     }
 
@@ -35,7 +35,7 @@ impl OauthVerifierRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while deleting oauth_verifier")
+            .attach("Error while deleting oauth_verifier")
             .into_db_result()
     }
 
@@ -53,7 +53,7 @@ impl OauthVerifierRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting expired oauth_verifiers")
+            .attach("Error while deleting expired oauth_verifiers")
             .into_db_result()
     }
 }

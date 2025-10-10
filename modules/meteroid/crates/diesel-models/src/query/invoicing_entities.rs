@@ -32,12 +32,12 @@ impl InvoicingEntityRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching invoicing entities by ids")
+            .attach("Error while fetching invoicing entities by ids")
             .into_db_result()
     }
 
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<InvoicingEntityRow> {
-        use crate::schema::invoicing_entity::dsl::*;
+        use crate::schema::invoicing_entity::dsl::invoicing_entity;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(invoicing_entity).values(self);
@@ -47,7 +47,7 @@ impl InvoicingEntityRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting organization")
+            .attach("Error while inserting organization")
             .into_db_result()
     }
     pub async fn list_by_tenant_id(
@@ -66,7 +66,7 @@ impl InvoicingEntityRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching invoicing entities by tenant")
+            .attach("Error while fetching invoicing entities by tenant")
             .into_db_result()
     }
 
@@ -83,7 +83,7 @@ impl InvoicingEntityRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while checking if tenant has any invoicing entities")
+            .attach("Error while checking if tenant has any invoicing entities")
             .into_db_result()
     }
 
@@ -108,7 +108,7 @@ impl InvoicingEntityRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while checking if tenant has any invoicing entities")
+            .attach("Error while checking if tenant has any invoicing entities")
             .into_db_result()
     }
 
@@ -129,7 +129,7 @@ impl InvoicingEntityRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while fetching default invoicing entity by tenant")
+            .attach("Error while fetching default invoicing entity by tenant")
             .into_db_result()
     }
 
@@ -151,7 +151,7 @@ impl InvoicingEntityRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while fetching invoicing entity by id and tenant")
+            .attach("Error while fetching invoicing entity by id and tenant")
             .into_db_result()
     }
 
@@ -174,7 +174,7 @@ impl InvoicingEntityRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while fetching invoicing entity by id and tenant")
+            .attach("Error while fetching invoicing entity by id and tenant")
             .into_db_result()
     }
 
@@ -197,7 +197,7 @@ impl InvoicingEntityRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating invoicing entity number")
+            .attach("Error while updating invoicing entity number")
             .into_db_result()
     }
 }
@@ -248,7 +248,7 @@ impl InvoicingEntityProvidersRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while resolving invoicing entity providers by tenant")
+            .attach("Error while resolving invoicing entity providers by tenant")
             .into_db_result()
     }
 
@@ -295,7 +295,7 @@ impl InvoicingEntityProvidersRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching invoicing entities by tenant")
+            .attach("Error while fetching invoicing entities by tenant")
             .into_db_result()
     }
 }
@@ -319,7 +319,7 @@ impl InvoicingEntityRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while patching invoicing entity")
+            .attach("Error while patching invoicing entity")
             .into_db_result()
     }
 }
@@ -343,7 +343,7 @@ impl InvoicingEntityRowProvidersPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while patching invoicing entity")
+            .attach("Error while patching invoicing entity")
             .into_db_result()
     }
 }
@@ -368,6 +368,6 @@ pub async fn get_invoicing_entity_id_by_invoice_id(
     query
         .get_result(conn)
         .await
-        .attach_printable("Error while retrieving invoicing entity id by invoice id")
+        .attach("Error while retrieving invoicing entity id by invoice id")
         .into_db_result()
 }

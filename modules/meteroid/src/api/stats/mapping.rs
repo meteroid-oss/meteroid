@@ -40,7 +40,7 @@ pub fn mrr_breakdown_scope_from_server(scope: proto::MrrBreakdownScope) -> MRRBr
 
 pub fn breakdown_stat_to_server(stat: &CountAndValue) -> BreakdownStat {
     BreakdownStat {
-        count: stat.count as i64,
+        count: i64::from(stat.count),
         value: stat.value,
     }
 }

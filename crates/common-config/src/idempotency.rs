@@ -28,7 +28,7 @@ impl IdempotencyConfig {
                 IdempotencyConfig::get()
             }
             Some(v) => {
-                panic!("Config value is already set {:?}", v);
+                panic!("Config value is already set {v:?}");
             }
         }
     }

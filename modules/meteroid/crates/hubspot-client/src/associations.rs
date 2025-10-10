@@ -19,7 +19,7 @@ pub trait AssociationsApi {
 
 #[async_trait::async_trait]
 impl AssociationsApi for HubspotClient {
-    /// https://developers.hubspot.com/docs/reference/api/crm/associations/association-details#post-%2Fcrm%2Fv4%2Fassociations%2F%7Bfromobjecttype%7D%2F%7Btoobjecttype%7D%2Fbatch%2Fcreate
+    /// <https://developers.hubspot.com/docs/reference/api/crm/associations/association-details#post-%2Fcrm%2Fv4%2Fassociations%2F%7Bfromobjecttype%7D%2F%7Btoobjecttype%7D%2Fbatch%2Fcreate>
     async fn associate_deals_to_companies(
         &self,
         associations: Vec<(DealId, CompanyId)>,

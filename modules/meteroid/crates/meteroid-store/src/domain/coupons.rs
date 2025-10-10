@@ -36,7 +36,7 @@ impl Coupon {
     }
 
     pub fn is_expired(&self, now: NaiveDateTime) -> bool {
-        self.expires_at.map(|x| x <= now).unwrap_or(false)
+        self.expires_at.is_some_and(|x| x <= now)
     }
 
     pub fn applies_once(&self) -> bool {
@@ -145,7 +145,10 @@ impl TryInto<CouponRowPatch> for CouponPatch {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<CouponRowPatch, Self::Error> {
-        let json_discount = self.discount.map(|x| x.try_into()).transpose()?;
+        let json_discount = self
+            .discount
+            .map(std::convert::TryInto::try_into)
+            .transpose()?;
 
         Ok(CouponRowPatch {
             id: self.id,

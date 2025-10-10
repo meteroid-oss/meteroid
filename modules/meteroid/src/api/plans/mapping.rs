@@ -47,8 +47,9 @@ pub mod plans {
                         action_after_trial: version
                             .action_after_trial
                             .as_ref()
-                            .map(|a| ActionAfterTrialWrapper::from(a.clone()).0)
-                            .unwrap_or(ActionAfterTrial::Block)
+                            .map_or(ActionAfterTrial::Block, |a| {
+                                ActionAfterTrialWrapper::from(a.clone()).0
+                            })
                             .into(),
                         duration_days: days as u32,
                         trial_is_free: version.trial_is_free,
@@ -90,7 +91,7 @@ pub mod plans {
                 billing_config: billing_config(&value),
                 currency: value.currency,
                 net_terms: value.net_terms,
-                period_start_day: value.period_start_day.map(|x| x as i32),
+                period_start_day: value.period_start_day.map(i32::from),
             })
         }
     }
@@ -211,7 +212,7 @@ pub mod plans {
                     version: v.version as u32,
                     trial_duration_days: v.trial_duration_days.map(|x| x as u32),
                 }),
-                subscription_count: value.subscription_count.map(|x| x as u32).unwrap_or(0),
+                subscription_count: value.subscription_count.map_or(0, |x| x as u32),
             })
         }
     }

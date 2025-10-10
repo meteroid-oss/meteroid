@@ -7,7 +7,7 @@ use error_stack::ResultExt;
 
 impl CustomerConnectionRow {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<CustomerConnectionRow> {
-        use crate::schema::customer_connection::dsl::*;
+        use crate::schema::customer_connection::dsl::customer_connection;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer_connection).values(self);
@@ -16,7 +16,7 @@ impl CustomerConnectionRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting customer to connector")
+            .attach("Error while inserting customer to connector")
             .into_db_result()
     }
 
@@ -43,7 +43,7 @@ impl CustomerConnectionRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting customer to connector")
+            .attach("Error while deleting customer to connector")
             .into_db_result()
     }
 
@@ -67,7 +67,7 @@ impl CustomerConnectionRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while listing customer connectors by ids")
+            .attach("Error while listing customer connectors by ids")
             .into_db_result()
     }
     pub async fn list_connections_by_customer_id(
@@ -90,7 +90,7 @@ impl CustomerConnectionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing customer connectors by ids")
+            .attach("Error while listing customer connectors by ids")
             .into_db_result()
     }
     pub async fn list_connections_by_customer_ids(
@@ -113,7 +113,7 @@ impl CustomerConnectionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing customer connectors by ids")
+            .attach("Error while listing customer connectors by ids")
             .into_db_result()
     }
 }
@@ -142,7 +142,7 @@ impl CustomerConnectionDetailsRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while finding customer to connector by customer id")
+            .attach("Error while finding customer to connector by customer id")
             .into_db_result()
     }
 }

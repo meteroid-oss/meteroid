@@ -1,4 +1,9 @@
-use crate::stats::*;
+use crate::stats::{
+    ActiveSubscriptionsCountRow, CustomerTopRevenueRow, DailyNewSignups90DaysRow,
+    LastMrrMovementsRow, MrrBreakdownRow, NewSignupsTrend90DaysRow, PendingInvoicesTotalRow,
+    RevenueTrendRow, SubscriptionTrialConversionRateRow, SubscriptionTrialToPaidConversionRow,
+    TotalMrrByPlanRow, TotalMrrChartRow, TotalMrrRow,
+};
 use crate::{DbResult, PgConn};
 use chrono::{NaiveDate, NaiveDateTime};
 use diesel::{
@@ -17,7 +22,7 @@ impl RevenueTrendRow {
         period_days: i32,
         tenant_id: TenantId,
     ) -> DbResult<RevenueTrendRow> {
-        let raw_sql = r#"
+        let raw_sql = r"
     WITH period AS (SELECT CURRENT_DATE - INTERVAL '1 day' * $1::integer       AS start_current_period,
                        CURRENT_DATE - INTERVAL '1 day' * ($2::integer * 2) AS start_previous_period),
     conversion_rates AS (SELECT id,
@@ -49,7 +54,7 @@ impl RevenueTrendRow {
     FROM revenue_ytd,
          current_period,
          previous_period;
-    "#;
+    ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Integer, _>(period_days)
@@ -60,14 +65,14 @@ impl RevenueTrendRow {
             .bind::<sql_types::Uuid, _>(tenant_id)
             .get_result::<RevenueTrendRow>(conn)
             .await
-            .attach_printable("Error while fetching revenue trend")
+            .attach("Error while fetching revenue trend")
             .into_db_result()
     }
 }
 
 impl NewSignupsTrend90DaysRow {
     pub async fn get(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<NewSignupsTrend90DaysRow> {
-        let raw_sql = r#"
+        let raw_sql = r"
         WITH signup_counts AS (SELECT DATE(created_at) AS signup_date, COUNT(*) AS daily_signups
                        FROM customer
                        WHERE tenant_id = $1
@@ -78,20 +83,20 @@ impl NewSignupsTrend90DaysRow {
                COALESCE(SUM(daily_signups) FILTER (WHERE signup_date <= CURRENT_DATE - INTERVAL '90 days' AND
                         signup_date > CURRENT_DATE - INTERVAL '180 days'), 0)::bigint  AS total_previous_90_days
         FROM signup_counts;
-        "#;
+        ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .get_result::<NewSignupsTrend90DaysRow>(conn)
             .await
-            .attach_printable("Error while fetching revenue trend")
+            .attach("Error while fetching revenue trend")
             .into_db_result()
     }
 }
 
 impl PendingInvoicesTotalRow {
     pub async fn get(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<PendingInvoicesTotalRow> {
-        let raw_sql = r#"
+        let raw_sql = r"
         WITH tenant_currency AS (
             SELECT reporting_currency AS currency FROM tenant WHERE id = $1
         ),
@@ -126,14 +131,14 @@ impl PendingInvoicesTotalRow {
             COALESCE(SUM(converted_amount_cents), 0) AS total_cents
         FROM
             converted_invoices;
-        "#;
+        ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .get_result::<PendingInvoicesTotalRow>(conn)
             .await
-            .attach_printable("Error while fetching pending invoices totals")
+            .attach("Error while fetching pending invoices totals")
             .into_db_result()
     }
 }
@@ -143,7 +148,7 @@ impl DailyNewSignups90DaysRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
     ) -> DbResult<Vec<DailyNewSignups90DaysRow>> {
-        let raw_sql = r#"
+        let raw_sql = r"
         WITH date_series AS (SELECT DATE(current_date - INTERVAL '1 day' * generate_series(0, 89)) AS date),
         daily_signups AS (SELECT DATE(created_at) AS signup_date,
                               COUNT(*)         AS daily_signups
@@ -157,13 +162,13 @@ impl DailyNewSignups90DaysRow {
         FROM date_series ds
                  LEFT JOIN daily_signups d ON ds.date = d.signup_date
         ORDER BY ds.date;
-        "#;
+        ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .get_results::<DailyNewSignups90DaysRow>(conn)
             .await
-            .attach_printable("Error while fetching daily new signups 90 days")
+            .attach("Error while fetching daily new signups 90 days")
             .into_db_result()
     }
 }
@@ -189,7 +194,7 @@ impl ActiveSubscriptionsCountRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while get active subscriptions count")
+            .attach("Error while get active subscriptions count")
             .into_db_result()
             .map(|c: i64| ActiveSubscriptionsCountRow { count: c as i32 })
     }
@@ -200,7 +205,7 @@ impl SubscriptionTrialConversionRateRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
     ) -> DbResult<SubscriptionTrialConversionRateRow> {
-        let raw_sql = r#"
+        let raw_sql = r"
         SELECT CASE
            WHEN COUNT(*) > 0 THEN
                ROUND((COUNT(*) FILTER (WHERE s.activated_at IS NOT NULL)::DECIMAL / COUNT(*)) * 100, 2)
@@ -210,13 +215,13 @@ impl SubscriptionTrialConversionRateRow {
         FROM subscription s
         WHERE s.tenant_id = $1
            AND s.trial_duration IS NOT NULL;
-        "#;
+        ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .get_result::<SubscriptionTrialConversionRateRow>(conn)
             .await
-            .attach_printable("Error while fetching subscription trial conversion rate")
+            .attach("Error while fetching subscription trial conversion rate")
             .into_db_result()
     }
 }
@@ -270,7 +275,7 @@ impl SubscriptionTrialToPaidConversionRow {
         //             .bind::<sql_types::Uuid, _>(tenant_id)
         //             .get_results::<SubscriptionTrialToPaidConversionRow>(conn)
         //             .await
-        //             .attach_printable("Error while fetching subscription trial to paid conversion")
+        //             .attach("Error while fetching subscription trial to paid conversion")
         //             .into_db_result()
         Ok(vec![])
     }
@@ -283,7 +288,7 @@ impl CustomerTopRevenueRow {
         currency: &str,
         limit: i32,
     ) -> DbResult<Vec<CustomerTopRevenueRow>> {
-        let raw_sql = r#"
+        let raw_sql = r"
         SELECT c.id,
         c.name,
         COALESCE(bi.total_revenue_cents, 0)::bigint AS total_revenue_cents,
@@ -295,7 +300,7 @@ impl CustomerTopRevenueRow {
           AND (bi.revenue_year IS NULL OR bi.revenue_year = DATE_PART('year', CURRENT_DATE))
         ORDER BY total_revenue_cents DESC
         LIMIT $4;
-        "#;
+        ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Text, _>(currency)
@@ -304,7 +309,7 @@ impl CustomerTopRevenueRow {
             .bind::<sql_types::Integer, _>(limit)
             .get_results::<CustomerTopRevenueRow>(conn)
             .await
-            .attach_printable("Error while fetching customer top revenue")
+            .attach("Error while fetching customer top revenue")
             .into_db_result()
     }
 }
@@ -315,7 +320,7 @@ impl TotalMrrRow {
         tenant_id: TenantId,
         date: NaiveDate,
     ) -> DbResult<TotalMrrRow> {
-        let raw_sql = r#"
+        let raw_sql = r"
         SELECT
             COALESCE(
                 SUM(
@@ -334,14 +339,14 @@ impl TotalMrrRow {
        WHERE
            bd.tenant_id = $1
            AND bd.date <= $2;
-       "#;
+       ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
             .bind::<sql_types::Date, _>(date)
             .get_result::<TotalMrrRow>(conn)
             .await
-            .attach_printable("Error while fetching total mrr")
+            .attach("Error while fetching total mrr")
             .into_db_result()
     }
 }
@@ -353,7 +358,7 @@ impl TotalMrrChartRow {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> DbResult<Vec<TotalMrrChartRow>> {
-        let raw_sql = r#"
+        let raw_sql = r"
         WITH conversion_rates AS (
             SELECT
                 id,
@@ -395,7 +400,7 @@ impl TotalMrrChartRow {
         WHERE
             bi.date BETWEEN $4 AND $5
             AND bi.tenant_id = $6
-        ORDER BY period"#;
+        ORDER BY period";
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
@@ -411,10 +416,10 @@ impl TotalMrrChartRow {
             .get_results::<TotalMrrChartRow>(conn)
             .await
             .map_err(|e| {
-                log::error!("Error while fetching total mrr: {:?}", e);
+                log::error!("Error while fetching total mrr: {e:?}");
                 e
             })
-            .attach_printable("Error while fetching total mrr")
+            .attach("Error while fetching total mrr")
             .into_db_result()
     }
 }
@@ -427,7 +432,7 @@ impl TotalMrrByPlanRow {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> DbResult<Vec<TotalMrrByPlanRow>> {
-        let raw_sql = r#"
+        let raw_sql = r"
         WITH conversion_rates AS (
             SELECT
                 id,
@@ -477,7 +482,7 @@ impl TotalMrrByPlanRow {
           AND bi.tenant_id = $7
           AND p.id = ANY ($8)
         ORDER BY date;
-        "#;
+        ";
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
@@ -494,7 +499,7 @@ impl TotalMrrByPlanRow {
         query
             .get_results::<TotalMrrByPlanRow>(conn)
             .await
-            .attach_printable("Error while fetching total mrr by plan")
+            .attach("Error while fetching total mrr by plan")
             .into_db_result()
     }
 }
@@ -506,7 +511,7 @@ impl MrrBreakdownRow {
         start_date: NaiveDate,
         end_date: NaiveDate,
     ) -> DbResult<Option<MrrBreakdownRow>> {
-        let raw_sql = r#"
+        let raw_sql = r"
         WITH conversion_rates AS (
             SELECT
                 id,
@@ -534,7 +539,7 @@ impl MrrBreakdownRow {
           AND bi.tenant_id = $4
         GROUP BY
             bi.tenant_id;
-        "#;
+        ";
 
         diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
@@ -544,7 +549,7 @@ impl MrrBreakdownRow {
             .get_result::<MrrBreakdownRow>(conn)
             .await
             .optional()
-            .attach_printable("Error while fetching mrr breakdown")
+            .attach("Error while fetching mrr breakdown")
             .into_db_result()
     }
 }
@@ -557,7 +562,7 @@ impl LastMrrMovementsRow {
         after: Option<Uuid>,
         limit: i32,
     ) -> DbResult<Vec<LastMrrMovementsRow>> {
-        let raw_sql = r#"
+        let raw_sql = r"
         SELECT bi.id,
                bi.movement_type,
                bi.net_mrr_change,
@@ -584,7 +589,7 @@ impl LastMrrMovementsRow {
           AND (bi.id > $4 OR $5 IS NULL)
         ORDER BY bi.id DESC
         LIMIT $6;
-        "#;
+        ";
 
         let query = diesel::sql_query(raw_sql)
             .bind::<sql_types::Uuid, _>(tenant_id)
@@ -599,7 +604,7 @@ impl LastMrrMovementsRow {
         query
             .get_results::<LastMrrMovementsRow>(conn)
             .await
-            .attach_printable("Error while fetching last mrr movements")
+            .attach("Error while fetching last mrr movements")
             .into_db_result()
     }
 }

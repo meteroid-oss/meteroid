@@ -154,9 +154,10 @@ impl PlansInterface for Store {
                         .map_err(Into::<Report<StoreError>>::into)?;
 
                     let (active_version_id, draft_version_id) =
-                        match inserted_plan_version_new.is_draft_version {
-                            true => (None, Some(Some(inserted_plan_version_new.id))),
-                            false => (Some(Some(inserted_plan_version_new.id)), None),
+                        if inserted_plan_version_new.is_draft_version {
+                            (None, Some(Some(inserted_plan_version_new.id)))
+                        } else {
+                            (Some(Some(inserted_plan_version_new.id)), None)
                         };
 
                     let updated: Plan = PlanRowPatch {
@@ -186,13 +187,13 @@ impl PlansInterface for Store {
                                 }
                                 .try_into()
                             })
-                            .collect::<error_stack::Result<Vec<_>, _>>()?,
+                            .collect::<Result<Vec<_>, Report<_>>>()?,
                     )
                     .await
                     .map_err(Into::<Report<StoreError>>::into)?
                     .into_iter()
                     .map(TryInto::try_into)
-                    .collect::<error_stack::Result<Vec<_>, _>>()?;
+                    .collect::<Result<Vec<_>, Report<_>>>()?;
 
                     Ok(FullPlan {
                         price_components: inserted_price_components,

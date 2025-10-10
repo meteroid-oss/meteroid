@@ -16,7 +16,7 @@ impl CustomerPaymentMethodRow {
         id_param: &CustomerPaymentMethodId,
         tenant_id_param: &TenantId,
     ) -> DbResult<usize> {
-        use crate::schema::customer_payment_method::dsl::*;
+        use crate::schema::customer_payment_method::dsl::{customer_payment_method, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::delete(customer_payment_method)
@@ -27,7 +27,7 @@ impl CustomerPaymentMethodRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting customer payment method")
+            .attach("Error while deleting customer payment method")
             .into_db_result()
     }
 
@@ -48,7 +48,7 @@ impl CustomerPaymentMethodRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while finding customer payment method by id")
+            .attach("Error while finding customer payment method by id")
             .into_db_result()
     }
 
@@ -72,7 +72,7 @@ impl CustomerPaymentMethodRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while resolving payment method for subscription id")
+            .attach("Error while resolving payment method for subscription id")
             .into_db_result()
     }
 
@@ -93,7 +93,7 @@ impl CustomerPaymentMethodRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while finding customer payment methods by connection id")
+            .attach("Error while finding customer payment methods by connection id")
             .into_db_result()
     }
 
@@ -114,14 +114,16 @@ impl CustomerPaymentMethodRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while finding customer payment methods by connection id")
+            .attach("Error while finding customer payment methods by connection id")
             .into_db_result()
     }
 }
 
 impl CustomerPaymentMethodRowNew {
     pub async fn upsert(&self, conn: &mut PgConn) -> DbResult<CustomerPaymentMethodRow> {
-        use crate::schema::customer_payment_method::dsl::*;
+        use crate::schema::customer_payment_method::dsl::{
+            connection_id, customer_payment_method, external_payment_method_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer_payment_method)
@@ -134,7 +136,7 @@ impl CustomerPaymentMethodRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting customer to connector")
+            .attach("Error while inserting customer to connector")
             .into_db_result()
     }
 
@@ -142,7 +144,9 @@ impl CustomerPaymentMethodRowNew {
         &self,
         conn: &mut PgConn,
     ) -> DbResult<CustomerPaymentMethodRow> {
-        use crate::schema::customer_payment_method::dsl::*;
+        use crate::schema::customer_payment_method::dsl::{
+            connection_id, customer_payment_method, external_payment_method_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer_payment_method)
@@ -154,7 +158,7 @@ impl CustomerPaymentMethodRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting customer to connector")
+            .attach("Error while inserting customer to connector")
             .into_db_result()
     }
 }

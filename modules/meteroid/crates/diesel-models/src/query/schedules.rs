@@ -10,7 +10,7 @@ use diesel::{ExpressionMethods, Insertable, JoinOnDsl, QueryDsl, SelectableHelpe
 
 impl ScheduleRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ScheduleRow> {
-        use crate::schema::schedule::dsl::*;
+        use crate::schema::schedule::dsl::schedule;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(schedule).values(self);
@@ -20,7 +20,7 @@ impl ScheduleRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting schedule")
+            .attach("Error while inserting schedule")
             .into_db_result()
     }
 }
@@ -47,7 +47,7 @@ impl ScheduleRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting schedule")
+            .attach("Error while deleting schedule")
             .into_db_result()
     }
 
@@ -55,7 +55,7 @@ impl ScheduleRow {
         conn: &mut PgConn,
         batch: Vec<ScheduleRowNew>,
     ) -> DbResult<Vec<ScheduleRow>> {
-        use crate::schema::schedule::dsl::*;
+        use crate::schema::schedule::dsl::schedule;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(schedule).values(&batch);
@@ -65,7 +65,7 @@ impl ScheduleRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting schedule batch")
+            .attach("Error while inserting schedule batch")
             .into_db_result()
     }
 
@@ -92,7 +92,7 @@ impl ScheduleRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching schedules by subscription")
+            .attach("Error while fetching schedules by subscription")
             .into_db_result()
     }
 
@@ -117,7 +117,7 @@ impl ScheduleRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching schedules")
+            .attach("Error while fetching schedules")
             .into_db_result()
     }
 
@@ -156,7 +156,7 @@ impl ScheduleRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while cloning schedules")
+            .attach("Error while cloning schedules")
             .into_db_result()
     }
 }
@@ -185,10 +185,10 @@ impl SchedulePatchRow {
             .get_result(conn)
             .await
             .map_err(|e| {
-                log::error!("Error while updating schedule: {:?}", e);
+                log::error!("Error while updating schedule: {e:?}");
                 e
             })
-            .attach_printable("Error while updating schedule")
+            .attach("Error while updating schedule")
             .into_db_result()
     }
 }

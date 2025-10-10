@@ -178,7 +178,7 @@ impl CustomersInterface for Store {
             items: rows
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Vec<Result<Customer, Report<StoreError>>>>()
                 .into_iter()
                 .collect::<Result<Vec<_>, _>>()?,
@@ -199,7 +199,7 @@ impl CustomersInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Vec<Result<Customer, Report<StoreError>>>>()
             .into_iter()
             .collect::<Result<Vec<_>, _>>()

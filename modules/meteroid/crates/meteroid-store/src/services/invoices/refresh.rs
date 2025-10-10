@@ -74,12 +74,12 @@ impl Services {
 
             let subscription_details = match subscription_details_cache {
                 Some(details) => {
-                    if customer_balance != details.customer.balance_value_cents {
+                    if customer_balance == details.customer.balance_value_cents {
+                        details
+                    } else {
                         res = details.clone();
                         res.customer.balance_value_cents = customer_balance;
                         &res
-                    } else {
-                        details
                     }
                 }
                 None => match invoice.subscription_id {

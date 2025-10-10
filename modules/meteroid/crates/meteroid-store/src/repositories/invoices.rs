@@ -126,7 +126,7 @@ impl InvoiceInterface for Store {
         InvoiceRow::find_detailed_by_id(&mut conn, tenant_id, invoice_id)
             .await
             .map_err(Into::into)
-            .and_then(|row| row.try_into())
+            .and_then(std::convert::TryInto::try_into)
     }
 
     async fn get_invoice_by_id(
@@ -139,7 +139,7 @@ impl InvoiceInterface for Store {
         InvoiceRow::find_by_id(&mut conn, tenant_id, invoice_id)
             .await
             .map_err(Into::into)
-            .and_then(|row| row.try_into())
+            .and_then(std::convert::TryInto::try_into)
     }
 
     async fn list_invoices(
@@ -171,7 +171,7 @@ impl InvoiceInterface for Store {
             items: rows
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             total_pages: rows.total_pages,
             total_results: rows.total_results,
@@ -208,7 +208,7 @@ impl InvoiceInterface for Store {
             items: invoices
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             next_cursor: invoices.next_cursor,
         };
@@ -230,7 +230,7 @@ impl InvoiceInterface for Store {
             items: invoices
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             next_cursor: invoices.next_cursor,
         };
@@ -247,7 +247,7 @@ impl InvoiceInterface for Store {
 
         invoices
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -263,7 +263,7 @@ impl InvoiceInterface for Store {
 
         invoices
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -516,7 +516,7 @@ async fn insert_invoice_batch_tx(
 ) -> StoreResult<Vec<Invoice>> {
     let insertable_invoice: Vec<InvoiceRowNew> = invoice
         .into_iter()
-        .map(|c| c.try_into())
+        .map(std::convert::TryInto::try_into)
         .collect::<Result<_, _>>()?;
 
     let inserted: Vec<Invoice> = InvoiceRow::insert_invoice_batch(tx, insertable_invoice)
@@ -529,12 +529,12 @@ async fn insert_invoice_batch_tx(
         })?;
 
     // TODO batch
-    for inv in inserted.iter() {
+    for inv in &inserted {
         process_mrr(inv, tx).await?; // TODO
         let final_invoice: Invoice = InvoiceRow::find_by_id(tx, inv.tenant_id, inv.id)
             .await
             .map_err(Into::into)
-            .and_then(|row| row.try_into())?;
+            .and_then(std::convert::TryInto::try_into)?;
 
         store
             .internal

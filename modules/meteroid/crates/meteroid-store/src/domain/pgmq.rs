@@ -58,7 +58,7 @@ pub struct PgmqMessageNew {
     pub headers: Option<Headers>,
 }
 
-/// Macro to implement PgmqEvent and json_value_serde for a type
+/// Macro to implement `PgmqEvent` and `json_value_serde` for a type
 macro_rules! derive_pgmq_message {
     ($type:ty) => {
         impl TryInto<PgmqMessageNew> for $type {

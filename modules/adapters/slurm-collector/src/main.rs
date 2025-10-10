@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     loop {
         interval.tick().await;
         if let Err(e) = process_sacct_data(&config, &mut client, &sacct_executor).await {
-            error!("Error processing billing data: {:?}", e);
+            error!("Error processing billing data: {e:?}");
         }
     }
 }
@@ -78,7 +78,7 @@ impl SacctExecutor for SacctExecutorImpl {
     fn sacct(&self, since: DateTime<Utc>) -> Result<BoxStream<'_, Result<SacctData>>> {
         let since_str = since.format(SACCT_DATETIME_FORMAT).to_string();
 
-        log::info!("Fetching sacct data since {}", since_str);
+        log::info!("Fetching sacct data since {since_str}");
 
         // with --state we need an endtime
         let end_time_str = Utc::now().format(SACCT_DATETIME_FORMAT).to_string();
@@ -166,7 +166,7 @@ fn update_and_save_checkpoint(batch: &[SacctData], file_path: &str) -> Result<()
 
         let file = FsFile::create(file_path)?;
         serde_json::to_writer(file, &new_checkpoint)?;
-    };
+    }
 
     Ok(())
 }

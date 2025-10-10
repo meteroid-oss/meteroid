@@ -96,7 +96,7 @@ pub mod conversions {
         U: ProtoConv<T>,
     {
         fn as_proto(&self) -> Option<T> {
-            self.as_ref().map(|d| d.as_proto())
+            self.as_ref().map(ProtoConv::as_proto)
         }
     }
 
@@ -116,7 +116,7 @@ pub mod conversions {
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
             chrono::NaiveDate::parse_from_str(proto, "%Y-%m-%d")
-                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid date: {}", e)))
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid date: {e}")))
         }
     }
 
@@ -127,7 +127,7 @@ pub mod conversions {
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
             chrono::NaiveDateTime::parse_from_str(proto, "%Y-%m-%dT%H:%M:%S")
-                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid datetime: {}", e)))
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid datetime: {e}")))
         }
     }
 
@@ -138,7 +138,7 @@ pub mod conversions {
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
             rust_decimal::Decimal::from_str(proto)
-                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid decimal: {}", e)))
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid decimal: {e}")))
         }
     }
 
@@ -150,7 +150,7 @@ pub mod conversions {
 
         fn from_proto_ref(proto: &String) -> Result<Self, tonic::Status> {
             uuid::Uuid::parse_str(proto)
-                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid uuid: {}", e)))
+                .map_err(|e| tonic::Status::invalid_argument(format!("Invalid uuid: {e}")))
         }
     }
 }

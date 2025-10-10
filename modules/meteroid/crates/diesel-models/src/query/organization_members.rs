@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 impl OrganizationMemberRow {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationMemberRow> {
-        use crate::schema::organization_member::dsl::*;
+        use crate::schema::organization_member::dsl::organization_member;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(organization_member).values(self);
@@ -22,7 +22,7 @@ impl OrganizationMemberRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting organization member")
+            .attach("Error while inserting organization member")
             .into_db_result()
     }
 
@@ -31,7 +31,9 @@ impl OrganizationMemberRow {
         user_id_param: Uuid,
         org_id_param: OrganizationId,
     ) -> DbResult<OrganizationMemberRow> {
-        use crate::schema::organization_member::dsl::*;
+        use crate::schema::organization_member::dsl::{
+            organization_id, organization_member, user_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = organization_member
@@ -43,7 +45,7 @@ impl OrganizationMemberRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding organization member")
+            .attach("Error while finding organization member")
             .into_db_result()
     }
 }

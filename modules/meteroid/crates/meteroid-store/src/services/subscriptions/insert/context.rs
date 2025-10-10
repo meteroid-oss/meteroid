@@ -127,7 +127,7 @@ impl Services {
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
             .map(|(k, v)| {
-                let converted_vec: error_stack::Result<Vec<PriceComponent>, _> =
+                let converted_vec: Result<Vec<PriceComponent>, _> =
                     v.into_iter().map(TryInto::try_into).collect();
                 converted_vec.map(|vec| (k, vec))
             })
@@ -190,7 +190,7 @@ impl Services {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Vec<StoreResult<Customer>>>()
             .into_iter()
             .collect::<StoreResult<Vec<Customer>>>()

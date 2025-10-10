@@ -41,17 +41,15 @@ impl WebhookOut {
                     log::info!("Sent {} webhook {}", msg.event_type, msg.id);
                 }
                 WebhookOutCreateMessageResult::Conflict => {
-                    log::warn!("Skipped webhook {} as it already exists", event_id);
+                    log::warn!("Skipped webhook {event_id} as it already exists");
                 }
                 WebhookOutCreateMessageResult::NotFound => {
                     log::warn!(
-                        "Skipped webhook {} as the webhooks seem to not be configured for tenant {}",
-                        event_id,
-                        tenant_id
+                        "Skipped webhook {event_id} as the webhooks seem to not be configured for tenant {tenant_id}"
                     );
                 }
                 WebhookOutCreateMessageResult::SvixNotConfigured => {
-                    log::warn!("Skipped webhook {} as svix client not configured", event_id);
+                    log::warn!("Skipped webhook {event_id} as svix client not configured");
                 }
             }
         }

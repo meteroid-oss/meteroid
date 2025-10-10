@@ -90,7 +90,11 @@ impl ProductInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Product> = PaginatedVec {
-            items: rows.items.into_iter().map(|s| s.into()).collect(),
+            items: rows
+                .items
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         };
@@ -120,7 +124,11 @@ impl ProductInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)?;
 
         let res: PaginatedVec<Product> = PaginatedVec {
-            items: rows.items.into_iter().map(|s| s.into()).collect(),
+            items: rows
+                .items
+                .into_iter()
+                .map(std::convert::Into::into)
+                .collect(),
             total_pages: rows.total_pages,
             total_results: rows.total_results,
         };

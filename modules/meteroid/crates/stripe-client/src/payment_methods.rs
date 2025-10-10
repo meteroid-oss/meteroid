@@ -81,7 +81,7 @@ impl PaymentMethodsApi for StripeClient {
         secret_key: &SecretString,
     ) -> Result<PaymentMethod, StripeError> {
         self.get(
-            &format!("/customers/{}/payment_methods/{}", customer_id, id),
+            &format!("/customers/{customer_id}/payment_methods/{id}"),
             secret_key,
             RetryStrategy::default(),
         )

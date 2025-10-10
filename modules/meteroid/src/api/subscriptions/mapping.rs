@@ -3,7 +3,7 @@ pub mod subscriptions {
     use meteroid_store::domain;
 
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
-    use crate::api::shared::conversions::*;
+    use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
     use common_domain::ids::{CustomerId, PlanVersionId};
     use common_utils::integers::ToNonNegativeU64;
     use meteroid_grpc::meteroid::api::subscriptions::v1 as proto2;
@@ -60,7 +60,7 @@ pub mod subscriptions {
             billing_start_date: s.billing_start_date.as_proto(),
             customer_name: s.customer_name,
             customer_alias: s.customer_alias,
-            billing_day_anchor: s.billing_day_anchor as u32,
+            billing_day_anchor: u32::from(s.billing_day_anchor),
             trial_duration: s.trial_duration,
             created_by: s.created_by.as_proto(),
             activated_at: s.activated_at.as_proto(),
@@ -170,7 +170,7 @@ pub mod subscriptions {
                 billing_start_date: sub.billing_start_date.as_proto(),
                 customer_name: sub.customer_name,
                 customer_alias: sub.customer_alias,
-                billing_day_anchor: sub.billing_day_anchor as u32,
+                billing_day_anchor: u32::from(sub.billing_day_anchor),
                 trial_duration: sub.trial_duration,
                 created_by: sub.created_by.as_proto(),
                 activated_at: sub.activated_at.as_proto(),
@@ -213,7 +213,7 @@ pub mod subscriptions {
 pub mod price_components {
     // In meteroid/src/subscription/mod.rs
 
-    use crate::api::shared::conversions::*;
+    use crate::api::shared::conversions::ProtoConv;
     use itertools::Itertools;
     use meteroid_grpc::meteroid::api::components::v1 as api_components;
     use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
@@ -699,7 +699,7 @@ pub mod price_components {
         }
     }
 
-    /// rows must non-empty, sorted by first_unit asc and unique by first_unit
+    /// rows must non-empty, sorted by `first_unit` asc and unique by `first_unit`
     fn validate_tiered_and_volume(tiered_and_volume: &TieredAndVolume) -> Result<(), Status> {
         let is_sorted_and_unique = tiered_and_volume
             .rows
@@ -855,7 +855,7 @@ pub mod coupons {
             applied_amount: applied_coupon
                 .applied_amount
                 .as_ref()
-                .map(|a| a.to_string()),
+                .map(std::string::ToString::to_string),
             applied_count: applied_coupon.applied_count,
             last_applied_at: applied_coupon.last_applied_at.map(chrono_to_timestamp),
             created_at: Some(chrono_to_timestamp(applied_coupon.created_at)),

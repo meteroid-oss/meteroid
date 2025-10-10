@@ -1,4 +1,4 @@
-use error_stack::{Report, Result};
+use error_stack::Report;
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
@@ -16,7 +16,7 @@ impl std::fmt::Display for AnyhowError {
 pub trait AnyhowIntoReport: Sized {
     type Ok;
     type Err;
-    fn into_report(self) -> Result<Self::Ok, Self::Err>;
+    fn into_report(self) -> Result<Self::Ok, Report<Self::Err>>;
 }
 
 impl<T> AnyhowIntoReport for anyhow::Result<T> {
@@ -24,7 +24,7 @@ impl<T> AnyhowIntoReport for anyhow::Result<T> {
     type Err = AnyhowError;
 
     #[track_caller]
-    fn into_report(self) -> Result<T, AnyhowError> {
+    fn into_report(self) -> Result<T, Report<AnyhowError>> {
         match self {
             Ok(value) => Ok(value),
             Err(error) => Err(Report::from(AnyhowError { source: error })),

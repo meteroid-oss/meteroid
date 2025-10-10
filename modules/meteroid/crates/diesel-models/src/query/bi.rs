@@ -8,7 +8,7 @@ use error_stack::ResultExt;
 
 impl BiMrrMovementLogRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<BiMrrMovementLogRow> {
-        use crate::schema::bi_mrr_movement_log::dsl::*;
+        use crate::schema::bi_mrr_movement_log::dsl::bi_mrr_movement_log;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(bi_mrr_movement_log).values(self);
@@ -18,7 +18,7 @@ impl BiMrrMovementLogRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting bi_mrr_movement_log")
+            .attach("Error while inserting bi_mrr_movement_log")
             .into_db_result()
     }
 }
@@ -27,7 +27,7 @@ impl BiMrrMovementLogRow {
         conn: &mut PgConn,
         invoices: Vec<BiMrrMovementLogRowNew>,
     ) -> DbResult<Vec<BiMrrMovementLogRow>> {
-        use crate::schema::bi_mrr_movement_log::dsl::*;
+        use crate::schema::bi_mrr_movement_log::dsl::bi_mrr_movement_log;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(bi_mrr_movement_log).values(&invoices);
@@ -37,7 +37,7 @@ impl BiMrrMovementLogRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting bi_mrr_movement_log")
+            .attach("Error while inserting bi_mrr_movement_log")
             .into_db_result()
     }
 }

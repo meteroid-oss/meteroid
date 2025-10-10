@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
-    println!("Starting {}", build_info);
+    println!("Starting {build_info}");
 
     let config = Config::get();
 

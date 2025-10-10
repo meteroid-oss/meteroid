@@ -68,8 +68,7 @@ impl AppliedCouponDetailed {
     fn reached_recurring_limit(&self) -> bool {
         self.coupon
             .recurring_value
-            .map(|x| x <= self.applied_coupon.applied_count.unwrap_or(0))
-            .unwrap_or(false)
+            .is_some_and(|x| x <= self.applied_coupon.applied_count.unwrap_or(0))
     }
 
     fn amount_is_fully_consumed(&self) -> bool {

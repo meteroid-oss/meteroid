@@ -2,7 +2,11 @@ use crate::config::Config;
 use crate::sink::MeteroidSink;
 use crate::source::RabbitSource;
 use futures_lite::stream::StreamExt;
-use lapin::{Channel, Consumer, options::*, types::FieldTable};
+use lapin::{
+    Channel, Consumer,
+    options::{BasicAckOptions, BasicConsumeOptions},
+    types::FieldTable,
+};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use tonic::Request;
@@ -141,16 +145,13 @@ impl EventHandler {
             return Ok(None);
         }
 
-        match sample.counter_name.as_str() {
-            "network.outgoing.bytes.delta" => {
-                properties.insert("unit".to_string(), sample.counter_unit.clone());
-                properties.insert("resource_id".to_string(), sample.resource_id.clone());
-                properties.insert("value".to_string(), sample.counter_volume.to_string());
-            }
-            _ => {
-                log::info!("Unhandled counter name: {}", sample.counter_name);
-                return Ok(None);
-            }
+        if sample.counter_name.as_str() == "network.outgoing.bytes.delta" {
+            properties.insert("unit".to_string(), sample.counter_unit.clone());
+            properties.insert("resource_id".to_string(), sample.resource_id.clone());
+            properties.insert("value".to_string(), sample.counter_volume.to_string());
+        } else {
+            log::info!("Unhandled counter name: {}", sample.counter_name);
+            return Ok(None);
         }
 
         Ok(Some(server::Event {

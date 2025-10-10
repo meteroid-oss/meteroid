@@ -76,10 +76,9 @@ impl Services {
                         .await?;
 
                     return Ok(());
-                } else {
-                    tracing::warn!("No receipt found for invoice {}", event.invoice_id);
-                    return Ok(());
                 }
+                tracing::warn!("No receipt found for invoice {}", event.invoice_id);
+                return Ok(());
             }
 
             let subscription = self

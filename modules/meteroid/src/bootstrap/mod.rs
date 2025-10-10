@@ -12,7 +12,7 @@ pub async fn bootstrap_once(
     services: meteroid_store::Services,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Err(err) = services.insert_webhook_out_event_types().await {
-        log::error!("Failed to insert webhook out event types: {:?}", err)
+        log::error!("Failed to insert webhook out event types: {err:?}");
     }
 
     // check if we need to setup historical rates
@@ -21,7 +21,7 @@ pub async fn bootstrap_once(
         .await?;
     if result.is_none() {
         let parquet_file =
-            historical_rates::fetch_parquet_file(&format!("{}/historical-rates", OSS_API)).await?;
+            historical_rates::fetch_parquet_file(&format!("{OSS_API}/historical-rates")).await?;
         let rates = historical_rates::read_parquet_bytes_to_exchange_rates(&parquet_file)?;
         log::info!("Inserting historical rates...");
         store.create_historical_rates_from_usd(rates).await?;

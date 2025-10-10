@@ -9,7 +9,7 @@ use error_stack::ResultExt;
 
 impl TenantRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<TenantRow> {
-        use crate::schema::tenant::dsl::*;
+        use crate::schema::tenant::dsl::tenant;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(tenant).values(self);
@@ -18,14 +18,14 @@ impl TenantRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting tenant")
+            .attach("Error while inserting tenant")
             .into_db_result()
     }
 }
 
 impl TenantRow {
     pub async fn find_by_id(conn: &mut PgConn, tenant_id: TenantId) -> DbResult<TenantRow> {
-        use crate::schema::tenant::dsl::*;
+        use crate::schema::tenant::dsl::{id, tenant};
         use diesel_async::RunQueryDsl;
 
         let query = tenant.filter(id.eq(tenant_id));
@@ -34,7 +34,7 @@ impl TenantRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding tenant by id")
+            .attach("Error while finding tenant by id")
             .into_db_result()
     }
 
@@ -56,7 +56,7 @@ impl TenantRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding tenant by id")
+            .attach("Error while finding tenant by id")
             .into_db_result()
     }
 
@@ -64,7 +64,7 @@ impl TenantRow {
         conn: &mut PgConn,
         tenant_id: TenantId,
     ) -> DbResult<String> {
-        use crate::schema::tenant::dsl::*;
+        use crate::schema::tenant::dsl::{id, reporting_currency, tenant};
         use diesel_async::RunQueryDsl;
 
         let query = tenant.filter(id.eq(tenant_id)).select(reporting_currency);
@@ -73,7 +73,7 @@ impl TenantRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding tenant by id")
+            .attach("Error while finding tenant by id")
             .into_db_result()
     }
 
@@ -93,7 +93,7 @@ impl TenantRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding tenant by id")
+            .attach("Error while finding tenant by id")
             .into_db_result()
     }
 
@@ -117,7 +117,7 @@ impl TenantRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding tenant by slug")
+            .attach("Error while finding tenant by slug")
             .into_db_result()
     }
 
@@ -140,7 +140,7 @@ impl TenantRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching tenants by user_id")
+            .attach("Error while fetching tenants by user_id")
             .into_db_result()
     }
 
@@ -161,7 +161,7 @@ impl TenantRow {
             ))
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching tenants by user_id")
+            .attach("Error while fetching tenants by user_id")
             .into_db_result()?;
 
         let available_currencies: Vec<Option<String>> = t_dsl::tenant
@@ -169,7 +169,7 @@ impl TenantRow {
             .select(t_dsl::available_currencies)
             .first(conn)
             .await
-            .attach_printable("Error while fetching tenants by user_id")
+            .attach("Error while fetching tenants by user_id")
             .into_db_result()?;
 
         // merge the two lists
@@ -180,8 +180,7 @@ impl TenantRow {
                     let count = currency_stats
                         .iter()
                         .find(|(c, _)| c == &currency)
-                        .map(|(_, count)| *count as u64)
-                        .unwrap_or(0);
+                        .map_or(0, |(_, count)| *count as u64);
                     (currency, count)
                 })
             })
@@ -202,7 +201,7 @@ impl TenantRow {
             .select(t_dsl::available_currencies)
             .first(conn)
             .await
-            .attach_printable("Error while fetching tenants by user_id")
+            .attach("Error while fetching tenants by user_id")
             .into_db_result()?;
 
         Ok(result.into_iter().flatten().collect())
@@ -227,7 +226,7 @@ impl TenantRow {
             ))
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching tenant currency usage")
+            .attach("Error while fetching tenant currency usage")
             .into_db_result()?;
 
         // Check if any currency in use is being removed
@@ -235,8 +234,7 @@ impl TenantRow {
             if !new_currencies.contains(currency) {
                 return Err(DatabaseErrorContainer::from(DatabaseError::CheckViolation(
                     format!(
-                        "Cannot remove currency {} as it is being used by {} customers",
-                        currency, count
+                        "Cannot remove currency {currency} as it is being used by {count} customers"
                     ),
                 )));
             }
@@ -251,7 +249,7 @@ impl TenantRow {
             .set(t_dsl::available_currencies.eq(&new_currencies_option))
             .execute(conn)
             .await
-            .attach_printable("Error while updating tenant currencies")
+            .attach("Error while updating tenant currencies")
             .into_db_result()?;
 
         Ok(new_currencies)
@@ -260,7 +258,7 @@ impl TenantRow {
 
 impl TenantRowPatch {
     pub async fn update(&self, conn: &mut PgConn, tenant_id: TenantId) -> DbResult<TenantRow> {
-        use crate::schema::tenant::dsl::*;
+        use crate::schema::tenant::dsl::{id, tenant};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(tenant.filter(id.eq(tenant_id)))
@@ -272,7 +270,7 @@ impl TenantRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating tenant")
+            .attach("Error while updating tenant")
             .into_db_result()
     }
 }

@@ -32,10 +32,7 @@ impl PgmqHandler for PdfRender {
                     evts.push((evt, msg.msg_id));
                 }
                 Err(e) => {
-                    log::warn!(
-                        "failed to convert message to InvoicePdfRequestEvent: {:?}",
-                        e
-                    );
+                    log::warn!("failed to convert message to InvoicePdfRequestEvent: {e:?}");
                 }
             }
         }

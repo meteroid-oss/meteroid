@@ -251,7 +251,7 @@ fn process_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
         return Err("Unsupported image format. Only PNG, JPEG and WebP are allowed.".to_string());
     }
 
-    let img = image::load_from_memory(bytes).map_err(|e| format!("Failed to load image: {}", e))?;
+    let img = image::load_from_memory(bytes).map_err(|e| format!("Failed to load image: {e}"))?;
 
     // Resize if necessary
     let img = if img.width() > MAX_W || img.height() > MAX_H {
@@ -263,7 +263,7 @@ fn process_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
     // Convert to PNG
     let mut buffer = Cursor::new(Vec::new());
     img.write_to(&mut buffer, ImageFormat::Png)
-        .map_err(|e| format!("Failed to encode image: {}", e))?;
+        .map_err(|e| format!("Failed to encode image: {e}"))?;
 
     Ok(buffer.into_inner())
 }

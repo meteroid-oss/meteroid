@@ -1,5 +1,5 @@
 use crate::StoreResult;
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use common_eventbus::{Event, EventBus};
 use diesel::{ConnectionError, ConnectionResult};
 use diesel_async::pooled_connection::deadpool::Object;
@@ -60,7 +60,7 @@ pub struct StoreConfig {
  * Share store logic while allowing cross-service transactions
  * TODO divide between Service & Repository instead ?
  * Service => Exact mapping of the API, + validations, setup conn, call repository
- * Repository is often pass-through to diesel_models after mapping, but not always (can multiple queries, insert multiple entities, etc)
+ * Repository is often pass-through to `diesel_models` after mapping, but not always (can multiple queries, insert multiple entities, etc)
  */
 #[derive(Clone)]
 pub struct StoreInternal {}
@@ -69,7 +69,9 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
     let config = tokio_postgres::Config::from_str(db_url.as_str()).unwrap();
 
     let mgr: AsyncDieselConnectionManager<AsyncPgConnection> =
-        if config.get_ssl_mode() != tokio_postgres::config::SslMode::Disable {
+        if config.get_ssl_mode() == tokio_postgres::config::SslMode::Disable {
+            AsyncDieselConnectionManager::<AsyncPgConnection>::new(db_url)
+        } else {
             let mut config = ManagerConfig::default();
             // First we have to construct a connection manager with our custom `establish_connection`
             // function
@@ -84,8 +86,6 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
             // If you hit a TLS error while connecting to the database double-check your certificates
 
             AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(db_url, config)
-        } else {
-            AsyncDieselConnectionManager::<AsyncPgConnection>::new(db_url)
         };
 
     Pool::builder(mgr)
@@ -94,7 +94,7 @@ pub fn diesel_make_pg_pool(db_url: String) -> StoreResult<PgPool> {
         .change_context(StoreError::InitializationError(
             "Database connection pool".into(),
         ))
-        .attach_printable("Failed to create PostgreSQL connection pool")
+        .attach("Failed to create PostgreSQL connection pool")
 }
 
 fn establish_secure_connection(db_url: &str) -> BoxFuture<'_, ConnectionResult<AsyncPgConnection>> {
@@ -140,15 +140,12 @@ impl Store {
             .await
             .map_err(Report::from)
             .change_context(StoreError::DatabaseConnectionError)
-            .attach_printable("Failed to get a connection from the pool")
+            .attach("Failed to get a connection from the pool")
     }
 
     pub async fn transaction<'a, R, F>(&self, callback: F) -> StoreResult<R>
     where
-        F: for<'r> FnOnce(
-                &'r mut PgConn,
-            )
-                -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
+        F: for<'r> FnOnce(&'r mut PgConn) -> ScopedBoxFuture<'a, 'r, Result<R, StoreErrorReport>>
             + Send
             + 'a,
         R: Send + 'a,
@@ -164,10 +161,7 @@ impl Store {
         callback: F,
     ) -> StoreResult<R>
     where
-        F: for<'r> FnOnce(
-                &'r mut PgConn,
-            )
-                -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
+        F: for<'r> FnOnce(&'r mut PgConn) -> ScopedBoxFuture<'a, 'r, Result<R, StoreErrorReport>>
             + Send
             + 'a,
         R: Send + 'a,
@@ -183,10 +177,7 @@ impl StoreInternal {
         callback: F,
     ) -> StoreResult<R>
     where
-        F: for<'r> FnOnce(
-                &'r mut PgConn,
-            )
-                -> ScopedBoxFuture<'a, 'r, error_stack::Result<R, StoreError>>
+        F: for<'r> FnOnce(&'r mut PgConn) -> ScopedBoxFuture<'a, 'r, Result<R, StoreErrorReport>>
             + Send
             + 'a,
         R: Send + 'a,
@@ -258,14 +249,14 @@ impl ServerCertVerifier for DummyTlsVerifier {
 
 pub fn get_tls(database_url: &str) -> Option<MakeRustlsConnect> {
     let config = tokio_postgres::Config::from_str(database_url).unwrap();
-    if config.get_ssl_mode() != tokio_postgres::config::SslMode::Disable {
+    if config.get_ssl_mode() == tokio_postgres::config::SslMode::Disable {
+        None
+    } else {
         let tls_config = rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier))
             .with_no_client_auth();
 
         Some(MakeRustlsConnect::new(tls_config))
-    } else {
-        None
     }
 }

@@ -15,7 +15,7 @@ use error_stack::ResultExt;
 
 impl PaymentTransactionRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PaymentTransactionRow> {
-        use crate::schema::payment_transaction::dsl::*;
+        use crate::schema::payment_transaction::dsl::payment_transaction;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(payment_transaction).values(self);
@@ -25,7 +25,7 @@ impl PaymentTransactionRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting connector")
+            .attach("Error while inserting connector")
             .into_db_result()
     }
 }
@@ -36,7 +36,7 @@ impl PaymentTransactionRow {
         tx_id: PaymentTransactionId,
         tenant_uid: TenantId,
     ) -> DbResult<PaymentTransactionRow> {
-        use crate::schema::payment_transaction::dsl::*;
+        use crate::schema::payment_transaction::dsl::{id, payment_transaction, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = payment_transaction
@@ -48,7 +48,7 @@ impl PaymentTransactionRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding transaction")
+            .attach("Error while finding transaction")
             .into_db_result()
     }
 
@@ -57,7 +57,7 @@ impl PaymentTransactionRow {
         tx_id: PaymentTransactionId,
         tenant_uid: TenantId,
     ) -> DbResult<PaymentTransactionRow> {
-        use crate::schema::payment_transaction::dsl::*;
+        use crate::schema::payment_transaction::dsl::{id, payment_transaction, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = payment_transaction
@@ -70,7 +70,7 @@ impl PaymentTransactionRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding transaction")
+            .attach("Error while finding transaction")
             .into_db_result()
     }
 
@@ -96,7 +96,7 @@ impl PaymentTransactionRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while finding transaction")
+            .attach("Error while finding transaction")
             .into_db_result()
     }
 
@@ -105,7 +105,9 @@ impl PaymentTransactionRow {
         inv_uid: InvoiceId,
         tenant_uid: TenantId,
     ) -> DbResult<Option<PaymentTransactionRow>> {
-        use crate::schema::payment_transaction::dsl::*;
+        use crate::schema::payment_transaction::dsl::{
+            invoice_id, payment_transaction, processed_at, status, tenant_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = payment_transaction
@@ -121,7 +123,7 @@ impl PaymentTransactionRow {
             .first(conn)
             .await
             .optional()
-            .attach_printable("Error while finding transaction")
+            .attach("Error while finding transaction")
             .into_db_result()
     }
 
@@ -131,7 +133,9 @@ impl PaymentTransactionRow {
         tenant_uid: TenantId,
         pdf_id: StoredDocumentId,
     ) -> DbResult<PaymentTransactionRow> {
-        use crate::schema::payment_transaction::dsl::*;
+        use crate::schema::payment_transaction::dsl::{
+            id, payment_transaction, receipt_pdf_id, tenant_id,
+        };
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(payment_transaction.filter(id.eq(tx_id)))
@@ -143,14 +147,14 @@ impl PaymentTransactionRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while setting receipt PDF")
+            .attach("Error while setting receipt PDF")
             .into_db_result()
     }
 }
 
 impl PaymentTransactionRowPatch {
     pub async fn update(&self, conn: &mut PgConn) -> DbResult<PaymentTransactionRow> {
-        use crate::schema::payment_transaction::dsl::*;
+        use crate::schema::payment_transaction::dsl::{id, payment_transaction};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(payment_transaction.filter(id.eq(self.id))).set(self);
@@ -160,7 +164,7 @@ impl PaymentTransactionRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating transaction")
+            .attach("Error while updating transaction")
             .into_db_result()
     }
 }

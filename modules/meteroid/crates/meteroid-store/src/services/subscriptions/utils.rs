@@ -10,7 +10,7 @@ use crate::store::{PgConn, Store};
 use chrono::NaiveDate;
 use common_utils::decimals::ToSubunit;
 use diesel_models::errors::DatabaseError;
-use error_stack::{Report, report};
+use error_stack::Report;
 use itertools::Itertools;
 use std::collections::HashMap;
 
@@ -27,7 +27,6 @@ use rust_decimal::prelude::*;
 use crate::services::Services;
 use crate::utils::periods::calculate_advance_period_range;
 use common_domain::ids::{AppliedCouponId, BaseId, CouponId, PlanVersionId, TenantId};
-use error_stack::Result;
 
 pub fn calculate_mrr(
     fee: &SubscriptionFee,
@@ -36,7 +35,7 @@ pub fn calculate_mrr(
 ) -> i64 {
     let mut total_cents = 0;
 
-    let period_as_months = period.as_months() as i64;
+    let period_as_months = i64::from(period.as_months());
 
     match fee {
         SubscriptionFee::Rate { rate } => {
@@ -55,7 +54,7 @@ pub fn calculate_mrr(
             ..
         } => {
             total_cents =
-                (*initial_slots as i64) * unit_rate.to_subunit_opt(precision).unwrap_or(0);
+                i64::from(*initial_slots) * unit_rate.to_subunit_opt(precision).unwrap_or(0);
         }
         SubscriptionFee::OneTime { .. } | SubscriptionFee::Usage { .. } => {
             // doesn't count as mrr
@@ -72,7 +71,7 @@ pub fn calculate_mrr(
 pub fn process_create_subscription_add_ons(
     create: &Option<CreateSubscriptionAddOns>,
     add_ons: &[AddOn],
-) -> Result<Vec<SubscriptionAddOnNewInternal>, StoreError> {
+) -> Result<Vec<SubscriptionAddOnNewInternal>, Report<StoreError>> {
     let mut processed_add_ons = Vec::new();
 
     if let Some(create) = create {
@@ -122,7 +121,7 @@ pub fn process_create_subscription_add_ons(
 pub fn process_create_subscription_coupons(
     subscription: &SubscriptionRowNew,
     coupons: &[Coupon],
-) -> Result<Vec<AppliedCouponRowNew>, StoreError> {
+) -> Result<Vec<AppliedCouponRowNew>, Report<StoreError>> {
     let processed_coupons = coupons
         .iter()
         .unique_by(|x| x.id)
@@ -194,11 +193,11 @@ pub async fn validate_coupons(
 
     let now = chrono::Utc::now().naive_utc();
 
-    for coupon in coupons.iter() {
+    for coupon in &coupons {
         let applied_coupon = subscription_coupons
             .iter()
             .find(|x| x.coupon_id == coupon.id)
-            .ok_or(report!(DatabaseError::ValidationError(format!(
+            .ok_or(Report::new(DatabaseError::ValidationError(format!(
                 "Applied coupon {} not found",
                 coupon.code
             ))))?;
@@ -206,14 +205,14 @@ pub async fn validate_coupons(
         let subscription = subscriptions
             .iter()
             .find(|x| x.id == applied_coupon.subscription_id)
-            .ok_or(report!(DatabaseError::ValidationError(format!(
+            .ok_or(Report::new(DatabaseError::ValidationError(format!(
                 "Subscription {} not found",
                 applied_coupon.subscription_id
             ))))?;
 
         // check expired coupons
         if coupon.expires_at.is_some_and(|x| x <= now) {
-            return Err(report!(DatabaseError::ValidationError(format!(
+            return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} is expired",
                 coupon.code
             )))
@@ -221,7 +220,7 @@ pub async fn validate_coupons(
         }
         // check archived coupons
         if coupon.archived_at.is_some() {
-            return Err(report!(DatabaseError::ValidationError(format!(
+            return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} is archived",
                 coupon.code
             )))
@@ -231,7 +230,7 @@ pub async fn validate_coupons(
         // TEMPORARY CHECK: currency is the same as in subscription
         let discount: CouponDiscount =
             serde_json::from_value(coupon.discount.clone()).map_err(|_| {
-                report!(DatabaseError::ValidationError(format!(
+                Report::new(DatabaseError::ValidationError(format!(
                     "Discount serde error for coupon {}",
                     &coupon.code
                 )))
@@ -241,7 +240,7 @@ pub async fn validate_coupons(
             .currency()
             .is_some_and(|x| x != subscription.currency)
         {
-            return Err(report!(DatabaseError::ValidationError(format!(
+            return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} currency does not match subscription currency",
                 coupon.code
             )))
@@ -253,14 +252,17 @@ pub async fn validate_coupons(
     let subscriptions_by_coupon: HashMap<CouponId, usize> =
         subscription_coupons.iter().counts_by(|x| x.coupon_id);
     for (coupon_id, subscriptions_count) in subscriptions_by_coupon {
-        let coupon = coupons.iter().find(|x| x.id == coupon_id).ok_or(report!(
-            DatabaseError::ValidationError(format!("coupon {} not found", coupon_id))
-        ))?;
+        let coupon = coupons
+            .iter()
+            .find(|x| x.id == coupon_id)
+            .ok_or(Report::new(DatabaseError::ValidationError(format!(
+                "coupon {coupon_id} not found"
+            ))))?;
 
         if let Some(redemption_limit) = coupon.redemption_limit
             && redemption_limit < subscriptions_count as i32 + coupon.redemption_count
         {
-            return Err(report!(DatabaseError::ValidationError(format!(
+            return Err(Report::new(DatabaseError::ValidationError(format!(
                 "coupon {} has reached its maximum redemptions",
                 coupon.code
             )))
@@ -281,7 +283,7 @@ pub async fn validate_coupons(
 
         for coupon in non_reusable_coupons {
             if db_customers_by_coupon.contains_key(&coupon.id) {
-                return Err(report!(DatabaseError::ValidationError(format!(
+                return Err(Report::new(DatabaseError::ValidationError(format!(
                     "coupon {} is not reusable",
                     coupon.code
                 )))
@@ -314,13 +316,15 @@ pub async fn calculate_coupons_discount(
 
         match &coupon.discount {
             CouponDiscount::Percentage(percentage) => {
-                total = total * percentage / Decimal::new(100, 0)
+                total = total * percentage / Decimal::new(100, 0);
             }
             CouponDiscount::Fixed {
                 currency,
                 amount: fixed_amount,
             } => {
-                let discount_amount = if currency != subscription_currency {
+                let discount_amount = if currency == subscription_currency {
+                    *fixed_amount
+                } else {
                     let rate = store
                         .get_historical_rate(
                             currency,
@@ -329,17 +333,14 @@ pub async fn calculate_coupons_discount(
                         )
                         .await?
                         .ok_or(StoreError::ValueNotFound(format!(
-                            "historical rate from {} to {}",
-                            currency, subscription_currency
+                            "historical rate from {currency} to {subscription_currency}"
                         )))?
                         .rate;
 
                     fixed_amount * Decimal::from_f32(rate).unwrap_or(Decimal::ZERO)
-                } else {
-                    *fixed_amount
                 };
 
-                total = (total - discount_amount).max(Decimal::ZERO)
+                total = (total - discount_amount).max(Decimal::ZERO);
             }
         }
     }
@@ -355,7 +356,7 @@ pub fn extract_billing_period(
         .iter()
         .map(|x| &x.period)
         .chain(add_ons.iter().map(|x| &x.period))
-        .filter_map(|x| x.as_billing_period_opt())
+        .filter_map(SubscriptionFeeBillingPeriod::as_billing_period_opt)
         .min()
         .unwrap_or(BillingPeriodEnum::Monthly)
 }
@@ -364,7 +365,7 @@ pub fn process_create_subscription_components(
     param: &Option<CreateSubscriptionComponents>,
     map: &HashMap<PlanVersionId, Vec<PriceComponent>>,
     sub: &SubscriptionNew,
-) -> Result<Vec<SubscriptionComponentNewInternal>, StoreError> {
+) -> Result<Vec<SubscriptionComponentNewInternal>, Report<StoreError>> {
     let mut processed_components = Vec::new();
 
     let (parameterized_components, overridden_components, extra_components, remove_components) =
@@ -466,7 +467,7 @@ impl SubscriptionDetails {
 
         let periods = calculate_advance_period_range(
             now,
-            self.subscription.billing_day_anchor as u32,
+            u32::from(self.subscription.billing_day_anchor),
             false,
             &period,
         );
@@ -491,7 +492,7 @@ impl Services {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?;
         let outbox_events: Vec<OutboxEvent> = subscriptions
             .into_iter()

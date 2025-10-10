@@ -25,7 +25,7 @@ pub async fn setup_eventbus_handlers(store: Store, config: Config) {
         let country = match analytics_handler::get_geoip().await {
             Ok(geoip) => Some(geoip.country),
             Err(err) => {
-                log::warn!("Failed to obtain data for analytics: {}", err);
+                log::warn!("Failed to obtain data for analytics: {err}");
                 None
             }
         };

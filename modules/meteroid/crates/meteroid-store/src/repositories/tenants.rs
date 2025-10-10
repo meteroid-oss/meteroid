@@ -251,7 +251,7 @@ impl StoreInternal {
         let mut slug = base_slug.to_string();
         let mut i = 1;
         while existing_tenant_slugs.contains(&slug) {
-            slug = format!("{}-{}", base_slug, i);
+            slug = format!("{base_slug}-{i}");
             i += 1;
         }
 
@@ -315,9 +315,7 @@ async fn get_reporting_currency_by_tenant_id_cached(
         .map_err(Into::<Report<StoreError>>::into)?;
 
     let res = Currencies::resolve_currency(&currency)
-        .ok_or_else(|| {
-            StoreError::ValueNotFound(format!("Currency not found for code {}", currency))
-        })
+        .ok_or_else(|| StoreError::ValueNotFound(format!("Currency not found for code {currency}")))
         .cloned()?;
 
     Ok(res)

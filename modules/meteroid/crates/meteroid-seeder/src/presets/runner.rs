@@ -4,7 +4,9 @@ use meteroid_store::domain::enums::{
 };
 use std::collections::HashMap;
 
-use meteroid_store::repositories::*;
+use meteroid_store::repositories::{
+    CustomersInterface, PlansInterface, ProductFamilyInterface, TenantInterface,
+};
 use meteroid_store::{Services, domain as store_domain};
 
 use meteroid_store::Store;

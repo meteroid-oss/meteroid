@@ -5,7 +5,7 @@ use crate::{StoreResult, domain};
 use common_domain::ids::{BaseId, ProductFamilyId, TenantId};
 use common_eventbus::Event;
 use diesel_models::product_families::{ProductFamilyRow, ProductFamilyRowNew};
-use error_stack::{Report, report};
+use error_stack::{IntoReport, Report};
 use uuid::Uuid;
 
 #[async_trait::async_trait]
@@ -141,8 +141,6 @@ impl ProductFamilyInterface for Store {
         .into_iter()
         .next()
         .map(Into::into)
-        .ok_or(report!(StoreError::ValueNotFound(
-            "Default product family".to_string()
-        )))
+        .ok_or(StoreError::ValueNotFound("Default product family".to_string()).into_report())
     }
 }

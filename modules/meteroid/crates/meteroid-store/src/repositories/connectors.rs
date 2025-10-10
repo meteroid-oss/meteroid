@@ -241,8 +241,7 @@ impl ConnectorsInterface for Store {
             let is_expired = sensitive
                 .expires_at
                 .as_ref()
-                .map(|exp| exp <= &(Utc::now() + chrono::Duration::minutes(30)))
-                .unwrap_or(false);
+                .is_some_and(|exp| exp <= &(Utc::now() + chrono::Duration::minutes(30)));
 
             let auth_token = if is_expired {
                 let tokens = self

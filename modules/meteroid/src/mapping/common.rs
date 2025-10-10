@@ -6,7 +6,7 @@ pub fn date_to_chrono(time_date: time::Date) -> Result<NaiveDate, MappingError> 
     NaiveDate::from_ymd_opt(
         time_date.year(),
         time_date.month() as u32,
-        time_date.day() as u32,
+        u32::from(time_date.day()),
     )
     .ok_or(MappingError::new("Failed to convert date to chrono"))
 }
@@ -38,9 +38,9 @@ pub fn chrono_to_datetime(
 
 pub fn time_to_chrono(time_date: time::Time) -> Result<NaiveTime, MappingError> {
     NaiveTime::from_hms_nano_opt(
-        time_date.hour() as u32,
-        time_date.minute() as u32,
-        time_date.second() as u32,
+        u32::from(time_date.hour()),
+        u32::from(time_date.minute()),
+        u32::from(time_date.second()),
         time_date.nanosecond(),
     )
     .ok_or(MappingError::new("Failed to convert time to chrono"))

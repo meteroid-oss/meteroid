@@ -48,10 +48,10 @@ pub async fn start_server(config: Config) {
     tokio::select! {
           result = api_server => {
             if let Err(e) = result {
-                log::error!("Error starting API server: {:?}", e);
+                log::error!("Error starting API server: {e:?}");
             }
         },
-        _ = kafka_workers => {
+        () = kafka_workers => {
               log::warn!("Workers terminated");
         }
     }
@@ -159,5 +159,5 @@ async fn create_kafka_workers(
     config: &KafkaConfig,
     internal_client: InternalServiceClient<LayeredClientService>,
 ) {
-    run_raw_preprocessor(config, internal_client).await
+    run_raw_preprocessor(config, internal_client).await;
 }

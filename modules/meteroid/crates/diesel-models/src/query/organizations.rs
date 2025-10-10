@@ -10,7 +10,7 @@ use tap::TapFallible;
 
 impl OrganizationRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<OrganizationRow> {
-        use crate::schema::organization::dsl::*;
+        use crate::schema::organization::dsl::organization;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(organization).values(self);
@@ -20,7 +20,7 @@ impl OrganizationRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting organization")
+            .attach("Error while inserting organization")
             .into_db_result()
     }
 }
@@ -37,7 +37,7 @@ impl OrganizationRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while counting all organizations")
+            .attach("Error while counting all organizations")
             .into_db_result()
     }
 
@@ -55,7 +55,7 @@ impl OrganizationRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding organization by invite_link_hash")
+            .attach("Error while finding organization by invite_link_hash")
             .into_db_result()
     }
 
@@ -70,7 +70,7 @@ impl OrganizationRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding organization by id")
+            .attach("Error while finding organization by id")
             .into_db_result()
     }
 
@@ -89,7 +89,7 @@ impl OrganizationRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding organization by id")
+            .attach("Error while finding organization by id")
             .into_db_result()
     }
 
@@ -104,7 +104,7 @@ impl OrganizationRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding organization by slug")
+            .attach("Error while finding organization by slug")
             .into_db_result()
     }
 
@@ -125,8 +125,8 @@ impl OrganizationRow {
         query
             .execute(conn)
             .await
-            .tap_err(|e| log::error!("Error while updating organization: {:?}", e))
-            .attach_printable("Error while updating organization")
+            .tap_err(|e| log::error!("Error while updating organization: {e:?}"))
+            .attach("Error while updating organization")
             .into_db_result()
     }
 
@@ -147,8 +147,8 @@ impl OrganizationRow {
         query
             .execute(conn)
             .await
-            .tap_err(|e| log::error!("Error while updating organization: {:?}", e))
-            .attach_printable("Error while updating organization")
+            .tap_err(|e| log::error!("Error while updating organization: {e:?}"))
+            .attach("Error while updating organization")
             .into_db_result()
     }
 
@@ -170,7 +170,7 @@ impl OrganizationRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing organizations by user id")
+            .attach("Error while listing organizations by user id")
             .into_db_result()
     }
 }

@@ -118,7 +118,7 @@ impl QuotesInterface for Store {
 
         let rows_new: Vec<QuoteRowNew> = quotes
             .into_iter()
-            .map(|q| q.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         let rows = QuoteRowNew::insert_batch(&rows_new, &mut conn)
@@ -126,7 +126,7 @@ impl QuotesInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         rows.into_iter()
-            .map(|row| row.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -136,7 +136,7 @@ impl QuotesInterface for Store {
         QuoteRow::find_by_id(&mut conn, tenant_id, quote_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .and_then(|row| row.try_into())
+            .and_then(std::convert::TryInto::try_into)
     }
 
     async fn get_quote_with_customer_by_id(
@@ -149,7 +149,7 @@ impl QuotesInterface for Store {
         QuoteRow::find_with_customer_by_id(&mut conn, tenant_id, quote_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .and_then(|row| row.try_into())
+            .and_then(std::convert::TryInto::try_into)
     }
 
     async fn get_detailed_quote_by_id(
@@ -164,7 +164,7 @@ impl QuotesInterface for Store {
             QuoteRow::find_with_customer_by_id(&mut conn, tenant_id, quote_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)
-                .and_then(|row| row.try_into())?;
+                .and_then(std::convert::TryInto::try_into)?;
 
         let components = QuoteComponentRow::list_by_quote_id(&mut conn, quote_id)
             .await
@@ -174,12 +174,12 @@ impl QuotesInterface for Store {
         let signatures = QuoteSignatureRow::list_by_quote_id(&mut conn, quote_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|l| l.into_iter().map(|s| s.into()).collect())?;
+            .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
 
         let activities = QuoteActivityRow::list_by_quote_id(&mut conn, quote_id, None)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|l| l.into_iter().map(|s| s.into()).collect())?;
+            .map(|l| l.into_iter().map(std::convert::Into::into).collect())?;
 
         let invoicing_entity = InvoicingEntityRow::get_invoicing_entity_by_id_and_tenant(
             &mut conn,
@@ -188,7 +188,7 @@ impl QuotesInterface for Store {
         )
         .await
         .map_err(Into::<Report<StoreError>>::into)
-        .map(|row| row.into())?;
+        .map(std::convert::Into::into)?;
 
         Ok(DetailedQuote {
             quote: quote_with_customer.quote,
@@ -226,7 +226,7 @@ impl QuotesInterface for Store {
         let items: Vec<QuoteWithCustomer> = rows
             .items
             .into_iter()
-            .map(|row| row.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(PaginatedVec {
@@ -244,7 +244,7 @@ impl QuotesInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         rows.into_iter()
-            .map(|row| row.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -336,7 +336,7 @@ impl QuotesInterface for Store {
             .scope_boxed()
         })
         .await
-        .and_then(|row| row.try_into())
+        .and_then(std::convert::TryInto::try_into)
     }
 
     async fn decline_quote(
@@ -381,7 +381,7 @@ impl QuotesInterface for Store {
 
                 // Log activity
                 let description = reason.map_or("Quote declined".to_string(), |r| {
-                    format!("Quote declined: {}", r)
+                    format!("Quote declined: {r}")
                 });
                 let activity = QuoteActivityNew {
                     quote_id,
@@ -495,7 +495,7 @@ impl QuotesInterface for Store {
                     .insert(conn)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
-                    .map(|row| row.into())
+                    .map(std::convert::Into::into)
             }
             .scope_boxed()
         })
@@ -508,7 +508,7 @@ impl QuotesInterface for Store {
         QuoteSignatureRow::list_by_quote_id(&mut conn, quote_id)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|rows| rows.into_iter().map(|row| row.into()).collect())
+            .map(|rows| rows.into_iter().map(std::convert::Into::into).collect())
     }
 
     async fn insert_quote_activity(
@@ -522,7 +522,7 @@ impl QuotesInterface for Store {
             .insert(&mut conn)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|row| row.into())
+            .map(std::convert::Into::into)
     }
 
     async fn list_quote_activities(
@@ -535,7 +535,7 @@ impl QuotesInterface for Store {
         QuoteActivityRow::list_by_quote_id(&mut conn, quote_id, limit)
             .await
             .map_err(Into::<Report<StoreError>>::into)
-            .map(|rows| rows.into_iter().map(|row| row.into()).collect())
+            .map(|rows| rows.into_iter().map(std::convert::Into::into).collect())
     }
 
     async fn insert_quote_components(
@@ -546,7 +546,7 @@ impl QuotesInterface for Store {
 
         let rows_new: Vec<QuoteComponentRowNew> = components
             .into_iter()
-            .map(|c| c.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         let rows = QuoteComponentRowNew::insert_batch(&rows_new, &mut conn)
@@ -554,7 +554,7 @@ impl QuotesInterface for Store {
             .map_err(Into::<Report<StoreError>>::into)?;
 
         rows.into_iter()
-            .map(|row| row.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 }

@@ -104,7 +104,7 @@ impl AccountingInterface for Store {
 
         let custom_taxes = tax_rows
             .into_iter()
-            .map(|row| row.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<CustomTax>, _>>()?;
 
         Ok(custom_taxes)
@@ -161,7 +161,7 @@ impl AccountingInterface for Store {
 
         let product_accountings = product_accounting_rows
             .into_iter()
-            .map(|row| row.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<StoreResult<Vec<ProductAccountingWithTax>>>()?;
 
         Ok(product_accountings)

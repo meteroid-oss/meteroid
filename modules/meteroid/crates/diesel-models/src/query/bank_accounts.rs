@@ -19,7 +19,7 @@ impl BankAccountRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting bank_account")
+            .attach("Error while inserting bank_account")
             .into_db_result()
     }
 }
@@ -41,7 +41,7 @@ impl BankAccountRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting bank_account")
+            .attach("Error while getting bank_account")
             .into_db_result()
     }
 
@@ -58,8 +58,8 @@ impl BankAccountRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while fetching bank_accounts: {:?}", e))
-            .attach_printable("Error while fetching bank_accounts")
+            .tap_err(|e| log::error!("Error while fetching bank_accounts: {e:?}"))
+            .attach("Error while fetching bank_accounts")
             .into_db_result()
     }
 
@@ -79,7 +79,7 @@ impl BankAccountRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting bank_account")
+            .attach("Error while deleting bank_account")
             .into_db_result()
     }
 
@@ -99,8 +99,8 @@ impl BankAccountRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while fetching bank_accounts: {:?}", e))
-            .attach_printable("Error while fetching bank_accounts")
+            .tap_err(|e| log::error!("Error while fetching bank_accounts: {e:?}"))
+            .attach("Error while fetching bank_accounts")
             .into_db_result()
     }
 }
@@ -119,7 +119,7 @@ impl BankAccountRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating bank_account")
+            .attach("Error while updating bank_account")
             .into_db_result()
     }
 }

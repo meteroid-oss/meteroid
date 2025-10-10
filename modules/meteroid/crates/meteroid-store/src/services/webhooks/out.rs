@@ -193,7 +193,7 @@ impl ServicesEdge {
                 .retry(ConstantBuilder::default().with_jitter())
                 .when(|err| matches!(err, Error::Http(e) if e.status.as_u16() == 429 || e.status.as_u16() >= 500))
                 .notify(|err: &Error, dur: Duration| {
-                    log::warn!("Retrying svix api error {:?} after {:?}", err, dur);
+                    log::warn!("Retrying svix api error {err:?} after {dur:?}");
                 })
                 .await;
 
@@ -252,8 +252,7 @@ impl ServicesEdge {
                 }
                 Err(err) => {
                     return Err(err).change_context(StoreError::WebhookServiceError(format!(
-                        "Failed to create svix webhook event type {}",
-                        event_type
+                        "Failed to create svix webhook event type {event_type}"
                     )));
                 }
             }

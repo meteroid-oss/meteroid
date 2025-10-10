@@ -26,7 +26,7 @@ pub enum CurrencyRatesError {
 pub trait CurrencyRatesService: Send + Sync + 'static {
     async fn fetch_latest_exchange_rates(
         &self,
-    ) -> error_stack::Result<ExchangeRates, CurrencyRatesError>;
+    ) -> Result<ExchangeRates, Report<CurrencyRatesError>>;
 }
 
 #[derive(Deserialize, Debug)]
@@ -65,10 +65,7 @@ impl OpenexchangeRatesService {
     }
 
     #[tracing::instrument(skip(self))]
-    async fn fetch(
-        &self,
-        base: Currency,
-    ) -> error_stack::Result<ExchangeRates, CurrencyRatesError> {
+    async fn fetch(&self, base: Currency) -> Result<ExchangeRates, Report<CurrencyRatesError>> {
         let symbols = Currency::iter().format(",");
 
         let url = match self.api_key.as_ref() {
@@ -76,11 +73,10 @@ impl OpenexchangeRatesService {
             // This api is provided for testing/development purposes only, with no warranties.
             // In production, use openexchangerates or equivalent.
             {
-                format!("{}/rates/{}?symbols={}", OSS_API, base, symbols)
+                format!("{OSS_API}/rates/{base}?symbols={symbols}")
             }
             Some(api_key) => format!(
-                "https://openexchangerates.org/api/latest.json?app_id={}&base={}&symbols={}",
-                api_key, base, symbols
+                "https://openexchangerates.org/api/latest.json?app_id={api_key}&base={base}&symbols={symbols}"
             ),
         };
 
@@ -105,7 +101,7 @@ impl CurrencyRatesService for OpenexchangeRatesService {
     #[tracing::instrument(skip_all)]
     async fn fetch_latest_exchange_rates(
         &self,
-    ) -> error_stack::Result<ExchangeRates, CurrencyRatesError> {
+    ) -> Result<ExchangeRates, Report<CurrencyRatesError>> {
         let rates = self.fetch(Currency::USD).await?;
 
         if rates.base != Currency::USD.to_string() {

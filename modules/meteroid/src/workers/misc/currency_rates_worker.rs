@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::services::currency_rates::CurrencyRatesService;
-use error_stack::{Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use meteroid_store::Store;
 use meteroid_store::domain::historical_rates::HistoricalRatesFromUsdNew;
 use meteroid_store::repositories::historical_rates::HistoricalRatesInterface;
@@ -21,7 +21,7 @@ pub async fn run_currency_rates_worker(
                 tokio::time::sleep(duration + jitter_duration).await;
             }
             Err(err) => {
-                log::error!("Currency rates worker encountered error: {:?}", err);
+                log::error!("Currency rates worker encountered error: {err:?}");
                 tokio::time::sleep(Duration::from_secs(60) + jitter_duration).await;
             }
         }
@@ -31,7 +31,7 @@ pub async fn run_currency_rates_worker(
 async fn update_currency_rates(
     store: &Arc<Store>,
     currency_rates_service: &Arc<dyn CurrencyRatesService>,
-) -> Result<Duration, errors::WorkerError> {
+) -> Result<Duration, Report<errors::WorkerError>> {
     let rates = store
         .latest_rate("USD", "USD")
         .await

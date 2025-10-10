@@ -71,7 +71,7 @@ impl EventProcessor {
             match validate_event(&event, &now, allow_backfilling) {
                 Ok((id, ts)) => match id {
                     CustomerId::MeteroidCustomerId(id) => {
-                        resolved.push(to_domain_event(event, id, tenant_id.clone(), ts, now))
+                        resolved.push(to_domain_event(event, id, tenant_id.clone(), ts, now));
                     }
                     CustomerId::ExternalCustomerAlias(alias) => {
                         let from_cache = CUSTOMER_ID_CACHE.get(&(tenant_id.clone(), alias.clone()));
@@ -119,7 +119,10 @@ impl EventProcessor {
             tracing::info!(
                 "Resolving {} customer aliases for {} unresolved events",
                 unresolved_aliases.len(),
-                unresolved_by_alias.values().map(|v| v.len()).sum::<usize>()
+                unresolved_by_alias
+                    .values()
+                    .map(std::vec::Vec::len)
+                    .sum::<usize>()
             );
 
             let res = self
@@ -143,10 +146,7 @@ impl EventProcessor {
                     for (event, _) in events_for_alias {
                         failed_events.push(FailedEvent {
                             event,
-                            reason: format!(
-                                "Unable to resolve customer alias: {}",
-                                unresolved_alias
-                            ),
+                            reason: format!("Unable to resolve customer alias: {unresolved_alias}"),
                         });
                     }
                 }
@@ -188,10 +188,7 @@ impl EventProcessor {
                 for (event, _) in events_for_alias {
                     failed_events.push(FailedEvent {
                         event,
-                        reason: format!(
-                            "Customer alias not found in resolution response: {}",
-                            alias
-                        ),
+                        reason: format!("Customer alias not found in resolution response: {alias}"),
                     });
                 }
             }
@@ -285,17 +282,17 @@ pub fn validate_event(
                 let diff = ts - *now;
 
                 if diff > chrono::Duration::hours(1) {
-                    return Err(format!("Timestamp is too far in the future : {}", diff));
+                    return Err(format!("Timestamp is too far in the future : {diff}"));
                 }
 
                 if !allow_backfill && -diff > chrono::Duration::days(1) {
-                    return Err(format!("Timestamp is too far in the past : {}", diff));
+                    return Err(format!("Timestamp is too far in the past : {diff}"));
                 }
 
                 ts
             }
             Err(e) => {
-                return Err(format!("Invalid timestamp format: {}", e));
+                return Err(format!("Invalid timestamp format: {e}"));
             }
         }
     };

@@ -29,5 +29,5 @@ pub async fn run_raw_preprocessor(
         "meteroid-raw-preprocessor",
         handler,
     )
-    .await
+    .await;
 }

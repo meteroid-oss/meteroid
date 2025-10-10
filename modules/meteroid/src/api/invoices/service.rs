@@ -486,7 +486,7 @@ async fn to_domain_invoice_new(
     }
 
     // Calculate tax amounts after discount is applied
-    for line in lines.iter_mut() {
+    for line in &mut lines {
         let taxable_amount_decimal =
             *rusty_money::Money::from_minor(line.taxable_amount, currency).amount();
 

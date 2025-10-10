@@ -47,7 +47,7 @@ impl HistoricalRatesInterface for Store {
 
         let batch = rates
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         HistoricalRatesFromUsdRowNew::insert_batch(&mut conn, batch)

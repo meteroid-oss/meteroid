@@ -35,13 +35,11 @@ impl Services {
             && invoice.invoice.status != diesel_models::enums::InvoiceStatusEnum::Finalized
         {
             return Err(Report::new(StoreError::BillingError)
-                .attach_printable("Cannot process payment for this invoice status"));
+                .attach("Cannot process payment for this invoice status"));
         }
 
         if invoice.invoice.amount_due <= 0 {
-            return Err(
-                Report::new(StoreError::BillingError).attach_printable("Invoice has no amount due")
-            );
+            return Err(Report::new(StoreError::BillingError).attach("Invoice has no amount due"));
         }
 
         // Create a payment transaction

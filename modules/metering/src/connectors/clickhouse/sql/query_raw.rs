@@ -3,6 +3,7 @@ use crate::domain::{EventSortOrder, QueryRawEventsParams};
 use chrono::{DateTime, Utc};
 
 // TODO improve
+
 pub fn query_raw_event_table_sql(
     tenant_id: String,
     from: Option<DateTime<Utc>>,
@@ -13,11 +14,10 @@ pub fn query_raw_event_table_sql(
     let mut where_clauses = Vec::new();
 
     let mut query = format!(
-        "SELECT id, code, customer_id, timestamp, ingested_at, properties FROM {}",
-        table_name
+        "SELECT id, code, customer_id, timestamp, ingested_at, properties FROM {table_name}"
     );
 
-    where_clauses.push(format!("tenant_id = '{}'", tenant_id));
+    where_clauses.push(format!("tenant_id = '{tenant_id}'"));
 
     if let Some(from_time) = from {
         where_clauses.push(format!("timestamp >= {}", from_time.timestamp()));
@@ -32,7 +32,7 @@ pub fn query_raw_event_table_sql(
         query.push_str(&where_clauses.join(" AND "));
     }
 
-    query.push_str(&format!(" ORDER BY time DESC LIMIT {}", limit));
+    query.push_str(&format!(" ORDER BY time DESC LIMIT {limit}"));
 
     query
 }
@@ -58,27 +58,26 @@ pub fn query_raw_events_sql(params: QueryRawEventsParams) -> Result<String, Stri
         let customer_ids_str = params
             .customer_ids
             .iter()
-            .map(|id| format!("'{}'", id.replace("'", "''")))
+            .map(|id| format!("'{}'", id.replace('\'', "''")))
             .collect::<Vec<_>>()
             .join(", ");
-        conditions.push(format!("customer_id IN ({})", customer_ids_str));
+        conditions.push(format!("customer_id IN ({customer_ids_str})"));
     }
 
     if !params.event_codes.is_empty() {
         let event_codes_str = params
             .event_codes
             .iter()
-            .map(|code| format!("'{}'", code.replace("'", "''")))
+            .map(|code| format!("'{}'", code.replace('\'', "''")))
             .collect::<Vec<_>>()
             .join(", ");
-        conditions.push(format!("code IN ({})", event_codes_str));
+        conditions.push(format!("code IN ({event_codes_str})"));
     }
 
     if let Some(search) = params.search {
-        let escaped_search = search.replace("'", "''");
+        let escaped_search = search.replace('\'', "''");
         let search_condition = format!(
-            "(id ILIKE '%{}%' OR code ILIKE '%{}%' OR arrayStringConcat(mapValues(properties), ' ') ILIKE '%{}%')",
-            escaped_search, escaped_search, escaped_search
+            "(id ILIKE '%{escaped_search}%' OR code ILIKE '%{escaped_search}%' OR arrayStringConcat(mapValues(properties), ' ') ILIKE '%{escaped_search}%')"
         );
         conditions.push(search_condition);
     }

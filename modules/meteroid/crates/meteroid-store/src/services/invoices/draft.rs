@@ -2,7 +2,7 @@ use crate::domain::{
     Customer, InlineCustomer, InlineInvoicingEntity, Invoice, InvoiceNew, InvoicePaymentStatus,
     InvoiceStatusEnum, InvoiceType, LineItem, SubscriptionDetails,
 };
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::invoices::insert_invoice_tx;
 use crate::repositories::invoicing_entities::InvoicingEntityInterface;
 use crate::services::Services;
@@ -18,7 +18,7 @@ impl Services {
         tenant_id: TenantId,
         subscription_details: &SubscriptionDetails,
         customer: Customer,
-    ) -> error_stack::Result<Option<Invoice>, StoreError> {
+    ) -> Result<Option<Invoice>, StoreErrorReport> {
         let subscription = &subscription_details.subscription;
 
         let invoice_date = subscription.current_period_start;
@@ -37,7 +37,7 @@ impl Services {
             return Ok(None);
         }
 
-        let due_date = (invoice_date + chrono::Duration::days(subscription.net_terms as i64))
+        let due_date = (invoice_date + chrono::Duration::days(i64::from(subscription.net_terms)))
             .and_time(NaiveTime::MIN);
 
         let invoicing_entity = self
@@ -99,7 +99,7 @@ impl Services {
         currency: String,
         discount: Option<u64>,
         prepaid_amount: Option<u64>,
-    ) -> error_stack::Result<Option<Invoice>, StoreError> {
+    ) -> Result<Option<Invoice>, StoreErrorReport> {
         let invoicing_entity = self
             .store
             .get_invoicing_entity(tenant_id, Some(customer.invoicing_entity_id))
@@ -119,8 +119,9 @@ impl Services {
             .await
             .change_context(StoreError::InvoiceComputationError)?;
 
-        let due_date = (invoice_date + chrono::Duration::days(invoicing_entity.net_terms as i64))
-            .and_time(NaiveTime::MIN);
+        let due_date = (invoice_date
+            + chrono::Duration::days(i64::from(invoicing_entity.net_terms)))
+        .and_time(NaiveTime::MIN);
 
         // Draft invoice uses "draft" as invoice number
         let invoice_number = "draft";

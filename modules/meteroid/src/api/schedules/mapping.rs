@@ -76,7 +76,7 @@ pub mod schedules {
             ScheduleWrapper(server::Schedule {
                 id: value.id.to_string(),
                 term: billing_period::to_proto(value.billing_period) as i32,
-                name: "".to_string(), // TODO drop from db ?
+                name: String::new(), // TODO drop from db ?
                 ramps: Some(PlanRampsWrapper::from(value.ramps).0),
             })
         }

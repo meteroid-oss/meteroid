@@ -1,5 +1,8 @@
 use crate::errors::{InvoicingError, InvoicingResult};
-use crate::model::*;
+use crate::model::{
+    Address, Coupon, Customer, Invoice, InvoiceLine, InvoiceSubLine, Organization, PaymentStatus,
+    TaxBreakdownItem, Transaction,
+};
 use chrono::prelude::*;
 use derive_typst_intoval::{IntoDict, IntoValue};
 use fluent_static::MessageBundle;
@@ -37,11 +40,11 @@ mod l10n {
     pub fn get_country_local_name<'a>(lang: &str, country_code: &str) -> Option<&'a str> {
         let primary = LOCALES
             .get(lang)
-            .and_then(|locale| locale.get(country_code).map(|v| v.as_str()));
+            .and_then(|locale| locale.get(country_code).map(std::string::String::as_str));
         let fallback = || {
             LOCALES
                 .get("en-US")
-                .and_then(|locale| locale.get(country_code).map(|v| v.as_str()))
+                .and_then(|locale| locale.get(country_code).map(std::string::String::as_str))
         };
 
         primary.or_else(fallback)
@@ -64,7 +67,7 @@ impl TypstAddress {
             .country
             .as_ref()
             .map(|code| l10n::get_country_local_name(lang, &code.code).unwrap_or(&code.name))
-            .map(|name| name.to_string());
+            .map(std::string::ToString::to_string);
 
         TypstAddress {
             line1: address.line1.clone().unwrap_or_default(),
@@ -509,8 +512,7 @@ impl TypstInvoiceRenderer {
             .output
             .map_err(|e| {
                 InvoicingError::InvoiceGenerationError(format!(
-                    "Failed to compile Typst document: {:?}",
-                    e
+                    "Failed to compile Typst document: {e:?}"
                 ))
             })?;
 

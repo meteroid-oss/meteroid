@@ -99,7 +99,7 @@ impl InstanceService for InstanceServiceComponents {
                 code: currency.code.to_string(),
                 name: currency.name.to_string(),
                 symbol: currency.symbol.to_string(),
-                precision: currency.precision as u32,
+                precision: u32::from(currency.precision),
             })
             .collect();
 

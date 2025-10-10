@@ -20,7 +20,7 @@ impl CustomerBalanceTxRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting customer balance tx")
+            .attach("Error while inserting customer balance tx")
             .into_db_result()
     }
 }
@@ -37,7 +37,7 @@ impl CustomerBalancePendingTxRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting customer balance pending tx")
+            .attach("Error while inserting customer balance pending tx")
             .into_db_result()
     }
 }
@@ -58,7 +58,7 @@ impl CustomerBalancePendingTxRow {
             .first(conn)
             .await
             .optional()
-            .attach_printable("Error while finding CustomerBalancePendingTx by invoice_id")
+            .attach("Error while finding CustomerBalancePendingTx by invoice_id")
             .into_db_result()
     }
 
@@ -77,7 +77,7 @@ impl CustomerBalancePendingTxRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while update_tx_id")
+            .attach("Error while update_tx_id")
             .into_db_result()
     }
 }

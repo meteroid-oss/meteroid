@@ -1,6 +1,6 @@
 use diesel::result::Error;
-
 use diesel_models::errors::DatabaseError;
+use error_stack::IntoReport;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -79,7 +79,7 @@ impl From<DatabaseError> for StoreError {
                 entity: "db entity",
                 key: None,
             },
-            _ => StoreError::DatabaseError(error_stack::report!(err)),
+            _ => StoreError::DatabaseError(err.into_report()),
         }
     }
 }

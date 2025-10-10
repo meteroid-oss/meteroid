@@ -153,8 +153,7 @@ impl PriceComponent {
                 thresholds,
             } => {
                 let metric = maybe_metric.ok_or(StoreError::ValueNotFound(format!(
-                    "Metric was not found {}",
-                    metric_code
+                    "Metric was not found {metric_code}"
                 )))?;
                 meteroid_store::domain::FeeType::Capacity {
                     metric_id: metric.id,
@@ -166,8 +165,7 @@ impl PriceComponent {
                 pricing,
             } => {
                 let metric = maybe_metric.ok_or(StoreError::ValueNotFound(format!(
-                    "Metric was not found {}",
-                    metric_code
+                    "Metric was not found {metric_code}"
                 )))?;
                 meteroid_store::domain::FeeType::Usage {
                     metric_id: metric.id,

@@ -7,7 +7,7 @@ use error_stack::ResultExt;
 
 impl ApiTokenRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ApiTokenRow> {
-        use crate::schema::api_token::dsl::*;
+        use crate::schema::api_token::dsl::api_token;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(api_token).values(self);
@@ -17,14 +17,14 @@ impl ApiTokenRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting api token")
+            .attach("Error while inserting api token")
             .into_db_result()
     }
 }
 
 impl ApiTokenRow {
     pub async fn find_by_id(conn: &mut PgConn, param_id: &uuid::Uuid) -> DbResult<ApiTokenRow> {
-        use crate::schema::api_token::dsl::*;
+        use crate::schema::api_token::dsl::{api_token, id};
         use diesel_async::RunQueryDsl;
 
         let query = api_token.filter(id.eq(param_id));
@@ -34,7 +34,7 @@ impl ApiTokenRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while fetching api token by id")
+            .attach("Error while fetching api token by id")
             .into_db_result()
     }
 
@@ -42,7 +42,7 @@ impl ApiTokenRow {
         conn: &mut PgConn,
         param_tenant_id: TenantId,
     ) -> DbResult<Vec<ApiTokenRow>> {
-        use crate::schema::api_token::dsl::*;
+        use crate::schema::api_token::dsl::{api_token, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = api_token.filter(tenant_id.eq(param_tenant_id));
@@ -52,7 +52,7 @@ impl ApiTokenRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching api tokens by tenant id")
+            .attach("Error while fetching api tokens by tenant id")
             .into_db_result()
     }
 }
@@ -76,7 +76,7 @@ impl ApiTokenValidationRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while fetching api token by id")
+            .attach("Error while fetching api token by id")
             .into_db_result()
     }
 }
