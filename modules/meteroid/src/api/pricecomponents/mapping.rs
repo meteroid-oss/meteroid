@@ -1,7 +1,7 @@
 pub mod components {
     use crate::api::domain_mapping::billing_period;
 
-    use crate::api::shared::conversions::*;
+    use crate::api::shared::conversions::ProtoConv;
     use crate::api::subscriptions::ext::{
         billing_type_from_grpc, billing_type_to_grpc, usage_pricing_model_from_grpc,
         usage_pricing_model_to_grpc,

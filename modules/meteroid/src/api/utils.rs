@@ -2,6 +2,7 @@ use common_grpc::meteroid::common::v1::{Pagination, PaginationResponse};
 use tonic::Status;
 
 pub mod uuid_gen {
+
     pub fn v7() -> uuid::Uuid {
         uuid::Uuid::from_bytes(*uuid::Uuid::now_v7().as_bytes())
     }
@@ -9,7 +10,7 @@ pub mod uuid_gen {
 
 pub fn parse_uuid(uuid: &str, resource_name: &str) -> Result<uuid::Uuid, Status> {
     uuid::Uuid::parse_str(uuid).map_err(|e| {
-        Status::invalid_argument(format!("Failed to parse UUID at {}: {}", resource_name, e))
+        Status::invalid_argument(format!("Failed to parse UUID at {resource_name}: {e}"))
     })
 }
 
@@ -28,10 +29,7 @@ pub fn parse_uuid_opt(
     match uuid {
         Some(uuid_str) if !uuid_str.is_empty() => {
             uuid::Uuid::parse_str(uuid_str).map(Some).map_err(|e| {
-                Status::invalid_argument(format!(
-                    "Failed to parse UUID at {}: {}",
-                    resource_name, e
-                ))
+                Status::invalid_argument(format!("Failed to parse UUID at {resource_name}: {e}"))
             })
         }
         _ => Ok(None),
@@ -58,7 +56,7 @@ impl PaginationExt for Option<Pagination> {
 
     fn into_domain(&self) -> meteroid_store::domain::PaginationRequest {
         meteroid_store::domain::PaginationRequest {
-            page: self.as_ref().map(|p| p.page).unwrap_or(0),
+            page: self.as_ref().map_or(0, |p| p.page),
             per_page: self.as_ref().and_then(|p| p.per_page),
         }
     }

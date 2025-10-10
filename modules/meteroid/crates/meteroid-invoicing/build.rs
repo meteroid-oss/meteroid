@@ -5,7 +5,7 @@ use std::path::Path;
 
 pub fn main() {
     // let's generate statics for the countries.json
-    generate_country_translation()
+    generate_country_translation();
 }
 
 fn generate_country_translation() {
@@ -45,7 +45,7 @@ fn generate_country_translation() {
     writeln!(file, "let mut map = HashMap::new();").unwrap();
 
     for (locale, data) in locales {
-        writeln!(file, "map.insert(\"{}\", Box::leak(Box::new(serde_json::from_str::<HashMap<String, String>>(r#\"{}\"#).unwrap())));", locale, data).unwrap();
+        writeln!(file, "map.insert(\"{locale}\", Box::leak(Box::new(serde_json::from_str::<HashMap<String, String>>(r#\"{data}\"#).unwrap())));").unwrap();
     }
 
     writeln!(file, "map").unwrap(); // End the HashMap definition

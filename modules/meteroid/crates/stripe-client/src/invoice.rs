@@ -26,7 +26,7 @@ pub struct Period {
     pub start: Option<i64>,
 }
 
-/// differs from stripe::InvoiceStatus by containing also Deleted status
+/// differs from `stripe::InvoiceStatus` by containing also Deleted status
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum InvoiceStatus {
@@ -130,7 +130,7 @@ pub struct CreateInvoiceItem<'a> {
     pub period: Option<Period>,
 }
 
-/// The resource representing a Stripe "InvoiceItem".
+/// The resource representing a Stripe "`InvoiceItem`".
 ///
 /// For more details see <https://stripe.com/docs/api/invoiceitems/object>
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

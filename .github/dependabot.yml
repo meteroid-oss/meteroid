@@ -16,7 +16,6 @@ updates:
           - "tonic-health"
           - "tonic-web"
           - "tonic-reflection"
-          - "tonic-build"
       prost:
         patterns:
           - "prost"

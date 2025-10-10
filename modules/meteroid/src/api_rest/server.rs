@@ -40,7 +40,7 @@ impl Modify for SecurityAddon {
             components.add_security_scheme(
                 "bearer_auth",
                 SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
-            )
+            );
         }
     }
 }
@@ -96,7 +96,7 @@ pub async fn start_rest_server(
 }
 
 async fn handler_404(uri: Uri) -> impl IntoResponse {
-    log::debug!("Not found {}", uri);
+    log::debug!("Not found {uri}");
     (
         StatusCode::NOT_FOUND,
         Json(RestErrorResponse {

@@ -13,7 +13,7 @@ use itertools::Itertools;
 
 impl SubscriptionComponentRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<SubscriptionComponentRow> {
-        use crate::schema::subscription_component::dsl::*;
+        use crate::schema::subscription_component::dsl::subscription_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(subscription_component).values(self);
@@ -23,7 +23,7 @@ impl SubscriptionComponentRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting SubscriptionComponent")
+            .attach("Error while inserting SubscriptionComponent")
             .into_db_result()
     }
 }
@@ -33,7 +33,7 @@ impl SubscriptionComponentRow {
         conn: &mut PgConn,
         batch: Vec<&SubscriptionComponentRowNew>,
     ) -> DbResult<Vec<SubscriptionComponentRow>> {
-        use crate::schema::subscription_component::dsl::*;
+        use crate::schema::subscription_component::dsl::subscription_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(subscription_component).values(batch);
@@ -43,7 +43,7 @@ impl SubscriptionComponentRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting SubscriptionComponent batch")
+            .attach("Error while inserting SubscriptionComponent batch")
             .into_db_result()
     }
 
@@ -66,7 +66,7 @@ impl SubscriptionComponentRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching SubscriptionComponents by subscription")
+            .attach("Error while fetching SubscriptionComponents by subscription")
             .into_db_result()
     }
 
@@ -89,7 +89,7 @@ impl SubscriptionComponentRow {
         let res: Vec<SubscriptionComponentRow> = query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching SubscriptionComponents by subscriptions")
+            .attach("Error while fetching SubscriptionComponents by subscriptions")
             .into_db_result()?;
 
         let grouped = res.into_iter().into_group_map_by(|c| c.subscription_id);

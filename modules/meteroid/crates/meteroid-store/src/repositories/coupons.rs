@@ -62,7 +62,7 @@ impl CouponInterface for Store {
             items: coupons
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             total_pages: coupons.total_pages,
             total_results: coupons.total_results,
@@ -144,7 +144,7 @@ impl CouponInterface for Store {
             items: coupons
                 .items
                 .into_iter()
-                .map(|s| s.into())
+                .map(std::convert::Into::into)
                 .collect::<Vec<_>>(),
             total_pages: coupons.total_pages,
             total_results: coupons.total_results,

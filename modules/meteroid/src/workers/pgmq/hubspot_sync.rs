@@ -5,7 +5,7 @@ use cached::proc_macro::cached;
 use common_domain::ids::{ConnectorId, CustomerId, TenantId};
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
-use error_stack::{ResultExt, report};
+use error_stack::{Report, ResultExt};
 use hubspot_client::associations::AssociationsApi;
 use hubspot_client::client::HubspotClient;
 use hubspot_client::companies::{CompaniesApi, CompanyAddress, NewCompany};
@@ -90,10 +90,10 @@ impl HubspotSync {
                     log::info!("No hubspot connector found for tenant {tenant_id}");
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to get access token for tenant {tenant_id}: {:?}", e);
+                    log::warn!("Failed to get access token for tenant {tenant_id}: {e:?}");
                 }
                 Err(e) => {
-                    log::warn!("Task failed: {:?}", e);
+                    log::warn!("Task failed: {e:?}");
                 }
             }
         }
@@ -155,24 +155,24 @@ impl HubspotSync {
         let succeeded_props = self
             .sync_custom_props(&conn, custom_props_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to init properties: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to init properties: {e:?}"));
         let succeeded_domains = self
             .sync_customer_domains(&conn, customer_domains_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync customer domains: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to sync customer domains: {e:?}"));
         let succeeded_subscriptions = self
             .sync_subscriptions(&conn, subscriptions_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync subscriptions: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to sync subscriptions: {e:?}"));
         let succeeded_cus_outbox = self
             .sync_customer_outbox(&conn, customer_outbox_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync customer outbox events: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to sync customer outbox events: {e:?}"));
         let succeeded_sub_outbox = self
             .sync_subscription_outbox(&conn, subscription_outbox_to_sync)
             .await
             .unwrap_to_default_warn(|e| {
-                format!("Failed to sync subscription outbox events: {:?}", e)
+                format!("Failed to sync subscription outbox events: {e:?}")
             });
 
         Ok(succeeded_props
@@ -516,10 +516,10 @@ impl PgmqHandler for HubspotSync {
                     success_msg_ids.extend(ids);
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to sync connected tenant: {:?}", e);
+                    log::warn!("Failed to sync connected tenant: {e:?}");
                 }
                 Err(e) => {
-                    log::warn!("Sync task failed: {:?}", e);
+                    log::warn!("Sync task failed: {e:?}");
                 }
             }
         }
@@ -559,7 +559,7 @@ async fn get_hubspot_connector(
                     if let Some(e) = Arc::into_inner(x) {
                         e.change_context(PgmqError::HandleMessages)
                     } else {
-                        report!(PgmqError::HandleMessages)
+                        Report::new(PgmqError::HandleMessages)
                     }
                 })?;
 
@@ -569,11 +569,10 @@ async fn get_hubspot_connector(
                 data: public_data,
                 access_token: tokens.access_token,
             }));
-        } else {
-            log::warn!("Misconfigured hubspot connector {}", connector.id);
         }
+        log::warn!("Misconfigured hubspot connector {}", connector.id);
     } else {
-        log::info!("No hubspot connector found for tenant {}", tenant_id);
+        log::info!("No hubspot connector found for tenant {tenant_id}");
     }
 
     Ok(None)

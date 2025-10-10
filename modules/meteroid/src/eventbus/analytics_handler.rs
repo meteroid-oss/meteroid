@@ -80,7 +80,7 @@ impl AnalyticsHandler {
                 }),
             )
             .await
-            .unwrap_to_log_warn(|err| format!("Error sending event to segment. {:?}", err))
+            .unwrap_to_log_warn(|err| format!("Error sending event to segment. {err:?}"));
     }
 
     #[tracing::instrument(skip_all)]
@@ -525,15 +525,14 @@ impl AnalyticsHandler {
 
         let billing_end_date = subscription
             .end_date
-            .map(|ended_at| {
+            .map_or("unknown".to_string(), |ended_at| {
                 format!(
                     "{}-{}-{}",
                     ended_at.year(),
                     ended_at.month(),
                     ended_at.day()
                 )
-            })
-            .unwrap_or("unknown".to_string());
+            });
 
         self.send_track(
             "subscription-canceled".to_string(),
@@ -599,42 +598,42 @@ impl EventHandler<Event> for AnalyticsHandler {
         match &event.event_data {
             EventData::ApiTokenCreated(details) => self.api_token_created(&event, details).await?,
             EventData::BillableMetricCreated(details) => {
-                self.billable_metric_created(&event, details).await?
+                self.billable_metric_created(&event, details).await?;
             }
             EventData::CustomerCreated(details) => self.customer_created(&event, details).await?,
             EventData::CustomerPatched(details) => self.customer_patched(&event, details).await?,
             EventData::CustomerUpdated(details) => self.customer_updated(&event, details).await?,
             EventData::OrganizationCreated(details) => {
-                self.instance_inited(&event, details).await?
+                self.instance_inited(&event, details).await?;
             }
             EventData::InvoiceCreated(details) => self.invoice_draft(&event, details).await?,
             EventData::InvoiceFinalized(details) => self.invoice_finalized(&event, details).await?,
             EventData::PlanCreatedDraft(details) => {
-                self.plan_created_draft(&event, details).await?
+                self.plan_created_draft(&event, details).await?;
             }
             EventData::PlanPublishedVersion(details) => {
-                self.plan_published_version(&event, details).await?
+                self.plan_published_version(&event, details).await?;
             }
             EventData::PlanDiscardedVersion(details) => {
-                self.plan_discarded_version(&event, details).await?
+                self.plan_discarded_version(&event, details).await?;
             }
             EventData::PriceComponentCreated(details) => {
-                self.price_component_created(&event, details).await?
+                self.price_component_created(&event, details).await?;
             }
             EventData::PriceComponentEdited(details) => {
-                self.price_component_edited(&event, details).await?
+                self.price_component_edited(&event, details).await?;
             }
             EventData::PriceComponentRemoved(details) => {
-                self.price_component_removed(&event, details).await?
+                self.price_component_removed(&event, details).await?;
             }
             EventData::ProductFamilyCreated(details) => {
-                self.product_family_created(&event, details).await?
+                self.product_family_created(&event, details).await?;
             }
             EventData::SubscriptionCreated(details) => {
-                self.subscription_created(&event, details).await?
+                self.subscription_created(&event, details).await?;
             }
             EventData::SubscriptionCanceled(details) => {
-                self.subscription_canceled(&event, details).await?
+                self.subscription_canceled(&event, details).await?;
             }
             EventData::UserCreated(details) => self.user_created(&event, details).await?,
             EventData::UserUpdated(details) => self.user_updated(&event, details).await?,
@@ -642,7 +641,7 @@ impl EventHandler<Event> for AnalyticsHandler {
                 log::debug!("Skipping event: {:?}", &event);
                 return Ok(());
             }
-        };
+        }
 
         Ok(())
     }
@@ -655,7 +654,7 @@ pub struct GeoIp {
 
 pub async fn get_geoip() -> Result<GeoIp, String> {
     let response = reqwest::Client::new()
-        .get(format!("{}/geoip", OSS_API))
+        .get(format!("{OSS_API}/geoip"))
         .send()
         .await
         .map_err(|e| e.to_string());

@@ -48,7 +48,7 @@ impl SubscriptionRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while activating subscription")
+            .attach("Error while activating subscription")
             .into_db_result()?;
 
         Ok(())
@@ -59,7 +59,7 @@ impl SubscriptionRow {
         subscription_id: SubscriptionId,
         mrr_cents_delta: i64,
     ) -> DbResult<()> {
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::{id, mrr_cents, subscription};
 
         let query = diesel::update(subscription)
             .filter(id.eq(subscription_id))
@@ -70,7 +70,7 @@ impl SubscriptionRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while updating subscription MRR")
+            .attach("Error while updating subscription MRR")
             .into_db_result()?;
 
         Ok(())
@@ -80,7 +80,7 @@ impl SubscriptionRow {
         conn: &mut PgConn,
         subscription_id_param: SubscriptionId,
     ) -> DbResult<()> {
-        use crate::schema::subscription::dsl::*;
+        use crate::schema::subscription::dsl::{id, subscription};
 
         let query = subscription
             .for_update()
@@ -92,7 +92,7 @@ impl SubscriptionRow {
         let _res: Uuid = query
             .get_result(conn)
             .await
-            .attach_printable("Error while locking subscription for update")
+            .attach("Error while locking subscription for update")
             .into_db_result()?;
 
         Ok(())
@@ -123,7 +123,7 @@ impl SubscriptionRow {
         let res = query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching due subscriptions")
+            .attach("Error while fetching due subscriptions")
             .into_db_result()?;
 
         Ok(res)
@@ -144,7 +144,7 @@ impl SubscriptionCycleRowPatch {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while updating subscription cycles")
+            .attach("Error while updating subscription cycles")
             .into_db_result()?;
 
         Ok(())
@@ -164,7 +164,7 @@ impl SubscriptionCycleErrorRowPatch {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while updating subscription errors")
+            .attach("Error while updating subscription errors")
             .into_db_result()?;
 
         Ok(())

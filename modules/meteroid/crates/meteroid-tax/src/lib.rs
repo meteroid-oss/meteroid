@@ -27,7 +27,7 @@ pub trait TaxEngine: Send + Sync {
         &self,
         vat_number: String,
         address: Address,
-    ) -> error_stack::Result<VatNumberExternalValidationResult, TaxEngineError>;
+    ) -> Result<VatNumberExternalValidationResult, Report<TaxEngineError>>;
 
     async fn calculate_line_items_tax(
         &self,
@@ -36,7 +36,7 @@ pub trait TaxEngine: Send + Sync {
         invoicing_entity_address: Address,
         line_items: Vec<LineItemForTax>,
         invoice_date: chrono::NaiveDate,
-    ) -> error_stack::Result<CalculationResult, TaxEngineError>;
+    ) -> Result<CalculationResult, Report<TaxEngineError>>;
 
     async fn calculate_customer_tax(
         &self,
@@ -44,7 +44,7 @@ pub trait TaxEngine: Send + Sync {
         invoicing_entity_address: Address,
         amount: u64,
         currency: &str,
-    ) -> error_stack::Result<CustomerTax, TaxEngineError>;
+    ) -> Result<CustomerTax, Report<TaxEngineError>>;
 }
 
 pub struct MeteroidTaxEngine;
@@ -60,7 +60,7 @@ impl TaxEngine for MeteroidTaxEngine {
         &self,
         _vat_number: String,
         _address: Address,
-    ) -> error_stack::Result<VatNumberExternalValidationResult, TaxEngineError> {
+    ) -> Result<VatNumberExternalValidationResult, Report<TaxEngineError>> {
         // TODO Implement the VIES validation
         Ok(VatNumberExternalValidationResult::ServiceUnavailable)
     }
@@ -71,7 +71,7 @@ impl TaxEngine for MeteroidTaxEngine {
         invoicing_entity_address: Address,
         line_items: Vec<LineItemForTax>,
         _invoice_date: chrono::NaiveDate,
-    ) -> error_stack::Result<CalculationResult, TaxEngineError> {
+    ) -> Result<CalculationResult, Report<TaxEngineError>> {
         let amount = line_items.iter().map(|item| item.amount).sum::<u64>();
 
         let customer_tax = self
@@ -98,7 +98,7 @@ impl TaxEngine for MeteroidTaxEngine {
         invoicing_entity_address: Address,
         amount: u64,
         currency: &str,
-    ) -> error_stack::Result<CustomerTax, TaxEngineError> {
+    ) -> Result<CustomerTax, Report<TaxEngineError>> {
         if customer.tax_exempt {
             return Ok(CustomerTax::Exempt);
         }
@@ -109,8 +109,7 @@ impl TaxEngine for MeteroidTaxEngine {
         let is_b2b = customer
             .vat_number
             .as_ref()
-            .map(|vat| !vat.trim().is_empty())
-            .unwrap_or(false)
+            .is_some_and(|vat| !vat.trim().is_empty())
             && customer.vat_number_format_valid;
 
         let invoicing_entity_country = match &invoicing_entity_address.country {
@@ -128,9 +127,10 @@ impl TaxEngine for MeteroidTaxEngine {
                 .change_context(TaxEngineError::InvalidCountryOrRegion)?,
             Region::new(customer_billing_country.code.clone(), None)
                 .change_context(TaxEngineError::InvalidCountryOrRegion)?,
-            match is_b2b {
-                true => world_tax::TransactionType::B2B,
-                false => world_tax::TransactionType::B2C,
+            if is_b2b {
+                world_tax::TransactionType::B2B
+            } else {
+                world_tax::TransactionType::B2C
             },
         );
 
@@ -164,7 +164,7 @@ impl TaxEngine for ManualTaxEngine {
         &self,
         _vat_number: String,
         _address: Address,
-    ) -> error_stack::Result<VatNumberExternalValidationResult, TaxEngineError> {
+    ) -> Result<VatNumberExternalValidationResult, Report<TaxEngineError>> {
         // TODO Implement the VIES validation
         Ok(VatNumberExternalValidationResult::ServiceUnavailable)
     }
@@ -175,7 +175,7 @@ impl TaxEngine for ManualTaxEngine {
         invoicing_entity_address: Address,
         line_items: Vec<LineItemForTax>,
         _invoice_date: chrono::NaiveDate,
-    ) -> error_stack::Result<CalculationResult, TaxEngineError> {
+    ) -> Result<CalculationResult, Report<TaxEngineError>> {
         let amount = line_items.iter().map(|item| item.amount).sum::<u64>();
 
         let customer_tax = self
@@ -202,7 +202,7 @@ impl TaxEngine for ManualTaxEngine {
         _invoicing_entity_address: Address,
         _amount: u64,
         _currency: &str,
-    ) -> error_stack::Result<CustomerTax, TaxEngineError> {
+    ) -> Result<CustomerTax, Report<TaxEngineError>> {
         if customer.tax_exempt {
             return Ok(CustomerTax::Exempt);
         }

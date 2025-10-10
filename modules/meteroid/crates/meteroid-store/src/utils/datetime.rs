@@ -16,7 +16,7 @@ pub fn end_of_week(date: NaiveDate) -> NaiveDate {
 }
 
 pub fn start_of_month(date: NaiveDate) -> NaiveDate {
-    date - chrono::Duration::days(date.day() as i64 - 1)
+    date - chrono::Duration::days(i64::from(date.day()) - 1)
 }
 
 pub fn end_of_month(date: NaiveDate) -> NaiveDate {
@@ -58,7 +58,7 @@ pub fn end_of_quarter(date: NaiveDate) -> NaiveDate {
 }
 
 pub fn start_of_year(date: NaiveDate) -> NaiveDate {
-    date - chrono::Duration::days(date.ordinal() as i64 - 1)
+    date - chrono::Duration::days(i64::from(date.ordinal()) - 1)
 }
 
 pub fn end_of_year(date: NaiveDate) -> NaiveDate {

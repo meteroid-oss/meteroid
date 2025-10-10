@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast::error::RecvError;
 
 /**
- * Simple in-memory event bus implementation based on tokio::sync::broadcast.
+ * Simple in-memory event bus implementation based on `tokio::sync::broadcast`.
  * It allows having one publisher and many subscribers.
  * WARNING:
  *   As it doesn't use persistent storage and the publisher is decoupled from the subscribers
@@ -26,30 +26,30 @@ impl<E: Debug + Clone + Send + 'static> EventBus<E> for InMemory<E> {
                     Ok(event) => {
                         tokio::spawn(async move {
                             match handler.handle(event).await {
-                                Ok(_) => {}
+                                Ok(()) => {}
                                 Err(e) => {
-                                    log::error!("Error handling event. Ignoring it. {:?}", e)
+                                    log::error!("Error handling event. Ignoring it. {e:?}");
                                 }
-                            };
+                            }
                         });
                     }
                     Err(e) => match e {
                         RecvError::Lagged(lagged) => {
-                            log::warn!("Receiver lagged by {}", lagged)
+                            log::warn!("Receiver lagged by {lagged}");
                         }
                         RecvError::Closed => {
                             log::info!("Broadcast channel closed. Stopping event handler");
                             break;
                         }
                     },
-                };
+                }
             }
         });
     }
 
     async fn publish(&self, event: E) -> Result<(), EventBusError> {
         self.sender.send(event).map(|_| ()).map_err(|e| {
-            log::error!("Error publishing event. {:?}", e);
+            log::error!("Error publishing event. {e:?}");
             EventBusError::PublishFailed
         })
     }

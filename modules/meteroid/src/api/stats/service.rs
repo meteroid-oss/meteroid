@@ -51,7 +51,7 @@ impl StatsService for StatsServiceComponents {
             self.store.trial_conversion_rate(tenant_id),
             self.store.total_mrr(tenant_id)
         )
-        .map_err(|e| Status::internal(format!("Failed to fetch stats: {}", e)))?;
+        .map_err(|e| Status::internal(format!("Failed to fetch stats: {e}")))?;
 
         Ok(Response::new(GeneralStatsResponse {
             total_net_revenue: Some(general_stats_response::TotalNetRevenue {
@@ -61,7 +61,7 @@ impl StatsService for StatsServiceComponents {
                 count: active_subscriptions,
             }),
             pending_invoices: Some(general_stats_response::PendingInvoices {
-                count: pending_invoices_res.count as i64,
+                count: i64::from(pending_invoices_res.count),
                 value_cents: pending_invoices_res.value,
             }),
             signups: Some(general_stats_response::Signups {
@@ -115,7 +115,7 @@ impl StatsService for StatsServiceComponents {
                 plans_id,
             })
             .await
-            .map_err(|e| Status::internal(format!("Failed to fetch mrr chart: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to fetch mrr chart: {e}")))?;
 
         let series = mrr_chart
             .series
@@ -155,12 +155,12 @@ impl StatsService for StatsServiceComponents {
                 tenant_id,
                 scope: mapping::mrr_breakdown_scope_from_server(
                     MrrBreakdownScope::try_from(req.scope).map_err(|e| {
-                        Status::invalid_argument(format!("Failed to parse scope: {}", e))
+                        Status::invalid_argument(format!("Failed to parse scope: {e}"))
                     })?,
                 ),
             })
             .await
-            .map_err(|e| Status::internal(format!("Failed to fetch mrr breakdown: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to fetch mrr breakdown: {e}")))?;
 
         Ok(Response::new(MrrBreakdownResponse {
             mmr_breakdown: Some(mapping::mrr_breakdown_to_server(&mrr_breakdown)),
@@ -183,7 +183,7 @@ impl StatsService for StatsServiceComponents {
                 after: req.after,
             })
             .await
-            .map_err(|e| Status::internal(format!("Failed to fetch mrr log: {}", e)))?;
+            .map_err(|e| Status::internal(format!("Failed to fetch mrr log: {e}")))?;
 
         Ok(Response::new(MrrLogResponse {
             entries: mrr_log
@@ -212,10 +212,11 @@ impl StatsService for StatsServiceComponents {
     ) -> Result<Response<SignupSparklineRequestResponse>, Status> {
         let tenant_id = request.tenant()?;
 
-        let res =
-            self.store.signups_sparkline(tenant_id).await.map_err(|e| {
-                Status::internal(format!("Failed to fetch signup sparkline: {}", e))
-            })?;
+        let res = self
+            .store
+            .signups_sparkline(tenant_id)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to fetch signup sparkline: {e}")))?;
 
         Ok(Response::new(SignupSparklineRequestResponse {
             series: Some(SignupSeries {
@@ -248,8 +249,7 @@ impl StatsService for StatsServiceComponents {
             .await
             .map_err(|e| {
                 Status::internal(format!(
-                    "Failed to fetch trial conversion rate sparkline: {}",
-                    e
+                    "Failed to fetch trial conversion rate sparkline: {e}"
                 ))
             })?;
 
@@ -299,7 +299,7 @@ impl StatsService for StatsServiceComponents {
             })
             .await
             .map_err(|e| {
-                Status::internal(format!("Failed to fetch top revenue by customer: {}", e))
+                Status::internal(format!("Failed to fetch top revenue by customer: {e}"))
             })?;
 
         let top_revenue_by_customer = top_revenue_by_customer

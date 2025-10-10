@@ -67,15 +67,14 @@ impl Services {
             )
             .await?;
 
-        let draft_invoice = match draft_invoice {
-            Some(invoice) => invoice,
-            None => {
-                log::info!(
-                    "No draft invoice created for subscription {}. Skipping billing.",
-                    subscription.subscription.id
-                );
-                return Ok(None);
-            }
+        let draft_invoice = if let Some(invoice) = draft_invoice {
+            invoice
+        } else {
+            log::info!(
+                "No draft invoice created for subscription {}. Skipping billing.",
+                subscription.subscription.id
+            );
+            return Ok(None);
         };
 
         let mut transactions = vec![];
@@ -88,13 +87,13 @@ impl Services {
             } => {
                 if draft_invoice.currency != currency_confirmation {
                     return Err(Report::new(StoreError::CheckoutError)
-                        .attach_printable("Currency is different from the confirmation"));
+                        .attach("Currency is different from the confirmation"));
                 }
 
                 // Validate the total amount
                 if draft_invoice.amount_due != (total_amount_confirmation as i64) {
                     return Err(Report::new(StoreError::CheckoutError)
-                        .attach_printable("Total due amount is different from the confirmation"));
+                        .attach("Total due amount is different from the confirmation"));
                 }
 
                 // We trigger the payment synchronously but don't finalize the invoice yet, it will be done via the webhook
@@ -171,7 +170,7 @@ impl Services {
                 )
                 .await?;
             }
-        };
+        }
 
         // Get the updated invoice after payment processing
         let updated_invoice =
@@ -206,7 +205,7 @@ impl Services {
         grace_period_hours: i32,
     ) -> StoreResult<()> {
         let scheduled_time = invoice_date.and_time(NaiveTime::MIN)
-            + chrono::Duration::hours(grace_period_hours as i64);
+            + chrono::Duration::hours(i64::from(grace_period_hours));
 
         self.store
             .schedule_events(
@@ -216,7 +215,7 @@ impl Services {
                     tenant_id,
                     scheduled_time,
                     event_data: ScheduledEventData::FinalizeInvoice { invoice_id },
-                    source: "".to_string(),
+                    source: String::new(),
                 }],
             )
             .await?;

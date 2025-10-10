@@ -15,7 +15,7 @@ use tap::prelude::*;
 
 impl PriceComponentRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PriceComponentRow> {
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::price_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(price_component).values(self);
@@ -25,8 +25,8 @@ impl PriceComponentRowNew {
         query
             .get_result(conn)
             .await
-            .tap_err(|e| log::error!("Error while inserting price component: {:?}", e))
-            .attach_printable("Error while inserting price component")
+            .tap_err(|e| log::error!("Error while inserting price component: {e:?}"))
+            .attach("Error while inserting price component")
             .into_db_result()
     }
 }
@@ -53,7 +53,7 @@ impl PriceComponentRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while fetching price component")
+            .attach("Error while fetching price component")
             .into_db_result()
     }
 
@@ -61,7 +61,7 @@ impl PriceComponentRow {
         conn: &mut PgConn,
         price_component_param: PriceComponentRowNew,
     ) -> DbResult<PriceComponentRow> {
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::price_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(price_component).values(&price_component_param);
@@ -71,8 +71,8 @@ impl PriceComponentRow {
         query
             .get_result(conn)
             .await
-            .tap_err(|e| log::error!("Error while inserting price component: {:?}", e))
-            .attach_printable("Error while inserting price component")
+            .tap_err(|e| log::error!("Error while inserting price component: {e:?}"))
+            .attach("Error while inserting price component")
             .into_db_result()
     }
 
@@ -80,7 +80,7 @@ impl PriceComponentRow {
         conn: &mut PgConn,
         price_components: Vec<PriceComponentRowNew>,
     ) -> DbResult<Vec<PriceComponentRow>> {
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::price_component;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(price_component).values(&price_components);
@@ -90,8 +90,8 @@ impl PriceComponentRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while inserting price components: {:?}", e))
-            .attach_printable("Error while inserting price component")
+            .tap_err(|e| log::error!("Error while inserting price components: {e:?}"))
+            .attach("Error while inserting price component")
             .into_db_result()
     }
 
@@ -101,7 +101,7 @@ impl PriceComponentRow {
         plan_version_id_param: PlanVersionId,
     ) -> DbResult<Vec<PriceComponentRow>> {
         use crate::schema::plan_version::dsl as plan_version_dsl;
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::{plan_version_id, price_component};
         use diesel_async::RunQueryDsl;
 
         let query = price_component
@@ -115,8 +115,8 @@ impl PriceComponentRow {
         query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while fetching price components: {:?}", e))
-            .attach_printable("Error while fetching price components")
+            .tap_err(|e| log::error!("Error while fetching price components: {e:?}"))
+            .attach("Error while fetching price components")
             .into_db_result()
     }
 
@@ -124,7 +124,7 @@ impl PriceComponentRow {
         conn: &mut PgConn,
         plan_version_ids: &[PlanVersionId],
     ) -> DbResult<HashMap<PlanVersionId, Vec<PriceComponentRow>>> {
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::{plan_version_id, price_component};
         use diesel_async::RunQueryDsl;
 
         let query = price_component.filter(plan_version_id.eq_any(plan_version_ids));
@@ -134,8 +134,8 @@ impl PriceComponentRow {
         let res: Vec<PriceComponentRow> = query
             .get_results(conn)
             .await
-            .tap_err(|e| log::error!("Error while fetching price components: {:?}", e))
-            .attach_printable("Error while fetching price components")
+            .tap_err(|e| log::error!("Error while fetching price components: {e:?}"))
+            .attach("Error while fetching price components")
             .into_db_result()?;
 
         let grouped = res.into_iter().into_group_map_by(|c| c.plan_version_id);
@@ -149,7 +149,7 @@ impl PriceComponentRow {
         tenant_id: TenantId,
     ) -> DbResult<Option<PriceComponentRow>> {
         use crate::schema::plan_version::dsl as plan_version_dsl;
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::{id, plan_version_id, price_component};
         use diesel_async::RunQueryDsl;
 
         let plan_version_with_id_in_tenant = plan_version_dsl::plan_version
@@ -168,8 +168,8 @@ impl PriceComponentRow {
             .get_result(conn)
             .await
             .optional()
-            .tap_err(|e| log::error!("Error while updating price component: {:?}", e))
-            .attach_printable("Error while updating price component")
+            .tap_err(|e| log::error!("Error while updating price component: {e:?}"))
+            .attach("Error while updating price component")
             .into_db_result()
     }
 
@@ -179,7 +179,7 @@ impl PriceComponentRow {
         tenant_id: TenantId,
     ) -> DbResult<()> {
         use crate::schema::plan_version::dsl as plan_version_dsl;
-        use crate::schema::price_component::dsl::*;
+        use crate::schema::price_component::dsl::{id, plan_version_id, price_component};
         use diesel_async::RunQueryDsl;
 
         // check the tenant (https://github.com/diesel-rs/diesel/issues/1478)
@@ -197,8 +197,8 @@ impl PriceComponentRow {
         query
             .execute(conn)
             .await
-            .tap_err(|e| log::error!("Error while deleting price component: {:?}", e))
-            .attach_printable("Error while deleting price component")
+            .tap_err(|e| log::error!("Error while deleting price component: {e:?}"))
+            .attach("Error while deleting price component")
             .into_db_result()?;
 
         Ok(())
@@ -243,7 +243,7 @@ impl PriceComponentRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while cloning price components")
+            .attach("Error while cloning price components")
             .into_db_result()
     }
 }

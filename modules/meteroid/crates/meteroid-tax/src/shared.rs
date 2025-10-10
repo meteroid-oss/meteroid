@@ -1,12 +1,16 @@
 use crate::TaxEngineError;
-use crate::model::*;
+use crate::model::{
+    Address, CalculationResult, CustomerTax, LineItemForTax, LineItemWithTax, TaxBreakdownItem,
+    TaxDetails, TaxRule, VatExemptionReason,
+};
+use error_stack::Report;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 
 pub(crate) async fn compute_tax(
     customer_tax: CustomerTax,
     invoicing_entity_address: Address,
     line_items: Vec<LineItemForTax>,
-) -> error_stack::Result<Vec<LineItemWithTax>, TaxEngineError> {
+) -> Result<Vec<LineItemWithTax>, Report<TaxEngineError>> {
     // Check for customer-level exemptions
     let customer_exemption = match &customer_tax {
         CustomerTax::ResolvedTaxRate(world_tax::TaxRate {
@@ -68,7 +72,7 @@ fn determine_tax_details(
                 let mut include = true;
 
                 if let Some(country) = &c.country {
-                    include = country == invoicing_entity_country
+                    include = country == invoicing_entity_country;
                 }
 
                 if let Some(region) = &c.region {
@@ -168,7 +172,7 @@ pub(crate) fn compute_breakdown_from_line_items(
     for item in line_items {
         let key = match &item.tax_details {
             TaxDetails::Tax { tax_reference, .. } => tax_reference.clone(),
-            TaxDetails::Exempt(reason) => format!("exempt_{:?}", reason),
+            TaxDetails::Exempt(reason) => format!("exempt_{reason:?}"),
         };
         groups.entry(key).or_default().push(item);
     }

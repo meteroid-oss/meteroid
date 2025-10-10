@@ -20,10 +20,11 @@ pub async fn generate_events(config: &Config) {
 
     let client = EventsServiceClient::new(channel);
 
-    if config.events_per_second > 5000 {
-        // arbitrary, supports more with a single process
-        panic!("Can't generate more than 5000 events per second.");
-    }
+    // arbitrary, supports more with a single process
+    assert!(
+        config.events_per_second <= 5000,
+        "Can't generate more than 5000 events per second."
+    );
 
     let max_batch_size = 500;
 
@@ -32,7 +33,9 @@ pub async fn generate_events(config: &Config) {
     } else {
         (
             max_batch_size,
-            Duration::from_millis((1000 / (config.events_per_second / max_batch_size)) as u64),
+            Duration::from_millis(u64::from(
+                1000 / (config.events_per_second / max_batch_size),
+            )),
         )
     };
 
@@ -89,7 +92,7 @@ pub async fn generate_events(config: &Config) {
                     );
                 }
                 Err(e) => {
-                    error!("Failed to ingest: {:?}", e);
+                    error!("Failed to ingest: {e:?}");
                 }
             }
         });
@@ -100,9 +103,9 @@ pub async fn generate_events(config: &Config) {
 
     while let Some(res) = set.join_next().await {
         match res {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(err) => {
-                error!("Join error while waiting on ACK: {:?}", err);
+                error!("Join error while waiting on ACK: {err:?}");
             }
         }
     }
@@ -115,7 +118,7 @@ pub async fn generate_events(config: &Config) {
         "Completed ! {} events in {}ms",
         sent_events,
         diff.as_millis()
-    )
+    );
 }
 
 fn generate_any(schemas: &Vec<Schema>) -> Event {

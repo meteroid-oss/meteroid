@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose};
-use error_stack::{Result, ResultExt};
+use error_stack::{Report, ResultExt};
 
 #[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum EncodingError {
@@ -11,7 +11,7 @@ pub fn base64_encode(data: &str) -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(data)
 }
 
-pub fn base64_decode(data: &str) -> Result<String, EncodingError> {
+pub fn base64_decode(data: &str) -> Result<String, Report<EncodingError>> {
     general_purpose::URL_SAFE_NO_PAD
         .decode(data)
         .map(|x| String::from_utf8_lossy(x.as_slice()).to_string())

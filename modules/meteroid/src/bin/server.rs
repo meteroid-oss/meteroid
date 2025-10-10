@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }?;
 
     let build_info = BuildInfo::set(env!("CARGO_BIN_NAME"));
-    println!("Starting {}", build_info);
+    println!("Starting {build_info}");
 
     let config = Config::get();
 
@@ -75,12 +75,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::select! {
         grpc_result = grpc_server => {
             if let Err(e) = grpc_result {
-                log::error!("Error starting gRPC API server: {:?}", e);
+                log::error!("Error starting gRPC API server: {e:?}");
             }
         },
         rest_result = rest_server => {
             if let Err(e) = rest_result {
-                log::error!("Error starting REST API server: {:?}", e);
+                log::error!("Error starting REST API server: {e:?}");
             }
         },
         _ = exit => {

@@ -4,7 +4,7 @@ use meteroid_grpc::meteroid::api::shared::v1 as api_shared;
 use meteroid_store::domain;
 
 pub(crate) mod billing_period {
-    use super::*;
+    use super::{api_shared, domain};
 
     pub fn from_proto(period: api_shared::BillingPeriod) -> domain::enums::BillingPeriodEnum {
         match period {
@@ -24,7 +24,7 @@ pub(crate) mod billing_period {
 }
 
 pub(crate) mod discount {
-    use super::*;
+    use super::domain;
     use common_grpc::meteroid::common::v1 as api_common;
     use error_stack::Report;
     use meteroid_grpc::meteroid::api::adjustments::v1 as api_adjustments;

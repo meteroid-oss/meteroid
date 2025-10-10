@@ -5,7 +5,10 @@ use crate::services::storage::Prefix;
 use chrono::Utc;
 use common_grpc::middleware::server::auth::RequestExt;
 use meteroid_grpc::meteroid::portal::quotes::v1::portal_quote_service_server::PortalQuoteService;
-use meteroid_grpc::meteroid::portal::quotes::v1::*;
+use meteroid_grpc::meteroid::portal::quotes::v1::{
+    GetQuotePortalRequest, GetQuotePortalResponse, QuotePortalDetails, QuoteRecipient,
+    QuoteSignature, SignQuoteRequest, SignQuoteResponse,
+};
 use meteroid_store::domain::QuoteSignatureNew;
 use meteroid_store::domain::enums::QuoteStatusEnum;
 use meteroid_store::repositories::quotes::QuotesInterface;
@@ -146,12 +149,12 @@ impl PortalQuoteService for PortalQuoteServiceComponents {
             .get("x-forwarded-for")
             .or_else(|| headers.get("x-real-ip"))
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         let user_agent = headers
             .get("user-agent")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string());
+            .map(std::string::ToString::to_string);
 
         let inner = request.into_inner();
 

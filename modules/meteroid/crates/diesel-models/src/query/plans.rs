@@ -21,7 +21,7 @@ use error_stack::ResultExt;
 
 impl PlanRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<PlanRow> {
-        use crate::schema::plan::dsl::*;
+        use crate::schema::plan::dsl::plan;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(plan).values(self);
@@ -31,7 +31,7 @@ impl PlanRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting plan")
+            .attach("Error while inserting plan")
             .into_db_result()
     }
 }
@@ -55,7 +55,7 @@ impl PlanRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while activating plan")
+            .attach("Error while activating plan")
             .into_db_result()
     }
 
@@ -79,7 +79,7 @@ impl PlanRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while deleting plan")
+            .attach("Error while deleting plan")
             .into_db_result()
     }
 
@@ -103,7 +103,7 @@ impl PlanRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting plan with version")
+            .attach("Error while getting plan with version")
             .into_db_result()
     }
 
@@ -160,7 +160,7 @@ impl PlanRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while getting plan with version")
+            .attach("Error while getting plan with version")
             .into_db_result()
     }
 
@@ -206,7 +206,7 @@ impl PlanRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting plan with version by local_id")
+            .attach("Error while getting plan with version by local_id")
             .into_db_result()
     }
 
@@ -230,7 +230,7 @@ impl PlanRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while getting plan with version by local_id")
+            .attach("Error while getting plan with version by local_id")
             .into_db_result()
     }
 
@@ -239,7 +239,7 @@ impl PlanRow {
         param_plan_id: PlanId,
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
-        use crate::schema::plan::dsl::*;
+        use crate::schema::plan::dsl::{archived_at, id, plan, status, tenant_id, updated_at};
         use chrono::Utc;
         use diesel_async::RunQueryDsl;
 
@@ -257,7 +257,7 @@ impl PlanRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while archiving plan")
+            .attach("Error while archiving plan")
             .into_db_result()?;
 
         Ok(())
@@ -268,7 +268,7 @@ impl PlanRow {
         param_plan_id: PlanId,
         param_tenant_id: TenantId,
     ) -> DbResult<()> {
-        use crate::schema::plan::dsl::*;
+        use crate::schema::plan::dsl::{archived_at, id, plan, status, tenant_id, updated_at};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(plan)
@@ -285,7 +285,7 @@ impl PlanRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while unarchiving plan")
+            .attach("Error while unarchiving plan")
             .into_db_result()?;
 
         Ok(())
@@ -358,7 +358,7 @@ impl PlanRowOverview {
             .into_boxed();
 
         if let Some(product_family_id) = product_family_id {
-            query = query.filter(pf_dsl::id.eq(product_family_id))
+            query = query.filter(pf_dsl::id.eq(product_family_id));
         }
 
         if !filters.filter_status.is_empty() {
@@ -370,7 +370,7 @@ impl PlanRowOverview {
         }
 
         if let Some(search) = filters.search.filter(|s| !s.is_empty()) {
-            query = query.filter(p_dsl::name.ilike(format!("%{}%", search)));
+            query = query.filter(p_dsl::name.ilike(format!("%{search}%")));
         }
 
         match order_by {
@@ -388,7 +388,7 @@ impl PlanRowOverview {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while listing plans")
+            .attach("Error while listing plans")
             .into_db_result()
     }
 }
@@ -408,7 +408,7 @@ impl PlanRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating plan")
+            .attach("Error while updating plan")
             .into_db_result()
     }
 }
@@ -437,7 +437,7 @@ impl PlanRowForSubscription {
         query
             .load(conn)
             .await
-            .attach_printable("Error while getting plan names by version ids")
+            .attach("Error while getting plan names by version ids")
             .into_db_result()
             .map(
                 |rows: Vec<(PlanVersionId, i32, String, String, PlanTypeEnum)>| {

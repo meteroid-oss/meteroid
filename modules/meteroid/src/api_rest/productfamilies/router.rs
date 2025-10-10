@@ -52,7 +52,7 @@ pub(crate) async fn list_product_families(
         )
         .await
         .map_err(|e| {
-            log::error!("Error handling list_product_families: {}", e);
+            log::error!("Error handling list_product_families: {e}");
             RestApiError::StoreError
         })?;
 
@@ -94,7 +94,7 @@ pub(crate) async fn create_product_family(
         .await
         .map(|x| (StatusCode::CREATED, Json(domain_to_rest(x))))
         .map_err(|e| {
-            log::error!("Error handling insert_product_family: {}", e);
+            log::error!("Error handling insert_product_family: {e}");
             RestApiError::from(e)
         })
 }
@@ -133,7 +133,7 @@ pub(crate) async fn get_product_family_by_id_or_alias(
         .find_product_family_by_id(id, authorized_state.tenant_id)
         .await
         .map_err(|e| {
-            log::error!("Error handling get_customer_by_id_or_alias: {}", e);
+            log::error!("Error handling get_customer_by_id_or_alias: {e}");
             RestApiError::from(e)
         })
         .map(domain_to_rest)

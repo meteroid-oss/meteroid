@@ -5,7 +5,7 @@ use crate::domain::{Meter, QueryMeterParams, QueryRawEventsParams, QueryRawEvent
 use async_trait::async_trait;
 use std::collections::HashMap;
 
-use error_stack::{Result, ResultExt};
+use error_stack::{Report, ResultExt};
 
 use std::sync::Arc;
 
@@ -29,7 +29,7 @@ impl ClickhouseConnector {
         clickhouse_config: &ClickhouseConfig,
         kafka_config: &KafkaConfig,
         extensions: Vec<Arc<dyn ConnectorClickhouseExtension + Send + Sync>>,
-    ) -> Result<Self, ConnectorError> {
+    ) -> Result<Self, Report<ConnectorError>> {
         migrations::run(clickhouse_config, kafka_config)
             .await
             .change_context(ConnectorError::InitError(
@@ -48,7 +48,7 @@ impl ClickhouseConnector {
             ext.init(client.clone()).await?;
         }
 
-        Ok(ClickhouseConnector { extensions, client })
+        Ok(ClickhouseConnector { client, extensions })
     }
 
     fn match_extension(
@@ -65,7 +65,7 @@ impl ClickhouseConnector {
 #[async_trait]
 impl Connector for ClickhouseConnector {
     #[tracing::instrument(skip_all)]
-    async fn register_meter(&self, meter: Meter) -> Result<(), ConnectorError> {
+    async fn register_meter(&self, meter: Meter) -> Result<(), Report<ConnectorError>> {
         let ddl = sql::create_meter::create_meter_view(
             meter, true, // TODO consider making this configurable
         );
@@ -79,7 +79,10 @@ impl Connector for ClickhouseConnector {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn query_meter(&self, params: QueryMeterParams) -> Result<Vec<Usage>, ConnectorError> {
+    async fn query_meter(
+        &self,
+        params: QueryMeterParams,
+    ) -> Result<Vec<Usage>, Report<ConnectorError>> {
         let query = match self
             .match_extension(&params)
             .and_then(|ext| ext.build_query(&params))
@@ -96,7 +99,7 @@ impl Connector for ClickhouseConnector {
             .query(query.as_str())
             .fetch_bytes("JSONEachRow")
             .change_context(ConnectorError::QueryError)
-            .attach_printable("Failed to execute query with JSONEachRow")?
+            .attach("Failed to execute query with JSONEachRow")?
             .lines();
 
         let mut parsed = Vec::new();
@@ -108,26 +111,26 @@ impl Connector for ClickhouseConnector {
         {
             let row: serde_json::Value = serde_json::from_str(&line)
                 .change_context(ConnectorError::QueryError)
-                .attach_printable("Failed to parse JSON row")?;
+                .attach("Failed to parse JSON row")?;
 
             let window_start = row
                 .get_timestamp_utc("window_start")
                 .ok_or(ConnectorError::QueryError)
-                .attach_printable("Missing window_start field")?;
+                .attach("Missing window_start field")?;
 
             let window_end = row
                 .get_timestamp_utc("window_end")
                 .ok_or(ConnectorError::QueryError)
-                .attach_printable("Missing window_end field")?;
+                .attach("Missing window_end field")?;
             let value = row
                 .get_f64("value")
                 .ok_or(ConnectorError::QueryError)
-                .attach_printable("Missing value field")?;
+                .attach("Missing value field")?;
 
             let customer_id = row
                 .get_string("customer_id")
                 .ok_or(ConnectorError::QueryError)
-                .attach_printable("Missing customer_id field")?;
+                .attach("Missing customer_id field")?;
 
             let mut group_by: HashMap<String, Option<String>> = HashMap::new();
 
@@ -163,7 +166,7 @@ impl Connector for ClickhouseConnector {
                 value,
                 customer_id,
                 group_by,
-            })
+            });
         }
 
         Ok(parsed)
@@ -173,7 +176,7 @@ impl Connector for ClickhouseConnector {
     async fn query_raw_events(
         &self,
         params: QueryRawEventsParams,
-    ) -> Result<QueryRawEventsResult, ConnectorError> {
+    ) -> Result<QueryRawEventsResult, Report<ConnectorError>> {
         let query = sql::query_raw::query_raw_events_sql(params.clone())
             .map_err(ConnectorError::InvalidQuery)?;
 

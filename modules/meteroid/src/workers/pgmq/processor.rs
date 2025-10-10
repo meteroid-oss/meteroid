@@ -47,13 +47,13 @@ pub(crate) async fn run(cfg: ProcessorConfig) {
                     cfg.queue,
                     e
                 );
-                sleep(cfg.sleep_duration, 100).await
+                sleep(cfg.sleep_duration, 100).await;
             }
             Ok(count) => {
                 if count < cfg.qty {
                     log::debug!("[{}] caught up with the queue", cfg.name);
                     // caught up with the queue
-                    sleep(cfg.sleep_duration, 100).await
+                    sleep(cfg.sleep_duration, 100).await;
                 }
             }
         }
@@ -85,11 +85,7 @@ async fn run_once(
     // todo dlq
     if !too_old_messages.is_empty() {
         let ids = too_old_messages.iter().map(|x| x.msg_id).collect();
-        log::warn!(
-            "[{}] Found too old messages: {:?}, archiving...",
-            queue,
-            ids
-        );
+        log::warn!("[{queue}] Found too old messages: {ids:?}, archiving...");
         store
             .pgmq_archive(queue, ids)
             .await

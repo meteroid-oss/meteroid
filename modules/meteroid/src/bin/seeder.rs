@@ -9,7 +9,7 @@ use common_domain::country::CountryCode;
 use common_domain::ids::{BaseId, OrganizationId};
 use common_logging::logging;
 use common_utils::rng::UPPER_ALPHANUMERIC;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use meteroid::eventbus::create_eventbus_noop;
 use meteroid_mailer::config::MailerConfig;
 use meteroid_oauth::config::OauthConfig;
@@ -30,7 +30,7 @@ use stripe_client::client::StripeClient;
 use tap::TapFallible;
 
 #[tokio::main]
-async fn main() -> error_stack::Result<(), SeederError> {
+async fn main() -> Result<(), Report<SeederError>> {
     dotenvy::dotenv().ok();
 
     logging::init_regular_logging();
@@ -91,7 +91,7 @@ async fn main() -> error_stack::Result<(), SeederError> {
 
     let tenant_name = format!("seed-{}", nanoid::nanoid!(6, &UPPER_ALPHANUMERIC));
 
-    log::info!("Creating tenant '{}'", tenant_name);
+    log::info!("Creating tenant '{tenant_name}'");
 
     let scenario = domain::Scenario {
         metrics: Vec::new(),
@@ -206,5 +206,5 @@ async fn main() -> error_stack::Result<(), SeederError> {
     service
         .await
         .change_context(SeederError::StoreError)
-        .tap_err(|e| log::error!("Error: {:?}", e))
+        .tap_err(|e| log::error!("Error: {e:?}"))
 }

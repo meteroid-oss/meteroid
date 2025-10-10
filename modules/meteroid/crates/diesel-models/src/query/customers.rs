@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 impl CustomerRowNew {
     pub async fn insert(self, conn: &mut PgConn) -> DbResult<CustomerRow> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::customer;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer).values(&self);
@@ -29,7 +29,7 @@ impl CustomerRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting customer")
+            .attach("Error while inserting customer")
             .into_db_result()
     }
 }
@@ -61,7 +61,7 @@ impl CustomerRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while finding customers by ids or aliases")
+            .attach("Error while finding customers by ids or aliases")
             .into_db_result()
     }
 
@@ -93,7 +93,7 @@ impl CustomerRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding customer by id or alias")
+            .attach("Error while finding customer by id or alias")
             .into_db_result()
     }
 
@@ -115,12 +115,12 @@ impl CustomerRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding customer by id")
+            .attach("Error while finding customer by id")
             .into_db_result()
     }
 
     pub async fn find_by_alias(conn: &mut PgConn, customer_alias: String) -> DbResult<CustomerRow> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{alias, archived_at, customer};
         use diesel_async::RunQueryDsl;
 
         let query = customer
@@ -132,7 +132,7 @@ impl CustomerRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding customer by alias")
+            .attach("Error while finding customer by alias")
             .into_db_result()
     }
 
@@ -141,7 +141,7 @@ impl CustomerRow {
         param_tenant_id: TenantId,
         param_customer_aliases: Vec<String>,
     ) -> DbResult<Vec<CustomerBriefRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{alias, archived_at, customer, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
@@ -155,7 +155,7 @@ impl CustomerRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while finding customer by aliases")
+            .attach("Error while finding customer by aliases")
             .into_db_result()
     }
 
@@ -166,7 +166,9 @@ impl CustomerRow {
         order_by: OrderByRequest,
         param_query: Option<String>,
     ) -> DbResult<PaginatedVec<CustomerRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{
+            alias, archived_at, created_at, customer, id, name, tenant_id,
+        };
 
         let mut query = customer
             .filter(tenant_id.eq(param_tenant_id))
@@ -176,8 +178,8 @@ impl CustomerRow {
 
         if let Some(param_query) = param_query {
             query = query.filter(
-                name.ilike(format!("%{}%", param_query))
-                    .or(alias.ilike(format!("%{}%", param_query))),
+                name.ilike(format!("%{param_query}%"))
+                    .or(alias.ilike(format!("%{param_query}%"))),
             );
         }
 
@@ -196,7 +198,7 @@ impl CustomerRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while fetching customers")
+            .attach("Error while fetching customers")
             .into_db_result()
     }
 
@@ -204,7 +206,7 @@ impl CustomerRow {
         conn: &mut PgConn,
         ids: Vec<CustomerId>,
     ) -> DbResult<Vec<CustomerRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{archived_at, customer, id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
@@ -217,7 +219,7 @@ impl CustomerRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing customers by ids")
+            .attach("Error while listing customers by ids")
             .into_db_result()
     }
 
@@ -226,7 +228,7 @@ impl CustomerRow {
         tenant_id_param: &TenantId,
         ids: Vec<CustomerId>,
     ) -> DbResult<Vec<CustomerRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{customer, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = customer
@@ -239,7 +241,7 @@ impl CustomerRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing customers by ids")
+            .attach("Error while listing customers by ids")
             .into_db_result()
     }
 
@@ -247,7 +249,7 @@ impl CustomerRow {
         conn: &mut PgConn,
         batch: Vec<CustomerRowNew>,
     ) -> DbResult<Vec<CustomerRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::customer;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(customer).values(&batch);
@@ -256,7 +258,7 @@ impl CustomerRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting customer batch")
+            .attach("Error while inserting customer batch")
             .into_db_result()
     }
 
@@ -278,7 +280,7 @@ impl CustomerRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while selecting for update customer by id")
+            .attach("Error while selecting for update customer by id")
             .into_db_result()
     }
 
@@ -302,7 +304,7 @@ impl CustomerRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while update customer balance")
+            .attach("Error while update customer balance")
             .into_db_result()
     }
 
@@ -328,7 +330,7 @@ impl CustomerRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while archiving customer")
+            .attach("Error while archiving customer")
             .into_db_result()
     }
 }
@@ -339,7 +341,7 @@ impl CustomerRowPatch {
         conn: &mut PgConn,
         param_tenant_id: TenantId,
     ) -> DbResult<Option<CustomerRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{customer, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(customer)
@@ -353,8 +355,8 @@ impl CustomerRowPatch {
             .get_result(conn)
             .await
             .optional()
-            .tap_err(|e| log::error!("Error while patching customer: {:?}", e))
-            .attach_printable("Error while patching customer")
+            .tap_err(|e| log::error!("Error while patching customer: {e:?}"))
+            .attach("Error while patching customer")
             .into_db_result()
     }
 
@@ -386,7 +388,7 @@ impl CustomerRowUpdate {
         conn: &mut PgConn,
         param_tenant_id: TenantId,
     ) -> DbResult<Option<CustomerRow>> {
-        use crate::schema::customer::dsl::*;
+        use crate::schema::customer::dsl::{customer, id, tenant_id};
         use diesel_async::RunQueryDsl;
 
         let query = diesel::update(customer)
@@ -400,8 +402,8 @@ impl CustomerRowUpdate {
             .get_result(conn)
             .await
             .optional()
-            .tap_err(|e| log::error!("Error while updating customer: {:?}", e))
-            .attach_printable("Error while updating customer")
+            .tap_err(|e| log::error!("Error while updating customer: {e:?}"))
+            .attach("Error while updating customer")
             .into_db_result()
     }
 }

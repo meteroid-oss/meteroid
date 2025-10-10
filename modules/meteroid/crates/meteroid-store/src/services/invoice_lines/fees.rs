@@ -33,9 +33,7 @@ pub fn compute_volume_price(
         let last_unit: Option<u64> = next_tier.map(|row| row.first_unit - 1);
 
         if usage_units >= Decimal::from(tier.first_unit)
-            && last_unit
-                .map(|l| usage_units <= Decimal::from(l))
-                .unwrap_or(true)
+            && last_unit.is_none_or(|l| usage_units <= Decimal::from(l))
         {
             applicable_price_per_unit = tier.rate;
             if let Some(flat_fee) = tier.flat_fee {
@@ -69,7 +67,7 @@ pub fn compute_volume_price(
         total: price
             .to_subunit_opt(precision)
             .ok_or(Report::new(StoreError::InvalidDecimal))
-            .attach_printable("Failed to convert line total to subunit")?
+            .attach("Failed to convert line total to subunit")?
             .to_non_negative_u64(),
         period,
         custom_line_name: None,
@@ -80,7 +78,7 @@ pub fn compute_volume_price(
             total: price
                 .to_subunit_opt(precision)
                 .ok_or(Report::new(StoreError::InvalidDecimal))
-                .attach_printable("Failed to convert subline total to subunit")?,
+                .attach("Failed to convert subline total to subunit")?,
             quantity: usage_units,
             unit_price: applicable_price_per_unit,
             attributes: subline_attr,
@@ -146,12 +144,12 @@ pub fn compute_tier_price(
                 name: format!(
                     "{}-{} tier",
                     tier.first_unit,
-                    last_unit.map(|s| s.to_string()).unwrap_or("∞".to_string())
+                    last_unit.map_or("∞".to_string(), |s| s.to_string())
                 ),
                 total: fee
                     .to_subunit_opt(precision)
                     .ok_or(Report::new(StoreError::InvalidDecimal))
-                    .attach_printable("Failed to convert subline total to subunit")?,
+                    .attach("Failed to convert subline total to subunit")?,
                 quantity: units_in_this_tier,
                 unit_price: tier_price,
                 attributes: Some(SubLineAttributes::Tiered {
@@ -171,7 +169,7 @@ pub fn compute_tier_price(
         total: subtotal
             .to_subunit_opt(precision)
             .ok_or(Report::new(StoreError::InvalidDecimal))
-            .attach_printable("Failed to convert subline total to subunit")?
+            .attach("Failed to convert subline total to subunit")?
             .to_non_negative_u64(),
         period,
         custom_line_name: None,

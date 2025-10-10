@@ -48,7 +48,6 @@ impl ExternalApiAuthLayer {
         }
     }
 
-    #[must_use]
     pub fn filter(mut self, filter: Filter) -> Self {
         self.filter = Some(filter);
         self
@@ -131,7 +130,7 @@ where
         };
 
         let future = future.or_else(|e: BoxError| async move {
-            log::warn!("Error in auth middleware: {}", e);
+            log::warn!("Error in auth middleware: {e}");
             let response = Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
                 .body(Body::empty())

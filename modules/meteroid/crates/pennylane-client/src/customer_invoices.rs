@@ -37,7 +37,7 @@ pub trait CustomerInvoicesApi {
 
 #[async_trait::async_trait]
 impl CustomerInvoicesApi for PennylaneClient {
-    /// https://pennylane.readme.io/v2.0/reference/importcustomerinvoices
+    /// <https://pennylane.readme.io/v2.0/reference/importcustomerinvoices>
     async fn import_customer_invoice(
         &self,
         invoice: &NewCustomerInvoiceImport,
@@ -53,7 +53,7 @@ impl CustomerInvoicesApi for PennylaneClient {
         .await
     }
 
-    /// https://pennylane.readme.io/v2.0/reference/markaspaidcustomerinvoice
+    /// <https://pennylane.readme.io/v2.0/reference/markaspaidcustomerinvoice>
     async fn mark_customer_invoice_as_paid(
         &self,
         invoice_id: i64,
@@ -86,7 +86,7 @@ impl CustomerInvoicesApi for PennylaneClient {
         Ok(())
     }
 
-    /// https://app.pennylane.com/api/external/v2/customer_invoices
+    /// <https://app.pennylane.com/api/external/v2/customer_invoices>
     async fn get_customer_invoice(
         &self,
         external_reference: &str,

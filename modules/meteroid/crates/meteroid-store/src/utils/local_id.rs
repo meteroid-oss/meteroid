@@ -20,8 +20,9 @@ impl LocalId {
     const ID_LENGTH: usize = 13;
     fn generate_local_id(prefix: &str, length: usize) -> String {
         let id = nanoid!(length, &common_utils::rng::BASE62_ALPHABET);
-        format!("{}{}", prefix, id)
+        format!("{prefix}{id}")
     }
+
     pub fn generate_for(id_type: IdType) -> String {
         let prefix = id_type.prefix();
         Self::generate_local_id(prefix, Self::ID_LENGTH)

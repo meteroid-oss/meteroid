@@ -44,8 +44,8 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            AliasOr::Id(id) => write!(f, "{}", id),
-            AliasOr::Alias(alias) => write!(f, "{}", alias),
+            AliasOr::Id(id) => write!(f, "{id}"),
+            AliasOr::Alias(alias) => write!(f, "{alias}"),
         }
     }
 }

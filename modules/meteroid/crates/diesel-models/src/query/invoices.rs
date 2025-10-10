@@ -26,7 +26,7 @@ use error_stack::ResultExt;
 
 impl InvoiceRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<InvoiceRow> {
-        use crate::schema::invoice::dsl::*;
+        use crate::schema::invoice::dsl::invoice;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(invoice).values(self);
@@ -36,7 +36,7 @@ impl InvoiceRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting invoice")
+            .attach("Error while inserting invoice")
             .into_db_result()
     }
 }
@@ -69,7 +69,7 @@ impl InvoiceRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while locking invoice by id")
+            .attach("Error while locking invoice by id")
             .into_db_result()
     }
 
@@ -90,7 +90,7 @@ impl InvoiceRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding invoice by id")
+            .attach("Error while finding invoice by id")
             .into_db_result()
     }
     pub async fn find_detailed_by_id(
@@ -122,7 +122,7 @@ impl InvoiceRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding invoice by id")
+            .attach("Error while finding invoice by id")
             .into_db_result()
     }
 
@@ -147,37 +147,37 @@ impl InvoiceRow {
             .into_boxed();
 
         if let Some(param_customer_id) = param_customer_id {
-            query = query.filter(i_dsl::customer_id.eq(param_customer_id))
+            query = query.filter(i_dsl::customer_id.eq(param_customer_id));
         }
 
         if let Some(param_subscription_id) = param_subscription_id {
-            query = query.filter(i_dsl::subscription_id.eq(param_subscription_id))
+            query = query.filter(i_dsl::subscription_id.eq(param_subscription_id));
         }
 
         if let Some(param_status) = param_status {
-            query = query.filter(i_dsl::status.eq(param_status))
+            query = query.filter(i_dsl::status.eq(param_status));
         }
 
         if let Some(param_query) = param_query
             && !param_query.trim().is_empty()
         {
-            query = query.filter(c_dsl::name.ilike(format!("%{}%", param_query)))
+            query = query.filter(c_dsl::name.ilike(format!("%{param_query}%")));
         }
 
         match order_by {
             OrderByRequest::IdAsc => query = query.order(i_dsl::id.asc()),
             OrderByRequest::IdDesc => query = query.order(i_dsl::id.desc()),
             OrderByRequest::DateAsc => {
-                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()))
+                query = query.order((i_dsl::invoice_date.asc(), i_dsl::id.asc()));
             }
             OrderByRequest::DateDesc => {
-                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()))
+                query = query.order((i_dsl::invoice_date.desc(), i_dsl::id.desc()));
             }
             OrderByRequest::NameAsc => {
-                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()))
+                query = query.order((i_dsl::invoice_number.asc(), i_dsl::id.asc()));
             }
             OrderByRequest::NameDesc => {
-                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()))
+                query = query.order((i_dsl::invoice_number.desc(), i_dsl::id.desc()));
             }
         }
 
@@ -188,7 +188,7 @@ impl InvoiceRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while fetching invoices")
+            .attach("Error while fetching invoices")
             .into_db_result()
     }
 
@@ -208,7 +208,7 @@ impl InvoiceRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while fetching invoices by ids")
+            .attach("Error while fetching invoices by ids")
             .into_db_result()
     }
 
@@ -239,7 +239,7 @@ impl InvoiceRow {
         query
             .load(conn)
             .await
-            .attach_printable("Error while finding invoice by id")
+            .attach("Error while finding invoice by id")
             .into_db_result()
     }
 
@@ -247,7 +247,7 @@ impl InvoiceRow {
         conn: &mut PgConn,
         invoices: Vec<InvoiceRowNew>,
     ) -> DbResult<Vec<InvoiceRow>> {
-        use crate::schema::invoice::dsl::*;
+        use crate::schema::invoice::dsl::invoice;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(invoice).values(&invoices);
@@ -257,7 +257,7 @@ impl InvoiceRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting invoice")
+            .attach("Error while inserting invoice")
             .into_db_result()
     }
 
@@ -287,7 +287,7 @@ impl InvoiceRow {
         query
             .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
             .await
-            .attach_printable("Error while paginating invoices to finalize")
+            .attach("Error while paginating invoices to finalize")
             .into_db_result()
     }
 
@@ -323,7 +323,7 @@ impl InvoiceRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while finalizing invoice")
+            .attach("Error while finalizing invoice")
             .into_db_result()
     }
 
@@ -357,7 +357,7 @@ impl InvoiceRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while applying payment status to invoice")
+            .attach("Error while applying payment status to invoice")
             .into_db_result()
     }
 
@@ -385,7 +385,7 @@ impl InvoiceRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while applying transaction to invoice")
+            .attach("Error while applying transaction to invoice")
             .into_db_result()
     }
 
@@ -412,7 +412,7 @@ impl InvoiceRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while saving invoice documents")
+            .attach("Error while saving invoice documents")
             .into_db_result()
     }
 
@@ -439,7 +439,7 @@ impl InvoiceRow {
         query
             .load_and_get_next_cursor(conn, |a| a.id.as_uuid())
             .await
-            .attach_printable("Error while paginating outdated invoices")
+            .attach("Error while paginating outdated invoices")
             .into_db_result()
     }
 
@@ -479,7 +479,7 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .map(|_| ())
-            .attach_printable("Error while deleting invoice")
+            .attach("Error while deleting invoice")
             .into_db_result()
     }
 
@@ -503,7 +503,7 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .map(|_| ())
-            .attach_printable("Error while voiding invoice")
+            .attach("Error while voiding invoice")
             .into_db_result()
     }
 
@@ -531,7 +531,7 @@ impl InvoiceRow {
             .execute(conn)
             .await
             .map(|_| ())
-            .attach_printable("Error while marking invoice as uncollectible")
+            .attach("Error while marking invoice as uncollectible")
             .into_db_result()
     }
 }
@@ -555,7 +555,7 @@ impl InvoiceRowLinesPatch {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while updating invoice lines")
+            .attach("Error while updating invoice lines")
             .into_db_result()
     }
 }

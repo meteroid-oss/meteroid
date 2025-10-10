@@ -72,9 +72,9 @@ impl UsageClient for MeteringUsageClient {
             }))
             // TODO add in db/response the register , error and allow retrying
             .await
-            .map(|r| r.into_inner())
+            .map(tonic::Response::into_inner)
             .change_context(StoreError::MeteringServiceError)
-            .attach_printable("Failed to register meter")?;
+            .attach("Failed to register meter")?;
 
         let metadata = response
             .metadata
@@ -188,7 +188,7 @@ impl UsageClient for MeteringUsageClient {
             .query_meter(request)
             .await
             .change_context(StoreError::MeteringServiceError)
-            .attach_printable("Failed to query meter")?
+            .attach("Failed to query meter")?
             .into_inner();
 
         let data: Vec<GroupedUsageData> = response
@@ -223,8 +223,7 @@ impl UsageClient for MeteringUsageClient {
 
         if file_data.len() > MAX_CSV_SIZE {
             bail!(StoreError::InvalidArgument(format!(
-                "File size exceeds maximum allowed ({} bytes)",
-                MAX_CSV_SIZE
+                "File size exceeds maximum allowed ({MAX_CSV_SIZE} bytes)"
             )));
         }
 
@@ -271,7 +270,7 @@ impl UsageClient for MeteringUsageClient {
                     failures.push(CsvIngestionFailure {
                         row_number,
                         event_id: String::new(),
-                        reason: format!("Failed to parse row: {}", e),
+                        reason: format!("Failed to parse row: {e}"),
                     });
                     row_number += 1;
                     continue;
@@ -279,10 +278,10 @@ impl UsageClient for MeteringUsageClient {
             };
 
             // Extract fields
-            let event_id = event_id_idx
-                .and_then(|idx| record.get(idx))
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            let event_id = event_id_idx.and_then(|idx| record.get(idx)).map_or_else(
+                || uuid::Uuid::new_v4().to_string(),
+                std::string::ToString::to_string,
+            );
 
             let event_code = match event_code_idx.and_then(|idx| record.get(idx)) {
                 Some(code) if !code.is_empty() => code.to_string(),
@@ -327,18 +326,17 @@ impl UsageClient for MeteringUsageClient {
                     }
                 };
 
-            let timestamp = timestamp_idx
-                .and_then(|idx| record.get(idx))
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+            let timestamp = timestamp_idx.and_then(|idx| record.get(idx)).map_or_else(
+                || chrono::Utc::now().to_rfc3339(),
+                std::string::ToString::to_string,
+            );
 
             // Collect additional fields as properties
             let mut properties = HashMap::new();
             for (idx, value) in record.iter().enumerate() {
                 let header_name = headers
                     .get(idx)
-                    .map(|h| h.to_string())
-                    .unwrap_or_else(|| format!("column_{}", idx));
+                    .map_or_else(|| format!("column_{idx}"), std::string::ToString::to_string);
 
                 // Skip the main fields we already extracted
                 if Some(idx) == event_id_idx
@@ -443,7 +441,7 @@ impl UsageClient for MeteringUsageClient {
                         failures.push(CsvIngestionFailure {
                             row_number: original_row.unwrap_or(0) as i32,
                             event_id: event.id.clone(),
-                            reason: format!("Metering service error: {}", e),
+                            reason: format!("Metering service error: {e}"),
                         });
                     }
                 }
@@ -489,7 +487,7 @@ impl UsageClient for MeteringUsageClient {
             .query_raw_events(metering_request)
             .await
             .change_context(StoreError::MeteringServiceError)
-            .attach_printable("Failed to search events")?;
+            .attach("Failed to search events")?;
 
         let metering_response = response.into_inner();
 

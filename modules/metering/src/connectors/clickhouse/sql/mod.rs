@@ -8,7 +8,7 @@ pub const DATABASE: &str = "meteroid"; // TODO config
 const METER_TABLE_PREFIX: &str = "METER";
 
 fn escape_sql_identifier(identifier: &str) -> String {
-    identifier.replace("'", "''")
+    identifier.replace('\'', "''")
 }
 
 fn encode_identifier(identifier: &str) -> String {

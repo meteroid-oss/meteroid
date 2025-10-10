@@ -66,7 +66,7 @@ impl TryInto<AddOnRowPatch> for AddOnPatch {
     type Error = StoreErrorReport;
 
     fn try_into(self) -> Result<AddOnRowPatch, Self::Error> {
-        let json_fee = self.fee.map(|x| x.try_into()).transpose()?;
+        let json_fee = self.fee.map(std::convert::TryInto::try_into).transpose()?;
 
         Ok(AddOnRowPatch {
             id: self.id,

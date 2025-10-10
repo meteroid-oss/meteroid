@@ -27,7 +27,7 @@ impl From<Report<StoreError>> for ConnectorApiError {
 
         let err = Box::new(
             value
-                .attach_printable("Error in api connector service".to_string())
+                .attach("Error in api connector service".to_string())
                 .into_error(),
         );
 

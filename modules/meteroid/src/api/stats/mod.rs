@@ -7,6 +7,7 @@ mod service;
 pub struct StatsServiceComponents {
     pub store: Store,
 }
+
 pub fn service(store: Store) -> StatsServiceServer<StatsServiceComponents> {
     let inner = StatsServiceComponents { store };
     StatsServiceServer::new(inner)

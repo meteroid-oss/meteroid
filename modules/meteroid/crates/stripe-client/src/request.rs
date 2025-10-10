@@ -28,7 +28,7 @@ impl RetryStrategy {
             return Outcome::Stop;
         }
 
-        use RetryStrategy::*;
+        use RetryStrategy::{NoRetry, Retry};
 
         match (self, status, retry_count) {
             (NoRetry, _, _) => Outcome::Stop,

@@ -11,7 +11,7 @@ use error_stack::ResultExt;
 
 impl ProductFamilyRowNew {
     pub async fn insert(&self, conn: &mut PgConn) -> DbResult<ProductFamilyRow> {
-        use crate::schema::product_family::dsl::*;
+        use crate::schema::product_family::dsl::product_family;
         use diesel_async::RunQueryDsl;
 
         let query = diesel::insert_into(product_family).values(self);
@@ -21,7 +21,7 @@ impl ProductFamilyRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting product family")
+            .attach("Error while inserting product family")
             .into_db_result()
     }
 }
@@ -41,7 +41,7 @@ impl ProductFamilyRow {
             .into_boxed();
 
         if let Some(param_query) = param_query {
-            query = query.filter(pf_dsl::name.ilike(format!("%{}%", param_query)));
+            query = query.filter(pf_dsl::name.ilike(format!("%{param_query}%")));
         }
 
         match order_by {
@@ -59,7 +59,7 @@ impl ProductFamilyRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while fetching customers")
+            .attach("Error while fetching customers")
             .into_db_result()
     }
 
@@ -80,7 +80,7 @@ impl ProductFamilyRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding product family by id and tenant_id")
+            .attach("Error while finding product family by id and tenant_id")
             .into_db_result()
     }
 }

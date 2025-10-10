@@ -124,7 +124,7 @@ pub mod metric {
                         .unit_conversion_factor
                         .zip(value.unit_conversion_rounding)
                         .map(|(factor, rounding)| server::aggregation::UnitConversion {
-                            factor: factor as f64, // TODO
+                            factor: f64::from(factor), // TODO
                             rounding: super::unit_conversion_rounding::domain_to_server(rounding)
                                 .into(),
                         }),

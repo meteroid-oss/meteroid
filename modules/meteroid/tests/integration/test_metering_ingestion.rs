@@ -507,7 +507,7 @@ async fn wait_for_clichouse_meter(bm_id: &str, ch_client: &clickhouse::Client) {
             .query(
                 format!("SELECT count(*) FROM system.tables WHERE name = '{view_name}'").as_str(),
             )
-            .fetch_one::<i64>()
+            .fetch_one::<u64>()
             .await
         {
             Ok(cnt) => {

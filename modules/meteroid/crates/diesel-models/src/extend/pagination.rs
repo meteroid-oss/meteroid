@@ -25,13 +25,13 @@ pub trait Paginate: Sized {
 
 impl<T> Paginate for T {
     fn paginate(self, page: PaginationRequest) -> Paginated<Self> {
-        let per_page = page.per_page.unwrap_or(DEFAULT_PER_PAGE) as i64;
+        let per_page = i64::from(page.per_page.unwrap_or(DEFAULT_PER_PAGE));
 
         Paginated {
             query: self,
             per_page,
-            page: page.page as i64,
-            offset: page.page as i64 * per_page,
+            page: i64::from(page.page),
+            offset: i64::from(page.page) * per_page,
         }
     }
 
@@ -53,8 +53,8 @@ pub struct Paginated<T> {
 impl<T> Paginated<T> {
     pub fn per_page(self, per_page: u32) -> Self {
         Paginated {
-            per_page: per_page as i64,
-            offset: self.page.max(0) * (per_page as i64),
+            per_page: i64::from(per_page),
+            offset: self.page.max(0) * i64::from(per_page),
             ..self
         }
     }
@@ -80,7 +80,7 @@ impl<T> Paginated<T> {
 
         async move {
             let results = results.await?;
-            let total = results.get(0).map(|x| x.1).unwrap_or(0);
+            let total = results.get(0).map_or(0, |x| x.1);
             let records = results.into_iter().map(|x| x.0).collect();
             let total_pages = (total as f64 / per_page as f64).ceil() as i64;
             Ok(PaginatedVec {

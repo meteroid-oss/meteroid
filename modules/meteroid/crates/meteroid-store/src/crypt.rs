@@ -2,7 +2,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
     aead::{Aead, KeyInit},
 };
-use error_stack::{Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use secrecy::{ExposeSecret, SecretString};
 
 const NONCE_SIZE: usize = 12;
@@ -19,7 +19,7 @@ pub enum EncryptionError {
     DecryptError,
 }
 
-pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<String, EncryptionError> {
+pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<String, Report<EncryptionError>> {
     let cipher = ChaCha20Poly1305::new_from_slice(crypt_key.expose_secret().as_bytes())
         .change_context(EncryptionError::InvalidKey)?;
 
@@ -32,7 +32,7 @@ pub fn encrypt(crypt_key: &SecretString, value: &str) -> Result<String, Encrypti
     Ok(hex::encode(ciphertext))
 }
 
-pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, EncryptionError> {
+pub fn decrypt(key: &SecretString, value: &str) -> Result<SecretString, Report<EncryptionError>> {
     let cipher = ChaCha20Poly1305::new_from_slice(key.expose_secret().as_bytes())
         .change_context(EncryptionError::InvalidKey)?;
 

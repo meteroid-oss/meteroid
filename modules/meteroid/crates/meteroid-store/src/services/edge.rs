@@ -7,7 +7,7 @@ use crate::domain::{
     CreateSubscription, CreatedSubscription, CustomerBuyCredits, DetailedInvoice, SetupIntent,
     Subscription, SubscriptionDetails,
 };
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::repositories::InvoiceInterface;
 use crate::repositories::subscriptions::CancellationEffectiveAt;
 use crate::services::invoice_lines::invoice_lines::ComputedInvoiceContent;
@@ -101,7 +101,7 @@ impl ServicesEdge {
         payment_method_id: CustomerPaymentMethodId,
         total_amount_confirmation: u64,
         currency_confirmation: String,
-    ) -> error_stack::Result<PaymentTransaction, StoreError> {
+    ) -> Result<PaymentTransaction, StoreErrorReport> {
         let payment_transaction = self
             .store
             .transaction(|conn| {
@@ -120,14 +120,14 @@ impl ServicesEdge {
                         )
                         .await?
                         .ok_or(StoreError::InsertError)
-                        .attach_printable("Failed to bill the subscription")?;
+                        .attach("Failed to bill the subscription")?;
 
                     let payment_transaction = detailed_invoice
                         .transactions
                         .into_iter()
                         .next()
                         .ok_or(StoreError::InsertError)
-                        .attach_printable("No payment transaction linked to invoice")?;
+                        .attach("No payment transaction linked to invoice")?;
 
                     Ok(payment_transaction)
                 }
@@ -147,7 +147,7 @@ impl ServicesEdge {
             .await?
             .pop()
             .ok_or(Report::new(StoreError::InsertError))
-            .attach_printable("No subscription inserted")
+            .attach("No subscription inserted")
     }
 
     pub async fn insert_subscription_batch(

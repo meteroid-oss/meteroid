@@ -43,7 +43,7 @@ nonzero_ext = { workspace = true }
 chacha20poly1305 = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }
-jsonwebtoken = { workspace = true }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"] }
 futures = { workspace = true }
 once_cell = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }

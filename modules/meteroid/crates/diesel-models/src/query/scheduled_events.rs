@@ -20,7 +20,7 @@ impl ScheduledEventRow {
         event_id_param: Uuid,
         tenant_id_param: &TenantId,
     ) -> DbResult<ScheduledEventRow> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{id, scheduled_event, tenant_id};
 
         let query = scheduled_event
             .filter(id.eq(event_id_param))
@@ -31,7 +31,7 @@ impl ScheduledEventRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while fetching scheduled event by ID")
+            .attach("Error while fetching scheduled event by ID")
             .into_db_result()
     }
 
@@ -41,7 +41,9 @@ impl ScheduledEventRow {
         subscription_id_param: SubscriptionId,
         tenant_id_param: &TenantId,
     ) -> DbResult<Vec<ScheduledEventRow>> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
 
         let query = scheduled_event
             .filter(subscription_id.eq(subscription_id_param))
@@ -54,7 +56,7 @@ impl ScheduledEventRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching pending scheduled events")
+            .attach("Error while fetching pending scheduled events")
             .into_db_result()
     }
 
@@ -66,7 +68,9 @@ impl ScheduledEventRow {
         start_date: NaiveDateTime,
         end_date: NaiveDateTime,
     ) -> DbResult<Vec<ScheduledEventRow>> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            scheduled_event, scheduled_time, status, subscription_id, tenant_id,
+        };
 
         let query = scheduled_event
             .filter(subscription_id.eq(subscription_id_param))
@@ -81,7 +85,7 @@ impl ScheduledEventRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching pending scheduled events")
+            .attach("Error while fetching pending scheduled events")
             .into_db_result()
     }
 
@@ -93,7 +97,10 @@ impl ScheduledEventRow {
         event_type_param: Vec<ScheduledEventTypeEnum>,
         date: NaiveDate,
     ) -> DbResult<Option<ScheduledEventRow>> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            created_at, event_type, processed_at, scheduled_event, status, subscription_id,
+            tenant_id,
+        };
 
         let query = scheduled_event
             .filter(subscription_id.eq(subscription_id_param))
@@ -115,7 +122,7 @@ impl ScheduledEventRow {
             .first(conn)
             .await
             .optional()
-            .attach_printable("Error while fetching scheduled events by type")
+            .attach("Error while fetching scheduled events by type")
             .into_db_result()
     }
 
@@ -124,7 +131,9 @@ impl ScheduledEventRow {
         conn: &mut PgConn,
         limit: i64,
     ) -> DbResult<Vec<ScheduledEventRow>> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            event_type, priority, scheduled_event, scheduled_time, status,
+        };
         use crate::schema::subscription::dsl as sub_dsl;
 
         let query = scheduled_event
@@ -156,13 +165,13 @@ impl ScheduledEventRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while fetching due events")
+            .attach("Error while fetching due events")
             .into_db_result()
     }
 
     /// Mark event as processing
     pub async fn mark_as_processing(conn: &mut PgConn, event_id_param: &[Uuid]) -> DbResult<()> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{id, scheduled_event, status, updated_at};
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq_any(event_id_param))
@@ -176,14 +185,16 @@ impl ScheduledEventRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while marking events as processing")
+            .attach("Error while marking events as processing")
             .map(|_| ())
             .into_db_result()
     }
 
     /// Mark event as completed
     pub async fn mark_as_completed(conn: &mut PgConn, event_id_param: &[Uuid]) -> DbResult<()> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            id, processed_at, scheduled_event, status, updated_at,
+        };
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq_any(event_id_param))
@@ -198,7 +209,7 @@ impl ScheduledEventRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while marking event as completed")
+            .attach("Error while marking event as completed")
             .map(|_| ())
             .into_db_result()
     }
@@ -209,7 +220,7 @@ impl ScheduledEventRow {
         event_id_param: &Uuid,
         error_message: &str,
     ) -> DbResult<()> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{error, id, scheduled_event, status, updated_at};
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq(event_id_param))
@@ -224,14 +235,16 @@ impl ScheduledEventRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while marking event as failed")
+            .attach("Error while marking event as failed")
             .map(|_| ())
             .into_db_result()
     }
 
     /// cleanup. If the event is older than X minutes and in processing state, mark it for reprocessing
     pub async fn retry_timeout_events(conn: &mut PgConn) -> DbResult<()> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            error, last_retry_at, retries, scheduled_event, scheduled_time, status, updated_at,
+        };
 
         let now = Utc::now().naive_utc();
         let timeout_date = now.checked_sub_signed(chrono::Duration::minutes(30));
@@ -259,7 +272,7 @@ impl ScheduledEventRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while marking event as failed")
+            .attach("Error while marking event as failed")
             .map(|_| ())
             .into_db_result()
     }
@@ -271,7 +284,9 @@ impl ScheduledEventRow {
         retry_time: NaiveDateTime,
         error_message: &str,
     ) -> DbResult<()> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{
+            error, id, last_retry_at, retries, scheduled_event, scheduled_time, status, updated_at,
+        };
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq(event_id_param))
@@ -289,7 +304,7 @@ impl ScheduledEventRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while scheduling event retry")
+            .attach("Error while scheduling event retry")
             .map(|_| ())
             .into_db_result()
     }
@@ -300,7 +315,7 @@ impl ScheduledEventRow {
         event_id_param: &Uuid,
         reason: &str,
     ) -> DbResult<()> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::{error, id, scheduled_event, status, updated_at};
 
         let query = diesel::update(scheduled_event)
             .filter(id.eq(event_id_param))
@@ -315,7 +330,7 @@ impl ScheduledEventRow {
         query
             .execute(conn)
             .await
-            .attach_printable("Error while canceling event")
+            .attach("Error while canceling event")
             .map(|_| ())
             .into_db_result()
     }
@@ -326,7 +341,7 @@ impl ScheduledEventRowNew {
         conn: &mut PgConn,
         events: &[ScheduledEventRowNew],
     ) -> DbResult<Vec<ScheduledEventRow>> {
-        use crate::schema::scheduled_event::dsl::*;
+        use crate::schema::scheduled_event::dsl::scheduled_event;
 
         let query = diesel::insert_into(scheduled_event).values(events);
 
@@ -335,7 +350,7 @@ impl ScheduledEventRowNew {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while creating scheduled events")
+            .attach("Error while creating scheduled events")
             .into_db_result()
     }
 }

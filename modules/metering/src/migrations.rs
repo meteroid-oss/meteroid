@@ -1,5 +1,5 @@
 use crate::config::{ClickhouseConfig, KafkaConfig};
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use klickhouse::{Client, ClientOptions, ClusterMigration, ClusterName};
 use thiserror::Error;
 
@@ -11,7 +11,7 @@ refinery::embed_migrations!("migrations/refinery");
 pub async fn run(
     clickhouse_config: &ClickhouseConfig,
     kafka_config: &KafkaConfig,
-) -> error_stack::Result<(), MigrationsError> {
+) -> Result<(), Report<MigrationsError>> {
     set_kafka_config(kafka_config);
     set_clickhouse_config(clickhouse_config);
 
@@ -52,7 +52,7 @@ pub async fn run(
             .change_context(MigrationsError::Execution)?;
 
         for migration in report.applied_migrations() {
-            log::info!("Migration {} has been applied", migration);
+            log::info!("Migration {migration} has been applied");
         }
 
         return Ok(());
@@ -64,7 +64,7 @@ pub async fn run(
         .change_context(MigrationsError::Execution)?;
 
     for migration in report.applied_migrations() {
-        log::info!("Migration {} has been applied", migration);
+        log::info!("Migration {migration} has been applied");
     }
 
     Ok(())

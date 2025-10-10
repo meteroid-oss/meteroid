@@ -277,8 +277,7 @@ impl FeeType {
                         .find(|r| &r.term == billing_period)
                         .ok_or_else(|| {
                             StoreError::InvalidArgument(format!(
-                                "Rate not found for billing period: {:?}",
-                                billing_period
+                                "Rate not found for billing period: {billing_period:?}"
                             ))
                         })?;
                     Ok((
@@ -313,8 +312,7 @@ impl FeeType {
                         .find(|r| &r.term == billing_period)
                         .ok_or_else(|| {
                             StoreError::InvalidArgument(format!(
-                                "Rate not found for billing period: {:?}",
-                                billing_period
+                                "Rate not found for billing period: {billing_period:?}"
                             ))
                         })?;
                     (rate, billing_period)
@@ -360,8 +358,7 @@ impl FeeType {
                     .find(|t| t.included_amount == committed_capacity)
                     .ok_or_else(|| {
                         StoreError::InvalidArgument(format!(
-                            "Threshold not found for committed capacity: {}",
-                            committed_capacity
+                            "Threshold not found for committed capacity: {committed_capacity}"
                         ))
                     })?;
 
@@ -384,8 +381,7 @@ impl FeeType {
             // all other case should fail, as they just cannot be parametrized
             FeeType::Usage { .. } | FeeType::ExtraRecurring { .. } | FeeType::OneTime { .. } => {
                 Err(StoreError::InvalidArgument(format!(
-                    "Cannot parameterize fee type: {:?}",
-                    self
+                    "Cannot parameterize fee type: {self:?}"
                 )))
             }
         }

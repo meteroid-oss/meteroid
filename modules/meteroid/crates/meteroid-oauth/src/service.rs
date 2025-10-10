@@ -1,10 +1,10 @@
-/// Inspired by https://github.com/mpiorowski/rusve/service-auth
+/// Inspired by <https://github.com/mpiorowski/rusve/service-auth>
 use crate::errors::OauthServiceError;
 use std::fmt::{Display, Formatter};
 
 use crate::model::{AuthorizeUrl, OAuthTokens, OAuthUser, OauthProvider};
 use async_trait::async_trait;
-use error_stack::{ResultExt, bail};
+use error_stack::{Report, ResultExt, bail};
 use oauth2::basic::{
     BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
     BasicTokenResponse,
@@ -51,17 +51,17 @@ pub trait OauthService: Send + Sync {
         &self,
         auth_code: SecretString,
         pkce_code_verifier: SecretString,
-    ) -> error_stack::Result<OAuthTokens, OauthServiceError>;
+    ) -> Result<OAuthTokens, Report<OauthServiceError>>;
 
     async fn exchange_refresh_token(
         &self,
         refresh_token: SecretString,
-    ) -> error_stack::Result<OAuthTokens, OauthServiceError>;
+    ) -> Result<OAuthTokens, Report<OauthServiceError>>;
 
     async fn get_user_info(
         &self,
         access_token: SecretString,
-    ) -> error_stack::Result<OAuthUser, OauthServiceError>;
+    ) -> Result<OAuthUser, Report<OauthServiceError>>;
 }
 
 #[derive(Clone)]
@@ -203,14 +203,14 @@ struct OauthServiceImpl<TER: ErrorResponse> {
 impl<BER: ErrorResponse + 'static> OauthServiceImpl<BER> {
     fn oauth_basic_client(config: &crate::model::OauthProviderConfig) -> Oauth2BasicClient<BER> {
         let auth_url =
-            AuthUrl::new(config.auth_url.to_owned()).expect("Invalid authorization endpoint URL");
+            AuthUrl::new(config.auth_url.clone()).expect("Invalid authorization endpoint URL");
         let token_url =
-            TokenUrl::new(config.token_url.to_owned()).expect("Invalid token endpoint URL");
+            TokenUrl::new(config.token_url.clone()).expect("Invalid token endpoint URL");
         let redirect_url =
-            oauth2::RedirectUrl::new(config.callback_url.to_owned()).expect("Invalid redirect URL");
+            oauth2::RedirectUrl::new(config.callback_url.clone()).expect("Invalid redirect URL");
 
-        BasicClient::new(ClientId::new(config.client_id.to_owned()))
-            .set_client_secret(ClientSecret::new(config.client_secret.to_owned()))
+        BasicClient::new(ClientId::new(config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
             .set_auth_uri(auth_url)
             .set_token_uri(token_url)
             .set_redirect_uri(redirect_url)
@@ -221,7 +221,7 @@ impl<BER: ErrorResponse + 'static> OauthServiceImpl<BER> {
 #[async_trait]
 impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl<T> {
     fn client_id(&self) -> String {
-        self.config.client_id.to_owned()
+        self.config.client_id.clone()
     }
 
     fn authorize_url(&self) -> AuthorizeUrl {
@@ -251,7 +251,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
         &self,
         auth_code: SecretString,
         pkce_code_verifier: SecretString,
-    ) -> error_stack::Result<OAuthTokens, OauthServiceError> {
+    ) -> Result<OAuthTokens, Report<OauthServiceError>> {
         let client = &self.oauth_client;
 
         client
@@ -270,7 +270,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
     async fn exchange_refresh_token(
         &self,
         refresh_token: SecretString,
-    ) -> error_stack::Result<OAuthTokens, OauthServiceError> {
+    ) -> Result<OAuthTokens, Report<OauthServiceError>> {
         let client = &self.oauth_client;
 
         client
@@ -286,7 +286,7 @@ impl<T: ErrorResponse + Send + Sync + 'static> OauthService for OauthServiceImpl
     async fn get_user_info(
         &self,
         access_token: SecretString,
-    ) -> error_stack::Result<OAuthUser, OauthServiceError> {
+    ) -> Result<OAuthUser, Report<OauthServiceError>> {
         match self.config.provider {
             OauthProvider::Google => {
                 let url = self

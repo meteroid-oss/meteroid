@@ -33,8 +33,8 @@ const VALUE_MIN_LEN: usize = 8;
 
 const VALUE_MAX_LEN: usize = 64;
 
-static GRPC_IDEMPOTENCY_CACHE: once_cell::sync::Lazy<moka::sync::Cache<CacheKey, CacheValue>> =
-    once_cell::sync::Lazy::new(|| {
+static GRPC_IDEMPOTENCY_CACHE: std::sync::LazyLock<moka::sync::Cache<CacheKey, CacheValue>> =
+    std::sync::LazyLock::new(|| {
         let config = common_config::idempotency::IdempotencyConfig::get();
         moka::sync::Cache::builder()
             .max_capacity(config.size)

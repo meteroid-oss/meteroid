@@ -1,12 +1,12 @@
 use crate::StoreResult;
 use crate::domain::Customer;
-use crate::errors::StoreError;
+use crate::errors::{StoreError, StoreErrorReport};
 use crate::store::PgConn;
 use common_domain::ids::{CustomerId, InvoiceId, TenantId};
 use diesel_models::customer_balance_txs::CustomerBalanceTxRowNew;
 use diesel_models::customers::CustomerRow;
 use diesel_models::errors::DatabaseError;
-use error_stack::Report;
+use error_stack::{IntoReport, Report};
 use uuid::Uuid;
 
 pub struct CustomerBalanceUpdate {
@@ -32,14 +32,14 @@ impl CustomerBalance {
             .await
             .map_err(|err| match err.error.current_context() {
                 DatabaseError::CheckViolation(_) => {
-                    error_stack::report!(StoreError::NegativeCustomerBalanceError(err.error,))
+                    StoreError::NegativeCustomerBalanceError(err.error).into_report()
                 }
-                _ => Into::<Report<StoreError>>::into(err),
+                _ => Into::<StoreErrorReport>::into(err),
             })?;
 
         let customer_row_updated = CustomerRow::find_by_id(conn, &customer_id, &tenant_id)
             .await
-            .map_err(Into::<Report<StoreError>>::into)?;
+            .map_err(Into::<StoreErrorReport>::into)?;
 
         let tx = CustomerBalanceTxRowNew {
             id: Uuid::now_v7(),

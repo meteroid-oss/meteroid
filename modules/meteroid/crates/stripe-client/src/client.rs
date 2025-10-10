@@ -44,7 +44,7 @@ impl StripeHeaders {
             header_map.insert(
                 name,
                 HeaderValue::from_str(value)
-                    .unwrap_or_else(|_| panic!("Invalid {} header value", name)),
+                    .unwrap_or_else(|_| panic!("Invalid {name} header value")),
             )
         };
 

@@ -32,7 +32,7 @@ impl RateLimitMiddleware {
             .get(http::header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .and_then(|bearer| bearer.strip_prefix("Bearer "))
-            .map(|token| token.to_string())
+            .map(std::string::ToString::to_string)
     }
 }
 

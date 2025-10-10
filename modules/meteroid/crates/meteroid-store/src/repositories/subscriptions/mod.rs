@@ -31,7 +31,6 @@ use diesel_models::PgConn;
 use diesel_models::customers::CustomerRow;
 use diesel_models::invoicing_entities::InvoicingEntityRow;
 use diesel_models::scheduled_events::ScheduledEventRowNew;
-use error_stack::Result;
 use meteroid_store_macros::with_conn_delegate;
 use secrecy::SecretString;
 
@@ -142,8 +141,8 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(std::convert::TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<_>>>()?;
 
         let subscription_components: Vec<SubscriptionComponent> =
             SubscriptionComponentRow::list_subscription_components_by_subscription(
@@ -154,20 +153,20 @@ impl SubscriptionInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.try_into())
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(std::convert::TryInto::try_into)
+            .collect::<Result<Vec<_>, Report<_>>>()?;
 
         let subscription_add_ons: Vec<SubscriptionAddOn> =
             SubscriptionAddOnRow::list_by_subscription_id(conn, &tenant_id, &subscription.id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(std::convert::TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<_>>>()?;
 
         let mut metric_ids = subscription_components
             .iter()
-            .filter_map(|sc| sc.metric_id())
+            .filter_map(SubscriptionComponent::metric_id)
             .collect::<Vec<_>>();
 
         metric_ids.extend(
@@ -184,16 +183,16 @@ impl SubscriptionInterface for Store {
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|s| s.try_into())
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(std::convert::TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<_>>>()?;
 
         let billable_metrics: Vec<BillableMetric> =
             BillableMetricRow::get_by_ids(conn, &metric_ids, &subscription.tenant_id)
                 .await
                 .map_err(Into::<Report<StoreError>>::into)?
                 .into_iter()
-                .map(|m| m.try_into())
-                .collect::<Result<Vec<_>, _>>()?;
+                .map(std::convert::TryInto::try_into)
+                .collect::<Result<Vec<_>, Report<_>>>()?;
 
         let checkout_token = if subscription.pending_checkout {
             let jwt =
@@ -243,7 +242,7 @@ impl SubscriptionInterface for Store {
 
         let insertable_batch: Vec<SubscriptionComponentRowNew> = batch
             .into_iter()
-            .map(|c| c.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         SubscriptionComponentRow::insert_subscription_component_batch(
@@ -254,7 +253,7 @@ impl SubscriptionInterface for Store {
         .map_err(Into::<Report<StoreError>>::into)
         .map(|v| {
             v.into_iter()
-                .map(|e| e.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()
         })?
     }
@@ -282,7 +281,7 @@ impl SubscriptionInterface for Store {
             items: db_subscriptions
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             total_pages: db_subscriptions.total_pages,
             total_results: db_subscriptions.total_results,
@@ -359,7 +358,7 @@ impl SubscriptionInterface for Store {
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 
@@ -393,14 +392,14 @@ impl SubscriptionInterface for Store {
     ) -> StoreResult<Vec<ScheduledEvent>> {
         let insertable_batch: Vec<ScheduledEventRowNew> = events
             .into_iter()
-            .map(|c| c.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()?;
 
         ScheduledEventRowNew::insert_batch(conn, &insertable_batch)
             .await
             .map_err(Into::<Report<StoreError>>::into)?
             .into_iter()
-            .map(|s| s.try_into())
+            .map(std::convert::TryInto::try_into)
             .collect::<Result<Vec<_>, _>>()
     }
 }

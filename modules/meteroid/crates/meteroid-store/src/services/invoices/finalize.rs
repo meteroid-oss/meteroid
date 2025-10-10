@@ -132,7 +132,7 @@ impl Services {
             InvoiceRow::find_detailed_by_id(tx, invoice.tenant_id, invoice.id)
                 .await
                 .map_err(Into::into)
-                .and_then(|row| row.try_into())?;
+                .and_then(std::convert::TryInto::try_into)?;
 
         let invoice_event = (&final_invoice.invoice).into();
         self.store

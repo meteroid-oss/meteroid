@@ -88,6 +88,7 @@ impl Event {
             Some(actor),
         )
     }
+
     pub fn customer_patched(actor: Uuid, customer_id: Uuid, tenant_id: Uuid) -> Self {
         Self::new(
             EventData::CustomerPatched(TenantEventDataDetails {

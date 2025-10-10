@@ -10,13 +10,13 @@ where
     #[inline(always)]
     #[track_caller]
     fn unwrap_to_log_error<F: FnOnce(E) -> String>(self, msg: F) {
-        self.unwrap_to_log(Level::Error, msg)
+        self.unwrap_to_log(Level::Error, msg);
     }
 
     #[inline(always)]
     #[track_caller]
     fn unwrap_to_log_warn<F: FnOnce(E) -> String>(self, msg: F) {
-        self.unwrap_to_log(Level::Warn, msg)
+        self.unwrap_to_log(Level::Warn, msg);
     }
 
     #[inline(always)]
@@ -66,7 +66,7 @@ fn log_message(level: Level, msg: String) {
                     .level(level)
                     .build(),
             )
-            .args(format_args!("{}", msg))
+            .args(format_args!("{msg}"))
             .file(Some(loc.file()))
             .line(Some(loc.line()))
             // .level(level)

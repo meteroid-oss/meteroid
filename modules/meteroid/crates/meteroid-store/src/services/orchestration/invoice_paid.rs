@@ -28,20 +28,18 @@ impl Services {
             return Ok(());
         }
 
-        let invoice_pdf_id = match invoice.pdf_document_id {
-            Some(id) => id,
-            None => {
-                tracing::warn!("Invoice {} has no pdf document id", invoice.id);
-                return Ok(());
-            }
+        let invoice_pdf_id = if let Some(id) = invoice.pdf_document_id {
+            id
+        } else {
+            tracing::warn!("Invoice {} has no pdf document id", invoice.id);
+            return Ok(());
         };
 
-        let receipt = match receipt {
-            Some(receipt) => receipt,
-            None => {
-                tracing::warn!("No receipt found for invoice {}", event.invoice_id);
-                return Ok(());
-            }
+        let receipt = if let Some(receipt) = receipt {
+            receipt
+        } else {
+            tracing::warn!("No receipt found for invoice {}", event.invoice_id);
+            return Ok(());
         };
 
         let customer = self

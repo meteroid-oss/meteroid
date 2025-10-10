@@ -21,7 +21,7 @@ use crate::{api::utils::parse_uuid, parse_uuid};
 use super::{UsersServiceComponents, mapping};
 
 /// **Modifying this service ?**
-/// Make sure to update **api_layer.ANONYMOUS_SERVICES** in meteroid-middleware if any anonymous rpc is updated/added
+/// Make sure to update **`api_layer.ANONYMOUS_SERVICES`** in meteroid-middleware if any anonymous rpc is updated/added
 #[tonic::async_trait]
 impl UsersService for UsersServiceComponents {
     #[tracing::instrument(skip_all)]

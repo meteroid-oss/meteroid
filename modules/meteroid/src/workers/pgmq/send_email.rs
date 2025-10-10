@@ -5,7 +5,7 @@ use crate::workers::pgmq::processor::PgmqHandler;
 use common_domain::ids::BaseId;
 use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use itertools::Itertools;
 use meteroid_mailer::model::{EmailAttachmentType, EmailRecipient, InvoicePaid, InvoiceReady};
 use meteroid_mailer::service::MailerService;
@@ -39,8 +39,8 @@ impl EmailSender {
             mailer,
             public_url,
             rest_api_url,
-            jwt_secret,
             object_store,
+            jwt_secret,
             store,
         }
     }
@@ -48,7 +48,7 @@ impl EmailSender {
     fn get_tenant_id_from_request(
         &self,
         request: &SendEmailRequest,
-    ) -> error_stack::Result<TenantId, StoreError> {
+    ) -> Result<TenantId, Report<StoreError>> {
         match request {
             SendEmailRequest::InvoiceReady { tenant_id, .. } => Ok(*tenant_id),
             SendEmailRequest::InvoicePaid { tenant_id, .. } => Ok(*tenant_id),
@@ -60,7 +60,7 @@ impl EmailSender {
     async fn is_email_disabled_for_tenant(
         &self,
         tenant_id: TenantId,
-    ) -> error_stack::Result<bool, StoreError> {
+    ) -> Result<bool, Report<StoreError>> {
         let tenant = self.store.find_tenant_by_id(tenant_id).await?;
         Ok(tenant.tenant.disable_emails)
     }
@@ -78,7 +78,7 @@ impl EmailSender {
             .change_context(PgmqError::HandleMessages)
     }
 
-    async fn send_email(&self, ev: SendEmailRequest) -> error_stack::Result<(), StoreError> {
+    async fn send_email(&self, ev: SendEmailRequest) -> Result<(), Report<StoreError>> {
         // Check if emails are disabled for this tenant
         let tenant_id = self.get_tenant_id_from_request(&ev)?;
         if self.is_email_disabled_for_tenant(tenant_id).await? {
@@ -109,7 +109,7 @@ impl EmailSender {
                 let payment_url = format!("{}/i/pay?token={}", self.public_url, invoice_token);
 
                 if invoicing_emails.is_empty() {
-                    log::warn!("No invoicing emails found for invoice {}", invoice_id);
+                    log::warn!("No invoicing emails found for invoice {invoice_id}");
                     return Ok(());
                 }
 
@@ -135,7 +135,7 @@ impl EmailSender {
                     .collect::<String>();
 
                 let attachment = meteroid_mailer::model::EmailAttachment {
-                    filename: format!("invoice_{}-{}.pdf", sanitized_company_name, invoice_number),
+                    filename: format!("invoice_{sanitized_company_name}-{invoice_number}.pdf"),
                     content: data.to_vec(),
                     type_: EmailAttachmentType::Pdf,
                 };
@@ -179,7 +179,7 @@ impl EmailSender {
                 ..
             } => {
                 if invoicing_emails.is_empty() {
-                    log::warn!("No invoicing emails found for invoice {}", invoice_id);
+                    log::warn!("No invoicing emails found for invoice {invoice_id}");
                     return Ok(());
                 }
                 let recipients = invoicing_emails
@@ -206,7 +206,7 @@ impl EmailSender {
                     .change_context(StoreError::ObjectStoreError)?;
 
                 attachments.push(meteroid_mailer::model::EmailAttachment {
-                    filename: format!("invoice_{}-{}.pdf", sanitized_company_name, invoice_number),
+                    filename: format!("invoice_{sanitized_company_name}-{invoice_number}.pdf"),
                     content: invoice_data.to_vec(),
                     type_: EmailAttachmentType::Pdf,
                 });
@@ -219,10 +219,7 @@ impl EmailSender {
                         .change_context(StoreError::ObjectStoreError)?;
 
                     attachments.push(meteroid_mailer::model::EmailAttachment {
-                        filename: format!(
-                            "receipt_{}-{}.pdf",
-                            sanitized_company_name, receipt_pdf_id
-                        ),
+                        filename: format!("receipt_{sanitized_company_name}-{receipt_pdf_id}.pdf"),
                         content: receipt_data.to_vec(),
                         type_: EmailAttachmentType::Pdf,
                     });
@@ -274,7 +271,7 @@ impl PgmqHandler for EmailSender {
             .map(|(ev, id)| {
                 tokio::spawn({
                     let value = self.clone();
-                    async move { value.send_email(ev).await.map(|_| id) }
+                    async move { value.send_email(ev).await.map(|()| id) }
                 })
             })
             .collect_vec();
@@ -285,10 +282,10 @@ impl PgmqHandler for EmailSender {
                     success_msg_ids.push(id);
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to sync connected tenant: {:?}", e);
+                    log::warn!("Failed to sync connected tenant: {e:?}");
                 }
                 Err(e) => {
-                    log::warn!("Sync task failed: {:?}", e);
+                    log::warn!("Sync task failed: {e:?}");
                 }
             }
         }

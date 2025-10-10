@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = generate_events(&config);
 
     tokio::select! {
-        _ = service => {},
+        () = service => {},
         _ = exit => {
               log::info!("Interrupted");
         }

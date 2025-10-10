@@ -39,42 +39,38 @@ impl Services {
             .change_context(StoreError::PaymentProviderError)?;
 
         // payment methods for that connector are either retrieved from invoicing entity (default) or overridden through the connection
-        let payment_methods = match connection.supported_payment_types {
-            Some(types) => types
+        let payment_methods = if let Some(types) = connection.supported_payment_types {
+            types
                 .into_iter()
                 .filter_map(|t| t.map(Into::<PaymentMethodTypeEnum>::into))
-                .collect(),
-            None => {
-                let invoicing_entity_providers =
-                    InvoicingEntityProvidersRow::resolve_providers_by_id(
-                        conn,
-                        connection.customer.invoicing_entity_id,
-                        *tenant_id,
-                    )
-                    .await
-                    .map_err(|err| StoreError::DatabaseError(err.error))?;
+                .collect()
+        } else {
+            let invoicing_entity_providers = InvoicingEntityProvidersRow::resolve_providers_by_id(
+                conn,
+                connection.customer.invoicing_entity_id,
+                *tenant_id,
+            )
+            .await
+            .map_err(|err| StoreError::DatabaseError(err.error))?;
 
-                let mut payment_methods = Vec::new();
-                if let Some(card_provider) = invoicing_entity_providers.card_provider
-                    && card_provider.id == connector.id
-                {
-                    payment_methods.push(PaymentMethodTypeEnum::Card);
-                }
-                if let Some(direct_debit_provider) =
-                    invoicing_entity_providers.direct_debit_provider
-                {
-                    // TODO only one based on customer.country ? Or stripe / other do it by themselves ?
-                    if direct_debit_provider.id == connector.id {
-                        payment_methods = vec![
-                            PaymentMethodTypeEnum::DirectDebitSepa,
-                            PaymentMethodTypeEnum::DirectDebitAch,
-                            PaymentMethodTypeEnum::DirectDebitBacs,
-                        ];
-                    }
-                }
-
-                payment_methods
+            let mut payment_methods = Vec::new();
+            if let Some(card_provider) = invoicing_entity_providers.card_provider
+                && card_provider.id == connector.id
+            {
+                payment_methods.push(PaymentMethodTypeEnum::Card);
             }
+            if let Some(direct_debit_provider) = invoicing_entity_providers.direct_debit_provider {
+                // TODO only one based on customer.country ? Or stripe / other do it by themselves ?
+                if direct_debit_provider.id == connector.id {
+                    payment_methods = vec![
+                        PaymentMethodTypeEnum::DirectDebitSepa,
+                        PaymentMethodTypeEnum::DirectDebitAch,
+                        PaymentMethodTypeEnum::DirectDebitBacs,
+                    ];
+                }
+            }
+
+            payment_methods
         };
 
         let setup_intent = provider

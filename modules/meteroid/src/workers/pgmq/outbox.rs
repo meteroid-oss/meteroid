@@ -3,7 +3,7 @@ use crate::workers::pgmq::error::PgmqError;
 use crate::workers::pgmq::processor::PgmqHandler;
 use async_trait::async_trait;
 use common_domain::pgmq::{Headers, MessageId};
-use error_stack::{Report, ResultExt, report};
+use error_stack::{Report, ResultExt};
 use futures::FutureExt;
 use meteroid_store::domain::outbox_event::{EventType, OutboxEvent, OutboxPgmqHeaders};
 use meteroid_store::domain::pgmq::{
@@ -236,7 +236,7 @@ impl PgmqHandler for PgmqOutboxDispatch {
 
         // Check for errors
         for result in joined {
-            result?
+            result?;
         }
 
         Ok(ids)
@@ -264,7 +264,7 @@ impl TryInto<DispatchHeaders> for &PgmqMessage {
     fn try_into(self) -> Result<DispatchHeaders, Self::Error> {
         let headers = &self.headers.as_ref().ok_or(PgmqError::EmptyHeaders)?.0;
 
-        DispatchHeaders::deserialize(headers.clone()).map_err(|e| report!(PgmqError::Serde(e)))
+        DispatchHeaders::deserialize(headers.clone()).map_err(|e| Report::new(PgmqError::Serde(e)))
     }
 }
 
@@ -294,7 +294,7 @@ impl PgmqHandler for PgmqOutboxProxy {
             Ok::<Vec<_>, Report<PgmqError>>(acc)
         })?;
 
-        let (_, outbox_msg_ids): (Vec<_>, Vec<_>) = msg_ids.iter().cloned().unzip();
+        let (_, outbox_msg_ids): (Vec<_>, Vec<_>) = msg_ids.iter().copied().unzip();
 
         let outbox_archived: Vec<PgmqMessage> = self
             .store

@@ -36,7 +36,7 @@ pub struct EmailValidationLinkTemplate {
 impl From<EmailValidationLink> for EmailValidationLinkTemplate {
     fn from(link: EmailValidationLink) -> Self {
         let header = HeaderTemplate {
-            company_name: "".to_string(),
+            company_name: String::new(),
             logo_url: Some(METEROID_WORDMARK_URL.to_string()),
         };
         let footer = FooterTemplate {};
@@ -46,7 +46,7 @@ impl From<EmailValidationLink> for EmailValidationLinkTemplate {
                 .email
                 .split('@')
                 .next()
-                .map(|name| name.to_string())
+                .map(std::string::ToString::to_string)
                 .unwrap_or(link.recipient.email),
         );
 
@@ -84,7 +84,7 @@ fn format_date(date: chrono::NaiveDate) -> String {
 fn format_currency(amount: i64, currency: &str) -> String {
     let cur = rusty_money::iso::find(currency).unwrap_or(rusty_money::iso::USD);
     let amount = rusty_money::Money::from_minor(amount, cur);
-    format!("{}", amount)
+    format!("{amount}")
 }
 
 #[derive(TemplateSimple)]

@@ -83,7 +83,10 @@ impl TryInto<SchedulePatchRow> for SchedulePatch {
     fn try_into(self) -> Result<SchedulePatchRow, Self::Error> {
         Ok(SchedulePatchRow {
             id: self.id,
-            ramps: self.ramps.map(|r| r.try_into()).transpose()?,
+            ramps: self
+                .ramps
+                .map(std::convert::TryInto::try_into)
+                .transpose()?,
         })
     }
 }

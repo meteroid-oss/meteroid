@@ -6,7 +6,7 @@ use common_domain::ids::TenantId;
 use common_domain::pgmq::MessageId;
 use common_logging::unwrapper::UnwrapLogger;
 use common_utils::decimals::ToUnit;
-use error_stack::{ResultExt, report};
+use error_stack::{Report, ResultExt};
 use futures::TryFutureExt;
 use itertools::Itertools;
 use meteroid_store::domain::connectors::ConnectorAccessToken;
@@ -108,10 +108,10 @@ impl PennylaneSync {
                     log::info!("No pennylane connector found for tenant {tenant_id}");
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to get access token for tenant {tenant_id}: {:?}", e);
+                    log::warn!("Failed to get access token for tenant {tenant_id}: {e:?}");
                 }
                 Err(e) => {
-                    log::warn!("Task failed: {:?}", e);
+                    log::warn!("Task failed: {e:?}");
                 }
             }
         }
@@ -156,15 +156,15 @@ impl PennylaneSync {
         let succeeded_customers = self
             .sync_customers(&conn, customers_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync customers: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to sync customers: {e:?}"));
         let succeeded_invoices = self
             .sync_invoices(&conn, invoices_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync invoices: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to sync invoices: {e:?}"));
         let succeeded_cus_outbox = self
             .sync_customer_outbox(&conn, customer_outbox_to_sync)
             .await
-            .unwrap_to_default_warn(|e| format!("Failed to sync customer outbox events: {:?}", e));
+            .unwrap_to_default_warn(|e| format!("Failed to sync customer outbox events: {e:?}"));
 
         Ok(succeeded_customers
             .into_iter()
@@ -268,21 +268,18 @@ impl PennylaneSync {
         for (event, msg_id) in outboxes {
             let customer_id = event.customer_id;
 
-            let res = match event.get_pennylane_id(conn.connector_id) {
-                Some(pennylane_id) => {
-                    let company = &Self::convert_to_update_company(*event);
+            let res = if let Some(pennylane_id) = event.get_pennylane_id(conn.connector_id) {
+                let company = &Self::convert_to_update_company(*event);
 
-                    self.client
-                        .update_company_customer(pennylane_id, company, &conn.access_token)
-                        .await
-                }
-                None => {
-                    let company = &Self::convert_to_new_company(*event);
+                self.client
+                    .update_company_customer(pennylane_id, company, &conn.access_token)
+                    .await
+            } else {
+                let company = &Self::convert_to_new_company(*event);
 
-                    self.client
-                        .upsert_company_customer(company, &conn.access_token)
-                        .await
-                }
+                self.client
+                    .upsert_company_customer(company, &conn.access_token)
+                    .await
             };
 
             match res {
@@ -303,7 +300,7 @@ impl PennylaneSync {
                     succeeded_msgs.push(msg_id);
                 }
                 Err(e) => {
-                    log::warn!("Failed to create/update customer in pennylane: {:?}", e);
+                    log::warn!("Failed to create/update customer in pennylane: {e:?}");
                     let status_code = e.status_code();
 
                     if status_code.is_some_and(|x| x < 500 && x != 429) {
@@ -335,9 +332,7 @@ impl PennylaneSync {
                 }
                 Err(e) => {
                     log::warn!(
-                        "Failed to sync detailed invoice with MessageId: {:?}, error: {:?}",
-                        msg_id,
-                        e
+                        "Failed to sync detailed invoice with MessageId: {msg_id:?}, error: {e:?}"
                     );
                 }
             }
@@ -357,13 +352,9 @@ impl PennylaneSync {
             .await;
 
         if res.is_err() {
-            log::warn!(
-                "Failed to mark invoice {} as paid in pennylane: {:?}",
-                pennylane_id,
-                res
-            );
+            log::warn!("Failed to mark invoice {pennylane_id} as paid in pennylane: {res:?}");
         } else {
-            log::info!("Invoice {} marked as paid in pennylane", pennylane_id);
+            log::info!("Invoice {pennylane_id} marked as paid in pennylane");
         }
 
         Ok(())
@@ -399,29 +390,28 @@ impl PennylaneSync {
             .conn_meta
             .and_then(|x| x.get_pennylane_id(conn.connector_id));
 
-        let pennylane_cus_id = match pennylane_cus_id {
-            Some(id) => id,
-            None => {
-                log::warn!(
-                    "Customer {} has no pennylane id, skipping invoice {}",
-                    invoice.customer.id,
-                    invoice.invoice.id
-                );
-                return Ok(msg_id);
-            }
+        let pennylane_cus_id = if let Some(id) = pennylane_cus_id {
+            id
+        } else {
+            log::warn!(
+                "Customer {} has no pennylane id, skipping invoice {}",
+                invoice.customer.id,
+                invoice.invoice.id
+            );
+            return Ok(msg_id);
         };
 
         if let Some(pdf_id) = invoice.invoice.pdf_document_id {
-            let currency = match rusty_money::iso::find(&invoice.invoice.currency) {
-                Some(currency) => currency,
-                None => {
-                    log::warn!(
-                        "Currency {} not found in rusty_money, skipping invoice {}",
-                        invoice.invoice.currency,
-                        invoice.invoice.id
-                    );
-                    return Ok(msg_id);
-                }
+            let currency = if let Some(currency) = rusty_money::iso::find(&invoice.invoice.currency)
+            {
+                currency
+            } else {
+                log::warn!(
+                    "Currency {} not found in rusty_money, skipping invoice {}",
+                    invoice.invoice.currency,
+                    invoice.invoice.id
+                );
+                return Ok(msg_id);
             };
 
             let pdf_bytes = self
@@ -462,8 +452,7 @@ impl PennylaneSync {
                     .invoice
                     .due_at
                     .as_ref()
-                    .map(|x| x.date())
-                    .unwrap_or(invoice.invoice.invoice_date),
+                    .map_or(invoice.invoice.invoice_date, chrono::NaiveDateTime::date),
                 currency: invoice.invoice.currency,
                 currency_amount_before_tax: total_before_tax.to_string(),
                 currency_amount: total_amount.to_string(),
@@ -492,7 +481,7 @@ impl PennylaneSync {
                                 .unit_price
                                 .unwrap_or(x.amount_subtotal.to_unit(currency.exponent as u8))
                                 .to_string(),
-                            unit: "".to_string(),
+                            unit: String::new(),
                             vat_rate,
                             description: None,
                             imputation_dates: Some(CustomerInvoiceLineImputationDates {
@@ -545,7 +534,7 @@ impl PennylaneSync {
                         return Ok(msg_id);
                     }
 
-                    return Err(report!(PgmqError::HandleMessages).attach(e));
+                    return Err(Report::new(PgmqError::HandleMessages).attach(e));
                 }
             }
         }
@@ -630,10 +619,10 @@ impl PgmqHandler for PennylaneSync {
                     success_msg_ids.extend(ids);
                 }
                 Ok(Err(e)) => {
-                    log::warn!("Failed to sync connected tenant: {:?}", e);
+                    log::warn!("Failed to sync connected tenant: {e:?}");
                 }
                 Err(e) => {
-                    log::warn!("Sync task failed: {:?}", e);
+                    log::warn!("Sync task failed: {e:?}");
                 }
             }
         }

@@ -13,7 +13,7 @@ use crate::errors;
 use crate::api::sharable::ShareableEntityClaims;
 use crate::services::storage::Prefix;
 use common_domain::ids::{InvoiceId, StoredDocumentId};
-use error_stack::{Report, Result, ResultExt};
+use error_stack::{Report, ResultExt};
 use image::ImageFormat::Png;
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use meteroid_store::repositories::InvoiceInterface;
@@ -46,7 +46,7 @@ pub async fn get_logo(
     match get_logo_handler(uuid, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling logo: {}", e);
+            log::error!("Error handling logo: {e}");
             e.current_context().clone().into_response()
         }
     }
@@ -55,7 +55,7 @@ pub async fn get_logo(
 async fn get_logo_handler(
     image_uuid: StoredDocumentId,
     app_state: AppState,
-) -> Result<Response, errors::RestApiError> {
+) -> Result<Response, Report<errors::RestApiError>> {
     let data = app_state
         .object_store
         .retrieve(image_uuid, Prefix::ImageLogo)
@@ -104,7 +104,7 @@ pub async fn get_invoice_pdf(
     match get_invoice_pdf_handler(uid, params, app_state).await {
         Ok(r) => r.into_response(),
         Err(e) => {
-            log::error!("Error handling invoice PDF: {:?}", e);
+            log::error!("Error handling invoice PDF: {e:?}");
             e.current_context().clone().into_response()
         }
     }
@@ -114,7 +114,7 @@ async fn get_invoice_pdf_handler(
     invoice_uid: InvoiceId,
     token: TokenParams,
     app_state: AppState,
-) -> Result<Response, errors::RestApiError> {
+) -> Result<Response, Report<errors::RestApiError>> {
     let claims = decode::<ShareableEntityClaims>(
         &token.token,
         &DecodingKey::from_secret(app_state.jwt_secret.expose_secret().as_bytes()),

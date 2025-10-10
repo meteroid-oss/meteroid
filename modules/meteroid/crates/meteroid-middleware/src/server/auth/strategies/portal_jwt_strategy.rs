@@ -26,7 +26,7 @@ pub fn validate_portal_jwt(
     let mut validation = jsonwebtoken::Validation::default();
     validation.set_required_spec_claims(&Vec::<String>::new());
     let decoded = jsonwebtoken::decode::<PortalJwtClaims>(token, &decoding_key, &validation)
-        .tap_err(|err| log::error!("Error decoding JWT: {:?}", err))
+        .tap_err(|err| log::error!("Error decoding JWT: {err:?}"))
         .map_err(|_| Status::permission_denied("Invalid JWT2"))?
         .claims;
 

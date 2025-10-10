@@ -21,7 +21,7 @@ impl AppliedCouponRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting applied coupon")
+            .attach("Error while inserting applied coupon")
             .into_db_result()
     }
 }
@@ -39,7 +39,7 @@ impl AppliedCouponRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while counting applied coupons by coupon id")
+            .attach("Error while counting applied coupons by coupon id")
             .into_db_result()
     }
 
@@ -56,7 +56,7 @@ impl AppliedCouponRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while inserting AppliedCoupon batch")
+            .attach("Error while inserting AppliedCoupon batch")
             .into_db_result()
     }
 
@@ -83,7 +83,7 @@ impl AppliedCouponRow {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while finalizing invoice")
+            .attach("Error while finalizing invoice")
             .into_db_result()
     }
 }
@@ -120,7 +120,7 @@ impl AppliedCouponForDisplayRow {
         paginated_query
             .load_and_count_pages(conn)
             .await
-            .attach_printable("Error while listing applied coupons by coupon id")
+            .attach("Error while listing applied coupons by coupon id")
             .into_db_result()
     }
 }
@@ -143,7 +143,7 @@ impl AppliedCouponDetailedRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing applied coupons by subscription id")
+            .attach("Error while listing applied coupons by subscription id")
             .into_db_result()
     }
 
@@ -165,7 +165,7 @@ impl AppliedCouponDetailedRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing applied coupons by applied_coupon_id")
+            .attach("Error while listing applied coupons by applied_coupon_id")
             .into_db_result()
     }
 }

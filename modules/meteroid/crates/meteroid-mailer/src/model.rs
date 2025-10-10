@@ -43,7 +43,7 @@ impl TryInto<Message> for Email {
             .from(self.from.parse().expect("Invalid from address"))
             .subject(self.subject.clone());
 
-        for recipient in self.to.iter() {
+        for recipient in &self.to {
             let mailbox: Mailbox = recipient.clone().try_into()?;
             builder = builder.to(mailbox);
         }
@@ -55,7 +55,7 @@ impl TryInto<Message> for Email {
         if self.include_attachments() {
             let mut multi_builder = MultiPart::mixed().singlepart(SinglePart::html(self.body_html));
 
-            for attachment in self.attachments.into_iter() {
+            for attachment in self.attachments {
                 multi_builder = multi_builder.singlepart(attachment.into());
             }
 

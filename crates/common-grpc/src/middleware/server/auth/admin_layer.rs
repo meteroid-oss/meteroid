@@ -29,7 +29,6 @@ impl AdminAuthLayer {
         }
     }
 
-    #[must_use]
     pub fn filter(mut self, filter: Filter) -> Self {
         self.filter = Some(filter);
         self

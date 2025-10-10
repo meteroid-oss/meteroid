@@ -1,7 +1,7 @@
 use crate::errors::InvoicingRenderError;
 use crate::services::storage::{ObjectStoreService, Prefix};
 use common_domain::ids::{InvoiceId, InvoicingEntityId, StoredDocumentId, TenantId};
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use image::ImageFormat::Png;
 use meteroid_invoicing::{pdf, svg};
 use meteroid_store::Store;
@@ -22,10 +22,10 @@ impl InvoicePreviewRenderingService {
     pub fn try_new(
         store: Arc<Store>,
         storage: Arc<dyn ObjectStoreService>,
-    ) -> error_stack::Result<Self, InvoicingRenderError> {
+    ) -> Result<Self, Report<InvoicingRenderError>> {
         let generator = svg::TypstSvgGenerator::new()
             .change_context(InvoicingRenderError::InitializationError)
-            .attach_printable("Typst SVG generator failed to initialize")?;
+            .attach("Typst SVG generator failed to initialize")?;
 
         Ok(Self {
             store,
@@ -38,7 +38,7 @@ impl InvoicePreviewRenderingService {
         &self,
         invoice: Invoice,
         invoicing_entity: InvoicingEntity,
-    ) -> error_stack::Result<Vec<String>, InvoicingRenderError> {
+    ) -> Result<Vec<String>, Report<InvoicingRenderError>> {
         let organization_logo = match invoicing_entity.logo_attachment_id.as_ref() {
             Some(logo_id) => {
                 let res = get_logo_bytes_for_invoice(&self.storage, *logo_id).await?;
@@ -76,7 +76,7 @@ impl InvoicePreviewRenderingService {
         &self,
         invoice_id: InvoiceId,
         tenant_id: TenantId,
-    ) -> error_stack::Result<Vec<String>, InvoicingRenderError> {
+    ) -> Result<Vec<String>, Report<InvoicingRenderError>> {
         let invoice = self
             .store
             .get_invoice_by_id(tenant_id, invoice_id)
@@ -116,11 +116,11 @@ impl PdfRenderingService {
     pub fn try_new(
         storage: Arc<dyn ObjectStoreService>,
         store: Arc<Store>,
-    ) -> error_stack::Result<Self, InvoicingRenderError> {
+    ) -> Result<Self, Report<InvoicingRenderError>> {
         let pdf_generator = Arc::new(
             pdf::TypstPdfGenerator::new()
                 .change_context(InvoicingRenderError::InitializationError)
-                .attach_printable("Typst PDF generator failed to initialize")?,
+                .attach("Typst PDF generator failed to initialize")?,
         );
 
         Ok(Self {
@@ -133,7 +133,7 @@ impl PdfRenderingService {
     pub async fn generate_pdfs(
         &self,
         invoice_ids: Vec<InvoiceId>,
-    ) -> error_stack::Result<Vec<GenerateResult>, InvoicingRenderError> {
+    ) -> Result<Vec<GenerateResult>, Report<InvoicingRenderError>> {
         let invoices = self
             .store
             .list_invoices_by_ids(invoice_ids)
@@ -189,12 +189,12 @@ impl PdfRenderingService {
         &self,
         invoice: Invoice,
         invoicing_entities: &[InvoicingEntity],
-    ) -> error_stack::Result<StoredDocumentId, InvoicingRenderError> {
+    ) -> Result<StoredDocumentId, Report<InvoicingRenderError>> {
         let invoicing_entity = invoicing_entities
             .iter()
             .find(|entity| entity.id == invoice.seller_details.id)
             .ok_or(InvoicingRenderError::StoreError)
-            .attach_printable("Failed to resolve invoicing entity")?;
+            .attach("Failed to resolve invoicing entity")?;
 
         let invoice_id = invoice.id;
         let tenant_id = invoice.tenant_id;
@@ -264,11 +264,10 @@ mod mapper {
         invoicing_entity: &store_model::InvoicingEntity,
         organization_logo_bytes: Option<Vec<u8>>,
         accounting_rate: Option<HistoricalRate>,
-    ) -> error_stack::Result<invoicing_model::Invoice, InvoicingRenderError> {
+    ) -> Result<invoicing_model::Invoice, Report<InvoicingRenderError>> {
         let finalized_date = invoice
             .finalized_at
-            .map(|d| d.date())
-            .unwrap_or(invoice.invoice_date);
+            .map_or(invoice.invoice_date, |d| d.date());
 
         let currency = rusty_money::iso::find(&invoice.currency).ok_or_else(|| {
             Report::new(InvoicingRenderError::InvalidCurrency(
@@ -285,10 +284,10 @@ mod mapper {
 
         let metadata = invoicing_model::InvoiceMetadata {
             currency,
-            due_date: invoice
-                .due_at
-                .map(|d| d.date())
-                .unwrap_or(finalized_date + chrono::Duration::days(invoice.net_terms as i64)),
+            due_date: invoice.due_at.map_or(
+                finalized_date + chrono::Duration::days(i64::from(invoice.net_terms)),
+                |d| d.date(),
+            ),
             number: invoice.invoice_number,
             issue_date: finalized_date,
             payment_term: invoice.net_terms as u32,
@@ -375,8 +374,7 @@ mod mapper {
             .collect();
 
         let lang = Countries::resolve_country(&invoicing_entity.country.code)
-            .map(|c| c.locale)
-            .unwrap_or_else(|| "en-US");
+            .map_or_else(|| "en-US", |c| c.locale);
 
         let tax_breakdown = invoice
             .tax_breakdown
@@ -419,7 +417,7 @@ mod mapper {
 async fn get_logo_bytes_for_invoice(
     storage: &Arc<dyn ObjectStoreService>,
     logo_id: StoredDocumentId,
-) -> error_stack::Result<Vec<u8>, InvoicingRenderError> {
+) -> Result<Vec<u8>, Report<InvoicingRenderError>> {
     let logo = storage
         .retrieve(logo_id, Prefix::ImageLogo)
         .await

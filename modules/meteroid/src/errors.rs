@@ -64,7 +64,7 @@ impl IntoResponse for AdapterWebhookError {
             StatusCode::INTERNAL_SERVER_ERROR => {
                 "Internal server error. Please refer to logs or support.".to_string()
             }
-            _ => format!("{}", self),
+            _ => format!("{self}"),
         };
         (status, error_message).into_response()
     }
@@ -137,7 +137,7 @@ impl IntoResponse for RestApiError {
             StatusCode::INTERNAL_SERVER_ERROR => {
                 "Internal server error. Please refer to logs or support.".to_string()
             }
-            _ => format!("{}", self),
+            _ => format!("{self}"),
         };
         let error_body = Json(RestErrorResponse {
             code,

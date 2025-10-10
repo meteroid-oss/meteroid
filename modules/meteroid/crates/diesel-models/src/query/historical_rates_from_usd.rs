@@ -22,7 +22,7 @@ impl HistoricalRatesFromUsdRowNew {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while inserting historical_rates_from_usd")
+            .attach("Error while inserting historical_rates_from_usd")
             .into_db_result()
     }
 
@@ -45,7 +45,7 @@ impl HistoricalRatesFromUsdRowNew {
             .execute(conn)
             .await
             .map(drop)
-            .attach_printable("Error while inserting batch historical_rates_from_usd")
+            .attach("Error while inserting batch historical_rates_from_usd")
             .into_db_result()
     }
 }
@@ -68,7 +68,7 @@ impl HistoricalRatesFromUsdRow {
             .get_result(conn)
             .await
             .optional()
-            .attach_printable("Error while getting historical_rates_from_usd by date")
+            .attach("Error while getting historical_rates_from_usd by date")
             .into_db_result()
     }
 
@@ -83,7 +83,7 @@ impl HistoricalRatesFromUsdRow {
             .first(conn)
             .await
             .optional()
-            .attach_printable("Error while getting latest historical_rates_from_usd ")
+            .attach("Error while getting latest historical_rates_from_usd ")
             .into_db_result()
     }
 }

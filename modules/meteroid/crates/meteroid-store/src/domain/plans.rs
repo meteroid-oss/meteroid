@@ -130,8 +130,7 @@ impl PlanVersionNew {
                 .internal
                 .trial
                 .as_ref()
-                .map(|v| v.require_pre_authorization)
-                .unwrap_or(false),
+                .is_some_and(|v| v.require_pre_authorization),
             period_start_day: self.internal.period_start_day,
             net_terms: self.internal.net_terms,
             currency: self.internal.currency.unwrap_or(tenant_currency),

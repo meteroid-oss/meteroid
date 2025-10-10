@@ -79,7 +79,7 @@ where
                 HeaderValue::from_str(&timestamp).unwrap(),
             );
         } else {
-            log::error!("Failed to create hmac")
+            log::error!("Failed to create hmac");
         }
 
         self.inner.call(request)

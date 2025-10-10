@@ -17,7 +17,7 @@ pub trait CompaniesApi {
 
 #[async_trait::async_trait]
 impl CompaniesApi for HubspotClient {
-    /// https://developers.hubspot.com/docs/reference/api/crm/objects/companies#post-%2Fcrm%2Fv3%2Fobjects%2Fcompanies%2Fbatch%2Fupsert
+    /// <https://developers.hubspot.com/docs/reference/api/crm/objects/companies#post-%2Fcrm%2Fv3%2Fobjects%2Fcompanies%2Fbatch%2Fupsert>
     async fn upsert_companies(
         &self,
         companies: Vec<NewCompany>,

@@ -122,12 +122,12 @@ impl TryInto<CustomerRowNew> for CustomerNewWrapper {
             billing_address: self
                 .inner
                 .billing_address
-                .map(|v| v.try_into())
+                .map(std::convert::TryInto::try_into)
                 .transpose()?,
             shipping_address: self
                 .inner
                 .shipping_address
-                .map(|v| v.try_into())
+                .map(std::convert::TryInto::try_into)
                 .transpose()?,
             created_at: self.inner.force_created_date,
             bank_account_id: self.inner.bank_account_id,

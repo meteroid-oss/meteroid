@@ -67,7 +67,7 @@ impl Services {
                         .await?
                         .ok_or(
                             Report::new(StoreError::BillingError)
-                                .attach_printable("Failed to create one-off draft invoice"),
+                                .attach("Failed to create one-off draft invoice"),
                         )?;
 
                     let tx = CustomerBalancePendingTxRowNew {

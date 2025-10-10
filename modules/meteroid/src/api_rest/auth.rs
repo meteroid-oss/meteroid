@@ -30,7 +30,7 @@ pub async fn auth_middleware(
     let authenticated_state = validate_api_key(req.headers(), &store)
         .await
         .map_err(|err| {
-            log::debug!("Failed to validate API key: {:?}", err);
+            log::debug!("Failed to validate API key: {err:?}");
             let json = Json(RestErrorResponse {
                 code: ErrorCode::Unauthorized,
                 message: err.msg.unwrap_or_else(|| "Unauthorized".to_string()),

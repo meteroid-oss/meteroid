@@ -383,8 +383,8 @@ impl PlansService for PlanServiceComponents {
             None => PlanVersionFilter::Active,
             Some(c) => match c {
                 Filter::Version(v) => PlanVersionFilter::Version(v as i32),
-                Filter::Draft(_) => PlanVersionFilter::Draft,
-                Filter::Active(_) => PlanVersionFilter::Active,
+                Filter::Draft(()) => PlanVersionFilter::Draft,
+                Filter::Active(()) => PlanVersionFilter::Active,
             },
         };
 

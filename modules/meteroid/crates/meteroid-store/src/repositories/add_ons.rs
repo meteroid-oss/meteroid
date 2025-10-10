@@ -38,7 +38,7 @@ impl AddOnInterface for Store {
             items: add_ons
                 .items
                 .into_iter()
-                .map(|s| s.try_into())
+                .map(std::convert::TryInto::try_into)
                 .collect::<Result<Vec<_>, _>>()?,
             total_pages: add_ons.total_pages,
             total_results: add_ons.total_results,

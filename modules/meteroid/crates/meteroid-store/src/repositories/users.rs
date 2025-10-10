@@ -70,7 +70,7 @@ pub trait UserInterface {
         org_id: OrganizationId,
     ) -> StoreResult<Vec<UserWithRole>>;
 
-    /** Internal use only. For API/external, use me() or find_user_by_id_and_organization() */
+    /** Internal use only. For API/external, use `me()` or `find_user_by_id_and_organization()` */
     async fn _find_user_by_id(&self, id: Uuid) -> StoreResult<User>;
 
     async fn init_reset_password(&self, email: String) -> StoreResult<()>;
@@ -190,25 +190,22 @@ impl UserInterface for Store {
                 .map_err(Into::<Report<StoreError>>::into)
                 .map(|x| x.into_iter().map(Into::into).collect())?;
 
-        let (user, current_organization_role) = match organization_id {
-            Some(org_id) => {
-                let user: UserWithRole =
-                    UserRow::find_by_id_and_org_id(&mut conn, auth_user_id, org_id)
-                        .await
-                        .map_err(Into::<Report<StoreError>>::into)
-                        .map(Into::into)?;
-
-                let role = user.role.clone();
-                (user.into(), Some(role))
-            }
-            None => {
-                let user: User = UserRow::find_by_id(&mut conn, auth_user_id)
+        let (user, current_organization_role) = if let Some(org_id) = organization_id {
+            let user: UserWithRole =
+                UserRow::find_by_id_and_org_id(&mut conn, auth_user_id, org_id)
                     .await
                     .map_err(Into::<Report<StoreError>>::into)
                     .map(Into::into)?;
 
-                (user, None)
-            }
+            let role = user.role.clone();
+            (user.into(), Some(role))
+        } else {
+            let user: User = UserRow::find_by_id(&mut conn, auth_user_id)
+                .await
+                .map_err(Into::<Report<StoreError>>::into)
+                .map(Into::into)?;
+
+            (user, None)
         };
 
         Ok(Me {
@@ -352,7 +349,7 @@ impl UserInterface for Store {
 
             log::info!("Reset password email sent for user: {}", user.id);
         } else {
-            log::warn!("User with email {} not found", email);
+            log::warn!("User with email {email} not found");
         }
 
         Ok(())
@@ -475,7 +472,7 @@ impl UserInterface for Store {
 
         let mut conn = self.get_conn().await?;
 
-        let user = UserRow::find_by_email(&mut conn, email.to_owned())
+        let user = UserRow::find_by_email(&mut conn, email.clone())
             .await
             .map_err(Into::<Report<StoreError>>::into)?;
 
@@ -486,7 +483,7 @@ impl UserInterface for Store {
                 }
 
                 let user_new = RegisterUserRequestInternal {
-                    email: email.to_owned(),
+                    email: email.clone(),
                     password: None,
                     invite_key: signin_data.invite_key.map(SecretString::new),
                 };

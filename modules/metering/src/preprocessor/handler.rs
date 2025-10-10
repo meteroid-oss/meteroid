@@ -71,10 +71,10 @@ impl PreprocessorHandler {
             set.spawn(async move {
                 match delivery_future.await {
                     Ok(delivery) => {
-                        log::debug!("Successfully sent preprocessed event: {:?}", delivery);
+                        log::debug!("Successfully sent preprocessed event: {delivery:?}");
                     }
                     Err(e) => {
-                        log::error!("Failed to send preprocessed event: {}", e);
+                        log::error!("Failed to send preprocessed event: {e}");
                     }
                 }
             });
@@ -111,7 +111,7 @@ impl PreprocessorHandler {
         let (distinct_on, value) = metric
             .aggregation
             .as_ref()
-            .map(|x| x.aggregation_type())
+            .map(meteroid_grpc::meteroid::api::billablemetrics::v1::Aggregation::aggregation_type)
             .map(|agg_type| {
                 if agg_type == AggregationType::CountDistinct {
                     let distinct_on = aggregation_key
@@ -139,12 +139,12 @@ impl PreprocessorHandler {
             .and_then(|key| raw.properties.get(key).cloned());
 
         PreprocessedEvent {
-            id: raw.id.to_owned(),
-            tenant_id: raw.tenant_id.to_owned(),
-            code: raw.code.to_owned(),
-            billable_metric_id: metric.id.to_owned(),
-            customer_id: raw.customer_id.to_owned(),
-            timestamp: raw.timestamp.to_owned(),
+            id: raw.id.clone(),
+            tenant_id: raw.tenant_id.clone(),
+            code: raw.code.clone(),
+            billable_metric_id: metric.id.clone(),
+            customer_id: raw.customer_id.clone(),
+            timestamp: raw.timestamp,
             preprocessed_at: chrono::Utc::now().naive_utc(),
             properties: raw.properties.clone(),
             value,

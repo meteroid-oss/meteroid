@@ -16,15 +16,9 @@ pub struct UsageData {
 impl UsageData {
     pub(crate) fn single(&self) -> StoreResult<Decimal> {
         if self.data.len() > 1 {
-            return Err(
-                Report::new(StoreError::MeteringServiceError).attach_printable("Too many results")
-            );
+            return Err(Report::new(StoreError::MeteringServiceError).attach("Too many results"));
         }
-        Ok(self
-            .data
-            .first()
-            .map(|usage| usage.value)
-            .unwrap_or(Decimal::ZERO))
+        Ok(self.data.first().map_or(Decimal::ZERO, |usage| usage.value))
     }
 }
 

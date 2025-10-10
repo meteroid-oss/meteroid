@@ -4,7 +4,10 @@ use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use rust_decimal_macros::dec;
 
 use crate::domain::enums::BillingType;
-use crate::domain::*;
+use crate::domain::{
+    ComponentPeriods, LineItem, Period, SubLineAttributes, SubLineItem, SubscriptionDetails,
+    SubscriptionFee, SubscriptionFeeInterface, UsagePricingModel,
+};
 use crate::utils::local_id::LocalId;
 
 use super::fees;
@@ -101,8 +104,8 @@ impl Services {
                 let slots = self
                     .fetch_slots(conn, invoice_date, unit.clone(), subscription_details) // TODO we need unit instead. That would allow for subscription components not linked to a plan. It'd also match Sequence model
                     .await?
-                    .max(min_slots.unwrap_or(0) as u64)
-                    .min(max_slots.unwrap_or(u32::MAX) as u64);
+                    .max(u64::from(min_slots.unwrap_or(0)))
+                    .min(u64::from(max_slots.unwrap_or(u32::MAX)));
 
                 lines.push(InvoiceLineInner::simple_prorated(
                     unit_rate,
@@ -145,7 +148,7 @@ impl Services {
                     let overage_price = overage_rate
                         .to_subunit_opt(precision)
                         .ok_or(StoreError::InvalidDecimal)
-                        .attach_printable("Failed to convert overage_rate to subunit")?;
+                        .attach("Failed to convert overage_rate to subunit")?;
 
                     let overage_total = overage_price * overage_units.to_i64().unwrap_or(0);
 
@@ -208,7 +211,7 @@ impl Services {
                                 sorted_group_keys.sort_by_key(|(k, _)| *k);
                                 let group_key = sorted_group_keys
                                     .iter()
-                                    .map(|(k, v)| format!("{}:{}", k, v))
+                                    .map(|(k, v)| format!("{k}:{v}"))
                                     .collect::<Vec<_>>()
                                     .join("|");
 
@@ -252,7 +255,7 @@ impl Services {
                                                 price_total
                                                     .to_subunit_opt(precision)
                                                     .ok_or(Report::new(StoreError::InvalidDecimal))
-                                                    .attach_printable(
+                                                    .attach(
                                                         "Failed to convert price_total to subunit",
                                                     )?,
                                             );
@@ -382,7 +385,7 @@ impl Services {
                                                 total: price_total
                                                     .to_subunit_opt(precision)
                                                     .ok_or(Report::new(StoreError::InvalidDecimal))
-                                                    .attach_printable(
+                                                    .attach(
                                                         "Failed to convert price_total to subunit",
                                                     )?,
                                                 quantity: total_packages,
@@ -472,8 +475,7 @@ impl Services {
             .iter()
             .find(|metric| metric.id == metric_id)
             .ok_or(StoreError::ValueNotFound(format!(
-                "metric with id {}",
-                metric_id
+                "metric with id {metric_id}"
             )))?;
 
         let usage = self
@@ -524,7 +526,7 @@ impl Services {
             )
             .await?;
 
-        Ok(quantity as u64)
+        Ok(u64::from(quantity))
     }
 }
 
@@ -557,7 +559,7 @@ impl InvoiceLineInner {
             total
                 .to_subunit_opt(precision)
                 .ok_or(Report::new(StoreError::InvalidDecimal))
-                .attach_printable("Failed to convert price_total to subunit")?,
+                .attach("Failed to convert price_total to subunit")?,
             proration_factor,
         );
 

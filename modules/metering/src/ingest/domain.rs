@@ -30,7 +30,7 @@ pub struct FailedEvent {
 }
 
 #[derive(Clone, Default, Debug, Serialize, Deserialize, Eq, PartialEq, Row)]
-/// NOTE: the order of fields must match the order in the ClickHouse table
+/// NOTE: the order of fields must match the order in the `ClickHouse` table
 pub struct RawEventRow {
     pub id: String,
     pub code: String,
@@ -67,7 +67,7 @@ impl PreprocessedEvent {
 }
 
 #[derive(Clone, Default, Serialize, Deserialize, Eq, PartialEq, Row)]
-/// NOTE: the order of fields must match the order in the ClickHouse table
+/// NOTE: the order of fields must match the order in the `ClickHouse` table
 pub struct PreprocessedEventRow {
     pub id: String,
     pub code: String,

@@ -97,7 +97,7 @@ impl ProductsService for ProductServiceComponents {
             .search_products(
                 tenant_id,
                 ProductFamilyId::from_proto_opt(req.family_local_id)?,
-                req.query.unwrap_or("".to_string()).as_str(), // todo add some validation on the query
+                req.query.unwrap_or_default().as_str(), // todo add some validation on the query
                 pagination_req,
                 order_by,
             )

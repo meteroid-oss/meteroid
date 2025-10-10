@@ -24,14 +24,14 @@ pub fn cors() -> CorsLayer {
         .expose_headers(
             DEFAULT_EXPOSED_HEADERS
                 .iter()
-                .cloned()
+                .copied()
                 .map(HeaderName::from_static)
                 .collect::<Vec<HeaderName>>(),
         )
         .allow_headers(
             DEFAULT_ALLOW_HEADERS
                 .iter()
-                .cloned()
+                .copied()
                 .map(HeaderName::from_static)
                 .collect::<Vec<HeaderName>>(),
         )

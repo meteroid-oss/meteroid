@@ -57,7 +57,7 @@ pub trait PropertiesApi {
 
 #[async_trait::async_trait]
 impl PropertiesApi for HubspotClient {
-    /// https://developers.hubspot.com/docs/reference/api/crm/properties#post-%2Fcrm%2Fv3%2Fproperties%2F%7Bobjecttype%7D%2Fbatch%2Fcreate
+    /// <https://developers.hubspot.com/docs/reference/api/crm/properties#post-%2Fcrm%2Fv3%2Fproperties%2F%7Bobjecttype%7D%2Fbatch%2Fcreate>
     async fn batch_create_properties(
         &self,
         object_type: ObjectType,
@@ -73,7 +73,7 @@ impl PropertiesApi for HubspotClient {
         .await
     }
 
-    /// https://developers.hubspot.com/docs/reference/api/crm/properties#post-%2Fcrm%2Fv3%2Fproperties%2F%7Bobjecttype%7D%2Fgroups
+    /// <https://developers.hubspot.com/docs/reference/api/crm/properties#post-%2Fcrm%2Fv3%2Fproperties%2F%7Bobjecttype%7D%2Fgroups>
     async fn create_property_group(
         &self,
         object_type: ObjectType,

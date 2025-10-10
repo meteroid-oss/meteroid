@@ -29,22 +29,22 @@ pub async fn run_message_processor<H>(
 
     loop {
         match kafka_consumer.recv().await {
-            Err(e) => log::warn!("Kafka consumer error: {}", e),
+            Err(e) => log::warn!("Kafka consumer error: {e}"),
             Ok(m) => {
                 match handler.handle(&m).await {
                     Err(e) => {
                         // todo introduce dlq
-                        log::warn!("Failed to process kafka message: {:?}", e)
+                        log::warn!("Failed to process kafka message: {e:?}");
                     }
-                    Ok(_) => log::debug!("Message processed"),
+                    Ok(()) => log::debug!("Message processed"),
                 }
 
                 match kafka_consumer.commit_message(&m, CommitMode::Async) {
-                    Err(e) => log::warn!("Failed to commit kafka message: {}", e),
-                    Ok(_) => log::debug!("Message committed"),
+                    Err(e) => log::warn!("Failed to commit kafka message: {e}"),
+                    Ok(()) => log::debug!("Message committed"),
                 }
             }
-        };
+        }
     }
 }
 

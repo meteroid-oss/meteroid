@@ -4,7 +4,7 @@ pub mod invoices {
     use crate::api::sharable::ShareableEntityClaims;
     use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
     use common_domain::ids::BaseId;
-    use error_stack::ResultExt;
+    use error_stack::{Report, ResultExt};
     use meteroid_grpc::meteroid::api::invoices::v1::{
         CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
         InvoiceStatus, InvoiceType, LineItem,
@@ -151,7 +151,7 @@ pub mod invoices {
     pub fn domain_invoice_with_plan_details_to_server(
         value: domain::DetailedInvoice,
         jwt_secret: SecretString,
-    ) -> error_stack::Result<DetailedInvoice, StoreError> {
+    ) -> Result<DetailedInvoice, Report<StoreError>> {
         let domain::DetailedInvoice {
             invoice,
             transactions,
@@ -322,6 +322,7 @@ pub mod transactions {
             domain::enums::PaymentMethodTypeEnum::Transfer => PaymentMethodTypeEnum::BankTransfer,
         }
     }
+
     pub fn domain_to_server(
         value: domain::payment_transactions::PaymentTransaction,
     ) -> Transaction {

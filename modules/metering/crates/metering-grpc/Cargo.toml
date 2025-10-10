@@ -12,12 +12,12 @@ name = "metering_grpc"
 tonic.workspace = true
 prost.workspace = true
 prost-types.workspace = true
+tonic-prost.workspace = true
 common-grpc = { path = "../../../../crates/common-grpc" }
 chrono = { workspace = true, optional = true }
 
 [build-dependencies]
-tonic-build.workspace = true
-prost-build.workspace = true
+tonic-prost-build.workspace = true
 
 [features]
 default = ["client"]

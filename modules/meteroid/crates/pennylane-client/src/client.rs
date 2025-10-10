@@ -16,10 +16,10 @@ use std::time::Duration;
 /// Note: we might want to generate the client from the openapi spec in the future,
 /// currently swagger-codegen is not flexible enough to generate a client from multiple specs.
 ///
-/// We might also consider https://github.com/oxidecomputer/progenitor after https://github.com/oxidecomputer/progenitor/issues/344 is fixed.
+/// We might also consider <https://github.com/oxidecomputer/progenitor> after <https://github.com/oxidecomputer/progenitor/issues/344> is fixed.
 ///
 /// Rate limits: 5 requests per second per token
-/// https://pennylane.readme.io/v2.0/docs/rate-limiting-1
+/// <https://pennylane.readme.io/v2.0/docs/rate-limiting-1>
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct PennylaneClient {

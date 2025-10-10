@@ -23,7 +23,7 @@ impl UserRowNew {
             .execute(conn)
             .await
             .map(|_| ())
-            .attach_printable("Error while inserting user")
+            .attach("Error while inserting user")
             .into_db_result()
     }
 }
@@ -42,7 +42,7 @@ impl UserRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding user by id")
+            .attach("Error while finding user by id")
             .into_db_result()
     }
 
@@ -66,7 +66,7 @@ impl UserRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding user by id and organization")
+            .attach("Error while finding user by id and organization")
             .into_db_result()
     }
 
@@ -92,7 +92,7 @@ impl UserRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding user by id and tenant")
+            .attach("Error while finding user by id and tenant")
             .into_db_result()
     }
 
@@ -116,7 +116,7 @@ impl UserRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while finding user by email")
+            .attach("Error while finding user by email")
             .into_db_result()
     }
 
@@ -134,7 +134,7 @@ impl UserRow {
             .first(conn)
             .await
             .optional()
-            .attach_printable("Error while finding user by email")
+            .attach("Error while finding user by email")
             .into_db_result()
     }
 
@@ -156,7 +156,7 @@ impl UserRow {
         query
             .get_results(conn)
             .await
-            .attach_printable("Error while listing users")
+            .attach("Error while listing users")
             .into_db_result()
     }
 
@@ -171,7 +171,7 @@ impl UserRow {
         query
             .first(conn)
             .await
-            .attach_printable("Error while checking if any user exists")
+            .attach("Error while checking if any user exists")
             .into_db_result()
     }
 
@@ -193,7 +193,7 @@ impl UserRow {
             .execute(conn)
             .await
             .map(|_| ())
-            .attach_printable("Error while updating user password")
+            .attach("Error while updating user password")
             .into_db_result()
     }
 }
@@ -212,7 +212,7 @@ impl UserRowPatch {
         query
             .get_result(conn)
             .await
-            .attach_printable("Error while updating user")
+            .attach("Error while updating user")
             .into_db_result()
     }
 }
