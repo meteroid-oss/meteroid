@@ -96,7 +96,7 @@ image = "0.25.2"
 init-tracing-opentelemetry = { version = "0.32.0", features = ["tracing_subscriber_ext"] }
 insta = { version = "1.43.1", features = ["json"] }
 itertools = "0.14.0"
-jsonwebtoken = "9.2.0"
+jsonwebtoken = { version = "10.0.0", default-features = false }
 klickhouse = { default-features = false, version = "0.14.0" }
 lapin = "3.2.0"
 lazy_static = "1.5.0"
@@ -183,9 +183,9 @@ typst-svg = { version = "0.13.1" }
 typst-as-lib = { version = "0.14.1", features = [] }
 derive_typst_intoval = { version = "0.5.0", features = [] }
 unic-langid = "0.9"
-url = "2.4.1"
-uuid = "1.4.1"
-utoipa = { version = "5.3.1", features = ["axum_extras", "uuid", "debug", "chrono", "decimal_float"] }
+url = "2.5"
+uuid = "1.18"
+utoipa = { version = "5.4.0", features = ["axum_extras", "uuid", "debug", "chrono", "decimal_float"] }
 utoipa-axum = { version = "0.2.0" }
 utoipa-swagger-ui = { version = "9.0.1", features = ["axum"] }
 
