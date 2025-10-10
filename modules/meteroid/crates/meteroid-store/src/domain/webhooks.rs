@@ -167,6 +167,7 @@ impl TryFrom<WebhookOutMessageNew> for svix::api::MessageIn {
             payload_retention_period: None,
             tags: None,
             transformations_params: None,
+            deliver_at: None,
         };
 
         Ok(msg)
