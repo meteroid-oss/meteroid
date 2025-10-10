@@ -89,6 +89,13 @@ pub mod conversions {
         fn from_proto_opt(proto: Option<T>) -> Result<Option<Self>, tonic::Status>
         where
             Self: Sized;
+
+        fn from_proto_opt_ref(proto: Option<&T>) -> Result<Option<Self>, tonic::Status>
+        where
+            Self: Sized,
+        {
+            proto.map(Self::from_proto_ref).transpose()
+        }
     }
 
     impl<T, U> AsProtoOpt<T> for Option<U>

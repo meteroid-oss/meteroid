@@ -234,3 +234,22 @@ message NewInvoice {
   repeated NewInvoiceLineItem line_items = 6;
   optional string discount = 7;
 }
+
+message UpdateInvoice {
+  string id = 1;
+  optional string purchase_order = 2;
+  string invoice_date = 3;
+  optional string due_date = 4;
+  string currency = 5;
+  repeated UpdateInvoiceLine line_items = 6;
+}
+
+message UpdateInvoiceLine {
+  string id = 1;
+  string product = 2;
+  string start_date = 3;
+  string end_date = 4;
+  string quantity = 5;
+  string unit_price = 6;
+  string tax_rate = 7;
+}

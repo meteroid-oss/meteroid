@@ -2,7 +2,9 @@ use super::enums::{InvoicePaymentStatus, InvoiceStatusEnum, InvoiceType};
 use crate::domain::connectors::ConnectionMeta;
 use crate::domain::invoice_lines::LineItem;
 use crate::domain::payment_transactions::PaymentTransaction;
-use crate::domain::{Address, CouponLineItem, Customer, InvoicingEntity, PlanVersionOverview};
+use crate::domain::{
+    Address, CouponLineItem, Customer, InvoicingEntity, LineItemUpdate, PlanVersionOverview,
+};
 use crate::errors::{StoreError, StoreErrorReport};
 use chrono::{NaiveDate, NaiveDateTime, Utc};
 use common_domain::ids::{
@@ -367,4 +369,13 @@ impl From<InvoiceNew> for Invoice {
             invoicing_entity_id: value.invoicing_entity_id,
         }
     }
+}
+
+pub struct InvoiceUpdate {
+    pub id: InvoiceId,
+    pub purchase_order: Option<String>,
+    pub invoice_date: NaiveDate,
+    pub due_date: Option<NaiveDate>,
+    pub currency: String,
+    pub line_items: Vec<LineItemUpdate>,
 }

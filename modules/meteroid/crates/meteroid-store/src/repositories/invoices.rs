@@ -13,7 +13,8 @@ use crate::domain::pgmq::{
 };
 use crate::domain::{
     ConnectorProviderEnum, CursorPaginatedVec, CursorPaginationRequest, DetailedInvoice, Invoice,
-    InvoiceNew, InvoiceWithCustomer, OrderByRequest, PaginatedVec, PaginationRequest,
+    InvoiceNew, InvoiceUpdate, InvoiceWithCustomer, OrderByRequest, PaginatedVec,
+    PaginationRequest,
 };
 use crate::repositories::connectors::ConnectorsInterface;
 use crate::repositories::customer_balance::CustomerBalance;
@@ -110,6 +111,12 @@ pub trait InvoiceInterface {
     async fn mark_invoice_as_uncollectible(
         &self,
         id: InvoiceId,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice>;
+
+    async fn update_invoice(
+        &self,
+        invoice: InvoiceUpdate,
         tenant_id: TenantId,
     ) -> StoreResult<DetailedInvoice>;
 }
@@ -399,6 +406,14 @@ impl InvoiceInterface for Store {
             .await
             .map_err(Into::into)
             .and_then(TryInto::try_into)
+    }
+
+    async fn update_invoice(
+        &self,
+        invoice: InvoiceUpdate,
+        tenant_id: TenantId,
+    ) -> StoreResult<DetailedInvoice> {
+        todo!()
     }
 }
 

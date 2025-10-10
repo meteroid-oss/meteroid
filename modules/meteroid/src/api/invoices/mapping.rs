@@ -2,17 +2,22 @@ pub mod invoices {
     use crate::api::connectors::mapping::connectors::connection_metadata_to_server;
     use crate::api::customers::mapping::customer::ServerAddressWrapper;
     use crate::api::sharable::ShareableEntityClaims;
-    use crate::api::shared::conversions::{AsProtoOpt, ProtoConv};
-    use common_domain::ids::BaseId;
+    use crate::api::shared::conversions::{AsProtoOpt, FromProtoOpt, ProtoConv};
+    use chrono::NaiveDate;
+    use common_domain::ids::{BaseId, InvoiceId};
     use error_stack::ResultExt;
     use meteroid_grpc::meteroid::api::invoices::v1::{
         CouponLineItem, DetailedInvoice, InlineCustomer, Invoice, InvoicePaymentStatus,
-        InvoiceStatus, InvoiceType, LineItem,
+        InvoiceStatus, InvoiceType, LineItem, UpdateInvoice,
     };
     use meteroid_store::domain;
-    use meteroid_store::domain::invoice_lines as domain_invoice_lines;
+    use meteroid_store::domain::{
+        InvoiceUpdate, LineItemUpdate, invoice_lines as domain_invoice_lines,
+    };
     use meteroid_store::errors::StoreError;
+    use rust_decimal::Decimal;
     use secrecy::{ExposeSecret, SecretString};
+    use tonic::Status;
 
     fn status_domain_to_server(value: domain::enums::InvoiceStatusEnum) -> InvoiceStatus {
         match value {
@@ -273,6 +278,31 @@ pub mod invoices {
             payment_status: payment_status_domain_to_server(value.invoice.payment_status).into(),
             manual: value.invoice.manual,
         }
+    }
+
+    pub fn update_to_domain(value: UpdateInvoice) -> Result<InvoiceUpdate, Status> {
+        Ok(InvoiceUpdate {
+            id: InvoiceId::from_proto(&value.id)?,
+            purchase_order: value.purchase_order,
+            invoice_date: NaiveDate::from_proto_ref(&value.invoice_date)?,
+            due_date: NaiveDate::from_proto_opt_ref(value.due_date.as_ref())?,
+            currency: value.currency,
+            line_items: value
+                .line_items
+                .into_iter()
+                .map(|li| {
+                    Ok(LineItemUpdate {
+                        local_id: li.id,
+                        name: li.product,
+                        start_date: NaiveDate::from_proto(li.start_date)?,
+                        end_date: NaiveDate::from_proto(li.end_date)?,
+                        quantity: Decimal::from_proto_ref(&li.quantity)?,
+                        unit_price: Decimal::from_proto_ref(&li.unit_price)?,
+                        tax_rate: Decimal::from_proto_ref(&li.tax_rate)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, Status>>()?,
+        })
     }
 }
 
